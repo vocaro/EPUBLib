@@ -630,34 +630,47 @@ const attachWheelPageTurnListenerIfNeeded = (view, doc) => {
 }
 
 /// iOS swipe, scrolled flow only — paginated flow's own swipe-to-turn already works through
-/// `paginator.js`'s native touch handling. A touch drag that keeps moving the same direction
-/// *after* the renderer is already pinned at the edge it is dragging toward is the person pushing
-/// past the end of what native scrolling has to show, the same signal the wheel handler above
-/// reads from a continued tick.
-const attachTouchBoundaryListenerIfNeeded = (view, doc) => {
+/// `paginator.js`'s native touch handling. A touch drag toward an edge the renderer is already
+/// pinned at is the person pushing past the end of what native scrolling has to show, the same
+/// signal the wheel handler above reads from a continued tick.
+///
+/// The drag is judged by its whole travel, from `touchstart` to the latest position, on every
+/// `touchmove` and once more at `touchend` (from `changedTouches`): WebKit can deliver only one
+/// or two `touchmove` events for a quick swipe before the touch ends, so a check on the moves
+/// alone misses a swipe whose travel is only visible at its end.
+const attachTouchBoundaryListener = (view, target) => {
     let startY = null
-    doc.addEventListener('touchstart', event => {
-        startY = event.touches[0]?.clientY ?? null
-    }, { passive: true })
-    doc.addEventListener('touchmove', event => {
+    const push = y => {
         const renderer = view.renderer
-        if (!renderer?.scrolled || startY === null) return
-        const y = event.touches[0]?.clientY
-        if (typeof y !== 'number') return
+        if (!renderer?.scrolled || startY === null || typeof y !== 'number') return
         // Positive: the finger has moved up, dragging content upward — a forward/"next" scroll.
         const dy = startY - y
         const { atStart, atEnd } = rendererBoundary(renderer)
         if (dy > TOUCH_PUSH_THRESHOLD_PX && atEnd) turnPageDebounced(view, true)
         else if (dy < -TOUCH_PUSH_THRESHOLD_PX && atStart) turnPageDebounced(view, false)
+    }
+    target.addEventListener('touchstart', event => {
+        startY = event.touches[0]?.clientY ?? null
     }, { passive: true })
-    doc.addEventListener('touchend', () => { startY = null }, { passive: true })
+    target.addEventListener('touchmove', event => push(event.touches[0]?.clientY), { passive: true })
+    target.addEventListener('touchend', event => {
+        push(event.changedTouches[0]?.clientY)
+        startY = null
+    }, { passive: true })
+    target.addEventListener('touchcancel', () => { startY = null }, { passive: true })
 }
+
+/// Per section document: a touch over the section's own content reaches only its iframe.
+const attachTouchBoundaryListenerIfNeeded = (view, doc) => attachTouchBoundaryListener(view, doc)
 
 // MARK: - Wiring
 
 const main = async () => {
     const view = document.createElement('foliate-view')
     document.body.append(view)
+    // A section shorter than the viewport leaves page around its iframe in scrolled flow, and a
+    // touch there reaches this document, never the section's: listen here as well, once.
+    attachTouchBoundaryListener(view, document)
 
     view.addEventListener('load', event => {
         try {
