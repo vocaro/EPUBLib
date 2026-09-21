@@ -11,7 +11,7 @@ Requires Xcode 27 and iOS/iPadOS 27+ or macOS 27+. The manifest uses Swift tools
 
 ## Installation
 
-Add `https://github.com/vocaro/EPUBReaderLib.git` at version **0.2.4** to your Swift package dependencies. Link
+Add `https://github.com/vocaro/EPUBReaderLib.git` at version **0.2.5** to your Swift package dependencies. Link
 `EPUBReaderLib` for publication parsing and reader contracts; also link `EPUBReaderFoliate` to
 use the bundled engine. No JavaScript build step or asset download is required. The examples below import
 `EPUBReaderLib`, `EPUBReaderFoliate` and `Foundation`.

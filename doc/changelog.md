@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.2.5
+
+- Turn a scrolled-flow section on a swipe's whole travel, judged on every `touchmove` and once more at `touchend`, and listen on the host document as well as the section's ([vocaro/studywright#74](https://github.com/vocaro/studywright/issues/74)). WebKit can deliver one or no `touchmove` events for a quick flick, and a section shorter than the viewport leaves page around its iframe where a touch never reached the section's own document; either alone was enough to lose the swipe. Paginated flow, the wheel path and the Mac are unchanged.
+- Add an iOS regression that flicks with no `touchmove` at all, dispatched on the host page.
+- Public APIs, dependencies and bookmark formats are unchanged.
+
 ## 0.2.4
 
 - Stop drawing the continuous-scroll edge fade on macOS, where the host has no chrome floating over the page ([vocaro/studywright#155](https://github.com/vocaro/studywright/issues/155)). iOS rendering is unchanged.
