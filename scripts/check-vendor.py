@@ -6,7 +6,7 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 manifest = json.loads((root / 'doc/vendor-manifest.json').read_text())
-assets = root / 'Sources/EPUBReaderFoliate/Resources/epub-reader'
+assets = root / 'Sources/EPUBViewing/Resources/epub-reader'
 expected = set()
 for component in manifest['components']:
     for entry in component['files']:

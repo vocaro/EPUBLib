@@ -1,5 +1,7 @@
-import EPUBReaderFoliate
-import EPUBReaderLib
+import EPUBViewing
+import EPUBCore
+import EPUBReading
+import EPUBViewing
 import Foundation
 import Observation
 
@@ -38,7 +40,7 @@ final class BookReader {
                 } onCancel: { work.cancel() }
                 try Task.checkCancellation()
                 guard let self, generation == token else { return }
-                try install(book, engine: FoliateEngine())
+                try install(book, engine: EPUBReader())
             } catch is CancellationError {
                 // Closing or opening another book intentionally cancels the previous import.
             } catch {

@@ -1,5 +1,7 @@
-import EPUBReaderLib
-import EPUBReaderFoliate
+import EPUBCore
+import EPUBReading
+import EPUBViewing
+import EPUBViewing
 import Foundation
 
 // snippet:start parsing
@@ -19,7 +21,7 @@ func readPublication(at bookURL: URL) throws -> EPUBPublication {
 @MainActor
 func makeReader(publication: EPUBPublication,
                 onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) throws -> any EPUBReaderSession {
-    let engine: any EPUBReaderEngine = FoliateEngine()
+    let engine: any EPUBReaderEngine = EPUBReader()
     return try engine.makeSession(
         publication: publication,
         selectionAction: EPUBSelectionAction(title: "Use passage") { selection in

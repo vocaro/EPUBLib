@@ -4,7 +4,7 @@ Keep the parsed publication and session outside SwiftUI `body`. Use a distinct v
 each session (including when reopening the same book) and close it when the reader leaves the screen. The host owns persistence,
 selection action behavior, navigation intent, toolbars, disclosures and fallback UI.
 
-Import `EPUBReaderLib`, `EPUBReaderFoliate`, `Foundation` and `Observation`. The following is
+Import `EPUBLib`, `EPUBViewing`, `Foundation` and `Observation`. The following is
 the sample app's compiled lifecycle code:
 
 <!-- snippet:lifecycle -->
@@ -43,7 +43,7 @@ final class BookReader {
                 } onCancel: { work.cancel() }
                 try Task.checkCancellation()
                 guard let self, generation == token else { return }
-                try install(book, engine: FoliateEngine())
+                try install(book, engine: EPUBReader())
             } catch is CancellationError {
                 // Closing or opening another book intentionally cancels the previous import.
             } catch {

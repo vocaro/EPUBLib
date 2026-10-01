@@ -1,10 +1,22 @@
 # Architecture
 
-`EPUBReaderLib` owns immutable publications and public reader protocols. It imports Foundation,
-CryptoKit, ZIPFoundation, SwiftUI and Apple’s libxml2 module, and has no dependency on WebKit or Foliate. Parsing does not
-create a view or JavaScript context. `EPUBReaderFoliate` owns the WebKit adapter, validated message
-bridge, custom URL scheme and bundled foliate-js assets. Nothing in the engine-neutral interface
-requires a web view, JavaScript, a DOM node or EPUB CFI.
+EPUBLib contains five independently selectable products. `EPUBCore` owns shared publication,
+resource, navigation and reader value types. `EPUBReading` owns immutable publications and
+bounded archive/metadata parsing; `EPUBText` adds structural extraction, including text and anchor
+positions from one libxml2 walk. `EPUBWriting` generates EPUB 3 package/navigation documents from
+explicit publication facts and streams file-backed resources into an OCF archive. These targets
+contain no SwiftUI, WebKit, PDFKit, Vision, application policy or reconstructed-PDF model.
+
+`EPUBViewing` owns the reader/session interface and the Foliate implementation: WebKit adapter,
+validated message bridge, custom URL scheme and bundled foliate-js assets. Parsing creates no
+view or JavaScript context. Viewing depends on EPUBReading and EPUBCore, never EPUBText or
+EPUBWriting. EPUBWriting depends only on EPUBCore and ZIPFoundation, never EPUBReading or viewing.
+The adapter-contract helper is an internal test-support target, not a library product.
+
+Source API compatibility with the former package is not a constraint. Publication fingerprints,
+`epubcfi-v1` bookmarks and the persisted Foliate engine identifier retain their existing meanings.
+The engine identifier remains `org.epubreaderlib.foliate`; package naming does not change stored
+reading positions. Pinned upstream JavaScript and the sample EPUB remain byte-for-byte unchanged.
 
 ## Publication model
 
@@ -74,8 +86,7 @@ Sessions containing any fixed-layout spine item omit typography and scrolling ca
 reject those controls; author-sized pages do not reflow. Tests cover reflowable, fixed-layout,
 RTL, vertical-writing and illustrated synthetic books on OS 27. This is regression coverage, not
 a general fidelity guarantee. Host apps must present `.disclosure` and `.failed` events appropriately
-and may provide their own fallback. `EPUBReaderTesting` offers reusable adapter-contract checks
-without WebKit or XCTest dependencies; rendering fidelity stays with each adapter's tests.
+and may provide their own fallback. Adapter-contract tests verify session behavior; rendering fidelity stays with the viewer tests.
 
 ## Structural text
 

@@ -45,7 +45,7 @@ coverage does not substitute for hardware performance and accessibility testing.
 
 ## Adapter contract tests
 
-Link the optional **EPUBReaderTesting** product to an adapter's test target and call
+The internal **EPUBViewingTestSupport** target exercises adapter contracts with
 `EPUBEngineContract.verify`. It uses no XCTest or WebKit types, so adapters can call it from
 XCTest, Swift Testing or another async test runner. Provide a validated two-section publication,
 two distinct encoded resource hrefs, a phrase present in the first section, and a `mount` closure

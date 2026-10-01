@@ -1,4 +1,6 @@
-import EPUBReaderLib
+import EPUBCore
+import EPUBReading
+import EPUBViewing
 import SwiftUI
 import UniformTypeIdentifiers
 

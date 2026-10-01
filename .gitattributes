@@ -1,2 +1,2 @@
 # Preserve upstream bytes, including their whitespace.
-Sources/EPUBReaderFoliate/Resources/epub-reader/lib/** -whitespace
+Sources/EPUBViewing/Resources/epub-reader/lib/** -whitespace

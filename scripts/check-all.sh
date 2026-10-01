@@ -2,6 +2,7 @@
 set -euo pipefail
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 cd "$(dirname "$0")/.."
+python3 scripts/check-modules.py
 python3 scripts/check-vendor.py
 python3 scripts/check-docs.py
 swift build --target ReaderSampleSupport

@@ -1,4 +1,6 @@
-import EPUBReaderLib
+import EPUBCore
+import EPUBReading
+import EPUBViewing
 
 // snippet:start navigation
 /// Call after the session emits `.ready`.

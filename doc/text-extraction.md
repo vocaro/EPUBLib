@@ -18,7 +18,7 @@ For large books, consume each section inside the loop instead of collecting all 
 ## Contract
 
 `EPUBTextSection` is a `Sendable`, `Equatable` value containing `spineIndex`, `resource`,
-`isLinear`, optional `title`, `text` and `semanticTypes: Set<String>`. The index identifies the
+`isLinear`, optional `title`, `text`, `semanticTypes: Set<String>`, `anchors` and `headings`. The index identifies the
 exact spine occurrence, even when a resource repeats. The resource's encoded `href` is suitable
 for navigation; its decoded `path` is suitable for resource access. Titles come from XHTML's
 `head/title`; an absent or empty title is `nil`, leaving fallback naming to the host.
@@ -48,3 +48,14 @@ comments, CDATA or processing instructions are inert; the safety check follows X
 
 Hosts own section inclusion, chunking, embeddings, persistence and citation policy. Extracting a
 colophon is valid library behavior; whether it belongs in a study index is the host's decision.
+
+## Positions
+
+`anchors` maps the first occurrence of each body element ID to an `EPUBTextMark`. `headings`
+contains each XHTML heading in document order, with normalized text and its mark. A mark's
+`offset` counts UTF-8 bytes to the first text character after the element opens; `separator`
+counts the normalized space or newline immediately before that character. An empty element
+with no following text marks the document end. Script/style/template subtrees contribute neither
+text nor anchors. Text and positions are emitted by the same bounded walk, so consumers never
+need to replicate normalization to locate sections. Hosts decide which navigation entries or
+headings form meaningful study sections.

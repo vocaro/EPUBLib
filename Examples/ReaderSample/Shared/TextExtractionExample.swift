@@ -1,4 +1,6 @@
-import EPUBReaderLib
+import EPUBCore
+import EPUBReading
+import EPUBText
 import Foundation
 
 // snippet:start extraction

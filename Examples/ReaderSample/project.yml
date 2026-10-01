@@ -4,7 +4,7 @@ options:
     iOS: "27.0"
     macOS: "27.0"
 packages:
-  EPUBReaderLib:
+  EPUBLib:
     path: ../..
 settings:
   base:
@@ -27,10 +27,14 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
     dependencies:
-      - package: EPUBReaderLib
-        product: EPUBReaderLib
-      - package: EPUBReaderLib
-        product: EPUBReaderFoliate
+      - package: EPUBLib
+        product: EPUBCore
+      - package: EPUBLib
+        product: EPUBText
+      - package: EPUBLib
+        product: EPUBReading
+      - package: EPUBLib
+        product: EPUBViewing
   ReaderSampleMac:
     type: application
     platform: macOS
@@ -45,7 +49,11 @@ targets:
         ENABLE_OUTGOING_NETWORK_CONNECTIONS: YES
         ENABLE_USER_SELECTED_FILES: readonly
     dependencies:
-      - package: EPUBReaderLib
-        product: EPUBReaderLib
-      - package: EPUBReaderLib
-        product: EPUBReaderFoliate
+      - package: EPUBLib
+        product: EPUBCore
+      - package: EPUBLib
+        product: EPUBText
+      - package: EPUBLib
+        product: EPUBReading
+      - package: EPUBLib
+        product: EPUBViewing

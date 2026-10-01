@@ -1,20 +1,33 @@
-# EPUBReaderLib
+# EPUBLib
 
-A Swift library for parsing and reading EPUBs with pluggable rendering engines.
+A shared Swift package for EPUB reading, text extraction, writing and viewing on iOS/iPadOS
+and macOS 27+. Requires Swift 6.2 and Xcode 27. MIT licensed.
 
-EPUBReaderLib provides publication metadata, reading order, nested contents and resource access,
-plus an engine-neutral SwiftUI reader interface. **EPUBReaderFoliate** supplies the initial
-[foliate-js](https://github.com/johnfactotum/foliate-js) engine. A replacement engine can use native
-views, another JavaScript library or a different rendering toolkit.
+## Products
 
-Requires Xcode 27 and iOS/iPadOS 27+ or macOS 27+. The manifest uses Swift tools 6.2. MIT licensed.
+Choose the products your consumer uses. Their target dependencies enforce the boundaries:
+
+| Product | Responsibility | Dependencies |
+| --- | --- | --- |
+| `EPUBCore` | Publication/resource/navigation values and reader value types | Foundation |
+| `EPUBReading` | Bounded, immutable archive import and OPF/navigation parsing | EPUBCore, ZIPFoundation |
+| `EPUBText` | XHTML text, semantics, headings and UTF-8 anchor positions in one walk | EPUBCore, EPUBReading, Apple libxml2 |
+| `EPUBWriting` | EPUB 3 package/navigation generation and streaming archive output | EPUBCore, ZIPFoundation |
+| `EPUBViewing` | SwiftUI reader sessions, WebKit isolation and bundled Foliate rendering | EPUBCore, EPUBReading |
+
+The headless products import neither SwiftUI nor WebKit. A viewer does not depend on text
+extraction or writing. PDF layout reconstruction, study section policy and app chrome belong to
+consumers. One package pins these cooperating products together; there is no umbrella module.
 
 ## Installation
 
-Add `https://github.com/vocaro/EPUBReaderLib.git` at version **0.2.5** to your Swift package dependencies. Link
-`EPUBReaderLib` for publication parsing and reader contracts; also link `EPUBReaderFoliate` to
-use the bundled engine. No JavaScript build step or asset download is required. The examples below import
-`EPUBReaderLib`, `EPUBReaderFoliate` and `Foundation`.
+Add `https://github.com/vocaro/EPUBLib.git`, pinned to a reviewed commit. Link `EPUBReading`
+for publication parsing, `EPUBText` for structural extraction, `EPUBWriting` for generation,
+and `EPUBViewing` for the reader. Import `EPUBCore` when using its value types directly.
+No JavaScript build step or asset download is required. See [architecture](doc/architecture.md),
+[text extraction](doc/text-extraction.md) and [writing](doc/writing.md).
+
+## Reading and viewing
 
 <!-- snippet:parsing -->
 ```swift
@@ -38,7 +51,7 @@ Create and retain a reading session on the main actor, then mount `EPUBReaderVie
 @MainActor
 func makeReader(publication: EPUBPublication,
                 onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) throws -> any EPUBReaderSession {
-    let engine: any EPUBReaderEngine = FoliateEngine()
+    let engine: any EPUBReaderEngine = EPUBReader()
     return try engine.makeSession(
         publication: publication,
         selectionAction: EPUBSelectionAction(title: "Use passage") { selection in
@@ -101,7 +114,7 @@ The local gate checks docs and vendor identities, compiles the sample, and runs 
 contract, security and rendering tests on Mac and dedicated iPhone/iPad simulators. Rendering
 fixtures include fixed layout, RTL, vertical writing, escaped filenames and a large illustrated
 book. Live Mac tests need a graphical login. See [testing](doc/testing.md) for prerequisites,
-coverage boundaries and the reusable `EPUBReaderTesting` product for new adapters.
+coverage boundaries and internal adapter-contract tests.
 
 See [release and API compatibility policy](doc/releasing.md) and [release notes](doc/changelog.md).
 

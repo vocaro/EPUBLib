@@ -2,23 +2,29 @@
 import PackageDescription
 
 let package = Package(
-    name: "EPUBReaderLib",
+    name: "EPUBLib",
     platforms: [.iOS("27.0"), .macOS("27.0")],
     products: [
-        .library(name: "EPUBReaderLib", targets: ["EPUBReaderLib"]),
-        .library(name: "EPUBReaderFoliate", targets: ["EPUBReaderFoliate"]),
-        .library(name: "EPUBReaderTesting", targets: ["EPUBReaderTesting"]),
+        .library(name: "EPUBCore", targets: ["EPUBCore"]),
+        .library(name: "EPUBReading", targets: ["EPUBReading"]),
+        .library(name: "EPUBText", targets: ["EPUBText"]),
+        .library(name: "EPUBWriting", targets: ["EPUBWriting"]),
+        .library(name: "EPUBViewing", targets: ["EPUBViewing"]),
     ],
     dependencies: [.package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.20")],
     targets: [
-        .target(name: "EPUBReaderLib", dependencies: ["ZIPFoundation"]),
-        .target(name: "EPUBReaderTesting", dependencies: ["EPUBReaderLib"]),
-        .target(name: "EPUBReaderFoliate", dependencies: ["EPUBReaderLib"],
+        .target(name: "EPUBCore"),
+        .target(name: "EPUBReading", dependencies: ["EPUBCore", "ZIPFoundation"]),
+        .target(name: "EPUBText", dependencies: ["EPUBCore", "EPUBReading"]),
+        .target(name: "EPUBWriting", dependencies: ["EPUBCore", "ZIPFoundation"]),
+        .target(name: "EPUBViewing", dependencies: ["EPUBCore", "EPUBReading"],
                 resources: [.copy("Resources/epub-reader")]),
+        .target(name: "EPUBViewingTestSupport", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing"]),
         .target(name: "EPUBTestSupport", dependencies: ["ZIPFoundation"], path: "Tests/EPUBTestSupport"),
-        .target(name: "ReaderSampleSupport", dependencies: ["EPUBReaderLib", "EPUBReaderFoliate"],
+        .target(name: "ReaderSampleSupport", dependencies: ["EPUBCore", "EPUBReading", "EPUBText", "EPUBViewing"],
                 path: "Examples/ReaderSample/Shared"),
-        .testTarget(name: "EPUBReaderLibTests", dependencies: ["EPUBReaderLib", "EPUBReaderTesting", "EPUBTestSupport"]),
-        .testTarget(name: "EPUBReaderFoliateTests", dependencies: ["EPUBReaderFoliate", "EPUBReaderTesting", "EPUBTestSupport"]),
+        .testTarget(name: "EPUBReadingTests", dependencies: ["EPUBCore", "EPUBReading", "EPUBText", "EPUBTestSupport"]),
+        .testTarget(name: "EPUBWritingTests", dependencies: ["EPUBCore", "EPUBWriting", "EPUBReading", "EPUBText", "ZIPFoundation"]),
+        .testTarget(name: "EPUBViewingTests", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing", "EPUBViewingTestSupport", "EPUBTestSupport"]),
     ]
 )

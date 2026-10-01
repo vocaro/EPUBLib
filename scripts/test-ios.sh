@@ -15,10 +15,10 @@ cleanup() {
 }
 trap cleanup EXIT
 for kind in iPhone-17-Pro iPad-Air-13-inch-M4; do
-    device=$(xcrun simctl create "EPUBReaderLib-$kind-$$" "com.apple.CoreSimulator.SimDeviceType.$kind" "$runtime")
+    device=$(xcrun simctl create "EPUBLib-$kind-$$" "com.apple.CoreSimulator.SimDeviceType.$kind" "$runtime")
     xcrun simctl boot "$device"
     xcrun simctl bootstatus "$device" -b
-    xcodebuild -scheme EPUBReaderLib-Package -destination "platform=iOS Simulator,id=$device" \
+    xcodebuild -scheme EPUBLib-Package -destination "platform=iOS Simulator,id=$device" \
         -derivedDataPath .build/ios-validation -parallel-testing-enabled NO \
         CODE_SIGNING_ALLOWED=NO test > ".build/validation/$kind.log" 2>&1
     cleanup
