@@ -51,6 +51,8 @@ import SwiftUI
     @ObservationIgnored private var searchMatches: [Int: [TextSearch.Match]] = [:]
     @ObservationIgnored private var searchGeneration = 0
     @ObservationIgnored private var publishedDisclosure: String?
+    /// What the canvas was last asked to draw.
+    @ObservationIgnored private(set) var drawnHighlights: [ReaderHighlight] = []
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
 
     init(publication: EPUBPublication, action: EPUBSelectionAction?, rich: any RichContentFactory,
@@ -321,6 +323,7 @@ import SwiftUI
             }
             drawn.append(ReaderHighlight(id: highlight.id, range: range, kind: .annotation))
         }
+        drawnHighlights = drawn
         canvas.setHighlights(drawn)
     }
 

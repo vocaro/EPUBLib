@@ -129,6 +129,35 @@ import XCTest
         XCTAssertFalse(session.book.section(0)?.string.string.contains("ran") ?? true)
     }
 
+    func testSearchAndHostHighlightsAreDrawnAndCleared() async throws {
+        let (session, window, events) = try open(Fixture.epub())
+        defer { session.close(); window.close() }
+        try await wait("ready") { events().contains(.ready) }
+        try await session.send(.searchHighlight(text: "ORDINARY reading"))
+        try await wait("search highlights") { session.drawnHighlights.filter { $0.kind == .search }.count == 100 }
+        let match = try XCTUnwrap(session.drawnHighlights.first)
+        let text = try XCTUnwrap(session.book.section(match.range.start.section)?.string.string as NSString?)
+        XCTAssertEqual(text.substring(with: NSRange(location: match.range.start.offset, length: match.range.end.offset - match.range.start.offset)),
+                       "ordinary reading")
+        try await session.send(.clearSearch)
+        XCTAssertTrue(session.drawnHighlights.isEmpty)
+
+        try await session.send(.locate(text: "The unique destination passage lives here.", highlight: true))
+        try await wait("selection") { session.selection != nil }
+        let selected = try XCTUnwrap(events().compactMap { event -> EPUBSelection? in
+            if case .selectionChanged(let value) = event { return value }; return nil
+        }.last)
+        try await session.send(.setHighlights([EPUBHighlight(id: "note-1", location: selected.location)]))
+        try await wait("host highlight") { session.drawnHighlights.contains { $0.id == "note-1" && $0.kind == .annotation } }
+        XCTAssertEqual(session.drawnHighlights.first { $0.id == "note-1" }?.range, session.selection?.range)
+        var foreign = selected.location
+        foreign.publicationID = "another-book"
+        let before = events().count
+        try await session.send(.setHighlights([EPUBHighlight(id: "foreign", location: foreign)]))
+        XCTAssertTrue(session.drawnHighlights.isEmpty)
+        XCTAssertTrue(events().dropFirst(before).contains { if case .notice = $0 { return true }; return false })
+    }
+
     private func canvasRequestsSelectionAction(_ session: NativeSession) {
         session.canvasDidRequestSelectionAction(try! XCTUnwrap(session.canvas))
     }
