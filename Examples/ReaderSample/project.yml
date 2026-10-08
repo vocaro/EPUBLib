@@ -46,7 +46,6 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.epubreaderlib.sample.mac
         ENABLE_APP_SANDBOX: YES
-        ENABLE_OUTGOING_NETWORK_CONNECTIONS: YES
         ENABLE_USER_SELECTED_FILES: readonly
     dependencies:
       - package: EPUBLib

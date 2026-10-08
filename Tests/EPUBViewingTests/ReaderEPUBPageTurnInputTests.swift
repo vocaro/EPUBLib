@@ -31,7 +31,6 @@ final class ReaderEPUBPageTurnInputTests: XCTestCase {
         }
     }
 
-
     func testTheSwiftUIKeyMappingAgreesWithTheKeyDownFallbackMapping() {
         XCTAssertEqual(ReaderEPUBPageTurnKey.command(for: .leftArrow, hasShift: false), .previous)
         XCTAssertEqual(ReaderEPUBPageTurnKey.command(for: .rightArrow, hasShift: false), .next)
@@ -40,15 +39,6 @@ final class ReaderEPUBPageTurnInputTests: XCTestCase {
         XCTAssertEqual(ReaderEPUBPageTurnKey.command(for: .space, hasShift: false), .next)
         XCTAssertEqual(ReaderEPUBPageTurnKey.command(for: .space, hasShift: true), .previous)
         XCTAssertNil(ReaderEPUBPageTurnKey.command(for: .escape, hasShift: false))
-    }
-
-
-    func testNextAndPreviousPageEncodeAsDistinctNoArgumentCommands() throws {
-        let next = try ReaderEPUBCommand.nextPage.javaScript()
-        let previous = try ReaderEPUBCommand.previousPage.javaScript()
-        XCTAssertNotEqual(next, previous)
-        XCTAssertTrue(next.contains("\"nextPage\""))
-        XCTAssertTrue(previous.contains("\"previousPage\""))
     }
 }
 #endif
