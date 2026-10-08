@@ -148,7 +148,7 @@ in a representable. Adapt its input events to the public value types and expose 
 that work. Refuse unsupported commands, check task cancellation before effects, and suppress all
 callbacks after close. A toolkit with different location semantics keeps them inside its bookmark.
 
-The protocol permits Readium or epub.js adapters; they require their own implementation, platform
-support checks, licensing review and tests. The initial package ships only Foliate.
+The protocol permits other adapters, such as Readium; they require their own implementation,
+platform support checks, licensing review and tests. The package ships only its native viewer.
 
 Run the shared [engine contract checks](testing.md#adapter-contract-tests) against each adapter.

@@ -9,7 +9,7 @@ Set `DEVELOPER_DIR` when more than one Xcode is installed. From the repository r
 bash scripts/check-all.sh
 ```
 
-The gate verifies all vendored identities, compares documentation snippets with compiled Swift
+The gate verifies module boundaries, compares documentation snippets with compiled Swift
 sources, runs the Mac tests and the full test suite on dedicated iPhone 17 Pro and iPad Air
 13-inch (M4) simulators, and builds both sample app targets. Test devices are created by UUID and
 deleted on exit; existing devices are never selected or shut down. iOS logs live in
@@ -19,8 +19,8 @@ For narrower checks:
 
 ```sh
 swift test --filter PublicationSafetyTests
-swift test --filter FoliateIntegrationTests
-swift test --filter LayoutRenderingTests
+swift test --filter NativeSessionTests
+swift test --filter CFI
 bash scripts/test-ios.sh
 ```
 
@@ -31,26 +31,30 @@ entries, symlinks, CRC corruption, malformed/deep/wide XML, UTF-16 entities, can
 expansion starts, and exact IDPF/Adobe font deobfuscation vectors. The font tests check the XOR
 prefix and the untouched suffix against independently specified keys.
 
-Live WebKit tests mount a reader, check visible text and image geometry, navigate between sections,
-exercise styles, locate/select passages, restore positions and close the session. Separate fixtures
-exercise encoded filenames and fragments, fixed layout, RTL and vertical writing. The illustrated
-fixture has 40 sections and eight incompressible 1024×1024 images; its test enforces an archive size
-over 20 MiB and verifies that the first image loads and later sections remain navigable.
+Viewer component tests cover content-document parsing, the CSS cascade and fonts, attributed-text
+building and its text map, images, tables, MathML layout, CFIs and text search, pagination
+geometry and the TextKit 2 views. CFI and search tests replay vectors recorded from foliate-js's own
+`epubcfi.js` and `search.js` in WebKit before they were removed, so stored bookmarks and highlight
+locators keep resolving. Live session tests mount a reader in a window, navigate between sections,
+exercise styles and flows, locate/select passages, restore positions (including a foliate-written
+CFI) and close the session. Separate fixtures exercise encoded filenames and fragments, fixed
+layout, RTL and vertical writing. The illustrated fixture has 40 sections and eight incompressible
+1024×1024 images; its test enforces an archive size over 20 MiB and verifies that later sections
+remain navigable.
 
 These are deterministic regression fixtures, not an EPUB conformance certification, a comprehensive
-typographic review, an accessibility audit or a memory budget measurement. WebKit uses separate
-processes, so the test runner's memory alone does not describe the reader's total footprint.
+typographic review, an accessibility audit or a memory budget measurement.
 The suite runs on OS 27; older platforms are outside the package's deployment targets. Simulator
 coverage does not substitute for hardware performance and accessibility testing.
 
 ## Adapter contract tests
 
 The internal **EPUBViewingTestSupport** target exercises adapter contracts with
-`EPUBEngineContract.verify`. It uses no XCTest or WebKit types, so adapters can call it from
+`EPUBEngineContract.verify`. It uses no XCTest or renderer types, so adapters can call it from
 XCTest, Swift Testing or another async test runner. Provide a validated two-section publication,
 two distinct encoded resource hrefs, a phrase present in the first section, and a `mount` closure
 that places the session in a visible test window and returns a cleanup closure retaining that window.
-`FoliateIntegrationTests.testReusableEngineContract` is a complete call-site example.
+`NativeSessionTests.testReusableEngineContract` is a complete call-site example.
 
 The verifier checks:
 
@@ -62,7 +66,7 @@ The verifier checks:
 - Foreign publication, engine and bookmark format identities are rejected.
 - Close is idempotent; closed commands fail and later callbacks are suppressed.
 
-The bundled native SwiftUI test engine runs the same checks without WebKit. Deliberately broken
+A minimal SwiftUI test engine runs the same checks with no renderer at all. Deliberately broken
 engines demonstrate that missing/duplicate readiness, ignored cancellation, incompatible restoration
 and late callbacks fail the verifier. Adapter-specific tests must additionally check actual rendering,
 selection gestures, precise bookmark semantics and resource release. A bounded quiet period after

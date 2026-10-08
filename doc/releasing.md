@@ -6,10 +6,10 @@ Persisted publication identities, reading locations and consumer artifact contra
 from source API compatibility and must be preserved or explicitly migrated.
 
 For a module or import change, build the affected products, compile the sample, run the relevant
-headless parser/extraction/writer/bridge tests and verify vendor identities and documentation.
+headless parser/extraction/writer tests and verify module boundaries and documentation.
 Run platform builds where SDK or resource packaging changes. Live rendering tests remain
 available on demand in [testing](testing.md); they are not implied by a package rename.
 
-Upstream Foliate resources remain pinned and unchanged. The URL compatibility patch checks each
-substitution before serving assets. Historical version verification documents record their own
-producing revision and are not rewritten by a module move.
+The engine identifier and `epubcfi-v1` bookmark format are persisted contracts: a viewer change
+must keep resolving the CFIs recorded in `CFIGoldenVectors.swift`. Historical version verification
+documents record their own producing revision and are not rewritten by a module move.
