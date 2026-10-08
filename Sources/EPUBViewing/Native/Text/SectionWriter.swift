@@ -225,6 +225,11 @@ final class SectionWriter {
         guard style.display != .none, style.display != .tableColumn, style.display != .tableColumnGroup else {
             skip(node, registered: true); return
         }
+        // A box positioned out of flow cannot be placed in reflowed text (overlay labels, text moved
+        // off-screen for assistive technology), except on a fixed-layout page, where everything is.
+        if style.isOutOfFlow, !state.isFixedLayout, !node.isHTML("html"), !node.isHTML("body") {
+            skip(node, registered: true); return
+        }
         var context = parent.context
         if let language = node.language { context.language = language.isEmpty ? nil : language }
 
@@ -1053,6 +1058,7 @@ final class SectionWriter {
             paragraphs[last].hasUnit = true
             guard block else { return }
             paragraphs[last].blockUnit = true
+            paragraphs[last].indentsFirstLine = false // `text-indent` indents lines of text, not a block's content.
             let length = end - subStart
             if length > 0, subStart >= location {
                 paragraphs[last].soleAttachment = length == 1 && result.attribute(.attachment, at: subStart - location, effectiveRange: nil) != nil

@@ -90,6 +90,7 @@ final class SectionBuilderTests: XCTestCase {
         let text = try H.build("""
             <blockquote><div class="box"><p>Quoted text</p></div></blockquote><p class="pct">Percent</p>
             """, rules: [
+                ("blockquote", { $0.margin.left = .points(40); $0.margin.right = .points(40) }),
                 (".box", { $0.padding.left = .points(10); $0.border.left = .init(width: 2, style: .solid); $0.margin.right = .points(7) }),
                 ("p", { $0.textIndent = .points(15) }),
                 (".pct", { $0.margin.left = .percent(10) }),
@@ -330,6 +331,7 @@ final class SectionBuilderTests: XCTestCase {
                 (".roman", { $0.listStyleType = .lowerRoman }), (".greek", { $0.listStyleType = .lowerGreek }),
                 (".zero", { $0.listStyleType = .decimalLeadingZero }), (".string", { $0.listStyleType = .string("– ") }),
                 (".none", { $0.listStyleType = .none }), (".in", { $0.listStylePosition = .inside }),
+                ("ol", { $0.padding.left = .points(40) }), ("ul", { $0.padding.left = .points(40) }),
             ])
         XCTAssertEqual(text.string.string.components(separatedBy: "\n"), [
             "3.\tthree", "10.\tten", "11.\televen", "3.\tc", "2.\tb", "1.\ta", "•\tdisc", "◦\tcircle", "A.\talpha",
@@ -424,8 +426,8 @@ final class SectionBuilderTests: XCTestCase {
             <audio/><iframe src="x.html">frame text</iframe><canvas>Canvas fallback</canvas>
             <form><label>Name</label><input type="text"/><input type="hidden"/><button>Go</button><select><option>o</option></select></form>
             <div class="gone"><p id="hidden">Hidden</p></div><p id="next">Next</p><p hidden="">attr</p>
-            """, head: "<script src='a.js'></script>", rules: [(".gone", { $0.display = .none })])
-        XCTAssertEqual(text.string.string, "Visible\nNo script\nYour reader cannot play video. Canvas fallback NameGo\nNext")
+            """, head: "<script src='a.js'></script>", rules: [(".gone", { $0.display = .none }), ("form", { $0.display = .block })])
+        XCTAssertEqual(text.string.string, "Visible\nNo script\nYour reader cannot play video. Canvas fallback\nNameGo\nNext")
         XCTAssertEqual(text.report.scriptsRefused, 2)
         XCTAssertEqual(text.report.unsupportedElements, ["video": 1, "audio": 1, "iframe": 1, "canvas": 1, "form": 1,
                                                          "input": 1, "button": 1, "select": 1])
@@ -502,6 +504,17 @@ final class SectionBuilderTests: XCTestCase {
         XCTAssertFalse(keeps("Three"))
         XCTAssertFalse(keeps("Four"))
         H.assertMapRoundTrips(text)
+    }
+
+    func testOutOfFlowBoxesAreLeftOutOfReflowedText() throws {
+        let text = try H.build("<p>Figure<span class='label' id='l'>x+y</span></p><h1 class='label'>Title page</h1><p id='n'>Next</p>",
+                               rules: [(".label", { $0.isOutOfFlow = true })])
+        XCTAssertEqual(text.string.string, "Figure\nNext")
+        XCTAssertEqual(text.anchors["l"], H.location(of: "Next", in: text))
+        let fixed = try EPUBPublication.open(data: Fixture.rendering(.fixedLayout))
+        let document = try ContentDocument.parse(fixed.data(for: fixed.spine[0].resource), path: fixed.spine[0].resource.path)
+        let page = H.build(document: document, rules: [("h1", { $0.isOutOfFlow = true })], publication: fixed)
+        XCTAssertTrue(page.string.string.hasPrefix("Fixed one"))
     }
 
     func testSwitchBranchesAnchorInDocumentOrder() throws {

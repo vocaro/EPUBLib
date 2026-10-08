@@ -103,6 +103,8 @@ struct ComputedStyle: Equatable, Sendable {
     // Box and flow. Not inherited.
     var display: Display = .inline
     var float: Float = .none
+    /// `position: absolute` or `fixed`: the box is out of flow and its offsets are not honoured.
+    var isOutOfFlow = false
     var margin = Edges<Length>(.zero)
     var padding = Edges<Length>(.zero)
     var border = Edges<Border>(Border())

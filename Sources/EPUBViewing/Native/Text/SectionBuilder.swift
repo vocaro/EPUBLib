@@ -98,6 +98,8 @@ final class SectionBuildState {
     var bodyStyle: ComputedStyle
     /// The publication's first language, for a document that declares none.
     let defaultLanguage: String?
+    /// A pre-paginated spine item, reflowed: its absolutely positioned boxes stay in the flow.
+    let isFixedLayout: Bool
     /// Nesting of `renderContent` and note captures, bounded so hostile nesting cannot recurse deeply.
     private var nesting = 0
     private static let maximumNesting = 8
@@ -108,6 +110,7 @@ final class SectionBuildState {
         bodyStyle = initialStyle
         styling = InlineStyling(fonts: request.fonts, isDark: request.typography.isDark)
         defaultLanguage = request.publication.metadata.languages.first.flatMap { $0.isEmpty ? nil : $0 }
+        isFixedLayout = request.publication.spine[request.spineIndex].layout == .prePaginated
     }
 
     private(set) lazy var richContext = RichContentContext(
