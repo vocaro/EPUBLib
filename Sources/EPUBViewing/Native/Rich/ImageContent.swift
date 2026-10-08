@@ -109,7 +109,8 @@ final class ReaderImageAttachment: ReaderAttachment {
 
     /// The decoded archive path the image came from (empty for inline SVG).
     var path: String { source.path }
-    override var accessibilityText: String { alt }
+    /// The alt text (an SVG's title).
+    override var textEquivalent: String { alt }
 
     #if os(iOS)
     override var accessibilityLabel: String? {

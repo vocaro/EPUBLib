@@ -13,7 +13,7 @@ import AppKit
 /// `bounds`. TextKit 2 text views call the TextKit 2 entry points; string drawing (table cells)
 /// may call either generation, so both lead to `layoutBounds(_:)`. Instances are immutable after
 /// the section build apart from internally locked caches, so layout may run on any thread.
-class ReaderAttachment: NSTextAttachment {
+class ReaderAttachment: NSTextAttachment, ReaderTextualAttachment {
     /// The line an attachment is being laid out on.
     struct Line {
         /// The proposed line fragment's width.
@@ -59,8 +59,9 @@ class ReaderAttachment: NSTextAttachment {
         return (width, width)
     }
 
-    /// What VoiceOver reads for the attachment inside a table cell.
-    var accessibilityText: String { "" }
+    /// What selections and copies get in place of the attachment character, and what VoiceOver
+    /// reads for it inside a table cell. Nothing by default (a rule).
+    var textEquivalent: String { "" }
 
     override func attachmentBounds(for attributes: [NSAttributedString.Key: Any], location: any NSTextLocation,
                                    textContainer: NSTextContainer?, proposedLineFragment: CGRect,

@@ -50,8 +50,13 @@ class TableRowsAttachment: ReaderAttachment {
         return (constraints.minimumTableWidth * TableModel.minimumScale, constraints.maximumTableWidth)
     }
 
-    override var accessibilityText: String {
-        table.unitCells[unit].map { table.cells[$0].text }.joined(separator: ", ")
+    /// The unit's cells: a row's cells joined by tabs, its rows by line breaks. (A cell spanning
+    /// rows is in its first.) The caption is a paragraph of its own.
+    override var textEquivalent: String {
+        let cells = table.unitCells[unit].map { table.cells[$0] }
+        return table.units[unit].map { row in
+            cells.filter { $0.row == row }.sorted { $0.column < $1.column }.map(\.text).joined(separator: "\t")
+        }.joined(separator: "\n")
     }
 
     override func viewProvider(for parentView: PlatformView?, location: any NSTextLocation,

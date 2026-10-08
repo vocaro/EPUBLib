@@ -205,13 +205,13 @@ enum TableMeasure {
         return ceil(rect.height)
     }
 
-    /// The text VoiceOver reads for cell content: attachments by their description, whitespace
-    /// collapsed.
+    /// The text VoiceOver reads (and copies get) for cell content: attachments by their text
+    /// equivalent, whitespace collapsed.
     static func spokenText(_ text: NSAttributedString) -> String {
         var spoken = ""
         let string = text.string as NSString
         text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, range, _ in
-            if let attachment = value as? ReaderAttachment { spoken += " \(attachment.accessibilityText) " }
+            if let attachment = value as? ReaderTextualAttachment { spoken += " \(attachment.textEquivalent) " }
             else if value != nil { spoken += " " }
             else { spoken += string.substring(with: range) }
         }

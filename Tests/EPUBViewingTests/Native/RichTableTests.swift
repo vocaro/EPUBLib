@@ -120,6 +120,8 @@ final class RichTableTests: XCTestCase {
         XCTAssertEqual(text.string, Array(repeating: "\u{FFFC}", count: 6).joined(separator: "\n"))
         XCTAssertEqual(text.attribute(.readerKeepWithNext, at: 0, effectiveRange: nil) as? Bool, true)
         XCTAssertNil(text.attribute(.readerKeepWithNext, at: 2, effectiveRange: nil))
+        // Selections and copies get the cells: tabs between cells, line breaks between rows.
+        XCTAssertEqual(text.readerPlainText(), "H1\tH2\nh1\th2\na\tb\nc\nd\te\nf\tg\nh\ni\tj\nF1\tF2")
         let paragraph = try XCTUnwrap(text.attribute(.paragraphStyle, at: 2, effectiveRange: nil) as? NSParagraphStyle)
         XCTAssertEqual(paragraph.paragraphSpacing, 0)
         XCTAssertEqual(paragraph.paragraphSpacingBefore, 0)
@@ -144,6 +146,7 @@ final class RichTableTests: XCTestCase {
         let top = try XCTUnwrap(fixture.table("c"))
         XCTAssertEqual(top.string, "Table 2.5 Distribution of Cases\n\u{FFFC}")
         XCTAssertEqual(top.attribute(.readerKeepWithNext, at: 0, effectiveRange: nil) as? Bool, true)
+        XCTAssertEqual(top.readerPlainText(), "Table 2.5 Distribution of Cases\na\tb")
         let style = try XCTUnwrap(top.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
         XCTAssertEqual(style.alignment, .center)
         XCTAssertGreaterThan(style.paragraphSpacing, 0)
@@ -228,6 +231,7 @@ final class RichTableTests: XCTestCase {
             let element = fixture.element(id)
             let text = fixture.factory.horizontalRule(element, style: fixture.style(of: element), context: fixture.context)
             XCTAssertEqual(text.length, 1)
+            XCTAssertEqual(text.readerPlainText(), "")
             return try XCTUnwrap(RichFixture.attachments(in: text).first as? ReaderRuleAttachment)
         }
         let font = PlatformFont.systemFont(ofSize: 16)
