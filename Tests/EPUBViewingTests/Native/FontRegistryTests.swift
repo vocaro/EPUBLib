@@ -90,6 +90,11 @@ final class FontRegistryTests: XCTestCase {
         XCTAssertTrue(fonts.needsSyntheticItalic(for: style(["book face"], italic: true)), "…and slanted by the builder")
         XCTAssertFalse(fonts.needsSyntheticItalic(for: style(["book face"])))
         XCTAssertTrue(traits(fonts.font(for: style(["broken", "monospace"]))).contains(.traitMonoSpace))
+        XCTAssertFalse(fonts.needsSyntheticBold(for: style(["book face"], weight: 700)))
+        fonts.register([CSSFontFace(family: "regular only", sources: ["OPS/fonts/regular.ttf"])], report: &report)
+        XCTAssertEqual(fonts.font(for: style(["regular only"], weight: 700)).fontName, "Georgia")
+        XCTAssertTrue(fonts.needsSyntheticBold(for: style(["regular only"], weight: 700)), "A family without bold is emboldened")
+        XCTAssertFalse(fonts.needsSyntheticBold(for: style(["serif"], weight: 700)))
         XCTAssertEqual(fonts.font(for: style(["book face"], size: 31)).pointSize, 31)
     }
 

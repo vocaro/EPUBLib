@@ -476,6 +476,32 @@ final class StyleResolverTests: XCTestCase {
         XCTAssertEqual(big.style("p").color, color(1, 0, 0))
     }
 
+    func testFlexAndGridItemsAreBlockified() throws {
+        let result = try styled("""
+            <section id="flex"><blockquote id="item">q</blockquote><span id="span">s</span><span id="abs">a</span>
+            <div id="grid"><em id="cell">c</em></div></section>
+            """, css: """
+            #flex { display: flex } #item { display: inline-block } #abs { position: absolute } #grid { display: inline-grid }
+            """)
+        XCTAssertEqual(result.style("flex").display, .block)
+        XCTAssertTrue(result.style("flex").blockifiesChildren)
+        XCTAssertEqual(result.style("item").display, .block)
+        XCTAssertEqual(result.style("span").display, .block)
+        XCTAssertEqual(result.style("abs").display, .inline, "Out-of-flow boxes keep their display")
+        XCTAssertEqual(result.style("grid").display, .block, "An inline grid inside a flex container is blockified too")
+        XCTAssertEqual(result.style("cell").display, .block)
+        XCTAssertFalse(result.style("item").blockifiesChildren)
+    }
+
+    func testAbsoluteSizeKeywordsMatchWebKit() throws {
+        let result = try styled(#"<p id="small">s</p><p id="large">l</p><p id="xx">x</p>"#,
+                                css: "#small { font-size: small } #large { font-size: large } #xx { font-size: xx-small }",
+                                typography: NativeTypography(fontSize: 32))
+        XCTAssertEqual(result.style("small").fontSize, 26)
+        XCTAssertEqual(result.style("large").fontSize, 36)
+        XCTAssertEqual(result.style("xx").fontSize, 18)
+    }
+
     func testRootFontSizeIsTheBasisForRem() throws {
         let result = try styled(#"<p id="p">x</p>"#, css: "html { font-size: 10px } p { font-size: 2rem; margin-top: 1rem }",
                                 typography: NativeTypography(fontSize: 24))

@@ -164,6 +164,17 @@ extension StyleResolver {
         }
 
         if isRoot, !style.display.isBlockLevel, style.display != .none { style.display = .block }
+        // Flex and grid items are blockified (CSS Display §2.7). Floats and out-of-flow boxes are
+        // not: `float` and `isOutOfFlow` carry them, so the builder can keep a drop cap inline.
+        if parent.blockifiesChildren, !style.isOutOfFlow {
+            switch style.display {
+            case .inline, .inlineBlock, .ruby, .rubyText, .tableRow, .tableCell, .tableRowGroup, .tableHeaderGroup,
+                 .tableFooterGroup, .tableCaption, .tableColumn, .tableColumnGroup:
+                style.display = .block
+            case .block, .listItem, .table, .none:
+                break
+            }
+        }
         for side in Side.allCases where !style[border: side].isVisible { style[border: side].width = 0 }
 
         // Decorations propagate to in-flow descendants, but not into atomic inlines or out-of-flow boxes.
@@ -197,7 +208,7 @@ extension StyleResolver {
         case .fontVariantCaps: style.isSmallCaps = source.isSmallCaps
         case .lineHeight: style.lineHeight = source.lineHeight
         case .color: style.color = source.color
-        case .display: style.display = source.display
+        case .display: style.display = source.display; style.blockifiesChildren = source.blockifiesChildren
         case .float: style.float = source.float
         case .position: style.isOutOfFlow = source.isOutOfFlow
         case .marginTop: style.margin.top = source.margin.top
@@ -276,8 +287,9 @@ extension StyleResolver {
                 style.lineHeight = .points(min(max(points(length, context), 0), maximum))
             }
         case (.color, .color(let specified)):
-            style.color = specified == .currentColor ? parent.color : color(specified, current: parent.color)
-        case (.display, .display(let display)): style.display = display
+            style.color = color(specified, current: parent.color)
+        case (.display, .display(let display, let blockifies)):
+            style.display = display; style.blockifiesChildren = blockifies
         case (.float, .float(let float)): style.float = float
         case (.position, .flag(let outOfFlow)): style.isOutOfFlow = outOfFlow
         case (.marginTop, _), (.marginRight, _), (.marginBottom, _), (.marginLeft, _):

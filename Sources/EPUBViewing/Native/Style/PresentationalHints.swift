@@ -123,7 +123,8 @@ enum PresentationalHints {
     private static func fontSizeKeyword(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespaces)
         let relative = trimmed.first == "+" || trimmed.first == "-"
-        guard let number = Int(trimmed.drop { $0 == "+" }) else { return nil }
+        guard let parsed = Int(trimmed.drop { $0 == "+" }) else { return nil }
+        let number = min(max(parsed, -7), 7)
         let size = min(max(relative ? 3 + number : number, 1), 7)
         return ["x-small", "small", "medium", "large", "x-large", "xx-large", "xxx-large"][size - 1]
     }

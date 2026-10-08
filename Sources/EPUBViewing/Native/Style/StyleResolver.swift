@@ -380,9 +380,13 @@ struct SelectorMatcher {
         return difference / a >= 0 && difference % a == 0
     }
 
+    /// `:nth-child(… of S)` re-matches siblings, so it is not evaluated among more than this many.
+    static let maximumSiblingsForSelectorPositions = 1000
+
     /// Position among element siblings matching `selectors`, from the start or the end.
     private func position(of element: Int, among selectors: [CSSComplexSelector], fromEnd: Bool) -> Int? {
         let parent = Int(facts.parents[element])
+        guard facts.siblingCounts[element] <= Self.maximumSiblingsForSelectorPositions else { return nil }
         let siblings = parent >= 0 ? document.nodes[parent].children.filter(\.isElement) : [document.nodes[element]]
         var position = 0
         for sibling in fromEnd ? siblings.reversed() : siblings {

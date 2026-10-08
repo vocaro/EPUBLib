@@ -187,8 +187,9 @@ final class CSSParserTests: XCTestCase {
         XCTAssertEqual(values("-epub-writing-mode", "vertical-rl")?[.writingMode], .writingMode(.verticalRL))
         XCTAssertEqual(values("font-variant", "small-caps oldstyle-nums")?[.fontVariantCaps], .flag(true))
         XCTAssertEqual(values("font-variant", "oldstyle-nums")?[.fontVariantCaps], .flag(false))
-        XCTAssertEqual(values("display", "flex")?[.display], .display(.block))
-        XCTAssertEqual(values("display", "inline flow-root")?[.display], .display(.inlineBlock))
+        XCTAssertEqual(values("display", "flex")?[.display], .display(.block, blockifies: true))
+        XCTAssertEqual(values("display", "inline-grid")?[.display], .display(.inlineBlock, blockifies: true))
+        XCTAssertEqual(values("display", "inline flow-root")?[.display], .display(.inlineBlock, blockifies: false))
         XCTAssertEqual(values("border-top", "1px solid")?[.borderTopColor], .color(.currentColor))
         XCTAssertEqual(values("all", "initial")?.count, CSSProperty.count - 1)
         XCTAssertNil(values("all", "bold"))
@@ -218,5 +219,23 @@ final class CSSParserTests: XCTestCase {
         XCTAssertEqual(color("currentColor"), .currentColor)
         XCTAssertEqual(color("CanvasText"), .system)
         XCTAssertNil(color("notacolor"))
+    }
+}
+
+extension CSSParserTests {
+    func testUserAgentStyleSheetParsesCompletely() {
+        var truncated = false
+        let raw = CSSParser.rules(CSSParser.components(UserAgentStyleSheet.text, truncated: &truncated), topLevel: true)
+        var expectedRules = 0
+        for case .qualified(let prelude, let block) in raw {
+            expectedRules += 1
+            for declaration in CSSParser.declarations(block) {
+                XCTAssertNotNil(CSSPropertyParser.parse(name: declaration.name, value: declaration.value, important: false),
+                                "\(prelude.map { "\($0)" }.joined()) \(declaration.name)")
+            }
+        }
+        XCTAssertFalse(truncated)
+        XCTAssertFalse(UserAgentStyleSheet.sheet.truncated)
+        XCTAssertEqual(UserAgentStyleSheet.sheet.rules.count, expectedRules, "Every user-agent selector is valid")
     }
 }

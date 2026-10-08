@@ -16,7 +16,8 @@ import AppKit
 /// the book's faces first, then generic families (serif is the system serif design, New York;
 /// sans-serif and system-ui the system font; monospace its monospaced design; cursive and
 /// fantasy serif), then installed families by name. A face without italics is used upright and
-/// `needsSyntheticItalic(for:)` reports it so the builder can apply `.obliqueness`.
+/// `needsSyntheticItalic(for:)` reports it so the builder can apply `.obliqueness`; likewise
+/// `needsSyntheticBold(for:)` and `needsSyntheticSmallCaps(for:)`.
 final class FontRegistry: @unchecked Sendable {
     static let maximumFonts = 64
     static let maximumFontBytes = 64 * 1024 * 1024
@@ -41,6 +42,7 @@ final class FontRegistry: @unchecked Sendable {
     private var installed: [String: [Face]] = [:]
     private var resolutions: [ResolutionKey: Resolution] = [:]
     private var cache: [FontKey: PlatformFont] = [:]
+    private var syntheticSmallCaps: [FontKey: Bool] = [:]
 
     private struct Face {
         let weights: ClosedRange<Int>
@@ -54,6 +56,7 @@ final class FontRegistry: @unchecked Sendable {
         enum Source { case face(CTFontDescriptor, variableWeight: Int?), system(Design) }
         let source: Source
         let syntheticItalic: Bool
+        var syntheticBold = false
     }
     private enum Design { case serif, sans, monospace, rounded }
     private struct FontKey: Hashable { let families: [String]; let size: CGFloat; let weight: Int; let italic: Bool; let smallCaps: Bool }
@@ -70,24 +73,29 @@ final class FontRegistry: @unchecked Sendable {
             lock.unlock()
             guard isNew else { continue }
             var loaded: Face?
+            var overBudget = false
             for path in face.sources {
-                guard let descriptors = descriptors(at: path, report: &report), !descriptors.isEmpty else { continue }
+                guard let descriptors = descriptors(at: path, overBudget: &overBudget), !descriptors.isEmpty else { continue }
                 let descriptor = Self.best(descriptors, weight: face.weights.lowerBound, italic: face.isItalic)
                 let variable = face.weights.lowerBound != face.weights.upperBound && Self.hasWeightAxis(descriptor)
                 loaded = Face(weights: face.weights, isItalic: face.isItalic, descriptor: descriptor, isVariable: variable)
                 break
             }
-            guard let loaded else { report.unreadableResources += 1; continue }
+            guard let loaded else {
+                // A face dropped by the book's font budget is truncation, not an unreadable resource.
+                if overBudget { report.stylesTruncated = true } else { report.unreadableResources += 1 }
+                continue
+            }
             lock.lock()
             self.faces[face.family, default: []].append(loaded)
             // Faces change what a family resolves to.
             generation += 1
-            resolutions.removeAll(); cache.removeAll()
+            resolutions.removeAll(); cache.removeAll(); syntheticSmallCaps.removeAll()
             lock.unlock()
         }
     }
 
-    private func descriptors(at path: String, report: inout SectionReport) -> [CTFontDescriptor]? {
+    private func descriptors(at path: String, overBudget: inout Bool) -> [CTFontDescriptor]? {
         lock.lock()
         if let known = sources[path] { lock.unlock(); return known }
         lock.unlock()
@@ -98,7 +106,7 @@ final class FontRegistry: @unchecked Sendable {
         lock.lock()
         guard loadedFonts < Self.maximumFonts, loadedBytes + data.count <= Self.maximumFontBytes else {
             lock.unlock()
-            report.stylesTruncated = true
+            overBudget = true
             return nil
         }
         loadedFonts += 1; loadedBytes += data.count
@@ -114,7 +122,7 @@ final class FontRegistry: @unchecked Sendable {
         guard data.count >= 12 else { return false }
         let magic = data.prefix(4)
         return [[0x00, 0x01, 0x00, 0x00], Array("OTTO".utf8), Array("true".utf8), Array("ttcf".utf8),
-                Array("wOFF".utf8), Array("wOF2".utf8), Array("typ1".utf8)].contains { $0.elementsEqual(magic) }
+                Array("wOFF".utf8), Array("wOF2".utf8)].contains { $0.elementsEqual(magic) }
     }
 
     func font(for style: ComputedStyle) -> PlatformFont {
@@ -142,17 +150,37 @@ final class FontRegistry: @unchecked Sendable {
         style.isItalic && resolve(families: style.fontFamilies, weight: style.fontWeight, italic: true).syntheticItalic
     }
 
+    /// Whether `font(for:)` returned a face lighter than 600 for a weight of 600 or more, because
+    /// the family has no bold, so the builder should embolden it (a negative `.strokeWidth`).
+    func needsSyntheticBold(for style: ComputedStyle) -> Bool {
+        style.fontWeight >= 600 && resolve(families: style.fontFamilies, weight: style.fontWeight, italic: style.isItalic).syntheticBold
+    }
+
     /// Whether small caps were asked for but the font has no lower-case small caps feature, so
     /// the builder should fake them (uppercase at a smaller size).
     func needsSyntheticSmallCaps(for style: ComputedStyle) -> Bool {
         guard style.isSmallCaps else { return false }
-        let features = CTFontCopyFeatures(font(for: style) as CTFont) as? [[CFString: Any]] ?? []
-        return !features.contains { feature in
+        let key = FontKey(families: style.fontFamilies, size: style.fontSize, weight: style.fontWeight,
+                          italic: style.isItalic, smallCaps: true)
+        lock.lock()
+        if let known = syntheticSmallCaps[key] { lock.unlock(); return known }
+        lock.unlock()
+        let needed = !Self.hasSmallCaps(font(for: style) as CTFont)
+        lock.lock()
+        if syntheticSmallCaps.count >= Self.maximumCachedFonts { syntheticSmallCaps.removeAll() }
+        syntheticSmallCaps[key] = needed
+        lock.unlock()
+        return needed
+    }
+
+    private static func hasSmallCaps(_ font: CTFont) -> Bool {
+        let features = CTFontCopyFeatures(font) as? [[CFString: Any]] ?? []
+        return features.contains { feature in
             let type = feature[kCTFontFeatureTypeIdentifierKey] as? Int
             let selectors = feature[kCTFontFeatureTypeSelectorsKey] as? [[CFString: Any]] ?? []
             return selectors.contains { selector in
                 let id = selector[kCTFontFeatureSelectorIdentifierKey] as? Int
-                return (type == kLowerCaseType && id == kLowerCaseSmallCapsSelector) || (type == kLetterCaseType && id == 3)
+                return (type == kLowerCaseType && id == kLowerCaseSmallCapsSelector) || (type == kLetterCaseType && id == kSmallCapsSelector)
             }
         }
     }
@@ -195,7 +223,8 @@ final class FontRegistry: @unchecked Sendable {
         let pool = preferred.isEmpty ? candidates : preferred
         guard let face = pool.min(by: { weightDistance($0.weights, weight) < weightDistance($1.weights, weight) }) else { return nil }
         let variableWeight = face.isVariable ? min(max(weight, face.weights.lowerBound), face.weights.upperBound) : nil
-        return Resolution(source: .face(face.descriptor, variableWeight: variableWeight), syntheticItalic: italic && !face.isItalic)
+        return Resolution(source: .face(face.descriptor, variableWeight: variableWeight), syntheticItalic: italic && !face.isItalic,
+                          syntheticBold: weight >= 600 && face.weights.upperBound < 600)
     }
 
     /// CSS Fonts §5.2 weight matching as a sortable distance: inside the range is best; then for

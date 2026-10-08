@@ -105,6 +105,8 @@ struct ComputedStyle: Equatable, Sendable {
     var float: Float = .none
     /// `position: absolute` or `fixed`: the box is out of flow and its offsets are not honoured.
     var isOutOfFlow = false
+    /// A flex or grid container, which renders as a block; its in-flow children are blockified.
+    var blockifiesChildren = false
     var margin = Edges<Length>(.zero)
     var padding = Edges<Length>(.zero)
     var border = Edges<Border>(Border())

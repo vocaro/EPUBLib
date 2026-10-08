@@ -122,7 +122,8 @@ enum CSSValue: Equatable, Sendable {
     case length(CSSLength)
     /// `auto` for lengths, `none` for `max-width`/`max-height`.
     case auto
-    case display(ComputedStyle.Display)
+    /// `blockifies`: a flex or grid container.
+    case display(ComputedStyle.Display, blockifies: Bool)
     case float(ComputedStyle.Float)
     /// `font-style: italic`, small caps, `visibility: hidden`, `border-collapse: collapse` and
     /// out-of-flow positioning.
@@ -248,7 +249,6 @@ enum CSSPropertyParser {
         case "background": return [.backgroundColor]
         case "text-decoration", "-webkit-text-decoration": return [.textDecorationLine, .textDecorationColor]
         case "font-variant": return [.fontVariantCaps]
-        case "border-spacing": return [.borderSpacing]
         case "all": return CSSProperty.allCases.filter { $0 != .direction }
         default: break
         }
@@ -397,7 +397,10 @@ enum CSSPropertyParser {
         case .color, .backgroundColor, .textDecorationColor,
              .borderTopColor, .borderRightColor, .borderBottomColor, .borderLeftColor:
             return single.flatMap(color).map(CSSValue.color)
-        case .display: return display(c).map(CSSValue.display)
+        case .display:
+            guard let value = display(c) else { return nil }
+            let keywords = Set(c.compactMap(\.ident))
+            return .display(value, blockifies: !keywords.isDisjoint(with: Self.flexAndGrid))
         case .float:
             switch keyword {
             case "none": return .float(.none)
@@ -583,9 +586,9 @@ enum CSSPropertyParser {
         }
     }
 
+    /// A `calc()` subtree and its type: a number, or a length that may include a percentage.
     private struct CalcNode {
         var tree: CSSCalc
-        /// nil: a plain number.
         var hasPercent: Bool
         var isNumber: Bool
         func isLength(allowPercent: Bool) -> Bool { !isNumber && (allowPercent || !hasPercent) }
@@ -673,12 +676,14 @@ enum CSSPropertyParser {
     private static func fontSize(_ component: CSSComponent) -> CSSFontSize? {
         if let keyword = component.ident {
             switch keyword {
-            case "xx-small": return .keyword(3.0 / 5)
-            case "x-small": return .keyword(3.0 / 4)
-            case "small": return .keyword(8.0 / 9)
+            // WebKit's and Blink's sizes for a 16px `medium` (9, 10, 13, 16, 18, 24, 32, 48px), which
+            // books were made against, rather than CSS Fonts' scaling factors.
+            case "xx-small": return .keyword(9.0 / 16)
+            case "x-small": return .keyword(10.0 / 16)
+            case "small": return .keyword(13.0 / 16)
             case "medium": return .keyword(1)
-            case "large": return .keyword(6.0 / 5)
-            case "x-large": return .keyword(3.0 / 2)
+            case "large": return .keyword(18.0 / 16)
+            case "x-large": return .keyword(24.0 / 16)
             case "xx-large": return .keyword(2)
             case "xxx-large", "-webkit-xxx-large": return .keyword(3)
             case "smaller": return .smaller
@@ -862,11 +867,9 @@ enum CSSPropertyParser {
         let resolvedWidth = width ?? .length(.value(3, .px))
         let resolvedStyle = style ?? .borderStyle(.none)
         let resolvedColor = colorValue ?? .color(.currentColor)
-        var pairs: Pairs = []
-        for (property, value) in zip(pick(CSSProperty.borderWidths, sides), repeatElement(resolvedWidth, count: sides.count)) { pairs.append((property, value)) }
-        for property in pick(CSSProperty.borderStyles, sides) { pairs.append((property, resolvedStyle)) }
-        for property in pick(CSSProperty.borderColors, sides) { pairs.append((property, resolvedColor)) }
-        return pairs
+        return pick(CSSProperty.borderWidths, sides).map { ($0, resolvedWidth) }
+            + pick(CSSProperty.borderStyles, sides).map { ($0, resolvedStyle) }
+            + pick(CSSProperty.borderColors, sides).map { ($0, resolvedColor) }
     }
 
     private static func borderStyle(_ keyword: String) -> ComputedStyle.BorderStyle? {
@@ -982,6 +985,10 @@ enum CSSPropertyParser {
         }
         return [(.textDecorationLine, .decoration(lines ?? [])), (.textDecorationColor, .color(colorValue ?? .currentColor))]
     }
+
+    private static let flexAndGrid: Set<String> = ["flex", "grid", "inline-flex", "inline-grid", "-webkit-box", "-webkit-flex",
+                                                   "-ms-flexbox", "-moz-box", "-ms-grid", "-webkit-inline-box",
+                                                   "-webkit-inline-flex", "-ms-inline-flexbox", "-moz-inline-box", "masonry"]
 
     private static func display(_ c: [CSSComponent]) -> ComputedStyle.Display? {
         let keywords = c.compactMap(\.ident)
@@ -1159,11 +1166,13 @@ enum CSSPropertyParser {
 
     private static func hwbFunction(_ arguments: [CSSComponent]) -> ComputedStyle.Color? {
         guard let (channels, alphaComponent) = colorArguments(arguments), let alpha = alphaValue(alphaComponent),
-              let h = hue(channels[0]), var white = fraction(channels[1]), var black = fraction(channels[2]) else { return nil }
-        if white + black >= 1 { let gray = white / (white + black); return ComputedStyle.Color(red: gray, green: gray, blue: gray, alpha: alpha) }
+              let h = hue(channels[0]), let white = fraction(channels[1]), let black = fraction(channels[2]) else { return nil }
+        if white + black >= 1 {
+            let gray = white / (white + black)
+            return ComputedStyle.Color(red: gray, green: gray, blue: gray, alpha: alpha)
+        }
         let (r, g, b) = hslToRGB(h, 1, 0.5)
         let scale = 1 - white - black
-        white = max(0, white); black = max(0, black)
         return ComputedStyle.Color(red: r * scale + white, green: g * scale + white, blue: b * scale + white, alpha: alpha)
     }
 
@@ -1171,7 +1180,7 @@ enum CSSPropertyParser {
         "canvas", "canvastext", "linktext", "visitedtext", "activetext", "buttonface", "buttontext", "buttonborder",
         "field", "fieldtext", "highlight", "highlighttext", "selecteditem", "selecteditemtext", "mark", "marktext",
         "graytext", "accentcolor", "accentcolortext", "windowtext", "window", "-webkit-link", "-webkit-text",
-        "-apple-system-label", "text"]
+        "-apple-system-label"]
 
     static let namedColors: [String: UInt32] = [
         "aliceblue": 0xF0F8FF, "antiquewhite": 0xFAEBD7, "aqua": 0x00FFFF, "aquamarine": 0x7FFFD4, "azure": 0xF0FFFF,
