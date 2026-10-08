@@ -224,6 +224,18 @@ import SwiftUI
         return range(from: dom.start, to: dom.end, in: text)
     }
 
+    /// A search match's rendered range. The match may come from a fresh parse of the section that
+    /// is already gone (nodes keep only weak parents), so it is read in the built section's own
+    /// document, node for node: both parses read the same bytes.
+    private func range(of match: TextSearch.Match, in text: SectionText) -> ReaderTextRange {
+        func rebased(_ position: DOMPosition) -> DOMPosition {
+            let nodes = text.document.nodes
+            guard nodes.indices.contains(position.node.order) else { return position }
+            return DOMPosition(nodes[position.node.order], position.offset)
+        }
+        return range(from: rebased(match.start), to: rebased(match.end), in: text)
+    }
+
     private func range(from start: DOMPosition, to end: DOMPosition, in text: SectionText) -> ReaderTextRange {
         let first = text.map.location(of: start)
         return ReaderTextRange(section: text.spineIndex, first..<max(first, text.map.location(of: end, isEnd: true)))
@@ -249,7 +261,7 @@ import SwiftUI
             let section = await book.build(index)
             guard isCurrent(ticket) else { return }
             for match in matches {
-                let range = range(from: match.start, to: match.end, in: section)
+                let range = range(of: match, in: section)
                 guard range.isEmpty else {
                     canvas?.clearSelection()
                     canvas?.show(range.start, selecting: highlight ? range : nil)
@@ -345,7 +357,7 @@ import SwiftUI
         var drawn: [ReaderHighlight] = []
         for (index, matches) in searchMatches {
             if searchRanges[index] == nil, let section = book.section(index) {
-                searchRanges[index] = matches.map { range(from: $0.start, to: $0.end, in: section) }.filter { !$0.isEmpty }
+                searchRanges[index] = matches.map { range(of: $0, in: section) }.filter { !$0.isEmpty }
             }
             for (number, range) in (searchRanges[index] ?? []).enumerated() {
                 drawn.append(ReaderHighlight(id: "search-\(index)-\(number)", range: range, kind: .search))

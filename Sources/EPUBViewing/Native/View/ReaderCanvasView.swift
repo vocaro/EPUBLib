@@ -218,6 +218,7 @@ import AppKit
                                                  isRightToLeft: configuration.isRightToLeft)
         guard let spread, shownPage != nil else {
             cancelPendingSpread()
+            carrySelectionAcrossRelayout()
             self.spread = target
             displayAnchor()
             applyPendingSelection()
@@ -254,9 +255,18 @@ import AppKit
     private func applyPendingSpread() {
         guard let target = pendingSpread else { return }
         cancelPendingSpread()
+        carrySelectionAcrossRelayout()
         spread = target
         displayAnchor()
         applyPendingSelection()
+    }
+
+    /// New columns hold new text views; the selection on screen (above all one a locate made,
+    /// which may still be waiting to be reported) is made again in them.
+    private func carrySelectionAcrossRelayout() {
+        guard pendingSelection == nil, let range = programmaticSelection?.selection.range ?? currentSelection?.range,
+              !range.isEmpty else { return }
+        pendingSelection = range
     }
 
     private func cancelPendingSpread() {
