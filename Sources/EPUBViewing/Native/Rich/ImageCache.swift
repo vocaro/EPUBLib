@@ -105,7 +105,7 @@ final class ReaderImageSource: @unchecked Sendable {
 final class ReaderImageCache: @unchecked Sendable {
     static let shared = ReaderImageCache(budget: 96 * 1024 * 1024, observesMemoryPressure: true)
 
-    private struct Key: Hashable { let source: String; let pixels: Int }
+    private struct Key: Hashable { let source: String; let pixels: Int; let inverted: Bool }
     private struct Entry { let image: CGImage; let cost: Int; var used: Int }
 
     private let lock = NSLock()
@@ -146,15 +146,17 @@ final class ReaderImageCache: @unchecked Sendable {
     func removeAll() { trim(to: 0) }
 
     /// The image decoded to at least `maxPixelSize` on its long side (rounded up, and never more
-    /// than the source has). A cached decode up to twice that size is reused.
-    func image(for source: ReaderImageSource, maxPixelSize: Int) -> CGImage? {
+    /// than the source has), its colors `inverted` if asked (cached apart). A cached decode up
+    /// to twice that size is reused.
+    func image(for source: ReaderImageSource, maxPixelSize: Int, inverted: Bool = false) -> CGImage? {
         let long = max(source.pixelSize.width, source.pixelSize.height)
         let available = long.isFinite ? max(1, Int(min(long, CGFloat(1 << 30)).rounded(.up))) : 1
         let pixels = source.format == .svg ? min(Self.bucket(maxPixelSize), ReaderImageSource.maximumSVGDimension)
             : min(Self.bucket(maxPixelSize), available)
-        let key = Key(source: source.key, pixels: pixels)
+        let key = Key(source: source.key, pixels: pixels, inverted: inverted)
         if let image = lock.withLock({ hit(key) }) { return image }
-        guard let image = source.decode(maxPixelSize: pixels) else { return nil }
+        guard let decoded = source.decode(maxPixelSize: pixels),
+              let image = inverted ? Self.inverted(decoded) : decoded else { return nil }
         let entry = Entry(image: image, cost: image.bytesPerRow * image.height, used: 0)
         lock.withLock {
             decodes += 1
@@ -170,10 +172,31 @@ final class ReaderImageCache: @unchecked Sendable {
 
     private static func bucket(_ pixels: Int) -> Int { (max(1, pixels) + 63) / 64 * 64 }
 
+    /// CSS `filter: invert(100%)` in sRGB: each color channel inverted, alpha kept.
+    static func inverted(_ image: CGImage) -> CGImage? {
+        let width = image.width, height = image.height
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let data = context.data else { return nil }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let pixels = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+        // Premultiplied, a channel c of alpha a inverts to a − c.
+        for index in stride(from: 0, to: width * height * 4, by: 4) {
+            let alpha = pixels[index + 3]
+            pixels[index] = alpha &- min(pixels[index], alpha)
+            pixels[index + 1] = alpha &- min(pixels[index + 1], alpha)
+            pixels[index + 2] = alpha &- min(pixels[index + 2], alpha)
+        }
+        return context.makeImage()
+    }
+
     private func hit(_ key: Key) -> CGImage? {
         var found = entries[key] == nil ? nil : key
         if found == nil {
-            found = entries.keys.filter { $0.source == key.source && $0.pixels >= key.pixels && $0.pixels <= key.pixels * 2 }
+            found = entries.keys.filter {
+                $0.source == key.source && $0.inverted == key.inverted && $0.pixels >= key.pixels && $0.pixels <= key.pixels * 2
+            }
                 .min { $0.pixels < $1.pixels }
         }
         guard let found, var entry = entries[found] else { return nil }

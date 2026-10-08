@@ -168,6 +168,40 @@ final class RichImageTests: XCTestCase {
         XCTAssertLessThanOrEqual(max(thumbnail.width, thumbnail.height), 128)
     }
 
+    func testInvertedImagesDrawInvertedWithTheirAlphaAndCacheApart() throws {
+        // Black art on transparency, as Standard Ebooks' logos are: the left half black, the
+        // right half clear.
+        let context = CGContext(data: nil, width: 40, height: 20, bitsPerComponent: 8, bytesPerRow: 0,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 20, height: 20))
+        let data = NSMutableData()
+        let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil)!
+        CGImageDestinationAddImage(destination, context.makeImage()!, nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        let cache = ReaderImageCache(budget: 64 << 20)
+        let fixture = try RichFixture("<img id='logo' src='logo.png'/><img id='plain' src='logo.png'/>",
+                                      files: ["logo.png": data as Data], cache: cache)
+        fixture.overrides["logo"] = { $0.invertsColors = true }
+        let logo = try attachment(fixture, "logo"), plain = try attachment(fixture, "plain")
+        XCTAssertTrue(logo.invertsColors)
+        XCTAssertFalse(plain.invertsColors)
+        let size = CGSize(width: 40, height: 20)
+        func pixels(_ attachment: ReaderImageAttachment) throws -> (left: [UInt8], right: [UInt8]) {
+            let image = try XCTUnwrap(attachment.image(forBounds: CGRect(origin: .zero, size: size), textContainer: nil, characterIndex: 0))
+            let drawn = try XCTUnwrap(Self.draw(image, size: size, scale: 1))
+            return (Self.rgba(drawn, x: 5, y: 10), Self.rgba(drawn, x: 35, y: 10))
+        }
+        let normal = try pixels(plain), inverted = try pixels(logo)
+        XCTAssertEqual(normal.left, [0, 0, 0, 255])
+        XCTAssertEqual(inverted.left, [255, 255, 255, 255], "Black becomes white")
+        XCTAssertEqual(normal.right[3], 0)
+        XCTAssertEqual(inverted.right[3], 0, "Transparency stays transparent")
+        XCTAssertEqual(cache.count, 2, "The inverted decode is cached apart")
+        _ = try pixels(logo)
+        XCTAssertEqual(cache.decodeCount, 2)
+    }
+
     func testCacheEvictsLeastRecentlyUsedPastItsBudget() throws {
         let files = (0..<4).reduce(into: [String: Data]()) { $0["i\($1).png"] = RichFixture.image(width: 512, height: 512) }
         let fixture = try RichFixture((0..<4).map { "<img id='i\($0)' src='i\($0).png'/>" }.joined(), files: files)
@@ -358,6 +392,16 @@ final class RichImageTests: XCTestCase {
         UIGraphicsPopContext()
         #endif
         return context.makeImage()
+    }
+
+    /// A pixel's premultiplied RGBA, top-left origin.
+    static func rgba(_ image: CGImage, x: Int, y: Int) -> [UInt8] {
+        let context = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.draw(image, in: CGRect(x: -CGFloat(x), y: -CGFloat(image.height - 1 - y),
+                                       width: CGFloat(image.width), height: CGFloat(image.height)))
+        let data = context.data!.assumingMemoryBound(to: UInt8.self)
+        return (0..<4).map { data[$0] }
     }
 
     /// The blue channel at the image's centre, 0–1.

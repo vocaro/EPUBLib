@@ -12,8 +12,8 @@ import AppKit
 /// MathML goes to `MathContent`. Colors follow `context.typography.isDark` (a section is
 /// rebuilt when the appearance changes).
 ///
-/// A table's result has several paragraphs (caption, then one per row unit) with their own
-/// paragraph styles: no spacing between row units, and a 1 pt font so a row's line is exactly
+/// A table's result has several paragraphs (caption, then one per row) with their own
+/// paragraph styles: no spacing between rows, and a 1 pt font so a row's line is exactly
 /// its attachment's height. The builder should apply the table's margins to the first and last
 /// paragraphs and keep the others' paragraph attributes.
 struct NativeRichContent: RichContentFactory {

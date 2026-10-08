@@ -18,6 +18,7 @@ enum CSSProperty: Int, CaseIterable, Sendable {
     case textAlign, textIndent, whiteSpace, textTransform, letterSpacing, wordSpacing
     case direction, writingMode, listStyleType, listStylePosition, hyphens, visibility
     case borderCollapse, borderSpacing, captionSide
+    case filter
 
     static let count = allCases.count
 
@@ -310,6 +311,7 @@ enum CSSPropertyParser {
         case "border-collapse": .borderCollapse
         case "border-spacing": .borderSpacing
         case "caption-side": .captionSide
+        case "filter", "-webkit-filter": .filter
         default: nil
         }
     }
@@ -528,6 +530,8 @@ enum CSSPropertyParser {
             case "top", "block-start": return .flag(false)
             default: return nil
             }
+        case .filter:
+            return filterInverts(c).map(CSSValue.flag)
         case .borderSpacing:
             guard (1...2).contains(c.count) else { return nil }
             let values = c.compactMap { component -> CSSLength? in
@@ -726,6 +730,28 @@ enum CSSPropertyParser {
         case "oblique" where c.count <= 2: true
         default: nil
         }
+    }
+
+    /// Whether a `filter` list inverts colors: `none`, or filter functions of which `invert()`
+    /// counts at 50% or more (each such one flips the result). Other functions are not drawn.
+    private static func filterInverts(_ c: [CSSComponent]) -> Bool? {
+        if c.count == 1, c[0].ident == "none" { return false }
+        guard !c.isEmpty else { return nil }
+        var inverts = false
+        for component in c {
+            guard case .function(let name, let arguments) = component else { return nil }
+            guard name == "invert" else { continue }
+            let amount: Double
+            switch arguments.significant.first {
+            case nil: amount = 1
+            case .token(.number(let value, _, _))?: amount = value
+            case .token(.percentage(let value))?: amount = value / 100
+            default: return nil
+            }
+            guard amount >= 0 else { return nil }
+            if min(amount, 1) >= 0.5 { inverts.toggle() }
+        }
+        return inverts
     }
 
     private static func smallCaps(_ keyword: String) -> Bool? {

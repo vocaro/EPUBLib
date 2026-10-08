@@ -126,6 +126,9 @@ struct ComputedStyle: Equatable, Sendable {
     /// `text-decoration-line` with CSS's propagation to descendants already applied.
     var textDecoration: Decoration = []
     var textDecorationColor: Color?
+    /// `filter: invert(…)` of at least 50%: the element's image is drawn with its colors inverted
+    /// (Standard Ebooks inverts black-on-transparent art in dark appearance this way).
+    var invertsColors = false
 
     // Text. Inherited.
     /// Lowercased, unquoted family names in preference order, generic families included

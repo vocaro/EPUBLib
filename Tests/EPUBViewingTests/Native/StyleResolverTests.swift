@@ -395,6 +395,34 @@ final class StyleResolverTests: XCTestCase {
         XCTAssertEqual(try styled(body, css: css).style("q").fontWeight, 400)
     }
 
+    func testFilterInvertMarksAnElementForColorInversion() throws {
+        let body = """
+            <img id="logo" epub:type="se:image.color-depth.black-on-transparent" src="a.png" alt=""/><img id="photo" src="b.png" alt=""/>
+            <p id="half" style="filter: invert(50%)">a</p><p id="weak" style="filter: invert(0.4)">b</p>
+            <p id="twice" style="filter: invert(1) invert(100%)">c</p><p id="prefixed" style="-webkit-filter: grayscale(1) invert()">d</p>
+            <p id="none" style="filter: none">e</p><p id="bad" style="filter: invert(red)">f</p>
+            <div id="parent" style="filter: invert(1)"><p id="child">g</p></div>
+            """
+        // Standard Ebooks' dark-appearance rule for black-on-transparent art.
+        let css = """
+            @namespace epub "http://www.idpf.org/2007/ops";
+            @media (prefers-color-scheme: dark) { img[epub|type~="se:image.color-depth.black-on-transparent"] { filter: invert(100%) } }
+            """
+        let light = try styled(body, css: css)
+        let dark = try styled(body, css: css, typography: .init(fontSize: 16, isDark: true))
+        XCTAssertFalse(light.style("logo").invertsColors)
+        XCTAssertTrue(dark.style("logo").invertsColors)
+        XCTAssertFalse(dark.style("photo").invertsColors)
+        XCTAssertTrue(light.style("half").invertsColors)
+        XCTAssertFalse(light.style("weak").invertsColors)
+        XCTAssertFalse(light.style("twice").invertsColors, "Two inversions cancel")
+        XCTAssertTrue(light.style("prefixed").invertsColors)
+        XCTAssertFalse(light.style("none").invertsColors)
+        XCTAssertFalse(light.style("bad").invertsColors, "An invalid filter is dropped")
+        XCTAssertTrue(light.style("parent").invertsColors)
+        XCTAssertFalse(light.style("child").invertsColors, "Not inherited")
+    }
+
     func testPresentationalHints() throws {
         let result = try styled("""
             <p id="p" align="center">p</p><img id="img" src="x.png" width="120" height="50%" align="left" alt=""/>
