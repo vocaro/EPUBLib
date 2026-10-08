@@ -109,11 +109,19 @@ enum PageTurnResult: Equatable, Sendable {
     /// Setting it relays out as needed and keeps the current position visible.
     var configuration: ReaderCanvasConfiguration { get set }
     /// Section text changed (rebuilt for a style) or the whole book became available.
-    /// Keeps `position` (default: the current visible start) at the top of the view.
+    /// Keeps `position` at the top of the view. The default is the position the canvas is
+    /// keeping: the last one shown, else the visible start after a page turn or scroll (so
+    /// repeated rebuilds and resizes do not drift towards page starts).
     func reloadContent(keeping position: ReaderTextPosition?)
     /// Brings `position` into view: its page in paginated flow, the top of the view in
-    /// continuous scroll. `selecting` (one section) also selects that range natively.
+    /// continuous scroll. `selecting` (one section) also selects that range natively and is
+    /// reported through `canvas(_:didChangeSelection:)` with exactly that range once it settles,
+    /// even where the native selection stops at the page's end. Before the canvas has a size or
+    /// the section's text, both wait for the first layout or `reloadContent`.
     func show(_ position: ReaderTextPosition, selecting range: ReaderTextRange?)
+    /// Paginated: the next or previous spread, crossing into the adjacent linear section at a
+    /// section's end. Continuous scroll: one viewport less a line, crossing sections only while
+    /// the whole book is not built. Reports `canvas(_:didShow:sectionProgress:)` when it turns.
     func turnPage(forward: Bool) -> PageTurnResult
     /// What is on screen; nil before the first layout.
     var visibleRange: ReaderTextRange? { get }
