@@ -151,12 +151,9 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 
+    /// The host may focus the canvas for hardware keys; it never takes focus on its own, which
+    /// would dismiss a keyboard elsewhere in the window.
     override var canBecomeFirstResponder: Bool { true }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if window != nil, !textViews.contains(where: \.isFirstResponder) { becomeFirstResponder() }
-    }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         guard let forward = presses.lazy.compactMap({ ReaderTextView.pageTurnDirection(for: $0) }).first else {

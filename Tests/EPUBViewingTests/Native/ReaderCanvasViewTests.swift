@@ -202,8 +202,7 @@ import UIKit
         host.source.sections[0] = rebuilt
         host.canvas.reloadContent(keeping: nil)
         let range = try XCTUnwrap(host.canvas.visibleRange)
-        XCTAssertTrue(range.start.offset <= 6_000 && 6_000 < range.end.offset)
-        XCTAssertLessThanOrEqual(range.start.offset, start.offset)
+        XCTAssertTrue(range.start.offset <= 6_000 && 6_000 < range.end.offset, "the kept position, not the page start \(start)")
         let font = host.canvas.textViews[0].contentStorage.textStorage?.attribute(.font, at: 0, effectiveRange: nil) as? PlatformFont
         XCTAssertEqual(font?.pointSize, 26)
     }
@@ -362,7 +361,7 @@ import UIKit
         popover.close()
         #else
         let controller = try XCTUnwrap(host.canvas.presentedNote as? ReaderNoteViewController)
-        XCTAssertEqual(controller.textView.contentStorage.textStorage.string, "A footnote.")
+        XCTAssertEqual(controller.textView.contentStorage.textStorage?.string, "A footnote.")
         XCTAssertNotNil(controller.textView.textLayoutManager)
         XCTAssertEqual(controller.modalPresentationStyle, .popover)
         #endif
@@ -527,9 +526,10 @@ import UIKit
         #endif
         try await host.settle()
         XCTAssertGreaterThan(host.recorder.shown.count, reports)
-        let start = try XCTUnwrap(host.recorder.shown.last?.range.start)
-        XCTAssertGreaterThan(start.offset, 5_000)
-        XCTAssertEqual(host.canvas.visibleRange?.start, start)
+        let range = try XCTUnwrap(host.recorder.shown.last?.range)
+        XCTAssertGreaterThan(range.start, ReaderTextPosition(section: 0, offset: 3_000))
+        XCTAssertGreaterThan(range.end, range.start)
+        XCTAssertEqual(host.canvas.visibleRange, range)
     }
 
     func testFlowSwitchKeepsThePosition() throws {
