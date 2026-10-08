@@ -7,7 +7,7 @@
 - Continuous scroll is one real scroll view over the whole book, running under the bars with the system scroll edge effects; the drawn edge fades are gone and nothing resets at a section boundary. This supersedes the unreleased interim bottom-inset fix (`4b7942d`) ([vocaro/studywright#379](https://github.com/vocaro/studywright/issues/379), [#73](https://github.com/vocaro/studywright/issues/73)).
 - Page turns use one or two columns by the page's own size, and `View.epubReaderDivision(_:)` puts a two-column spread's gutter on a host-reserved fold ([vocaro/studywright#278](https://github.com/vocaro/studywright/issues/278)).
 - Add `EPUBReaderCommand.setHighlights`, `EPUBHighlight` and the `highlights` capability, drawing host highlights while reading ([vocaro/studywright#85](https://github.com/vocaro/studywright/issues/85)). Selections have no length cap.
-- Render tables, images, footnote popovers and MathML natively; MathML through the new internal `MathMLLayout` target. Fixed-layout books reflow and vertical writing renders horizontally, each with a disclosure; sessions advertise every capability.
+- Render tables, images, footnote popovers and MathML natively; MathML through the new [MathMLLayout](https://github.com/vocaro/MathMLLayout) package (0.1.0), which began as a target here and moved to its own repository. Fixed-layout books reflow and vertical writing renders horizontally, each with a disclosure; sessions advertise every capability.
 - `EPUBPublication.pageProgression` exposes the spine's `page-progression-direction`.
 - Remove foliate-js, zip.js, the bootstrap page, scheme handler, URL patch, JavaScript bridge and vendor identity check. The Mac sample no longer needs the network client entitlement.
 

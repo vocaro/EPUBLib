@@ -7,10 +7,10 @@
   `Sources/EPUBViewing/Native/Position/` ports its `epubcfi.js`, `search.js` and
   `text-walker.js` to Swift, and the native viewer's column arithmetic follows its
   `paginator.js`. The license follows. No foliate-js file ships in the package.
-- **STIX Two Math** — SIL Open Font License 1.1 — Copyright 2001-2021 The STIX Fonts Project Authors.
-  `MathMLLayout` draws with the copy that macOS and iOS install; EPUBLib does not
-  distribute the font. `MathMLLayout` contains no third-party code: its layout follows the
-  W3C MathML Core and OpenType MATH table specifications and The TeXbook's appendix G.
+- **MathMLLayout 0.1.0** — MIT — Copyright (c) 2026 Trevor Harmon.
+  https://github.com/vocaro/MathMLLayout. Its Swift package includes its MIT license. It draws
+  with the copy of STIX Two Math (SIL Open Font License 1.1, Copyright 2001-2021 The STIX Fonts
+  Project Authors) that macOS and iOS install; neither package distributes the font.
 
 The native viewer and its regression tests originate in StudyWright and EPUBLib, Copyright Trevor
 Harmon, and are distributed here under this repository's MIT license.

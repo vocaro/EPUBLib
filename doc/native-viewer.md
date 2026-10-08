@@ -57,7 +57,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
 - **Vertical writing.** TextKit 2 on iOS has no vertical layout. `writing-mode: vertical-*`
   renders horizontally, with a `.disclosure`. Ruby and right-to-left text are native. Faithful
   vertical rendering is tracked in [#7](https://github.com/vocaro/EPUBLib/issues/7).
-- **MathML.** A native layout engine (CoreText) draws each `<math>` as an attachment,
+- **MathML.** A native layout engine, the [MathMLLayout](https://github.com/vocaro/MathMLLayout)
+  package (CoreText and the OpenType MATH table), draws each `<math>` as an attachment,
   baseline-aligned inline and centred for `display="block"`. The corpus uses `mi`, `mn`, `mo`,
   `mrow`, `mfrac`, `msup`, `msub`, `msqrt` and `mstyle` (1,798 formulas, all with `alttext`);
   the engine also covers the common remainder. Anything it cannot lay out shows its `alttext`

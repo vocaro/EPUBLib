@@ -10,9 +10,9 @@ contain no SwiftUI, WebKit, PDFKit, Vision, application policy or reconstructed-
 `EPUBViewing` owns the reader/session interface and the native viewer: content documents,
 the CSS subset, attributed text, CFIs, search and TextKit 2 views (see [native viewer](native-viewer.md)).
 It uses no WebKit and runs no JavaScript. Viewing depends on EPUBReading, EPUBCore and the
-internal `MathMLLayout` target, never EPUBText or EPUBWriting. `MathMLLayout` lays out
-presentation MathML with CoreText; it imports no EPUBLib module or UI framework, so it can move
-to its own package. EPUBWriting depends only on EPUBCore and ZIPFoundation, never EPUBReading or
+[MathMLLayout](https://github.com/vocaro/MathMLLayout) package (pinned exactly, like
+ZIPFoundation), never EPUBText or EPUBWriting. MathMLLayout lays out presentation MathML with
+CoreText and imports no EPUBLib module or UI framework. EPUBWriting depends only on EPUBCore and ZIPFoundation, never EPUBReading or
 viewing. The adapter-contract helper is an internal test-support target, not a library product.
 
 Source API compatibility with the former package is not a constraint. Publication fingerprints

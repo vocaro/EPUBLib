@@ -32,7 +32,7 @@ expansion starts, and exact IDPF/Adobe font deobfuscation vectors. The font test
 prefix and the untouched suffix against independently specified keys.
 
 Viewer component tests cover content-document parsing, the CSS cascade and fonts, attributed-text
-building and its text map, images, tables, MathML layout, CFIs and text search, pagination
+building and its text map, images, tables, MathML attachments, CFIs and text search, pagination
 geometry and the TextKit 2 views. CFI and search tests replay vectors recorded from foliate-js's own
 `epubcfi.js` and `search.js` in WebKit before they were removed, so CFIs the WebKit reader
 recorded keep naming the same positions. Live session tests mount a reader in a window, navigate
