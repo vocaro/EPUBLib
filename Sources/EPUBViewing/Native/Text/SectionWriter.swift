@@ -271,7 +271,8 @@ final class SectionWriter {
                 insert(result, for: node, style: style, context: context)
                 return
             }
-            role = .tableRows
+            // A one-column table (a callout box) flows as ordinary blocks; wider ones as tabbed rows.
+            role = Self.maximumCellsPerRow(node) > 1 ? .tableRows : .normal
         case "object", "embed":
             let reference = node.name == "object" ? node.attribute("data") : node.attribute("src")
             if isImage(reference, type: node.attribute("type")),
@@ -396,6 +397,20 @@ final class SectionWriter {
         let entry = Entry(node: node, children: node.elementChildren, style: style, context: context)
         entry.role = .switchBranches(chosen: chosen)
         stack.append(entry)
+    }
+
+    /// The most cells in one of a table's own rows (not a nested table's).
+    private static func maximumCellsPerRow(_ table: ContentNode) -> Int {
+        var maximum = 0
+        func visit(_ node: ContentNode) {
+            for child in node.elementChildren where child.isHTML {
+                if child.name == "tr" {
+                    maximum = max(maximum, child.elementChildren.reduce(0) { $0 + ($1.isHTML("td") || $1.isHTML("th") ? 1 : 0) })
+                } else if ContentSemantics.rowGroups.contains(child.name) { visit(child) }
+            }
+        }
+        visit(table)
+        return maximum
     }
 
     /// Ids and notes inside content that is not rendered still get anchors and note text.
@@ -812,12 +827,15 @@ final class SectionWriter {
         prepareForContent(next: Self.scalar(units, at: range.lowerBound))
         let location = buffer.count
         if collectingRubyBase, rubyBaseStart == nil { rubyBaseStart = location }
-        let rendered = style.textTransform == .none ? nil : transform(units[range], style.textTransform, language: context.language)
-        if spaceAttributes == attributes {
-            if let rendered { buffer.append(rendered, attributes: attributes) } else { buffer.append(units[range], attributes: attributes) }
+        let transformed = style.textTransform == .none ? nil : transform(units[range], style.textTransform, language: context.language)
+        let characters = transformed.map { $0[...] } ?? units[range]
+        if style.isSmallCaps, state.request.fonts.needsSyntheticSmallCaps(for: style) {
+            emitSyntheticSmallCaps(characters, style: style, context: context, attributes: attributes,
+                                   spaceAttributes: spaceAttributes)
+        } else if spaceAttributes == attributes {
+            buffer.append(characters, attributes: attributes)
         } else {
             // `word-spacing` widens each space: those take their own attributes.
-            let characters = rendered.map { $0[...] } ?? units[range]
             var start = characters.startIndex
             for index in characters.indices where characters[index] == 0x20 {
                 buffer.append(characters[start..<index], attributes: attributes)
@@ -831,6 +849,24 @@ final class SectionWriter {
         mapSpan(location: location, length: length, node: node, offset: range.lowerBound,
                 sourceLength: range.count, exact: length == range.count)
         didEmitContent()
+    }
+
+    /// Small caps for a font without them, as browsers fake them: lower-case letters as capitals
+    /// in a smaller size. The characters change, so the run maps as a whole when its length does.
+    private func emitSyntheticSmallCaps(_ characters: ArraySlice<UInt16>, style: ComputedStyle, context: InlineContext,
+                                        attributes: Int, spaceAttributes: Int) {
+        var small = style
+        small.isSmallCaps = false
+        small.fontSize = style.fontSize * 0.7
+        let smallAttributes = styling.attributes(small, context)
+        let locale = Locale(identifier: context.language ?? "en")
+        for character in String(decoding: characters, as: UTF16.self) {
+            if character.isLowercase {
+                buffer.append(String(character).uppercased(with: locale).utf16, attributes: smallAttributes)
+            } else {
+                buffer.append(String(character).utf16, attributes: character == " " ? spaceAttributes : attributes)
+            }
+        }
     }
 
     /// Generated text that reads as content (`<q>` marks, inline markers): it ends a line start.

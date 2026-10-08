@@ -244,6 +244,31 @@ final class SectionBuilderTests: XCTestCase {
         XCTAssertNil(H.attribute(.obliqueness, of: "slanted", in: text)) // The system serif has an italic.
     }
 
+    func testSyntheticFacesForFamiliesThatLackThem() throws {
+        let georgia = CTFontCreateWithName("Georgia" as CFString, 12, nil)
+        guard CTFontCopyPostScriptName(georgia) as String == "Georgia",
+              let url = CTFontCopyAttribute(georgia, kCTFontURLAttribute) as? URL else { throw XCTSkip("Georgia is not installed") }
+        var files = try Fixture.files()
+        files["OPS/fonts/regular.ttf"] = try Data(contentsOf: url)
+        let book = try EPUBPublication.open(data: Fixture.archive(files))
+        let fonts = FontRegistry(publication: book)
+        var report = SectionReport()
+        fonts.register([CSSFontFace(family: "regular only", sources: ["OPS/fonts/regular.ttf"])], report: &report)
+        let text = H.build(document: try H.document("<p class='face'><em>slant</em> <b>bold</b> <span class='g'>Small Caps</span></p>"),
+                           rules: [(".face", { $0.fontFamilies = ["regular only"] }),
+                                   (".g", { $0.fontFamilies = ["georgia"]; $0.isSmallCaps = true })],
+                           publication: book, fonts: fonts)
+        XCTAssertEqual(H.attribute(.obliqueness, of: "slant", in: text) as? CGFloat, 0.2)
+        XCTAssertNil(H.attribute(.strokeWidth, of: "slant", in: text))
+        XCTAssertEqual(H.attribute(.strokeWidth, of: "bold", in: text) as? CGFloat, -3)
+        XCTAssertNil(H.attribute(.obliqueness, of: "bold", in: text))
+        XCTAssertEqual(text.string.string, "slant bold SMALL CAPS")
+        let capital = try XCTUnwrap(H.attribute(.font, of: "SMALL", in: text) as? PlatformFont)
+        let small = try XCTUnwrap(H.attribute(.font, of: "MALL", in: text) as? PlatformFont)
+        XCTAssertEqual(small.pointSize, capital.pointSize * 0.7, accuracy: 0.01)
+        H.assertMapRoundTrips(text)
+    }
+
     func testQuotesIsolatesAndWordBreaks() throws {
         let text = try H.build("""
             <p>He said <q>she said <q>no</q> twice</q>.</p><p lang="de"><q>Ja</q></p>\
@@ -393,6 +418,13 @@ final class SectionBuilderTests: XCTestCase {
         let svg = try XCTUnwrap(text.map.spans.first { $0.node == text.document.element(id: "art")!.order })
         XCTAssertEqual(text.anchors["inner"], svg.location)
         XCTAssertEqual(text.anchors["art"], svg.location)
+        H.assertMapRoundTrips(text)
+    }
+
+    func testOneColumnTablesFlowAsText() throws {
+        let text = try H.build("<table><tr><td><p>Callout</p><ul><li>point</li></ul></td></tr><tr><td>More</td></tr></table>",
+                               rules: [("ul", { $0.padding.left = .points(40) })])
+        XCTAssertEqual(text.string.string, "Callout\n•\tpoint\nMore")
         H.assertMapRoundTrips(text)
     }
 

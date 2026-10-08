@@ -36,10 +36,10 @@ enum BuilderHarness {
 
     static func build(document: ContentDocument, dark: Bool = false, spineIndex: Int = 0,
                       rich: any RichContentFactory = PlaceholderRichContent(), rules: [Rule] = [],
-                      publication: EPUBPublication = publication) -> SectionText {
+                      publication: EPUBPublication = publication, fonts: FontRegistry? = nil) -> SectionText {
         let typography = NativeTypography(fontSize: 16, isDark: dark)
         let request = SectionBuildRequest(publication: publication, spineIndex: spineIndex, typography: typography,
-                                          fonts: FontRegistry(publication: publication), rich: rich)
+                                          fonts: fonts ?? FontRegistry(publication: publication), rich: rich)
         let resolver = StyleResolver(document: document, stylesheets: [], typography: typography)
         return SectionBuilder.build(document: document, request: request, initialStyle: resolver.initialStyle) { node, parent in
             var style = resolver.style(for: node, parent: parent)

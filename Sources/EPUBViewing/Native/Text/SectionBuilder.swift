@@ -39,9 +39,9 @@ enum SectionBuilder {
             return withheld(request, reason: error)
         }
         var report = SectionReport()
-        let sheets = SectionStyles.load(for: document, publication: request.publication, report: &report)
-        for sheet in sheets where !sheet.fontFaces.isEmpty { request.fonts.register(sheet.fontFaces, report: &report) }
+        let sheets = SectionStyles.load(for: document, publication: request.publication, fonts: request.fonts, report: &report)
         let resolver = StyleResolver(document: document, stylesheets: sheets, typography: request.typography)
+        report.stylesTruncated = report.stylesTruncated || resolver.stylesTruncated
         return build(document: document, request: request, initialStyle: resolver.initialStyle, report: report) {
             resolver.style(for: $0, parent: $1)
         }

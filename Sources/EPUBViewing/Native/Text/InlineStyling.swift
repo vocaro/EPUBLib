@@ -47,6 +47,7 @@ final class InlineStyling {
         var baselineOffset: CGFloat
         var kern: CGFloat
         var oblique: Bool
+        var embolden: Bool
         var language: String?
         var link: String?
     }
@@ -74,7 +75,8 @@ final class InlineStyling {
                       decorationColor: decorate ? style.textDecorationColor : nil,
                       baselineOffset: context.baselineOffset,
                       kern: style.letterSpacing + (wordSpacing ? style.wordSpacing : 0),
-                      oblique: style.isItalic && Self.needsSyntheticOblique(font),
+                      oblique: fonts.needsSyntheticItalic(for: style),
+                      embolden: fonts.needsSyntheticBold(for: style),
                       language: context.language, link: link?.url.absoluteString)
         if let index = indices[key] { return index }
         var attributes: [NSAttributedString.Key: Any] = [.font: font]
@@ -96,19 +98,14 @@ final class InlineStyling {
         if key.baselineOffset != 0 { attributes[.baselineOffset] = key.baselineOffset }
         if key.kern != 0 { attributes[.kern] = key.kern }
         if key.oblique { attributes[.obliqueness] = 0.2 }
+        // A negative stroke width fills and strokes the glyphs: a face the family lacks, emboldened.
+        if key.embolden { attributes[.strokeWidth] = -3.0 }
         if let language = key.language { attributes[Self.languageKey] = language }
         if let link { attributes[.link] = link.url }
         let index = dictionaries.count
         dictionaries.append(attributes as NSDictionary as CFDictionary)
         indices[key] = index
         return index
-    }
-
-    /// An italic style whose font has no italic face and was not already slanted by the registry
-    /// (through its matrix) gets a synthetic oblique, as browsers synthesize one.
-    private static func needsSyntheticOblique(_ font: PlatformFont) -> Bool {
-        let font = font as CTFont
-        return !CTFontGetSymbolicTraits(font).contains(.traitItalic) && CTFontGetMatrix(font).c == 0
     }
 
     func platformColor(_ color: ComputedStyle.Color) -> PlatformColor {
