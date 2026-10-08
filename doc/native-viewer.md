@@ -61,8 +61,11 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   render as that image with the SVG's sizing. Other SVG is shown where the platform image
   decoder supports it, else as its title or nothing, and is disclosed.
 - **Tables.** Attachments drawn natively (TextKit 2 has no `NSTextTable` on iOS), one
-  attachment per row group so pages can break between rows; `colspan`/`rowspan` honoured.
-  Cell text is not selectable; it is searchable and readable by VoiceOver.
+  attachment per row group so pages can break between rows; `colspan`/`rowspan` honoured
+  (`rowspan="0"` spans one row, as WebKit does). Tables too wide for the line shrink their
+  text to 60%, then wrap by character. One-column tables, which books use as callout boxes,
+  flow as ordinary text. Cell text is not selectable; it is searchable and readable by
+  VoiceOver.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow; endnotes stay in place and also show in popovers.
 - **Continuous scroll** is whole-book: one `UITextView`/`NSTextView` over every section, so
@@ -96,11 +99,14 @@ as they did.
   and bottom 64 on top of the live safe area, `textContainerInset` only horizontal, and
   `.soft` top and bottom edge effects; nothing is drawn. On macOS the scroll view uses AppKit's
   automatic content insets and the window toolbar's own edge effect.
-- **Pages.** A section is laid out once per column width; pages are slices of that layout at
+- **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
-  `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next. A spread
-  shows consecutive slices. Each column is a non-scrolling TextKit 2 text view showing its
-  slice, so selection, VoiceOver and link interaction are native.
+  `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
+  past the page's first line). An attachment taller than a page gets a page of its own. A
+  spread shows consecutive slices. Each column is a non-scrolling TextKit 2 text view holding
+  only its page's text, so selection, VoiceOver and link interaction are native and stay on the
+  page; a paragraph that continues onto the next page is laid out to its end and clipped, so
+  its lines break exactly as in the measuring layout.
 - **Right to left.** `page-progression-direction="rtl"` mirrors spreads, swipes and tap zones.
 
 ## Input and accessibility
@@ -138,3 +144,51 @@ Books are untrusted. Nothing is executed: there is no JavaScript engine. Every r
 resolves inside the archive through `ResourceReference`; remote URLs are never fetched and are
 counted for disclosure. XML, CSS and font input is bounded, and the import limits in
 `EPUBReading` still apply. External links are refused with a notice.
+
+## Qualification
+
+The spike the issue asked for ran on the books StudyWright reads, with the opt-in
+`NativeCorpusQualificationTests` (`EPUBLIB_CORPUS`): the 50 shipped catalog EPUBs (Standard
+Ebooks, Project Gutenberg and government titles), the 87 PDFReflowLib conversions of the
+review set, and, as a sample of imported EPUBs, 165 conversions of the same PDFs by two other
+converters (72 of which EPUBReading opens; the rest reference resources missing from their
+archives and are refused by the parser, as before).
+
+- **Fidelity.** 213 books, 9,566 sections, 90 million rendered characters and 55,748
+  attachments built with no crash, no withheld section and no text-map round-trip failure.
+  All 1,798 formulas lay out natively (no `alttext` fallback); 19 sections of third-party
+  conversions needed the forgiving HTML parser; 84 remote resource references in catalog
+  books were refused. Computed styles were compared with WebKit's on 68,817 elements across
+  the catalogs; after the reader's deliberate defaults, the remaining differences were centred
+  figure captions and `ex` units.
+- **CFI compatibility.** CFIs and search are checked against vectors recorded from foliate-js
+  itself in WebKit: about 2,800 range-to-CFI conversions, 3,300 resolutions, spine bases,
+  parse/print round trips and quote matches.
+- **Time** (release build, Apple M5 Max, macOS 27; expect an iPhone to be several times
+  slower). Opening a book: median 6 ms. Time to first paint is the first section's build:
+  median 1.4 ms, 95th percentile 26 ms, worst 55 ms. Building every section in the background:
+  median 8 ms, worst 183 ms. A 1 MB section shows its first page in about 8 ms and turns pages
+  in about 1 ms; a 3.5 MB, 300-section book opens in continuous scroll in about 50 ms.
+- **Memory.** A book's footprint is dominated by `EPUBReading`'s in-memory snapshot (its
+  compressed and expanded bytes, unchanged by this work). Images are never decoded during a
+  build; they decode downsampled when drawn, into a shared 96 MB cache that evicts least
+  recently used and trims on memory pressure.
+
+Go: the native viewer is the bundled engine.
+
+## Limitations
+
+- Fixed-layout books reflow; vertical writing renders horizontally (both disclosed).
+- Floats and absolute positioning are not laid out: a floated attachment sets to its side, an
+  out-of-flow box is skipped; `inline-block` is inline; percentages in margins and indents
+  resolve against a nominal 600-pt column.
+- Table cell text is not selectable and links inside cells do not activate; a single table row
+  taller than a page overflows it.
+- MathML has no line breaking (wide formulas scale down), no `mglyph` or elementary-math
+  elements, and English-only spoken readings when `alttext` is absent.
+- Search in languages with tailored collation (Turkish, Swedish, Spanish…) finds a superset
+  of foliate's matches. Documents WebKit would have re-read as HTML can yield CFIs that differ
+  from foliate's in whitespace outside the body or where HTML tree construction reshapes markup.
+- VoiceOver's line-by-line navigation inside a column may reach the clipped remainder of a
+  paragraph that continues on the next page.
+
