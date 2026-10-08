@@ -27,6 +27,8 @@ import AppKit
 /// - Whitespace follows CSS Text 3 per `white-space`: collapsible runs collapse across inline
 ///   boundaries, a run at a line's start or end is removed, and a segment break between two East
 ///   Asian wide characters disappears. A single trailing forced break in a block makes no line.
+/// - Floats render in place (a lone floated attachment sets to its side). Out-of-flow boxes
+///   (`position: absolute|fixed`) are left out of reflowable sections, keeping their anchors.
 /// - Every rendered character from the DOM is mapped (`TextMap`); generated text is not.
 final class SectionWriter {
     enum Mode: Equatable {
