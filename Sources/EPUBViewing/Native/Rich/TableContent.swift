@@ -156,9 +156,10 @@ enum TableContent {
                     guard let cellStyle = visible(cell, rowStyle) else { continue }
                     while column < occupied[index].count, occupied[index][column] { column += 1 }
                     let columnSpan = min(1000, max(1, Int(cell.attribute("colspan") ?? "") ?? 1))
-                    let remaining = groupRows.count - offset
+                    // `rowspan="0"` spans one row, as WebKit (and so the WebKit reader) treats it;
+                    // books written for WebKit put it on every cell.
                     let requested = Int(cell.attribute("rowspan") ?? "") ?? 1
-                    let rowSpan = requested == 0 ? remaining : min(remaining, max(1, requested))
+                    let rowSpan = min(groupRows.count - offset, max(1, requested))
                     guard column + columnSpan <= TableModel.maximumColumns, placed.count < TableModel.maximumCells else {
                         truncated = true
                         if placed.count >= TableModel.maximumCells { break groupLoop }

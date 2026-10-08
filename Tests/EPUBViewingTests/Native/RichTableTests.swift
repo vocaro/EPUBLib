@@ -106,17 +106,18 @@ final class RichTableTests: XCTestCase {
         <table id="g"><thead><tr><th>H1</th><th>H2</th></tr><tr><th>h1</th><th>h2</th></tr></thead>
         <tfoot><tr><td>F1</td><td>F2</td></tr></tfoot>
         <tbody><tr><td rowspan="2">a</td><td>b</td></tr><tr><td>c</td></tr><tr><td>d</td><td>e</td></tr>
-        <tr><td>f</td><td rowspan="0">g</td></tr><tr><td>h</td></tr></tbody></table>
+        <tr><td>f</td><td rowspan="2">g</td></tr><tr><td>h</td></tr><tr><td rowspan="0">i</td><td rowspan="9">j</td></tr></tbody></table>
         """)
         let text = try XCTUnwrap(fixture.table("g"))
         let rows = RichFixture.attachments(in: text).compactMap { $0 as? TableRowsAttachment }
         let table = try XCTUnwrap(rows.first?.table)
-        XCTAssertEqual(table.units, [0..<2, 2..<4, 4..<5, 5..<7, 7..<8])
-        XCTAssertEqual(rows.map(\.unit), [0, 1, 2, 3, 4])
+        XCTAssertEqual(table.units, [0..<2, 2..<4, 4..<5, 5..<7, 7..<8, 8..<9])
+        XCTAssertEqual(rows.map(\.unit), [0, 1, 2, 3, 4, 5])
         XCTAssertEqual(table.cells.last?.text, "F2", "The footer goes last")
-        XCTAssertEqual(table.cells.first { $0.text == "g" }?.rowSpan, 2, "rowspan=0 runs to the end of its group")
+        XCTAssertEqual(table.cells.first { $0.text == "i" }?.rowSpan, 1, "rowspan=0 is one row, as in WebKit")
+        XCTAssertEqual(table.cells.first { $0.text == "j" }?.rowSpan, 1, "A rowspan ends with its row group")
         // One paragraph per unit, no spacing between, the header kept with what follows.
-        XCTAssertEqual(text.string, Array(repeating: "\u{FFFC}", count: 5).joined(separator: "\n"))
+        XCTAssertEqual(text.string, Array(repeating: "\u{FFFC}", count: 6).joined(separator: "\n"))
         XCTAssertEqual(text.attribute(.readerKeepWithNext, at: 0, effectiveRange: nil) as? Bool, true)
         XCTAssertNil(text.attribute(.readerKeepWithNext, at: 2, effectiveRange: nil))
         let paragraph = try XCTUnwrap(text.attribute(.paragraphStyle, at: 2, effectiveRange: nil) as? NSParagraphStyle)
@@ -124,7 +125,7 @@ final class RichTableTests: XCTestCase {
         XCTAssertEqual(paragraph.paragraphSpacingBefore, 0)
         // Units stack without gaps.
         let layout = table.layout(available: 400, viewportHeight: 600)
-        XCTAssertEqual((0..<5).map(layout.height(ofUnit:)).reduce(0, +), layout.size.height, accuracy: 0.01)
+        XCTAssertEqual((0..<6).map(layout.height(ofUnit:)).reduce(0, +), layout.size.height, accuracy: 0.01)
         XCTAssertEqual(rows[2].accessibilityCells(size: CGSize(width: 400, height: layout.height(ofUnit: 2)), viewportHeight: 600).map(\.text),
                        ["d", "e"])
         let header = rows[0].accessibilityCells(size: CGSize(width: 400, height: layout.height(ofUnit: 0)), viewportHeight: 600)
