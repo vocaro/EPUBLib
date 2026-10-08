@@ -114,7 +114,7 @@ final class TableModel: @unchecked Sendable {
         guard !rows.isEmpty else { return [] }
         var reach = Array(rows.indices)
         for cell in cells { reach[cell.row] = max(reach[cell.row], min(rows.count - 1, cell.row + cell.rowSpan - 1)) }
-        var units: [Range<Int>] = []
+        var groups: [Range<Int>] = []
         var start = 0
         while start < rows.count {
             var end = reach[start]
@@ -124,17 +124,17 @@ final class TableModel: @unchecked Sendable {
                 if rows[row].isHeader, row + 1 < rows.count, rows[row + 1].isHeader { end = max(end, row + 1) }
                 row += 1
             }
-            units.append(start..<(end + 1))
+            groups.append(start..<(end + 1))
             start = end + 1
         }
-        return units
+        return groups
     }
 
     // MARK: Layout cache
 
     /// The layout for a line `available` wide in a viewport `viewportHeight` tall: the table
     /// drawn at most that wide, its text scaled down (to `minimumScale`) when its minimum width
-    /// is wider, and further when a unit would be taller than the viewport.
+    /// is wider, and further when a row would be taller than the viewport.
     func layout(available: CGFloat, viewportHeight: CGFloat) -> TableLayout {
         let key = LayoutKey(width: (max(1, available) * 4).rounded() / 4, height: max(1, viewportHeight).rounded())
         if let layout = lock.withLock({ layouts[key] }) { return layout }
