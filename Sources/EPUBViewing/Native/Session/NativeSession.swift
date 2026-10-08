@@ -10,7 +10,7 @@ import SwiftUI
     static let identifier = "org.epubreaderlib.foliate"
     static let bookmarkFormat = "epubcfi-v1"
     var id: String { Self.identifier }
-    var rich: any RichContentFactory = PlaceholderRichContent()
+    var rich: any RichContentFactory = NativeRichContent()
 
     func makeSession(publication: EPUBPublication, selectionAction: EPUBSelectionAction? = nil,
                      onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) throws -> any EPUBReaderSession {
@@ -180,7 +180,7 @@ import SwiftUI
     private func isCompatible(_ location: EPUBLocation) -> Bool {
         guard location.publicationID == publication.id, let bookmark = location.bookmark,
               bookmark.engineID == NativeEngine.identifier, bookmark.format == NativeEngine.bookmarkFormat,
-              EPUBCFI.isCFI(bookmark.value), bookmark.value.count <= 4_096 else { return false }
+              EPUBCFI.isWellFormed(bookmark.value) else { return false }
         return true
     }
 
@@ -234,9 +234,8 @@ import SwiftUI
         if isCurrent(ticket) { emit(.notice(Self.passageNotFound)) }
     }
 
-    private func language(of document: ContentDocument) -> String? {
-        document.language ?? publication.metadata.languages.first
-    }
+    /// The locale foliate-js searched in, so a quote matches as it did before.
+    private func language(of document: ContentDocument) -> String? { TextSearch.locale(of: document) }
 
     private func firstMatch(of quote: String, inSection index: Int) async -> TextSearch.Match? {
         guard let document = await book.document(index) else { return nil }

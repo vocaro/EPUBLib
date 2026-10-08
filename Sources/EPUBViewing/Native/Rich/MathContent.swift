@@ -89,6 +89,19 @@ final class MathAttachment: NSTextAttachment {
         self.layout = layout
         self.label = label
         super.init(data: nil, ofType: nil)
+        #if os(macOS)
+        // AppKit's TextKit 2 text view draws this image, at each destination's resolution. It
+        // never asks for `image(for:…)` unless `viewProvider(for:)` is overridden, which would
+        // stop it drawing the image; string drawing (table cells) uses the image too.
+        let size = CGSize(width: layout.width, height: layout.ascent + layout.descent)
+        let image = NSImage(size: size, flipped: false) { rect in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            Self.draw(layout, in: context, size: rect.size)
+            return true
+        }
+        image.accessibilityDescription = label
+        self.image = image
+        #endif
     }
 
     required init?(coder: NSCoder) { nil }
@@ -102,27 +115,10 @@ final class MathAttachment: NSTextAttachment {
     }
     #endif
 
-    #if os(macOS)
-    private var isLabelled = false
-
-    /// NSTextView exposes an attachment to accessibility through its cell, which AppKit makes
-    /// on first use (on the main thread). The cell gets the label and the image role there;
-    /// drawing still comes from `image(for:…)`, and the view stays on TextKit 2.
-    override var attachmentCell: (any NSTextAttachmentCellProtocol)? {
-        get {
-            let cell = super.attachmentCell
-            if !isLabelled, Thread.isMainThread, let cell = cell as? NSCell {
-                isLabelled = true
-                let label = label
-                MainActor.assumeIsolated {
-                    cell.setAccessibilityLabel(label)
-                    cell.setAccessibilityRole(.image)
-                }
-            }
-            return cell
-        }
-        set { super.attachmentCell = newValue }
-    }
+    #if os(iOS)
+    /// No view: the formula draws from `image(for:…)`.
+    override func viewProvider(for parentView: PlatformView?, location: any NSTextLocation,
+                               textContainer: NSTextContainer?) -> NSTextAttachmentViewProvider? { nil }
     #endif
 
     /// The formula's size scaled to fit `lineWidth`, origin at its descent below the baseline.
@@ -137,10 +133,12 @@ final class MathAttachment: NSTextAttachment {
         bounds(lineWidth: ReaderTextContainer.available(in: textContainer, lineWidth: proposedLineFragment.width).width)
     }
 
+    #if os(iOS)
     override func image(for bounds: CGRect, attributes: [NSAttributedString.Key: Any], location: any NSTextLocation,
                         textContainer: NSTextContainer?) -> PlatformImage? {
         image(size: bounds.size)
     }
+    #endif
 
     /// The formula drawn to fill `size`, cached for the last size and scale asked for.
     func image(size: CGSize) -> PlatformImage? {

@@ -170,9 +170,8 @@ final class MathContentTests: XCTestCase {
         #if os(iOS)
         XCTAssertEqual(described.accessibilityLabel, "x^2")
         #elseif os(macOS)
-        let cell = try XCTUnwrap(described.attachmentCell as? NSCell)
-        XCTAssertEqual(cell.accessibilityLabel(), "x^2")
-        XCTAssertEqual(cell.accessibilityRole(), .image)
+        XCTAssertEqual(described.image?.accessibilityDescription, "x^2")
+        XCTAssertEqual(described.textEquivalent, "x^2")
         #endif
     }
 
