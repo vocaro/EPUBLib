@@ -115,7 +115,6 @@ final class TableRowsImageAttachment: TableRowsAttachment {
 
 final class TableRowsViewProvider: NSTextAttachmentViewProvider {
     override func loadView() {
-        // TextKit loads views on the main thread.
         guard let attachment = textAttachment as? TableRowsAttachment else { return }
         let parts = ViewParts(attachment: attachment, layoutManager: textLayoutManager)
         view = MainActor.assumeIsolated { TableRowsView(attachment: parts.attachment, layoutManager: parts.layoutManager) }

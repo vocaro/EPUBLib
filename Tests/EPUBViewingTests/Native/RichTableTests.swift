@@ -161,7 +161,7 @@ final class RichTableTests: XCTestCase {
 
     func testPresentationalHintsAndCollapsedBorders() throws {
         let fixture = try fixture("""
-        <table id="b" border="1" cellpadding="4" cellspacing="0" bgcolor="#ffeecc"><tr><td>\(String("a"))</td><td bgcolor="red">b</td></tr></table>
+        <table id="b" border="1" cellpadding="4" cellspacing="0" bgcolor="#ffeecc"><tr><td>a</td><td bgcolor="red">b</td></tr></table>
         <table id="c"><tr><td id="x">a</td><td>b</td></tr></table>
         """)
         let hinted = try rows(fixture, "b")[0].table
