@@ -280,6 +280,39 @@ final class CFIGoldenVectorTests: XCTestCase {
         XCTAssertLessThan(tailored, 100, "the other locales' data should mostly agree with root")
     }
 
+    /// A one-character quote finds exactly the characters WebKit's root collator equates with it,
+    /// except that Cyrillic `й` also matches `и`.
+    func testSingleCharactersMatchTheirCollationClass() throws {
+        let root = try XCTUnwrap(Self.vectors.collation["en"])
+        let characters = root.classes.joined().compactMap(Unicode.Scalar.init).filter {
+            switch $0.properties.generalCategory {
+            case .nonspacingMark, .spacingMark, .enclosingMark, .format: false
+            default: !EPUBCFI.isJSWhitespace($0)
+            }
+        }
+        let body = characters.map { "&#x\(String($0.value, radix: 16));" }.joined(separator: " ")
+        let markup = #"<html xmlns="http://www.w3.org/1999/xhtml"><body><p>"# + body + "</p></body></html>"
+        let document = try ContentDocument.parse(Data(markup.utf8), path: "characters.xhtml")
+        let text = try XCTUnwrap(document.body?.children.first?.children.first?.text)
+        var missing: [String] = [], extra: [String] = []
+        // Every class that merges characters, and a sample of the rest for false matches.
+        for (index, members) in root.classes.enumerated() where members.count > 1 || index % 4 == 0 {
+            let expected = Set(members.compactMap(Unicode.Scalar.init).filter(characters.contains).map(String.init))
+            guard let query = expected.first else { continue }
+            let found = Set(TextSearch.matches(of: query, in: document, locale: "en").map { match in
+                let utf16 = text.utf16
+                let start = utf16.index(utf16.startIndex, offsetBy: match.start.offset)
+                return String(Substring(utf16[start..<utf16.index(utf16.startIndex, offsetBy: match.end.offset)]))
+            })
+            missing += expected.subtracting(found).map { "\(query)≠\($0)" }
+            extra += found.subtracting(expected).map { "\(query)=\($0)" }
+        }
+        XCTAssertEqual(missing, [], "quotes foliate located would not be found")
+        // Foundation folds the breve of Cyrillic short i, which root collation keeps as a letter.
+        XCTAssertEqual(Set(extra.flatMap { $0.unicodeScalars.prefix(1) + $0.unicodeScalars.suffix(1) })
+            .subtracting("ЙйИиЍѝӢӣӤӥ".unicodeScalars), [], "extra matches: \(extra)")
+    }
+
     // MARK: - Decoding
 
     private struct Vectors: Decodable, Sendable {

@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 // Ports foliate-js `search.js` (`segmenterSearch`, which `search` runs for `granularity:
 // 'grapheme'` and `sensitivity: 'base'`, as the WebKit reader's locate did) and `text-walker.js`
@@ -131,6 +132,9 @@ enum TextSearch {
                 if node.isText, node.utf16Length > 0 { texts.append(node) }
                 order += 1
             }
+            let capacity = texts.reduce(0) { $0 + $1.utf16Length }
+            unitText.reserveCapacity(capacity); unitOffset.reserveCapacity(capacity)
+            unitLength.reserveCapacity(capacity); keyStart.reserveCapacity(capacity + 1); keys.reserveCapacity(capacity)
             var previousIsSpace = false
             for (index, node) in texts.enumerated() {
                 let text = Int32(index)
@@ -139,30 +143,40 @@ enum TextSearch {
                     unit(text, offset, 1); keys.append(0x20); keyStart.append(Int32(keys.count))
                     previousIsSpace = true
                 }
-                func kept(_ offset: Int, _ length: Int) {
-                    unit(text, offset, length); keyStart.append(Int32(keys.count))
+                func ascii(_ byte: UInt8, _ offset: Int) {
+                    if byte == 0x20 || (0x09...0x0D).contains(byte) { return space(offset) }
+                    let key = KeyTable.asciiKeys[Int(byte)]
+                    if key != 0 { keys.append(key) }
+                    unit(text, offset, 1); keyStart.append(Int32(keys.count))
                     previousIsSpace = false
                 }
+                // ASCII text is one grapheme per byte, except CR LF.
                 if node.utf16Length == node.text.utf8.count {
-                    var bytes = Array(node.text.utf8)[...]
-                    var offset = 0
-                    while let byte = bytes.popFirst() {
-                        if byte == 0x0D, bytes.first == 0x0A { bytes.removeFirst(); space(offset); offset += 2; continue }
-                        if (0x09...0x0D).contains(byte) || byte == 0x20 { space(offset) }
-                        else { keys.append(contentsOf: KeyTable.ascii[Int(byte)]); kept(offset, 1) }
-                        offset += 1
+                    var string = node.text
+                    string.withUTF8 { bytes in
+                        var offset = 0
+                        while offset < bytes.count {
+                            if bytes[offset] == 0x0D, offset + 1 < bytes.count, bytes[offset + 1] == 0x0A {
+                                space(offset); offset += 2
+                            } else { ascii(bytes[offset], offset); offset += 1 }
+                        }
                     }
                     continue
                 }
                 var offset = 0
                 for grapheme in node.text {
+                    if grapheme.utf8.count == 1, let byte = grapheme.utf8.first {
+                        ascii(byte, offset); offset += 1
+                        continue
+                    }
                     let length = grapheme.utf16.count
                     defer { offset += length }
                     let scalars = grapheme.unicodeScalars
                     if scalars.allSatisfy({ $0.properties.generalCategory == .format }) { continue }
                     if scalars.contains(where: EPUBCFI.isJSWhitespace) { space(offset); continue }
                     table.append(grapheme, to: &keys)
-                    kept(offset, length)
+                    unit(text, offset, length); keyStart.append(Int32(keys.count))
+                    previousIsSpace = false
                 }
             }
         }
@@ -209,9 +223,11 @@ enum TextSearch {
         /// The query lowercased when it is ASCII and the locale has no dotted-i tailoring, so an
         /// all-ASCII window compares without the localized comparison.
         let asciiQuery: [UInt8]?
+        private let bareQuery: String
 
         init(query: String, locale identifier: String?) {
             self.query = query
+            bareQuery = Self.withoutCombiningMarks(query)
             locale = identifier.map(Locale.init(identifier:)) ?? .current
             let language = locale.language.languageCode?.identifier
             asciiQuery = query.utf8.allSatisfy({ $0 < 0x80 }) && language != "tr" && language != "az"
@@ -222,8 +238,25 @@ enum TextSearch {
             if let asciiQuery, window.utf8.allSatisfy({ $0 < 0x80 }) {
                 return window.utf8.count == asciiQuery.count && zip(window.utf8, asciiQuery).allSatisfy { Self.lowercased($0) == $1 }
             }
-            return query.compare(window, options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
-                                 range: nil, locale: locale) == .orderedSame
+            if equal(query, window) { return true }
+            // Foundation keeps marks that are secondary to ICU but that it does not count as
+            // diacritics, such as kana voicing marks and the Devanagari nukta.
+            let bareWindow = Self.withoutCombiningMarks(window)
+            return (bareQuery != query || bareWindow != window) && equal(bareQuery, bareWindow)
+        }
+
+        private func equal(_ a: String, _ b: String) -> Bool {
+            a.compare(b, options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], range: nil, locale: locale)
+                == .orderedSame
+        }
+
+        /// Canonically decomposed, without nuktas and kana voicing marks.
+        private static func withoutCombiningMarks(_ string: String) -> String {
+            let kept = string.decomposedStringWithCanonicalMapping.unicodeScalars.filter {
+                let combining = $0.properties.canonicalCombiningClass
+                return combining != .nukta && combining != .kanaVoicing
+            }
+            return String(String.UnicodeScalarView(kept))
         }
 
         private static func lowercased(_ byte: UInt8) -> UInt8 { (0x41...0x5A).contains(byte) ? byte | 0x20 : byte }
@@ -235,13 +268,22 @@ enum TextSearch {
     /// format and control characters vanish, and all other characters share one key.
     private struct KeyTable {
         static let ascii: [[UInt8]] = (0..<128).map { key(of: Unicode.Scalar(UInt8($0))) }
+        /// `ascii` as single bytes, 0 for an empty key: every ASCII key is one byte or none.
+        static let asciiKeys: [UInt8] = ascii.map { $0.first ?? 0 }
+        /// Keys computed so far by any search; each search copies what it uses into `cache`.
+        private static let shared = Mutex<[UInt32: [UInt8]]>([:])
         private var cache: [UInt32: [UInt8]] = [:]
 
         mutating func append(_ grapheme: Character, to keys: inout [UInt8]) {
             for scalar in grapheme.unicodeScalars {
                 if scalar.value < 0x80 { keys.append(contentsOf: Self.ascii[Int(scalar.value)]); continue }
                 if let key = cache[scalar.value] { keys.append(contentsOf: key); continue }
-                let key = Self.key(of: scalar)
+                let key = Self.shared.withLock { shared in
+                    if let key = shared[scalar.value] { return key }
+                    let key = Self.key(of: scalar)
+                    if shared.count < 65_536 { shared[scalar.value] = key }
+                    return key
+                }
                 cache[scalar.value] = key
                 keys.append(contentsOf: key)
             }
