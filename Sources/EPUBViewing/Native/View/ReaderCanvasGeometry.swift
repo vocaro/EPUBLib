@@ -10,6 +10,9 @@ enum ReaderCanvasGeometry {
     /// by the outer margins, so the gap between columns reads as wide as the margins.
     static let gapFraction: CGFloat = 0.07 / 0.93
     static let verticalMargin: CGFloat = 48
+    /// The narrowest book-pose column: below it the spread is one column on the division's
+    /// wider side, as continuous scroll uses.
+    static let minimumDivisionColumnWidth: CGFloat = 200
 
     /// A paginated spread: one column per page slice shown, all the same size.
     struct Spread: Equatable {
@@ -20,7 +23,8 @@ enum ReaderCanvasGeometry {
     }
 
     /// The columns for `page` (the canvas less its safe area). With a usable `division` the
-    /// spread always has two columns and its gutter is the division plus half a gap each side.
+    /// spread has two columns whose gutter is the division plus half a gap each side, unless the
+    /// narrower side cannot hold a readable column; then one column on the wider side.
     static func spread(in page: CGRect, division: CGRect?, isRightToLeft: Bool) -> Spread {
         let top = page.minY + verticalMargin
         let height = max(0, page.height - 2 * verticalMargin)
@@ -31,8 +35,13 @@ enum ReaderCanvasGeometry {
             let left = division.minX - gap / 2 - (page.minX + margin)
             let right = page.maxX - margin - (division.maxX + gap / 2)
             let width = max(0, min(maximumColumnWidth, left, right))
-            columns = [CGRect(x: division.minX - gap / 2 - width, y: top, width: width, height: height),
-                       CGRect(x: division.maxX + gap / 2, y: top, width: width, height: height)]
+            if width >= minimumDivisionColumnWidth {
+                columns = [CGRect(x: division.minX - gap / 2 - width, y: top, width: width, height: height),
+                           CGRect(x: division.maxX + gap / 2, y: top, width: width, height: height)]
+            } else {
+                let column = scrollColumn(in: page, division: division)
+                columns = [CGRect(x: column.minX, y: top, width: column.width, height: height)]
+            }
         } else if columnCount(for: page.size) == 2 {
             let area = contentWidth(page.width, columns: 2)
             let width = (area - gap) / 2

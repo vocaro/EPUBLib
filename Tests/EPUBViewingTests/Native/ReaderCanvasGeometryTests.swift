@@ -78,6 +78,21 @@ final class ReaderCanvasGeometryTests: XCTestCase {
         XCTAssertEqual(spread.columns[1].minX, fold.maxX + halfGap, accuracy: 0.01, "aligned towards the fold")
     }
 
+    func testANarrowSideFallsBackToOneColumnOnTheWiderSide() {
+        // A 571-point reader with the fold at 455–496 leaves 75 points on the right.
+        for fold in [CGRect(x: 455, y: 0, width: 41, height: 669), CGRect(x: 520, y: 0, width: 30, height: 669)] {
+            let spread = spread(571, 669, division: fold)
+            XCTAssertEqual(spread.columns.count, 1, "\(fold)")
+            let column = spread.columns[0]
+            XCTAssertGreaterThanOrEqual(column.width, Geometry.minimumDivisionColumnWidth)
+            XCTAssertLessThanOrEqual(column.maxX, fold.minX, "on the wider side, clear of the fold")
+            XCTAssertGreaterThanOrEqual(column.minX, 571 * 0.035 - 0.01)
+        }
+        let right = spread(571, 669, division: CGRect(x: 60, y: 0, width: 30, height: 669))
+        XCTAssertEqual(right.columns.count, 1)
+        XCTAssertGreaterThanOrEqual(right.columns[0].minX, 90)
+    }
+
     func testDivisionAlwaysGivesTwoColumnsEvenInPortrait() {
         let spread = spread(600, 900, division: CGRect(x: 290, y: 0, width: 20, height: 900))
         XCTAssertEqual(spread.columns.count, 2)
@@ -143,6 +158,22 @@ final class ReaderCanvasInputTests: XCTestCase {
         XCTAssertEqual(turner.direction(deltaX: 12, deltaY: 3, isRightToLeft: false, at: 2), true, "horizontal wins")
         XCTAssertEqual(turner.direction(deltaX: 12, deltaY: 3, isRightToLeft: true, at: 3), false, "mirrored right to left")
         XCTAssertEqual(turner.direction(deltaX: 0, deltaY: 12, isRightToLeft: true, at: 4), true, "vertical is never mirrored")
+    }
+
+    func testTrackpadGesturesTurnOncePerGestureAndIgnoreMomentum() {
+        var turner = ReaderWheelPageTurner()
+        XCTAssertNil(turner.direction(deltaX: 0, deltaY: 1, phase: .began, isRightToLeft: false, at: 0))
+        XCTAssertNil(turner.direction(deltaX: 0, deltaY: 2, phase: .changed, isRightToLeft: false, at: 0.01))
+        XCTAssertEqual(turner.direction(deltaX: 0, deltaY: 2, phase: .changed, isRightToLeft: false, at: 0.02), true,
+                       "the gesture's travel reaches the threshold")
+        for step in 1...100 { // A sustained scroll, longer than the cooldown.
+            XCTAssertNil(turner.direction(deltaX: 0, deltaY: 20, phase: .changed, isRightToLeft: false, at: 0.02 + Double(step) * 0.016))
+        }
+        XCTAssertNil(turner.direction(deltaX: 0, deltaY: 0, phase: .ended, isRightToLeft: false, at: 2))
+        for step in 0..<40 { XCTAssertNil(turner.direction(deltaX: 0, deltaY: 30, phase: .momentum, isRightToLeft: false, at: 2 + Double(step) * 0.016)) }
+        XCTAssertEqual(turner.direction(deltaX: -9, deltaY: 1, phase: .began, isRightToLeft: false, at: 2.1), false,
+                       "a new gesture turns again at once")
+        XCTAssertNil(turner.direction(deltaX: -9, deltaY: 1, phase: .changed, isRightToLeft: false, at: 2.2))
     }
 
     func testSwipesMirrorRightToLeft() {
