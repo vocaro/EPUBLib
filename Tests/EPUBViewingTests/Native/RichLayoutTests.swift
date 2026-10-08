@@ -65,6 +65,9 @@ import UIKit
             #else
             view.layoutIfNeeded()
             layoutManager.textViewportLayoutController.layoutViewport()
+            // A display cycle's layout pass, which inserts attachment views into fragment views.
+            func relayout(_ view: UIView) { view.setNeedsLayout(); view.layoutIfNeeded(); view.subviews.forEach(relayout) }
+            relayout(view)
             _ = UIGraphicsImageRenderer(bounds: view.bounds).image { _ in
                 _ = view.drawHierarchy(in: view.bounds, afterScreenUpdates: true)
             }
