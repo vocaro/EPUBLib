@@ -41,15 +41,19 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
 
 ## Decisions
 
-- **Engine identity and bookmarks.** `EPUBReader.identifier` stays `org.epubreaderlib.foliate`
-  and bookmarks stay `epubcfi-v1`. A CFI names a DOM position, not a renderer state, so the
-  native engine accepts every bookmark and highlight locator the WebKit reader stored and emits
-  CFIs in the same form (relocations carry the visible range CFI, selections the selection's
-  range CFI). No stored data is migrated. A CFI that no longer resolves (a changed book has a
-  different publication ID and is rejected before that) produces a `.notice`, as before.
+- **Engine identity and bookmarks.** `EPUBReader.identifier` is `org.epublib.reader` and its
+  bookmarks are `epublib-cfi-v1` (`EPUBReader.bookmarkFormat`): names for the library, not a
+  renderer, so they outlive any change of how pages are drawn. The value is an EPUB CFI in the
+  form foliate-js produced (relocations carry the visible range's CFI, selections the
+  selection's range CFI), generated and resolved by a port of its code. Bookmarks tagged with
+  the WebKit reader's `org.epubreaderlib.foliate`/`epubcfi-v1` are refused as another engine's;
+  nothing had shipped, so a host migrates its own stored ones by re-tagging them, since the CFI
+  value names the same position. A CFI that no longer resolves (a changed book has a different
+  publication ID and is rejected before that) produces a `.notice`.
 - **Fixed layout.** Out of scope at first: neither StudyWright catalog (50 shipped EPUBs, 87
   PDFReflowLib conversions) contains a pre-paginated book. Fixed-layout spine items render as
-  reflowable text with a `.disclosure`; capabilities are not reduced.
+  reflowable text with a `.disclosure`; capabilities are not reduced. Faithful rendering is
+  tracked in [#5](https://github.com/vocaro/EPUBLib/issues/5).
 - **Vertical writing.** TextKit 2 on iOS has no vertical layout. `writing-mode: vertical-*`
   renders horizontally, with a `.disclosure`. Ruby and right-to-left text are native.
 - **MathML.** A native layout engine (CoreText) draws each `<math>` as an attachment,
@@ -135,7 +139,7 @@ as they did.
 | --- | --- |
 | `nextPage` / `previousPage` | Page turn (paginated) or one viewport (scrolled); stops at the book's ends; skips nonlinear sections as foliate-js did. |
 | `navigate(href:)` | An encoded spine or resource href with optional fragment; unknown or non-local hrefs throw `invalidCommand`. |
-| `restore(location)` | Same publication, engine ID and `epubcfi-v1` format or `incompatibleLocation`; resolves the CFI and shows its start. |
+| `restore(location)` | Same publication, engine ID and `epublib-cfi-v1` format or `incompatibleLocation`; resolves the CFI and shows its start. |
 | `locate(text, highlight)` | First match in reading order with foliate's matcher. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A miss emits `.notice("the cited passage could not be found in this book")`. Clears search highlights. |
 | `searchHighlight` / `clearSearch` | Draws every match across the book / removes them. |
 | `style` | Font size 12–96, dark, flow. Size or appearance rebuilds the text; the position is kept across rebuilds and flow switches. |
@@ -187,7 +191,8 @@ Go: the native viewer is the bundled engine.
 
 ## Limitations
 
-- Fixed-layout books reflow; vertical writing renders horizontally (both disclosed).
+- Fixed-layout books reflow ([#5](https://github.com/vocaro/EPUBLib/issues/5)); vertical writing
+  renders horizontally (both disclosed).
 - Floats and absolute positioning are not laid out: a floated attachment sets to its side, an
   out-of-flow box is skipped; `inline-block` is inline; percentages in margins and indents
   resolve against a nominal 600-pt column.

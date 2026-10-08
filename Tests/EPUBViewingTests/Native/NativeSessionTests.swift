@@ -81,7 +81,7 @@ import XCTest
 
         let saved = try XCTUnwrap(locations(events()).last)
         XCTAssertEqual(saved.href, "OPS/two.xhtml")
-        XCTAssertEqual(saved.bookmark?.format, "epubcfi-v1")
+        XCTAssertEqual(saved.bookmark?.format, EPUBReader.bookmarkFormat)
         try await session.send(.navigate(href: "OPS/one.xhtml#start"))
         try await wait("first section") { session.visibleRange?.start.section == 0 }
         try await session.send(.restore(saved))
@@ -105,15 +105,23 @@ import XCTest
         XCTAssertEqual(events().count, count)
     }
 
-    /// A stored foliate bookmark keeps resolving: the CFI names the same DOM position.
-    func testFoliateBookmarkRestores() async throws {
+    /// Bookmarks carry EPUBLib's own identity. A CFI the WebKit reader recorded still names the
+    /// same position once a host re-tags it; under the old tag it is another engine's bookmark.
+    func testBookmarksCarryEPUBLibsIdentityAndForeignTagsAreRefused() async throws {
         let (session, window, events) = try open(Fixture.epub())
         defer { session.close(); window.close() }
         try await wait("ready") { events().contains(.ready) }
+        XCTAssertEqual(EPUBReader.identifier, "org.epublib.reader")
+        XCTAssertEqual(EPUBReader.bookmarkFormat, "epublib-cfi-v1")
         // `/6/4` is the second itemref; `/4/2/1:4` is four characters into the h1's text.
-        let foliate = EPUBLocation(publicationID: session.publication.id, bookmark: EPUBEngineBookmark(
-            engineID: "org.epubreaderlib.foliate", format: "epubcfi-v1", value: "epubcfi(/6/4!/4/2/1:4)"))
-        try await session.send(.restore(foliate))
+        let recorded = "epubcfi(/6/4!/4/2/1:4)"
+        let legacy = EPUBLocation(publicationID: session.publication.id, bookmark: EPUBEngineBookmark(
+            engineID: "org.epubreaderlib.foliate", format: "epubcfi-v1", value: recorded))
+        do { try await session.send(.restore(legacy)); XCTFail("A foliate-tagged bookmark was accepted") }
+        catch { XCTAssertEqual(error as? EPUBReaderError, .incompatibleLocation) }
+        let retagged = EPUBLocation(publicationID: session.publication.id, bookmark: EPUBEngineBookmark(
+            engineID: EPUBReader.identifier, format: EPUBReader.bookmarkFormat, value: recorded))
+        try await session.send(.restore(retagged))
         try await wait("restored section") { session.visibleRange?.start.section == 1 }
     }
 
@@ -218,7 +226,7 @@ import XCTest
         try await wait("ready") { events().contains(.ready) }
         let before = events().count
         try await session.send(.restore(EPUBLocation(publicationID: session.publication.id, bookmark: EPUBEngineBookmark(
-            engineID: EPUBReader.identifier, format: "epubcfi-v1", value: "epubcfi(/6/4)"))))
+            engineID: EPUBReader.identifier, format: EPUBReader.bookmarkFormat, value: "epubcfi(/6/4)"))))
         try await wait("restored section") { session.visibleRange?.start.section == 1 }
         XCTAssertFalse(events().dropFirst(before).contains { if case .notice = $0 { return true }; return false })
     }

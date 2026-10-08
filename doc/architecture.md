@@ -15,11 +15,13 @@ presentation MathML with CoreText; it imports no EPUBLib module or UI framework,
 to its own package. EPUBWriting depends only on EPUBCore and ZIPFoundation, never EPUBReading or
 viewing. The adapter-contract helper is an internal test-support target, not a library product.
 
-Source API compatibility with the former package is not a constraint. Publication fingerprints,
-`epubcfi-v1` bookmarks and the persisted engine identifier retain their existing meanings. The
-engine identifier remains `org.epubreaderlib.foliate` although foliate-js is no longer bundled:
-a CFI names a position in the content document, so bookmarks and highlight locators the WebKit
-reader stored resolve unchanged in the native viewer. The sample EPUB remains byte-for-byte unchanged.
+Source API compatibility with the former package is not a constraint. Publication fingerprints
+retain their existing meaning. The reader's engine identifier is `org.epublib.reader` and its
+bookmark format `epublib-cfi-v1` (`EPUBReader.identifier`, `EPUBReader.bookmarkFormat`); both name
+the library, not a renderer. The WebKit reader's `org.epubreaderlib.foliate`/`epubcfi-v1`
+bookmarks are another engine's and are refused, but their CFI values name the same positions:
+a host migrates one by re-tagging it with the reader's identifier and format. The sample EPUB
+remains byte-for-byte unchanged.
 
 ## Publication model
 
@@ -62,7 +64,7 @@ emitted exactly once; later fidelity disclosures do not restart the session life
 Portable location fields contain the publication fingerprint, section href, text quote and overall
 progression when known. Resource `href`, navigation hrefs and location hrefs are encoded URL
 references; resource `path` is the decoded archive key. Exact restoration uses a separately tagged engine bookmark. The reader's
-`epubcfi-v1` bookmark is accepted only for the same publication fingerprint and engine identifier.
+`epublib-cfi-v1` bookmark is accepted only for the same publication fingerprint and engine identifier.
 Other engines may offer approximate navigation by href or quote; this is not automatic bookmark
 conversion. The package does not promise cross-engine page, search or selection equivalence.
 
