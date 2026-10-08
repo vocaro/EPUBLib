@@ -89,6 +89,23 @@ extension ReaderTextView {
         }
     }
 
+    /// The link under `point` (this view's coordinates), if any.
+    func link(at point: CGPoint) -> URL? {
+        let origin = containerOrigin
+        let location = CGPoint(x: point.x - origin.x, y: point.y - origin.y)
+        guard let fragment = readerLayoutManager.textLayoutFragment(for: location),
+              let storage = contentStorage.textStorage else { return nil }
+        let frame = fragment.layoutFragmentFrame
+        let local = CGPoint(x: location.x - frame.minX, y: location.y - frame.minY)
+        guard let line = fragment.textLineFragments.first(where: { $0.typographicBounds.contains(local) }) else { return nil }
+        let bounds = line.typographicBounds
+        let index = offset(of: fragment.rangeInElement.location)
+            + line.characterIndex(for: CGPoint(x: local.x - bounds.minX, y: local.y - bounds.minY))
+        guard index >= 0, index < storage.length else { return nil }
+        let value = storage.attribute(.link, at: index, effectiveRange: nil)
+        return value as? URL ?? (value as? String).flatMap { URL(string: $0) }
+    }
+
     /// The frames of `range`'s laid-out text segments, in text container coordinates.
     func segmentFrames(for range: NSRange) -> [CGRect] {
         guard let textRange = textRange(for: range) else { return [] }

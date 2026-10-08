@@ -68,9 +68,11 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   VoiceOver.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow; endnotes stay in place and also show in popovers.
-- **Continuous scroll** is whole-book: one `UITextView`/`NSTextView` over every section, so
-  nothing resets at a section boundary and the system scroll edge effects apply. Until every
-  section is built it shows the current section, then swaps to the whole book in place.
+- **Continuous scroll** is whole-book: one `UITextView`/`NSTextView` over every linear
+  section, so nothing resets at a section boundary and the system scroll edge effects apply.
+  Until every section is built it shows the current section, then swaps to the whole book in
+  place. Nonlinear sections stay out of it, as page turns step over them; navigating to one
+  shows it on its own.
 - **Building** is per section and lazy for first paint: the initial section builds first and
   the session emits `.ready` once it is on screen; the rest build in the background in
   parallel. Images decode lazily, downsampled to their displayed size, under a shared cache
@@ -91,9 +93,10 @@ as they did.
   The outer horizontal margin is at least 3.5% of the width each side, columns are at most 720
   wide (the content area is centred when that caps it), the column gap is 7.53% of the content
   width (foliate's `g / (1 − g)` with g = 7%), and the top and bottom margins are 48.
-- **Book pose.** With a vertical division the spread always has two columns: the gutter is the
+- **Book pose.** With a vertical division the spread has two columns: the gutter is the
   division band plus half a gap each side, and both columns have the narrower side's width,
-  aligned towards the fold. In continuous scroll the single column uses the wider side.
+  aligned towards the fold. When that would be under 200 wide, and in continuous scroll, a
+  single column uses the wider side.
 - **Continuous scroll.** One column at most 720 wide, centred, with the same outer margin. On
   iOS the text view has `contentInsetAdjustmentBehavior = .automatic`, `contentInset` top 48
   and bottom 64 on top of the live safe area, `textContainerInset` only horizontal, and
@@ -102,17 +105,22 @@ as they did.
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
-  past the page's first line). An attachment taller than a page gets a page of its own. A
+  past the page's first line, and only when both fit on the next page). An attachment taller than a page gets a page of its own. A
   spread shows consecutive slices. Each column is a non-scrolling TextKit 2 text view holding
   only its page's text, so selection, VoiceOver and link interaction are native and stay on the
-  page; a paragraph that continues onto the next page is laid out to its end and clipped, so
-  its lines break exactly as in the measuring layout.
+  page. A paragraph that continues onto the next page is laid out a few lines further (or to
+  a line break) and clipped, so its lines break exactly as in the measuring layout; justified
+  text takes more, because CoreText justifies a paragraph of up to 8,192 characters as a whole
+  and a longer one line by line. Paginations are cached per section and column size; a resize,
+  rotation or bar change repaginates once it ends, in steps when far into a section, with the
+  old spread on screen until the new one is ready. A finished pagination keeps only its pages.
 - **Right to left.** `page-progression-direction="rtl"` mirrors spreads, swipes and tap zones.
 
 ## Input and accessibility
 
-- Paginated: 56-pt tap zones at both edges, horizontal swipes, and on macOS a horizontal or
-  vertical wheel tick turns a page. Continuous scroll scrolls natively.
+- Paginated: a tap or click within 56 pt of either edge (except on a link, a press-and-hold or
+  while text is selected), a horizontal swipe (not while text is selected), and on macOS a
+  trackpad gesture or wheel tick turns a page. Continuous scroll scrolls natively.
 - Keys (all flows): Left/Page Up previous, Right/Page Down/Space next, Shift-Space previous.
   In continuous scroll a page turn scrolls by one viewport less a line.
 - VoiceOver: page-turn actions via `accessibilityScrollAction` and the named "Next Page" and
@@ -189,6 +197,12 @@ Go: the native viewer is the bundled engine.
 - Search in languages with tailored collation (Turkish, Swedish, Spanish…) finds a superset
   of foliate's matches. Documents WebKit would have re-read as HTML can yield CFIs that differ
   from foliate's in whitespace outside the body or where HTML tree construction reshapes markup.
-- VoiceOver's line-by-line navigation inside a column may reach the clipped remainder of a
+- VoiceOver's line-by-line navigation inside a column may reach the clipped lines of a
   paragraph that continues on the next page.
+- A selection stays within one column: in a two-column spread it cannot run from one column
+  into the other (each column is its own text view), and `locate` selects the part of a passage
+  on its first page while reporting the whole passage.
+- The last lines of a justified paragraph over 8,192 characters may break differently from the
+  measured page when the page starts inside the paragraph and also shows what follows it; the
+  column then grows to show them rather than clip.
 

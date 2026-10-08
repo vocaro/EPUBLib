@@ -108,16 +108,23 @@ import AppKit
         background?.cancel()
     }
 
-    /// The whole book for continuous scroll: every section, each followed by one paragraph
-    /// break, the next section's first paragraph spaced from it. nil until all are current.
+    /// The whole book for continuous scroll: every linear section, each followed by one
+    /// paragraph break, the next section's first paragraph spaced from it. Nonlinear sections
+    /// are left out, as page turns step over them (a book with no linear section keeps all).
+    /// nil until all are current.
     var bookText: ReaderBookText? {
         if let cachedBookText { return cachedBookText }
         guard isComplete else { return nil }
         let string = NSMutableAttributedString()
-        var starts: [Int] = []
+        var starts = Array(repeating: 0, count: sections.count)
+        let hasLinear = publication.spine.contains(where: \.isLinear)
+        var omitted: Set<Int> = []
+        var included = 0
         for (index, section) in sections.enumerated() {
             guard let section else { return nil }
-            if index > 0 {
+            guard publication.spine[index].isLinear || !hasLinear else { omitted.insert(index); continue }
+            defer { included += 1 }
+            if included > 0 {
                 let separator = NSMutableParagraphStyle()
                 separator.paragraphSpacing = typography.fontSize * 2
                 string.append(NSAttributedString(string: "\n", attributes: [
@@ -125,10 +132,15 @@ import AppKit
                     .font: FontRegistry.systemFont(families: ["serif"], size: typography.fontSize, weight: 400, italic: false),
                 ]))
             }
-            starts.append(string.length)
+            starts[index] = string.length
             string.append(section.string)
         }
-        cachedBookText = ReaderBookText(string: string, sectionStarts: starts)
+        // An omitted section's start is the next included section's.
+        var next = string.length
+        for index in starts.indices.reversed() {
+            if omitted.contains(index) { starts[index] = next } else { next = starts[index] }
+        }
+        cachedBookText = ReaderBookText(string: string, sectionStarts: starts, omitted: omitted)
         return cachedBookText
     }
 

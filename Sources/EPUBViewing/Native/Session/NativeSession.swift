@@ -527,46 +527,30 @@ extension NativeSession: ReaderCanvasDelegate {
     }
 }
 
-/// The session's SwiftUI view: the TextKit 2 canvas plus the paginated tap zones, page-turn keys
-/// and accessibility actions, as the WebKit reader's surface had them.
+/// The session's SwiftUI view: the TextKit 2 canvas plus page-turn keys and accessibility
+/// actions, as the WebKit reader's surface had them. The paginated edge tap zones are the
+/// canvas's own, so taps on links, selections and text near the edges reach the text.
 private struct NativeSurface: View {
     let session: NativeSession
     @Environment(\.epubReaderDivision) private var division
 
     var body: some View {
         if !session.closed {
-            ZStack {
-                NativeCanvasHost(session: session)
-                if session.style.flow == .paginated {
-                    HStack(spacing: 0) {
-                        zone(isLeading: true)
-                        Spacer(minLength: 0)
-                        zone(isLeading: false)
-                    }
+            NativeCanvasHost(session: session)
+                .onAppear { session.division = division }
+                .onChange(of: division) { session.division = division }
+                .onKeyPress(keys: [.leftArrow, .rightArrow, .pageUp, .pageDown, .space]) { press in
+                    guard let command = ReaderEPUBPageTurnKey.command(for: press.key, hasShift: press.modifiers.contains(.shift)) else { return .ignored }
+                    submit(command == .next ? .nextPage : .previousPage)
+                    return .handled
                 }
-            }
-            .onAppear { session.division = division }
-            .onChange(of: division) { session.division = division }
-            .onKeyPress(keys: [.leftArrow, .rightArrow, .pageUp, .pageDown, .space]) { press in
-                guard let command = ReaderEPUBPageTurnKey.command(for: press.key, hasShift: press.modifiers.contains(.shift)) else { return .ignored }
-                submit(command == .next ? .nextPage : .previousPage)
-                return .handled
-            }
-            .accessibilityScrollAction { edge in
-                if edge == .leading { submit(.previousPage) }
-                if edge == .trailing { submit(.nextPage) }
-            }
-            .accessibilityAction(named: Text("Next Page")) { submit(.nextPage) }
-            .accessibilityAction(named: Text("Previous Page")) { submit(.previousPage) }
+                .accessibilityScrollAction { edge in
+                    if edge == .leading { submit(.previousPage) }
+                    if edge == .trailing { submit(.nextPage) }
+                }
+                .accessibilityAction(named: Text("Next Page")) { submit(.nextPage) }
+                .accessibilityAction(named: Text("Previous Page")) { submit(.previousPage) }
         }
-    }
-
-    /// The leading zone turns back, mirrored for right-to-left page progression.
-    private func zone(isLeading: Bool) -> some View {
-        let rtl = session.publication.pageProgression == .rtl
-        return Color.clear.frame(width: 56).contentShape(Rectangle())
-            .onTapGesture { submit(isLeading != rtl ? .previousPage : .nextPage) }
-            .accessibilityHidden(true)
     }
 
     private func submit(_ command: EPUBReaderCommand) {

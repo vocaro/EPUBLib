@@ -234,6 +234,20 @@ import XCTest
         XCTAssertEqual(session.selection?.text, "She said hello there and left.")
     }
 
+    func testTheWholeBookLeavesOutNonlinearSections() async throws {
+        let package = String(decoding: try XCTUnwrap(Fixture.files()["OPS/book.opf"]), as: UTF8.self)
+            .replacingOccurrences(of: "<itemref idref=\"two\"/>", with: "<itemref idref=\"two\" linear=\"no\"/>")
+        let publication = try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/book.opf": package]))
+        XCTAssertFalse(publication.spine[1].isLinear)
+        let book = NativeBook(publication: publication, typography: NativeTypography(), rich: NativeRichContent())
+        defer { book.close() }
+        for index in publication.spine.indices { _ = await book.build(index) }
+        let text = try XCTUnwrap(book.bookText)
+        XCTAssertTrue(text.contains(section: 0))
+        XCTAssertFalse(text.contains(section: 1))
+        XCTAssertEqual(text.string.length, book.section(0)?.string.length)
+    }
+
     func testARemountedReaderShowsItsPlaceAgain() async throws {
         let (session, window, events) = try open(Fixture.epub())
         try await wait("ready") { events().contains(.ready) }
