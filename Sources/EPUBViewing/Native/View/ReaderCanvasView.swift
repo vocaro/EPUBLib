@@ -33,6 +33,9 @@ import AppKit
     private var pendingSelection: ReaderTextRange?
     private var highlights: [ReaderHighlight] = []
     private var reportedSelection: ReaderSelection?
+    /// The selection `show(_:selecting:)` made, which may run past the page it is selected on:
+    /// reported as given while the text view still holds it.
+    private var programmaticSelection: (view: ReaderTextView, local: NSRange, selection: ReaderSelection)?
     private var selectionReport: Task<Void, Never>?
     private var isApplyingSelection = false
 
@@ -120,6 +123,7 @@ import AppKit
             view.selectedRange = NSRange(location: view.selectedRange.location, length: 0)
         }
         isApplyingSelection = false
+        programmaticSelection = nil
         currentSelection = nil
         selectionReport?.cancel()
         if reportedSelection != nil {
@@ -446,7 +450,9 @@ import AppKit
         focus(view)
         view.selectedRange = local
         isApplyingSelection = false
-        currentSelection = ReaderSelection(range: range, text: text(of: range) ?? view.string(in: local))
+        let selection = ReaderSelection(range: range, text: text(of: range) ?? view.plainText(in: local))
+        programmaticSelection = (view, local, selection)
+        currentSelection = selection
         scheduleSelectionReport()
     }
 
@@ -469,6 +475,12 @@ import AppKit
 
     /// Recomputes the selection from the text views; it is reported once it settles.
     private func selectionMayHaveChanged() {
+        if let programmatic = programmaticSelection {
+            if textViews.contains(where: { $0 === programmatic.view }), programmatic.view.selectedRange == programmatic.local {
+                return
+            }
+            programmaticSelection = nil
+        }
         let selected = textViews.lazy.compactMap { view in
             view.selectedRange.length > 0 ? self.selection(view.selectedRange, in: view) : nil
         }.first
@@ -480,7 +492,7 @@ import AppKit
     private func selection(_ range: NSRange, in view: ReaderTextView) -> ReaderSelection? {
         guard let start = position(at: range.location, in: view),
               let end = position(at: NSMaxRange(range), in: view) else { return nil }
-        return ReaderSelection(range: ReaderTextRange(start: start, end: end), text: view.string(in: range))
+        return ReaderSelection(range: ReaderTextRange(start: start, end: end), text: view.plainText(in: range))
     }
 
     private func scheduleSelectionReport() {
@@ -497,9 +509,9 @@ import AppKit
     private func text(of range: ReaderTextRange) -> String? {
         guard range.start.section == range.end.section,
               let text = dataSource?.text(forSection: range.start.section) else { return nil }
-        let bounded = NSIntersectionRange(NSRange(location: range.start.offset, length: range.end.offset - range.start.offset),
-                                          NSRange(location: 0, length: text.length))
-        return (text.string as NSString).substring(with: bounded)
+        return text.readerPlainText(in: NSIntersectionRange(
+            NSRange(location: range.start.offset, length: range.end.offset - range.start.offset),
+            NSRange(location: 0, length: text.length)))
     }
 
     /// The person chose the host's selection action from the selection menu. The selection is

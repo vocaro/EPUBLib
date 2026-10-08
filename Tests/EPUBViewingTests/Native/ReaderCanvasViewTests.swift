@@ -53,7 +53,7 @@ import UIKit
         XCTAssertEqual(canvas.textViews.count, 1)
         let column = canvas.textViews[0]
         let section = try XCTUnwrap(host.source.sections[0])
-        XCTAssertEqual(column.visibleString, (section.string as NSString).substring(with: NSRange(location: 0, length: range.end.offset)))
+        XCTAssertEqual(column.visibleText, (section.string as NSString).substring(with: NSRange(location: 0, length: range.end.offset)))
         XCTAssertFalse(column.isScrollEnabledForReader, "page columns never scroll")
         let spread = try XCTUnwrap(canvas.spread)
         XCTAssertEqual(column.frame.minX, spread.columns[0].minX, accuracy: 0.01)
@@ -263,7 +263,7 @@ import UIKit
         try await host.settle()
         let selection = try XCTUnwrap(host.recorder.selections.last ?? nil)
         XCTAssertEqual(selection.range, ReaderTextRange(section: 0, (offset + 4)..<(offset + 16)))
-        XCTAssertEqual(selection.text, column.string(in: NSRange(location: 4, length: 12)))
+        XCTAssertEqual(selection.text, column.plainText(in: NSRange(location: 4, length: 12)))
         XCTAssertEqual(canvas.currentSelection, selection)
         XCTAssertEqual(host.recorder.selections.count, 1)
 
@@ -295,6 +295,49 @@ import UIKit
         let selection = try XCTUnwrap(host.recorder.selections.last ?? nil)
         XCTAssertEqual(selection.range, range)
         XCTAssertEqual(selection.text, (text.string as NSString).substring(with: NSRange(location: 7_000, length: 40)))
+    }
+
+    func testSelectionRunningPastThePageIsReportedExactlyAsShown() async throws {
+        let host = host(sections(1, paragraphs: 20))
+        let pageEnd = try XCTUnwrap(host.canvas.visibleRange).end.offset
+        let range = ReaderTextRange(section: 0, (pageEnd - 10)..<(pageEnd + 30))
+        host.canvas.show(range.start, selecting: range)
+        try await host.settle()
+        XCTAssertEqual(host.recorder.selections.count, 1)
+        XCTAssertEqual((host.recorder.selections.last ?? nil)?.range, range)
+        XCTAssertEqual(host.canvas.currentSelection?.range, range)
+        let column = try XCTUnwrap(host.canvas.textViews.first)
+        XCTAssertEqual(column.selectedRange, NSRange(location: column.placement.visibleLength - 10, length: 10),
+                       "selected natively up to the page's end")
+    }
+
+    func testSelectionAndCopyReadAttachmentsAsTheirText() async throws {
+        let text = NSMutableAttributedString(attributedString: CanvasText.body("Energy "))
+        let formula = TextualTestAttachment()
+        formula.textEquivalent = "E = mc²"
+        formula.image = CanvasText.attachment(size: CGSize(width: 40, height: 20))
+            .attribute(.attachment, at: 0, effectiveRange: nil).flatMap { ($0 as? NSTextAttachment)?.image }
+        formula.bounds = CGRect(x: 0, y: 0, width: 40, height: 20)
+        text.append(NSAttributedString(attachment: formula))
+        text.append(CanvasText.body(" is famous."))
+        let host = host([text])
+        let column = host.canvas.textViews[0]
+        column.selectedRange = NSRange(location: 0, length: text.length)
+        host.canvas.textViewSelectionDidChange(column)
+        try await host.settle()
+        let expected = "Energy E = mc² is famous."
+        XCTAssertEqual((host.recorder.selections.last ?? nil)?.text, expected)
+        XCTAssertEqual(column.visibleText, expected)
+        #if os(macOS)
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("org.epublib.tests.copy.\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        XCTAssertTrue(column.writeSelection(to: pasteboard, types: column.writablePasteboardTypes))
+        XCTAssertEqual(pasteboard.string(forType: .string), expected)
+        #else
+        column.copy(nil)
+        XCTAssertEqual(UIPasteboard.general.string, expected)
+        #endif
     }
 
     func testSelectionActionReportsTheSelectionFirst() async throws {

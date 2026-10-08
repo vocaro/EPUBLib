@@ -52,15 +52,15 @@ extension ReaderTextView {
         contentStorage.offset(from: contentStorage.documentRange.location, to: location)
     }
 
-    /// The text of `range` (clamped).
-    func string(in range: NSRange) -> String {
+    /// The reader's text of `range` (clamped): attachments read as their text equivalents
+    /// (`ReaderTextualAttachment`), never U+FFFC. Selections, Copy and VoiceOver use it.
+    func plainText(in range: NSRange) -> String {
         guard let storage = contentStorage.textStorage else { return "" }
-        let clamped = NSIntersectionRange(range, NSRange(location: 0, length: storage.length))
-        return (storage.string as NSString).substring(with: clamped)
+        return storage.readerPlainText(in: NSIntersectionRange(range, NSRange(location: 0, length: storage.length)))
     }
 
-    /// The visible characters' text (a page column's own page).
-    var visibleString: String { string(in: NSRange(location: 0, length: min(placement.visibleLength, textLength))) }
+    /// The text the reader sees: a page column's own page, without its clipped context.
+    var visibleText: String { plainText(in: NSRange(location: 0, length: min(placement.visibleLength, textLength))) }
 
     /// Replaces the drawn highlights. Rendering attributes only: the text is never changed.
     func setHighlights(_ highlights: [(range: NSRange, color: PlatformColor)]) {

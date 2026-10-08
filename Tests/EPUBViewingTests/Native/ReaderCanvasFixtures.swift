@@ -93,6 +93,11 @@ enum CanvasText {
     }
 }
 
+/// A formula or image attachment that reads as text.
+final class TextualTestAttachment: NSTextAttachment, ReaderTextualAttachment {
+    var textEquivalent = ""
+}
+
 @MainActor final class FakeCanvasSource: ReaderCanvasDataSource {
     var sections: [NSAttributedString?]
     var linear: [Bool]

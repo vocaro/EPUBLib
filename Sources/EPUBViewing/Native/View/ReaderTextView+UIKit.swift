@@ -51,6 +51,13 @@ final class ReaderTextView: UITextView {
         super.setContentOffset(isPageColumn ? .zero : contentOffset, animated: animated)
     }
 
+    // Copy carries the reader's text: attachments as their alt text, never U+FFFC.
+    override func copy(_ sender: Any?) {
+        let text = plainText(in: selectedRange)
+        guard !text.isEmpty else { return }
+        UIPasteboard.general.string = text
+    }
+
     // MARK: Keys and accessibility
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
@@ -89,7 +96,7 @@ final class ReaderTextView: UITextView {
 
     // VoiceOver reads the page, not the clipped context line after it.
     override var accessibilityValue: String? {
-        get { isPageColumn ? visibleString : super.accessibilityValue }
+        get { isPageColumn ? visibleText : super.accessibilityValue }
         set { super.accessibilityValue = newValue }
     }
 }

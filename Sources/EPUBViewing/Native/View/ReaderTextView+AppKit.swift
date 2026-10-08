@@ -55,6 +55,14 @@ final class ReaderTextView: NSTextView {
     /// The text container's origin in this view's coordinates.
     var containerOrigin: CGPoint { textContainerOrigin }
 
+    // Copy (and services) carry the reader's text: attachments as their alt text, never U+FFFC.
+    override var writablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string] }
+
+    override func writeSelection(to pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard type == .string else { return false }
+        return pboard.setString(plainText(in: selectedRange), forType: .string)
+    }
+
     // MARK: Keys, links and accessibility
 
     override func keyDown(with event: NSEvent) {
@@ -104,7 +112,7 @@ final class ReaderTextView: NSTextView {
 
     // VoiceOver reads the page, not the clipped context line after it.
     override func accessibilityValue() -> String? {
-        isPageColumn ? visibleString : super.accessibilityValue()
+        isPageColumn ? visibleText : super.accessibilityValue()
     }
 
     override func accessibilityNumberOfCharacters() -> Int {
