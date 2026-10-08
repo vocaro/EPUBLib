@@ -21,7 +21,7 @@ generated project is ignored by git; persistent build settings belong in `projec
 Choose **Open Sample** to read without importing a file. **Open EPUB…** uses the system file
 picker and keeps security-scoped access active for the background import. The reader offers
 section navigation, pagination, text size, scrolling, a native selection action and saved positions.
-Controls follow the engine's capabilities, so fixed-layout books omit reflow controls. The
+Controls follow the engine's capabilities. The
 toolbar scrolls horizontally on narrow screens. Disclosures, notices and errors appear below
 the reading surface.
 
@@ -30,6 +30,9 @@ publication's content fingerprint. The sample deliberately leaves storage policy
 Opening another book cancels the previous import and invalidates its callbacks; closing a book
 closes its session. The example serializes command submissions and waits for `.ready` before
 enabling controls. Applications requiring paint completion must observe relocation events.
+
+For automated and visual checks, the launch arguments `-SampleBook <path>` open a book directly,
+and `-SampleFlow scrolled`, `-SampleDark YES` and `-SampleFontSize <points>` set its style.
 
 ## Source and verification
 
@@ -43,5 +46,5 @@ the app. `python3 scripts/check-docs.py` checks marked README/integration exampl
 Run `python3 scripts/check-docs.py --write` after editing an example, and
 `python3 scripts/make-sample.py` to regenerate the bundled book.
 
-The Mac target enables the sandbox, user-selected read access and the network client entitlement
-needed by WebKit helpers. The Foliate adapter still refuses remote book resources and navigation.
+The Mac target enables the sandbox and user-selected read access only; the reader needs no
+network access and refuses remote book resources and external links.

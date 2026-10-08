@@ -98,6 +98,7 @@ import Foundation
             (.navigateHref, .navigate(href: firstHref)),
             (.locateText, .locate(text: text, highlight: false)),
             (.searchHighlight, .searchHighlight(text: text)), (.searchHighlight, .clearSearch),
+            (.highlights, .setHighlights([])),
         ]
         for (capability, command) in commands {
             if session.capabilities.contains(capability) { try await session.send(command) }

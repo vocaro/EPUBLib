@@ -13,7 +13,7 @@ Choose the products your consumer uses. Their target dependencies enforce the bo
 | `EPUBReading` | Bounded, immutable archive import and OPF/navigation parsing | EPUBCore, ZIPFoundation |
 | `EPUBText` | XHTML text, semantics, headings and UTF-8 anchor positions in one walk | EPUBCore, EPUBReading, Apple libxml2 |
 | `EPUBWriting` | EPUB 3 package/navigation generation and streaming archive output | EPUBCore, ZIPFoundation |
-| `EPUBViewing` | SwiftUI reader sessions, WebKit isolation and bundled Foliate rendering | EPUBCore, EPUBReading |
+| `EPUBViewing` | SwiftUI reader sessions and native TextKit 2 rendering | EPUBCore, EPUBReading |
 
 The headless products import neither SwiftUI nor WebKit. A viewer does not depend on text
 extraction or writing. PDF layout reconstruction, study section policy and app chrome belong to
@@ -24,7 +24,7 @@ consumers. One package pins these cooperating products together; there is no umb
 Add `https://github.com/vocaro/EPUBLib.git`, pinned to a reviewed commit. Link `EPUBReading`
 for publication parsing, `EPUBText` for structural extraction, `EPUBWriting` for generation,
 and `EPUBViewing` for the reader. Import `EPUBCore` when using its value types directly.
-No JavaScript build step or asset download is required. See [architecture](doc/architecture.md),
+No web view, JavaScript or asset download is involved. See [architecture](doc/architecture.md),
 [text extraction](doc/text-extraction.md) and [writing](doc/writing.md).
 
 ## Reading and viewing
@@ -95,14 +95,16 @@ docs are checked against that source.
 
 - EPUB 2 OPF/NCX and EPUB 3 OPF/navigation parsing, metadata, cover resource and reading order.
 - Bounded archive import, path checks, CRC validation and an immutable source snapshot.
-- Foliate pagination, scrolling, typography, local contents navigation, passage location,
-  search highlighting, text selection, position events and precise engine-specific restoration.
+- Native TextKit 2 page turns with one or two columns (and a host-reserved fold), whole-book
+  continuous scroll under the system bars, typography, local contents navigation, footnotes,
+  tables, images and MathML, passage location, search and host highlights, native text
+  selection, position events and EPUB CFI restoration compatible with the former WebKit reader.
 - SwiftUI on iPhone, iPad and native Mac; keyboard and accessibility page-turn actions.
 - No accounts, networking service, library database, app toolbar or persistence policy.
 
 This is an initial release, not an EPUB conformance validator. See
 [architecture and limitations](doc/architecture.md) for supported inputs, security boundaries and
-bookmark portability. Readium and epub.js adapters are possible extensions, not included products.
+bookmark portability, and the [native viewer](doc/native-viewer.md) for its design and limits.
 
 ## Verification
 
@@ -110,7 +112,7 @@ bookmark portability. Readium and epub.js adapters are possible extensions, not 
 bash scripts/check-all.sh
 ```
 
-The local gate checks docs and vendor identities, compiles the sample, and runs parser, adapter
+The local gate checks module boundaries and docs, compiles the sample, and runs parser, adapter
 contract, security and rendering tests on Mac and dedicated iPhone/iPad simulators. Rendering
 fixtures include fixed layout, RTL, vertical writing, escaped filenames and a large illustrated
 book. Live Mac tests need a graphical login. See [testing](doc/testing.md) for prerequisites,
@@ -120,9 +122,8 @@ See [release and API compatibility policy](doc/releasing.md) and [release notes]
 
 ## Licenses
 
-The library is MIT licensed. ZIPFoundation is MIT. Bundled foliate-js is MIT and its zip.js bundle
-is BSD-3-Clause. Upstream license texts ship in the resource bundle; their pinned identities are
-in [the vendor manifest](doc/vendor-manifest.json). See [third-party notices](doc/third-party-notices.md).
+The library is MIT licensed. ZIPFoundation is MIT. The CFI and text-search code is ported from
+foliate-js (MIT). See [third-party notices](doc/third-party-notices.md).
 
 ## Extracting text
 

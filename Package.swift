@@ -17,14 +17,15 @@ let package = Package(
         .target(name: "EPUBReading", dependencies: ["EPUBCore", "ZIPFoundation"]),
         .target(name: "EPUBText", dependencies: ["EPUBCore", "EPUBReading"]),
         .target(name: "EPUBWriting", dependencies: ["EPUBCore", "ZIPFoundation"]),
-        .target(name: "EPUBViewing", dependencies: ["EPUBCore", "EPUBReading"],
-                resources: [.copy("Resources/epub-reader")]),
+        .target(name: "MathMLLayout"),
+        .target(name: "EPUBViewing", dependencies: ["EPUBCore", "EPUBReading", "MathMLLayout"]),
         .target(name: "EPUBViewingTestSupport", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing"]),
         .target(name: "EPUBTestSupport", dependencies: ["ZIPFoundation"], path: "Tests/EPUBTestSupport"),
         .target(name: "ReaderSampleSupport", dependencies: ["EPUBCore", "EPUBReading", "EPUBText", "EPUBViewing"],
                 path: "Examples/ReaderSample/Shared"),
         .testTarget(name: "EPUBReadingTests", dependencies: ["EPUBCore", "EPUBReading", "EPUBText", "EPUBTestSupport"]),
         .testTarget(name: "EPUBWritingTests", dependencies: ["EPUBCore", "EPUBWriting", "EPUBReading", "EPUBText", "ZIPFoundation"]),
+        .testTarget(name: "MathMLLayoutTests", dependencies: ["MathMLLayout"]),
         .testTarget(name: "EPUBViewingTests", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing", "EPUBViewingTestSupport", "EPUBTestSupport"]),
     ]
 )

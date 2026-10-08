@@ -2,9 +2,13 @@
 
 ## Unreleased
 
-- In continuous scroll on iOS, keep no bottom content inset on the web view, so the page runs down to the host's bottom bar and its bottom edge fade lands there ([vocaro/studywright#379](https://github.com/vocaro/studywright/issues/379)). WebKit sizes the page to the web view's safe area and lets the scroll view place it, and the 64-point inset rested the page at the top inset instead, above the toolbar's bottom edge, leaving a band below the page where no text drew. Page turns keep the inset. The paginator's own 48-point section margin keeps a section's last line clear of the bar.
-- Add an iOS regression that switches flows and checks the bottom inset each one keeps.
-- Public APIs, dependencies and bookmark formats are unchanged.
+- Replace the bundled foliate-js WebKit renderer with a native TextKit 2 viewer ([#3](https://github.com/vocaro/EPUBLib/issues/3)). `EPUBReader` keeps its engine identifier and `epubcfi-v1` bookmarks: CFIs are generated and resolved exactly as foliate-js did, so stored reading positions and highlight locators resolve unchanged. See [native viewer](native-viewer.md).
+- Continuous scroll is one real scroll view over the whole book, running under the bars with the system scroll edge effects; the drawn edge fades are gone and nothing resets at a section boundary. This supersedes the unreleased interim bottom-inset fix (`4b7942d`) ([vocaro/studywright#379](https://github.com/vocaro/studywright/issues/379), [#73](https://github.com/vocaro/studywright/issues/73)).
+- Page turns use one or two columns by the page's own size, and `View.epubReaderDivision(_:)` puts a two-column spread's gutter on a host-reserved fold ([vocaro/studywright#278](https://github.com/vocaro/studywright/issues/278)).
+- Add `EPUBReaderCommand.setHighlights`, `EPUBHighlight` and the `highlights` capability, drawing host highlights while reading ([vocaro/studywright#85](https://github.com/vocaro/studywright/issues/85)). Selections have no length cap.
+- Render tables, images, footnote popovers and MathML natively; MathML through the new internal `MathMLLayout` target. Fixed-layout books reflow and vertical writing renders horizontally, each with a disclosure; sessions advertise every capability.
+- `EPUBPublication.pageProgression` exposes the spine's `page-progression-direction`.
+- Remove foliate-js, zip.js, the bootstrap page, scheme handler, URL patch, JavaScript bridge and vendor identity check. The Mac sample no longer needs the network client entitlement.
 
 ## 0.2.5
 

@@ -7,16 +7,19 @@ positions from one libxml2 walk. `EPUBWriting` generates EPUB 3 package/navigati
 explicit publication facts and streams file-backed resources into an OCF archive. These targets
 contain no SwiftUI, WebKit, PDFKit, Vision, application policy or reconstructed-PDF model.
 
-`EPUBViewing` owns the reader/session interface and the Foliate implementation: WebKit adapter,
-validated message bridge, custom URL scheme and bundled foliate-js assets. Parsing creates no
-view or JavaScript context. Viewing depends on EPUBReading and EPUBCore, never EPUBText or
-EPUBWriting. EPUBWriting depends only on EPUBCore and ZIPFoundation, never EPUBReading or viewing.
-The adapter-contract helper is an internal test-support target, not a library product.
+`EPUBViewing` owns the reader/session interface and the native viewer: content documents,
+the CSS subset, attributed text, CFIs, search and TextKit 2 views (see [native viewer](native-viewer.md)).
+It uses no WebKit and runs no JavaScript. Viewing depends on EPUBReading, EPUBCore and the
+internal `MathMLLayout` target, never EPUBText or EPUBWriting. `MathMLLayout` lays out
+presentation MathML with CoreText; it imports no EPUBLib module or UI framework, so it can move
+to its own package. EPUBWriting depends only on EPUBCore and ZIPFoundation, never EPUBReading or
+viewing. The adapter-contract helper is an internal test-support target, not a library product.
 
 Source API compatibility with the former package is not a constraint. Publication fingerprints,
-`epubcfi-v1` bookmarks and the persisted Foliate engine identifier retain their existing meanings.
-The engine identifier remains `org.epubreaderlib.foliate`; package naming does not change stored
-reading positions. Pinned upstream JavaScript and the sample EPUB remain byte-for-byte unchanged.
+`epubcfi-v1` bookmarks and the persisted engine identifier retain their existing meanings. The
+engine identifier remains `org.epubreaderlib.foliate` although foliate-js is no longer bundled:
+a CFI names a position in the content document, so bookmarks and highlight locators the WebKit
+reader stored resolve unchanged in the native viewer. The sample EPUB remains byte-for-byte unchanged.
 
 ## Publication model
 
@@ -39,15 +42,15 @@ Inputs need an EPUB mimetype, a container rootfile and a nonempty resolvable spi
 resources, unsupported encryption, archive traversal, duplicate paths, symlinks, entity declarations
 and malformed metadata/navigation XML fail explicitly. The package does not repair malformed EPUBs,
 validate the full EPUB specification, synthesize page numbers or provide DRM support. Standard IDPF
-and Adobe font obfuscation are decoded for resource access; Foliate receives the original archive. Media overlays,
+and Adobe font obfuscation are decoded for resource access, including the viewer's embedded fonts. Media overlays,
 TTS, annotation persistence and full-text search result enumeration are outside the initial API.
 
 ## Engine contract
 
 An engine constructs a session with a publication, optional selection action and event callback.
 The session creates an `AnyView`, accepts typed commands, advertises capabilities and closes its
-resources. A native implementation can return a SwiftUI/AppKit/UIKit-backed view without WebKit;
-`NativeEngineTests` implements this using only SwiftUI and the public contract.
+resources. An implementation can return any SwiftUI/AppKit/UIKit-backed view; `NativeEngineTests`
+implements a minimal one using only SwiftUI and the public contract.
 
 `send` acknowledges command submission, not successful navigation or paint completion. Later
 position/error events describe effects. Cancellation before submission throws `CancellationError`;
@@ -58,35 +61,31 @@ emitted exactly once; later fidelity disclosures do not restart the session life
 
 Portable location fields contain the publication fingerprint, section href, text quote and overall
 progression when known. Resource `href`, navigation hrefs and location hrefs are encoded URL
-references; resource `path` is the decoded archive key. Exact restoration uses a separately tagged engine bookmark. Foliate's
+references; resource `path` is the decoded archive key. Exact restoration uses a separately tagged engine bookmark. The reader's
 `epubcfi-v1` bookmark is accepted only for the same publication fingerprint and engine identifier.
 Other engines may offer approximate navigation by href or quote; this is not automatic bookmark
 conversion. The package does not promise cross-engine page, search or selection equivalence.
 
-## Foliate isolation
+## Viewer isolation
 
-The adapter vendors a pinned upstream import closure. A small fail-closed URL compatibility patch
-is applied to `epub.js` when served, preserving encoded hrefs until the archive lookup. The upstream
-files remain unchanged and the patch is covered by rendering tests; see [release policy](releasing.md).
-Its scheme handler serves only the host page,
-bootstrap module, exact allowlisted assets and the publication snapshot. The WebKit data store is
-nonpersistent. Content Security Policy refuses remote origins and book scripts; book images, CSS,
-fonts and media can use allowed local/blob/data resources. The bootstrap removes connection hints
-before parsing them into rendered sections and reports fidelity reductions to the host. Navigation
-outside the reader's allowed schemes, new windows and document-driven dialogs are refused.
+Books are untrusted and nothing in them executes: the viewer has no JavaScript engine and no web
+view. Content documents parse with libxml2 after `XMLSafety` refuses entity declarations and
+internal DTD subsets; named HTML entities become numeric references, DTDs and the network are
+never loaded, and depth and node counts are bounded. Markup that is not well-formed is read with
+libxml2's forgiving HTML parser rather than refused. CSS, fonts, MathML and images are parsed with
+their own bounds. Every reference resolves inside the archive snapshot; remote images, stylesheets,
+fonts and media are never fetched, external links are refused with a notice, and `script`
+elements are counted and disclosed but never run. Sandboxed macOS hosts need no network entitlement.
 
-Selection and location messages are length/range checked and only accepted from the main frame.
-Command arguments use JSON serialization. The package never fetches remote book resources or opens
-external links. Sandboxed macOS hosts need `com.apple.security.network.client` for WebKit's helper
-processes to launch, even with remote document access prohibited. This entitlement does not change
-the adapter's navigation or content policy.
-
-The engine uses foliate-js's EPUB renderer for both reflowable and fixed-layout publications.
-Sessions containing any fixed-layout spine item omit typography and scrolling capabilities and
-reject those controls; author-sized pages do not reflow. Tests cover reflowable, fixed-layout,
-RTL, vertical-writing and illustrated synthetic books on OS 27. This is regression coverage, not
-a general fidelity guarantee. Host apps must present `.disclosure` and `.failed` events appropriately
-and may provide their own fallback. Adapter-contract tests verify session behavior; rendering fidelity stays with the viewer tests.
+The viewer renders reflowable EPUB on iOS/iPadOS and macOS 27 with TextKit 2: continuous scroll
+in one real scroll view over the whole book, and paginated columns sliced from one layout per
+column width. Fixed-layout spine items render as reflowable text and vertical writing renders
+horizontally, each with a `.disclosure`; sessions advertise every capability. Tests cover
+reflowable, fixed-layout, RTL, vertical-writing, escaped-filename and illustrated synthetic books,
+CFIs recorded from foliate-js, and real-book qualification runs (see [native viewer](native-viewer.md)).
+This is regression coverage, not a general fidelity guarantee. Host apps must present
+`.disclosure` and `.failed` events appropriately and may provide their own fallback.
+Adapter-contract tests verify session behavior; rendering fidelity stays with the viewer tests.
 
 ## Structural text
 

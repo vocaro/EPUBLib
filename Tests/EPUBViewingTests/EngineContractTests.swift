@@ -54,6 +54,7 @@ import XCTest
         case .nextPage, .previousPage: throw EPUBReaderError.unsupported(.pagination)
         case .locate: throw EPUBReaderError.unsupported(.locateText)
         case .searchHighlight, .clearSearch: throw EPUBReaderError.unsupported(.searchHighlight)
+        case .setHighlights: throw EPUBReaderError.unsupported(.highlights)
         case .style(let style): throw EPUBReaderError.unsupported(style.flow == .scrolled ? .scrolling : .typography)
         }
     }

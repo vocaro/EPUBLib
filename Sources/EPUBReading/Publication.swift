@@ -15,6 +15,8 @@ public struct EPUBPublication: Sendable {
     public let spine: [EPUBSpineItem]
     public let tableOfContents: [EPUBNavigationItem]
     public let cover: EPUBResource?
+    /// The direction pages advance in; `default` leaves it to the reading system.
+    public let pageProgression: EPUBPageProgression
     /// Original EPUB bytes, for engines with their own container implementation.
     public let archiveData: Data
     private let contents: [String: Data]
@@ -206,6 +208,7 @@ public struct EPUBPublication: Sendable {
                                    languages: values("language"), identifiers: values("identifier")),
             resources: resources, spine: spine, tableOfContents: toc,
             cover: resources.first { $0.properties.contains("cover-image") } ?? coverID.flatMap { byID[$0] },
+            pageProgression: EPUBPageProgression(rawValue: spineNode.attributes["page-progression-direction"] ?? "") ?? .default,
             archiveData: data, contents: contents)
     }
 

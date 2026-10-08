@@ -44,7 +44,16 @@ public struct EPUBReaderStyle: Equatable, Sendable {
 }
 
 public enum EPUBReaderCapability: String, Hashable, Sendable {
-    case pagination, scrolling, typography, selection, bookmarks, locateText, navigateHref, searchHighlight
+    case pagination, scrolling, typography, selection, bookmarks, locateText, navigateHref, searchHighlight, highlights
+}
+
+/// A host-owned highlight drawn while reading. `location.bookmark` names the passage precisely
+/// (a selection's range CFI for the bundled reader); highlights the engine cannot resolve are
+/// not drawn and are reported with `.notice`.
+public struct EPUBHighlight: Equatable, Sendable, Identifiable {
+    public var id: String
+    public var location: EPUBLocation
+    public init(id: String, location: EPUBLocation) { self.id = id; self.location = location }
 }
 
 public enum EPUBReaderCommand: Equatable, Sendable {
@@ -55,6 +64,8 @@ public enum EPUBReaderCommand: Equatable, Sendable {
     case searchHighlight(text: String)
     case clearSearch
     case style(EPUBReaderStyle)
+    /// Replaces every drawn highlight. An empty array removes them.
+    case setHighlights([EPUBHighlight])
 }
 
 public enum EPUBReaderError: Error, Equatable, Sendable {

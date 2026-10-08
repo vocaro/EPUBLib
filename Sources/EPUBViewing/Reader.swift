@@ -36,3 +36,14 @@ public struct EPUBReaderView: View {
     public init(session: any EPUBReaderSession) { self.session = session }
     public var body: some View { session.makeView() }
 }
+
+public extension View {
+    /// Reserves a vertical division of the reader, such as a fold or hinge, in the coordinate
+    /// space of the `EPUBReaderView` it is applied to. In paginated flow a spread puts its gutter
+    /// on the division; text never crosses it. Horizontal divisions and nil reserve nothing.
+    func epubReaderDivision(_ frame: CGRect?) -> some View { environment(\.epubReaderDivision, frame) }
+}
+
+extension EnvironmentValues {
+    @Entry var epubReaderDivision: CGRect? = nil
+}
