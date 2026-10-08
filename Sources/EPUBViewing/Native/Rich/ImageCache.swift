@@ -47,8 +47,15 @@ final class ReaderImageSource: @unchecked Sendable {
 
     /// An SVG document the platform image decoder can draw; nil when it cannot.
     static func svg(_ data: Data, path: String, key: String) -> ReaderImageSource? {
-        guard let image = PlatformImage(data: data), image.size.width > 0, image.size.height > 0 else { return nil }
-        return ReaderImageSource(key: key, path: path, data: data, format: .svg, pixelSize: image.size)
+        guard let image = PlatformImage(data: data), image.size.width.isFinite, image.size.height.isFinite,
+              image.size.width > 0, image.size.height > 0 else { return nil }
+        // The document's own width and height, which a book controls: kept to a size every
+        // later computation (decode buckets, rasterizing) can represent.
+        let long = max(image.size.width, image.size.height)
+        let scale = min(1, CGFloat(maximumSVGDimension) / long)
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        guard size.width >= 1 / 64, size.height >= 1 / 64 else { return nil }
+        return ReaderImageSource(key: key, path: path, data: data, format: .svg, pixelSize: size)
     }
 
     /// Decodes at most `maxPixelSize` pixels on the long side: a downsampled thumbnail with the
@@ -141,7 +148,8 @@ final class ReaderImageCache: @unchecked Sendable {
     /// The image decoded to at least `maxPixelSize` on its long side (rounded up, and never more
     /// than the source has). A cached decode up to twice that size is reused.
     func image(for source: ReaderImageSource, maxPixelSize: Int) -> CGImage? {
-        let available = max(1, Int(max(source.pixelSize.width, source.pixelSize.height).rounded(.up)))
+        let long = max(source.pixelSize.width, source.pixelSize.height)
+        let available = long.isFinite ? max(1, Int(min(long, CGFloat(1 << 30)).rounded(.up))) : 1
         let pixels = source.format == .svg ? min(Self.bucket(maxPixelSize), ReaderImageSource.maximumSVGDimension)
             : min(Self.bucket(maxPixelSize), available)
         let key = Key(source: source.key, pixels: pixels)

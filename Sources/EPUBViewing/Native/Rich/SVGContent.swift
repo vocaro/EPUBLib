@@ -118,20 +118,25 @@ enum SVGContent {
             guard !overflow else { return }
             if node.isText { write(escape(node.text, attribute: false)); return }
             guard isSVG(node, root: svg), !dropped.contains(node.name) else { return }
-            if node.name == "style", referencesOutside(node.textContent) || node.textContent.lowercased().contains("@import") { return }
+            if node.name == "style", unsafeCSS(node.textContent) || node.textContent.lowercased().contains("@import") { return }
             write("<" + node.name)
             if isRoot { write(" xmlns=\"\(ContentNamespace.svg)\" xmlns:xlink=\"\(ContentNamespace.xlink)\"") }
             for attribute in node.attributes {
                 let name: String
                 switch attribute.namespace {
-                case "": name = attribute.name
+                case "":
+                    // A prefix no ancestor declares stays in the name (`xlink:href`); written out
+                    // under the root's declarations it would become a live reference.
+                    guard !attribute.name.contains(":") else { continue }
+                    name = attribute.name
                 case ContentNamespace.xlink: name = "xlink:" + attribute.name
                 case ContentNamespace.xml: name = "xml:" + attribute.name
                 default: continue
                 }
-                guard name != "xmlns", !name.hasPrefix("xmlns:"), !attribute.name.lowercased().hasPrefix("on") else { continue }
+                let local = attribute.name.lowercased()
+                guard name != "xmlns", !name.hasPrefix("xmlns:"), !local.hasPrefix("on"), local != "base" else { continue }
                 var value = attribute.value
-                if attribute.name == "href" {
+                if local == "href" || local == "src" {
                     let reference = value.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !reference.hasPrefix("#") {
                         guard node.name == "image", let path = resolve(reference),
@@ -141,7 +146,7 @@ enum SVGContent {
                         inlined += data.count
                         value = "data:\(type);base64," + data.base64EncodedString()
                     }
-                } else if referencesOutside(value) { continue }
+                } else if unsafeCSS(value) { continue }
                 write(" \(name)=\"\(escape(value, attribute: true))\"")
             }
             if node.children.isEmpty { write("/>"); return }
@@ -151,6 +156,12 @@ enum SVGContent {
         }
         emit(svg, isRoot: true)
         return overflow ? nil : Data(output.utf8)
+    }
+
+    /// Whether CSS in `value` might reach outside the document: a `url()` to anything but a
+    /// fragment, or any escape, which could spell one (`u\72l(`) past a textual check.
+    static func unsafeCSS(_ value: String) -> Bool {
+        value.contains("\\") || referencesOutside(value)
     }
 
     /// Whether CSS in `value` points anywhere but into the document (`url(#…)`).

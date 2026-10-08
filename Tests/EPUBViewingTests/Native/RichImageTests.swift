@@ -314,6 +314,30 @@ final class RichImageTests: XCTestCase {
         XCTAssertNil(SVGContent.wrappedImage(svg), "It draws more than one image")
     }
 
+    func testSerializedSVGDropsUnboundPrefixesEscapesAndBases() throws {
+        // No `xmlns:xlink`: the parser keeps `xlink:href` as a plain attribute name, which the
+        // serializer's own `xmlns:xlink` declaration would otherwise turn into a live reference.
+        let fixture = try RichFixture("""
+        <svg xmlns="http://www.w3.org/2000/svg" id="s" width="10" height="10" xml:base="https://example.com/">
+        <image xlink:href="http://example.com/x.png" width="10" height="10"/><image foo:src="file:///etc/hosts"/>
+        <rect style="fill:u\\72l(https://example.com/p)" width="5" height="5"/>
+        <style>rect { fill: u\\72l(https://example.com/q) }</style></svg>
+        """)
+        let data = try XCTUnwrap(SVGContent.serialize(fixture.element("s"), resolve: fixture.context.resolve,
+                                                       publication: fixture.publication))
+        let text = String(decoding: data, as: UTF8.self)
+        for absent in ["example.com", "file:", "xml:base", "\\", "<style"] {
+            XCTAssertFalse(text.contains(absent), "\(absent) in \(text)")
+        }
+    }
+
+    func testSVGWithHugeDimensionsIsClampedNotTrapped() throws {
+        let drawing = "<svg xmlns='http://www.w3.org/2000/svg' width='1e39' height='10'><rect width='5' height='5'/></svg>"
+        guard let source = ReaderImageSource.svg(Data(drawing.utf8), path: "", key: "huge") else { return } // Not decodable: nothing to draw.
+        XCTAssertLessThanOrEqual(max(source.pixelSize.width, source.pixelSize.height), CGFloat(ReaderImageSource.maximumSVGDimension))
+        _ = ReaderImageCache(budget: 1 << 20).image(for: source, maxPixelSize: 512)
+    }
+
     // MARK: Helpers
 
     /// Draws an attachment image into a bitmap at `scale`, as a text view would.
