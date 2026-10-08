@@ -47,6 +47,9 @@ public struct EPUBResource: Equatable, Sendable, Identifiable {
 
 public enum EPUBLayout: String, Sendable { case reflowable, prePaginated }
 
+/// The spine's `page-progression-direction`.
+public enum EPUBPageProgression: String, Sendable { case ltr, rtl, `default` }
+
 public struct EPUBSpineItem: Equatable, Sendable {
     public let resource: EPUBResource
     public let isLinear: Bool
