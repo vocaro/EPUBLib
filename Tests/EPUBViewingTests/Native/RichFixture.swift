@@ -13,7 +13,7 @@ import UIKit
 #endif
 
 /// A one-section book around inline XHTML, and a `RichContentContext` for its elements with
-/// deterministic styles: the skeleton resolver's, then per-`id` overrides from the test.
+/// deterministic styles: the user-agent cascade without cell padding, then per-`id` overrides.
 final class RichFixture {
     let publication: EPUBPublication
     let document: ContentDocument
@@ -44,6 +44,12 @@ final class RichFixture {
 
     func style(for element: ContentNode, parent: ComputedStyle) -> ComputedStyle {
         var style = resolver.style(for: element, parent: parent)
+        // Layouts here are measured from content, so the user-agent sheet's 1-pt cell padding
+        // (WebKit's) is left out unless the table's `cellpadding` asks for padding.
+        if element.isHTML("td") || element.isHTML("th"),
+           sequence(first: element, next: \.parent).first(where: { $0.isHTML("table") })?.attribute("cellpadding") == nil {
+            style.padding = .init(.zero)
+        }
         if let id = element.id, let override = overrides[id] { override(&style) }
         return style
     }
