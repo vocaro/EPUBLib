@@ -71,7 +71,11 @@ final class MathContentTests: XCTestCase {
         content.attributedString = result
         let bounds = attachment.attachmentBounds(for: [:], location: content.documentRange.location, textContainer: nil,
                                                  proposedLineFragment: CGRect(x: 0, y: 0, width: 500, height: 20), position: .zero)
-        XCTAssertEqual(bounds, CGRect(x: 0, y: -layout.descent, width: layout.width, height: layout.ascent + layout.descent))
+        let clearance = attachment.clearance
+        XCTAssertGreaterThan(clearance.top, 0, "a display fraction rises past the text")
+        XCTAssertGreaterThan(clearance.bottom, 0)
+        XCTAssertEqual(bounds, CGRect(x: 0, y: -layout.descent - clearance.bottom, width: layout.width,
+                                      height: layout.ascent + layout.descent + clearance.top + clearance.bottom))
         XCTAssertNotNil(result?.attribute(.font, at: 0, effectiveRange: nil), "the line keeps the text's font metrics")
     }
 
@@ -80,11 +84,12 @@ final class MathContentTests: XCTestCase {
         let attachment = try attachment(try make(terms).0)
         let layout = attachment.layout
         XCTAssertGreaterThan(layout.width, 300)
-        let bounds = attachment.bounds(lineWidth: 300)
+        let bounds = attachment.bounds(lineWidth: 300, height: 0)
         XCTAssertEqual(bounds.width, 300, accuracy: 0.001)
         let scale = 300 / layout.width
-        XCTAssertEqual(bounds.height, (layout.ascent + layout.descent) * scale, accuracy: 0.001)
-        XCTAssertEqual(bounds.minY, -layout.descent * scale, accuracy: 0.001)
+        let clearance = attachment.clearance
+        XCTAssertEqual(bounds.height, (layout.ascent + layout.descent + clearance.top + clearance.bottom) * scale, accuracy: 0.001)
+        XCTAssertEqual(bounds.minY, -(layout.descent + clearance.bottom) * scale, accuracy: 0.001)
         // Before layout knows the line, the reader container's viewport bounds it.
         let container = ReaderTextContainer(size: CGSize(width: 250, height: 400))
         container.viewportSize = CGSize(width: 250, height: 400)
@@ -93,6 +98,72 @@ final class MathContentTests: XCTestCase {
         let fitted = attachment.attachmentBounds(for: [:], location: content.documentRange.location, textContainer: container,
                                                  proposedLineFragment: .zero, position: .zero)
         XCTAssertEqual(fitted.width, 250, accuracy: 0.001)
+    }
+
+    func testTallFormulaScalesToThePage() throws {
+        let rows = (1...40).map { "<mtr><mtd><mn>\($0)</mn></mtd></mtr>" }.joined()
+        let attachment = try attachment(try make("<mo>(</mo><mtable>\(rows)</mtable><mo>)</mo>").0)
+        XCTAssertGreaterThan(attachment.bounds(lineWidth: 0, height: 0).height, 500)
+        let container = ReaderTextContainer(size: CGSize(width: 300, height: 0))
+        container.viewportSize = CGSize(width: 300, height: 400)
+        let content = NSTextContentStorage()
+        content.attributedString = NSAttributedString(attachment: attachment)
+        let fitted = attachment.attachmentBounds(for: [:], location: content.documentRange.location, textContainer: container,
+                                                 proposedLineFragment: CGRect(x: 0, y: 0, width: 300, height: 20), position: .zero)
+        XCTAssertEqual(fitted.height, 400, accuracy: 0.001, "a page-high formula fits its page")
+        let natural = attachment.bounds(lineWidth: 0, height: 0)
+        XCTAssertEqual(fitted.width / natural.width, fitted.height / natural.height, accuracy: 0.0001, "scaled uniformly")
+    }
+
+    /// Table cells draw their text with string drawing, which may use TextKit 1.
+    func testStringDrawingPutsTheFormulaOnTheBaseline() throws {
+        let (formula, _) = try make("<mfrac><mi>a</mi><mi>b</mi></mfrac>", attributes: "display=\"block\"")
+        let attachment = try attachment(formula)
+        let font = PlatformFont.systemFont(ofSize: 17)
+        let text = NSMutableAttributedString(string: "x", attributes: [.font: font, .foregroundColor: PlatformColor.black])
+        text.append(try XCTUnwrap(formula))
+        let width = 200, height = 120, scale = 2
+        let context = CGContext(data: nil, width: width * scale, height: height * scale, bitsPerComponent: 8,
+                                bytesPerRow: width * scale * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.scaleBy(x: CGFloat(scale), y: CGFloat(scale))
+        // Flipped, as string drawing expects: y grows downward from the top-left.
+        context.translateBy(x: 0, y: CGFloat(height)); context.scaleBy(x: 1, y: -1)
+        #if os(iOS)
+        UIGraphicsPushContext(context)
+        text.draw(with: CGRect(x: 10, y: 20, width: 180, height: 90), options: [.usesLineFragmentOrigin], context: nil)
+        UIGraphicsPopContext()
+        #elseif os(macOS)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        text.draw(with: CGRect(x: 10, y: 20, width: 180, height: 90), options: [.usesLineFragmentOrigin], context: nil)
+        NSGraphicsContext.restoreGraphicsState()
+        #endif
+        let pixels = context.data!.bindMemory(to: UInt8.self, capacity: width * height * scale * scale * 4)
+        func inkRows(columns: Range<Int>) -> (top: CGFloat, bottom: CGFloat)? {
+            var rows: [Int] = []
+            for row in 0..<(height * scale) where columns.contains(where: { pixels[(row * width * scale + $0) * 4 + 3] > 64 }) {
+                rows.append(row)
+            }
+            // Bitmap rows run top-down; in points from the top.
+            return rows.first.map { (CGFloat($0) / CGFloat(scale), CGFloat(rows.last! + 1) / CGFloat(scale)) }
+        }
+        let x = try XCTUnwrap(inkRows(columns: (10 * scale)..<(17 * scale)))
+        let fraction = try XCTUnwrap(inkRows(columns: (22 * scale)..<(10 + Int(attachment.layout.width) + 8) * scale))
+        // The fraction straddles the x's baseline (its bottom) by its own ascent and descent.
+        XCTAssertEqual(fraction.bottom - x.bottom, attachment.layout.descent, accuracy: 1.5)
+        XCTAssertEqual(x.bottom - fraction.top, attachment.layout.ascent, accuracy: 1.5)
+    }
+
+    func testSmallFormulasLeaveTheLineSpacingAlone() throws {
+        var style = ComputedStyle(fontSize: 17)
+        style.lineHeight = .multiple(1.4)
+        for body in ["<mi>x</mi>", "<msup><mi>x</mi><mn>2</mn></msup>", "<msub><mi>x</mi><mn>1</mn></msub>",
+                     "<mi>y</mi><mo>=</mo><mn>2</mn><mi>x</mi><mo>+</mo><mn>1</mn>"] {
+            let attachment = try attachment(try make(body, style: style).0)
+            XCTAssertEqual(attachment.clearance.top, 0, body)
+            XCTAssertEqual(attachment.clearance.bottom, 0, body)
+        }
     }
 
     func testUsesTheElementsFontSizeAndDisplayStyle() throws {
@@ -153,7 +224,7 @@ final class MathContentTests: XCTestCase {
 
     func testImageDrawsLazilyAtItsSize() throws {
         let attachment = try attachment(try make("<msqrt><mi>x</mi></msqrt>").0)
-        let bounds = attachment.bounds(lineWidth: 500)
+        let bounds = attachment.bounds(lineWidth: 500, height: 0)
         let image = try XCTUnwrap(attachment.image(size: bounds.size))
         XCTAssertEqual(image.size.width, bounds.width, accuracy: 0.5)
         XCTAssertEqual(image.size.height, bounds.height, accuracy: 0.5)
