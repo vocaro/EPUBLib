@@ -257,6 +257,7 @@ extension StyleResolver {
         case .borderCollapse: style.borderCollapse = source.borderCollapse
         case .borderSpacing: style.borderSpacing = source.borderSpacing
         case .captionSide: style.captionSide = source.captionSide
+        case .filter: style.invertsColors = source.invertsColors
         }
     }
 
@@ -352,6 +353,7 @@ extension StyleResolver {
         case (.visibility, .flag(let hidden)): style.isHidden = hidden
         case (.borderCollapse, .flag(let collapse)): style.borderCollapse = collapse
         case (.captionSide, .flag(let bottom)): style.captionSide = bottom ? .bottom : .top
+        case (.filter, .flag(let inverts)): style.invertsColors = inverts
         case (.borderSpacing, .spacing(let h, let v)):
             func clamp(_ x: CGFloat) -> CGFloat { min(max(x, StyleLimits.borderSpacing.lowerBound), StyleLimits.borderSpacing.upperBound) }
             style.borderSpacing = CGSize(width: clamp(points(h, own)), height: clamp(points(v, own)))
