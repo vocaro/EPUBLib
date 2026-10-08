@@ -107,31 +107,128 @@ import UIKit
 
     /// Each page's own text, laid out alone as its column does, breaks into exactly the
     /// section's lines, including mid-paragraph starts in justified, hyphenated, indented text.
-    func testPageTextLaysOutLikeTheSection() {
-        let style = CanvasText.bodyStyle(alignment: .justified, hyphenates: true, indent: 24)
-        let text = NSMutableAttributedString()
-        for paragraph in 0..<6 {
-            if paragraph > 0 { text.append(NSAttributedString(string: "\n")) }
-            text.append(CanvasText.body("Incomprehensibilities notwithstanding, " + CanvasText.sentence(140, seed: paragraph), style: style))
-        }
+    /// Each page's own text, laid out alone as its column does, breaks into exactly the
+    /// section's lines: across mid-paragraph starts and ends, in justified, hyphenated, indented
+    /// text and in paragraphs of hard line breaks.
+    private func assertPagesLayOutLikeTheSection(_ text: NSAttributedString, size: CGSize,
+                                                 file: StaticString = #filePath, line: UInt = #line) -> [ReaderPage] {
         let section = lines(of: text, width: size.width)
         let paginator = ReaderPaginator(text: text, size: size)
-        var continued = 0
-        for page in paginator.allPages {
+        let pages = paginator.allPages
+        for page in pages {
             let pageText = paginator.text(for: page)
             if page.continuesParagraph {
-                continued += 1
                 let style = pageText.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
-                XCTAssertEqual(style?.firstLineHeadIndent, style?.headIndent)
+                XCTAssertEqual(style?.firstLineHeadIndent, style?.headIndent, file: file, line: line)
             }
             let expected = section.filter { NSLocationInRange($0.range.location, page.range) }
+            // A last line may also hold the start of the unseen filler after it.
             let actual = lines(of: pageText, width: size.width).filter { $0.range.location < page.range.length }
-            XCTAssertEqual(actual.map(\.range.length), expected.map(\.range.length), "page at \(page.range.location)")
+            XCTAssertEqual(actual.map { min(NSMaxRange($0.range), page.range.length) - $0.range.location },
+                           expected.map(\.range.length), "page at \(page.range.location)", file: file, line: line)
             if let top = expected.first?.top {
-                XCTAssertEqual(actual.last?.bottom ?? 0, (expected.last?.bottom ?? 0) - top, accuracy: 0.5)
+                XCTAssertEqual(actual.last?.bottom ?? 0, (expected.last?.bottom ?? 0) - top, accuracy: 0.5, file: file, line: line)
             }
         }
-        XCTAssertGreaterThan(continued, 0, "some pages continue a paragraph")
+        return pages
+    }
+
+    func testPageTextLaysOutLikeTheSection() {
+        for alignment in [NSTextAlignment.justified, .natural] {
+            let style = CanvasText.bodyStyle(alignment: alignment, hyphenates: true, indent: 24)
+            let text = NSMutableAttributedString()
+            for paragraph in 0..<6 {
+                if paragraph > 0 { text.append(NSAttributedString(string: "\n")) }
+                text.append(CanvasText.body("Incomprehensibilities notwithstanding, " + CanvasText.sentence(140, seed: paragraph), style: style))
+            }
+            let pages = assertPagesLayOutLikeTheSection(text, size: size)
+            XCTAssertGreaterThan(pages.filter(\.continuesParagraph).count, 0, "some pages continue a paragraph")
+            if alignment == .natural {
+                XCTAssertTrue(pages.allSatisfy { $0.layoutEnd - NSMaxRange($0.range) < 400 }, "a few lines of context at most")
+            }
+        }
+    }
+
+    func testLineBreakParagraphsLayOutLikeTheSection() {
+        // A <pre> or <br> paragraph: short hard-broken lines, some long enough to wrap.
+        let style = CanvasText.bodyStyle(alignment: .justified, hyphenates: true)
+        let lines = (0..<400).map { $0 % 7 == 0 ? CanvasText.sentence(30, seed: $0) : "line \($0) " + CanvasText.sentence($0 % 5, seed: $0) }
+        let pages = assertPagesLayOutLikeTheSection(CanvasText.body(lines.joined(separator: "\u{2028}"), style: style), size: size)
+        XCTAssertGreaterThan(pages.count, 20)
+    }
+
+    func testLongJustifiedParagraphsLayOutLikeTheSection() {
+        // Over 8,192 characters, so CoreText justifies them line by line, pages included.
+        let style = CanvasText.bodyStyle(alignment: .justified, hyphenates: true)
+        let text = NSMutableAttributedString(attributedString: CanvasText.body(
+            (0..<120).map { CanvasText.sentence(30 + $0 % 9, seed: $0) }.joined(separator: " "), style: style))
+        text.append(CanvasText.body("\nA short paragraph after it.", style: style))
+        let pages = assertPagesLayOutLikeTheSection(text, size: size)
+        XCTAssertGreaterThan(pages.count, 10)
+        XCTAssertTrue(pages.contains { $0.filler > 0 }, "the paragraph's last page is padded to stay long")
+        XCTAssertTrue(pages.allSatisfy { $0.layoutEnd - NSMaxRange($0.range) <= ReaderPaginator.wholeParagraphJustification + 1 })
+    }
+
+    /// A 300 KB paragraph of hard line breaks pages in bounded time: each page lays out only
+    /// itself and a few lines after it, not the rest of the paragraph.
+    func testAHugeParagraphPagesInBoundedTime() {
+        var lines: [String] = []
+        var length = 0
+        while length < 300_000 {
+            let line = "\(lines.count) " + CanvasText.sentence(lines.count % 9 + 1, seed: lines.count)
+            lines.append(line)
+            length += line.utf16.count + 1
+        }
+        let text = CanvasText.body(lines.joined(separator: "\u{2028}"))
+        let start = Date()
+        let paginator = ReaderPaginator(text: text, size: size)
+        for index in 0..<40 {
+            guard let page = paginator.page(at: index) else { return XCTFail("page \(index)") }
+            let pageText = paginator.text(for: page)
+            XCTAssertLessThan(pageText.length - page.range.length, 400, "page \(index)'s layout context")
+            let view = lines.isEmpty ? 0 : self.lines(of: pageText, width: size.width).count
+            XCTAssertGreaterThan(view, 0)
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 2, "40 pages of a 300 KB paragraph")
+    }
+
+    func testKeepWithNextNeverStrandsAHeading() {
+        // The heading's next line is an attachment too tall to share a page with it, so moving
+        // the heading would leave it alone on a page; it stays where it is.
+        let text = NSMutableAttributedString()
+        for line in 0..<8 { text.append(CanvasText.body("Line \(line)\n", style: CanvasText.bodyStyle(spacing: 0))) }
+        let heading = NSMutableAttributedString(attributedString: CanvasText.body("Heading\n", style: CanvasText.bodyStyle(spacing: 0)))
+        heading.addAttribute(.readerKeepWithNext, value: true, range: NSRange(location: 0, length: heading.length))
+        let headingLocation = text.length
+        text.append(heading)
+        text.append(CanvasText.attachment(size: CGSize(width: 100, height: size.height - 10)))
+        let pages = ReaderPaginator(text: text, size: size).allPages
+        XCTAssertEqual(pages.count, 2)
+        XCTAssertTrue(NSLocationInRange(headingLocation, pages[0].range), "the heading stays on page one")
+        XCTAssertEqual(pages[1].range.location, headingLocation + heading.length)
+    }
+
+    func testPaginationReleasesItsLayoutOnceComplete() {
+        let text = CanvasText.section(4, chapters: 1, paragraphs: 40)
+        let paginator = ReaderPaginator(text: text, size: size)
+        XCTAssertNotNil(paginator.page(at: 2))
+        XCTAssertTrue(paginator.holdsLayout)
+        XCTAssertGreaterThan(paginator.heldLayoutLength, 0)
+        let pages = paginator.allPages
+        XCTAssertFalse(paginator.holdsLayout)
+        XCTAssertEqual(paginator.heldLayoutLength, 0)
+        XCTAssertEqual(paginator.pageIndex(containing: text.length / 2), pages.firstIndex { NSLocationInRange(text.length / 2, $0.range) })
+        XCTAssertEqual(paginator.text(for: pages[3]).length, pages[3].layoutEnd - pages[3].range.location)
+    }
+
+    func testPaginationAdvancesInSteps() {
+        let text = CanvasText.section(5, chapters: 1, paragraphs: 120)
+        let paginator = ReaderPaginator(text: text, size: size)
+        var steps = 0
+        while !paginator.advance(toward: text.length - 1, pages: 5) { steps += 1 }
+        XCTAssertGreaterThan(steps, 3)
+        XCTAssertTrue(paginator.covers(text.length - 1))
+        XCTAssertEqual(paginator.pageIndex(containing: text.length - 1), paginator.pages.count - 1)
     }
 
     func testPaginationIsLazy() {
