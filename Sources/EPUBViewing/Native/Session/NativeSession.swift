@@ -50,6 +50,11 @@ import SwiftUI
     @ObservationIgnored private var unresolvedHighlights: Set<String> = []
     @ObservationIgnored private var searchMatches: [Int: [TextSearch.Match]] = [:]
     @ObservationIgnored private var searchGeneration = 0
+    /// Rendered ranges never change with typography, so each is computed once, when its
+    /// section first exists: search matches by section, host highlights by id.
+    @ObservationIgnored private var searchRanges: [Int: [ReaderTextRange]] = [:]
+    @ObservationIgnored private var highlightTargets: [String: (spineIndex: Int, localPath: String)] = [:]
+    @ObservationIgnored private var highlightRanges: [String: ReaderTextRange] = [:]
     @ObservationIgnored private var publishedDisclosure: String?
     /// What the canvas was last asked to draw.
     @ObservationIgnored private(set) var drawnHighlights: [ReaderHighlight] = []
@@ -94,7 +99,14 @@ import SwiftUI
         canvas.dataSource = self
         canvas.delegate = self
         applyConfiguration()
-        becomeReadyIfPossible()
+        if isReady {
+            // A new view for a session already reading: the same place, the same highlights.
+            canvas.show(visibleRange?.start ?? ReaderTextPosition(section: initialSection, offset: 0), selecting: nil)
+            refreshHighlights()
+        } else {
+            // Never inside SwiftUI's view update, where a host's state change in `onEvent` is undefined.
+            Task { @MainActor [weak self] in self?.becomeReadyIfPossible() }
+        }
     }
 
     func detach(_ canvas: ReaderCanvasView) {
@@ -144,6 +156,7 @@ import SwiftUI
         case .clearSearch:
             searchGeneration += 1
             searchMatches = [:]
+            searchRanges = [:]
             refreshHighlights()
         case .style(let newStyle): try applyStyle(newStyle)
         case .setHighlights(let list): setHighlights(list)
@@ -187,11 +200,12 @@ import SwiftUI
     private func restore(_ location: EPUBLocation) async throws {
         guard isCompatible(location), let cfi = location.bookmark?.value else { throw EPUBReaderError.incompatibleLocation }
         let ticket = beginNavigation()
-        guard let range = await resolve(cfi) else {
+        let range = await resolve(cfi)
+        guard isCurrent(ticket) else { return }
+        guard let range else {
             emit(.notice("the saved position could not be found in this book"))
             return
         }
-        guard isCurrent(ticket) else { return }
         canvas?.clearSelection()
         canvas?.show(range.start, selecting: nil)
     }
@@ -204,10 +218,15 @@ import SwiftUI
     }
 
     private func range(of localPath: String, in text: SectionText) -> ReaderTextRange? {
+        // A bare spine-item CFI, which a section with no mapped text produces, names its start.
+        if localPath.isEmpty { return ReaderTextRange(section: text.spineIndex, 0..<0) }
         guard let dom = EPUBCFI.resolve(localPath: localPath, in: text.document) else { return nil }
-        let start = text.map.location(of: dom.start)
-        let end = max(start, text.map.location(of: dom.end))
-        return ReaderTextRange(section: text.spineIndex, start..<end)
+        return range(from: dom.start, to: dom.end, in: text)
+    }
+
+    private func range(from start: DOMPosition, to end: DOMPosition, in text: SectionText) -> ReaderTextRange {
+        let first = text.map.location(of: start)
+        return ReaderTextRange(section: text.spineIndex, first..<max(first, text.map.location(of: end, isEnd: true)))
     }
 
     private func locate(_ text: String, highlight: Bool) async throws {
@@ -218,30 +237,42 @@ import SwiftUI
         let ticket = beginNavigation()
         searchGeneration += 1
         searchMatches = [:]
+        searchRanges = [:]
         refreshHighlights()
+        // A match inside content that renders nothing of its own (a hidden footnote) is a place
+        // to go, not a passage to select; one that renders is preferred.
+        var hidden: ReaderTextPosition?
         for index in publication.spine.indices {
             guard isCurrent(ticket), !closed else { return }
-            guard let match = await firstMatch(of: quote, inSection: index) else { continue }
+            let matches = await matches(of: quote, inSection: index, limit: 64)
+            guard !matches.isEmpty else { continue }
             let section = await book.build(index)
             guard isCurrent(ticket) else { return }
-            let start = section.map.location(of: match.start)
-            let end = max(start, section.map.location(of: match.end))
-            let range = ReaderTextRange(section: index, start..<end)
-            canvas?.clearSelection()
-            canvas?.show(range.start, selecting: highlight ? range : nil)
-            return
+            for match in matches {
+                let range = range(from: match.start, to: match.end, in: section)
+                guard range.isEmpty else {
+                    canvas?.clearSelection()
+                    canvas?.show(range.start, selecting: highlight ? range : nil)
+                    return
+                }
+                if hidden == nil { hidden = range.start }
+            }
         }
-        if isCurrent(ticket) { emit(.notice(Self.passageNotFound)) }
+        guard isCurrent(ticket) else { return }
+        if let hidden {
+            canvas?.clearSelection()
+            canvas?.show(hidden, selecting: nil)
+        } else { emit(.notice(Self.passageNotFound)) }
     }
 
     /// The locale foliate-js searched in, so a quote matches as it did before.
     private func language(of document: ContentDocument) -> String? { TextSearch.locale(of: document) }
 
-    private func firstMatch(of quote: String, inSection index: Int) async -> TextSearch.Match? {
-        guard let document = await book.document(index) else { return nil }
+    private func matches(of quote: String, inSection index: Int, limit: Int) async -> [TextSearch.Match] {
+        guard let document = await book.document(index) else { return [] }
         let locale = language(of: document)
         return await Task.detached(priority: .userInitiated) {
-            TextSearch.matches(of: quote, in: document, locale: locale, limit: 1).first
+            TextSearch.matches(of: quote, in: document, locale: locale, limit: limit)
         }.value
     }
 
@@ -265,6 +296,7 @@ import SwiftUI
         }
         guard !closed, ticket == searchGeneration else { return }
         searchMatches = found
+        searchRanges = [:]
         refreshHighlights()
     }
 
@@ -290,6 +322,14 @@ import SwiftUI
             emit(.notice("a highlight belongs to another book or reader and was not drawn: \(rejected.id)"))
         }
         unresolvedHighlights = []
+        highlightRanges = [:]
+        highlightTargets = [:]
+        for highlight in highlights {
+            if let cfi = highlight.location.bookmark?.value, let target = spine.resolve(cfi),
+               publication.spine.indices.contains(target.spineIndex) {
+                highlightTargets[highlight.id] = target
+            } else { reportUnresolved(highlight) }
+        }
         refreshHighlights()
     }
 
@@ -304,23 +344,23 @@ import SwiftUI
         guard let canvas else { return }
         var drawn: [ReaderHighlight] = []
         for (index, matches) in searchMatches {
-            guard let section = book.section(index) else { continue }
-            for (number, match) in matches.enumerated() {
-                let start = section.map.location(of: match.start)
-                let end = max(start, section.map.location(of: match.end))
-                guard end > start else { continue }
-                drawn.append(ReaderHighlight(id: "search-\(index)-\(number)", range: ReaderTextRange(section: index, start..<end), kind: .search))
+            if searchRanges[index] == nil, let section = book.section(index) {
+                searchRanges[index] = matches.map { range(from: $0.start, to: $0.end, in: section) }.filter { !$0.isEmpty }
+            }
+            for (number, range) in (searchRanges[index] ?? []).enumerated() {
+                drawn.append(ReaderHighlight(id: "search-\(index)-\(number)", range: range, kind: .search))
             }
         }
         for highlight in highlights {
-            guard let cfi = highlight.location.bookmark?.value, let target = spine.resolve(cfi) else {
-                reportUnresolved(highlight); continue
+            guard let target = highlightTargets[highlight.id] else { continue }
+            if highlightRanges[highlight.id] == nil, let section = book.section(target.spineIndex) {
+                if let range = range(of: target.localPath, in: section), !range.isEmpty {
+                    highlightRanges[highlight.id] = range
+                } else { reportUnresolved(highlight) }
             }
-            guard let section = book.section(target.spineIndex) else { continue } // drawn once built
-            guard let range = range(of: target.localPath, in: section), !range.isEmpty else {
-                reportUnresolved(highlight); continue
+            if let range = highlightRanges[highlight.id] {
+                drawn.append(ReaderHighlight(id: highlight.id, range: range, kind: .annotation))
             }
-            drawn.append(ReaderHighlight(id: highlight.id, range: range, kind: .annotation))
         }
         drawnHighlights = drawn
         canvas.setHighlights(drawn)
@@ -363,6 +403,13 @@ import SwiftUI
 
     private func emit(_ event: EPUBReaderEvent) { if !closed { onEvent?(event) } }
 
+    /// Where a range's contents title is read: its end within its first section, so a heading on
+    /// the page names it, as foliate's `TOCProgress` compared against the range's end.
+    private func titlePosition(of range: ReaderTextRange) -> ReaderTextPosition {
+        guard range.end.section == range.start.section, range.end.offset > range.start.offset else { return range.start }
+        return ReaderTextPosition(section: range.start.section, offset: range.end.offset - 1)
+    }
+
     /// The engine bookmark for a rendered range within one section (foliate `getCFI`).
     private func cfi(for range: ReaderTextRange) -> String? {
         guard let section = book.section(range.start.section) else { return nil }
@@ -381,11 +428,26 @@ import SwiftUI
         return EPUBLocation(
             publicationID: publication.id, href: publication.spine[index].resource.href,
             progression: fraction.flatMap { progress.progression(section: index, fraction: $0) },
-            title: fraction == nil ? nil : progress.title(at: range.start) { [book] section, fragment in
+            title: fraction == nil ? nil : progress.title(at: titlePosition(of: range)) { [book] section, fragment in
                 book.section(section)?.anchors[fragment]
             },
             quote: quote,
             bookmark: cfi.map { EPUBEngineBookmark(engineID: NativeEngine.identifier, format: NativeEngine.bookmarkFormat, value: $0) })
+    }
+
+    /// A passage's text as foliate's `Selection.toString()` gave it: the book's own characters
+    /// and attachments' text, without generated list markers, quote marks or bidi isolates, and
+    /// with line breaks between blocks. nil while a section is not built.
+    private func passageText(_ range: ReaderTextRange) -> String? {
+        var text = ""
+        for index in range.start.section...max(range.start.section, range.end.section) {
+            guard let section = book.section(index) else { return nil }
+            let lower = index == range.start.section ? range.start.offset : 0
+            let upper = index == range.end.section ? range.end.offset : section.string.length
+            text += section.mappedText(in: lower..<max(lower, upper))
+            if index < range.end.section { text += "\n" }
+        }
+        return text
     }
 
     fileprivate func performSelectionAction() {
@@ -405,19 +467,28 @@ extension NativeSession: ReaderCanvasDelegate {
     func canvas(_ canvas: any ReaderCanvas, didShow range: ReaderTextRange, sectionProgress: Double) {
         visibleRange = range
         guard isReady, !closed else { return }
-        let location = location(for: range, fraction: sectionProgress)
+        // A page is read to its end, as foliate measured it: the last page of a book is 1.
+        var fraction = sectionProgress
+        if style.flow == .paginated, let length = book.section(range.start.section)?.string.length, length > 0 {
+            fraction = range.end.section > range.start.section ? 1 : Double(range.end.offset) / Double(length)
+        }
+        let location = location(for: range, fraction: fraction)
         guard location != lastLocation else { return }
         lastLocation = location
         emit(.relocated(location))
     }
 
     func canvas(_ canvas: any ReaderCanvas, didChangeSelection selection: ReaderSelection?) {
+        let selection = selection.map { ReaderSelection(range: $0.range, text: passageText($0.range) ?? $0.text) }
         guard selection != self.selection else { return }
+        guard let selection, !selection.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            let hadSelection = self.selection != nil
+            self.selection = nil
+            if isReady, hadSelection { emit(.selectionChanged(nil)) }
+            return
+        }
         self.selection = selection
         guard isReady else { return }
-        guard let selection, !selection.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            emit(.selectionChanged(nil)); return
-        }
         emit(.selectionChanged(EPUBSelection(text: selection.text,
             location: location(for: selection.range, fraction: nil, quote: selection.text))))
     }

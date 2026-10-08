@@ -158,6 +158,94 @@ import XCTest
         XCTAssertTrue(events().dropFirst(before).contains { if case .notice = $0 { return true }; return false })
     }
 
+    private func chapter(_ body: String) -> String {
+        "<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>T</title></head><body>\(body)</body></html>"
+    }
+
+    func testQuickTypographyChangesLeaveEverySectionAtTheLastSize() async throws {
+        let (session, window, events) = try open(Fixture.epub())
+        defer { session.close(); window.close() }
+        try await wait("ready") { events().contains(.ready) }
+        try await session.send(.style(.init(fontSize: 20)))
+        try await session.send(.style(.init(fontSize: 30)))
+        try await wait("rebuilt book") { session.book.isComplete && session.book.typography.fontSize == 30 }
+        for index in 0..<session.book.count {
+            let section = try XCTUnwrap(session.book.section(index))
+            var sizes = Set<CGFloat>()
+            section.string.enumerateAttribute(.font, in: NSRange(location: 0, length: section.string.length)) { value, _, _ in
+                if let font = value as? PlatformFont { sizes.insert(font.pointSize) }
+            }
+            XCTAssertFalse(sizes.contains(20), "section \(index) kept a 20-pt build: \(sizes)")
+        }
+    }
+
+    func testLocateInsideATableSelectsTheTable() async throws {
+        let (session, window, events) = try open(Fixture.epub(overrides: [
+            "OPS/two.xhtml": chapter("<p>Before.</p><table><tr><td>Alpha cell</td><td>Beta cell</td></tr><tr><td>1</td><td>2</td></tr></table><p>After the table.</p>"),
+        ]))
+        defer { session.close(); window.close() }
+        try await wait("ready") { events().contains(.ready) }
+        try await session.send(.locate(text: "Beta cell", highlight: true))
+        try await wait("selection") { session.selection != nil }
+        let selection = try XCTUnwrap(session.selection)
+        XCTAssertEqual(selection.range.start.section, 1)
+        XCTAssertFalse(selection.range.isEmpty, "the table unit is selected, not an empty range after it")
+    }
+
+    func testARangeEndingWithAnImageResolvesToTheSameRange() async throws {
+        let (session, window, events) = try open(Fixture.epub(overrides: [
+            "OPS/one.xhtml": chapter("<p>Alpha <img src=\"pic.png\" alt=\"a picture\"/></p><p>Next.</p>"),
+            "OPS/pic.png": "not really a png",
+        ]))
+        defer { session.close(); window.close() }
+        try await wait("ready") { events().contains(.ready) }
+        let section = try XCTUnwrap(session.book.section(0))
+        let end = (section.string.string as NSString).range(of: "\n").location
+        XCTAssertGreaterThan(end, 6)
+        let range = ReaderTextRange(section: 0, 0..<end)
+        session.canvas(try XCTUnwrap(session.canvas), didChangeSelection: ReaderSelection(range: range, text: ""))
+        let selected = try XCTUnwrap(events().compactMap { event -> EPUBSelection? in
+            if case .selectionChanged(let value) = event { return value }; return nil
+        }.last)
+        try await session.send(.setHighlights([EPUBHighlight(id: "h", location: selected.location)]))
+        try await wait("highlight") { session.drawnHighlights.contains { $0.id == "h" } }
+        XCTAssertEqual(session.drawnHighlights.first { $0.id == "h" }?.range, range)
+    }
+
+    func testABareSectionBookmarkRestoresToThatSection() async throws {
+        let (session, window, events) = try open(Fixture.epub(overrides: ["OPS/two.xhtml": chapter("")]))
+        defer { session.close(); window.close() }
+        try await wait("ready") { events().contains(.ready) }
+        let before = events().count
+        try await session.send(.restore(EPUBLocation(publicationID: session.publication.id, bookmark: EPUBEngineBookmark(
+            engineID: EPUBReader.identifier, format: "epubcfi-v1", value: "epubcfi(/6/4)"))))
+        try await wait("restored section") { session.visibleRange?.start.section == 1 }
+        XCTAssertFalse(events().dropFirst(before).contains { if case .notice = $0 { return true }; return false })
+    }
+
+    func testPassageTextLeavesOutGeneratedQuotes() async throws {
+        let (session, window, events) = try open(Fixture.epub(overrides: [
+            "OPS/one.xhtml": chapter("<p>She said <q>hello there</q> and left.</p>"),
+        ]))
+        defer { session.close(); window.close() }
+        try await wait("ready") { events().contains(.ready) }
+        try await session.send(.locate(text: "She said hello there and left.", highlight: true))
+        try await wait("selection") { session.selection != nil }
+        XCTAssertEqual(session.selection?.text, "She said hello there and left.")
+    }
+
+    func testARemountedReaderShowsItsPlaceAgain() async throws {
+        let (session, window, events) = try open(Fixture.epub())
+        try await wait("ready") { events().contains(.ready) }
+        try await session.send(.navigate(href: "OPS/two.xhtml"))
+        try await wait("second section") { session.visibleRange?.start.section == 1 }
+        window.close()
+        let again = ReaderTestWindow(session: session)
+        defer { session.close(); again.close() }
+        try await wait("remounted canvas") { session.canvas?.visibleRange?.start.section == 1 }
+        XCTAssertEqual(events().filter { $0 == .ready }.count, 1)
+    }
+
     private func canvasRequestsSelectionAction(_ session: NativeSession) {
         session.canvasDidRequestSelectionAction(try! XCTUnwrap(session.canvas))
     }

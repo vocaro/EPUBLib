@@ -21,7 +21,10 @@ import AppKit
     /// The newest build of each section, possibly for an older typography.
     private var sections: [SectionText?]
     private var builtTypography: [NativeTypography?]
-    private var inFlight: [Int: Task<SectionText, Never>] = [:]
+    /// On-demand builds, with the typography each was started for.
+    private var inFlight: [Int: (typography: NativeTypography, task: Task<SectionText, Never>)] = [:]
+    /// The typography `onBookComplete` last fired for, so it fires once per typography.
+    private var completedTypography: NativeTypography?
     private var background: Task<Void, Never>?
     private var cachedBookText: ReaderBookText?
     private var closed = false
@@ -50,22 +53,24 @@ import AppKit
         if let section = sections[index], isCurrent(index) { return section }
         let target = typography
         let task: Task<SectionText, Never>
-        if let existing = inFlight[index] { task = existing }
+        // A build started for another typography is never taken for this one.
+        if let existing = inFlight[index], existing.typography == target { task = existing.task }
         else {
             let request = SectionBuildRequest(publication: publication, spineIndex: index, typography: target,
                                               fonts: fonts, rich: rich)
             task = Task.detached(priority: .userInitiated) { SectionBuilder.build(request) }
-            inFlight[index] = task
+            if !closed { inFlight[index] = (target, task) }
         }
         let section = await task.value
-        if inFlight[index] == task { inFlight[index] = nil }
+        if inFlight[index]?.task == task { inFlight[index] = nil }
         store(section, typography: target)
-        if typography != target { return await build(index) }
+        if !closed, typography != target { return await build(index) }
         return section
     }
 
     /// Builds every remaining section in the background, a few at a time, nearest `origin` first.
     func buildRemaining(from origin: Int) {
+        guard !closed else { return }
         background?.cancel()
         let target = typography
         let pending = sections.indices.filter { builtTypography[$0] != target }
@@ -90,6 +95,7 @@ import AppKit
                     if let request = remaining.next() { group.addTask { SectionBuilder.build(request) } }
                 }
             }
+            guard !Task.isCancelled else { return }
             self?.completeIfReady()
         }
     }
@@ -140,7 +146,7 @@ import AppKit
     func close() {
         closed = true
         background?.cancel()
-        for task in inFlight.values { task.cancel() }
+        for entry in inFlight.values { entry.task.cancel() }
         inFlight.removeAll()
         onSectionBuilt = nil
         onBookComplete = nil
@@ -148,16 +154,20 @@ import AppKit
 
     private func store(_ section: SectionText, typography target: NativeTypography) {
         guard !closed else { return }
-        // A build for an older typography never replaces a newer one.
-        if let built = builtTypography[section.spineIndex], built == typography, target != typography { return }
-        sections[section.spineIndex] = section
-        builtTypography[section.spineIndex] = target
+        let index = section.spineIndex
+        // A build for an older typography only fills an empty slot; a second current build of
+        // the same section (on demand and in the background) changes nothing.
+        if target != typography, sections[index] != nil { return }
+        if target == typography, builtTypography[index] == typography { return }
+        sections[index] = section
+        builtTypography[index] = target
         if target == typography { cachedBookText = nil }
-        onSectionBuilt?(section.spineIndex)
+        onSectionBuilt?(index)
     }
 
     private func completeIfReady() {
-        guard !closed, isComplete else { return }
+        guard !closed, isComplete, completedTypography != typography else { return }
+        completedTypography = typography
         onBookComplete?()
     }
 }

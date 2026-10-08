@@ -86,6 +86,8 @@ struct TextMap: Equatable, Sendable {
         /// UTF-16 length of source covered; 0 for an element.
         var sourceLength: Int
         var isExact: Bool
+        /// An element rendered as a whole (an image, table, formula or SVG).
+        var isUnit: Bool { !isExact && sourceLength == 0 }
         init(location: Int, length: Int, node: Int, offset: Int, sourceLength: Int, isExact: Bool) {
             self.location = location; self.length = length; self.node = node
             self.offset = offset; self.sourceLength = sourceLength; self.isExact = isExact
@@ -128,6 +130,15 @@ struct TextMap: Equatable, Sendable {
         return DOMPosition(node, span.offset + (location - span.location))
     }
 
+    private static func node(_ node: ContentNode, isInsideElementAt order: Int) -> Bool {
+        var ancestor = node.parent
+        while let current = ancestor, current.order >= order {
+            if current.order == order { return true }
+            ancestor = current.parent
+        }
+        return false
+    }
+
     /// The DOM position just after the rendered character before `location`: the end of a
     /// range ending there. Unlike `position(at:)`, a range ending before a paragraph break or
     /// other generated text ends in the node it covers, not at the start of the next one.
@@ -142,6 +153,14 @@ struct TextMap: Equatable, Sendable {
         guard low > 0 else { return position(at: location, in: document) }
         let span = spans[low - 1]
         let node = document.nodes[span.node]
+        if span.isUnit {
+            // After the unit's whole subtree: a range ending with an image, table or formula
+            // includes it.
+            let next = node.subtreeEnd + 1
+            if next < document.nodes.count { return DOMPosition(document.nodes[next], 0) }
+            let final = document.nodes[document.nodes.count - 1]
+            return DOMPosition(final, final.isText ? final.utf16Length : 0)
+        }
         guard last < span.location + span.length else {
             // `last` is generated text after the span: end after the span.
             return DOMPosition(node, span.offset + span.sourceLength)
@@ -151,8 +170,10 @@ struct TextMap: Equatable, Sendable {
     }
 
     /// The rendered location of a DOM position: exact inside an exact span, otherwise the first
-    /// rendered character at or after it (the string's end when nothing follows).
-    func location(of position: DOMPosition) -> Int {
+    /// rendered character at or after it (the string's end when nothing follows). A position
+    /// inside an element rendered as a unit (a table, formula or SVG) is that unit: its start, or
+    /// its end when `isEnd` (the end of a range).
+    func location(of position: DOMPosition, isEnd: Bool = false) -> Int {
         let order = position.node.order
         let offset = position.node.isText ? position.offset : 0
         var low = 0, high = spans.count
@@ -162,6 +183,11 @@ struct TextMap: Equatable, Sendable {
             let endsBefore = span.node < order || (span.node == order && span.offset + max(span.sourceLength, 1) <= offset)
             if endsBefore { low = mid + 1 } else { high = mid }
         }
+        if low > 0, spans[low - 1].isUnit, spans[low - 1].node < order,
+           Self.node(position.node, isInsideElementAt: spans[low - 1].node) {
+            let unit = spans[low - 1]
+            return isEnd ? unit.location + unit.length : unit.location
+        }
         // The end of a text node's last exact span is just after that span's last character.
         if low > 0, position.node.isText {
             let previous = spans[low - 1]
@@ -170,10 +196,16 @@ struct TextMap: Equatable, Sendable {
                 return previous.location + previous.length
             }
         }
-        guard low < spans.count else { return length }
+        guard low < spans.count else { return isEnd ? spans.last.map { $0.location + $0.length } ?? length : length }
         let span = spans[low]
         if span.node == order, span.isExact, offset >= span.offset {
             return span.location + min(offset - span.offset, span.length)
+        }
+        // A range ending before this span's source ends after the previous span, not after
+        // the generated text (a paragraph break) between them.
+        if isEnd, low > 0, span.node != order || offset < span.offset {
+            let previous = spans[low - 1]
+            return previous.location + previous.length
         }
         return span.location
     }
@@ -219,3 +251,38 @@ extension NSAttributedString.Key {
     /// `true` on a paragraph's first character when CSS asks to avoid a break after it (headings).
     static let readerKeepWithNext = NSAttributedString.Key("org.epublib.keepWithNext")
 }
+
+extension SectionText {
+    /// The text of a rendered range from the book's own characters: mapped text (attachments as
+    /// their text equivalents) and the line breaks between blocks, but no other generated text.
+    func mappedText(in range: Range<Int>) -> String {
+        let characters = string.string as NSString
+        let range = max(0, range.lowerBound)..<min(string.length, max(range.lowerBound, range.upperBound))
+        var text = ""
+        func generated(_ gap: Range<Int>) {
+            guard !gap.isEmpty else { return }
+            for scalar in characters.substring(with: NSRange(location: gap.lowerBound, length: gap.count)).unicodeScalars
+            where scalar == "\n" || scalar == "\u{2028}" || scalar == "\u{2029}" { text += "\n" }
+        }
+        let spans = map.spans
+        var low = 0, high = spans.count
+        while low < high { // first span ending after the range's start
+            let mid = (low + high) / 2
+            if spans[mid].location + spans[mid].length <= range.lowerBound { low = mid + 1 } else { high = mid }
+        }
+        var cursor = range.lowerBound
+        while low < spans.count, spans[low].location < range.upperBound, cursor < range.upperBound {
+            let span = spans[low]
+            if span.location > cursor { generated(cursor..<span.location); cursor = span.location }
+            let end = min(range.upperBound, span.location + span.length)
+            if end > cursor {
+                text += string.readerPlainText(in: NSRange(location: cursor, length: end - cursor))
+                cursor = end
+            }
+            low += 1
+        }
+        generated(cursor..<range.upperBound)
+        return text
+    }
+}
+
