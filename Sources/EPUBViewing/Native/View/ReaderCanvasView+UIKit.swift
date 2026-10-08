@@ -130,6 +130,11 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         if scrollView === scrollTextView { scrollPositionDidChange() }
     }
 
+    /// The safe area changed under the scroll view (bars shown or hidden).
+    func scrollViewDidChangeAdjustedContentInset(_ scrollView: UIScrollView) {
+        if scrollView === scrollTextView { updateScrollViewport() }
+    }
+
     func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
         guard case .link(let url) = textItem.content, let view = textView as? ReaderTextView else { return nil }
         let range = textItem.range

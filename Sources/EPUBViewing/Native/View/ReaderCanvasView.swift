@@ -460,7 +460,7 @@ import AppKit
     /// Keeps the viewport attachments size against current, the visible height included (it
     /// changes with the safe area alone). Text already laid out keeps its size; a new column
     /// width relays everything out anyway.
-    private func updateScrollViewport() {
+    func updateScrollViewport() {
         guard let textView = scrollTextView, let geometry = scrollGeometry else { return }
         let viewport = CGSize(width: geometry.width, height: max(0, scrollVisibleContainerRect.height))
         if textView.readerContainer.viewportSize != viewport { textView.readerContainer.viewportSize = viewport }
