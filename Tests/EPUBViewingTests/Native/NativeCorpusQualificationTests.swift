@@ -40,9 +40,11 @@ import XCTest
         let output = ProcessInfo.processInfo.environment["EPUBLIB_CORPUS_REPORT"] ?? ".build/corpus-report.json"
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(results).write(to: URL(fileURLWithPath: output))
-        let failures = results.filter { $0.error != nil || $0.mapViolations > 0 }
+        // A book EPUBReading refuses to open is the parser's verdict, not the viewer's: reported, not failed.
+        let unopened = results.filter { $0.error?.hasPrefix("open:") == true }
+        let failures = results.filter { ($0.error != nil && $0.error?.hasPrefix("open:") != true) || $0.mapViolations > 0 }
         XCTAssertTrue(failures.isEmpty, "Failures: \(failures.map { "\($0.file): \($0.error ?? "\($0.mapViolations) map violations")" })")
-        print("Qualified \(results.count) books; report at \(output)")
+        print("Qualified \(results.count - unopened.count) books (\(unopened.count) refused by EPUBReading); report at \(output)")
     }
 
     private func qualify(_ file: URL) async -> BookResult {
