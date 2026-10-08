@@ -13,7 +13,7 @@ Choose the products your consumer uses. Their target dependencies enforce the bo
 | `EPUBReading` | Bounded, immutable archive import and OPF/navigation parsing | EPUBCore, ZIPFoundation |
 | `EPUBText` | XHTML text, semantics, headings and UTF-8 anchor positions in one walk | EPUBCore, EPUBReading, Apple libxml2 |
 | `EPUBWriting` | EPUB 3 package/navigation generation and streaming archive output | EPUBCore, ZIPFoundation |
-| `EPUBViewing` | SwiftUI reader sessions and native TextKit 2 rendering | EPUBCore, EPUBReading |
+| `EPUBViewing` | SwiftUI reader sessions and native TextKit 2 rendering | EPUBCore, EPUBReading, [MathMLLayout](https://github.com/vocaro/MathMLLayout) |
 
 The headless products import neither SwiftUI nor WebKit. A viewer does not depend on text
 extraction or writing. PDF layout reconstruction, study section policy and app chrome belong to
