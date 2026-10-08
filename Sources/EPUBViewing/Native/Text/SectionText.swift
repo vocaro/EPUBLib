@@ -128,6 +128,28 @@ struct TextMap: Equatable, Sendable {
         return DOMPosition(node, span.offset + (location - span.location))
     }
 
+    /// The DOM position just after the rendered character before `location`: the end of a
+    /// range ending there. Unlike `position(at:)`, a range ending before a paragraph break or
+    /// other generated text ends in the node it covers, not at the start of the next one.
+    func endPosition(at location: Int, in document: ContentDocument) -> DOMPosition? {
+        guard location > 0, !spans.isEmpty else { return position(at: location, in: document) }
+        let last = min(location, length) - 1
+        var low = 0, high = spans.count
+        while low < high { // last span starting at or before `last`
+            let mid = (low + high) / 2
+            if spans[mid].location <= last { low = mid + 1 } else { high = mid }
+        }
+        guard low > 0 else { return position(at: location, in: document) }
+        let span = spans[low - 1]
+        let node = document.nodes[span.node]
+        guard last < span.location + span.length else {
+            // `last` is generated text after the span: end after the span.
+            return DOMPosition(node, span.offset + span.sourceLength)
+        }
+        if !span.isExact { return DOMPosition(node, span.offset + span.sourceLength) }
+        return DOMPosition(node, span.offset + (last - span.location) + 1)
+    }
+
     /// The rendered location of a DOM position: exact inside an exact span, otherwise the first
     /// rendered character at or after it (the string's end when nothing follows).
     func location(of position: DOMPosition) -> Int {

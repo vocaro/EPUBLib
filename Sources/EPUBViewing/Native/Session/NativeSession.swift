@@ -369,7 +369,8 @@ import SwiftUI
         guard let section = book.section(range.start.section) else { return nil }
         let endOffset = range.end.section == range.start.section ? range.end.offset : section.string.length
         guard let start = section.map.position(at: range.start.offset, in: section.document),
-              let end = section.map.position(at: max(range.start.offset, endOffset), in: section.document) else {
+              let end = endOffset > range.start.offset
+                ? section.map.endPosition(at: endOffset, in: section.document) : start else {
             return spine.bases[range.start.section]
         }
         return spine.cfi(spineIndex: range.start.section, start: start, end: end, in: section.document)

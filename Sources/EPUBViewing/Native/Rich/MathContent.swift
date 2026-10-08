@@ -189,3 +189,7 @@ final class MathAttachment: NSTextAttachment {
     }
     #endif
 }
+
+extension MathAttachment: ReaderTextualAttachment {
+    var textEquivalent: String { label }
+}
