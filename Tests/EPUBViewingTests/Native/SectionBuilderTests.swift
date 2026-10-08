@@ -454,11 +454,71 @@ final class SectionBuilderTests: XCTestCase {
         XCTAssertFalse(text.string.string.contains("image"))
     }
 
+    func testAttachmentParagraphsNeverGetAMaximumLineHeight() throws {
+        let text = try H.build("<p class='fixed'>Text <img src='picture.png' alt=''/> more</p><p class='fixed'>Plain</p>"
+                               + "<p class='m'>x <img src='picture.png' alt=''/></p>", rich: BuilderRecordingRich(), rules: [
+            (".fixed", { $0.lineHeight = .points(20) }), (".m", { $0.lineHeight = .multiple(1.5) }),
+        ])
+        let withImage = try XCTUnwrap(H.paragraphStyle(text, at: 0))
+        XCTAssertEqual(withImage.maximumLineHeight, 0)
+        XCTAssertEqual(withImage.minimumLineHeight, 20)
+        XCTAssertEqual(H.paragraphStyle(text, at: H.location(of: "Plain", in: text))?.maximumLineHeight, 20)
+        let multiple = try XCTUnwrap(H.paragraphStyle(text, at: H.location(of: "x ", in: text)))
+        XCTAssertEqual(multiple.maximumLineHeight, 0)
+        XCTAssertEqual(multiple.lineHeightMultiple, 0)
+        XCTAssertEqual(multiple.minimumLineHeight, 24)
+    }
+
+    func testRecoveredHTMLSendsFormulasAndDrawingsToTheFactory() throws {
+        let data = try Fixture.epub(overrides: [
+            "OPS/one.xhtml": "<html><body><p>Let <math><mi>x</mi></math> be <svg><rect/></svg><p>unclosed</body></html>",
+        ])
+        let book = try EPUBPublication.open(data: data)
+        let rich = BuilderRecordingRich()
+        let text = SectionBuilder.build(SectionBuildRequest(publication: book, spineIndex: 0, typography: NativeTypography(),
+                                                            fonts: FontRegistry(publication: book), rich: rich))
+        XCTAssertTrue(text.report.recoveredAsHTML)
+        XCTAssertEqual(rich.calls, ["math", "svg"])
+        XCTAssertEqual(text.map.spans.filter { !$0.isExact && $0.sourceLength == 0 }.count, 2)
+    }
+
+    func testFloatsWordSpacingAndBreakInside() throws {
+        let rich = BuilderRecordingRich()
+        let text = try H.build("""
+            <img class="l" src="picture.png" alt=""/><img class="r" src="picture.png" alt=""/>
+            <p class="w">wide words here</p>
+            <div class="keep"><p>One</p><h3>Two</h3><p>Three</p></div><p>Four</p>
+            """, rich: rich, rules: [
+                ("img", { $0.display = .block }), (".l", { $0.float = .left }), (".r", { $0.float = .right }),
+                (".w", { $0.wordSpacing = 4; $0.letterSpacing = 1 }), (".keep", { $0.breakInside = .avoid }),
+            ])
+        XCTAssertEqual(H.paragraphStyle(text, at: 0)?.alignment, .left)
+        XCTAssertEqual(H.paragraphStyle(text, at: 2)?.alignment, .right)
+        XCTAssertEqual(H.attribute(.kern, of: " words", in: text) as? CGFloat, 5)
+        XCTAssertEqual(H.attribute(.kern, of: "words", in: text) as? CGFloat, 1)
+        func keeps(_ substring: String) -> Bool { H.attribute(.readerKeepWithNext, of: substring, in: text) as? Bool == true }
+        XCTAssertTrue(keeps("One"))
+        XCTAssertTrue(keeps("Two"))
+        XCTAssertFalse(keeps("Three"))
+        XCTAssertFalse(keeps("Four"))
+        H.assertMapRoundTrips(text)
+    }
+
+    func testSwitchBranchesAnchorInDocumentOrder() throws {
+        let text = try H.build("""
+            <p><epub:switch><epub:case required-namespace="http://www.w3.org/1998/Math/MathML">\
+            <math xmlns="http://www.w3.org/1998/Math/MathML" id="m"><mi>y</mi></math></epub:case>\
+            <epub:default><span id="d">y</span></epub:default></epub:switch> after</p>
+            """, rich: BuilderRecordingRich())
+        XCTAssertEqual(text.anchors["m"], 0)
+        XCTAssertEqual(text.anchors["d"], 1)
+    }
+
     // MARK: Reports, anchors, titles and withheld sections
 
     func testReportFlagsTitleAndAnchors() throws {
-        let text = try H.build("<h1 id='top'>  A <em>title</em> </h1><p class='v' id='v'>vertical</p><div id='empty'></div>",
-                               head: "<title>\n  The   Title \n</title>", rules: [(".v", { $0.writingMode = .verticalRL })])
+        let text = try H.build("<h1 id='top'>  A <em>title</em> </h1><p id='v'>vertical</p><div id='empty'></div>",
+                               head: "<title>\n  The   Title \n</title>", rules: [("html", { $0.writingMode = .verticalRL })])
         XCTAssertEqual(text.title, "The Title")
         XCTAssertTrue(text.report.verticalWritingFlattened)
         XCTAssertFalse(text.report.fixedLayoutReflowed)

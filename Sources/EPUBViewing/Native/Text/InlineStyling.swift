@@ -54,8 +54,9 @@ final class InlineStyling {
     static let languageKey = NSAttributedString.Key(kCTLanguageAttributeName as String)
     static let rubyKey = NSAttributedString.Key(kCTRubyAnnotationAttributeName as String)
 
-    /// The interned attribute dictionary for text in `style` under `context`.
-    func attributes(_ style: ComputedStyle, _ context: InlineContext) -> Int {
+    /// The interned attribute dictionary for text in `style` under `context`; `wordSpacing` for
+    /// its spaces, which `word-spacing` widens.
+    func attributes(_ style: ComputedStyle, _ context: InlineContext, wordSpacing: Bool = false) -> Int {
         let font = fonts.font(for: style)
         let hidden = style.isHidden
         let link = hidden ? nil : context.link
@@ -71,7 +72,8 @@ final class InlineStyling {
                       underline: !hidden && style.textDecoration.contains(.underline),
                       strikethrough: !hidden && style.textDecoration.contains(.lineThrough),
                       decorationColor: decorate ? style.textDecorationColor : nil,
-                      baselineOffset: context.baselineOffset, kern: style.letterSpacing,
+                      baselineOffset: context.baselineOffset,
+                      kern: style.letterSpacing + (wordSpacing ? style.wordSpacing : 0),
                       oblique: style.isItalic && Self.needsSyntheticOblique(font),
                       language: context.language, link: link?.url.absoluteString)
         if let index = indices[key] { return index }

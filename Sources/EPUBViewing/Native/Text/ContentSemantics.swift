@@ -78,6 +78,8 @@ enum ContentSemantics {
     private static let headings: Set<String> = ["h1", "h2", "h3", "h4", "h5", "h6"]
     static func isHeading(_ element: ContentNode) -> Bool { element.isHTML && headings.contains(element.name) }
 
+    static let rowGroups: Set<String> = ["thead", "tbody", "tfoot"]
+
     /// List containers, which reset the list-item counter.
     static let lists: Set<String> = ["ol", "ul", "menu", "dir"]
 

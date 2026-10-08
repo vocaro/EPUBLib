@@ -159,7 +159,11 @@ final class SectionWriter {
         }
     }
 
-    private enum Role { case normal, ruby, media, tableRows, tableRow(cells: Int) }
+    private enum Role {
+        case normal, ruby, media, tableRows, tableRow(cells: Int)
+        /// `epub:switch`: only the chosen branch renders.
+        case switchBranches(chosen: ContentNode?)
+    }
 
     private struct Exit {
         var block = false
@@ -197,6 +201,8 @@ final class SectionWriter {
         case .ruby where node.isHTML("rp"):
             skip(node); return
         case .media where node.isHTML("source") || node.isHTML("track"):
+            skip(node); return
+        case .switchBranches(let chosen) where node !== chosen:
             skip(node); return
         default: break
         }
@@ -292,7 +298,7 @@ final class SectionWriter {
         }
         if case .tableRows = parent.role {
             if node.isHTML("tr") { role = .tableRow(cells: 0) }
-            else if ["thead", "tbody", "tfoot"].contains(node.name) { role = .tableRows }
+            else if ContentSemantics.rowGroups.contains(node.name) { role = .tableRows }
         }
         if case .tableRow(let cells) = parent.role, node.isHTML("td") || node.isHTML("th") {
             parent.role = .tableRow(cells: cells + 1)
@@ -380,8 +386,9 @@ final class SectionWriter {
         let branches = node.elementChildren.filter { $0.namespace == ContentNamespace.ops }
         let chosen = branches.first { $0.name == "case" && $0.attribute("required-namespace") == ContentNamespace.mathML }
             ?? branches.first { $0.name == "default" }
-        for branch in node.elementChildren where branch !== chosen { skip(branch) }
-        stack.append(Entry(node: node, children: chosen?.children ?? [], style: style, context: context))
+        let entry = Entry(node: node, children: node.elementChildren, style: style, context: context)
+        entry.role = .switchBranches(chosen: chosen)
+        stack.append(entry)
     }
 
     /// Ids and notes inside content that is not rendered still get anchors and note text.
@@ -453,7 +460,8 @@ final class SectionWriter {
         let parent = frames[frames.count - 1]
         let keep = ContentSemantics.isHeading(node) || node.isHTML("dt") || style.breakAfter == .avoid
         frames.append(BlockFrame(style: style, format: blockFormat(style, node: node, parent: parent),
-                                 keepWithNext: keep, firstParagraph: paragraphs.count, language: language))
+                                 keepWithNext: keep, keepTogether: style.breakInside == .avoid,
+                                 firstParagraph: paragraphs.count, language: language))
     }
 
     private func exitBlock() {
@@ -461,6 +469,11 @@ final class SectionWriter {
         closeParagraph()
         guard frames.count > 1 else { return }
         let frame = frames.removeLast()
+        // `break-inside: avoid` keeps a box's paragraphs with each other, not its last with what follows.
+        if frame.keepTogether, let last = paragraphs.indices.last, last >= frame.firstParagraph,
+           paragraphs[last].keptTogetherBy == frames.count {
+            paragraphs[last].keepWithNext = paragraphs[last].keepsOwnNext
+        }
         if !isNote {
             let inset = resolve(frame.style.padding.bottom) + Self.width(frame.style.border.bottom)
             if inset > 0 { gap.seal(inset) }
@@ -516,7 +529,7 @@ final class SectionWriter {
         case .points(let value):
             cssLineHeight = min(max(value, style.fontSize * 0.5), style.fontSize * 5)
         }
-        return BlockFormat(alignment: alignment, endAligned: endAligned, direction: direction,
+        return BlockFormat(alignment: alignment, endAligned: endAligned, float: style.float, direction: direction,
                            left: left, right: right, textIndent: resolve(style.textIndent),
                            lineHeightMultiple: multiple, lineHeight: cssLineHeight, hyphenate: style.hyphens == .auto,
                            characterWrap: style.whiteSpace == .pre,
@@ -562,7 +575,11 @@ final class SectionWriter {
             paragraph.spacingBefore = gapValue
         }
         pendingPageBreak = false
-        paragraph.keepWithNext = isSection && frames.contains { $0.keepWithNext }
+        if isSection {
+            paragraph.keepsOwnNext = frames.contains { $0.keepWithNext }
+            paragraph.keptTogetherBy = frames.firstIndex { $0.keepTogether }
+            paragraph.keepWithNext = paragraph.keepsOwnNext || paragraph.keptTogetherBy != nil
+        }
         paragraphs.append(paragraph)
         paragraphOpen = true
         lineStart = true
@@ -621,7 +638,14 @@ final class SectionWriter {
     private func paragraphStyle(_ paragraph: Paragraph) -> NSParagraphStyle {
         let format = paragraph.format
         var key = ParagraphStyleKey()
-        key.alignment = paragraph.blockUnit && paragraph.soleAttachment && !format.endAligned ? .center : format.alignment
+        if paragraph.blockUnit && paragraph.soleAttachment {
+            // A lone block-level attachment is centred, or set to the side it floats to.
+            switch format.float {
+            case .left: key.alignment = .left
+            case .right: key.alignment = .right
+            case .none: key.alignment = format.endAligned ? format.alignment : .center
+            }
+        } else { key.alignment = format.alignment }
         if isNote, key.alignment == .justified { key.alignment = .natural }
         key.direction = format.direction
         var head = format.direction == .rightToLeft ? format.right : format.left
@@ -714,6 +738,8 @@ final class SectionWriter {
         let units = Array(node.text.utf16)
         let count = units.count
         guard count > 0 else { return }
+        let spaceAttributes = style.wordSpacing != 0 && !style.isHidden
+            ? styling.attributes(style, context, wordSpacing: true) : attributes
         var index = 0
         // HTML ignores a newline right after `<pre>`'s start tag.
         if style.whiteSpace.preservesNewlines, units[0] == 0x0A, node.indexInParent == 0,
@@ -728,7 +754,8 @@ final class SectionWriter {
                 } else {
                     var end = index + 1
                     while end < count, units[end] != 0x0A, units[end] != 0x0D { end += 1 }
-                    emitText(units, index..<end, node: node, style: style, context: context, attributes: attributes)
+                    emitText(units, index..<end, node: node, style: style, context: context, attributes: attributes,
+                             spaceAttributes: spaceAttributes)
                     index = end
                 }
             }
@@ -753,7 +780,7 @@ final class SectionWriter {
                     } else {
                         collapsibleSpace(node: node, offset: index, length: end - index,
                                          exact: end - index == 1 && units[index] == 0x20, segmentBreak: newline,
-                                         attributes: attributes)
+                                         attributes: spaceAttributes)
                     }
                     index = end
                 } else {
@@ -765,7 +792,8 @@ final class SectionWriter {
                         if Self.isCollapsible(unit) { break }
                         end += 1
                     }
-                    emitText(units, index..<end, node: node, style: style, context: context, attributes: attributes)
+                    emitText(units, index..<end, node: node, style: style, context: context, attributes: attributes,
+                             spaceAttributes: spaceAttributes)
                     index = end
                 }
             }
@@ -773,22 +801,28 @@ final class SectionWriter {
     }
 
     private func emitText(_ units: [UInt16], _ range: Range<Int>, node: ContentNode, style: ComputedStyle,
-                          context: InlineContext, attributes: Int) {
+                          context: InlineContext, attributes: Int, spaceAttributes: Int) {
         prepareForContent(next: Self.scalar(units, at: range.lowerBound))
         let location = buffer.count
         if collectingRubyBase, rubyBaseStart == nil { rubyBaseStart = location }
-        if style.textTransform != .none {
-            let rendered = transform(units[range], style.textTransform, language: context.language)
-            buffer.append(rendered, attributes: attributes)
-            buffer.replaceParagraphSeparators(from: location)
-            mapSpan(location: location, length: rendered.count, node: node, offset: range.lowerBound,
-                    sourceLength: range.count, exact: rendered.count == range.count)
+        let rendered = style.textTransform == .none ? nil : transform(units[range], style.textTransform, language: context.language)
+        if spaceAttributes == attributes {
+            if let rendered { buffer.append(rendered, attributes: attributes) } else { buffer.append(units[range], attributes: attributes) }
         } else {
-            buffer.append(units[range], attributes: attributes)
-            buffer.replaceParagraphSeparators(from: location)
-            mapSpan(location: location, length: range.count, node: node, offset: range.lowerBound,
-                    sourceLength: range.count, exact: true)
+            // `word-spacing` widens each space: those take their own attributes.
+            let characters = rendered.map { $0[...] } ?? units[range]
+            var start = characters.startIndex
+            for index in characters.indices where characters[index] == 0x20 {
+                buffer.append(characters[start..<index], attributes: attributes)
+                buffer.append(CollectionOfOne(0x20), attributes: spaceAttributes)
+                start = index + 1
+            }
+            buffer.append(characters[start...], attributes: attributes)
         }
+        buffer.replaceParagraphSeparators(from: location)
+        let length = buffer.count - location
+        mapSpan(location: location, length: length, node: node, offset: range.lowerBound,
+                sourceLength: range.count, exact: length == range.count)
         didEmitContent()
     }
 
@@ -1110,6 +1144,7 @@ private struct MarginGap {
 private struct BlockFormat {
     var alignment: NSTextAlignment
     var endAligned: Bool
+    var float: ComputedStyle.Float
     var direction: NSWritingDirection
     /// Physical content edges from the column's, accumulated over ancestors.
     var left: CGFloat
@@ -1127,14 +1162,18 @@ private struct BlockFormat {
 private struct BlockFrame {
     let style: ComputedStyle
     let format: BlockFormat
+    /// A heading, a term or `break-after: avoid`: its paragraphs keep with the next.
     let keepWithNext: Bool
+    /// `break-inside: avoid`.
+    let keepTogether: Bool
     /// `paragraphs.count` when the box opened: its first paragraph gets `text-indent`.
     let firstParagraph: Int
     var attributes: Int?
     let language: String?
 
-    init(style: ComputedStyle, format: BlockFormat, keepWithNext: Bool, firstParagraph: Int, language: String?) {
-        self.style = style; self.format = format; self.keepWithNext = keepWithNext
+    init(style: ComputedStyle, format: BlockFormat, keepWithNext: Bool, keepTogether: Bool = false,
+         firstParagraph: Int, language: String?) {
+        self.style = style; self.format = format; self.keepWithNext = keepWithNext; self.keepTogether = keepTogether
         self.firstParagraph = firstParagraph; self.language = language
     }
 }
@@ -1148,6 +1187,10 @@ private struct Paragraph {
     var spacingAfter: CGFloat = 0
     var pageBreakBefore = false
     var keepWithNext = false
+    /// Kept with the next for its own sake (a heading), not only by an enclosing `break-inside: avoid`.
+    var keepsOwnNext = false
+    /// The outermost enclosing `break-inside: avoid` frame.
+    var keptTogetherBy: Int?
     var hasText = false
     var hasUnit = false
     /// One paragraph of block-level rich content.
