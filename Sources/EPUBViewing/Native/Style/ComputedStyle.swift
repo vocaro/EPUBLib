@@ -47,6 +47,7 @@ struct ComputedStyle: Equatable, Sendable {
     enum Hyphens: Equatable, Sendable { case none, manual, auto }
     enum Break: Equatable, Sendable { case auto, avoid, page, column }
     enum Float: Equatable, Sendable { case none, left, right }
+    enum CaptionSide: Equatable, Sendable { case top, bottom }
     enum LineHeight: Equatable, Sendable {
         case normal
         /// A unitless multiple of the element's font size.
@@ -151,6 +152,7 @@ struct ComputedStyle: Equatable, Sendable {
     var borderCollapse = false
     /// Points, horizontal and vertical.
     var borderSpacing: CGSize = CGSize(width: 2, height: 2)
+    var captionSide: CaptionSide = .top
 
     /// Resolved line height in points for this style's font size; nil for `normal`.
     var lineHeightPoints: CGFloat? {
