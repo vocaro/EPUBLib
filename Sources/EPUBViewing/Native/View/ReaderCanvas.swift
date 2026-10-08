@@ -23,23 +23,39 @@ struct ReaderTextRange: Hashable, Sendable {
 }
 
 /// The whole book as one string for continuous scroll: every section's string in spine order,
-/// each followed by one paragraph break except the last.
+/// each followed by one paragraph break except the last. Sections in `omitted` (nonlinear spine
+/// items, which page turns step over too) are left out; the canvas shows one of them on its own
+/// when it is navigated to.
 struct ReaderBookText: @unchecked Sendable {
     let string: NSAttributedString
-    /// `sectionStarts[i]` is section `i`'s first location in `string`.
+    /// `sectionStarts[i]` is section `i`'s first location in `string`; for an omitted section,
+    /// the next included section's (or the string's end).
     let sectionStarts: [Int]
+    let omitted: Set<Int>
 
+    init(string: NSAttributedString, sectionStarts: [Int], omitted: Set<Int> = []) {
+        self.string = string
+        self.sectionStarts = sectionStarts
+        self.omitted = omitted
+    }
+
+    func contains(section: Int) -> Bool { sectionStarts.indices.contains(section) && !omitted.contains(section) }
+
+    /// A position's location; meaningful only for a section the book contains.
     func location(of position: ReaderTextPosition) -> Int {
         min(string.length, sectionStarts[position.section] + position.offset)
     }
+
     func position(at location: Int) -> ReaderTextPosition {
         var low = 0, high = sectionStarts.count - 1
         while low < high { // last section starting at or before location
             let mid = (low + high + 1) / 2
             if sectionStarts[mid] <= location { low = mid } else { high = mid - 1 }
         }
-        let end = low + 1 < sectionStarts.count ? sectionStarts[low + 1] - 1 : string.length
-        return ReaderTextPosition(section: low, offset: min(location, end) - sectionStarts[low])
+        while low > 0, omitted.contains(low) { low -= 1 } // Trailing omitted sections start at the end.
+        let next = sectionStarts.indices.dropFirst(low + 1).first { !omitted.contains($0) }
+        let end = next.map { sectionStarts[$0] - 1 } ?? string.length
+        return ReaderTextPosition(section: low, offset: max(0, min(location, end) - sectionStarts[low]))
     }
 }
 

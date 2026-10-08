@@ -5,6 +5,23 @@ import AppKit
 extension ReaderCanvasView: NSTextViewDelegate {
     func platformSetUp() {
         wantsLayer = true
+        clipsToBounds = true // A spread kept through a live resize never draws outside the canvas.
+        ReaderMemoryPressure.start()
+        NotificationCenter.default.addObserver(self, selector: #selector(memoryPressure(_:)),
+                                               name: ReaderMemoryPressure.notification, object: nil)
+    }
+
+    @objc private func memoryPressure(_ notification: Notification) { trimCaches() }
+
+    // A live resize keeps the spread on screen and paginates once, at its end.
+    override func viewWillStartLiveResize() {
+        super.viewWillStartLiveResize()
+        beginDeferringLayout()
+    }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        endDeferringLayout()
     }
 
     func applyAppearance() {
@@ -65,11 +82,6 @@ extension ReaderCanvasView: NSTextViewDelegate {
         textView.columnMinX = columnMinX - bounds.minX
         textView.readerContainer.size = CGSize(width: width, height: 0)
         textView.invalidateTextContainerOrigin()
-        let viewport = CGSize(width: width, height: max(0, scrollVisibleContainerRect.height))
-        if textView.readerContainer.viewportSize != viewport {
-            textView.readerContainer.viewportSize = viewport
-            textView.readerLayoutManager.invalidateLayout(for: textView.readerLayoutManager.documentRange)
-        }
         scrollView.layoutSubtreeIfNeeded()
     }
 
@@ -115,8 +127,16 @@ extension ReaderCanvasView: NSTextViewDelegate {
         return scrollView.contentView.bounds.minY >= maximumScrollOffset - 1
     }
 
-    func focus(_ view: ReaderTextView) {
-        if let window, window.firstResponder !== view { window.makeFirstResponder(view) }
+    /// Gives keyboard focus to a text view, or the canvas.
+    func focus(_ view: ReaderTextView?) {
+        guard let window else { return }
+        let responder: NSView = view ?? self
+        if window.firstResponder !== responder { window.makeFirstResponder(responder) }
+    }
+
+    var hasKeyboardFocus: Bool {
+        guard let responder = window?.firstResponder as? NSView else { return false }
+        return responder === self || responder.isDescendant(of: self)
     }
 
     // MARK: Text view delegate
@@ -163,6 +183,21 @@ extension ReaderCanvasView: NSTextViewDelegate {
 
     override func keyDown(with event: NSEvent) {
         guard let forward = ReaderTextView.pageTurnDirection(for: event) else { return super.keyDown(with: event) }
+        turnPageFromInput(forward: forward)
+    }
+
+    // A click within 56 points of the left or right edge turns the page (`edgeTurn(at:)`); the
+    // column text views handle clicks on themselves the same way.
+    override func mouseDown(with event: NSEvent) {
+        pointerDown = (convert(event.locationInWindow, from: nil), event.timestamp)
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        defer { pointerDown = nil }
+        guard let down = pointerDown, hypot(point.x - down.location.x, point.y - down.location.y) < 4,
+              let forward = edgeTurn(at: point) else { return super.mouseUp(with: event) }
         turnPageFromInput(forward: forward)
     }
 
@@ -233,5 +268,21 @@ final class ReaderNoteViewController: NSViewController, NSTextViewDelegate {
     }
 
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool { true }
+}
+#endif
+
+#if os(macOS)
+/// Tells reader canvases when the system is short of memory, so they trim their caches.
+@MainActor enum ReaderMemoryPressure {
+    static let notification = Notification.Name("org.epublib.reader.memoryPressure")
+    private static var source: (any DispatchSourceMemoryPressure)?
+
+    static func start() {
+        guard source == nil else { return }
+        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        source.setEventHandler { NotificationCenter.default.post(name: notification, object: nil) }
+        source.resume()
+        self.source = source
+    }
 }
 #endif

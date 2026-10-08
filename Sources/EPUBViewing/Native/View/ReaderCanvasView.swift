@@ -44,9 +44,25 @@ import AppKit
     private(set) var columns: [ReaderTextView] = []
     /// The spread on screen: its section and first page.
     private(set) var shownPage: (section: Int, page: Int)?
-    private var paginators: [Int: ReaderPaginator] = [:]
-    private var paginatorUse: [Int] = []
-    private static let cachedPaginators = 4
+    /// A new spread (after a resize) waiting for its pagination; the old one stays on screen.
+    private(set) var pendingSpread: ReaderCanvasGeometry.Spread?
+    private var pendingPagination: Task<Void, Never>?
+    /// Live resizes and rotations in progress, during which pagination waits.
+    private var layoutDeferrals = 0
+
+    private struct PaginatorKey: Hashable {
+        var section: Int
+        var width: CGFloat
+        var height: CGFloat
+    }
+    private var paginators: [PaginatorKey: ReaderPaginator] = [:]
+    private var paginatorUse: [PaginatorKey] = []
+    private static let cachedPaginators = 8
+    /// Characters of TextKit layout the cached paginators may hold together (about 60 bytes
+    /// each); a finished pagination holds none.
+    static let heldLayoutBudget = 1_000_000
+    /// Pagination this far past what is known runs over several turns of the run loop.
+    private static let quickPagination = 50_000
 
     // Continuous scroll.
     private(set) var scrollContainer: PlatformView?
@@ -61,6 +77,8 @@ import AppKit
 
     var wheelTurner = ReaderWheelPageTurner()
     var presentedNote: AnyObject?
+    /// Where and when the last touch or click on the canvas began, for edge taps.
+    var pointerDown: (location: CGPoint, time: TimeInterval)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -79,10 +97,10 @@ import AppKit
     // MARK: ReaderCanvas
 
     func reloadContent(keeping position: ReaderTextPosition?) {
+        settleLayout()
         anchor = position ?? currentStart() ?? anchor
         anchorFollowsScroll = false
-        paginators.removeAll()
-        paginatorUse.removeAll()
+        // Paginators of rebuilt sections are replaced as they are next used (`paginator(for:)`).
         switch configuration.flow {
         case .paginated:
             shownPage = nil
@@ -97,6 +115,7 @@ import AppKit
     }
 
     func show(_ position: ReaderTextPosition, selecting range: ReaderTextRange?) {
+        settleLayout()
         anchor = position
         anchorFollowsScroll = false
         pendingSelection = range.flatMap { $0.isEmpty ? nil : $0 }
@@ -110,7 +129,8 @@ import AppKit
     }
 
     func turnPage(forward: Bool) -> PageTurnResult {
-        switch configuration.flow {
+        settleLayout()
+        return switch configuration.flow {
         case .paginated: turnPaginatedPage(forward: forward)
         case .scrolled: turnScrolledPage(forward: forward)
         }
@@ -155,15 +175,17 @@ import AppKit
         }
         guard old.flow != configuration.flow || old.division != configuration.division
                 || old.isRightToLeft != configuration.isRightToLeft else { return }
-        if old.flow != configuration.flow {
-            anchor = currentStart(in: old.flow) ?? anchor
-            anchorFollowsScroll = false
-            pendingSelection = nil
-            tearDownPages()
-            tearDownScroll()
-            selectionMayHaveChanged()
-        }
+        guard old.flow != configuration.flow else { return layOutCanvas() }
+        anchor = currentStart(in: old.flow) ?? anchor
+        anchorFollowsScroll = false
+        pendingSelection = nil
+        // The text views go; keyboard focus must not go with them.
+        let hadFocus = hasKeyboardFocus
+        tearDownPages()
+        tearDownScroll()
+        selectionMayHaveChanged()
         layOutCanvas()
+        if hadFocus { focus(textViews.first) }
     }
 
     /// The position to keep: the anchor, or the visible start once the person has scrolled.
@@ -192,32 +214,135 @@ import AppKit
     // MARK: Paginated flow
 
     private func layOutPages() {
-        let spread = ReaderCanvasGeometry.spread(in: pageArea, division: configuration.division,
+        let target = ReaderCanvasGeometry.spread(in: pageArea, division: configuration.division,
                                                  isRightToLeft: configuration.isRightToLeft)
-        guard spread != self.spread || shownPage == nil else { return }
-        self.spread = spread
+        guard let spread, shownPage != nil else {
+            cancelPendingSpread()
+            self.spread = target
+            displayAnchor()
+            applyPendingSelection()
+            return
+        }
+        if target == spread { return cancelPendingSpread() }
+        if target != pendingSpread {
+            cancelPendingSpread()
+            pendingSpread = target
+        }
+        guard layoutDeferrals == 0, pendingPagination == nil else { return }
+        if paginatesQuickly(target) { applyPendingSpread() } else { paginate(towards: target) }
+    }
+
+    /// Whether the anchor's page at `target`'s column size is known or close to what is.
+    private func paginatesQuickly(_ target: ReaderCanvasGeometry.Spread) -> Bool {
+        guard let anchor, let paginator = paginator(for: anchor.section, size: target.columnSize) else { return true }
+        return paginator.covers(anchor.offset) || anchor.offset - paginator.paginatedLength <= Self.quickPagination
+    }
+
+    /// Paginates towards the anchor a few pages per turn of the run loop, keeping the old spread
+    /// on screen and responsive, then shows `target`.
+    private func paginate(towards target: ReaderCanvasGeometry.Spread) {
+        pendingPagination = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.pendingSpread == target else { return }
+                guard let anchor = self.anchor, let paginator = self.paginator(for: anchor.section, size: target.columnSize),
+                      !paginator.advance(toward: anchor.offset, pages: 6) else { return self.applyPendingSpread() }
+                try? await Task.sleep(for: .milliseconds(1))
+            }
+        }
+    }
+
+    private func applyPendingSpread() {
+        guard let target = pendingSpread else { return }
+        cancelPendingSpread()
+        spread = target
         displayAnchor()
         applyPendingSelection()
     }
 
+    private func cancelPendingSpread() {
+        pendingPagination?.cancel()
+        pendingPagination = nil
+        pendingSpread = nil
+    }
+
+    /// Shows a waiting spread now, so a command acts on what its geometry shows.
+    private func settleLayout() {
+        if pendingSpread != nil { applyPendingSpread() }
+    }
+
+    /// While a live resize or rotation runs, the spread on screen stays and pagination waits.
+    func beginDeferringLayout() {
+        layoutDeferrals += 1
+    }
+
+    func endDeferringLayout() {
+        layoutDeferrals = max(0, layoutDeferrals - 1)
+        if layoutDeferrals == 0 { layOutCanvas() }
+    }
+
+    func deferLayout(for duration: TimeInterval) {
+        beginDeferringLayout()
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(duration))
+            self?.endDeferringLayout()
+        }
+    }
+
     private func tearDownPages() {
+        cancelPendingSpread()
         for column in columns { column.removeFromSuperview() }
         columns.removeAll()
         spread = nil
         shownPage = nil
     }
 
-    /// The section's pagination at the current column size, cached for the last few sections.
-    func paginator(for section: Int) -> ReaderPaginator? {
-        guard let spread, let text = dataSource?.text(forSection: section) else { return nil }
-        paginatorUse.removeAll { $0 == section }
-        paginatorUse.append(section)
-        if let cached = paginators[section], cached.text === text, cached.size == spread.columnSize { return cached }
-        let paginator = ReaderPaginator(text: text, size: spread.columnSize)
-        paginators[section] = paginator
-        while paginatorUse.count > Self.cachedPaginators { paginators[paginatorUse.removeFirst()] = nil }
+    /// A section's pagination at a column size (the spread's by default), cached by both.
+    func paginator(for section: Int, size: CGSize? = nil) -> ReaderPaginator? {
+        guard let size = size ?? spread?.columnSize, let text = dataSource?.text(forSection: section) else { return nil }
+        let key = PaginatorKey(section: section, width: size.width, height: size.height)
+        paginatorUse.removeAll { $0 == key }
+        paginatorUse.append(key)
+        if let cached = paginators[key], cached.text === text { return cached }
+        let paginator = ReaderPaginator(text: text, size: size)
+        paginators[key] = paginator
+        trimPaginators()
         return paginator
     }
+
+    /// The paginator of the spread on screen, never trimmed.
+    private var shownPaginatorKey: PaginatorKey? {
+        guard let shownPage, let size = spread?.columnSize else { return nil }
+        return PaginatorKey(section: shownPage.section, width: size.width, height: size.height)
+    }
+
+    /// Keeps the cache to a few paginators and their held layouts to `heldLayoutBudget`,
+    /// dropping the least recently used.
+    private func trimPaginators() {
+        let kept = Set([shownPaginatorKey, paginatorUse.last].compactMap { $0 })
+        while paginatorUse.count > Self.cachedPaginators, let victim = paginatorUse.first(where: { !kept.contains($0) }) {
+            removePaginator(victim)
+        }
+        var held = paginators.values.reduce(0) { $0 + $1.heldLayoutLength }
+        while held > Self.heldLayoutBudget,
+              let victim = paginatorUse.first(where: { !kept.contains($0) && paginators[$0]?.holdsLayout == true }) {
+            held -= paginators[victim]?.heldLayoutLength ?? 0
+            removePaginator(victim)
+        }
+    }
+
+    private func removePaginator(_ key: PaginatorKey) {
+        paginators[key] = nil
+        paginatorUse.removeAll { $0 == key }
+    }
+
+    /// Memory is short: keep only the pagination on screen.
+    func trimCaches() {
+        let kept = shownPaginatorKey
+        for key in paginatorUse where key != kept { removePaginator(key) }
+    }
+
+    var cachedPaginatorCount: Int { paginators.count }
+    var heldPaginatorLayout: Int { paginators.values.reduce(0) { $0 + $1.heldLayoutLength } }
 
     /// Shows the spread holding the anchor.
     private func displayAnchor() {
@@ -246,17 +371,25 @@ import AppKit
             let frame = spread.columns[slot]
             let top = frame.minY + page.topSpacing
             // A page with layout context is clipped right after its last line.
-            let height = page.layoutEnd > page.range.upperBound ? page.height : max(page.height, frame.maxY - top)
+            let clips = page.layoutEnd > page.range.upperBound || page.filler > 0
             column.isHidden = false
-            column.frame = CGRect(x: frame.minX, y: top, width: frame.width, height: height)
+            column.frame = CGRect(x: frame.minX, y: top, width: frame.width,
+                                  height: clips ? page.height : max(page.height, frame.maxY - top))
             column.readerContainer.size = CGSize(width: frame.width, height: 0)
             column.readerContainer.viewportSize = spread.columnSize
             column.placement = ReaderTextPlacement(section: section, offset: page.range.location,
                                                    visibleLength: page.range.length)
             column.setContent(paginator.text(for: page))
             column.ensureFullLayout()
+            // Should the page's own layout run longer than the section's (a long justified
+            // paragraph's tail mid-page), show all of it rather than clip a line.
+            if clips, page.range.length > 0, let last = column.lineFrame(containing: page.range.length - 1),
+               last.maxY > column.frame.height + 0.5 {
+                column.frame.size.height = min(last.maxY, frame.maxY - top)
+            }
         }
         isApplyingSelection = false
+        trimPaginators()
         applyHighlights()
         updateVisibleRange(force: true)
         selectionMayHaveChanged()
@@ -311,15 +444,26 @@ import AppKit
         let column = ReaderCanvasGeometry.scrollColumn(
             in: CGRect(x: area.minX, y: bounds.minY, width: area.width, height: bounds.height),
             division: configuration.division)
+        defer { updateScrollViewport() }
         if let geometry = scrollGeometry, geometry.bounds == bounds, geometry.minX == column.minX,
            geometry.width == column.width { return }
         if !created, anchorFollowsScroll, let start = scrollVisibleRange()?.start { anchor = start }
         scrollGeometry = (bounds, column.minX, column.width)
         withProgrammaticScroll { applyScrollGeometry(columnMinX: column.minX, width: column.width) }
+        updateScrollViewport()
         if created { loadScrollContent() }
         scrollToAnchor()
         updateVisibleRange(force: created)
         if created { applyPendingSelection() }
+    }
+
+    /// Keeps the viewport attachments size against current, the visible height included (it
+    /// changes with the safe area alone). Text already laid out keeps its size; a new column
+    /// width relays everything out anyway.
+    private func updateScrollViewport() {
+        guard let textView = scrollTextView, let geometry = scrollGeometry else { return }
+        let viewport = CGSize(width: geometry.width, height: max(0, scrollVisibleContainerRect.height))
+        if textView.readerContainer.viewportSize != viewport { textView.readerContainer.viewportSize = viewport }
     }
 
     private func tearDownScroll() {
@@ -334,7 +478,8 @@ import AppKit
     private func loadScrollContent() {
         guard let textView = scrollTextView else { return }
         let content: (text: NSAttributedString, placement: ReaderTextPlacement)
-        if let book = dataSource?.bookText {
+        // A section the whole book leaves out (nonlinear) is shown on its own.
+        if let book = dataSource?.bookText, anchor.map({ book.contains(section: $0.section) }) ?? true {
             scrollBook = book
             content = (book.string, ReaderTextPlacement(section: nil, offset: 0, visibleLength: book.string.length))
         } else if let anchor, let text = dataSource?.text(forSection: anchor.section) {
@@ -352,7 +497,10 @@ import AppKit
 
     private func showInScroll() {
         guard let textView = scrollTextView, let anchor else { return }
-        if scrollBook == nil, dataSource?.bookText != nil || textView.placement.section != anchor.section {
+        let bookHasAnchor = dataSource?.bookText?.contains(section: anchor.section) == true
+        if let book = scrollBook, !book.contains(section: anchor.section) {
+            loadScrollContent()
+        } else if scrollBook == nil, bookHasAnchor || textView.placement.section != anchor.section {
             loadScrollContent()
         }
         scrollToAnchor()
@@ -538,6 +686,7 @@ import AppKit
     /// nil when they do not meet.
     func localRange(of range: ReaderTextRange, in view: ReaderTextView) -> NSRange? {
         if view === scrollTextView, let book = scrollBook {
+            guard book.contains(section: range.start.section), book.contains(section: range.end.section) else { return nil }
             let start = book.location(of: range.start), end = book.location(of: range.end)
             return end > start ? NSRange(location: start, length: end - start) : nil
         }
@@ -573,8 +722,26 @@ import AppKit
         delegate?.canvas(self, didActivate: link, at: position, rect: view.convert(rect, to: self))
     }
 
-    /// A page-turn key, swipe or wheel tick.
+    /// A page-turn key, swipe, wheel tick or edge tap.
     func turnPageFromInput(forward: Bool) {
         _ = turnPage(forward: forward)
+    }
+
+    /// Text is selected in a text view on screen.
+    var hasSelection: Bool { textViews.contains { $0.selectedRange.length > 0 } }
+
+    /// The width of the paginated tap zones at the left and right edges.
+    static let edgeZoneWidth: CGFloat = 56
+
+    /// The page turn a tap or click at `point` (canvas coordinates) makes: within 56 points of
+    /// the left or right edge in paginated flow (the left one goes back, mirrored right to
+    /// left), unless it is on a link or text is selected, where the text view's own tap belongs.
+    func edgeTurn(at point: CGPoint) -> Bool? {
+        guard configuration.flow == .paginated, bounds.contains(point), !hasSelection else { return nil }
+        let left = point.x < bounds.minX + Self.edgeZoneWidth, right = point.x > bounds.maxX - Self.edgeZoneWidth
+        guard left || right else { return nil }
+        if let view = columns.first(where: { !$0.isHidden && $0.frame.contains(point) }),
+           view.link(at: convert(point, to: view)) != nil { return nil }
+        return right != configuration.isRightToLeft
     }
 }

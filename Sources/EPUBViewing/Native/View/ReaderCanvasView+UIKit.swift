@@ -4,13 +4,22 @@ import UIKit
 // UIKit views, input, menus and popovers for `ReaderCanvasView`.
 extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     func platformSetUp() {
+        clipsToBounds = true // A spread kept through a rotation never draws outside the canvas.
         for direction in [UISwipeGestureRecognizer.Direction.left, .right] {
             let swipe = UISwipeGestureRecognizer(target: self, action: #selector(swiped(_:)))
             swipe.direction = direction
             swipe.delegate = self
             addGestureRecognizer(swipe)
         }
+        let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+        tap.delegate = self
+        tap.cancelsTouchesInView = false
+        addGestureRecognizer(tap)
+        NotificationCenter.default.addObserver(self, selector: #selector(memoryWarning(_:)),
+                                               name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
     }
+
+    @objc private func memoryWarning(_ notification: Notification) { trimCaches() }
 
     func applyAppearance() {
         let dark = configuration.isDark
@@ -21,6 +30,9 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        // A rotation or bar animation keeps the spread on screen and paginates once it is over.
+        let duration = UIView.inheritedAnimationDuration
+        if duration > 0, configuration.flow == .paginated, spread != nil { deferLayout(for: duration) }
         layOutCanvas()
     }
 
@@ -58,11 +70,6 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         view.frame = bounds
         view.textContainerInset = UIEdgeInsets(top: 0, left: columnMinX - bounds.minX, bottom: 0,
                                                right: max(0, bounds.maxX - columnMinX - width))
-        let viewport = CGSize(width: width, height: max(0, scrollVisibleContainerRect.height))
-        if view.readerContainer.viewportSize != viewport {
-            view.readerContainer.viewportSize = viewport
-            view.readerLayoutManager.invalidateLayout(for: view.readerLayoutManager.documentRange)
-        }
         view.layoutIfNeeded()
     }
 
@@ -103,9 +110,14 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         return view.contentOffset.y >= maximumScrollOffset - 1
     }
 
-    func focus(_ view: ReaderTextView) {
-        if window != nil, !view.isFirstResponder { view.becomeFirstResponder() }
+    /// Gives keyboard focus to a text view, or the canvas.
+    func focus(_ view: ReaderTextView?) {
+        guard window != nil else { return }
+        let responder: UIView = view ?? self
+        if !responder.isFirstResponder { responder.becomeFirstResponder() }
     }
+
+    var hasKeyboardFocus: Bool { isFirstResponder || textViews.contains(where: \.isFirstResponder) }
 
     // MARK: Text view delegate
 
@@ -146,6 +158,29 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         guard configuration.flow == .paginated else { return }
         turnPageFromInput(forward: ReaderCanvasInput.swipeDirection(
             towardsLeft: recognizer.direction == .left, isRightToLeft: configuration.isRightToLeft))
+    }
+
+    /// A tap within 56 points of the left or right edge turns the page, unless it lands on a
+    /// link, text is selected, or the touch was a long press (a selection beginning).
+    @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
+        guard let down = pointerDown, ProcessInfo.processInfo.systemUptime - down.time < 0.35,
+              let forward = edgeTurn(at: recognizer.location(in: self)) else { return }
+        turnPageFromInput(forward: forward)
+    }
+
+    // Swipes never begin while text is selected, so dragging a selection handle never turns the
+    // page; edge taps begin only in the zones.
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer.view === self else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
+        guard configuration.flow == .paginated else { return false }
+        if gestureRecognizer is UISwipeGestureRecognizer { return !hasSelection }
+        if gestureRecognizer is UITapGestureRecognizer { return edgeTurn(at: gestureRecognizer.location(in: self)) != nil }
+        return super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if gestureRecognizer is UITapGestureRecognizer { pointerDown = (touch.location(in: self), touch.timestamp) }
+        return true
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,

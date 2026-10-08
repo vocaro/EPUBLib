@@ -89,27 +89,23 @@ final class ReaderTextView: NSTextView {
 
     // A link is activated, never dragged out as a URL or previewed (its scheme is private).
     override func dragSelection(with event: NSEvent, offset mouseOffset: NSSize, slideBack: Bool) -> Bool {
-        isOverLink(event) ? false : super.dragSelection(with: event, offset: mouseOffset, slideBack: slideBack)
+        link(at: convert(event.locationInWindow, from: nil)) != nil
+            ? false : super.dragSelection(with: event, offset: mouseOffset, slideBack: slideBack)
     }
 
     override func quickLook(with event: NSEvent) {
-        if !isOverLink(event) { super.quickLook(with: event) }
+        if link(at: convert(event.locationInWindow, from: nil)) == nil { super.quickLook(with: event) }
     }
 
-    private func isOverLink(_ event: NSEvent) -> Bool {
-        let point = convert(event.locationInWindow, from: nil)
-        let origin = containerOrigin
-        guard let fragment = readerLayoutManager.textLayoutFragment(
-            for: CGPoint(x: point.x - origin.x, y: point.y - origin.y)) else { return false }
-        let local = CGPoint(x: point.x - origin.x - fragment.layoutFragmentFrame.minX,
-                            y: point.y - origin.y - fragment.layoutFragmentFrame.minY)
-        let start = offset(of: fragment.rangeInElement.location)
-        for line in fragment.textLineFragments where line.typographicBounds.contains(local) {
-            let index = start + line.characterIndex(for: CGPoint(x: local.x - line.typographicBounds.minX,
-                                                                  y: local.y - line.typographicBounds.minY))
-            return index < textLength && contentStorage.textStorage?.attribute(.link, at: index, effectiveRange: nil) != nil
-        }
-        return false
+    // A click in the canvas's edge zone turns the page; a drag from there still selects.
+    override func mouseDown(with event: NSEvent) {
+        guard let canvas, isPageColumn, event.clickCount == 1,
+              let forward = canvas.edgeTurn(at: canvas.convert(event.locationInWindow, from: nil)),
+              let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged], until: .distantFuture,
+                                           inMode: .eventTracking, dequeue: false),
+              next.type == .leftMouseUp else { return super.mouseDown(with: event) }
+        _ = window?.nextEvent(matching: .leftMouseUp)
+        canvas.turnPageFromInput(forward: forward)
     }
 
     // VoiceOver reads the page, not the clipped context after it. The characters stay as they

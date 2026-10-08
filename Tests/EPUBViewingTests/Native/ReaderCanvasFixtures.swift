@@ -80,16 +80,21 @@ enum CanvasText {
         return NSAttributedString(attachment: attachment)
     }
 
-    /// The whole book: sections joined by one paragraph break, as `ReaderBookText` documents.
-    static func book(_ sections: [NSAttributedString]) -> ReaderBookText {
+    /// The whole book: sections joined by one paragraph break, as `ReaderBookText` documents,
+    /// leaving out `omitting`.
+    static func book(_ sections: [NSAttributedString], omitting: Set<Int> = []) -> ReaderBookText {
         let string = NSMutableAttributedString()
-        var starts: [Int] = []
-        for (index, section) in sections.enumerated() {
-            starts.append(string.length)
+        var starts = Array(repeating: 0, count: sections.count)
+        for (index, section) in sections.enumerated() where !omitting.contains(index) {
+            if string.length > 0 { string.append(NSAttributedString(string: "\n")) }
+            starts[index] = string.length
             string.append(section)
-            if index < sections.count - 1 { string.append(NSAttributedString(string: "\n")) }
         }
-        return ReaderBookText(string: string, sectionStarts: starts)
+        var next = string.length
+        for index in starts.indices.reversed() {
+            if omitting.contains(index) { starts[index] = next } else { next = starts[index] }
+        }
+        return ReaderBookText(string: string, sectionStarts: starts, omitted: omitting)
     }
 }
 

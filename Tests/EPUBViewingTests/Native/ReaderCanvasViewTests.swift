@@ -643,6 +643,263 @@ import UIKit
         XCTAssertNil(host.canvas.scrollTextView)
     }
 
+    // MARK: Resizing, caches and memory
+
+    func testPaginationsAreCachedByColumnSize() throws {
+        let host = host(sections(2, paragraphs: 20))
+        let small = try XCTUnwrap(host.canvas.spread?.columnSize)
+        let first = try XCTUnwrap(host.canvas.paginator(for: 0))
+        host.resize(to: CGSize(width: 1100, height: 800))
+        XCTAssertNotEqual(host.canvas.spread?.columnSize, small)
+        host.resize(to: CGSize(width: 600, height: 700))
+        XCTAssertTrue(host.canvas.paginator(for: 0) === first, "back at the first size, its pagination is reused")
+        host.canvas.reloadContent(keeping: nil)
+        XCTAssertTrue(host.canvas.paginator(for: 0) === first, "a reload with the same text keeps it")
+        host.source.sections[0] = NSAttributedString(attributedString: try XCTUnwrap(host.source.sections[0]))
+        host.canvas.reloadContent(keeping: nil)
+        XCTAssertFalse(host.canvas.paginator(for: 0) === first, "rebuilt text is paginated afresh")
+    }
+
+    func testALiveResizeKeepsTheSpreadUntilItEnds() throws {
+        let host = host(sections(1, paragraphs: 30))
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 9_000), selecting: nil)
+        let spread = host.canvas.spread, range = host.canvas.visibleRange
+        host.canvas.beginDeferringLayout()
+        host.resize(to: CGSize(width: 1100, height: 800))
+        host.resize(to: CGSize(width: 1000, height: 800))
+        XCTAssertEqual(host.canvas.spread, spread, "the old spread stays on screen")
+        XCTAssertEqual(host.canvas.visibleRange, range)
+        XCTAssertNotNil(host.canvas.pendingSpread)
+        host.canvas.endDeferringLayout()
+        XCTAssertNil(host.canvas.pendingSpread)
+        XCTAssertEqual(host.canvas.spread?.columns.count, 2)
+        let after = try XCTUnwrap(host.canvas.visibleRange)
+        XCTAssertTrue(after.start.offset <= 9_000 && 9_000 < after.end.offset)
+    }
+
+    private func longSection(_ length: Int, seed: Int = 9) -> NSAttributedString {
+        let paragraph = CanvasText.sentence(130, seed: seed)
+        let text = NSMutableAttributedString()
+        while text.length < length { text.append(CanvasText.body(paragraph + "\n")) }
+        return text
+    }
+
+    func testALongRepaginationRunsInStepsKeepingTheOldSpread() async throws {
+        let text = longSection(600_000)
+        let host = host([text])
+        let target = text.length - 100
+        host.canvas.show(ReaderTextPosition(section: 0, offset: target), selecting: nil)
+        let spread = host.canvas.spread
+        host.resize(to: CGSize(width: 1100, height: 800))
+        XCTAssertEqual(host.canvas.spread, spread, "the old spread stays while the new size paginates")
+        XCTAssertNotNil(host.canvas.pendingSpread)
+        let deadline = Date().addingTimeInterval(20)
+        while host.canvas.pendingSpread != nil, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertNil(host.canvas.pendingSpread)
+        XCTAssertEqual(host.canvas.spread?.columns.count, 2)
+        let range = try XCTUnwrap(host.canvas.visibleRange)
+        XCTAssertTrue(range.start.offset <= target && target < range.end.offset, "\(range)")
+    }
+
+    func testACommandDuringRepaginationActsOnTheNewSpread() throws {
+        let text = longSection(600_000)
+        let host = host([text])
+        host.canvas.show(ReaderTextPosition(section: 0, offset: text.length - 100), selecting: nil)
+        host.resize(to: CGSize(width: 1100, height: 800))
+        XCTAssertNotNil(host.canvas.pendingSpread)
+        let before = try XCTUnwrap(host.canvas.visibleRange)
+        XCTAssertEqual(host.canvas.turnPage(forward: false), .turned)
+        XCTAssertNil(host.canvas.pendingSpread)
+        XCTAssertEqual(host.canvas.spread?.columns.count, 2)
+        XCTAssertLessThan(try XCTUnwrap(host.canvas.visibleRange).end.offset, before.end.offset)
+    }
+
+    func testPaginatorsKeepToTheLayoutBudgetAndTrimUnderPressure() throws {
+        let big: [NSAttributedString?] = (0..<4).map { longSection(700_000, seed: $0) }
+        let host = host(big)
+        for section in 0..<4 {
+            host.canvas.show(ReaderTextPosition(section: section, offset: 400_000), selecting: nil)
+            XCTAssertLessThanOrEqual(host.canvas.heldPaginatorLayout, ReaderCanvasView.heldLayoutBudget, "after \(section)")
+        }
+        XCTAssertGreaterThan(host.canvas.cachedPaginatorCount, 1)
+        host.canvas.show(ReaderTextPosition(section: 3, offset: 700_000), selecting: nil)
+        XCTAssertFalse(try XCTUnwrap(host.canvas.paginator(for: 3)).holdsLayout, "a finished pagination holds no layout")
+        host.canvas.trimCaches()
+        XCTAssertEqual(host.canvas.cachedPaginatorCount, 1)
+        XCTAssertNotNil(host.canvas.visibleRange)
+    }
+
+    func testAHugeLineBreakParagraphTurnsPagesQuickly() throws {
+        var lines: [String] = []
+        var length = 0
+        while length < 300_000 {
+            let line = "\(lines.count) " + CanvasText.sentence(lines.count % 9 + 1, seed: lines.count)
+            lines.append(line)
+            length += line.utf16.count + 1
+        }
+        let host = host([CanvasText.body(lines.joined(separator: "\u{2028}"))])
+        let start = Date()
+        for _ in 0..<20 { XCTAssertEqual(host.canvas.turnPage(forward: true), .turned) }
+        XCTAssertLessThan(Date().timeIntervalSince(start) / 20, 0.05)
+        let column = host.canvas.textViews[0]
+        XCTAssertLessThan(column.textLength - column.placement.visibleLength, 400, "a few lines of context, not the rest")
+    }
+
+    func testANarrowBookPoseSideGivesOneColumn() throws {
+        var configuration = ReaderCanvasConfiguration()
+        configuration.division = CGRect(x: 455, y: 0, width: 41, height: 700)
+        let host = host(sections(1, paragraphs: 20), size: CGSize(width: 571, height: 700), configuration: configuration)
+        XCTAssertEqual(host.canvas.textViews.count, 1)
+        XCTAssertLessThanOrEqual(try XCTUnwrap(host.canvas.textViews.first).frame.maxX, 455)
+        XCTAssertNotNil(host.canvas.visibleRange)
+    }
+
+    // MARK: Edge taps, focus
+
+    func testEdgeTapsTurnPagesUnlessOnALinkOrASelection() throws {
+        let text = NSMutableAttributedString(attributedString: NSAttributedString(string: "Linked", attributes: [
+            .font: PlatformFont.systemFont(ofSize: 17), .link: ReaderLink.internal(href: "OPS/two.xhtml").url]))
+        text.append(CanvasText.body(" " + CanvasText.sentence(900, seed: 1)))
+        let host = host([text])
+        let canvas = host.canvas, bounds = canvas.bounds
+        let column = canvas.textViews[0]
+        XCTAssertEqual(canvas.edgeTurn(at: CGPoint(x: bounds.maxX - 10, y: bounds.midY)), true)
+        XCTAssertEqual(canvas.edgeTurn(at: CGPoint(x: bounds.minX + 10, y: bounds.midY)), false)
+        XCTAssertNil(canvas.edgeTurn(at: CGPoint(x: bounds.midX, y: bounds.midY)))
+        // The link starts the first line, inside the left zone.
+        let linkFrame = try XCTUnwrap(column.segmentFrames(for: NSRange(location: 0, length: 6)).first)
+        let origin = column.containerOrigin
+        let onLink = column.convert(CGPoint(x: linkFrame.midX + origin.x, y: linkFrame.midY + origin.y), to: canvas)
+        XCTAssertLessThan(onLink.x, ReaderCanvasView.edgeZoneWidth)
+        XCTAssertEqual(column.link(at: canvas.convert(onLink, to: column)), ReaderLink.internal(href: "OPS/two.xhtml").url)
+        XCTAssertNil(canvas.edgeTurn(at: onLink), "the link keeps its tap")
+        XCTAssertEqual(canvas.edgeTurn(at: CGPoint(x: onLink.x, y: onLink.y + 200)), false)
+        canvas.configuration.isRightToLeft = true
+        XCTAssertEqual(canvas.edgeTurn(at: CGPoint(x: bounds.maxX - 10, y: bounds.midY)), false, "mirrored")
+        canvas.configuration.isRightToLeft = false
+        column.selectedRange = NSRange(location: 10, length: 5)
+        canvas.textViewSelectionDidChange(column)
+        XCTAssertNil(canvas.edgeTurn(at: CGPoint(x: bounds.maxX - 10, y: bounds.midY)), "a tap with a selection is the text's")
+        #if os(iOS)
+        let swipe = try XCTUnwrap(canvas.gestureRecognizers?.first { $0 is UISwipeGestureRecognizer })
+        XCTAssertFalse(canvas.gestureRecognizerShouldBegin(swipe), "no swipe turns while text is selected")
+        canvas.clearSelection()
+        XCTAssertTrue(canvas.gestureRecognizerShouldBegin(swipe))
+        #endif
+        canvas.clearSelection()
+        canvas.configuration.flow = .scrolled
+        host.layOut()
+        XCTAssertNil(canvas.edgeTurn(at: CGPoint(x: bounds.maxX - 10, y: bounds.midY)))
+    }
+
+    #if os(macOS)
+    func testEdgeClicksTurnPages() throws {
+        let host = host(sections(1, paragraphs: 30))
+        let canvas = host.canvas
+        func mouse(_ type: NSEvent.EventType, at point: CGPoint) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: canvas.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                               windowNumber: host.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                               pressure: type == .leftMouseUp ? 0 : 1)!
+        }
+        let start = try XCTUnwrap(canvas.visibleRange?.start)
+        // In the margin, beside the column.
+        let margin = CGPoint(x: canvas.bounds.maxX - 5, y: canvas.bounds.midY)
+        canvas.mouseDown(with: mouse(.leftMouseDown, at: margin))
+        canvas.mouseUp(with: mouse(.leftMouseUp, at: margin))
+        let next = try XCTUnwrap(canvas.visibleRange?.start)
+        XCTAssertGreaterThan(next, start)
+        // Over the column's text, inside the zone: a click turns, a drag would select.
+        let column = canvas.textViews[0]
+        let onText = CGPoint(x: column.frame.maxX - 20, y: column.frame.minY + 40)
+        XCTAssertNotNil(canvas.edgeTurn(at: onText))
+        host.window.postEvent(mouse(.leftMouseUp, at: onText), atStart: false)
+        column.mouseDown(with: mouse(.leftMouseDown, at: onText))
+        XCTAssertGreaterThan(try XCTUnwrap(canvas.visibleRange?.start), next)
+    }
+    #endif
+
+    func testChangingFlowKeepsKeyboardFocus() throws {
+        let host = host(sections(1))
+        let canvas = host.canvas
+        canvas.focus(canvas.textViews.first)
+        XCTAssertTrue(canvas.hasKeyboardFocus)
+        canvas.configuration.flow = .scrolled
+        host.layOut()
+        XCTAssertTrue(canvas.hasKeyboardFocus)
+        let scroll = try XCTUnwrap(canvas.scrollTextView)
+        #if os(macOS)
+        XCTAssertTrue(host.window.firstResponder === scroll)
+        #else
+        XCTAssertTrue(scroll.isFirstResponder)
+        #endif
+        canvas.configuration.flow = .paginated
+        host.layOut()
+        XCTAssertTrue(canvas.hasKeyboardFocus)
+    }
+
+    // MARK: Nonlinear sections, viewport
+
+    func testBookTextMapsAroundOmittedSections() {
+        let sections = (0..<5).map { NSAttributedString(string: String(repeating: "\($0)", count: 10)) }
+        let book = CanvasText.book(sections, omitting: [1, 4])
+        XCTAssertEqual(book.string.length, 3 * 10 + 2)
+        XCTAssertFalse(book.contains(section: 1))
+        XCTAssertFalse(book.contains(section: 4))
+        XCTAssertTrue(book.contains(section: 2))
+        for section in [0, 2, 3] {
+            for offset in [0, 5, 10] {
+                let position = ReaderTextPosition(section: section, offset: offset)
+                XCTAssertEqual(book.position(at: book.location(of: position)), position)
+            }
+        }
+        XCTAssertEqual(book.position(at: book.string.length), ReaderTextPosition(section: 3, offset: 10))
+        XCTAssertEqual(book.position(at: 10), ReaderTextPosition(section: 0, offset: 10), "the separator ends section 0")
+    }
+
+    func testWholeBookLeavesOutNonlinearSectionsAndShowsThemAlone() throws {
+        let all = sections(3, paragraphs: 2)
+        var configuration = ReaderCanvasConfiguration()
+        configuration.flow = .scrolled
+        let host = host(all, linear: [true, false, true], configuration: configuration, show: nil)
+        host.source.book = CanvasText.book(all.compactMap { $0 }, omitting: [1])
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        host.layOut()
+        XCTAssertNotNil(host.canvas.scrollBook)
+        host.canvas.show(ReaderTextPosition(section: 1, offset: 100), selecting: nil)
+        XCTAssertNil(host.canvas.scrollBook, "a nonlinear section shows on its own")
+        XCTAssertEqual(host.canvas.scrollTextView?.placement.section, 1)
+        XCTAssertEqual(host.canvas.visibleRange?.start.section, 1)
+        var turns = 0
+        while host.canvas.visibleRange?.start.section == 1, turns < 50 {
+            XCTAssertEqual(host.canvas.turnPage(forward: true), .turned)
+            turns += 1
+        }
+        XCTAssertEqual(host.canvas.visibleRange?.start, ReaderTextPosition(section: 2, offset: 0))
+        XCTAssertNotNil(host.canvas.scrollBook, "back in the whole book")
+        host.canvas.reloadContent(keeping: ReaderTextPosition(section: 1, offset: 0))
+        XCTAssertNil(host.canvas.scrollBook)
+    }
+
+    func testScrollViewportFollowsTheSafeArea() throws {
+        var configuration = ReaderCanvasConfiguration()
+        configuration.flow = .scrolled
+        let host = host(sections(1), configuration: configuration)
+        let view = try XCTUnwrap(host.canvas.scrollTextView)
+        let before = view.readerContainer.viewportSize.height
+        XCTAssertGreaterThan(before, 0)
+        #if os(iOS)
+        host.controller.additionalSafeAreaInsets = UIEdgeInsets(top: 60, left: 0, bottom: 40, right: 0)
+        #else
+        let scrollView = try XCTUnwrap(host.canvas.scrollContainer as? NSScrollView)
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsets(top: scrollView.contentInsets.top + 60, left: 0,
+                                                bottom: scrollView.contentInsets.bottom + 40, right: 0)
+        host.canvas.needsLayout = true
+        #endif
+        host.layOut()
+        XCTAssertEqual(view.readerContainer.viewportSize.height, before - 100, accuracy: 1)
+    }
+
     // MARK: Performance
 
     func testLongSectionOpensAndTurnsQuickly() throws {

@@ -102,6 +102,9 @@ struct ReaderPage: Equatable {
     /// Characters laid out so far whose layout is still held: what this paginator costs in memory.
     var heldLayoutLength: Int { holdsLayout ? (lines.last.map { NSMaxRange($0.range) } ?? 0) : 0 }
 
+    /// How much of the section the known pages cover.
+    var paginatedLength: Int { pages.last.map { NSMaxRange($0.range) } ?? 0 }
+
     /// Whether the page holding `offset` is already known.
     func covers(_ offset: Int) -> Bool {
         isComplete || pages.last.map { $0.range.upperBound > offset } == true
