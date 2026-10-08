@@ -42,10 +42,9 @@ struct NativeRichContent: RichContentFactory {
             return fallback()
         }
         let key = context.publication.id + "\u{0}" + path
-        let mediaType = context.publication.resources.first { $0.path == path }?.mediaType
         let source: ReaderImageSource
         var intrinsic: CGSize
-        if ImageType.isSVG(data, path: path, mediaType: mediaType) {
+        if Self.isSVG(data, path: path, context: context) {
             guard let (svg, root) = svgDocument(data, path: path, key: key, context: context) else {
                 context.report.report.unsupportedElements["svg", default: 0] += 1
                 return fallback()
@@ -75,12 +74,11 @@ struct NativeRichContent: RichContentFactory {
         if let image = SVGContent.wrappedImage(element), let reference = SVGContent.href(image), !reference.hasPrefix("#") {
             guard let path = context.resolve(reference) else { return nothing() }
             let key = context.publication.id + "\u{0}" + path
-            let mediaType = context.publication.resources.first { $0.path == path }?.mediaType
             guard let data = try? context.publication.data(at: path) else {
                 context.report.report.unreadableResources += 1
                 return nothing()
             }
-            let source = ImageType.isSVG(data, path: path, mediaType: mediaType)
+            let source = Self.isSVG(data, path: path, context: context)
                 ? svgDocument(data, path: path, key: key, context: context)?.0
                 : ReaderImageSource.bitmap(data, path: path, key: key)
             guard let source else {
@@ -141,6 +139,12 @@ struct NativeRichContent: RichContentFactory {
         guard let serialized = SVGContent.serialize(document.root, resolve: resolve, publication: context.publication),
               let source = ReaderImageSource.svg(serialized, path: path, key: key) else { return nil }
         return (source, document.root)
+    }
+
+    /// Bitmaps are known by their first bytes, so the manifest is only searched for the rest.
+    private static func isSVG(_ data: Data, path: String, context: RichContentContext) -> Bool {
+        guard ImageType.mediaType(of: data) == nil else { return false }
+        return ImageType.isSVG(data, path: path, mediaType: context.publication.resources.first { $0.path == path }?.mediaType)
     }
 
     private static func normalized(_ text: String) -> String {
