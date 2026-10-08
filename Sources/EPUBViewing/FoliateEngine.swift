@@ -156,7 +156,7 @@ private struct FoliateSurface: View {
             ZStack {
                 ReaderEPUBWebView(source: session.source, model: session.model,
                     onAskAboutSelection: { _ in session.performSelection() }, isDark: session.style.isDark,
-                    selectionActionTitle: session.action?.title, selectionActionImage: session.action?.systemImage ?? "text.quote")
+                    isScrolled: session.style.flow == .scrolled, selectionActionTitle: session.action?.title, selectionActionImage: session.action?.systemImage ?? "text.quote")
                 if session.style.flow == .paginated {
                     HStack(spacing: 0) {
                         zone(.previousPage)

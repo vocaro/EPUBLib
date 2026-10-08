@@ -1,5 +1,11 @@
 # Release notes
 
+## Unreleased
+
+- In continuous scroll on iOS, keep no bottom content inset on the web view, so the page runs down to the host's bottom bar and its bottom edge fade lands there ([vocaro/studywright#379](https://github.com/vocaro/studywright/issues/379)). WebKit sizes the page to the web view's safe area and lets the scroll view place it, and the 64-point inset rested the page at the top inset instead, above the toolbar's bottom edge, leaving a band below the page where no text drew. Page turns keep the inset. The paginator's own 48-point section margin keeps a section's last line clear of the bar.
+- Add an iOS regression that switches flows and checks the bottom inset each one keeps.
+- Public APIs, dependencies and bookmark formats are unchanged.
+
 ## 0.2.5
 
 - Turn a scrolled-flow section on a swipe's whole travel, judged on every `touchmove` and once more at `touchend`, and listen on the host document as well as the section's ([vocaro/studywright#74](https://github.com/vocaro/studywright/issues/74)). WebKit can deliver one or no `touchmove` events for a quick flick, and a section shorter than the viewport leaves page around its iframe where a touch never reached the section's own document; either alone was enough to lose the swipe. Paginated flow, the wheel path and the Mac are unchanged.

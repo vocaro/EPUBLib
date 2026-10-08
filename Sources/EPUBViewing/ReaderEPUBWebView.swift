@@ -126,6 +126,7 @@ struct ReaderEPUBWebView {
     let model: ReaderEPUBPrototypeModel
     let onAskAboutSelection: (String) -> Void
     var isDark = false
+    var isScrolled = false
     var selectionActionTitle: String? = nil
     var selectionActionImage: String = "text.quote"
 
@@ -150,7 +151,14 @@ struct ReaderEPUBWebView {
         view.underPageBackgroundColor = background
         // Let the enclosing navigation toolbar supply its live safe-area clearance.
         view.scrollView.contentInsetAdjustmentBehavior = .automatic
-        let inset = UIEdgeInsets(top: 48, left: 0, bottom: 64, right: 0)
+        // WebKit sizes the page to this view's safe area and lets the scroll view place it; the
+        // page itself never scrolls here, since scrolled flow scrolls the paginator's own
+        // container. With a 64-point bottom inset the page rests at the 48-point top inset, above
+        // the toolbar's bottom edge, so its bottom ends short of the bottom bar by as much and the
+        // bottom edge fade sits over nothing. Scrolled flow keeps no bottom inset, so the page
+        // fills the safe area; the paginator's own 48-point section margin keeps a section's
+        // last line clear of the bar.
+        let inset = UIEdgeInsets(top: 48, left: 0, bottom: isScrolled ? 0 : 64, right: 0)
         if view.scrollView.contentInset != inset {
             view.scrollView.contentInset = inset
         }

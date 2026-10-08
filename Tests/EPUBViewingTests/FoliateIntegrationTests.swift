@@ -102,6 +102,27 @@ import XCTest
         XCTAssertEqual(state["strips"] as? Int, 2, "iOS keeps the scroll-edge fade under floating chrome")
         #endif
     }
+    #if os(iOS)
+    /// In a host with a real window scene, a bottom inset lets the scroll view rest the page above
+    /// the safe area, so a scrolled page stops short of the host's bottom bar. This runner has no
+    /// scene and never places the page, so the test checks the inset itself.
+    func testScrolledFlowKeepsNoBottomInsetOnIOS() async throws {
+        let publication = try EPUBPublication.open(data: Fixture.epub())
+        var events: [EPUBReaderEvent] = []
+        let session = try FoliateEngine().makeSession(publication: publication, selectionAction: nil) { events.append($0) }
+        let foliate = try XCTUnwrap(session as? FoliateSession)
+        let window = ReaderTestWindow(session: session)
+        defer { session.close(); window.close() }
+        try await wait { events.contains(.ready) }
+        let webView = try XCTUnwrap(foliate.model.webView)
+        XCTAssertEqual(webView.scrollView.contentInset.bottom, 64, "page turns keep their bottom margin")
+        try await session.send(.style(.init(flow: .scrolled)))
+        try await wait { webView.scrollView.contentInset.bottom == 0 }
+        XCTAssertEqual(webView.scrollView.contentInset.top, 48)
+        try await session.send(.style(.init(flow: .paginated)))
+        try await wait { webView.scrollView.contentInset.bottom == 64 }
+    }
+    #endif
     func testNotReadyAndCancellationDoNotSubmit() async throws {
         let book = try EPUBPublication.open(data: Fixture.epub())
         let session = try FoliateEngine().makeSession(publication: book) { _ in XCTFail("Unmounted reader emitted") }
