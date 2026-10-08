@@ -208,6 +208,23 @@ import UIKit
         XCTAssertEqual(pages[1].range.location, headingLocation + heading.length)
     }
 
+    func testAKeptRunLongerThanAPageFillsItsPages() {
+        // A `break-inside: avoid` box taller than a page keeps every block with the next (IRS
+        // Pub 17's tax tables): it cannot move whole, so pages fill instead of one block each.
+        let text = NSMutableAttributedString()
+        for row in 0..<200 {
+            let block = NSMutableAttributedString(attributedString: CanvasText.body("Row \(row)\n", style: CanvasText.bodyStyle(spacing: 0)))
+            block.addAttribute(.readerKeepWithNext, value: true, range: NSRange(location: 0, length: block.length))
+            text.append(block)
+        }
+        text.append(CanvasText.body("After the box."))
+        let line = lines(of: CanvasText.body("Row"), width: size.width)[0]
+        let perPage = Int(size.height / (line.bottom - line.top))
+        let pages = ReaderPaginator(text: text, size: size).allPages
+        XCTAssertLessThanOrEqual(pages.count, 200 / max(1, perPage - 1) + 2, "\(pages.count) pages for 200 rows at \(perPage) per page")
+        for page in pages.dropLast() { XCTAssertGreaterThan(page.range.length, 12, "a page holds more than one row: \(page.range)") }
+    }
+
     func testPaginationReleasesItsLayoutOnceComplete() {
         let text = CanvasText.section(4, chapters: 1, paragraphs: 40)
         let paginator = ReaderPaginator(text: text, size: size)

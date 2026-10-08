@@ -208,16 +208,17 @@ struct ReaderPage: Equatable {
             end += 1
         }
         if end < lines.count, !lines[end].breaksBefore { // An unforced break: keep headings with what follows.
-            var cut = end
-            while lines[cut - 1].keepsWithNext, lines[cut - 1].endsParagraph {
-                var start = cut - 1
-                while !lines[start].startsParagraph { start -= 1 }
-                // Moved only when it opens the next page with the line it introduces; a block
-                // that cannot would be stranded there alone.
-                guard start > firstIndex, lines[end].bottom - lines[start].top <= size.height + 0.5 else { break }
-                cut = start
+            // The whole run of kept blocks ending here moves to the next page, or none of it
+            // does: only when it opens that page together with the line it introduces. A run
+            // longer than a page (a `break-inside: avoid` box) breaks where it must instead of
+            // leaving one block per page.
+            var start = end
+            while start > firstIndex, lines[start - 1].keepsWithNext, lines[start - 1].endsParagraph {
+                var paragraphStart = start - 1
+                while !lines[paragraphStart].startsParagraph { paragraphStart -= 1 }
+                start = paragraphStart
             }
-            end = cut
+            if start > firstIndex, start < end, lines[end].bottom - lines[start].top <= size.height + 0.5 { end = start }
         }
         let last = lines[end - 1]
         let (layoutEnd, filler) = context(after: last, at: end - 1, pageStart: first.range.location)
