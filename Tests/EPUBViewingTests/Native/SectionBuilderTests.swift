@@ -304,6 +304,35 @@ final class SectionBuilderTests: XCTestCase {
         XCTAssertEqual(own.cgColor.components?[1] ?? 0, 0.5, accuracy: 0.01)
     }
 
+    /// Hostile nesting: each note's text is captured once, in the innermost note holding it, so
+    /// note content cannot grow with nesting depth times document size.
+    func testNestedNotesAreCapturedOnceEach() throws {
+        for type in ["endnote", "footnote"] {
+            var body = ""
+            for depth in 0..<190 {
+                body += "<aside epub:type='\(type)' id='n\(depth)'>"
+                    + String(repeating: "<p>A paragraph of note \(depth).</p>", count: 100)
+            }
+            body += String(repeating: "</aside>", count: 190) + "<p>After.</p>"
+            let document = try H.document(body)
+            let start = Date()
+            let text = H.build(document: document)
+            let elapsed = Date().timeIntervalSince(start)
+            let sourceLength = document.nodes.reduce(0) { $0 + ($1.isText ? $1.utf16Length : 0) }
+            let noteIDs = (0..<190).map { "n\($0)" }
+            let noteLength = noteIDs.reduce(0) { $0 + (text.notes[$1]?.length ?? 0) }
+            XCTAssertEqual(noteIDs.filter { text.notes[$0] != nil }.count, 190, type)
+            XCTAssertLessThanOrEqual(noteLength, sourceLength * 2, "\(type): notes amplify their content")
+            let outer = try XCTUnwrap(text.notes["n0"]?.string)
+            XCTAssertTrue(outer.hasPrefix("A paragraph of note 0."), type)
+            XCTAssertFalse(outer.contains("note 1."), "\(type): a nested note is its own note")
+            XCTAssertTrue(text.notes["n189"]?.string.contains("note 189.") == true, type)
+            XCTAssertLessThan(elapsed, 10, "\(type): nested notes took \(elapsed) s")
+            XCTAssertEqual(text.string.string.hasSuffix("After."), true)
+            if type == "footnote" { XCTAssertEqual(text.string.string, "After.") }
+        }
+    }
+
     func testNoteReferencesAndNotes() throws {
         let text = try H.build("""
             <p>Claim<a epub:type="noteref" href="#fn1">1</a>, role<a role="doc-noteref" href="notes.xhtml#n2">2</a>, \

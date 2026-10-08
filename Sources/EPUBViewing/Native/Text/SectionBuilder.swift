@@ -103,6 +103,21 @@ final class SectionBuildState {
     /// Nesting of `renderContent` and note captures, bounded so hostile nesting cannot recurse deeply.
     private var nesting = 0
     private static let maximumNesting = 8
+    /// UTF-16 units all of a section's notes may hold. Notes never repeat one another's text (a
+    /// note leaves out the notes nested in it), so only hostile markup comes near this.
+    static let maximumNoteLength = 4 << 20
+    private var noteBudget = SectionBuildState.maximumNoteLength
+    /// Whether each node (by order) has an endnotes container among its ancestors, computed in one
+    /// pass when first needed, so classifying notes is not quadratic in their nesting.
+    private lazy var insideEndnotes: [Bool] = {
+        var inside = [Bool](repeating: false, count: document.nodes.count)
+        for node in document.nodes where node.isElement {
+            if let parent = node.parent {
+                inside[node.order] = inside[parent.order] || ContentSemantics.isEndnotesContainer(parent)
+            }
+        }
+        return inside
+    }()
 
     init(request: SectionBuildRequest, document: ContentDocument, style: @escaping SectionStyleFunction,
          initialStyle: ComputedStyle) {
@@ -136,14 +151,28 @@ final class SectionBuildState {
         return SectionWriter(state: self, mode: .detached).renderContent(of: element, style: style)
     }
 
+    /// The note an element is, with endnote scopes memoized.
+    func noteKind(_ element: ContentNode) -> ContentSemantics.NoteKind? {
+        ContentSemantics.noteKind(element) { self.insideEndnotes[$0.order] }
+    }
+
     /// Captures a note element's content once, under its `id` and the ids of its leading
     /// descendants (a noteref may name the note's first paragraph rather than the note).
+    ///
+    /// Only the section's own walk captures notes, and it reaches every element once. A note's
+    /// content leaves out the notes nested in it, which are captured on their own, so notes never
+    /// repeat each other's text however deeply they nest; the note budget bounds the rest.
     func captureNote(_ element: ContentNode) {
-        guard let id = element.id, notes[id] == nil, nesting < Self.maximumNesting else { return }
+        guard let id = element.id, notes[id] == nil, noteBudget > 0, nesting < Self.maximumNesting else { return }
         notes[id] = NSAttributedString() // Claims the id, so a note cannot capture itself again.
         nesting += 1
         defer { nesting -= 1 }
-        let content = SectionWriter(state: self, mode: .note(id: id)).renderNote(element)
+        var content = SectionWriter(state: self, mode: .note(id: id)).renderNote(element)
+        if content.length > noteBudget {
+            let end = (content.string as NSString).rangeOfComposedCharacterSequence(at: noteBudget).location
+            content = content.attributedSubstring(from: NSRange(location: 0, length: end))
+        }
+        noteBudget -= content.length
         notes[id] = content
         var leading = element.elementChildren.first
         while let node = leading {

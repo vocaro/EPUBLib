@@ -220,8 +220,10 @@ final class SectionWriter {
         if style.writingMode != .horizontalTB { state.report.report.verticalWritingFlattened = true }
         if isSection, node.isHTML("body") { state.bodyStyle = style }
         register(node)
-        if let kind = ContentSemantics.noteKind(node) {
-            state.captureNote(node)
+        if let kind = state.noteKind(node) {
+            if isSection { state.captureNote(node) }
+            // A note's content leaves out the notes nested in it: each is a note of its own.
+            if isNote { return }
             if kind == .footnote { skip(node, registered: true); return }
         }
         guard style.display != .none, style.display != .tableColumn, style.display != .tableColumnGroup else {
@@ -413,15 +415,16 @@ final class SectionWriter {
         return maximum
     }
 
-    /// Ids and notes inside content that is not rendered still get anchors and note text.
+    /// Ids and notes inside content that is not rendered still get anchors and note text. Only the
+    /// section's walk needs them: it reaches every element, cell and note content included.
     private func skip(_ node: ContentNode, registered: Bool = false) {
         let first = registered ? node.order + 1 : node.order
-        guard first <= node.subtreeEnd else { return }
+        guard isSection, first <= node.subtreeEnd else { return }
         for index in first...node.subtreeEnd {
             let element = document.nodes[index]
             guard element.isElement else { continue }
             register(element)
-            if ContentSemantics.noteKind(element) != nil { state.captureNote(element) }
+            if state.noteKind(element) != nil { state.captureNote(element) }
         }
     }
 
@@ -459,7 +462,7 @@ final class SectionWriter {
         if case .note(let id) = mode, path == document.path, fragment == id { return nil } // The note's own number.
         if ContentSemantics.isNoteReference(element) { return .note(href: resolved) }
         if path == document.path, let fragment, let target = document.element(id: fragment),
-           ContentSemantics.noteKind(target) != nil || target.parent.flatMap(ContentSemantics.noteKind) != nil {
+           state.noteKind(target) != nil || target.parent.flatMap(state.noteKind) != nil {
             return .note(href: resolved)
         }
         return .internal(href: resolved)
@@ -1143,12 +1146,12 @@ final class SectionWriter {
 
     /// Ids inside a unit point at it, and notes inside it are captured.
     private func claimSubtree(of node: ContentNode, at location: Int) {
-        guard node.order < node.subtreeEnd else { return }
+        guard isSection, node.order < node.subtreeEnd else { return }
         for index in (node.order + 1)...node.subtreeEnd {
             let element = document.nodes[index]
             guard element.isElement else { continue }
-            if isSection, let id = element.id, anchors[id] == nil { anchors[id] = location }
-            if ContentSemantics.noteKind(element) != nil { state.captureNote(element) }
+            if let id = element.id, anchors[id] == nil { anchors[id] = location }
+            if state.noteKind(element) != nil { state.captureNote(element) }
         }
     }
 

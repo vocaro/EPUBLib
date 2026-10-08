@@ -27,8 +27,10 @@ enum ContentSemantics {
             .split(whereSeparator: \.isWhitespace)
     }
 
-    /// The note an element is (EPUB 3 `epub:type` or DPUB-ARIA `role`), or nil.
-    static func noteKind(_ element: ContentNode) -> NoteKind? {
+    /// The note an element is (EPUB 3 `epub:type` or DPUB-ARIA `role`), or nil. `insideEndnotes`
+    /// says whether an element has an endnotes container among its ancestors.
+    static func noteKind(_ element: ContentNode,
+                         insideEndnotes: (ContentNode) -> Bool = isInsideEndnotes) -> NoteKind? {
         guard element.isElement, element.attribute("role") != nil
             || element.attribute("type", namespace: ContentNamespace.ops) != nil
             || element.attribute("epub:type") != nil else { return nil }
@@ -36,21 +38,27 @@ enum ContentSemantics {
         let typed = types.contains { noteTypes.contains(String($0)) }
         let footnoteRole = roles.contains("doc-footnote"), endnoteRole = roles.contains("doc-endnote")
         guard typed || footnoteRole || endnoteRole else { return nil }
-        if types.contains("endnote") || endnoteRole || isInsideEndnotes(element) { return .endnote }
+        if types.contains("endnote") || endnoteRole || insideEndnotes(element) { return .endnote }
         if footnoteRole || (element.isHTML("aside") && types.contains { $0 == "footnote" || $0 == "note" || $0 == "rearnote" }) {
             return .footnote
         }
         return .other
     }
 
-    private static func isInsideEndnotes(_ element: ContentNode) -> Bool {
+    static func isInsideEndnotes(_ element: ContentNode) -> Bool {
         var ancestor = element.parent
         while let node = ancestor {
-            if types(node).contains(where: { $0 == "endnotes" || $0 == "rearnotes" })
-                || roles(node).contains("doc-endnotes") { return true }
+            if isEndnotesContainer(node) { return true }
             ancestor = node.parent
         }
         return false
+    }
+
+    /// `epub:type` `endnotes` (or EPUB 3.0's `rearnotes`), or `role="doc-endnotes"`.
+    static func isEndnotesContainer(_ element: ContentNode) -> Bool {
+        guard element.attribute("role") != nil || element.attribute("type", namespace: ContentNamespace.ops) != nil
+            || element.attribute("epub:type") != nil else { return false }
+        return types(element).contains { $0 == "endnotes" || $0 == "rearnotes" } || roles(element).contains("doc-endnotes")
     }
 
     static func isNoteReference(_ element: ContentNode) -> Bool {
