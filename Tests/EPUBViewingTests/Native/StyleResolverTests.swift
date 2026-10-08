@@ -571,4 +571,11 @@ final class StyleResolverTests: XCTestCase {
         XCTAssertEqual(styled.style("c").captionSide, .bottom, "inherited")
         XCTAssertEqual(styled.style("d").captionSide, .top, "an invalid value is dropped")
     }
+
+    func testHugeAnBCoefficientsNeverTrap() throws {
+        let styled = try StyleTestSupport.styled("<p id='p'>x</p>",
+            css: "p:nth-child(n-9223372036854775807) { color: red } p:nth-child(2n-9223372036854775807) { color: red } p:nth-child(-n-9999999999) { color: red }")
+        XCTAssertNil(styled.style("p").color, "out-of-range An+B is invalid, so no rule matches")
+    }
 }
+

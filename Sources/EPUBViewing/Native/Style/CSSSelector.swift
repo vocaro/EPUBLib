@@ -500,7 +500,8 @@ struct CSSSelectorParser {
                 guard rest.count == 1, case .token(.number(let value, true, false)) = rest.first!, let b = integer(value) else { return nil }
                 return (a, -b)
             }
-            if unit.hasPrefix("n-"), rest.isEmpty, let b = Int(unit.dropFirst(2)), unit.dropFirst(2).allSatisfy(\.isNumber) {
+            if unit.hasPrefix("n-"), rest.isEmpty, unit.dropFirst(2).allSatisfy(\.isASCII),
+               let value = Double(unit.dropFirst(2)), unit.dropFirst(2).allSatisfy(\.isNumber), let b = integer(value) {
                 return (a, -b)
             }
             return nil

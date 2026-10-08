@@ -376,7 +376,9 @@ struct SelectorMatcher {
 
     private static func nth(_ a: Int, _ b: Int, _ position: Int) -> Bool {
         if a == 0 { return position == b }
-        let difference = position - b
+        // The parser bounds A and B, but a hostile stylesheet must never trap here.
+        let (difference, overflow) = position.subtractingReportingOverflow(b)
+        guard !overflow else { return false }
         return difference / a >= 0 && difference % a == 0
     }
 
