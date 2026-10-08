@@ -153,3 +153,23 @@ final class BuilderRecordingRich: RichContentFactory, @unchecked Sendable {
         record("hr"); return attachment()
     }
 }
+
+/// Rich content as plain text (images by their alt text, no tables), so builder tests see
+/// exactly what the builder itself produces.
+struct PlaceholderRichContent: RichContentFactory {
+    private func text(_ value: String, _ style: ComputedStyle, _ context: RichContentContext) -> NSAttributedString {
+        NSAttributedString(string: value, attributes: [.font: context.fonts.font(for: style),
+                                                       .foregroundColor: ReaderPalette.text(dark: context.typography.isDark)])
+    }
+    func image(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
+        text("[\(element.attribute("alt") ?? "image")]", style, context)
+    }
+    func svg(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? { nil }
+    func table(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? { nil }
+    func math(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
+        MathContent.make(element, style: style, context: context)
+    }
+    func horizontalRule(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString {
+        text("—", style, context)
+    }
+}
