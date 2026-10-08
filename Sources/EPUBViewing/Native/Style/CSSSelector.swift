@@ -62,6 +62,22 @@ struct CSSCompoundSelector: Equatable, Sendable {
 
 /// One complex selector, stored subject first for right-to-left matching.
 struct CSSComplexSelector: Equatable, Sendable {
+    /// Whether any compound uses `:nth-child(… of S)` or `:nth-last-child(… of S)`, here or
+    /// inside `:not()`/`:is()`.
+    var usesSelectorPositions: Bool {
+        func uses(_ pseudo: CSSPseudoClass) -> Bool {
+            switch pseudo {
+            case .nthChild(_, _, let of?), .nthLastChild(_, _, let of?): true
+            case .nthChild, .nthLastChild: false
+            case .not(let list), .matchesAny(let list): list.contains(where: \.usesSelectorPositions)
+            default: false
+            }
+        }
+        return compounds.contains { compound in
+            compound.simple.contains { if case .pseudo(let pseudo) = $0 { uses(pseudo) } else { false } }
+        }
+    }
+
     /// Compounds from the subject (rightmost) leftwards.
     var compounds: [CSSCompoundSelector]
     /// `combinators[i]` joins `compounds[i]` to `compounds[i + 1]`, its left neighbour.
@@ -392,7 +408,11 @@ struct CSSSelectorParser {
             var of: [CSSComplexSelector]?
             if let ofIndex = arguments.firstIndex(where: { $0.ident == "of" }) {
                 anb = Array(arguments[..<ofIndex])
-                of = try parseList(Array(arguments[(ofIndex + 1)...]), depth: try nested())
+                let list = try parseList(Array(arguments[(ofIndex + 1)...]), depth: try nested())
+                // Each `of` level re-matches its list against every sibling, so nesting them
+                // multiplies the work per level; one level is all real stylesheets use.
+                guard !list.contains(where: \.usesSelectorPositions) else { throw .tooComplex }
+                of = list
             }
             guard let (a, b) = Self.parseAnB(anb.significant) else { throw .invalid }
             let specificity = classSpecificity + (of.map(maximum) ?? CSSSpecificity())

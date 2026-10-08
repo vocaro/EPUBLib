@@ -577,5 +577,15 @@ final class StyleResolverTests: XCTestCase {
             css: "p:nth-child(n-9223372036854775807) { color: red } p:nth-child(2n-9223372036854775807) { color: red } p:nth-child(-n-9999999999) { color: red }")
         XCTAssertNil(styled.style("p").color, "out-of-range An+B is invalid, so no rule matches")
     }
+
+    func testNestedSelectorPositionsAreRefused() throws {
+        let siblings = String(repeating: "<p>x</p>", count: 900) + "<p id='p'>x</p>"
+        let nested = ":nth-child(2n of :nth-child(2n of :nth-child(2n of :nth-child(2n of p))))"
+        let start = Date()
+        let styled = try StyleTestSupport.styled(siblings, css: "\(nested) { color: red } p:nth-child(odd of p) { font-weight: bold }")
+        XCTAssertLessThan(Date().timeIntervalSince(start), 5, "nested `of` lists must not multiply the matching work")
+        XCTAssertNil(styled.style("p").color, "a nested `of` list makes the selector invalid")
+        XCTAssertEqual(styled.style("p").fontWeight, 700, "one level of `of` still works")
+    }
 }
 
