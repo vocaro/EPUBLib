@@ -722,7 +722,9 @@ import UIKit
             XCTAssertLessThanOrEqual(host.canvas.heldPaginatorLayout, ReaderCanvasView.heldLayoutBudget, "after \(section)")
         }
         XCTAssertGreaterThan(host.canvas.cachedPaginatorCount, 1)
-        host.canvas.show(ReaderTextPosition(section: 3, offset: 700_000), selecting: nil)
+        // The section's end, so pagination finishes whatever the page size (700,000 is not the
+        // last page on an iPad's larger pages).
+        host.canvas.show(ReaderTextPosition(section: 3, offset: try XCTUnwrap(big[3]).length), selecting: nil)
         XCTAssertFalse(try XCTUnwrap(host.canvas.paginator(for: 3)).holdsLayout, "a finished pagination holds no layout")
         host.canvas.trimCaches()
         XCTAssertEqual(host.canvas.cachedPaginatorCount, 1)
