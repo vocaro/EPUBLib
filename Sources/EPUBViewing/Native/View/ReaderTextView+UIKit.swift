@@ -51,41 +51,30 @@ final class ReaderTextView: UITextView {
         super.setContentOffset(isPageColumn ? .zero : contentOffset, animated: animated)
     }
 
+    /// Where Copy writes; the general pasteboard outside tests.
+    var pasteboard = UIPasteboard.general
+
     // Copy carries the reader's text: attachments as their alt text, never U+FFFC.
     override func copy(_ sender: Any?) {
         let text = plainText(in: selectedRange)
         guard !text.isEmpty else { return }
-        UIPasteboard.general.string = text
+        pasteboard.string = text
     }
 
     // MARK: Keys and accessibility
 
-    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        guard let canvas, let forward = presses.lazy.compactMap({ Self.pageTurnDirection(for: $0) }).first else {
-            return super.pressesBegan(presses, with: event)
-        }
-        canvas.turnPageFromInput(forward: forward)
-    }
-
-    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        guard canvas == nil || !presses.contains(where: { Self.pageTurnDirection(for: $0) != nil }) else { return }
-        super.pressesEnded(presses, with: event)
-    }
-
-    /// The page-turn direction of a hardware key press, through `ReaderEPUBPageTurnKey`.
-    static func pageTurnDirection(for press: UIPress) -> Bool? {
-        guard let key = press.key else { return nil }
-        let equivalent: KeyEquivalent
-        switch key.keyCode {
-        case .keyboardLeftArrow: equivalent = .leftArrow
-        case .keyboardRightArrow: equivalent = .rightArrow
-        case .keyboardPageUp: equivalent = .pageUp
-        case .keyboardPageDown: equivalent = .pageDown
-        case .keyboardSpacebar: equivalent = .space
+    /// The page-turn direction of a hardware key, through `ReaderEPUBPageTurnKey`.
+    static func pageTurnDirection(input: String?, flags: UIKeyModifierFlags) -> Bool? {
+        let key: KeyEquivalent
+        switch input {
+        case UIKeyCommand.inputLeftArrow: key = .leftArrow
+        case UIKeyCommand.inputRightArrow: key = .rightArrow
+        case UIKeyCommand.inputPageUp: key = .pageUp
+        case UIKeyCommand.inputPageDown: key = .pageDown
+        case " ": key = .space
         default: return nil
         }
-        let flags = key.modifierFlags
-        return ReaderCanvasInput.direction(for: equivalent, shift: flags.contains(.shift),
+        return ReaderCanvasInput.direction(for: key, shift: flags.contains(.shift),
                                            otherModifiers: !flags.isDisjoint(with: [.command, .alternate, .control]))
     }
 

@@ -155,16 +155,22 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// would dismiss a keyboard elsewhere in the window.
     override var canBecomeFirstResponder: Bool { true }
 
-    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        guard let forward = presses.lazy.compactMap({ ReaderTextView.pageTurnDirection(for: $0) }).first else {
-            return super.pressesBegan(presses, with: event)
+    /// Page-turn keys for the canvas and its text views. They take priority over the text
+    /// views' own arrow-key handling; Shift-arrow, Command, Option and Control chords stay theirs.
+    override var keyCommands: [UIKeyCommand]? {
+        let keys: [(String, UIKeyModifierFlags)] = [
+            (UIKeyCommand.inputLeftArrow, []), (UIKeyCommand.inputRightArrow, []), (UIKeyCommand.inputPageUp, []),
+            (UIKeyCommand.inputPageDown, []), (" ", []), (" ", .shift)]
+        return keys.map { input, flags in
+            let command = UIKeyCommand(input: input, modifierFlags: flags, action: #selector(pageTurnKeyCommand(_:)))
+            command.wantsPriorityOverSystemBehavior = true
+            return command
         }
-        turnPageFromInput(forward: forward)
     }
 
-    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        guard !presses.contains(where: { ReaderTextView.pageTurnDirection(for: $0) != nil }) else { return }
-        super.pressesEnded(presses, with: event)
+    @objc func pageTurnKeyCommand(_ command: UIKeyCommand) {
+        guard let forward = ReaderTextView.pageTurnDirection(input: command.input, flags: command.modifierFlags) else { return }
+        turnPageFromInput(forward: forward)
     }
 
     /// VoiceOver's three-finger swipes turn pages: towards the left or up reads forward (mirrored

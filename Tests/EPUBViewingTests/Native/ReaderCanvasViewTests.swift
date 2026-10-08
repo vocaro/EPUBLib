@@ -367,8 +367,11 @@ import UIKit
         XCTAssertTrue(column.writeSelection(to: pasteboard, types: column.writablePasteboardTypes))
         XCTAssertEqual(pasteboard.string(forType: .string), expected)
         #else
+        let pasteboard = try XCTUnwrap(UIPasteboard(name: UIPasteboard.Name("org.epublib.tests.copy.\(UUID().uuidString)"), create: true))
+        defer { UIPasteboard.remove(withName: pasteboard.name) }
+        column.pasteboard = pasteboard
         column.copy(nil)
-        XCTAssertEqual(UIPasteboard.general.string, expected)
+        XCTAssertEqual(pasteboard.string, expected)
         #endif
     }
 
@@ -490,6 +493,22 @@ import UIKit
         let event = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -30, wheel2: 0, wheel3: 0))
         host.canvas.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: event)))
         XCTAssertGreaterThan(try XCTUnwrap(host.canvas.visibleRange?.start).offset, start.offset)
+    }
+    #else
+    func testPageTurnKeyCommandsTakePriorityAndLeaveSelectionChords() throws {
+        let host = host(sections(1, paragraphs: 20))
+        let commands = try XCTUnwrap(host.canvas.keyCommands)
+        XCTAssertEqual(commands.count, 6)
+        XCTAssertTrue(commands.allSatisfy(\.wantsPriorityOverSystemBehavior))
+        XCTAssertFalse(commands.contains { !$0.modifierFlags.isDisjoint(with: [.command, .alternate, .control]) })
+        let start = try XCTUnwrap(host.canvas.visibleRange?.start)
+        host.canvas.pageTurnKeyCommand(try XCTUnwrap(commands.first { $0.input == UIKeyCommand.inputRightArrow }))
+        XCTAssertGreaterThan(try XCTUnwrap(host.canvas.visibleRange?.start), start)
+        host.canvas.pageTurnKeyCommand(try XCTUnwrap(commands.first { $0.input == " " && $0.modifierFlags == .shift }))
+        XCTAssertEqual(host.canvas.visibleRange?.start, start)
+        XCTAssertNil(ReaderTextView.pageTurnDirection(input: UIKeyCommand.inputLeftArrow, flags: .shift))
+        XCTAssertNil(ReaderTextView.pageTurnDirection(input: "a", flags: .command))
+        XCTAssertTrue(host.canvas.textViews[0].next === host.canvas, "the text views' keys reach the canvas")
     }
     #endif
 
