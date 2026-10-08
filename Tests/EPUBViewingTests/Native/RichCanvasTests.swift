@@ -26,10 +26,13 @@ import UIKit
         canvas.cacheDisplay(in: canvas.bounds, to: bitmap)
         return bitmap.cgImage
         #else
+        // The SwiftPM test runner has no screen to update, so draw the layers' own contents.
+        func display(_ layer: CALayer) { layer.displayIfNeeded(); layer.sublayers?.forEach(display) }
+        display(canvas.layer)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
-        return UIGraphicsImageRenderer(bounds: canvas.bounds, format: format).image { _ in
-            _ = canvas.drawHierarchy(in: canvas.bounds, afterScreenUpdates: true)
+        return UIGraphicsImageRenderer(bounds: canvas.bounds, format: format).image { context in
+            canvas.layer.render(in: context.cgContext)
         }.cgImage
         #endif
     }

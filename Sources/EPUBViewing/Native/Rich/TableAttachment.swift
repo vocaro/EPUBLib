@@ -18,6 +18,11 @@ import AppKit
 final class TableRowAttachment: ReaderAttachment {
     let table: TableModel
     let row: Int
+    #if os(iOS)
+    /// The last image drawn, by size, scale and viewport height: UIKit asks on every display.
+    private let lock = NSLock()
+    private var cached: (key: [CGFloat], image: UIImage)?
+    #endif
 
     init(table: TableModel, row: Int) {
         self.table = table; self.row = row
@@ -79,12 +84,17 @@ final class TableRowAttachment: ReaderAttachment {
         guard size.width > 0, size.height > 0 else { return nil }
         let viewport = Self.viewportHeight(container, width: size.width)
         #if os(iOS)
+        let scale = currentDrawingScale()
+        let key = [size.width, size.height, scale, viewport]
+        if let image = lock.withLock({ cached?.key == key ? cached?.image : nil }) { return image }
         let format = UIGraphicsImageRendererFormat()
-        format.scale = currentDrawingScale()
+        format.scale = scale
         format.opaque = false
-        return UIGraphicsImageRenderer(size: size, format: format).image { [self] context in
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { [self] context in
             draw(in: context.cgContext, size: size, viewportHeight: viewport)
         }
+        lock.withLock { cached = (key, image) }
+        return image
         #else
         // The handler runs when the image is drawn, at the destination's resolution.
         return NSImage(size: size, flipped: true) { [self] _ in
