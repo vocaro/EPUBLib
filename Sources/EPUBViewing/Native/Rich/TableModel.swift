@@ -8,9 +8,10 @@ import AppKit
 #endif
 
 /// One `<table>` as the HTML table model places it: cells on the slot grid with their rendered
-/// content and resolved box styles, and the row units pagination may break between (rows
-/// joined by a rowspan, and the header rows, stay in one unit). Built once per section build;
-/// layouts per line width are cached. Immutable apart from that locked cache.
+/// content and resolved box styles, and the groups of rows pagination keeps together when they
+/// fit a page (rows a rowspan joins, and the header rows). Each row is drawn by an attachment of
+/// its own, so a page can break between any two rows. Built once per section build; layouts per
+/// line width are cached. Immutable apart from that locked cache.
 final class TableModel: @unchecked Sendable {
     struct Insets: Equatable {
         var top: CGFloat = 0, right: CGFloat = 0, bottom: CGFloat = 0, left: CGFloat = 0
@@ -63,10 +64,13 @@ final class TableModel: @unchecked Sendable {
     let columnCount: Int
     /// Widths from `<col>`/`<colgroup>`, `.auto` where none.
     let columns: [ComputedStyle.Length]
-    /// Row ranges, one per attachment.
-    let units: [Range<Int>]
-    /// Indices into `cells` of each unit's cells.
-    let unitCells: [[Int]]
+    /// Rows kept on one page when they fit: rows a rowspan joins, and the header rows.
+    let groups: [Range<Int>]
+    /// Indices into `cells` of the cells in each row, spanning cells in every row they cover.
+    let rowCells: [[Int]]
+    /// Whether pagination should keep each row on the page of the row after it: inside a
+    /// group, and after a header row.
+    let keepsWithNext: [Bool]
     let width: ComputedStyle.Length
     let collapse: Bool
     let spacing: CGSize
@@ -93,16 +97,20 @@ final class TableModel: @unchecked Sendable {
         self.width = width; self.collapse = collapse; self.spacing = collapse ? .zero : spacing
         self.borders = borders; self.background = background; self.alignment = alignment
         self.isRightToLeft = isRightToLeft
-        units = Self.units(rows: rows, cells: cells)
-        var unitOfRow = [Int](repeating: 0, count: rows.count)
-        for (index, unit) in units.enumerated() { for row in unit { unitOfRow[row] = index } }
-        var unitCells = [[Int]](repeating: [], count: units.count)
-        for (index, cell) in cells.enumerated() { unitCells[unitOfRow[cell.row]].append(index) }
-        self.unitCells = unitCells
+        groups = Self.groups(rows: rows, cells: cells)
+        var rowCells = [[Int]](repeating: [], count: rows.count)
+        for (index, cell) in cells.enumerated() {
+            for row in cell.row..<min(rows.count, cell.row + cell.rowSpan) { rowCells[row].append(index) }
+        }
+        self.rowCells = rowCells
+        var keeps = rows.map(\.isHeader)
+        for group in groups { for row in group.dropLast() { keeps[row] = true } }
+        if !keeps.isEmpty { keeps[keeps.count - 1] = false }
+        keepsWithNext = keeps
     }
 
-    /// Consecutive rows a rowspan joins, and the header rows, form one unit.
-    static func units(rows: [Row], cells: [Cell]) -> [Range<Int>] {
+    /// Consecutive rows a rowspan joins, and the header rows, form one group.
+    static func groups(rows: [Row], cells: [Cell]) -> [Range<Int>] {
         guard !rows.isEmpty else { return [] }
         var reach = Array(rows.indices)
         for cell in cells { reach[cell.row] = max(reach[cell.row], min(rows.count - 1, cell.row + cell.rowSpan - 1)) }

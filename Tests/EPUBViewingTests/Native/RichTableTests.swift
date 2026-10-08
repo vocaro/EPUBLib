@@ -19,8 +19,8 @@ final class RichTableTests: XCTestCase {
         return fixture
     }
 
-    private func rows(_ fixture: RichFixture, _ id: String) throws -> [TableRowsAttachment] {
-        let rows = RichFixture.attachments(in: fixture.table(id)).compactMap { $0 as? TableRowsAttachment }
+    private func rows(_ fixture: RichFixture, _ id: String) throws -> [TableRowAttachment] {
+        let rows = RichFixture.attachments(in: fixture.table(id)).compactMap { $0 as? TableRowAttachment }
         XCTAssertFalse(rows.isEmpty)
         return rows
     }
@@ -69,25 +69,29 @@ final class RichTableTests: XCTestCase {
         let shrunk = table.layout(available: 200, viewportHeight: 600)
         XCTAssertEqual(shrunk.scale, 200 / 330, accuracy: 0.001)
         XCTAssertEqual(shrunk.columnWidths, [200, 100, 30], "Laid out at full width, drawn smaller")
-        XCTAssertEqual(shrunk.height(ofUnit: 0), full.height(ofUnit: 0) * shrunk.scale, accuracy: 0.01)
+        XCTAssertEqual(shrunk.height(ofRow: 0), full.height(ofRow: 0) * shrunk.scale, accuracy: 0.01)
         XCTAssertEqual(shrunk.size.width * shrunk.scale, 200, accuracy: 0.01)
         let narrowest = table.layout(available: 150, viewportHeight: 600)
         XCTAssertEqual(narrowest.scale, TableModel.minimumScale)
         XCTAssertEqual(narrowest.columnWidths.reduce(0, +), 150 / TableModel.minimumScale, accuracy: 0.01)
         XCTAssertEqual(narrowest.columnWidths[0] / narrowest.columnWidths[1], 2, accuracy: 0.001)
-        // The attachment fills its line and is as tall as its unit.
+        // The attachment fills its line and is as tall as its row.
         let bounds = attachment.layoutBounds(line(200))
         XCTAssertEqual(bounds.width, 200)
-        XCTAssertEqual(bounds.height, shrunk.height(ofUnit: 0), accuracy: 0.01)
+        XCTAssertEqual(bounds.height, shrunk.height(ofRow: 0), accuracy: 0.01)
     }
 
-    func testARowUnitTallerThanThePageShrinksTheTable() throws {
+    func testARowTallerThanThePageShrinksTheTableThenIsClippedToThePage() throws {
         let fixture = try fixture("<table id='t'><tr><td>A cell</td><td>Another</td></tr></table>")
-        let table = try rows(fixture, "t")[0].table
+        let row = try rows(fixture, "t")[0]
+        let table = row.table
         XCTAssertEqual(table.layout(available: 400, viewportHeight: 600).scale, 1)
         let short = table.layout(available: 400, viewportHeight: 5)
         XCTAssertLessThan(short.scale, 1)
         XCTAssertGreaterThanOrEqual(short.scale, TableModel.minimumScale)
+        XCTAssertGreaterThan(short.height(ofRow: 0), 5, "Still taller than the page at the smallest scale")
+        XCTAssertEqual(row.height(width: 400, viewportHeight: 5), 5, "So the row is clipped to the page")
+        XCTAssertEqual(row.layoutBounds(line(400, viewport: CGSize(width: 400, height: 5))).height, 5)
     }
 
     func testMinimumContentIsTheWidestWord() throws {
@@ -109,31 +113,93 @@ final class RichTableTests: XCTestCase {
         <tr><td>f</td><td rowspan="2">g</td></tr><tr><td>h</td></tr><tr><td rowspan="0">i</td><td rowspan="9">j</td></tr></tbody></table>
         """)
         let text = try XCTUnwrap(fixture.table("g"))
-        let rows = RichFixture.attachments(in: text).compactMap { $0 as? TableRowsAttachment }
+        let rows = RichFixture.attachments(in: text).compactMap { $0 as? TableRowAttachment }
         let table = try XCTUnwrap(rows.first?.table)
-        XCTAssertEqual(table.units, [0..<2, 2..<4, 4..<5, 5..<7, 7..<8, 8..<9])
-        XCTAssertEqual(rows.map(\.unit), [0, 1, 2, 3, 4, 5])
+        XCTAssertEqual(table.groups, [0..<2, 2..<4, 4..<5, 5..<7, 7..<8, 8..<9])
+        XCTAssertEqual(rows.map(\.row), Array(0..<9), "An attachment per row")
+        XCTAssertEqual(table.keepsWithNext, [true, true, true, false, false, true, false, false, false],
+                       "Rows a rowspan joins, and the header, keep with the next")
         XCTAssertEqual(table.cells.last?.text, "F2", "The footer goes last")
         XCTAssertEqual(table.cells.first { $0.text == "i" }?.rowSpan, 1, "rowspan=0 is one row, as in WebKit")
         XCTAssertEqual(table.cells.first { $0.text == "j" }?.rowSpan, 1, "A rowspan ends with its row group")
-        // One paragraph per unit, no spacing between, the header kept with what follows.
-        XCTAssertEqual(text.string, Array(repeating: "\u{FFFC}", count: 6).joined(separator: "\n"))
-        XCTAssertEqual(text.attribute(.readerKeepWithNext, at: 0, effectiveRange: nil) as? Bool, true)
-        XCTAssertNil(text.attribute(.readerKeepWithNext, at: 2, effectiveRange: nil))
+        // One paragraph per row, no spacing between.
+        XCTAssertEqual(text.string, Array(repeating: "\u{FFFC}", count: 9).joined(separator: "\n"))
+        for (row, keeps) in table.keepsWithNext.enumerated() {
+            XCTAssertEqual(text.attribute(.readerKeepWithNext, at: row * 2, effectiveRange: nil) as? Bool, keeps ? true : nil)
+        }
         // Selections and copies get the cells: tabs between cells, line breaks between rows.
         XCTAssertEqual(text.readerPlainText(), "H1\tH2\nh1\th2\na\tb\nc\nd\te\nf\tg\nh\ni\tj\nF1\tF2")
         let paragraph = try XCTUnwrap(text.attribute(.paragraphStyle, at: 2, effectiveRange: nil) as? NSParagraphStyle)
         XCTAssertEqual(paragraph.paragraphSpacing, 0)
         XCTAssertEqual(paragraph.paragraphSpacingBefore, 0)
-        // Units stack without gaps.
+        // Rows stack without gaps; a spanning cell is drawn in each row it covers.
         let layout = table.layout(available: 400, viewportHeight: 600)
-        XCTAssertEqual((0..<6).map(layout.height(ofUnit:)).reduce(0, +), layout.size.height, accuracy: 0.01)
-        XCTAssertEqual(rows[2].accessibilityCells(size: CGSize(width: 400, height: layout.height(ofUnit: 2)), viewportHeight: 600).map(\.text),
-                       ["d", "e"])
-        let header = rows[0].accessibilityCells(size: CGSize(width: 400, height: layout.height(ofUnit: 0)), viewportHeight: 600)
-        XCTAssertEqual(header.map(\.text), ["H1", "H2", "h1", "h2"])
-        XCTAssertTrue(header.allSatisfy(\.isHeader))
-        XCTAssertEqual(header[2].frame.minY, layout.rowHeights[0], accuracy: 0.01)
+        XCTAssertEqual((0..<9).map(layout.height(ofRow:)).reduce(0, +), layout.size.height, accuracy: 0.01)
+        XCTAssertEqual(rows[4].textEquivalent, "d\te")
+        XCTAssertEqual(rows[3].textEquivalent, "c", "A spanning cell reads in its first row")
+        let spanning = try XCTUnwrap(table.cells.firstIndex { $0.text == "a" })
+        XCTAssertTrue(table.rowCells[3].contains(spanning))
+        XCTAssertEqual(layout.frame(ofCell: spanning, inRow: 3).minY, -layout.height(ofRow: 2), accuracy: 0.01)
+        XCTAssertTrue(table.cells.filter { $0.row < 2 }.allSatisfy(\.isHeader))
+    }
+
+    @MainActor func testARowspanOverEveryRowStillBreaksBetweenRows() throws {
+        let count = 300
+        let markup = (0..<count).map { row in
+            "<tr>\(row == 0 ? "<td rowspan='\(count)'>Spanning every row</td>" : "")<td>Row \(row)</td></tr>"
+        }.joined()
+        let fixture = try fixture("<table id='t' border='1'>\(markup)</table>")
+        let text = try XCTUnwrap(fixture.table("t"))
+        let rows = RichFixture.attachments(in: text).compactMap { $0 as? TableRowAttachment }
+        XCTAssertEqual(rows.count, count, "Every row is its own attachment, rowspan or not")
+        let table = rows[0].table
+        XCTAssertEqual(table.groups, [0..<count])
+        let size = CGSize(width: 400, height: 600)
+        let layout = table.layout(available: size.width, viewportHeight: size.height)
+        XCTAssertEqual(layout.scale, 1, "Each row fits a page, so nothing shrinks")
+        XCTAssertGreaterThan(layout.size.height, size.height * 5)
+        // The group is kept together only as far as a page holds; pages break between rows.
+        let pages = ReaderPaginator(text: text, size: size).allPages
+        XCTAssertGreaterThan(pages.count, 5)
+        for page in pages {
+            XCTAssertLessThanOrEqual(page.height, size.height + 0.5)
+            XCTAssertEqual(page.range.location % 2, 0, "Starts at a row")
+        }
+        // A row far from the spanning cell's start still draws its part: the cell's borders.
+        let middle = rows[count / 2]
+        let rowSize = CGSize(width: size.width, height: middle.height(width: size.width, viewportHeight: size.height))
+        let image = try XCTUnwrap(middle.image(forBounds: CGRect(origin: .zero, size: rowSize), textContainer: nil, characterIndex: 0))
+        let pixels = try XCTUnwrap(RichImageTests.draw(image, size: rowSize, scale: 1))
+        XCTAssertGreaterThan(Self.ink(pixels, columns: 0..<12), 0, "The spanning cell's left border")
+    }
+
+    @MainActor func testARowTallerThanAPageGetsAPageOfItsOwn() throws {
+        let long = Array(repeating: "words", count: 600).joined(separator: " ")
+        let fixture = try fixture("<table id='t'><tr><td>\(long)</td><td>x</td></tr><tr><td>a</td><td>b</td></tr></table>")
+        let text = try XCTUnwrap(fixture.table("t"))
+        let rows = RichFixture.attachments(in: text).compactMap { $0 as? TableRowAttachment }
+        let size = CGSize(width: 300, height: 400)
+        XCTAssertEqual(rows[0].height(width: size.width, viewportHeight: size.height), size.height)
+        let pages = ReaderPaginator(text: text, size: size).allPages
+        XCTAssertEqual(pages.count, 2)
+        XCTAssertTrue(pages.allSatisfy { $0.height <= size.height + 0.5 })
+    }
+
+    /// Dark pixels in a range of an image's pixel columns.
+    static func ink(_ image: CGImage, columns: Range<Int>) -> Int {
+        let width = image.width, height = image.height
+        let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let pixels = context.data!.assumingMemoryBound(to: UInt8.self)
+        var count = 0
+        for y in 0..<height {
+            for x in columns where x < width {
+                let index = (y * width + x) * 4
+                if pixels[index + 3] > 128, pixels[index] < 160 { count += 1 }
+            }
+        }
+        return count
     }
 
     func testCaptionsAreParagraphsOnTheirSide() throws {
@@ -207,17 +273,17 @@ final class RichTableTests: XCTestCase {
         XCTAssertEqual(rtl.originX, 250, "And the table starts at the line's right edge")
         let centred = try rows(fixture, "c")[0].table.layout(available: 400, viewportHeight: 600)
         XCTAssertEqual(centred.originX, 125)
-        XCTAssertEqual(centred.frame(ofCell: 0, inUnit: 0).minX, 125)
+        XCTAssertEqual(centred.frame(ofCell: 0, inRow: 0).minX, 125)
     }
 
-    func testNestedTablesAreDrawnAsImagesInsideCells() throws {
+    func testNestedTablesAreRowsInsideCells() throws {
         let fixture = try fixture("""
         <table id="t"><tr><td><table id="n2"><tr><td>x</td><td>y</td></tr></table></td><td>z</td></tr></table>
         """)
         let outer = try rows(fixture, "t")[0].table
         let nested = RichFixture.attachments(in: outer.cells[0].content)
         XCTAssertEqual(nested.count, 1)
-        XCTAssertTrue(nested[0] is TableRowsImageAttachment)
+        XCTAssertTrue(nested[0] is TableRowAttachment)
         XCTAssertGreaterThan(outer.constraints.minimum[0], 0)
     }
 

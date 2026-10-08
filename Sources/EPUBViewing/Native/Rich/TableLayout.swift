@@ -138,21 +138,22 @@ struct TableLayout {
     var cellFrames: [CGRect]
     /// Where each cell's content is drawn.
     var contentFrames: [CGRect]
-    /// Each unit's top; the last element is the table's height.
-    var unitTops: [CGFloat]
+    /// Where each row's slice of the table starts (its border box less the spacing above it;
+    /// the first at the table's top); the last element is the table's height.
+    var rowTops: [CGFloat]
 
-    /// A unit's height on the line, scaled.
-    func height(ofUnit unit: Int) -> CGFloat { (unitTops[unit + 1] - unitTops[unit]) * scale }
-    var tallestUnit: CGFloat { (0..<(unitTops.count - 1)).map(height(ofUnit:)).max() ?? 0 }
+    /// A row's slice of the table on the line, scaled.
+    func height(ofRow row: Int) -> CGFloat { (rowTops[row + 1] - rowTops[row]) * scale }
+    var tallestRow: CGFloat { (0..<(rowTops.count - 1)).map(height(ofRow:)).max() ?? 0 }
 
     static func make(_ table: TableModel, available: CGFloat, viewportHeight: CGFloat) -> TableLayout {
         let constraints = table.constraints
         var scale = constraints.minimumTableWidth > available
             ? max(TableModel.minimumScale, available / constraints.minimumTableWidth) : 1
         var layout = make(table, constraints: constraints, width: available / scale, scale: scale)
-        // A unit taller than the page would be cut: shrink the table until it fits, within limits.
+        // A row taller than the page would be cut: shrink the table until it fits, within limits.
         var attempts = 0
-        while layout.tallestUnit > viewportHeight, scale > TableModel.minimumScale + 0.001, attempts < 6 {
+        while layout.tallestRow > viewportHeight, scale > TableModel.minimumScale + 0.001, attempts < 6 {
             scale = max(TableModel.minimumScale, scale * 0.85)
             layout = make(table, constraints: constraints, width: available / scale, scale: scale)
             attempts += 1
@@ -207,7 +208,7 @@ struct TableLayout {
             contents.append(CGRect(x: inner.minX, y: top, width: inner.width, height: height))
         }
         var tops: [CGFloat] = [0]
-        for unit in table.units.dropFirst() { tops.append(rowY[unit.lowerBound] - gap.height) }
+        for row in rowY.dropFirst() { tops.append(row - gap.height) }
         tops.append(size.height)
         let originX: CGFloat = switch (table.alignment, table.isRightToLeft) {
         case (.center, _): max(0, (width - size.width) / 2)
@@ -215,24 +216,25 @@ struct TableLayout {
         default: 0
         }
         return TableLayout(scale: scale, lineWidth: width, size: size, originX: originX, columnWidths: columns,
-                           rowHeights: rows, cellFrames: frames, contentFrames: contents, unitTops: tops)
+                           rowHeights: rows, cellFrames: frames, contentFrames: contents, rowTops: tops)
     }
 
-    /// A cell's frame in a unit attachment's coordinates (top-left origin).
-    func frame(ofCell index: Int, inUnit unit: Int) -> CGRect {
+    /// A cell's frame in a row attachment's coordinates (top-left origin).
+    func frame(ofCell index: Int, inRow row: Int) -> CGRect {
         let frame = cellFrames[index]
-        return CGRect(x: (originX + frame.minX) * scale, y: (frame.minY - unitTops[unit]) * scale,
+        return CGRect(x: (originX + frame.minX) * scale, y: (frame.minY - rowTops[row]) * scale,
                       width: frame.width * scale, height: frame.height * scale)
     }
 }
 
 extension TableModel {
-    /// Draws one unit into the current graphics context (top-left origin, flipped, as a view
-    /// draws), whose origin is the unit's top-left on its line. Cell text goes through string
-    /// drawing, so it needs the platform's current context to be this one.
-    func draw(unit: Int, layout: TableLayout, in context: CGContext) {
-        guard unit < units.count else { return }
-        let top = layout.unitTops[unit], bottom = layout.unitTops[unit + 1]
+    /// Draws one row's slice of the table into the current graphics context (top-left origin,
+    /// flipped, as a view draws), whose origin is the slice's top-left on its line. A cell
+    /// spanning rows is drawn whole and clipped to the slice, so consecutive rows join up. Cell
+    /// text goes through string drawing, so it needs the platform's current context to be this.
+    func draw(row: Int, layout: TableLayout, in context: CGContext) {
+        guard row < rows.count else { return }
+        let top = layout.rowTops[row], bottom = layout.rowTops[row + 1]
         context.saveGState()
         defer { context.restoreGState() }
         context.scaleBy(x: layout.scale, y: layout.scale)
@@ -244,11 +246,11 @@ extension TableModel {
             context.setFillColor(background)
             context.fill(tableRect)
         }
-        let indices = unitCells[unit]
-        for row in units[unit] {
-            guard let color = rows[row].background else { continue }
+        let indices = rowCells[row]
+        for index in indices {
+            guard let color = rows[cells[index].row].background else { continue }
             context.setFillColor(color)
-            for index in indices where cells[index].row == row { context.fill(layout.cellFrames[index]) }
+            context.fill(layout.cellFrames[index])
         }
         for index in indices {
             guard let color = cells[index].background else { continue }

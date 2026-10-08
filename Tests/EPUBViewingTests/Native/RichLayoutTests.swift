@@ -53,7 +53,7 @@ import UIKit
         layoutManager.ensureLayout(for: layoutManager.documentRange)
     }
 
-    /// Draws the view, and lays out its viewport until `ready` (attachment views load there).
+    /// Lays out the viewport and draws the view until `ready`.
     func display(until ready: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(5)
         repeat {
@@ -65,9 +65,6 @@ import UIKit
             #else
             view.layoutIfNeeded()
             layoutManager.textViewportLayoutController.layoutViewport()
-            // A display cycle's layout pass, which inserts attachment views into fragment views.
-            func relayout(_ view: UIView) { view.setNeedsLayout(); view.layoutIfNeeded(); view.subviews.forEach(relayout) }
-            relayout(view)
             _ = UIGraphicsImageRenderer(bounds: view.bounds).image { _ in
                 _ = view.drawHierarchy(in: view.bounds, afterScreenUpdates: true)
             }
@@ -75,11 +72,6 @@ import UIKit
             if ready() { return }
             try await Task.sleep(for: .milliseconds(50))
         } while Date() < deadline
-    }
-
-    func views<View: PlatformView>(_ type: View.Type) -> [View] {
-        func collect(_ view: PlatformView) -> [View] { ((view as? View).map { [$0] } ?? []) + view.subviews.flatMap(collect) }
-        return collect(view)
     }
 
     /// Each attachment's layout fragment frame.
@@ -137,41 +129,25 @@ import UIKit
         XCTAssertEqual(photo.1.width, lineWidth, accuracy: 0.5)
         XCTAssertEqual(photo.1.height, lineWidth / 2, accuracy: 0.5, "The image's line is the image")
 
-        let rows = frames.filter { $0.0 is TableRowsAttachment }
-        XCTAssertEqual(rows.count, 3)
-        let table = try XCTUnwrap((rows.first?.0 as? TableRowsAttachment)?.table)
+        let rows = frames.filter { $0.0 is TableRowAttachment }
+        XCTAssertEqual(rows.count, 4, "A line per row")
+        let table = try XCTUnwrap((rows.first?.0 as? TableRowAttachment)?.table)
         let layout = table.layout(available: lineWidth, viewportHeight: 600)
         for (index, row) in rows.enumerated() {
             XCTAssertEqual(row.1.width, lineWidth, accuracy: 0.5)
             if index < rows.count - 1 {
-                XCTAssertEqual(row.1.height, layout.height(ofUnit: index), accuracy: 0.01, "Unit \(index) is exactly its rows")
-                XCTAssertEqual(rows[index + 1].1.minY, row.1.maxY, accuracy: 0.01, "No gap between row units")
+                XCTAssertEqual(row.1.height, layout.height(ofRow: index), accuracy: 0.01, "Row \(index)'s line is the row")
+                XCTAssertEqual(rows[index + 1].1.minY, row.1.maxY, accuracy: 0.01, "No gap between rows")
             } else {
-                XCTAssertGreaterThanOrEqual(row.1.height, layout.height(ofUnit: index) - 0.01)
+                XCTAssertGreaterThanOrEqual(row.1.height, layout.height(ofRow: index) - 0.01)
             }
         }
         let rule = try XCTUnwrap(frames.first { $0.0 is ReaderRuleAttachment })
         XCTAssertEqual(rule.1.width, lineWidth, accuracy: 0.5)
         XCTAssertEqual(cache.decodeCount, 0, "Layout decodes nothing")
 
-        try await host.display { cache.decodeCount > 0 && host.views(TableRowsView.self).count >= 3 }
+        try await host.display { cache.decodeCount > 0 }
         XCTAssertEqual(cache.decodeCount, 1, "Drawing decoded the image once")
-        let rowViews = host.views(TableRowsView.self)
-        XCTAssertEqual(Set(rowViews.map { ObjectIdentifier($0.attachment) }).count, 3, "A view per row unit")
-        for view in rowViews {
-            XCTAssertEqual(view.bounds.width, lineWidth, accuracy: 0.5)
-            XCTAssertEqual(view.bounds.height, layout.height(ofUnit: view.attachment.unit), accuracy: 0.5)
-        }
-        let first = try XCTUnwrap(rowViews.first { $0.attachment.unit == 1 })
-        #if os(macOS)
-        let cells = try XCTUnwrap(first.accessibilityChildren() as? [NSAccessibilityElement])
-        XCTAssertEqual(cells.compactMap { $0.accessibilityLabel() }, ["Alpha with longer text", "1", "2"])
-        XCTAssertNil(first.hitTest(CGPoint(x: 5, y: 5)), "Clicks reach the text view")
-        #else
-        let cells = try XCTUnwrap(first.accessibilityElements as? [UIAccessibilityElement])
-        XCTAssertEqual(cells.compactMap(\.accessibilityLabel), ["Alpha with longer text", "1", "2"])
-        XCTAssertFalse(first.isUserInteractionEnabled, "Taps reach the text view")
-        #endif
         XCTAssertEqual(fixture.report.report, SectionReport())
     }
 }

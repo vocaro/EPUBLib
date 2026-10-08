@@ -7,8 +7,9 @@ import AppKit
 #endif
 
 /// Builds a `<table>`'s attributed text: its caption as a paragraph, then one attachment per
-/// row unit, each in a paragraph of its own with no spacing, so paginated flow can break
-/// between rows. A table of one column is a layout box, not data: it returns nil, and the
+/// row, each in a paragraph of its own with no spacing, so paginated flow can break between any
+/// two rows; rows a rowspan joins, and the header, keep with the next row (`.readerKeepWithNext`)
+/// so they share a page when they fit. A table of one column is a layout box, not data: it returns nil, and the
 /// builder flows its content as ordinary blocks (selectable, and paginated line by line).
 enum TableContent {
     /// The row attachments' font: tiny, so a row's line is exactly as tall as its attachment
@@ -34,11 +35,11 @@ enum TableContent {
         paragraph.paragraphSpacingBefore = 0
         paragraph.lineHeightMultiple = 1
         let separator: [NSAttributedString.Key: Any] = [.font: rowFont, .paragraphStyle: paragraph]
-        for (index, unit) in model.units.enumerated() {
-            if index > 0 { output.append(NSAttributedString(string: "\n", attributes: separator)) }
+        for row in model.rows.indices {
+            if row > 0 { output.append(NSAttributedString(string: "\n", attributes: separator)) }
             var attributes = separator
-            if model.rows[unit.lowerBound].isHeader { attributes[.readerKeepWithNext] = true }
-            output.append(NSAttributedString(attachment: TableRowsAttachment(table: model, unit: index), attributes: attributes))
+            if model.keepsWithNext[row] { attributes[.readerKeepWithNext] = true }
+            output.append(NSAttributedString(attachment: TableRowAttachment(table: model, row: row), attributes: attributes))
         }
         if let captionText, captionAtBottom {
             output.append(NSAttributedString(string: "\n", attributes: separator))
@@ -236,7 +237,7 @@ enum TableContent {
                 chrome.top += own.top; chrome.bottom += own.bottom; chrome.left += own.left; chrome.right += own.right
             }
             let rowContext = rowElements[item.row]
-            let content = drawable(context.renderContent(item.element, cellStyle))
+            let content = context.renderContent(item.element, cellStyle)
             let noWrap = !cellStyle.whiteSpace.wraps || item.element.attribute("nowrap") != nil
             let maxContent = TableMeasure.maximumWidth(content)
             let minContent = noWrap ? maxContent : min(maxContent, TableMeasure.minimumWidth(content))
@@ -266,20 +267,6 @@ enum TableContent {
             background: isDark ? nil : (style.backgroundColor ?? color(table.attribute("bgcolor")))?.cgColor,
             alignment: alignment, isRightToLeft: style.direction == .rtl)
         return (model, caption)
-    }
-
-    /// Cell content as string drawing can draw it: nested tables as images.
-    private static func drawable(_ content: NSAttributedString) -> NSAttributedString {
-        var nested: [(NSRange, TableRowsAttachment)] = []
-        content.enumerateAttribute(.attachment, in: NSRange(location: 0, length: content.length)) { value, range, _ in
-            if let rows = value as? TableRowsAttachment, !(rows is TableRowsImageAttachment) { nested.append((range, rows)) }
-        }
-        guard !nested.isEmpty else { return content }
-        let copy = NSMutableAttributedString(attributedString: content)
-        for (range, rows) in nested {
-            copy.addAttribute(.attachment, value: TableRowsImageAttachment(table: rows.table, unit: rows.unit), range: range)
-        }
-        return copy
     }
 
     private static func length(_ css: ComputedStyle.Length, hint: String?, style: ComputedStyle) -> ComputedStyle.Length {
