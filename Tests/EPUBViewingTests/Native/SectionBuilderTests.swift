@@ -444,6 +444,9 @@ final class SectionBuilderTests: XCTestCase {
         XCTAssertFalse(unit.isExact)
         XCTAssertEqual(unit.node, rendered.document.element(id: "t")!.order)
         XCTAssertEqual(rendered.anchors["cell"], 0)
+        // The break after the table continues its last row's attributes, not the attachment.
+        let afterTable = H.location(of: "\nAfter", in: rendered)
+        XCTAssertNil(rendered.string.attribute(.attachment, at: afterTable, effectiveRange: nil))
         // A cell's emphasis is rendered, not just its text.
         let em = (rendered.string.string as NSString).range(of: "b |").location
         let font = try XCTUnwrap(rendered.string.attribute(.font, at: em, effectiveRange: nil) as? PlatformFont)

@@ -1116,6 +1116,14 @@ final class SectionWriter {
             subStart = next.start
         }
         describe(end: buffer.count)
+        if block {
+            // The break after block content continues it (a table's rows set a 1-pt font so each
+            // row's line is its attachment's height), without repeating the attachment.
+            var trailing = result.attributes(at: result.length - 1, effectiveRange: nil)
+            trailing[.attachment] = nil
+            trailing[.link] = nil
+            paragraphs[paragraphs.count - 1].separatorAttributes = styling.intern(trailing)
+        }
         lineStart = false
         lastWasCollapsedSpace = false
         lastScalar = 0xFFFC

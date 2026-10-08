@@ -108,6 +108,12 @@ final class InlineStyling {
         return index
     }
 
+    /// Interns attributes taken from rich content, for generated text that continues it.
+    func intern(_ attributes: [NSAttributedString.Key: Any]) -> Int {
+        dictionaries.append(attributes as NSDictionary as CFDictionary)
+        return dictionaries.count - 1
+    }
+
     func platformColor(_ color: ComputedStyle.Color) -> PlatformColor {
         if let cached = colors[color] { return cached }
         #if os(macOS)
