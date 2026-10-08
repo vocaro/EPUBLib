@@ -52,7 +52,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   publication ID and is rejected before that) produces a `.notice`.
 - **Fixed layout.** Out of scope at first: neither StudyWright catalog (50 shipped EPUBs, 87
   PDFReflowLib conversions) contains a pre-paginated book. Fixed-layout spine items render as
-  reflowable text with a `.disclosure`; capabilities are not reduced.
+  reflowable text with a `.disclosure`; capabilities are not reduced. Faithful rendering is
+  tracked in [#5](https://github.com/vocaro/EPUBLib/issues/5).
 - **Vertical writing.** TextKit 2 on iOS has no vertical layout. `writing-mode: vertical-*`
   renders horizontally, with a `.disclosure`. Ruby and right-to-left text are native.
 - **MathML.** A native layout engine (CoreText) draws each `<math>` as an attachment,
@@ -190,7 +191,8 @@ Go: the native viewer is the bundled engine.
 
 ## Limitations
 
-- Fixed-layout books reflow; vertical writing renders horizontally (both disclosed).
+- Fixed-layout books reflow ([#5](https://github.com/vocaro/EPUBLib/issues/5)); vertical writing
+  renders horizontally (both disclosed).
 - Floats and absolute positioning are not laid out: a floated attachment sets to its side, an
   out-of-flow box is skipped; `inline-block` is inline; percentages in margins and indents
   resolve against a nominal 600-pt column.
