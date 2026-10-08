@@ -205,4 +205,7 @@ Go: the native viewer is the bundled engine.
 - The last lines of a justified paragraph over 8,192 characters may break differently from the
   measured page when the page starts inside the paragraph and also shows what follows it; the
   column then grows to show them rather than clip.
-
+- In continuous scroll a selection can span sections, but its bookmark (a CFI, which names one
+  content document) covers only the part in the first section.
+- Flexbox and grid lay out as blocks: content a book centres vertically with `min-height` and
+  flex alignment (Standard Ebooks epigraphs) starts at the top of the page.
