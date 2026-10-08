@@ -3,12 +3,12 @@ import EPUBReading
 import Foundation
 import SwiftUI
 
-/// The native TextKit 2 engine. It keeps the WebKit reader's engine identifier and bookmark
-/// format: a CFI names a DOM position, not a renderer state, so every stored bookmark and
-/// highlight locator stays valid (`doc/native-viewer.md`).
+/// The native TextKit 2 engine. Its identifier and bookmark format name EPUBLib, not a
+/// renderer, so they survive any change of how pages are drawn (`doc/native-viewer.md`).
 @MainActor struct NativeEngine: EPUBReaderEngine {
-    static let identifier = "org.epubreaderlib.foliate"
-    static let bookmarkFormat = "epubcfi-v1"
+    static let identifier = "org.epublib.reader"
+    /// An EPUB CFI, generated and resolved as `EPUBCFI` does.
+    static let bookmarkFormat = "epublib-cfi-v1"
     var id: String { Self.identifier }
     var rich: any RichContentFactory = NativeRichContent()
 

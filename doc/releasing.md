@@ -10,6 +10,7 @@ headless parser/extraction/writer tests and verify module boundaries and documen
 Run platform builds where SDK or resource packaging changes. Live rendering tests remain
 available on demand in [testing](testing.md); they are not implied by a package rename.
 
-The engine identifier and `epubcfi-v1` bookmark format are persisted contracts: a viewer change
-must keep resolving the CFIs recorded in `CFIGoldenVectors.swift`. Historical version verification
+The engine identifier `org.epublib.reader` and the `epublib-cfi-v1` bookmark format are persisted
+contracts: a viewer change keeps both and must keep resolving the CFIs recorded in
+`CFIGoldenVectors.swift`. Historical version verification
 documents record their own producing revision and are not rewritten by a module move.

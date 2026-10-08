@@ -34,10 +34,11 @@ prefix and the untouched suffix against independently specified keys.
 Viewer component tests cover content-document parsing, the CSS cascade and fonts, attributed-text
 building and its text map, images, tables, MathML layout, CFIs and text search, pagination
 geometry and the TextKit 2 views. CFI and search tests replay vectors recorded from foliate-js's own
-`epubcfi.js` and `search.js` in WebKit before they were removed, so stored bookmarks and highlight
-locators keep resolving. Live session tests mount a reader in a window, navigate between sections,
-exercise styles and flows, locate/select passages, restore positions (including a foliate-written
-CFI) and close the session. Separate fixtures exercise encoded filenames and fragments, fixed
+`epubcfi.js` and `search.js` in WebKit before they were removed, so CFIs the WebKit reader
+recorded keep naming the same positions. Live session tests mount a reader in a window, navigate
+between sections, exercise styles and flows, locate/select passages, restore positions (including
+a foliate-written CFI under EPUBLib's bookmark identity, and refusing the old tag) and close the
+session. Separate fixtures exercise encoded filenames and fragments, fixed
 layout, RTL and vertical writing. The illustrated fixture has 40 sections and eight incompressible
 1024×1024 images; its test enforces an archive size over 20 MiB and verifies that later sections
 remain navigable.

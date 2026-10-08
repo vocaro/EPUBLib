@@ -7,8 +7,8 @@ import Foundation
 // kept quirk for quirk, because every CFI the WebKit reader stored was produced by that code.
 // Where foliate-js threw, these functions return nil or throw instead.
 
-/// EPUB Canonical Fragment Identifiers, generated and resolved exactly as foliate-js does, so
-/// `epubcfi-v1` bookmarks and highlight locators saved by the WebKit reader keep resolving.
+/// EPUB Canonical Fragment Identifiers, generated and resolved exactly as foliate-js does, so a
+/// CFI the WebKit reader recorded names the same position here.
 ///
 /// Resolution yields `DOMPosition`s, which can only name a text offset or an element's start.
 /// foliate-js's DOM ranges map onto them as follows, each naming the same place in the text:

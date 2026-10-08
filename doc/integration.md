@@ -136,7 +136,10 @@ Navigation items and emitted locations also carry encoded hrefs. Decode neither 
 `.navigate`; a literal `#`, `%` or `?` in a filename has different meaning in a URL reference.
 
 To store a position, encode `EPUBLocation` using `JSONEncoder`. On reopen, compare its publication
-ID and send `.restore(location)` only when bookmarks are supported. If restoration reports an
+ID and send `.restore(location)` only when bookmarks are supported. Compare a stored bookmark with
+`EPUBReader.identifier` and `EPUBReader.bookmarkFormat` rather than literal strings. A bookmark the
+former WebKit reader stored (`org.epubreaderlib.foliate`, `epubcfi-v1`) is migrated by replacing
+those two fields; its CFI value names the same position. If restoration reports an
 incompatible location, offer an explicit section/quote fallback where supported. EPUB files that
 change have a different SHA-256 identity, even when their metadata identifier is unchanged.
 

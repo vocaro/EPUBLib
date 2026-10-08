@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Replace the bundled foliate-js WebKit renderer with a native TextKit 2 viewer ([#3](https://github.com/vocaro/EPUBLib/issues/3)). `EPUBReader` keeps its engine identifier and `epubcfi-v1` bookmarks: CFIs are generated and resolved exactly as foliate-js did, so stored reading positions and highlight locators resolve unchanged. See [native viewer](native-viewer.md).
+- Replace the bundled foliate-js WebKit renderer with a native TextKit 2 viewer ([#3](https://github.com/vocaro/EPUBLib/issues/3)). CFIs are generated and resolved exactly as foliate-js did, so a CFI the WebKit reader recorded names the same position. See [native viewer](native-viewer.md).
+- `EPUBReader` has its own engine identifier, `org.epublib.reader`, and bookmark format, `epublib-cfi-v1`, as `EPUBReader.identifier` and the new `EPUBReader.bookmarkFormat`. Bookmarks tagged `org.epubreaderlib.foliate`/`epubcfi-v1` are refused as another engine's; nothing had shipped, so hosts migrate stored ones by replacing those two fields (the CFI value is unchanged).
 - Continuous scroll is one real scroll view over the whole book, running under the bars with the system scroll edge effects; the drawn edge fades are gone and nothing resets at a section boundary. This supersedes the unreleased interim bottom-inset fix (`4b7942d`) ([vocaro/studywright#379](https://github.com/vocaro/studywright/issues/379), [#73](https://github.com/vocaro/studywright/issues/73)).
 - Page turns use one or two columns by the page's own size, and `View.epubReaderDivision(_:)` puts a two-column spread's gutter on a host-reserved fold ([vocaro/studywright#278](https://github.com/vocaro/studywright/issues/278)).
 - Add `EPUBReaderCommand.setHighlights`, `EPUBHighlight` and the `highlights` capability, drawing host highlights while reading ([vocaro/studywright#85](https://github.com/vocaro/studywright/issues/85)). Selections have no length cap.
