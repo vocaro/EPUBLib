@@ -55,7 +55,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   reflowable text with a `.disclosure`; capabilities are not reduced. Faithful rendering is
   tracked in [#5](https://github.com/vocaro/EPUBLib/issues/5).
 - **Vertical writing.** TextKit 2 on iOS has no vertical layout. `writing-mode: vertical-*`
-  renders horizontally, with a `.disclosure`. Ruby and right-to-left text are native.
+  renders horizontally, with a `.disclosure`. Ruby and right-to-left text are native. Faithful
+  vertical rendering is tracked in [#7](https://github.com/vocaro/EPUBLib/issues/7).
 - **MathML.** A native layout engine (CoreText) draws each `<math>` as an attachment,
   baseline-aligned inline and centred for `display="block"`. The corpus uses `mi`, `mn`, `mo`,
   `mrow`, `mfrac`, `msup`, `msub`, `msqrt` and `mstyle` (1,798 formulas, all with `alttext`);
@@ -192,7 +193,7 @@ Go: the native viewer is the bundled engine.
 ## Limitations
 
 - Fixed-layout books reflow ([#5](https://github.com/vocaro/EPUBLib/issues/5)); vertical writing
-  renders horizontally (both disclosed).
+  renders horizontally ([#7](https://github.com/vocaro/EPUBLib/issues/7)); both are disclosed.
 - Floats and absolute positioning are not laid out: a floated attachment sets to its side, an
   out-of-flow box is skipped; `inline-block` is inline; percentages in margins and indents
   resolve against a nominal 600-pt column.
