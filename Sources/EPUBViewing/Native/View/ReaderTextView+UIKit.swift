@@ -94,10 +94,18 @@ final class ReaderTextView: UITextView {
         return canvas.accessibilityScroll(direction)
     }
 
-    // VoiceOver reads the page, not the clipped context line after it.
+    // VoiceOver reads the page, not the clipped context after it, with attachments as their text.
     override var accessibilityValue: String? {
         get { isPageColumn ? visibleText : super.accessibilityValue }
         set { super.accessibilityValue = newValue }
+    }
+
+    /// UIKit reads an attachment in text by its accessibility label: give each one that stands
+    /// for text its text equivalent, unless it labels itself.
+    func exposeTextualAttachments() {
+        for (attachment, text, _) in textualAttachments() where attachment.accessibilityLabel == nil {
+            attachment.accessibilityLabel = text
+        }
     }
 }
 #endif

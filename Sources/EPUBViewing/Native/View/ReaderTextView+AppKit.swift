@@ -11,6 +11,8 @@ final class ReaderTextView: NSTextView {
     let isPageColumn: Bool
     var placement = ReaderTextPlacement()
     weak var canvas: ReaderCanvasView?
+    /// The accessibility element of each textual attachment, by its location.
+    private var attachmentElements: [Int: NSAccessibilityElement] = [:]
     /// The text column's left edge in continuous scroll, where a division can move it off centre.
     var columnMinX: CGFloat = 0
 
@@ -110,9 +112,49 @@ final class ReaderTextView: NSTextView {
         return false
     }
 
-    // VoiceOver reads the page, not the clipped context line after it.
+    // VoiceOver reads the page, not the clipped context after it. The characters stay as they
+    // are (attachments as U+FFFC) so every accessibility range matches the text.
     override func accessibilityValue() -> String? {
-        isPageColumn ? visibleText : super.accessibilityValue()
+        isPageColumn ? plainCharacters(in: shownCharacters) : super.accessibilityValue()
+    }
+
+    private func plainCharacters(in range: NSRange) -> String {
+        guard let storage = contentStorage.textStorage else { return "" }
+        return (storage.string as NSString).substring(with: NSIntersectionRange(range, NSRange(location: 0, length: storage.length)))
+    }
+
+    /// A TextKit 2 text view exposes nothing for an attachment drawn from its image, so each one
+    /// that stands for text gets an image element labelled with its text equivalent, through
+    /// the attachment attribute VoiceOver reads in text.
+    override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
+        guard let base = super.accessibilityAttributedString(for: range) else { return nil }
+        let attachments = textualAttachments(in: range)
+        guard !attachments.isEmpty else { return base }
+        let result = NSMutableAttributedString(attributedString: base)
+        for (_, text, run) in attachments {
+            let local = NSRange(location: run.location - range.location, length: run.length)
+            guard NSMaxRange(local) <= result.length else { continue }
+            result.addAttribute(.accessibilityAttachment, value: accessibilityElement(at: run, label: text), range: local)
+        }
+        return result
+    }
+
+    private func accessibilityElement(at range: NSRange, label: String) -> NSAccessibilityElement {
+        let element = attachmentElements[range.location] ?? NSAccessibilityElement()
+        attachmentElements[range.location] = element
+        element.setAccessibilityRole(.image)
+        element.setAccessibilityLabel(label)
+        element.setAccessibilityParent(self)
+        let frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
+        if !frame.isNull {
+            let origin = containerOrigin
+            element.setAccessibilityFrameInParentSpace(frame.offsetBy(dx: origin.x, dy: origin.y))
+        }
+        return element
+    }
+
+    func exposeTextualAttachments() {
+        attachmentElements.removeAll()
     }
 
     override func accessibilityNumberOfCharacters() -> Int {

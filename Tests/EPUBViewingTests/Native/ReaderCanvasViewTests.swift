@@ -1,4 +1,5 @@
 import CoreGraphics
+import EPUBCore
 import Foundation
 import XCTest
 @testable import EPUBViewing
@@ -311,7 +312,8 @@ import UIKit
                        "selected natively up to the page's end")
     }
 
-    func testSelectionAndCopyReadAttachmentsAsTheirText() async throws {
+    /// "Energy ", a formula attachment reading "E = mc²", " is famous."
+    private func formulaText() -> (text: NSAttributedString, formula: TextualTestAttachment) {
         let text = NSMutableAttributedString(attributedString: CanvasText.body("Energy "))
         let formula = TextualTestAttachment()
         formula.textEquivalent = "E = mc²"
@@ -320,6 +322,36 @@ import UIKit
         formula.bounds = CGRect(x: 0, y: 0, width: 40, height: 20)
         text.append(NSAttributedString(attachment: formula))
         text.append(CanvasText.body(" is famous."))
+        return (text, formula)
+    }
+
+    func testTextualAttachmentsAreExposedToVoiceOver() throws {
+        let (text, formula) = formulaText()
+        for flow in [EPUBReadingFlow.paginated, .scrolled] {
+            var configuration = ReaderCanvasConfiguration()
+            configuration.flow = flow
+            let host = host([text], configuration: configuration)
+            let view = try XCTUnwrap(host.canvas.textViews.first)
+            #if os(macOS)
+            let attributed = try XCTUnwrap(view.accessibilityAttributedString(for: NSRange(location: 0, length: text.length)))
+            XCTAssertEqual(attributed.string, text.string, "accessibility ranges match the text")
+            let element = try XCTUnwrap(attributed.attribute(.accessibilityAttachment, at: 7, effectiveRange: nil)
+                                            as? NSAccessibilityElement, "\(flow)")
+            XCTAssertEqual(element.accessibilityLabel(), "E = mc²")
+            XCTAssertEqual(element.accessibilityRole(), .image)
+            XCTAssertTrue(element.accessibilityParent() as? ReaderTextView === view)
+            XCTAssertFalse(element.accessibilityFrameInParentSpace().isEmpty)
+            let tail = try XCTUnwrap(view.accessibilityAttributedString(for: NSRange(location: 5, length: 4)))
+            XCTAssertNotNil(tail.attribute(.accessibilityAttachment, at: 2, effectiveRange: nil), "ranges are local")
+            #else
+            XCTAssertEqual(formula.accessibilityLabel, "E = mc²")
+            if flow == .paginated { XCTAssertEqual(view.accessibilityValue, "Energy E = mc² is famous.") }
+            #endif
+        }
+    }
+
+    func testSelectionAndCopyReadAttachmentsAsTheirText() async throws {
+        let (text, _) = formulaText()
         let host = host([text])
         let column = host.canvas.textViews[0]
         column.selectedRange = NSRange(location: 0, length: text.length)

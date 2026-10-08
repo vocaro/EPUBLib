@@ -34,6 +34,20 @@ extension ReaderTextView {
 
     func setContent(_ text: NSAttributedString) {
         contentStorage.textStorage?.setAttributedString(text)
+        exposeTextualAttachments()
+    }
+
+    /// Each attachment that stands for text (`ReaderTextualAttachment`), with its range.
+    func textualAttachments(in range: NSRange? = nil) -> [(attachment: NSTextAttachment, text: String, range: NSRange)] {
+        guard let storage = contentStorage.textStorage else { return [] }
+        let full = NSRange(location: 0, length: storage.length)
+        var result: [(NSTextAttachment, String, NSRange)] = []
+        storage.enumerateAttribute(.attachment, in: range.map { NSIntersectionRange($0, full) } ?? full) { value, run, _ in
+            guard let attachment = value as? NSTextAttachment,
+                  let text = (attachment as? ReaderTextualAttachment)?.textEquivalent, !text.isEmpty else { return }
+            result.append((attachment, text, run))
+        }
+        return result
     }
 
     /// Lays out every line, so a page column has exact positions (no estimates).
@@ -59,8 +73,11 @@ extension ReaderTextView {
         return storage.readerPlainText(in: NSIntersectionRange(range, NSRange(location: 0, length: storage.length)))
     }
 
-    /// The text the reader sees: a page column's own page, without its clipped context.
-    var visibleText: String { plainText(in: NSRange(location: 0, length: min(placement.visibleLength, textLength))) }
+    /// The characters the reader sees: a page column's own page, without its clipped context.
+    var shownCharacters: NSRange { NSRange(location: 0, length: min(placement.visibleLength, textLength)) }
+
+    /// The text the reader sees, attachments read as their text equivalents.
+    var visibleText: String { plainText(in: shownCharacters) }
 
     /// Replaces the drawn highlights. Rendering attributes only: the text is never changed.
     func setHighlights(_ highlights: [(range: NSRange, color: PlatformColor)]) {
