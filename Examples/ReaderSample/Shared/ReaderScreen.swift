@@ -68,7 +68,25 @@ struct ReaderScreen: View {
             }
         }
         .onChange(of: reader.publication?.id) { style = EPUBReaderStyle() }
+        .task { openFromLaunchArguments() }
+        .onChange(of: reader.ready) { if reader.ready { applyLaunchStyle() } }
         .onDisappear { reader.close() }
         .frame(minWidth: 320, minHeight: 400)
+    }
+
+    /// `-SampleBook <path>` opens a book at launch, for automated and visual checks;
+    /// `-SampleFlow scrolled`, `-SampleDark YES` and `-SampleFontSize <points>` set its style.
+    private func openFromLaunchArguments() {
+        guard reader.session == nil, let path = UserDefaults.standard.string(forKey: "SampleBook") else { return }
+        reader.open(url: URL(fileURLWithPath: path))
+    }
+
+    private func applyLaunchStyle() {
+        let defaults = UserDefaults.standard
+        guard defaults.string(forKey: "SampleBook") != nil else { return }
+        if defaults.string(forKey: "SampleFlow") == "scrolled" { style.flow = .scrolled }
+        if defaults.bool(forKey: "SampleDark") { style.isDark = true }
+        if defaults.double(forKey: "SampleFontSize") > 0 { style.fontSize = defaults.double(forKey: "SampleFontSize") }
+        reader.send(.style(style))
     }
 }

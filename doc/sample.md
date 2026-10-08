@@ -31,6 +31,9 @@ Opening another book cancels the previous import and invalidates its callbacks; 
 closes its session. The example serializes command submissions and waits for `.ready` before
 enabling controls. Applications requiring paint completion must observe relocation events.
 
+For automated and visual checks, the launch arguments `-SampleBook <path>` open a book directly,
+and `-SampleFlow scrolled`, `-SampleDark YES` and `-SampleFontSize <points>` set its style.
+
 ## Source and verification
 
 - `Shared/BookReader.swift` owns import, cancellation, events, commands and persistence.
