@@ -11,11 +11,12 @@ import Synchronization
 /// format-category characters are dropped, whitespace runs compare as one space, and graphemes
 /// compare with `Intl.Collator` base sensitivity (case- and diacritic-insensitive).
 ///
-/// The collator is Foundation's localized comparison with case, diacritic and width
-/// insensitivity, which is ICU at primary strength like WebKit's `Intl.Collator`, except that it
-/// folds decomposable diacritics before applying a language's tailoring (Swedish `å` matches
-/// `a` here, not in WebKit). A prefilter on coarse per-grapheme keys keeps that comparison to
-/// the few windows that can match.
+/// The comparison is Foundation's localized case-, diacritic- and width-insensitive one, retried
+/// without nuktas and kana voicing marks. On every character class the golden vectors record
+/// from WebKit's root collator it agrees, except that it also folds the breve of Cyrillic `й`;
+/// and since it folds decomposable diacritics before a language's tailoring, a Turkish `ö` or
+/// Swedish `å` also matches its base letter, a superset of what WebKit found. A prefilter on
+/// coarse per-grapheme keys keeps the comparison to the few windows that can match.
 enum TextSearch {
     struct Match: Equatable, Sendable {
         let start: DOMPosition

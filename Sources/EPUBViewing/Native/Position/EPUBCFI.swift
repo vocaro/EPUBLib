@@ -26,6 +26,13 @@ import Foundation
 /// - the missing chunk between two adjacent elements, an index past `after`, a step below a text
 ///   node or into an element without children, and an empty path name nothing: nil.
 /// A range whose end precedes its start collapses to its end, as DOM ranges do.
+///
+/// `ContentDocument` matches the XML DOM WebKit built for foliate. WebKit refused a document
+/// with an HTML named entity but no XHTML 1.x DOCTYPE, or with a root in no namespace, and foliate
+/// re-read it as HTML, whose tree construction drops the white space before `head` and appends
+/// what follows `body` to it. `ContentDocument` reads such a document as XML, so its CFIs agree
+/// with foliate's except in that white space, and except where HTML tree construction reshapes
+/// markup (self-closed non-void elements, tables without `tbody`, CDATA).
 enum EPUBCFI {
     /// A parsed CFI: one path per indirection (`!`), or a range with a common parent.
     struct Expression: Equatable, Sendable {
