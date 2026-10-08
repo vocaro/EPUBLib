@@ -104,6 +104,10 @@ struct ComputedStyle: Equatable, Sendable {
     // Box and flow. Not inherited.
     var display: Display = .inline
     var float: Float = .none
+    /// `position: absolute` or `fixed`: the box is out of flow and its offsets are not honoured.
+    var isOutOfFlow = false
+    /// A flex or grid container, which renders as a block; its in-flow children are blockified.
+    var blockifiesChildren = false
     var margin = Edges<Length>(.zero)
     var padding = Edges<Length>(.zero)
     var border = Edges<Border>(Border())
@@ -134,7 +138,8 @@ struct ComputedStyle: Equatable, Sendable {
     var isItalic = false
     var isSmallCaps = false
     var lineHeight: LineHeight = .normal
-    /// nil: the reader's default text color. Always nil in dark appearance.
+    /// nil: the reader's default text color. Always nil in dark appearance, except that fully
+    /// transparent text (hidden labels over a figure) stays transparent.
     var color: Color?
     var textAlign: TextAlign = .start
     var textIndent: Length = .zero
