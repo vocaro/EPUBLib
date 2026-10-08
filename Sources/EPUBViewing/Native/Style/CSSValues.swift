@@ -17,7 +17,7 @@ enum CSSProperty: Int, CaseIterable, Sendable {
     case textDecorationLine, textDecorationColor
     case textAlign, textIndent, whiteSpace, textTransform, letterSpacing, wordSpacing
     case direction, writingMode, listStyleType, listStylePosition, hyphens, visibility
-    case borderCollapse, borderSpacing
+    case borderCollapse, borderSpacing, captionSide
 
     static let count = allCases.count
 
@@ -26,7 +26,7 @@ enum CSSProperty: Int, CaseIterable, Sendable {
         case .fontSize, .fontFamily, .fontWeight, .fontStyle, .fontVariantCaps, .lineHeight, .color,
              .textAlign, .textIndent, .whiteSpace, .textTransform, .letterSpacing, .wordSpacing,
              .direction, .writingMode, .listStyleType, .listStylePosition, .hyphens, .visibility,
-             .borderCollapse, .borderSpacing:
+             .borderCollapse, .borderSpacing, .captionSide:
             true
         default: false
         }
@@ -309,6 +309,7 @@ enum CSSPropertyParser {
         case "visibility": .visibility
         case "border-collapse": .borderCollapse
         case "border-spacing": .borderSpacing
+        case "caption-side": .captionSide
         default: nil
         }
     }
@@ -519,6 +520,12 @@ enum CSSPropertyParser {
             switch keyword {
             case "collapse": return .flag(true)
             case "separate": return .flag(false)
+            default: return nil
+            }
+        case .captionSide:
+            switch keyword {
+            case "bottom", "block-end": return .flag(true)
+            case "top", "block-start": return .flag(false)
             default: return nil
             }
         case .borderSpacing:

@@ -133,6 +133,7 @@ extension StyleResolver {
         style.listStyleType = parent.listStyleType; style.listStylePosition = parent.listStylePosition
         style.hyphens = parent.hyphens; style.isHidden = parent.isHidden
         style.borderCollapse = parent.borderCollapse; style.borderSpacing = parent.borderSpacing
+        style.captionSide = parent.captionSide
         // `medium`, zeroed below unless a border style shows it.
         for side in Side.allCases { style[border: side].width = 3 }
 
@@ -255,6 +256,7 @@ extension StyleResolver {
         case .visibility: style.isHidden = source.isHidden
         case .borderCollapse: style.borderCollapse = source.borderCollapse
         case .borderSpacing: style.borderSpacing = source.borderSpacing
+        case .captionSide: style.captionSide = source.captionSide
         }
     }
 
@@ -349,6 +351,7 @@ extension StyleResolver {
         case (.hyphens, .hyphens(let h)): style.hyphens = h
         case (.visibility, .flag(let hidden)): style.isHidden = hidden
         case (.borderCollapse, .flag(let collapse)): style.borderCollapse = collapse
+        case (.captionSide, .flag(let bottom)): style.captionSide = bottom ? .bottom : .top
         case (.borderSpacing, .spacing(let h, let v)):
             func clamp(_ x: CGFloat) -> CGFloat { min(max(x, StyleLimits.borderSpacing.lowerBound), StyleLimits.borderSpacing.upperBound) }
             style.borderSpacing = CGSize(width: clamp(points(h, own)), height: clamp(points(v, own)))

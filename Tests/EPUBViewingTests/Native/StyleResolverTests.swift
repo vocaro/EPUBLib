@@ -562,4 +562,13 @@ final class StyleResolverTests: XCTestCase {
         }
         XCTAssertEqual(colors.withLock { $0 }, Array(repeating: color(1, 0, 0), count: 64))
     }
+
+    func testCaptionSideIsParsedAndInherited() throws {
+        let styled = try StyleTestSupport.styled(
+            "<table id='t'><caption id='c'>Caption</caption><tr><td>1</td></tr></table><table id='u'><caption id='d'>D</caption></table>",
+            css: "#t { caption-side: bottom } #d { caption-side: nonsense }")
+        XCTAssertEqual(styled.style("t").captionSide, .bottom)
+        XCTAssertEqual(styled.style("c").captionSide, .bottom, "inherited")
+        XCTAssertEqual(styled.style("d").captionSide, .top, "an invalid value is dropped")
+    }
 }
