@@ -15,22 +15,58 @@ struct SectionBuildRequest: @unchecked Sendable {
     let rich: any RichContentFactory
 }
 
-// SKELETON: a deliberately small builder (paragraphs, inline font styles, links, anchors and an
-// exact text map) so the session and views can run early. The text workstream replaces its
-// internals with the full block/inline model; `build(_:)` keeps this signature and contract.
+/// The computed style of an element given its parent's computed style: the cascade, injected so
+/// the builder can be exercised with arbitrary computed values.
+typealias SectionStyleFunction = (_ element: ContentNode, _ parent: ComputedStyle) -> ComputedStyle
+
+/// Builds a spine item's attributed text in one walk of its DOM: CSS block boxes become
+/// paragraphs (collapsed vertical margins as paragraph spacing, accumulated horizontal boxes as
+/// indents), inline boxes become attribute runs, and every rendered character is mapped back to
+/// the DOM. `SectionWriter` describes the model and its simplifications.
+///
+/// Builds are independent and run off the main thread, concurrently across sections. The only
+/// objects they share are the font registry and the rich-content factory, both thread-safe.
 enum SectionBuilder {
     /// Builds one spine item. Never throws: a section that cannot be read becomes a short notice
     /// paragraph with `report.withheld` set, so the rest of the book stays readable.
     static func build(_ request: SectionBuildRequest) -> SectionText {
         let item = request.publication.spine[request.spineIndex]
+        let document: ContentDocument
         do {
             let data = try request.publication.data(for: item.resource)
-            let document = try ContentDocument.parse(data, path: item.resource.path)
-            var builder = SkeletonBuilder(request: request, document: document)
-            return builder.run()
+            document = try ContentDocument.parse(data, path: item.resource.path)
         } catch {
             return withheld(request, reason: error)
         }
+        var report = SectionReport()
+        let sheets = SectionStyles.load(for: document, publication: request.publication, report: &report)
+        for sheet in sheets where !sheet.fontFaces.isEmpty { request.fonts.register(sheet.fontFaces, report: &report) }
+        let resolver = StyleResolver(document: document, stylesheets: sheets, typography: request.typography)
+        return build(document: document, request: request, initialStyle: resolver.initialStyle, report: report) {
+            resolver.style(for: $0, parent: $1)
+        }
+    }
+
+    /// The builder proper, over an already parsed document and an injected cascade.
+    /// `initialStyle` is what the root element inherits (by default the reader's base size).
+    static func build(document: ContentDocument, request: SectionBuildRequest, initialStyle: ComputedStyle? = nil,
+                      report: SectionReport = SectionReport(), style: @escaping SectionStyleFunction) -> SectionText {
+        let item = request.publication.spine[request.spineIndex]
+        let state = SectionBuildState(request: request, document: document, style: style,
+                                      initialStyle: initialStyle ?? ComputedStyle(fontSize: request.typography.fontSize))
+        state.report.report = report
+        state.report.report.recoveredAsHTML = report.recoveredAsHTML || document.recoveredAsHTML
+        if item.layout == .prePaginated { state.report.report.fixedLayoutReflowed = true }
+        state.report.report.scriptsRefused += document.nodes.reduce(0) { count, node in
+            count + (node.isElement && node.name == "script"
+                && (node.isHTML || node.namespace == ContentNamespace.svg) ? 1 : 0)
+        }
+        let output = SectionWriter(state: state, mode: .section).renderSection()
+        let title = document.head?.elementChildren.first { $0.isHTML("title") }?.textContent
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return SectionText(spineIndex: request.spineIndex, href: item.resource.href, document: document,
+                           string: output.string, map: output.map, anchors: output.anchors, notes: state.notes,
+                           title: title?.isEmpty == false ? title : nil, report: state.report.report)
     }
 
     static func withheld(_ request: SectionBuildRequest, reason: Error) -> SectionText {
@@ -48,157 +84,93 @@ enum SectionBuilder {
     }
 }
 
-private struct SkeletonBuilder {
+/// Everything one section build shares between the section's writer and the nested writers it
+/// starts for table cells and captions (`RichContentContext.renderContent`) and for notes.
+final class SectionBuildState {
     let request: SectionBuildRequest
     let document: ContentDocument
-    let resolver: StyleResolver
-    let output = NSMutableAttributedString()
-    var map = TextMap()
-    var anchors: [String: Int] = [:]
-    var pendingAnchors: [String] = []
-    var pendingSpace = false
-    var paragraphStart = 0
-    var blockStyle: ComputedStyle
+    let style: SectionStyleFunction
+    let initialStyle: ComputedStyle
     let report = SectionReportBox()
+    let styling: InlineStyling
+    var notes: [String: NSAttributedString] = [:]
+    /// The body's computed style: notes are styled like body text.
+    var bodyStyle: ComputedStyle
+    /// The publication's first language, for a document that declares none.
+    let defaultLanguage: String?
+    /// Nesting of `renderContent` and note captures, bounded so hostile nesting cannot recurse deeply.
+    private var nesting = 0
+    private static let maximumNesting = 8
 
-    init(request: SectionBuildRequest, document: ContentDocument) {
-        self.request = request; self.document = document
-        var report = SectionReport()
-        let sheets = SectionStyles.load(for: document, publication: request.publication, report: &report)
-        resolver = StyleResolver(document: document, stylesheets: sheets, typography: request.typography)
-        blockStyle = resolver.initialStyle
-        self.report.report = report
+    init(request: SectionBuildRequest, document: ContentDocument, style: @escaping SectionStyleFunction,
+         initialStyle: ComputedStyle) {
+        self.request = request; self.document = document; self.style = style; self.initialStyle = initialStyle
+        bodyStyle = initialStyle
+        styling = InlineStyling(fonts: request.fonts, isDark: request.typography.isDark)
+        defaultLanguage = request.publication.metadata.languages.first.flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    mutating func run() -> SectionText {
-        let rootStyle = resolver.style(for: document.root, parent: resolver.initialStyle)
-        if let body = document.body { walk(body, parent: rootStyle, link: nil) }
-        endParagraph()
-        while output.length > 0, output.string.utf16.last == 0x0A { output.deleteCharacters(in: NSRange(location: output.length - 1, length: 1)) }
-        for id in pendingAnchors { anchors[id] = output.length }
-        map.length = output.length
-        report.report.recoveredAsHTML = document.recoveredAsHTML
-        let item = request.publication.spine[request.spineIndex]
-        let title = document.head?.elementChildren.first { $0.isHTML("title") }?.textContent
-            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        return SectionText(spineIndex: request.spineIndex, href: item.resource.href, document: document,
-                           string: output, map: map, anchors: anchors, notes: [:],
-                           title: title?.isEmpty == false ? title : nil, report: report.report)
-    }
+    private(set) lazy var richContext = RichContentContext(
+        publication: request.publication, document: document, spineIndex: request.spineIndex,
+        typography: request.typography, fonts: request.fonts,
+        style: { [unowned self] in self.style($0, $1) },
+        renderContent: { [unowned self] in self.renderContent($0, style: $1) },
+        resolve: { [unowned self] in self.resolveResource($0) },
+        report: report)
 
-    private func attributes(_ style: ComputedStyle, link: ReaderLink?) -> [NSAttributedString.Key: Any] {
-        var attributes: [NSAttributedString.Key: Any] = [
-            .font: request.fonts.font(for: style),
-            .foregroundColor: link != nil ? ReaderPalette.link(dark: request.typography.isDark)
-                : ReaderPalette.text(dark: request.typography.isDark),
-        ]
-        if let link { attributes[.link] = link.url }
-        if style.verticalAlign == .super { attributes[.baselineOffset] = style.fontSize * 0.4 }
-        if style.verticalAlign == .sub { attributes[.baselineOffset] = -style.fontSize * 0.2 }
-        if style.textDecoration.contains(.underline) { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
-        if style.textDecoration.contains(.lineThrough) { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-        return attributes
-    }
-
-    private mutating func walk(_ node: ContentNode, parent: ComputedStyle, link: ReaderLink?) {
-        if node.isText { append(node, style: parent, link: link); return }
-        let style = resolver.style(for: node, parent: parent)
-        if let id = node.id { pendingAnchors.append(id) }
-        guard style.display != .none else { return }
-        if node.isHTML("script") { report.report.scriptsRefused += 1; return }
-        var link = link
-        if node.isHTML("a"), let href = node.attribute("href") {
-            if let resolved = try? ResourceReference.resolve(href, relativeTo: document.path) {
-                link = .internal(href: resolved)
-            } else { link = .external(href) }
+    /// An element's children rendered into a separate string, as the section renders a block's
+    /// content, with no text map. Too deep a nesting renders the plain text instead.
+    func renderContent(_ element: ContentNode, style: ComputedStyle) -> NSAttributedString {
+        guard nesting < Self.maximumNesting else {
+            let text = element.textContent.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            return NSAttributedString(string: text, attributes: [
+                .font: request.fonts.font(for: style),
+                .foregroundColor: ReaderPalette.text(dark: request.typography.isDark),
+            ])
         }
-        if node.isHTML("br") { appendGenerated("\u{2028}", style: style); pendingSpace = false; return }
-        let block = style.display.isBlockLevel
-        if block { endParagraph(); blockStyle = style }
-        let rich = richContent(node, style: style)
-        if let rich {
-            flushAnchors()
-            let location = output.length
-            output.append(rich)
-            map.append(.init(location: location, length: rich.length, node: node.order, offset: 0, sourceLength: 0, isExact: false))
-            pendingSpace = false
-        } else {
-            for child in node.children { walk(child, parent: style, link: link) }
-        }
-        if block { endParagraph(); blockStyle = parent }
+        nesting += 1
+        defer { nesting -= 1 }
+        return SectionWriter(state: self, mode: .detached).renderContent(of: element, style: style)
     }
 
-    private func richContent(_ node: ContentNode, style: ComputedStyle) -> NSAttributedString? {
-        let context = RichContentContext(
-            publication: request.publication, document: document, spineIndex: request.spineIndex,
-            typography: request.typography, fonts: request.fonts,
-            style: { [resolver] in resolver.style(for: $0, parent: $1) },
-            renderContent: { [request] element, style in
-                NSAttributedString(string: element.textContent, attributes: [.font: request.fonts.font(for: style)])
-            },
-            resolve: { [document] reference in
-                (try? ResourceReference.resolve(reference, relativeTo: document.path))
-                    .map { String($0.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]).removingPercentEncoding ?? $0 }
-            },
-            report: report)
-        if node.isHTML("img") { return request.rich.image(node, style: style, context: context) }
-        if node.isHTML("hr") { return request.rich.horizontalRule(node, style: style, context: context) }
-        if node.isHTML("table") { return request.rich.table(node, style: style, context: context) }
-        if node.namespace == ContentNamespace.mathML, node.name == "math" { return request.rich.math(node, style: style, context: context) }
-        if node.namespace == ContentNamespace.svg, node.name == "svg" { return request.rich.svg(node, style: style, context: context) }
-        return nil
-    }
-
-    private mutating func flushAnchors() {
-        for id in pendingAnchors where anchors[id] == nil { anchors[id] = output.length }
-        pendingAnchors.removeAll()
-    }
-
-    private mutating func append(_ node: ContentNode, style: ComputedStyle, link: ReaderLink?) {
-        let attributes = attributes(style, link: link)
-        let units = Array(node.text.utf16)
-        var index = 0
-        while index < units.count {
-            let unit = units[index]
-            let isSpace = unit == 0x20 || unit == 0x09 || unit == 0x0A || unit == 0x0D || unit == 0x0C
-            if isSpace && !style.whiteSpace.preservesSpaces {
-                var end = index
-                while end < units.count, [0x20, 0x09, 0x0A, 0x0D, 0x0C].contains(units[end]) { end += 1 }
-                if output.length > paragraphStart { pendingSpace = true }
-                index = end
-                continue
-            }
-            if pendingSpace {
-                let location = output.length
-                output.append(NSAttributedString(string: " ", attributes: attributes))
-                map.append(.init(location: location, length: 1, node: node.order, offset: max(0, index - 1), sourceLength: 1, isExact: false))
-                pendingSpace = false
-            }
-            var end = index
-            while end < units.count, style.whiteSpace.preservesSpaces || ![0x20, 0x09, 0x0A, 0x0D, 0x0C].contains(units[end]) { end += 1 }
-            flushAnchors()
-            let location = output.length
-            output.append(NSAttributedString(string: String(utf16CodeUnits: Array(units[index..<end]), count: end - index), attributes: attributes))
-            map.append(.init(location: location, length: end - index, node: node.order, offset: index, sourceLength: end - index, isExact: true))
-            index = end
+    /// Captures a note element's content once, under its `id` and the ids of its leading
+    /// descendants (a noteref may name the note's first paragraph rather than the note).
+    func captureNote(_ element: ContentNode) {
+        guard let id = element.id, notes[id] == nil, nesting < Self.maximumNesting else { return }
+        notes[id] = NSAttributedString() // Claims the id, so a note cannot capture itself again.
+        nesting += 1
+        defer { nesting -= 1 }
+        let content = SectionWriter(state: self, mode: .note(id: id)).renderNote(element)
+        notes[id] = content
+        var leading = element.elementChildren.first
+        while let node = leading {
+            if let alias = node.id, notes[alias] == nil { notes[alias] = content }
+            leading = node.elementChildren.first
         }
     }
 
-    private mutating func appendGenerated(_ string: String, style: ComputedStyle) {
-        output.append(NSAttributedString(string: string, attributes: attributes(style, link: nil)))
+    /// `RichContentContext.resolve`: the decoded archive path of a local reference. Remote and
+    /// other non-archive references count as refused (`data:` URIs as unreadable) and return nil.
+    func resolveResource(_ reference: String) -> String? {
+        let reference = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !reference.isEmpty else { return nil }
+        guard let path = archivePath(of: reference) else {
+            if reference.lowercased().hasPrefix("data:") { report.report.unreadableResources += 1 }
+            else { report.report.remoteResourcesRefused += 1 }
+            return nil
+        }
+        return path
     }
 
-    private mutating func endParagraph() {
-        pendingSpace = false
-        guard output.length > paragraphStart else { return }
-        let paragraph = NSMutableParagraphStyle()
-        let em = blockStyle.fontSize
-        paragraph.paragraphSpacing = blockStyle.margin.bottom.resolve(reference: 0, viewport: .zero) ?? em * 0.5
-        paragraph.paragraphSpacingBefore = blockStyle.margin.top.resolve(reference: 0, viewport: .zero) ?? 0
-        paragraph.alignment = blockStyle.textAlign == .center ? .center : .natural
-        paragraph.lineHeightMultiple = 1.2
-        output.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: paragraphStart, length: output.length - paragraphStart))
-        output.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: paragraph]))
-        paragraphStart = output.length
+    /// The manifest media type of a local reference, without counting anything.
+    func mediaType(of reference: String) -> String? {
+        guard let path = archivePath(of: reference) else { return nil }
+        return request.publication.resources.first { $0.path == path }?.mediaType
+    }
+
+    private func archivePath(of reference: String) -> String? {
+        guard let resolved = try? ResourceReference.resolve(reference, relativeTo: document.path) else { return nil }
+        let path = String(resolved.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0])
+        return path.removingPercentEncoding ?? path
     }
 }
