@@ -46,9 +46,11 @@ enum SectionStyles {
         return sheets
     }
 
+    /// `text/css`, or EPUB 2's `text/x-oeb1-css`.
     private static func isCSS(_ type: String?) -> Bool {
         guard let type = type?.trimmingCharacters(in: .whitespaces).lowercased(), !type.isEmpty else { return true }
-        return type.split(separator: ";").first.map { $0.trimmingCharacters(in: .whitespaces) == "text/css" } ?? false
+        let essence = type.split(separator: ";").first.map { $0.trimmingCharacters(in: .whitespaces) }
+        return essence == "text/css" || essence == "text/x-oeb1-css"
     }
 
     /// Stylesheet text from bytes: a BOM wins, then UTF-8, then Windows Latin 1 (what a

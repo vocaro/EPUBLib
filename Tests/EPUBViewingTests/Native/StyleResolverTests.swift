@@ -429,6 +429,7 @@ final class StyleResolverTests: XCTestCase {
             <link rel="alternate stylesheet" href="css/alternate.css"/>
             <link rel="stylesheet" href="css/print.css" media="print"/>
             <link rel="stylesheet" href="css/missing.css"/>
+            <link rel="StyleSheet" type="text/x-oeb1-css" href="css/oeb.css"/>
             <style type="text/plain">p { color: red }</style>
             <style media="screen">p { font-weight: 700 }</style>
             """)
@@ -442,6 +443,7 @@ final class StyleResolverTests: XCTestCase {
             "css/base.css": "p { text-align: right; text-indent: 2px } @import url(ignored.css);",
             "css/alternate.css": "p { color: red }",
             "css/print.css": "p { color: red }",
+            "css/oeb.css": "p { word-spacing: 3px }",
         ]
         let result = try StyleTestSupport.styled(section: section, files: files.mapValues { Data($0.utf8) },
                                                  typography: NativeTypography(fontSize: 16))
@@ -449,6 +451,7 @@ final class StyleResolverTests: XCTestCase {
         XCTAssertEqual(result.style("p").textIndent, .points(2))
         XCTAssertNil(result.style("p").color)
         XCTAssertEqual(result.style("p").fontWeight, 700)
+        XCTAssertEqual(result.style("p").wordSpacing, 3, "EPUB 2's OEB CSS type is CSS")
         XCTAssertEqual(result.report.remoteResourcesRefused, 4)
         XCTAssertEqual(result.report.unreadableResources, 1)
         XCTAssertEqual(result.sheets.flatMap(\.fontFaces), [CSSFontFace(family: "remote", sources: ["OPS/fonts/f.ttf"])])
