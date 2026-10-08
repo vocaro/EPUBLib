@@ -86,6 +86,7 @@ import WebKit
         case .locate(let text, let highlight): commands = [.locate(quote: text, highlight: highlight)]
         case .searchHighlight(let text): commands = [.search(query: text)]
         case .clearSearch: commands = [.clearSearch]
+        case .setHighlights: throw EPUBReaderError.unsupported(.highlights)
         case .style(let newStyle):
             guard newStyle.fontSize.isFinite else { throw EPUBReaderError.invalidCommand("Nonfinite font size") }
             if newStyle.flow == .scrolled && !capabilities.contains(.scrolling) {
