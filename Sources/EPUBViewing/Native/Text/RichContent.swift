@@ -59,7 +59,7 @@ struct PlaceholderRichContent: RichContentFactory {
     func svg(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? { nil }
     func table(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? { nil }
     func math(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
-        element.attribute("alttext").map { text($0, style, context) }
+        MathContent.make(element, style: style, context: context)
     }
     func horizontalRule(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString {
         text("—", style, context)
