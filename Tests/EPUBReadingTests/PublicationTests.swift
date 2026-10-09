@@ -101,3 +101,36 @@ extension PublicationTests {
         XCTAssertEqual(book.tableOfContents[0].title, "Chapter [One]")
     }
 }
+
+extension PublicationTests {
+    func testLandmarksComeFromTheNavigationDocument() throws {
+        let book = try EPUBPublication.open(data: Fixture.frontMatter(text: "text/chapter-2.xhtml"))
+        XCTAssertEqual(book.landmarks, [
+            EPUBLandmark(types: ["cover"], title: "Cover", href: "OPS/text/cover.xhtml"),
+            EPUBLandmark(types: ["titlepage"], title: "Titlepage", href: "OPS/text/titlepage.xhtml"),
+            EPUBLandmark(types: ["bodymatter", "z3998:fiction"], title: "A Front-Matter Book", href: "OPS/text/chapter-1.xhtml"),
+        ], "the navigation document's landmarks, not the guide's references")
+        XCTAssertTrue(try EPUBPublication.open(data: Fixture.frontMatter(bodymatter: nil)).landmarks.isEmpty)
+    }
+
+    func testGuideReferencesAreTheLandmarksOfABookWithoutThem() throws {
+        let guide = [
+            EPUBLandmark(types: ["cover"], title: "Cover", href: "OPS/text/cover.xhtml"),
+            EPUBLandmark(types: ["title-page"], title: "Titlepage", href: "OPS/text/titlepage.xhtml"),
+            EPUBLandmark(types: ["text"], title: "Text", href: "OPS/text/chapter-1.xhtml#chapter-1"),
+        ]
+        for epub2 in [true, false] {
+            let book = try EPUBPublication.open(data: Fixture.frontMatter(bodymatter: nil, text: "text/chapter-1.xhtml#chapter-1", epub2: epub2))
+            XCTAssertEqual(book.landmarks, guide, epub2 ? "EPUB 2" : "a navigation document without landmarks")
+        }
+    }
+
+    func testALandmarkOutsideTheArchiveIsLeftOutWithoutRefusingTheBook() throws {
+        for href in ["../../outside.xhtml", "https://example.invalid/chapter.xhtml", "/absolute.xhtml"] {
+            let book = try EPUBPublication.open(data: Fixture.frontMatter(bodymatter: href, text: href))
+            XCTAssertEqual(book.landmarks.map(\.types), [["cover"], ["titlepage"]], href)
+            let epub2 = try EPUBPublication.open(data: Fixture.frontMatter(bodymatter: nil, text: href, epub2: true))
+            XCTAssertEqual(epub2.landmarks.map(\.types), [["cover"], ["title-page"]], href)
+        }
+    }
+}

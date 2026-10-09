@@ -68,3 +68,17 @@ public struct EPUBNavigationItem: Equatable, Sendable {
         self.title = title; self.href = href; self.children = children
     }
 }
+
+/// A structural landmark: an entry of the EPUB 3 navigation document's `landmarks` list or of
+/// the EPUB 2 OPF `guide`.
+public struct EPUBLandmark: Equatable, Sendable {
+    /// The entry's `epub:type` values (`bodymatter`, `toc`…) or the guide reference's `type`
+    /// values (`text`, `cover`…), as written.
+    public let types: [String]
+    public let title: String
+    /// Archive-relative URL reference; may include a fragment.
+    public let href: String
+    public init(types: [String], title: String, href: String) {
+        self.types = types; self.title = title; self.href = href
+    }
+}

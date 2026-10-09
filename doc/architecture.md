@@ -28,7 +28,8 @@ remains byte-for-byte unchanged.
 Opening copies the archive into a bounded snapshot and checks every archive entry before returning.
 Archive paths are decoded ZIP paths; manifest/navigation hrefs are URL references. The parser
 resolves references relative to the containing OPF/navigation document. It exposes metadata,
-manifest resources, linear/nonlinear spine entries with rendition layout, cover and nested contents. Reading resource
+manifest resources, linear/nonlinear spine entries with rendition layout, cover, nested contents and
+landmarks (the EPUB 2 guide's references when there are none). Reading resource
 bytes does not execute document content. XML expansion and external entity resolution are refused. Declaration screening distinguishes
 actual DTD syntax from comments, CDATA, processing instructions and quoted identifiers; it decodes
 UTF-16/32 input before inspecting markup.

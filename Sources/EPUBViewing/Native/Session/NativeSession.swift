@@ -40,7 +40,9 @@ import SwiftUI
     @ObservationIgnored private var onEvent: (@MainActor (EPUBReaderEvent) -> Void)?
     @ObservationIgnored private(set) weak var canvas: ReaderCanvasView?
     @ObservationIgnored private(set) var isReady = false
+    /// Where the book opens: its text start, else its first linear section (`openingTarget`).
     @ObservationIgnored private let initialSection: Int
+    @ObservationIgnored private let initialFragment: String?
     /// The last visible range the canvas reported.
     @ObservationIgnored private(set) var visibleRange: ReaderTextRange?
     @ObservationIgnored private(set) var lastLocation: EPUBLocation?
@@ -66,7 +68,7 @@ import SwiftUI
         do { spine = try SpineCFIs(publication: publication) }
         catch { throw EPUBReaderError.engineFailure("The package document could not be read: \(error)") }
         progress = NativeProgress(publication: publication)
-        initialSection = publication.spine.firstIndex(where: \.isLinear) ?? 0
+        (initialSection, initialFragment) = Self.openingTarget(of: publication)
         book = NativeBook(publication: publication, typography: NativeTypography(), rich: rich)
         book.onSectionBuilt = { [weak self] in self?.sectionBuilt($0) }
         book.onBookComplete = { [weak self] in self?.bookCompleted() }
@@ -101,7 +103,7 @@ import SwiftUI
         applyConfiguration()
         if isReady {
             // A new view for a session already reading: the same place, the same highlights.
-            canvas.show(visibleRange?.start ?? ReaderTextPosition(section: initialSection, offset: 0), selecting: nil)
+            canvas.show(visibleRange?.start ?? initialPosition, selecting: nil)
             refreshHighlights()
         } else {
             // Never inside SwiftUI's view update, where a host's state change in `onEvent` is undefined.
@@ -137,7 +139,23 @@ import SwiftUI
         isReady = true
         emit(.ready)
         publishDisclosure()
-        canvas.show(visibleRange?.start ?? ReaderTextPosition(section: initialSection, offset: 0), selecting: nil)
+        canvas.show(visibleRange?.start ?? initialPosition, selecting: nil)
+    }
+
+    /// The opening position, once its section is built. A `.restore` after `.ready` replaces it.
+    private var initialPosition: ReaderTextPosition {
+        ReaderTextPosition(section: initialSection,
+                           offset: initialFragment.flatMap { book.section(initialSection)?.anchors[$0] } ?? 0)
+    }
+
+    /// Where a book opens when nothing is restored, as foliate-js's `goToTextStart()` chose: the
+    /// first landmark typed `bodymatter` or `text` (`EPUBPublication.landmarks`, the navigation
+    /// document's or else the guide's), resolved as `.navigate(href:)` resolves an href, else
+    /// the first linear section.
+    static func openingTarget(of publication: EPUBPublication) -> (section: Int, fragment: String?) {
+        let textStart = publication.landmarks.first { $0.types.contains("bodymatter") || $0.types.contains("text") }
+        if let href = textStart?.href, let target = try? target(of: href, in: publication) { return target }
+        return (publication.spine.firstIndex(where: \.isLinear) ?? 0, nil)
     }
 
     // MARK: - Commands
@@ -168,7 +186,9 @@ import SwiftUI
         _ = canvas.turnPage(forward: forward)
     }
 
-    private func navigate(_ href: String) async throws {
+    /// The spine section and decoded fragment an encoded publication href names, for
+    /// `.navigate(href:)` and the text start alike.
+    private static func target(of href: String, in publication: EPUBPublication) throws -> (section: Int, fragment: String?) {
         guard !href.isEmpty, !href.hasPrefix("#"), href.count <= 4_096 else {
             throw EPUBReaderError.invalidCommand("Empty publication href")
         }
@@ -182,7 +202,11 @@ import SwiftUI
         guard let section = publication.spine.firstIndex(where: { $0.resource.path == path }) else {
             throw EPUBReaderError.invalidCommand("Not a section of this publication")
         }
-        let fragment = parts.count == 2 ? String(parts[1]).removingPercentEncoding : nil
+        return (section, parts.count == 2 ? String(parts[1]).removingPercentEncoding : nil)
+    }
+
+    private func navigate(_ href: String) async throws {
+        let (section, fragment) = try Self.target(of: href, in: publication)
         let ticket = beginNavigation()
         let text = await book.build(section)
         guard isCurrent(ticket) else { return }
