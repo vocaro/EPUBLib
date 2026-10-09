@@ -11,6 +11,7 @@
 - `EPUBPublication.pageProgression` exposes the spine's `page-progression-direction`.
 - With nothing restored, the reader opens a book at its text start, as foliate-js's `showTextStart` did: the first `bodymatter` landmark (or EPUB 2 guide `text` reference), else the first linear section. Standard Ebooks titles open on chapter one, not their cover or titlepage, as they did in 0.2.5. A `.restore` sent after `.ready` replaces it.
 - `EPUBPublication.landmarks` lists the navigation document's landmarks, or the OPF guide's references in a book without them, as `EPUBLandmark` values. A landmark that does not resolve inside the archive is left out rather than refusing the book.
+- Read the navigation document's `epub:type` by its namespace, so a plain `type` on the same `<nav>` or landmark link no longer replaces it, which could empty the contents or mislabel a landmark ([#11](https://github.com/vocaro/EPUBLib/issues/11)). Any prefix bound to the OPS namespace counts, and an undeclared `epub` prefix still does; an `epub` prefix bound to another namespace no longer does.
 - Remove foliate-js, zip.js, the bootstrap page, scheme handler, URL patch, JavaScript bridge and vendor identity check. The Mac sample no longer needs the network client entitlement.
 
 ## 0.2.5
