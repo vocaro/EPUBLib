@@ -133,4 +133,51 @@ extension PublicationTests {
             XCTAssertEqual(epub2.landmarks.map(\.types), [["cover"], ["title-page"]], href)
         }
     }
+
+    func testARepeatedManifestItemIsReadOnceAndAConflictingOneRefused() throws {
+        let original = try EPUBPublication.open(data: Fixture.epub())
+        let opf = String(decoding: try original.data(at: "OPS/book.opf"), as: UTF8.self)
+        let item = #"<item id="two" href="two.xhtml" media-type="application/xhtml+xml"/>"#
+        let repeated = try EPUBPublication.open(data: Fixture.epub(overrides: [
+            "OPS/book.opf": opf.replacingOccurrences(of: item, with: item + item + item),
+        ]))
+        XCTAssertEqual(repeated.resources, original.resources)
+        XCTAssertEqual(repeated.spine, original.spine)
+        let conflicting = #"<item id="two" href="one.xhtml" media-type="application/xhtml+xml"/>"#
+        XCTAssertThrowsError(try EPUBPublication.open(data: Fixture.epub(overrides: [
+            "OPS/book.opf": opf.replacingOccurrences(of: item, with: item + conflicting),
+        ]))) {
+            XCTAssertEqual($0 as? EPUBPublicationError, .invalidXML("Manifest item"))
+        }
+    }
+
+    func testAManifestItemTheArchiveLacksIsLeftOutUnlessTheSpineNamesIt() throws {
+        let original = try EPUBPublication.open(data: Fixture.epub())
+        let opf = String(decoding: try original.data(at: "OPS/book.opf"), as: UTF8.self)
+            .replacingOccurrences(of: "<manifest>", with: #"<manifest><item id="cover" href="Images/cover.jpeg" media-type="image/jpeg"/>"#)
+            .replacingOccurrences(of: "</metadata>", with: #"<meta name="cover" content="cover"/></metadata>"#)
+        let book = try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/book.opf": opf]))
+        XCTAssertEqual(book.resources, original.resources)
+        XCTAssertEqual(book.spine, original.spine)
+        XCTAssertNil(book.cover)
+        XCTAssertThrowsError(try book.data(at: "OPS/Images/cover.jpeg")) {
+            XCTAssertEqual($0 as? EPUBPublicationError, .missingResource("OPS/Images/cover.jpeg"))
+        }
+        var files = try Fixture.files()
+        files["OPS/two.xhtml"] = nil
+        XCTAssertThrowsError(try EPUBPublication.open(data: Fixture.archive(files))) {
+            XCTAssertEqual($0 as? EPUBPublicationError, .missingResource("OPS/two.xhtml"))
+        }
+    }
+
+    func testAControlCharacterCopiedIntoNavigationReadsAsASpace() throws {
+        let original = try EPUBPublication.open(data: Fixture.epub())
+        let nav = String(decoding: try original.data(at: "OPS/nav.xhtml"), as: UTF8.self)
+            .replacingOccurrences(of: "Second Chapter", with: "Second\u{18}Chapter")
+        let book = try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/nav.xhtml": nav]))
+        XCTAssertEqual(book.tableOfContents, original.tableOfContents)
+        XCTAssertThrowsError(try EPUBPublication.open(data: Fixture.epub(overrides: [
+            "OPS/nav.xhtml": nav.replacingOccurrences(of: "</nav>", with: "</nav"),
+        ])))
+    }
 }
