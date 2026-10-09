@@ -41,9 +41,13 @@ import AppKit
         fonts = FontRegistry(publication: publication)
         sections = Array(repeating: nil, count: publication.spine.count)
         builtTypography = Array(repeating: nil, count: publication.spine.count)
+        hasLinear = publication.spine.contains(where: \.isLinear)
     }
 
     var count: Int { sections.count }
+    private let hasLinear: Bool
+    /// Whether `bookText` leaves a section out: a nonlinear one, unless no section is linear.
+    func isOmitted(_ index: Int) -> Bool { hasLinear && !publication.spine[index].isLinear }
     func section(_ index: Int) -> SectionText? { sections.indices.contains(index) ? sections[index] : nil }
     func isCurrent(_ index: Int) -> Bool { builtTypography[index] == typography }
     var isComplete: Bool { builtTypography.allSatisfy { $0 == typography } }
@@ -117,12 +121,11 @@ import AppKit
         guard isComplete else { return nil }
         let string = NSMutableAttributedString()
         var starts = Array(repeating: 0, count: sections.count)
-        let hasLinear = publication.spine.contains(where: \.isLinear)
         var omitted: Set<Int> = []
         var included = 0
         for (index, section) in sections.enumerated() {
             guard let section else { return nil }
-            guard publication.spine[index].isLinear || !hasLinear else { omitted.insert(index); continue }
+            guard !isOmitted(index) else { omitted.insert(index); continue }
             defer { included += 1 }
             if included > 0 {
                 let separator = NSMutableParagraphStyle()

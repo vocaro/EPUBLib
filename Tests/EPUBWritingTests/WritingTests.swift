@@ -22,7 +22,8 @@ struct WritingTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let chapter = EPUBResource(id: "c", path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml")
         let docs = try EPUBPackageWriter.documents(metadata: facts, resources: [chapter],
-            spine: [.init(resource: chapter)], contents: [.init(title: "A & B", href: "EPUB/one.xhtml#start")])
+            spine: [.init(resource: chapter)], contents: [.init(title: "A & B", href: "EPUB/one.xhtml#start")],
+            pages: [.init(title: "1", href: "EPUB/one.xhtml#start"), .init(title: "2", href: "EPUB/one.xhtml#middle")])
         var entries: [EPUBArchiveWriter.Entry] = []
         for doc in docs.sorted(by: { $0.path == "mimetype" || ($1.path != "mimetype" && $0.path < $1.path) }) {
             let url = dir.appendingPathComponent(doc.path)
@@ -40,6 +41,7 @@ struct WritingTests {
         #expect(publication.metadata.title == "Fish & Chips")
         #expect(publication.metadata.authors == ["An Author"])
         #expect(publication.tableOfContents == [.init(title: "A & B", href: "EPUB/one.xhtml#start")])
+        #expect(publication.pageList == [.init(label: "1", href: "EPUB/one.xhtml#start"), .init(label: "2", href: "EPUB/one.xhtml#middle")])
         let text = try publication.textSection(at: 0)
         #expect(text.text == "First\nTwo é words.")
         #expect(text.headings == [.init(mark: .init(offset: 0, separator: 0), text: "First")])

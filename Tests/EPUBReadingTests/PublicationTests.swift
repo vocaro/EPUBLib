@@ -181,3 +181,63 @@ extension PublicationTests {
         ])))
     }
 }
+
+extension PublicationTests {
+    func testThePageListComesFromAHiddenNavigationListInOrder() throws {
+        let book = try EPUBPublication.open(data: Fixture.pageList())
+        XCTAssertEqual(book.pageList?.map(\.label), Fixture.pageLabels)
+        XCTAssertEqual(book.pageList?.first, EPUBPageListEntry(label: "i", href: "OPS/front.xhtml#page-i"))
+        XCTAssertEqual(book.pageList?.last, EPUBPageListEntry(label: "5", href: "OPS/chapter-2.xhtml#page-5"))
+        let plain = try EPUBPublication.open(data: Fixture.epub())
+        XCTAssertNil(plain.pageList, "a book without one")
+        XCTAssertEqual(plain.tableOfContents.map(\.title), ["First Chapter"])
+    }
+
+    func testAPageListIsReadInDocumentOrderLeavingOutWhatDoesNotResolve() throws {
+        func pages(_ list: String) throws -> [EPUBPageListEntry]? {
+            let nav = String(decoding: try Fixture.files()["OPS/nav.xhtml"]!, as: UTF8.self)
+                .replacingOccurrences(of: "</body>", with: "<nav epub:type=\"page-list\" hidden=\"\">\(list)</nav></body>")
+            return try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/nav.xhtml": nav])).pageList
+        }
+        // As EPUBPackageWriter writes it for a book without pages.
+        XCTAssertNil(try pages("<h2>Source pages</h2><ol></ol>"))
+        XCTAssertNil(try pages("<ol><li><a href=\"https://example.invalid/one.xhtml\">1</a></li></ol>"))
+        XCTAssertEqual(try pages("""
+            <ol><li><a href="one.xhtml#p1"> 1 </a></li><li><span>No link</span></li>\
+            <li><a href="../../outside.xhtml">2</a></li><li><a href="two.xhtml">3</a><ol><li><a href="two.xhtml#p4">4</a></li></ol></li></ol>
+            """), [EPUBPageListEntry(label: "1", href: "OPS/one.xhtml#p1"), EPUBPageListEntry(label: "3", href: "OPS/two.xhtml"),
+                   EPUBPageListEntry(label: "4", href: "OPS/two.xhtml#p4")], "a nested list in document order")
+    }
+
+    func testTheNCXPageListFillsAPageListTheNavigationDocumentLacks() throws {
+        let ncx = String(decoding: try Fixture.files()["OPS/toc.ncx"]!, as: UTF8.self).replacingOccurrences(of: "</ncx>", with: """
+            <pageList><navLabel><text>Pages</text></navLabel><pageTarget id="p1" type="normal" value="1" playOrder="3">\
+            <navLabel><text>1</text></navLabel><content src="one.xhtml#start"/></pageTarget><pageTarget id="p2" type="normal" \
+            value="2" playOrder="4"><navLabel><text>2</text></navLabel><content src="two.xhtml"/></pageTarget></pageList></ncx>
+            """)
+        let pages = [EPUBPageListEntry(label: "1", href: "OPS/one.xhtml#start"), EPUBPageListEntry(label: "2", href: "OPS/two.xhtml")]
+        for epub2 in [true, false] {
+            let book = try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/toc.ncx": ncx], epub2: epub2))
+            XCTAssertEqual(book.pageList, pages, epub2 ? "EPUB 2" : "a navigation document without a page list")
+        }
+        let nav = String(decoding: try Fixture.files()["OPS/nav.xhtml"]!, as: UTF8.self).replacingOccurrences(of: "</body>",
+            with: "<nav epub:type=\"page-list\"><ol><li><a href=\"two.xhtml#x\">ii</a></li></ol></nav></body>")
+        XCTAssertEqual(try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/toc.ncx": ncx, "OPS/nav.xhtml": nav])).pageList,
+                       [EPUBPageListEntry(label: "ii", href: "OPS/two.xhtml#x")], "the navigation document's own list")
+        // An EPUB 3 book never needed its NCX to open.
+        XCTAssertNil(try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/toc.ncx": "<ncx><pageList>"])).pageList)
+    }
+
+    func testALocationSavedWithoutPagesStillDecodes() throws {
+        let saved = #"{"publicationID":"book","href":"OPS/one.xhtml","progression":0.5,"title":"First Chapter","#
+            + #""bookmark":{"engineID":"org.epublib.reader","format":"epublib-cfi-v1","value":"epubcfi(/6/2!/4/2/1:0)"}}"#
+        var location = try JSONDecoder().decode(EPUBLocation.self, from: Data(saved.utf8))
+        XCTAssertEqual(location.title, "First Chapter")
+        XCTAssertNil(location.page)
+        XCTAssertNil(location.pages)
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(location), as: UTF8.self).contains("page"))
+        location.page = EPUBPageListEntry(label: "4", href: "OPS/one.xhtml#page-4")
+        location.pages = [EPUBPageListEntry(label: "4", href: "OPS/one.xhtml#page-4"), EPUBPageListEntry(label: "5", href: "OPS/two.xhtml")]
+        XCTAssertEqual(try JSONDecoder().decode(EPUBLocation.self, from: JSONEncoder().encode(location)), location)
+    }
+}

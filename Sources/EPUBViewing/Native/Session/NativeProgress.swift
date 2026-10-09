@@ -2,14 +2,18 @@ import EPUBCore
 import EPUBReading
 import Foundation
 
-/// Overall progression and table-of-contents titles for positions, computed as foliate-js's
-/// `SectionProgress` and `TOCProgress` did: progression by section byte size (nonlinear
-/// sections weigh nothing), and the title of the last contents entry at or before a position.
+/// Overall progression, and the table-of-contents title and page-list entries for positions,
+/// computed as foliate-js's `SectionProgress` and `TOCProgress` did: progression by section
+/// byte size (nonlinear sections weigh nothing), and the title of the last contents entry at or
+/// before a position. Pages are found the same way, but at a range's start (`pages(in:)`).
 struct NativeProgress {
     private let sizes: [Double]
     private let total: Double
     private struct Entry { let title: String; let section: Int; let fragment: String? }
     private let entries: [Entry]
+    private struct Page { let entry: EPUBPageListEntry; let section: Int; let fragment: String? }
+    /// `EPUBPublication.pageList` by section, in page-list order within one.
+    private let pages: [Page]
 
     init(publication: EPUBPublication) {
         sizes = publication.spine.map { item in
@@ -21,16 +25,17 @@ struct NativeProgress {
         for (index, item) in publication.spine.enumerated() where sectionByPath[item.resource.path] == nil {
             sectionByPath[item.resource.path] = index
         }
+        func target(_ href: String) -> (section: Int, fragment: String?)? {
+            let parts = href.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+            let path = String(parts[0]).removingPercentEncoding ?? String(parts[0])
+            guard let section = sectionByPath[path] else { return nil }
+            return (section, parts.count == 2 ? String(parts[1]).removingPercentEncoding : nil)
+        }
         var entries: [Entry] = []
         func visit(_ items: [EPUBNavigationItem]) {
             for item in items {
-                if let href = item.href {
-                    let parts = href.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
-                    let path = String(parts[0]).removingPercentEncoding ?? String(parts[0])
-                    if let section = sectionByPath[path], !item.title.isEmpty {
-                        entries.append(Entry(title: item.title, section: section,
-                                             fragment: parts.count == 2 ? String(parts[1]).removingPercentEncoding : nil))
-                    }
+                if let href = item.href, let target = target(href), !item.title.isEmpty {
+                    entries.append(Entry(title: item.title, section: target.section, fragment: target.fragment))
                 }
                 visit(item.children)
             }
@@ -38,6 +43,9 @@ struct NativeProgress {
         visit(publication.tableOfContents)
         // Reading order; navigation order breaks ties within a section until anchors are known.
         self.entries = entries.enumerated().sorted { ($0.element.section, $0.offset) < ($1.element.section, $1.offset) }.map(\.element)
+        pages = (publication.pageList ?? []).compactMap { entry in
+            target(entry.href).map { Page(entry: entry, section: $0.section, fragment: $0.fragment) }
+        }.enumerated().sorted { ($0.element.section, $0.offset) < ($1.element.section, $1.offset) }.map(\.element)
     }
 
     /// 0–1 through the book.
@@ -57,6 +65,34 @@ struct NativeProgress {
             if entry.section < position.section || offset <= position.offset { best = entry }
         }
         return best?.title
+    }
+
+    /// A range's page-list entries (`EPUBLocation.page` and `pages`): the last entry at or before
+    /// its start, then those inside it, by position. The page list orders the entries of sections
+    /// before the range, so `anchor` is asked only about sections the range shows, which are
+    /// built; an entry whose fragment it cannot resolve sits at its section's start, where
+    /// `.navigate(href:)` shows it. `isShown` says whether a section strictly inside the range is
+    /// shown at all, as continuous scroll leaves nonlinear sections out.
+    func pages(in range: ReaderTextRange, isShown: (Int) -> Bool,
+               anchor: (Int, String) -> Int?) -> (page: EPUBPageListEntry?, pages: [EPUBPageListEntry]?) {
+        var current: (entry: EPUBPageListEntry, position: ReaderTextPosition)?
+        var inside: [(entry: EPUBPageListEntry, position: ReaderTextPosition, order: Int)] = []
+        for (order, page) in pages.enumerated() {
+            if page.section > range.end.section { break }
+            let offset = page.section < range.start.section ? 0 : page.fragment.flatMap { anchor(page.section, $0) } ?? 0
+            let position = ReaderTextPosition(section: page.section, offset: offset)
+            if position <= range.start {
+                // Later in reading order, or in the page list at the same position.
+                if current.map({ $0.position <= position }) ?? true { current = (page.entry, position) }
+            } else if position < range.end, page.section == range.start.section || page.section == range.end.section
+                        || isShown(page.section) {
+                inside.append((page.entry, position, order))
+            }
+        }
+        let shown = (current.map { [$0.entry] } ?? [])
+            + inside.sorted { ($0.position.section, $0.position.offset, $0.order) < ($1.position.section, $1.position.offset, $1.order) }
+                .map(\.entry)
+        return (current?.entry, shown.isEmpty ? nil : shown)
     }
 }
 

@@ -461,14 +461,16 @@ import SwiftUI
     private func location(for range: ReaderTextRange, fraction: Double?, quote: String? = nil) -> EPUBLocation {
         let index = range.start.section
         let cfi = cfi(for: range)
+        let anchor = { [book] (section: Int, fragment: String) in book.section(section)?.anchors[fragment] }
+        // Only continuous scroll over the whole book shows a range across sections.
+        let pages = progress.pages(in: range, isShown: { [book] in !book.isOmitted($0) }, anchor: anchor)
         return EPUBLocation(
             publicationID: publication.id, href: publication.spine[index].resource.href,
             progression: fraction.flatMap { progress.progression(section: index, fraction: $0) },
-            title: fraction == nil ? nil : progress.title(at: titlePosition(of: range)) { [book] section, fragment in
-                book.section(section)?.anchors[fragment]
-            },
+            title: fraction == nil ? nil : progress.title(at: titlePosition(of: range), anchor: anchor),
             quote: quote,
-            bookmark: cfi.map { EPUBEngineBookmark(engineID: NativeEngine.identifier, format: NativeEngine.bookmarkFormat, value: $0) })
+            bookmark: cfi.map { EPUBEngineBookmark(engineID: NativeEngine.identifier, format: NativeEngine.bookmarkFormat, value: $0) },
+            page: pages.page, pages: pages.pages)
     }
 
     /// A passage's text as foliate's `Selection.toString()` gave it: the book's own characters
