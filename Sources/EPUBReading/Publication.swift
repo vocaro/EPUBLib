@@ -14,6 +14,9 @@ public struct EPUBPublication: Sendable {
     public let resources: [EPUBResource]
     public let spine: [EPUBSpineItem]
     public let tableOfContents: [EPUBNavigationItem]
+    /// The navigation document's `landmarks` in order or, when it lists none, the OPF `guide`'s
+    /// references. Entries whose href does not resolve inside the archive are left out.
+    public let landmarks: [EPUBLandmark]
     public let cover: EPUBResource?
     /// The direction pages advance in; `default` leaves it to the reading system.
     public let pageProgression: EPUBPageProgression
@@ -171,12 +174,14 @@ public struct EPUBPublication: Sendable {
                                 layout: fixed ? .prePaginated : .reflowable)
         }
         guard !spine.isEmpty else { throw EPUBPublicationError.invalidXML("Empty spine") }
+        func types(_ node: XMLNode) -> [String] {
+            (node.attributes["type"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+        }
         var toc: [EPUBNavigationItem] = []
+        var landmarks: [EPUBLandmark] = []
         if let nav = resources.first(where: { $0.properties.contains("nav") }) {
             let root = try xml(nav.path)
-            if let node = root.descendants("nav").first(where: {
-                ($0.attributes["type"] ?? "").split(whereSeparator: \.isWhitespace).contains("toc")
-            }) {
+            if let node = root.descendants("nav").first(where: { types($0).contains("toc") }) {
                 func items(_ node: XMLNode) throws -> [EPUBNavigationItem] {
                     try node.children.filter { $0.name == "li" }.map { li in
                         let label = li.children.first { $0.name == "a" || $0.name == "span" }
@@ -186,6 +191,17 @@ public struct EPUBPublication: Sendable {
                     }
                 }
                 toc = try node.children.filter { $0.name == "ol" }.flatMap { try items($0) }
+            }
+            // Unlike an unsafe contents href, a landmark that does not resolve is left out rather
+            // than refusing a book that opened before landmarks were read.
+            if let node = root.descendants("nav").first(where: { types($0).contains("landmarks") }) {
+                landmarks = node.children.filter { $0.name == "ol" }
+                    .flatMap { $0.children.filter { $0.name == "li" } }
+                    .compactMap { li in
+                        guard let link = li.children.first(where: { $0.name == "a" }), let href = link.attributes["href"],
+                              let resolved = try? ResourceReference.resolve(href, relativeTo: nav.path) else { return nil }
+                        return EPUBLandmark(types: types(link), title: link.text, href: resolved)
+                    }
             }
         } else if let ncxID = spineNode.attributes["toc"], let ncx = byID[ncxID] {
             let root = try xml(ncx.path)
@@ -200,13 +216,20 @@ public struct EPUBPublication: Sendable {
             }
             if let map = root.descendants("navMap").first { toc = try points(map) }
         }
+        if landmarks.isEmpty, let guide = opf.children.first(where: { $0.name == "guide" }) {
+            landmarks = guide.children.filter { $0.name == "reference" }.compactMap { reference in
+                guard let href = reference.attributes["href"],
+                      let resolved = try? ResourceReference.resolve(href, relativeTo: opfPath) else { return nil }
+                return EPUBLandmark(types: types(reference), title: reference.attributes["title"] ?? "", href: resolved)
+            }
+        }
         let coverID = metadataNode?.children.first {
             $0.name == "meta" && $0.attributes["name"] == "cover"
         }?.attributes["content"]
         return Self(id: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
             metadata: EPUBMetadata(title: values("title").first ?? "", authors: values("creator"),
                                    languages: values("language"), identifiers: values("identifier")),
-            resources: resources, spine: spine, tableOfContents: toc,
+            resources: resources, spine: spine, tableOfContents: toc, landmarks: landmarks,
             cover: resources.first { $0.properties.contains("cover-image") } ?? coverID.flatMap { byID[$0] },
             pageProgression: EPUBPageProgression(rawValue: spineNode.attributes["page-progression-direction"] ?? "") ?? .default,
             archiveData: data, contents: contents)

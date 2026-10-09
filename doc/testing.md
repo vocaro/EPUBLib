@@ -26,22 +26,23 @@ bash scripts/test-ios.sh
 
 ## Coverage
 
-Parser tests cover EPUB 2/3 structure, navigation, resource access, identity, limits, duplicate ZIP
-entries, symlinks, CRC corruption, malformed/deep/wide XML, UTF-16 entities, cancellation after
-expansion starts, and exact IDPF/Adobe font deobfuscation vectors. The font tests check the XOR
-prefix and the untouched suffix against independently specified keys.
+Parser tests cover EPUB 2/3 structure, navigation and landmarks, resource access, identity, limits,
+duplicate ZIP entries, symlinks, CRC corruption, malformed/deep/wide XML, UTF-16 entities,
+cancellation after expansion starts, and exact IDPF/Adobe font deobfuscation vectors. The font
+tests check the XOR prefix and the untouched suffix against independently specified keys.
 
 Viewer component tests cover content-document parsing, the CSS cascade and fonts, attributed-text
 building and its text map, images, tables, MathML attachments, CFIs and text search, pagination
 geometry and the TextKit 2 views. CFI and search tests replay vectors recorded from foliate-js's own
 `epubcfi.js` and `search.js` in WebKit before they were removed, so CFIs the WebKit reader
-recorded keep naming the same positions. Live session tests mount a reader in a window, navigate
-between sections, exercise styles and flows, locate/select passages, restore positions (including
-a foliate-written CFI under EPUBLib's bookmark identity, and refusing the old tag) and close the
-session. Separate fixtures exercise encoded filenames and fragments, fixed
-layout, RTL and vertical writing. The illustrated fixture has 40 sections and eight incompressible
-1024×1024 images; its test enforces an archive size over 20 MiB and verifies that later sections
-remain navigable.
+recorded keep naming the same positions. Live session tests mount a reader in a window, open at
+the text start (a `bodymatter` landmark, a guide `text` reference or the first linear section),
+navigate between sections, exercise styles and flows, locate/select passages, restore positions
+(including a foliate-written CFI under EPUBLib's bookmark identity, refusing the old tag, and a
+restore on `.ready` replacing the text start) and close the session. Separate fixtures exercise
+encoded filenames and fragments, fixed layout, RTL and vertical writing. The illustrated fixture
+has 40 sections and eight incompressible 1024×1024 images; its test enforces an archive size over
+20 MiB and verifies that later sections remain navigable.
 
 These are deterministic regression fixtures, not an EPUB conformance certification, a comprehensive
 typographic review, an accessibility audit or a memory budget measurement.

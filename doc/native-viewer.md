@@ -41,6 +41,13 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
 
 ## Decisions
 
+- **Opening position.** With nothing restored, a book opens at its text start, as foliate-js
+  did with `showTextStart`: the first entry typed `bodymatter` or `text` in
+  `EPUBPublication.landmarks` (the navigation document's `landmarks`, or the EPUB 2 guide's
+  references in a book without them), resolved as `navigate(href:)` resolves an href, fragment
+  included. A book without one, or whose text start names no section of the book, opens at its
+  first linear section. A Standard Ebooks title therefore opens on its first chapter, with the
+  cover and titlepage a page turn back. A host's `restore` after `.ready` replaces it.
 - **Engine identity and bookmarks.** `EPUBReader.identifier` is `org.epublib.reader` and its
   bookmarks are `epublib-cfi-v1` (`EPUBReader.bookmarkFormat`): names for the library, not a
   renderer, so they outlive any change of how pages are drawn. The value is an EPUB CFI in the
@@ -80,7 +87,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   Until every section is built it shows the current section, then swaps to the whole book in
   place. Nonlinear sections stay out of it, as page turns step over them; navigating to one
   shows it on its own.
-- **Building** is per section and lazy for first paint: the initial section builds first and
+- **Building** is per section and lazy for first paint: the opening section builds first and
   the session emits `.ready` once it is on screen; the rest build in the background in
   parallel. Images decode lazily, downsampled to their displayed size, under a shared cache
   budget.
@@ -147,7 +154,8 @@ as they did.
 | `style` | Font size 12–96, dark, flow. Size or appearance rebuilds the text; the position is kept across rebuilds and flow switches. |
 | `setHighlights` | Replaces drawn host highlights. |
 
-`.ready` is emitted once, when the first section is on screen in a mounted view. `.relocated`
+`.ready` is emitted once, when the opening section is on screen in a mounted view, and the first
+`.relocated` reports the opening position (the text start, see Decisions). `.relocated`
 carries the section href, overall progression (by section byte size, as foliate-js computed it),
 the table-of-contents title for the position and the visible range's CFI. `.disclosure` text
 summarises the books' `SectionReport`s and is re-emitted when it changes. `.notice` reports

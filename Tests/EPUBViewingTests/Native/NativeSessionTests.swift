@@ -268,6 +268,98 @@ import XCTest
         XCTAssertEqual(events().filter { $0 == .ready }.count, 1)
     }
 
+    // MARK: - Opening position
+
+    /// The first location a freshly opened book reports, once the reader is ready.
+    private func openingLocation(_ data: Data) async throws -> (NativeSession, EPUBLocation) {
+        let (session, window, events) = try open(data)
+        addTeardownBlock { @MainActor in session.close(); window.close() }
+        try await wait("first location") { !locations(events()).isEmpty }
+        XCTAssertEqual(events().first, .ready)
+        return (session, try XCTUnwrap(locations(events()).first))
+    }
+
+    /// With nothing restored, a book opens at its text start, as foliate-js's `showTextStart` did:
+    /// a Standard Ebooks title on its first chapter, not its cover or titlepage.
+    func testABookOpensAtItsBodymatterLandmark() async throws {
+        let (session, first) = try await openingLocation(Fixture.frontMatter())
+        XCTAssertEqual(first.href, "OPS/text/chapter-1.xhtml")
+        XCTAssertEqual(first.title, "Chapter 1")
+        // `/6/6` is the third itemref.
+        XCTAssertTrue(first.bookmark?.value.hasPrefix("epubcfi(/6/6!") == true, first.bookmark?.value ?? "no bookmark")
+        XCTAssertEqual(session.visibleRange?.start, ReaderTextPosition(section: 2, offset: 0))
+        // The front matter is still a page turn away.
+        try await session.send(.previousPage)
+        try await wait("titlepage") { session.visibleRange?.start.section == 1 }
+    }
+
+    func testAnEPUB2BookOpensAtItsGuideTextReference() async throws {
+        let (session, first) = try await openingLocation(Fixture.frontMatter(bodymatter: nil, text: "text/chapter-1.xhtml", epub2: true))
+        XCTAssertEqual(first.href, "OPS/text/chapter-1.xhtml")
+        XCTAssertEqual(session.visibleRange?.start.section, 2)
+    }
+
+    func testABookWithoutLandmarksOpensAtItsFirstLinearSection() async throws {
+        let (session, first) = try await openingLocation(Fixture.frontMatter(bodymatter: nil))
+        XCTAssertEqual(first.href, "OPS/text/cover.xhtml")
+        XCTAssertEqual(session.visibleRange?.start, ReaderTextPosition(section: 0, offset: 0))
+    }
+
+    /// A fragment resolves as `.navigate(href:)` resolves one: the page holding its anchor.
+    func testATextStartFragmentOpensOnTheAnchorsPage() async throws {
+        let (session, first) = try await openingLocation(Fixture.frontMatter(bodymatter: "text/chapter-1.xhtml#deep"))
+        XCTAssertEqual(first.href, "OPS/text/chapter-1.xhtml")
+        let anchor = ReaderTextPosition(section: 2, offset: try XCTUnwrap(session.book.section(2)?.anchors["deep"]))
+        let visible = try XCTUnwrap(session.visibleRange)
+        XCTAssertGreaterThan(visible.start.offset, 0, "the anchor is pages into its section")
+        XCTAssertTrue(visible.start <= anchor && anchor < visible.end, "\(anchor) is not in \(visible)")
+    }
+
+    /// A text start that names no section of the book falls back to the first linear section.
+    func testATextStartThatDoesNotResolveFallsBackToTheFirstLinearSection() throws {
+        for href in ["text/missing.xhtml#chapter-1", "nav.xhtml", "toc.ncx"] {
+            let publication = try EPUBPublication.open(data: Fixture.frontMatter(bodymatter: href))
+            XCTAssertEqual(publication.landmarks.last?.types.first, "bodymatter", "\(href) is a landmark")
+            let target = NativeSession.openingTarget(of: publication)
+            XCTAssertEqual(target.section, 0, href)
+            XCTAssertNil(target.fragment, href)
+        }
+        let package = String(decoding: try XCTUnwrap(Fixture.files()["OPS/book.opf"]), as: UTF8.self)
+            .replacingOccurrences(of: "<itemref idref=\"one\"/>", with: "<itemref idref=\"one\" linear=\"no\"/>")
+        let publication = try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/book.opf": package]))
+        XCTAssertEqual(NativeSession.openingTarget(of: publication).section, 1, "the first linear section")
+    }
+
+    /// A host restores a saved position as soon as the reader is ready. The text start shows
+    /// first, then the restored position replaces it and stays.
+    func testARestoreOnReadyWinsOverTheTextStart() async throws {
+        let publication = try EPUBPublication.open(data: Fixture.frontMatter())
+        // `/6/4` is the titlepage, before the text start; `/4/2/1:4` is four characters into its h1.
+        let saved = EPUBLocation(publicationID: publication.id, bookmark: EPUBEngineBookmark(
+            engineID: EPUBReader.identifier, format: EPUBReader.bookmarkFormat, value: "epubcfi(/6/4!/4/2/1:4)"))
+        @MainActor final class Reader { var session: NativeSession? }
+        let reader = Reader()
+        var events: [EPUBReaderEvent] = []
+        let made = try NativeEngine().makeSession(publication: publication, selectionAction: nil) { event in
+            events.append(event)
+            guard event == .ready, let session = reader.session else { return }
+            Task {
+                do { try await session.send(.restore(saved)) } catch { XCTFail("Restore refused: \(error)") }
+            }
+        }
+        let session = try XCTUnwrap(made as? NativeSession)
+        reader.session = session
+        let window = ReaderTestWindow(session: session)
+        defer { session.close(); window.close() }
+        try await wait("restored position") { locations(events).last?.href == "OPS/text/titlepage.xhtml" }
+        try await wait("whole book") { session.book.isComplete }
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(locations(events).first?.href, "OPS/text/chapter-1.xhtml")
+        XCTAssertEqual(locations(events).last?.href, "OPS/text/titlepage.xhtml")
+        XCTAssertEqual(session.visibleRange?.start.section, 1)
+        XCTAssertFalse(events.contains { if case .notice = $0 { return true }; return false })
+    }
+
     private func canvasRequestsSelectionAction(_ session: NativeSession) {
         session.canvasDidRequestSelectionAction(try! XCTUnwrap(session.canvas))
     }

@@ -93,7 +93,7 @@ docs are checked against that source.
 
 ## Features and boundaries
 
-- EPUB 2 OPF/NCX and EPUB 3 OPF/navigation parsing, metadata, cover resource and reading order.
+- EPUB 2 OPF/NCX and EPUB 3 OPF/navigation parsing, metadata, cover resource, landmarks and reading order.
 - Bounded archive import, path checks, CRC validation and an immutable source snapshot.
 - Native TextKit 2 page turns with one or two columns (and a host-reserved fold), whole-book
   continuous scroll under the system bars, typography, local contents navigation, footnotes,

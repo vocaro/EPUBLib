@@ -9,6 +9,8 @@
 - Add `EPUBReaderCommand.setHighlights`, `EPUBHighlight` and the `highlights` capability, drawing host highlights while reading ([vocaro/studywright#85](https://github.com/vocaro/studywright/issues/85)). Selections have no length cap.
 - Render tables, images, footnote popovers and MathML natively; MathML through the new [MathMLLayout](https://github.com/vocaro/MathMLLayout) package (0.1.0), which began as a target here and moved to its own repository. Fixed-layout books reflow and vertical writing renders horizontally, each with a disclosure; sessions advertise every capability.
 - `EPUBPublication.pageProgression` exposes the spine's `page-progression-direction`.
+- With nothing restored, the reader opens a book at its text start, as foliate-js's `showTextStart` did: the first `bodymatter` landmark (or EPUB 2 guide `text` reference), else the first linear section. Standard Ebooks titles open on chapter one, not their cover or titlepage, as they did in 0.2.5. A `.restore` sent after `.ready` replaces it.
+- `EPUBPublication.landmarks` lists the navigation document's landmarks, or the OPF guide's references in a book without them, as `EPUBLandmark` values. A landmark that does not resolve inside the archive is left out rather than refusing the book.
 - Remove foliate-js, zip.js, the bootstrap page, scheme handler, URL patch, JavaScript bridge and vendor identity check. The Mac sample no longer needs the network client entitlement.
 
 ## 0.2.5
