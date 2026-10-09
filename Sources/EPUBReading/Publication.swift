@@ -100,7 +100,7 @@ public struct EPUBPublication: Sendable {
             return try XMLTree.parse(bytes, path: path)
         }
         let container = try xml("META-INF/container.xml")
-        guard let opfPath = container.descendants("rootfile").first?.attributes["full-path"],
+        guard let opfPath = container.descendants("rootfile").first?.attribute("full-path"),
               ResourceReference.isSafePath(opfPath) else { throw EPUBPublicationError.invalidXML("container rootfile") }
         let opf = try xml(opfPath)
         guard opf.name == "package", let manifest = opf.children.first(where: { $0.name == "manifest" }),
@@ -114,11 +114,11 @@ public struct EPUBPublication: Sendable {
         if contents["META-INF/encryption.xml"] != nil {
             let encryption = try xml("META-INF/encryption.xml")
             let identifier = metadataNode?.children.first {
-                $0.name == "identifier" && $0.attributes["id"] == opf.attributes["unique-identifier"]
+                $0.name == "identifier" && $0.attribute("id") == opf.attribute("unique-identifier")
             }?.text ?? ""
             for encrypted in encryption.descendants("EncryptedData") {
-                guard let algorithm = encrypted.descendants("EncryptionMethod").first?.attributes["Algorithm"],
-                      let uri = encrypted.descendants("CipherReference").first?.attributes["URI"],
+                guard let algorithm = encrypted.descendants("EncryptionMethod").first?.attribute("Algorithm"),
+                      let uri = encrypted.descendants("CipherReference").first?.attribute("URI"),
                       let path = uri.removingPercentEncoding, ResourceReference.isSafePath(path), var bytes = contents[path] else {
                     throw EPUBPublicationError.unsupportedEncryption
                 }
@@ -148,44 +148,41 @@ public struct EPUBPublication: Sendable {
         var resources: [EPUBResource] = []
         var byID: [String: EPUBResource] = [:]
         for item in manifest.children where item.name == "item" {
-            guard let id = item.attributes["id"], !id.isEmpty, byID[id] == nil,
-                  let href = item.attributes["href"], let type = item.attributes["media-type"] else {
+            guard let id = item.attribute("id"), !id.isEmpty, byID[id] == nil,
+                  let href = item.attribute("href"), let type = item.attribute("media-type") else {
                 throw EPUBPublicationError.invalidXML("Manifest item")
             }
             let reference = try ResourceReference.resolve(href, relativeTo: opfPath)
             let path = String(reference.split(separator: "#", maxSplits: 1)[0]).removingPercentEncoding ?? reference
             guard contents[path] != nil else { throw EPUBPublicationError.missingResource(path) }
             let resource = EPUBResource(id: id, path: path, mediaType: type,
-                properties: Set((item.attributes["properties"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init)))
+                properties: Set((item.attribute("properties") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)))
             resources.append(resource)
             byID[id] = resource
         }
         let fixedLayout = metadataNode?.children.contains {
-            $0.name == "meta" && $0.attributes["property"] == "rendition:layout" && $0.text == "pre-paginated"
+            $0.name == "meta" && $0.attribute("property") == "rendition:layout" && $0.text == "pre-paginated"
         } ?? false
         let spine = try spineNode.children.filter { $0.name == "itemref" }.map { item in
-            guard let ref = item.attributes["idref"], let resource = byID[ref] else {
+            guard let ref = item.attribute("idref"), let resource = byID[ref] else {
                 throw EPUBPublicationError.invalidXML("Spine idref")
             }
-            let properties = Set((item.attributes["properties"] ?? "").split(whereSeparator: \.isWhitespace))
+            let properties = Set((item.attribute("properties") ?? "").split(whereSeparator: \.isWhitespace))
             let fixed = properties.contains("rendition:layout-pre-paginated") ||
                 (fixedLayout && !properties.contains("rendition:layout-reflowable"))
-            return EPUBSpineItem(resource: resource, isLinear: item.attributes["linear"] != "no",
+            return EPUBSpineItem(resource: resource, isLinear: item.attribute("linear") != "no",
                                 layout: fixed ? .prePaginated : .reflowable)
         }
         guard !spine.isEmpty else { throw EPUBPublicationError.invalidXML("Empty spine") }
-        func types(_ node: XMLNode) -> [String] {
-            (node.attributes["type"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
-        }
         var toc: [EPUBNavigationItem] = []
         var landmarks: [EPUBLandmark] = []
         if let nav = resources.first(where: { $0.properties.contains("nav") }) {
             let root = try xml(nav.path)
-            if let node = root.descendants("nav").first(where: { types($0).contains("toc") }) {
+            if let node = root.descendants("nav").first(where: { $0.epubTypes.contains("toc") }) {
                 func items(_ node: XMLNode) throws -> [EPUBNavigationItem] {
                     try node.children.filter { $0.name == "li" }.map { li in
                         let label = li.children.first { $0.name == "a" || $0.name == "span" }
-                        let href = try label?.attributes["href"].map { try ResourceReference.resolve($0, relativeTo: nav.path) }
+                        let href = try label?.attribute("href").map { try ResourceReference.resolve($0, relativeTo: nav.path) }
                         let children = try li.children.filter { $0.name == "ol" }.flatMap { try items($0) }
                         return EPUBNavigationItem(title: label?.text ?? "", href: href, children: children)
                     }
@@ -194,21 +191,21 @@ public struct EPUBPublication: Sendable {
             }
             // Unlike an unsafe contents href, a landmark that does not resolve is left out rather
             // than refusing a book that opened before landmarks were read.
-            if let node = root.descendants("nav").first(where: { types($0).contains("landmarks") }) {
+            if let node = root.descendants("nav").first(where: { $0.epubTypes.contains("landmarks") }) {
                 landmarks = node.children.filter { $0.name == "ol" }
                     .flatMap { $0.children.filter { $0.name == "li" } }
                     .compactMap { li in
-                        guard let link = li.children.first(where: { $0.name == "a" }), let href = link.attributes["href"],
+                        guard let link = li.children.first(where: { $0.name == "a" }), let href = link.attribute("href"),
                               let resolved = try? ResourceReference.resolve(href, relativeTo: nav.path) else { return nil }
-                        return EPUBLandmark(types: types(link), title: link.text, href: resolved)
+                        return EPUBLandmark(types: link.epubTypes, title: link.text, href: resolved)
                     }
             }
-        } else if let ncxID = spineNode.attributes["toc"], let ncx = byID[ncxID] {
+        } else if let ncxID = spineNode.attribute("toc"), let ncx = byID[ncxID] {
             let root = try xml(ncx.path)
             func points(_ parent: XMLNode) throws -> [EPUBNavigationItem] {
                 try parent.children.filter { $0.name == "navPoint" }.map { point in
                     let title = point.children.first { $0.name == "navLabel" }?.text ?? ""
-                    let href = try point.children.first { $0.name == "content" }?.attributes["src"].map {
+                    let href = try point.children.first { $0.name == "content" }?.attribute("src").map {
                         try ResourceReference.resolve($0, relativeTo: ncx.path)
                     }
                     return EPUBNavigationItem(title: title, href: href, children: try points(point))
@@ -218,39 +215,63 @@ public struct EPUBPublication: Sendable {
         }
         if landmarks.isEmpty, let guide = opf.children.first(where: { $0.name == "guide" }) {
             landmarks = guide.children.filter { $0.name == "reference" }.compactMap { reference in
-                guard let href = reference.attributes["href"],
+                guard let href = reference.attribute("href"),
                       let resolved = try? ResourceReference.resolve(href, relativeTo: opfPath) else { return nil }
-                return EPUBLandmark(types: types(reference), title: reference.attributes["title"] ?? "", href: resolved)
+                let types = (reference.attribute("type") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+                return EPUBLandmark(types: types, title: reference.attribute("title") ?? "", href: resolved)
             }
         }
         let coverID = metadataNode?.children.first {
-            $0.name == "meta" && $0.attributes["name"] == "cover"
-        }?.attributes["content"]
+            $0.name == "meta" && $0.attribute("name") == "cover"
+        }?.attribute("content")
         return Self(id: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
             metadata: EPUBMetadata(title: values("title").first ?? "", authors: values("creator"),
                                    languages: values("language"), identifiers: values("identifier")),
             resources: resources, spine: spine, tableOfContents: toc, landmarks: landmarks,
             cover: resources.first { $0.properties.contains("cover-image") } ?? coverID.flatMap { byID[$0] },
-            pageProgression: EPUBPageProgression(rawValue: spineNode.attributes["page-progression-direction"] ?? "") ?? .default,
+            pageProgression: EPUBPageProgression(rawValue: spineNode.attribute("page-progression-direction") ?? "") ?? .default,
             archiveData: data, contents: contents)
     }
 
 }
 
+private enum XMLNamespace {
+    static let xml = "http://www.w3.org/XML/1998/namespace"
+    static let ops = "http://www.idpf.org/2007/ops"
+}
+
 private final class XMLNode {
+    /// An attribute's namespace URI ("" when none) and local name.
+    struct AttributeName: Hashable { let namespace: String; let local: String }
+    /// Local name.
     let name: String
-    let attributes: [String: String]
+    let attributes: [AttributeName: String]
     var children: [XMLNode] = []
     var content = ""
     var text: String { content.trimmingCharacters(in: .whitespacesAndNewlines) }
-    init(_ name: String, _ attributes: [String: String]) { self.name = name; self.attributes = attributes }
+    init(_ name: String, _ attributes: [AttributeName: String]) { self.name = name; self.attributes = attributes }
+    /// The value of an attribute by local name; `namespace` nil matches an attribute in no namespace.
+    func attribute(_ local: String, namespace: String? = nil) -> String? {
+        attributes[AttributeName(namespace: namespace ?? "", local: local)]
+    }
+    /// Whitespace-separated `epub:type` tokens, also from an `epub` prefix the document never
+    /// declared, which keeps its prefixed name as a plain attribute.
+    var epubTypes: [String] {
+        (attribute("type", namespace: XMLNamespace.ops) ?? attribute("epub:type") ?? "")
+            .split(whereSeparator: \.isWhitespace).map(String.init)
+    }
     func descendants(_ name: String) -> [XMLNode] {
         children.flatMap { ($0.name == name ? [$0] : []) + $0.descendants(name) }
     }
 }
 
+/// Keys attributes by namespace and local name, so `epub:type` and an HTML `type` on the same
+/// element stay apart. `XMLParser` reports qualified attribute names and passes each element's
+/// `xmlns` declarations among its attributes, so prefixes are resolved here.
 private final class XMLTree: NSObject, XMLParserDelegate {
     var stack: [XMLNode] = []
+    /// The prefixes in scope at each open element, "" for the default namespace.
+    var scopes: [[String: String]] = []
     var root: XMLNode?
     var count = 0
     static func parse(_ data: Data, path: String) throws -> XMLNode {
@@ -268,11 +289,25 @@ private final class XMLTree: NSObject, XMLParserDelegate {
         count += 1
         guard stack.count < 64, count <= 100_000 else { parser.abortParsing(); return }
         let local = String(name.split(separator: ":").last ?? Substring(name))
-        var attrs: [String: String] = [:]
-        for (key, value) in attributes { attrs[String(key.split(separator: ":").last!)] = value }
+        func isDeclaration(_ key: String) -> Bool { key == "xmlns" || key.hasPrefix("xmlns:") }
+        var namespaces = scopes.last ?? ["xml": XMLNamespace.xml]
+        for (key, value) in attributes where isDeclaration(key) {
+            namespaces[key == "xmlns" ? "" : String(key.dropFirst(6))] = value
+        }
+        var attrs: [XMLNode.AttributeName: String] = [:]
+        for (key, value) in attributes where !isDeclaration(key) {
+            // Unprefixed attributes are in no namespace, whatever the default one is.
+            let parts = key.split(separator: ":", maxSplits: 1)
+            if parts.count == 2, let uri = namespaces[String(parts[0])] {
+                attrs[.init(namespace: uri, local: String(parts[1]))] = value
+            } else {
+                attrs[.init(namespace: "", local: key)] = value
+            }
+        }
         let node = XMLNode(local, attrs)
         if let parent = stack.last { parent.children.append(node) } else { root = node }
         stack.append(node)
+        scopes.append(namespaces)
     }
     func parser(_ parser: XMLParser, foundCharacters string: String) { stack.last?.content += string }
     func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
@@ -280,6 +315,7 @@ private final class XMLTree: NSObject, XMLParserDelegate {
     }
     func parser(_ parser: XMLParser, didEndElement: String, namespaceURI: String?, qualifiedName: String?) {
         let node = stack.popLast()
+        _ = scopes.popLast()
         if let node { stack.last?.content += node.content }
     }
 }
