@@ -120,4 +120,48 @@ final class XMLParsingRegressionTests: XCTestCase {
         }
     }
 
+    func testEPUBTypeAndAPlainTypeOnOneElementStayApart() throws {
+        // Varying the other attributes varies the order the parser's attribute dictionary
+        // iterates in, which once decided which of the two survived.
+        for extra in ["", " id=\"a\"", " id=\"a\" class=\"b\"", " id=\"a\" class=\"b\" dir=\"ltr\"",
+                      " id=\"a\" class=\"b\" dir=\"ltr\" rel=\"c\"", " hreflang=\"en\" rel=\"c\" tabindex=\"0\""] {
+            let both = "type=\"application/xhtml+xml\" epub:type=\"bodymatter\"\(extra)"
+            let nav = """
+            <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+            <head><title>Contents</title></head><body>
+            <nav type="text/html" epub:type="toc"\(extra)><ol><li><a href="one.xhtml">First Chapter</a></li></ol></nav>
+            <nav epub:type="landmarks"><ol><li><a href="two.xhtml" \(both)>Start</a></li></ol></nav>
+            </body></html>
+            """
+            let book = try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/nav.xhtml": nav]))
+            XCTAssertEqual(book.tableOfContents.map(\.title), ["First Chapter"], extra)
+            XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["bodymatter"], title: "Start", href: "OPS/two.xhtml")], extra)
+
+            // The OPF guide reads the plain `type`, which an `epub:type` beside it must not replace.
+            var files = try Fixture.files(epub2: true)
+            let opf = String(decoding: files["OPS/book.opf"]!, as: UTF8.self).replacingOccurrences(of: "</package>", with: """
+                <guide xmlns:epub="http://www.idpf.org/2007/ops"><reference href="two.xhtml" \
+                type="text" epub:type="bodymatter"\(extra)/></guide></package>
+                """)
+            files["OPS/book.opf"] = Data(opf.utf8)
+            XCTAssertEqual(try EPUBPublication.open(data: Fixture.archive(files)).landmarks.map(\.types), [["text"]], extra)
+        }
+    }
+
+    func testNavigationTypesAreReadByNamespace() throws {
+        func contents(_ html: String, _ nav: String) throws -> [String] {
+            let document = "\(html)<head><title>Contents</title></head><body>\(nav)"
+                + "<ol><li><a href=\"one.xhtml\">First Chapter</a></li></ol></nav></body></html>"
+            return try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/nav.xhtml": document])).tableOfContents.map(\.title)
+        }
+        let xhtml = "<html xmlns=\"http://www.w3.org/1999/xhtml\""
+        XCTAssertEqual(try contents("\(xhtml) xmlns:ops=\"http://www.idpf.org/2007/ops\">", "<nav ops:type=\"toc\">"),
+                       ["First Chapter"], "any prefix bound to the OPS namespace")
+        XCTAssertEqual(try contents("\(xhtml)>", "<nav epub:type=\"toc\">"), ["First Chapter"], "an undeclared epub prefix")
+        XCTAssertEqual(try contents("\(xhtml)>", "<nav xmlns:epub=\"urn:unrelated\" epub:type=\"toc\">"), [],
+                       "an epub prefix bound elsewhere")
+        XCTAssertEqual(try contents("\(xhtml)>", "<div xmlns:ops=\"http://www.idpf.org/2007/ops\"/><nav ops:type=\"toc\">"), [],
+                       "a sibling's declaration is out of scope")
+    }
+
 }
