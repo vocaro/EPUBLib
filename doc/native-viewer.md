@@ -117,10 +117,15 @@ as they did.
   `.soft` top and bottom edge effects; nothing is drawn. On macOS the scroll view uses AppKit's
   automatic content insets and the window toolbar's own edge effect. On both, the text container
   is the column's width, set only when that changes, so a resize lays the text out once at most.
-  A resize keeps the line holding the position (the last one shown, or the visible start once
-  the person has scrolled) at the top, through any number of resizes in quick succession. Should
-  TextKit 2 lay that line out over other text, it reports the line's place wrongly however often
-  it is asked; the text is then loaded afresh and the position shown again
+  A shown position's line rests at the top of the visible area. Far from what is laid out,
+  TextKit 2 only estimates where text is, and the viewport's layout estimates differently, so a
+  long jump checks which line the top shows: from text before the position, it lays out through
+  the position in one run and scrolls to its now exact line; from text past it, it climbs above
+  it first ([#13](https://github.com/vocaro/EPUBLib/issues/13)). A resize keeps the line holding
+  the position (the last one shown, or the visible start once the person has scrolled) at the
+  top, through any number of resizes in quick succession. Should TextKit 2 lay that line out
+  over other text, it reports the line's place wrongly however often it is asked; the text is
+  then loaded afresh and the position shown again
   ([#12](https://github.com/vocaro/EPUBLib/issues/12)).
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS

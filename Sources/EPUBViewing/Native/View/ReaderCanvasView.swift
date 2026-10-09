@@ -544,22 +544,39 @@ import AppKit
             withProgrammaticScroll { scrollToContainerY(.greatestFiniteMagnitude) }
             return true
         }
-        withProgrammaticScroll {
-            // Laying out the viewport replaces estimated positions above it, which can move the
-            // line or the view; follow them until the line is at the top, or neither moves (at
-            // the end of the text).
-            var previous: (line: CGFloat, top: CGFloat)?
-            for _ in 0..<4 {
-                guard let line = textView.lineFrame(containing: location)?.minY else { break }
-                let top = scrollVisibleContainerRect.minY
-                if abs(top - line) < 0.5 { break }
-                if let previous, abs(previous.line - line) < 0.5, abs(previous.top - top) < 0.5 { break }
-                scrollToContainerY(line)
-                previous = (line, top)
-            }
-        }
+        withProgrammaticScroll { scrollLineToTop(containing: location, in: textView) }
         guard let line = textView.lineFrame(containing: location) else { return true }
         return textView.fragment(atContainerY: line.midY, holds: location)
+    }
+
+    /// Scrolls the line holding `location` to the top of the visible area, as far as the content
+    /// allows. Far from what is laid out, TextKit 2 only estimates where the line is, and laying
+    /// out the viewport there places text by an estimate of its own, which can be screens away;
+    /// so each pass checks which line the visible top shows. From text before the line, laying
+    /// out through it in one run places it exactly relative to what is shown; from text past
+    /// it, the view climbs above it (TextKit 2 lays out forward only), twice as far each time it
+    /// is still past.
+    private func scrollLineToTop(containing location: Int, in textView: ReaderTextView) {
+        guard var line = textView.line(containing: location) else { return }
+        scrollToContainerY(line.frame.minY)
+        var climb: CGFloat = 0
+        for _ in 0..<8 {
+            let visible = scrollVisibleContainerRect
+            let shown = textView.lineBoundary(atContainerY: visible.minY, lineEnd: false)
+            if shown == line.range.location || (shown <= location && isScrolledToEnd) { break }
+            if shown < location {
+                textView.ensureLayout(from: shown, through: location)
+                guard let laidOut = textView.line(containing: location) else { break }
+                line = laidOut
+                scrollToContainerY(line.frame.minY)
+                climb = 0
+            } else { // First the characters past the line at the shown text's density, and a screen.
+                let end = textView.lineBoundary(atContainerY: visible.maxY, lineEnd: true)
+                let charactersPerPoint = CGFloat(max(1, end - shown)) / max(1, visible.height)
+                climb = climb > 0 ? 2 * climb : CGFloat(shown - location) / charactersPerPoint + visible.height
+                scrollToContainerY(visible.minY - climb)
+            }
+        }
     }
 
     private func withProgrammaticScroll(_ body: () -> Void) {

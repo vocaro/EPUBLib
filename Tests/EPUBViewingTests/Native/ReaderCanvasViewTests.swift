@@ -980,6 +980,21 @@ import UIKit
         XCTAssertLessThan(jump, 1)
         print("\(length) characters in 300 sections: open \(open) s, viewport step \(turns) s, jump \(jump) s")
     }
+
+    func testWholeBookJumpsLandOnTheLine() throws {
+        let sections = (0..<300).map { CanvasText.section($0, chapters: 1, paragraphs: 30) as NSAttributedString? }
+        let host = scrolledHost(sections, book: true, show: ReaderTextPosition(section: 0, offset: 0))
+        // Far from what is laid out, TextKit 2 only estimates where text is; each jump, either way,
+        // still puts the position's line first.
+        for (section, offset) in [(290, 0), (12, 5_000), (205, 2_500), (60, 0), (299, 9_000), (150, 100)] {
+            let position = ReaderTextPosition(section: section, offset: offset)
+            host.canvas.show(position, selecting: nil)
+            let start = try XCTUnwrap(host.canvas.visibleRange?.start)
+            XCTAssertEqual(start.section, section, "\(position)")
+            XCTAssertLessThanOrEqual(start.offset, offset, "\(position)")
+            XCTAssertGreaterThan(start.offset, offset - 200, "the line holding \(position) is the first visible")
+        }
+    }
 }
 
 extension ReaderTextView {

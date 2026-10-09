@@ -120,19 +120,38 @@ extension ReaderTextView {
     /// The frame of the line holding `offset` (the last line for the end), in text container
     /// coordinates, laying it out if needed.
     func lineFrame(containing offset: Int) -> CGRect? {
+        line(containing: offset)?.frame
+    }
+
+    /// The frame (text container coordinates) and characters of the line holding `offset` (the
+    /// last line for the end), laying it out if needed.
+    func line(containing offset: Int) -> (frame: CGRect, range: NSRange)? {
         let length = textLength
         guard length > 0 else { return nil }
         let target = max(0, min(offset, length - 1))
         guard let range = textRange(for: NSRange(location: target, length: 1)) else { return nil }
         readerLayoutManager.ensureLayout(for: range)
         guard let fragment = readerLayoutManager.textLayoutFragment(for: range.location) else { return nil }
-        let local = target - self.offset(of: fragment.rangeInElement.location)
-        let lines = fragment.textLineFragments.filter { $0.characterRange.length > 0 }
-        guard let line = lines.first(where: { NSLocationInRange(local, $0.characterRange) }) ?? lines.last
-        else { return fragment.layoutFragmentFrame }
+        let start = self.offset(of: fragment.rangeInElement.location)
         let frame = fragment.layoutFragmentFrame
-        return CGRect(x: frame.minX, y: frame.minY + line.typographicBounds.minY, width: frame.width,
-                      height: line.typographicBounds.height)
+        let lines = fragment.textLineFragments.filter { $0.characterRange.length > 0 }
+        guard let line = lines.first(where: { NSLocationInRange(target - start, $0.characterRange) }) ?? lines.last else {
+            let end = self.offset(of: fragment.rangeInElement.endLocation)
+            return (frame, NSRange(location: start, length: end - start))
+        }
+        return (CGRect(x: frame.minX, y: frame.minY + line.typographicBounds.minY, width: frame.width,
+                       height: line.typographicBounds.height),
+                NSRange(location: start + line.characterRange.location, length: line.characterRange.length))
+    }
+
+    /// Lays out the characters from `lower` through `upper` (clamped) in one run, so their lines
+    /// are placed exactly relative to each other.
+    func ensureLayout(from lower: Int, through upper: Int) {
+        let length = textLength
+        guard length > 0 else { return }
+        let start = max(0, min(lower, length - 1)), end = max(start, min(upper, length - 1))
+        guard let range = textRange(for: NSRange(location: start, length: end - start + 1)) else { return }
+        readerLayoutManager.ensureLayout(for: range)
     }
 
     /// Whether the fragment laid out at container `y` holds `offset` (the last character for the
