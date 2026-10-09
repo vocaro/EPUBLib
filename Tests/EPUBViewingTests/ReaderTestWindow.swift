@@ -31,6 +31,14 @@ import UIKit
         #endif
     }
 
+    func resize(to size: CGSize) {
+        #if os(macOS)
+        window.setContentSize(size)
+        #else
+        window.frame = CGRect(origin: .zero, size: size)
+        #endif
+    }
+
     func close() {
         #if os(macOS)
         window.close()

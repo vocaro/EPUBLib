@@ -17,6 +17,10 @@ public struct EPUBPublication: Sendable {
     /// The navigation document's `landmarks` in order or, when it lists none, the OPF `guide`'s
     /// references. Entries whose href does not resolve inside the archive are left out.
     public let landmarks: [EPUBLandmark]
+    /// The navigation document's `page-list` in order, `hidden` or not, or, when it lists none,
+    /// the NCX's `pageList`. nil when the book lists no page. Entries whose href does not resolve
+    /// inside the archive are left out.
+    public let pageList: [EPUBPageListEntry]?
     public let cover: EPUBResource?
     /// The direction pages advance in; `default` leaves it to the reading system.
     public let pageProgression: EPUBPageProgression
@@ -188,7 +192,19 @@ public struct EPUBPublication: Sendable {
         guard !spine.isEmpty else { throw EPUBPublicationError.invalidXML("Empty spine") }
         var toc: [EPUBNavigationItem] = []
         var landmarks: [EPUBLandmark] = []
-        if let nav = resources.first(where: { $0.properties.contains("nav") }) {
+        var pages: [EPUBPageListEntry] = []
+        let ncx = spineNode.attribute("toc").flatMap { byID[$0] }
+        // In either page list, as among landmarks, a page whose href does not resolve is left out
+        // rather than refusing the book.
+        func pageTargets(_ root: XMLNode, _ path: String) -> [EPUBPageListEntry] {
+            root.descendants("pageList").first?.children.filter { $0.name == "pageTarget" }.compactMap { target in
+                guard let src = target.children.first(where: { $0.name == "content" })?.attribute("src"),
+                      let href = try? ResourceReference.resolve(src, relativeTo: path) else { return nil }
+                return EPUBPageListEntry(label: target.children.first { $0.name == "navLabel" }?.text ?? "", href: href)
+            } ?? []
+        }
+        let nav = resources.first { $0.properties.contains("nav") }
+        if let nav {
             let root = try xml(nav.path)
             if let node = root.descendants("nav").first(where: { $0.epubTypes.contains("toc") }) {
                 func items(_ node: XMLNode) throws -> [EPUBNavigationItem] {
@@ -212,7 +228,21 @@ public struct EPUBPublication: Sendable {
                         return EPUBLandmark(types: link.epubTypes, title: link.text, href: resolved)
                     }
             }
-        } else if let ncxID = spineNode.attribute("toc"), let ncx = byID[ncxID] {
+            if let node = root.descendants("nav").first(where: { $0.epubTypes.contains("page-list") }) {
+                // The list should be flat; a nested one is read in document order.
+                func entries(_ list: XMLNode) -> [EPUBPageListEntry] {
+                    list.children.filter { $0.name == "li" }.flatMap { li in
+                        let link = li.children.first { $0.name == "a" }
+                        let entry = link.flatMap { link in
+                            link.attribute("href").flatMap { try? ResourceReference.resolve($0, relativeTo: nav.path) }
+                                .map { EPUBPageListEntry(label: link.text, href: $0) }
+                        }
+                        return [entry].compactMap { $0 } + li.children.filter { $0.name == "ol" }.flatMap(entries)
+                    }
+                }
+                pages = node.children.filter { $0.name == "ol" }.flatMap(entries)
+            }
+        } else if let ncx {
             let root = try xml(ncx.path)
             func points(_ parent: XMLNode) throws -> [EPUBNavigationItem] {
                 try parent.children.filter { $0.name == "navPoint" }.map { point in
@@ -224,7 +254,11 @@ public struct EPUBPublication: Sendable {
                 }
             }
             if let map = root.descendants("navMap").first { toc = try points(map) }
+            pages = pageTargets(root, ncx.path)
         }
+        // An EPUB 3 book's NCX fills a page list its navigation document lacks, as the guide fills
+        // landmarks. That NCX was never needed to open the book, so one that does not parse is ignored.
+        if pages.isEmpty, nav != nil, let ncx, let root = try? xml(ncx.path) { pages = pageTargets(root, ncx.path) }
         if landmarks.isEmpty, let guide = opf.children.first(where: { $0.name == "guide" }) {
             landmarks = guide.children.filter { $0.name == "reference" }.compactMap { reference in
                 guard let href = reference.attribute("href"),
@@ -240,6 +274,7 @@ public struct EPUBPublication: Sendable {
             metadata: EPUBMetadata(title: values("title").first ?? "", authors: values("creator"),
                                    languages: values("language"), identifiers: values("identifier")),
             resources: resources, spine: spine, tableOfContents: toc, landmarks: landmarks,
+            pageList: pages.isEmpty ? nil : pages,
             cover: resources.first { $0.properties.contains("cover-image") } ?? coverID.flatMap { byID[$0] },
             pageProgression: EPUBPageProgression(rawValue: spineNode.attribute("page-progression-direction") ?? "") ?? .default,
             archiveData: data, contents: contents)

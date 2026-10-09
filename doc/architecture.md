@@ -28,8 +28,9 @@ remains byte-for-byte unchanged.
 Opening copies the archive into a bounded snapshot and checks every archive entry before returning.
 Archive paths are decoded ZIP paths; manifest/navigation hrefs are URL references. The parser
 resolves references relative to the containing OPF/navigation document. It exposes metadata,
-manifest resources, linear/nonlinear spine entries with rendition layout, cover, nested contents and
-landmarks (the EPUB 2 guide's references when there are none). Reading resource
+manifest resources, linear/nonlinear spine entries with rendition layout, cover, nested contents,
+landmarks (the EPUB 2 guide's references when there are none) and the page list (the NCX's
+`pageList` when the navigation document has none). Reading resource
 bytes does not execute document content. XML expansion and external entity resolution are refused. Declaration screening distinguishes
 actual DTD syntax from comments, CDATA, processing instructions and quoted identifiers; it decodes
 UTF-16/32 input before inspecting markup.
@@ -66,9 +67,9 @@ callbacks and releases renderer references. Hosts serialize commands whose order
 sessions explicitly. Views returned by a closed session contain no reader. Public readiness is
 emitted exactly once; later fidelity disclosures do not restart the session lifecycle.
 
-Portable location fields contain the publication fingerprint, section href, text quote and overall
-progression when known. Resource `href`, navigation hrefs and location hrefs are encoded URL
-references; resource `path` is the decoded archive key. Exact restoration uses a separately tagged engine bookmark. The reader's
+Portable location fields contain the publication fingerprint, section href, text quote, overall
+progression and the page-list entries the range shows when known. Resource `href`, navigation
+hrefs and location hrefs are encoded URL references; resource `path` is the decoded archive key. Exact restoration uses a separately tagged engine bookmark. The reader's
 `epublib-cfi-v1` bookmark is accepted only for the same publication fingerprint and engine identifier.
 Other engines may offer approximate navigation by href or quote; this is not automatic bookmark
 conversion. The package does not promise cross-engine page, search or selection equivalence.

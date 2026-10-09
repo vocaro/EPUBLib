@@ -131,11 +131,13 @@ final class XMLParsingRegressionTests: XCTestCase {
             <head><title>Contents</title></head><body>
             <nav type="text/html" epub:type="toc"\(extra)><ol><li><a href="one.xhtml">First Chapter</a></li></ol></nav>
             <nav epub:type="landmarks"><ol><li><a href="two.xhtml" \(both)>Start</a></li></ol></nav>
+            <nav type="text/html" epub:type="page-list" hidden=""\(extra)><ol><li><a href="two.xhtml#p">2</a></li></ol></nav>
             </body></html>
             """
             let book = try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/nav.xhtml": nav]))
             XCTAssertEqual(book.tableOfContents.map(\.title), ["First Chapter"], extra)
             XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["bodymatter"], title: "Start", href: "OPS/two.xhtml")], extra)
+            XCTAssertEqual(book.pageList, [EPUBPageListEntry(label: "2", href: "OPS/two.xhtml#p")], extra)
 
             // The OPF guide reads the plain `type`, which an `epub:type` beside it must not replace.
             var files = try Fixture.files(epub2: true)
@@ -162,6 +164,9 @@ final class XMLParsingRegressionTests: XCTestCase {
                        "an epub prefix bound elsewhere")
         XCTAssertEqual(try contents("\(xhtml)>", "<div xmlns:ops=\"http://www.idpf.org/2007/ops\"/><nav ops:type=\"toc\">"), [],
                        "a sibling's declaration is out of scope")
+        let plain = "\(xhtml)><body><nav type=\"page-list\"><ol><li><a href=\"two.xhtml\">2</a></li></ol></nav></body></html>"
+        XCTAssertNil(try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/nav.xhtml": plain])).pageList,
+                     "a plain type is not epub:type")
     }
 
 }

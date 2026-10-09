@@ -360,6 +360,155 @@ import XCTest
         XCTAssertFalse(events.contains { if case .notice = $0 { return true }; return false })
     }
 
+    // MARK: - Page list
+
+    /// The page-list entries a range shows, read from every section's anchors: the last entry at
+    /// or before its start, then those inside it.
+    private func expectedPages(_ session: NativeSession, _ range: ReaderTextRange) throws -> (page: String?, pages: [String]?) {
+        var positioned: [(label: String, position: ReaderTextPosition)] = []
+        for entry in try XCTUnwrap(session.publication.pageList) {
+            let parts = entry.href.split(separator: "#")
+            let section = try XCTUnwrap(session.publication.spine.firstIndex { $0.resource.href == parts[0] })
+            let offset = try XCTUnwrap(session.book.section(section)?.anchors[String(parts[1])], entry.label)
+            positioned.append((entry.label, ReaderTextPosition(section: section, offset: offset)))
+        }
+        let page = positioned.last { $0.position <= range.start }?.label
+        let pages = (page.map { [$0] } ?? []) + positioned.filter { range.start < $0.position && $0.position < range.end }.map(\.label)
+        return (page, pages.isEmpty ? nil : pages)
+    }
+
+    /// The last location reported, checked against the range on screen.
+    @discardableResult
+    private func reportedPages(_ session: NativeSession, _ events: [EPUBReaderEvent], _ step: String,
+                               file: StaticString = #filePath, line: UInt = #line) throws -> EPUBLocation {
+        let location = try XCTUnwrap(locations(events).last, step, file: file, line: line)
+        let range = try XCTUnwrap(session.visibleRange, step, file: file, line: line)
+        XCTAssertEqual(location, session.lastLocation, step, file: file, line: line)
+        let expected = try expectedPages(session, range)
+        XCTAssertEqual(location.page?.label, expected.page, "\(step): \(range)", file: file, line: line)
+        XCTAssertEqual(location.pages?.map(\.label), expected.pages, "\(step): \(range)", file: file, line: line)
+        return location
+    }
+
+    private func pageAnchor(_ session: NativeSession, _ section: Int, _ label: String) throws -> ReaderTextPosition {
+        ReaderTextPosition(section: section, offset: try XCTUnwrap(session.book.section(section)?.anchors["page-\(label)"]))
+    }
+
+    private func wait(_ label: String, showing position: ReaderTextPosition, in session: NativeSession) async throws {
+        try await wait(label) { session.visibleRange.map { $0.start <= position && position < $0.end } ?? false }
+    }
+
+    /// `Fixture.pageList()` read in one flow: the page in effect where the shown range starts
+    /// and the pages it shows, after page turns, scrolling, navigation to markers, a restore and
+    /// a resize, and for a selection.
+    private func exercisePageList(flow: EPUBReadingFlow) async throws {
+        let (session, window, events) = try open(Fixture.pageList())
+        defer { session.close(); window.close() }
+        try await wait("first location") { !locations(events()).isEmpty }
+        XCTAssertNil(locations(events()).first?.page, "the book opens before its first page")
+        try await wait("whole book") { session.book.isComplete }
+        try await session.send(.style(.init(flow: flow)))
+        if flow == .scrolled { try await wait("whole-book scroll") { session.canvas?.scrollBook != nil } }
+        try await wait("the book's start") { session.visibleRange?.start == ReaderTextPosition(section: 0, offset: 0) }
+        XCTAssertNil(try reportedPages(session, events(), "start").page)
+
+        // Turning through the whole book shows every page, in order.
+        let last = ReaderTextPosition(section: 2, offset: try XCTUnwrap(session.book.section(2)?.string.length))
+        var seen: [String] = []
+        var inEffect: [String?] = []
+        for turn in 0..<300 {
+            let location = try reportedPages(session, events(), "turn \(turn)")
+            inEffect.append(location.page?.label)
+            for label in location.pages?.map(\.label) ?? [] where !seen.contains(label) { seen.append(label) }
+            let shown = try XCTUnwrap(session.visibleRange)
+            if shown.end == last { break }
+            try await session.send(.nextPage)
+            try await wait("turn \(turn + 1)") { session.visibleRange != shown }
+        }
+        XCTAssertEqual(seen, Fixture.pageLabels)
+        let order = inEffect.map { $0.flatMap { Fixture.pageLabels.firstIndex(of: $0) } ?? -1 }
+        XCTAssertEqual(order, order.sorted(), "\(inEffect)")
+
+        if flow == .scrolled {
+            // The person scrolls (not through a command).
+            let start = try XCTUnwrap(session.visibleRange)
+            let view = try XCTUnwrap(session.canvas?.scrollTextView)
+            let line = try XCTUnwrap(view.lineFrame(containing: try XCTUnwrap(session.canvas?.scrollBook)
+                .location(of: try pageAnchor(session, 1, "3"))))
+            // A few lines above it, so the line is on screen whatever the insets.
+            let top = line.minY - 3 * line.height
+            #if os(macOS)
+            let scrollView = try XCTUnwrap(session.canvas?.scrollContainer as? NSScrollView)
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: top))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            #else
+            view.contentOffset = CGPoint(x: 0, y: top)
+            #endif
+            try await wait("scrolled") { session.visibleRange != start && locations(events()).last == session.lastLocation }
+            let scrolled = try reportedPages(session, events(), "scrolled")
+            XCTAssertEqual(scrolled.page?.label, "2")
+            XCTAssertEqual(scrolled.pages?.filter { ["3", "4"].contains($0.label) }.map(\.label), ["3", "4"], "two markers on one screen")
+        }
+
+        try await session.send(.navigate(href: "OPS/chapter-2.xhtml"))
+        try await wait("chapter two") { session.visibleRange?.start == ReaderTextPosition(section: 2, offset: 0) }
+        XCTAssertEqual(try reportedPages(session, events(), "chapter two").page?.label, "4", "a section opening without a marker")
+        try await session.send(.navigate(href: "OPS/chapter-1.xhtml"))
+        try await wait("chapter one") { session.visibleRange?.start == ReaderTextPosition(section: 1, offset: 0) }
+        XCTAssertEqual(try reportedPages(session, events(), "chapter one").page?.label, "1", "a marker opening its section")
+        try await session.send(.navigate(href: "OPS/chapter-1.xhtml#page-2"))
+        try await wait("page 2", showing: try pageAnchor(session, 1, "2"), in: session)
+        let two = try reportedPages(session, events(), "page 2")
+        XCTAssertTrue(two.pages?.map(\.label).contains("2") == true, "a marker mid-paragraph")
+        try await session.send(.navigate(href: "OPS/chapter-1.xhtml#page-3"))
+        try await wait("page 3", showing: try pageAnchor(session, 1, "3"), in: session)
+        let three = try reportedPages(session, events(), "page 3")
+        XCTAssertEqual(three.pages?.filter { ["3", "4"].contains($0.label) }.map(\.label), ["3", "4"], "two markers on one screen")
+
+        // A selection's location reports the pages it spans.
+        try await session.send(.locate(text: "Page one ends before the break and page two begins after it.", highlight: true))
+        try await wait("selection") { session.selection != nil }
+        let selection = try XCTUnwrap(events().compactMap { event -> EPUBSelection? in
+            if case .selectionChanged(let value) = event { return value }; return nil
+        }.last)
+        XCTAssertEqual(selection.location.page?.label, "1")
+        XCTAssertEqual(selection.location.pages?.map(\.label), ["1", "2"])
+        XCTAssertNil(selection.location.title, "selections carry no contents title")
+
+        try await session.send(.navigate(href: "OPS/chapter-2.xhtml#page-5"))
+        try await wait("page 5", showing: try pageAnchor(session, 2, "5"), in: session)
+        let saved = try reportedPages(session, events(), "page 5")
+        XCTAssertTrue(saved.pages?.map(\.label).contains("5") == true)
+        try await session.send(.navigate(href: "OPS/front.xhtml"))
+        try await wait("the preface") { session.visibleRange?.start.section == 0 }
+        try await session.send(.restore(saved))
+        try await wait("restored") { session.visibleRange?.start.section == 2 }
+        XCTAssertEqual(try reportedPages(session, events(), "restored").page, saved.page)
+
+        try await session.send(.navigate(href: "OPS/chapter-2.xhtml#page-5"))
+        let before = try XCTUnwrap(session.visibleRange)
+        window.resize(to: CGSize(width: 360, height: 520))
+        try await wait("resized") { session.visibleRange != before && locations(events()).last == session.lastLocation }
+        try await wait("page 5 after the resize", showing: try pageAnchor(session, 2, "5"), in: session)
+        XCTAssertTrue(try reportedPages(session, events(), "resized").pages?.map(\.label).contains("5") == true)
+        XCTAssertFalse(events().contains { if case .failed = $0 { return true }; return false })
+    }
+
+    func testPagesWhenPaginated() async throws { try await exercisePageList(flow: .paginated) }
+    func testPagesWhenScrolled() async throws { try await exercisePageList(flow: .scrolled) }
+
+    /// A book without a page list reports no pages.
+    func testABookWithoutAPageListReportsNoPages() async throws {
+        let (session, window, events) = try open(Fixture.epub())
+        defer { session.close(); window.close() }
+        try await wait("ready") { events().contains(.ready) }
+        try await session.send(.navigate(href: "OPS/two.xhtml"))
+        try await wait("second section") { session.visibleRange?.start.section == 1 }
+        XCTAssertFalse(locations(events()).isEmpty)
+        XCTAssertTrue(locations(events()).allSatisfy { $0.page == nil && $0.pages == nil })
+        XCTAssertEqual(locations(events()).last?.title, "Second Chapter")
+    }
+
     private func canvasRequestsSelectionAction(_ session: NativeSession) {
         session.canvasDidRequestSelectionAction(try! XCTUnwrap(session.canvas))
     }

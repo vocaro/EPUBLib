@@ -143,6 +143,13 @@ those two fields; its CFI value names the same position. If restoration reports 
 incompatible location, offer an explicit section/quote fallback where supported. EPUB files that
 change have a different SHA-256 identity, even when their metadata identifier is unchanged.
 
+A book with print or source page equivalents lists them in `EPUBPublication.pageList`; send
+an entry's `href` with `.navigate` to go to that page. Its locations carry `page`, the entry in
+effect where the shown range starts, and `pages`, every entry the range shows part of. To keep
+another view on the matching page, such as the source PDF beside the book, move it to `page`
+only when its current page is not among `pages`: navigating to a marker partway down a screen
+shows the end of the page before it first.
+
 ## Adding an engine
 
 Implement `EPUBReaderEngine` and `EPUBReaderSession` in a separate module. Choose a stable engine

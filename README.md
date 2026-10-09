@@ -93,12 +93,14 @@ docs are checked against that source.
 
 ## Features and boundaries
 
-- EPUB 2 OPF/NCX and EPUB 3 OPF/navigation parsing, metadata, cover resource, landmarks and reading order.
+- EPUB 2 OPF/NCX and EPUB 3 OPF/navigation parsing, metadata, cover resource, landmarks, page list
+  and reading order.
 - Bounded archive import, path checks, CRC validation and an immutable source snapshot.
 - Native TextKit 2 page turns with one or two columns (and a host-reserved fold), whole-book
   continuous scroll under the system bars, typography, local contents navigation, footnotes,
   tables, images and MathML, passage location, search and host highlights, native text
-  selection, position events and EPUB CFI restoration compatible with the former WebKit reader.
+  selection, position events with the pages on screen and EPUB CFI restoration compatible with
+  the former WebKit reader.
 - SwiftUI on iPhone, iPad and native Mac; keyboard and accessibility page-turn actions.
 - No accounts, networking service, library database, app toolbar or persistence policy.
 

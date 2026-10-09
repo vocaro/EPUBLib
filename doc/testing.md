@@ -26,7 +26,7 @@ bash scripts/test-ios.sh
 
 ## Coverage
 
-Parser tests cover EPUB 2/3 structure, navigation and landmarks, resource access, identity, limits,
+Parser tests cover EPUB 2/3 structure, navigation, landmarks and page lists, resource access, identity, limits,
 duplicate ZIP entries, symlinks, CRC corruption, malformed/deep/wide XML, UTF-16 entities, repeated,
 conflicting and absent manifest items, control characters in navigation,
 cancellation after expansion starts, and exact IDPF/Adobe font deobfuscation vectors. The font
@@ -40,7 +40,9 @@ recorded keep naming the same positions. Live session tests mount a reader in a 
 the text start (a `bodymatter` landmark, a guide `text` reference or the first linear section),
 navigate between sections, exercise styles and flows, locate/select passages, restore positions
 (including a foliate-written CFI under EPUBLib's bookmark identity, refusing the old tag, and a
-restore on `.ready` replacing the text start) and close the session. Separate fixtures exercise
+restore on `.ready` replacing the text start), report the page-list entries on screen in both
+flows after page turns, scrolling, navigation to markers, a restore and a resize, and for a
+selection, and close the session. Separate fixtures exercise
 encoded filenames and fragments, fixed layout, RTL and vertical writing. The illustrated fixture
 has 40 sections and eight incompressible 1024×1024 images; its test enforces an archive size over
 20 MiB and verifies that later sections remain navigable.

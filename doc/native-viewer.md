@@ -94,6 +94,14 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
 - **Highlights.** New public `EPUBReaderCommand.setHighlights([EPUBHighlight])` and capability
   `.highlights` draw host highlights from their range CFIs (StudyWright #85). Search and
   highlights are TextKit 2 rendering attributes; they never change the text.
+- **Pages.** Locations report `EPUBPublication.pageList` entries: `page`, the last entry at or
+  before the range's first character, and `pages`, that one followed by every entry whose
+  marker falls inside the range. foliate-js reported only `pageItem`, the last page begun by
+  the range's end, which is the last of `pages`. Within the range's sections the markers'
+  anchors decide; a marker its section lacks sits at the section's start, where
+  `navigate(href:)` shows it. Before them the page list's order does, so no earlier section is
+  built to find the page a section opens on. A range across sections in continuous scroll
+  skips the nonlinear ones it leaves out.
 - **Book pose.** New public `View.epubReaderDivision(_:)` reserves a vertical division in the
   reader's own coordinates. Columns never depend on device idiom, orientation or screen.
 
@@ -168,7 +176,8 @@ as they did.
 `.ready` is emitted once, when the opening section is on screen in a mounted view, and the first
 `.relocated` reports the opening position (the text start, see Decisions). `.relocated`
 carries the section href, overall progression (by section byte size, as foliate-js computed it),
-the table-of-contents title for the position and the visible range's CFI. `.disclosure` text
+the table-of-contents title for the position, the page-list entries it shows (see Decisions)
+and the visible range's CFI. A selection's location carries the pages it spans. `.disclosure` text
 summarises the books' `SectionReport`s and is re-emitted when it changes. `.notice` reports
 refused external links, unresolved CFIs and quotes, and highlights that could not be drawn.
 

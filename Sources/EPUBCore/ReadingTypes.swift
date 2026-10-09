@@ -19,10 +19,20 @@ public struct EPUBLocation: Codable, Equatable, Sendable {
     public var title: String?
     public var quote: String?
     public var bookmark: EPUBEngineBookmark?
+    /// The `EPUBPublication.pageList` entry in effect where the shown (or selected) range
+    /// starts: the last whose target is at or before its first character. nil when the book has
+    /// no page list, the range starts before its first entry or the engine does not read it.
+    public var page: EPUBPageListEntry?
+    /// Every page-list entry the range shows part of, in order: `page`, then each entry whose
+    /// target falls inside the range. A screen holding the end of page 4 and the start of page 5
+    /// has `page` 4 and `pages` [4, 5]. nil when there are none.
+    public var pages: [EPUBPageListEntry]?
     public init(publicationID: String, href: String? = nil, progression: Double? = nil,
-                title: String? = nil, quote: String? = nil, bookmark: EPUBEngineBookmark? = nil) {
+                title: String? = nil, quote: String? = nil, bookmark: EPUBEngineBookmark? = nil,
+                page: EPUBPageListEntry? = nil, pages: [EPUBPageListEntry]? = nil) {
         self.publicationID = publicationID; self.href = href; self.progression = progression
         self.title = title; self.quote = quote; self.bookmark = bookmark
+        self.page = page; self.pages = pages
     }
 }
 

@@ -82,3 +82,13 @@ public struct EPUBLandmark: Equatable, Sendable {
         self.types = types; self.title = title; self.href = href
     }
 }
+
+/// A print or source page equivalent: an entry of the EPUB 3 navigation document's `page-list`
+/// or of the EPUB 2 NCX `pageList`.
+public struct EPUBPageListEntry: Codable, Hashable, Sendable {
+    /// The page's label as written, such as `xii` or `5`.
+    public let label: String
+    /// Archive-relative URL reference, usually to the page's `pagebreak` marker by fragment.
+    public let href: String
+    public init(label: String, href: String) { self.label = label; self.href = href }
+}
