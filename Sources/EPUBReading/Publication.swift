@@ -147,16 +147,27 @@ public struct EPUBPublication: Sendable {
         }
         var resources: [EPUBResource] = []
         var byID: [String: EPUBResource] = [:]
+        // Every item the manifest declares, including those whose file the archive lacks.
+        var declared: [String: EPUBResource] = [:]
         for item in manifest.children where item.name == "item" {
-            guard let id = item.attribute("id"), !id.isEmpty, byID[id] == nil,
+            guard let id = item.attribute("id"), !id.isEmpty,
                   let href = item.attribute("href"), let type = item.attribute("media-type") else {
                 throw EPUBPublicationError.invalidXML("Manifest item")
             }
             let reference = try ResourceReference.resolve(href, relativeTo: opfPath)
             let path = String(reference.split(separator: "#", maxSplits: 1)[0]).removingPercentEncoding ?? reference
-            guard contents[path] != nil else { throw EPUBPublicationError.missingResource(path) }
             let resource = EPUBResource(id: id, path: path, mediaType: type,
                 properties: Set((item.attribute("properties") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)))
+            // Some converters write an item more than once; a verbatim repeat adds nothing, but one
+            // id naming two different resources is ambiguous.
+            if let earlier = declared[id] {
+                guard earlier == resource else { throw EPUBPublicationError.invalidXML("Manifest item") }
+                continue
+            }
+            declared[id] = resource
+            // An item whose file the archive lacks is left out, as a missing picture is, rather
+            // than refusing the book; the spine still needs every document it names (below).
+            guard contents[path] != nil else { continue }
             resources.append(resource)
             byID[id] = resource
         }
@@ -164,9 +175,10 @@ public struct EPUBPublication: Sendable {
             $0.name == "meta" && $0.attribute("property") == "rendition:layout" && $0.text == "pre-paginated"
         } ?? false
         let spine = try spineNode.children.filter { $0.name == "itemref" }.map { item in
-            guard let ref = item.attribute("idref"), let resource = byID[ref] else {
+            guard let ref = item.attribute("idref"), let named = declared[ref] else {
                 throw EPUBPublicationError.invalidXML("Spine idref")
             }
+            guard let resource = byID[ref] else { throw EPUBPublicationError.missingResource(named.path) }
             let properties = Set((item.attribute("properties") ?? "").split(whereSeparator: \.isWhitespace))
             let fixed = properties.contains("rendition:layout-pre-paginated") ||
                 (fixedLayout && !properties.contains("rendition:layout-reflowable"))
@@ -276,13 +288,26 @@ private final class XMLTree: NSObject, XMLParserDelegate {
     var count = 0
     static func parse(_ data: Data, path: String) throws -> XMLNode {
         guard XMLSafety.hasSafeDeclarations(data) else { throw EPUBPublicationError.invalidXML(path) }
+        if let root = tree(data) { return root }
+        // XML forbids most C0 controls, and some converters copy them from PDF text into titles.
+        // With no NUL byte the encoding is ASCII-compatible (not UTF-16 or UTF-32), so each is one
+        // byte, and a space in its place cannot change the markup. Read it once more that way.
+        guard !data.contains(0), data.contains(where: isForbiddenControl),
+              let root = tree(Data(data.map { isForbiddenControl($0) ? 0x20 : $0 })) else {
+            throw EPUBPublicationError.invalidXML(path)
+        }
+        return root
+    }
+    private static func isForbiddenControl(_ byte: UInt8) -> Bool {
+        byte < 0x20 && byte != 0x09 && byte != 0x0A && byte != 0x0D
+    }
+    private static func tree(_ data: Data) -> XMLNode? {
         let delegate = XMLTree()
         let parser = XMLParser(data: data)
         parser.shouldResolveExternalEntities = false
         parser.externalEntityResolvingPolicy = .never
         parser.delegate = delegate
-        guard parser.parse(), let root = delegate.root else { throw EPUBPublicationError.invalidXML(path) }
-        return root
+        return parser.parse() ? delegate.root : nil
     }
     func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?,
                 qualifiedName: String?, attributes: [String: String]) {

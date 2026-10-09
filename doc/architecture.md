@@ -42,9 +42,13 @@ The optional import progress callback receives cumulative expanded bytes on that
 A host granting security-scoped file access must keep access active until opening completes.
 
 Inputs need an EPUB mimetype, a container rootfile and a nonempty resolvable spine. Remote manifest
-resources, unsupported encryption, archive traversal, duplicate paths, symlinks, entity declarations
-and malformed metadata/navigation XML fail explicitly. The package does not repair malformed EPUBs,
-validate the full EPUB specification, synthesize page numbers or provide DRM support. Standard IDPF
+resources, unsupported encryption, archive traversal, duplicate paths, symlinks, entity declarations,
+malformed metadata/navigation XML and one manifest id naming two resources fail explicitly. Three
+faults real converters write are read past instead: a manifest item repeated verbatim counts once,
+an item whose file the archive lacks is left out of `resources` unless the spine names it, and a
+C0 control character XML forbids, copied from PDF text into a title, reads as a space in an
+ASCII-compatible document. The package does not otherwise repair malformed EPUBs, validate the full
+EPUB specification, synthesize page numbers or provide DRM support. Standard IDPF
 and Adobe font obfuscation are decoded for resource access, including the viewer's embedded fonts. Media overlays,
 TTS, annotation persistence and full-text search result enumeration are outside the initial API.
 
