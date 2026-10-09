@@ -135,6 +135,15 @@ extension ReaderTextView {
                       height: line.typographicBounds.height)
     }
 
+    /// Whether the fragment laid out at container `y` holds `offset` (the last character for the
+    /// end); TextKit 2 can lay one fragment out over another.
+    func fragment(atContainerY y: CGFloat, holds offset: Int) -> Bool {
+        guard let fragment = readerLayoutManager.textLayoutFragment(for: CGPoint(x: 0, y: y)) else { return false }
+        let target = max(0, min(offset, textLength - 1))
+        let range = fragment.rangeInElement
+        return self.offset(of: range.location) <= target && target < self.offset(of: range.endLocation)
+    }
+
     /// The first character of the first line mostly below `y` (`lineEnd` false), or the end of
     /// the last line mostly above it (`lineEnd` true), in text container coordinates, among the
     /// lines already laid out.

@@ -80,7 +80,9 @@ extension ReaderCanvasView: NSTextViewDelegate {
         scrollView.frame = bounds
         textView.frame.size.width = scrollView.contentSize.width
         textView.columnMinX = columnMinX - bounds.minX
-        textView.readerContainer.size = CGSize(width: width, height: 0)
+        if textView.readerContainer.size.width != width {
+            textView.readerContainer.size = CGSize(width: width, height: 0)
+        }
         textView.invalidateTextContainerOrigin()
         scrollView.layoutSubtreeIfNeeded()
     }

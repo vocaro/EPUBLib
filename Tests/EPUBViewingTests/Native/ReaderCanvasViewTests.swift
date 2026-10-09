@@ -660,6 +660,43 @@ import UIKit
         XCTAssertFalse(host.canvas.paginator(for: 0) === first, "rebuilt text is paginated afresh")
     }
 
+    /// A dual-screen phone closing to its outer display lays the reader out three times in about
+    /// 70 ms, and opening it three more. The reading position stays on screen throughout, and a
+    /// restore afterwards lands (#12).
+    func testABurstOfScrolledResizesKeepsThePositionAndRestoresLand() async throws {
+        let host = scrolledHost([longSection(200_000)], book: true, show: ReaderTextPosition(section: 0, offset: 100_000),
+                                size: CGSize(width: 867, height: 669))
+        // The person scrolls on a little (not through the canvas).
+        #if os(macOS)
+        let scrollView = try XCTUnwrap(host.canvas.scrollContainer as? NSScrollView)
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: scrollView.contentView.bounds.minY + 300))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        #else
+        let view = try XCTUnwrap(host.canvas.scrollTextView)
+        view.contentOffset = CGPoint(x: 0, y: view.contentOffset.y + 300)
+        #endif
+        try await host.settle()
+        let reading = try XCTUnwrap(host.canvas.visibleRange?.start)
+        XCTAssertGreaterThan(reading.offset, 100_000)
+        func assertShows(_ position: ReaderTextPosition, _ step: String) throws {
+            let range = try XCTUnwrap(host.canvas.visibleRange)
+            XCTAssertTrue(range.start <= position && position < range.end, "\(step): \(range)")
+        }
+        for size in [CGSize(width: 779, height: 669), CGSize(width: 294, height: 678), CGSize(width: 382, height: 678),
+                     CGSize(width: 466, height: 678), CGSize(width: 951, height: 669), CGSize(width: 867, height: 669)] {
+            host.resize(to: size)
+            try assertShows(reading, "\(size)")
+        }
+        try await host.settle()
+        try assertShows(reading, "settled")
+        // The session's restore: the position from before the burst, then another and back.
+        for offset in [reading.offset, 150_000, reading.offset] {
+            let position = ReaderTextPosition(section: 0, offset: offset)
+            host.canvas.show(position, selecting: nil)
+            try assertShows(position, "show \(offset)")
+        }
+    }
+
     func testALiveResizeKeepsTheSpreadUntilItEnds() throws {
         let host = host(sections(1, paragraphs: 30))
         host.canvas.show(ReaderTextPosition(section: 0, offset: 9_000), selecting: nil)

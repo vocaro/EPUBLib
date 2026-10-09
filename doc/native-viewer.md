@@ -115,7 +115,13 @@ as they did.
   iOS the text view has `contentInsetAdjustmentBehavior = .automatic`, `contentInset` top 48
   and bottom 64 on top of the live safe area, `textContainerInset` only horizontal, and
   `.soft` top and bottom edge effects; nothing is drawn. On macOS the scroll view uses AppKit's
-  automatic content insets and the window toolbar's own edge effect.
+  automatic content insets and the window toolbar's own edge effect. On both, the text container
+  is the column's width, set only when that changes, so a resize lays the text out once at most.
+  A resize keeps the line holding the position (the last one shown, or the visible start once
+  the person has scrolled) at the top, through any number of resizes in quick succession. Should
+  TextKit 2 lay that line out over other text, it reports the line's place wrongly however often
+  it is asked; the text is then loaded afresh and the position shown again
+  ([#12](https://github.com/vocaro/EPUBLib/issues/12)).
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never

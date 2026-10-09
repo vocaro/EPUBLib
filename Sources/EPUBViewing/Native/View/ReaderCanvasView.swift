@@ -519,28 +519,47 @@ import AppKit
 
     /// Scrolls the anchor to the top of the visible area (a section's end to the bottom).
     private func scrollToAnchor() {
-        guard let textView = scrollTextView, let anchor else { return }
+        if !scrollToAnchorLine() {
+            // TextKit 2 can lay the anchor's line out over other text after relayouts in quick
+            // succession, and then reports the same wrong place however often it is asked. Text
+            // loaded afresh starts its layout over.
+            loadScrollContent()
+            scrollToAnchorLine()
+            selectionMayHaveChanged()
+        }
+        anchorFollowsScroll = false
+    }
+
+    /// Scrolls the line holding the anchor to the top; false when TextKit lays other text where
+    /// it puts that line.
+    @discardableResult private func scrollToAnchorLine() -> Bool {
+        guard let textView = scrollTextView, let anchor else { return true }
         let location: Int
         if let book = scrollBook {
             location = book.location(of: anchor)
         } else if textView.placement.section == anchor.section {
             location = anchor.offset
-        } else { return }
+        } else { return true }
+        if scrollBook == nil, location >= textView.textLength {
+            withProgrammaticScroll { scrollToContainerY(.greatestFiniteMagnitude) }
+            return true
+        }
         withProgrammaticScroll {
-            if scrollBook == nil, location >= textView.textLength {
-                return scrollToContainerY(.greatestFiniteMagnitude)
-            }
             // Laying out the viewport replaces estimated positions above it, which can move the
-            // line; follow it until it stays put.
-            var previous: CGFloat?
+            // line or the view; follow them until the line is at the top, or neither moves (at
+            // the end of the text).
+            var previous: (line: CGFloat, top: CGFloat)?
             for _ in 0..<4 {
-                guard let line = textView.lineFrame(containing: location) else { break }
-                if let previous, abs(previous - line.minY) < 0.5 { break }
-                scrollToContainerY(line.minY)
-                previous = line.minY
+                guard let line = textView.lineFrame(containing: location)?.minY else { break }
+                let top = scrollVisibleContainerRect.minY
+                if abs(top - line) < 0.5 { break }
+                if let previous, abs(previous.line - line) < 0.5, abs(previous.top - top) < 0.5 { break }
+                scrollToContainerY(line)
+                previous = (line, top)
             }
         }
-        anchorFollowsScroll = false
+        guard let line = textView.lineFrame(containing: location) else { return true }
+        return textView.fragment(atContainerY: line.midY, holds: location)
     }
 
     private func withProgrammaticScroll(_ body: () -> Void) {

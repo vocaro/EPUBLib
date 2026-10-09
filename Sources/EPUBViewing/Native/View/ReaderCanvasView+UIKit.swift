@@ -55,6 +55,7 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         let view = ReaderTextView(pageColumn: false)
         view.delegate = self
         view.backgroundColor = ReaderPalette.background(dark: configuration.isDark)
+        view.readerContainer.widthTracksTextView = false // `applyScrollGeometry` sets the column width.
         view.contentInsetAdjustmentBehavior = .automatic
         view.contentInset = UIEdgeInsets(top: ReaderCanvasGeometry.verticalMargin, left: 0, bottom: 64, right: 0)
         view.topEdgeEffect.style = .soft
@@ -65,11 +66,17 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     }
 
     /// Sizes the scroll view to the canvas and centres the text column with horizontal insets only.
+    /// The column width is set on its own, and only when it changes: a container tracking the
+    /// view's width would lay the whole text out at a passing width between the new frame and its
+    /// insets, which TextKit 2 can follow with a wrong layout.
     func applyScrollGeometry(columnMinX: CGFloat, width: CGFloat) {
         guard let view = scrollTextView else { return }
-        view.frame = bounds
+        if view.readerContainer.size.width != width {
+            view.readerContainer.size = CGSize(width: width, height: .greatestFiniteMagnitude)
+        }
         view.textContainerInset = UIEdgeInsets(top: 0, left: columnMinX - bounds.minX, bottom: 0,
                                                right: max(0, bounds.maxX - columnMinX - width))
+        view.frame = bounds
         view.layoutIfNeeded()
     }
 
