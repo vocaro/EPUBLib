@@ -144,6 +144,28 @@ import AppKit
         }
     }
 
+    /// Uses the same section/viewport boundaries as a turn, without moving the reader.
+    func canTurnPage(forward: Bool) -> Bool? {
+        guard let dataSource, let range = visibleRange else { return nil }
+        let section: Int
+        switch configuration.flow {
+        case .paginated:
+            section = range.start.section
+            if forward {
+                guard let length = dataSource.text(forSection: section)?.length else { return nil }
+                if range.end.offset < length { return true }
+            } else if range.start.offset > 0 { return true }
+        case .scrolled:
+            guard let textView = scrollTextView else { return nil }
+            if forward ? !isScrolledToEnd : !isScrolledToStart { return true }
+            if scrollBook != nil { return false }
+            guard let current = textView.placement.section else { return nil }
+            section = current
+        }
+        let candidates = forward ? Array((section + 1)..<dataSource.sectionCount) : Array(0..<section)
+        return candidates.contains { dataSource.isLinear(section: $0) }
+    }
+
     func clearSelection() {
         pendingSelection = nil
         pendingSelectionPreservesFullRange = false

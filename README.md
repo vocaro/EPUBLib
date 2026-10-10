@@ -16,7 +16,7 @@ Choose the products your consumer uses. Their target dependencies enforce the bo
 | `EPUBViewing` | SwiftUI reader sessions and native TextKit 2 rendering | EPUBCore, EPUBReading, [MathMLLayout](https://github.com/vocaro/MathMLLayout) |
 
 The headless products import neither SwiftUI nor WebKit. A viewer does not depend on text
-extraction or writing. PDF layout reconstruction, study section policy and app chrome belong to
+extraction or writing. PDF layout reconstruction, study section policy and app-specific chrome belong to
 consumers. One package pins these cooperating products together; there is no umbrella module.
 
 ## Installation
@@ -87,10 +87,14 @@ Use `epubReaderPageControls(_:)` for live gesture toggles, custom tap zones and 
 bindings, or `.hostOnly` to turn pages through your own controls
 ([example](doc/integration.md#configuring-page-controls)).
 
+Optional [reader controls](doc/reader-controls.md) add previous/next, submit-only search, nested
+contents and appearance controls to a window/navigation toolbar or an embedded strip. Retain
+`EPUBReaderControls(publication:session:)` alongside your existing session; no new session is created.
+
 ## Runnable sample
 
 The [sample app](doc/sample.md) runs on iPhone, iPad and Mac, includes an original EPUB, and supports
-file import, section navigation, typography, selection and saved positions. Its shared Swift
+file import, the reusable reader controls, search, selection and saved positions. Its shared Swift
 source is also compiled as `ReaderSampleSupport`; the navigation and lifecycle examples in these
 docs are checked against that source.
 
@@ -105,7 +109,7 @@ docs are checked against that source.
   selection, position events with the pages on screen and EPUB CFI restoration compatible with
   the former WebKit reader.
 - SwiftUI on iPhone, iPad and native Mac; keyboard and accessibility page-turn actions.
-- No accounts, networking service, library database, app toolbar or persistence policy.
+- No accounts, networking service, library database, persistence policy.
 
 This is an initial release, not an EPUB conformance validator. See
 [architecture and limitations](doc/architecture.md) for supported inputs, security boundaries and

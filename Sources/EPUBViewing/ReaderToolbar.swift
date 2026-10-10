@@ -1,0 +1,240 @@
+import EPUBCore
+import SwiftUI
+
+public enum EPUBReaderControlGroup: String, CaseIterable, Hashable, Sendable {
+    case pages, search, contents, appearance
+}
+
+/// Order and omit groups using `groups`; placement applies to each group's toolbar item.
+/// Separate toolbar instances may use different placements. Hosts can add their own items.
+public struct EPUBReaderToolbar: ToolbarContent {
+    private let controls: EPUBReaderControls
+    private let groups: [EPUBReaderControlGroup]
+    private let placement: ToolbarItemPlacement
+    public init(controls: EPUBReaderControls, groups: [EPUBReaderControlGroup] = EPUBReaderControlGroup.allCases,
+                placement: ToolbarItemPlacement = .automatic) {
+        self.controls = controls; self.groups = groups; self.placement = placement
+    }
+    public var body: some ToolbarContent {
+        ForEach(groups, id: \.self) { group in
+            if group == .pages {
+                if controls.supports(.pagination) || controls.supports(.scrolling) {
+                    ToolbarItem(placement: placement) {
+                        EPUBPageButton(controls: controls, forward: controls.isRightToLeft)
+                    }
+                    ToolbarItem(placement: placement) {
+                        EPUBPageButton(controls: controls, forward: !controls.isRightToLeft)
+                    }
+                }
+            } else {
+                ToolbarItem(placement: placement) {
+                    EPUBReaderControl(controls: controls, group: group).labelStyle(.iconOnly)
+                }
+            }
+        }
+        ToolbarItem(placement: placement) { EPUBReaderCommandFeedback(controls: controls) }
+    }
+}
+
+/// An embedded alternative. At narrow widths groups stack vertically, including host items,
+/// preserving text size and search focus without clipping controls into a horizontal scroller.
+public struct EPUBReaderControlStrip<Extras: View>: View {
+    private let controls: EPUBReaderControls
+    private let groups: [EPUBReaderControlGroup]
+    private let extras: Extras
+    public init(controls: EPUBReaderControls, groups: [EPUBReaderControlGroup] = EPUBReaderControlGroup.allCases,
+                @ViewBuilder extras: () -> Extras) {
+        self.controls = controls; self.groups = groups; self.extras = extras()
+    }
+    public var body: some View {
+        VStack(alignment: .leading) {
+            ViewThatFits(in: .horizontal) {
+                HStack { items }
+                VStack(alignment: .leading) { items }
+            }
+            if let error = controls.commandError {
+                HStack {
+                    Text(error).foregroundStyle(.red)
+                    Button("Dismiss error") { controls.dismissError() }
+                }.font(.callout)
+            }
+        }
+    }
+    @ViewBuilder private var items: some View {
+        ForEach(groups, id: \.self) { group in EPUBReaderControl(controls: controls, group: group, inlineSearch: true) }
+        extras
+    }
+}
+
+public extension EPUBReaderControlStrip where Extras == EmptyView {
+    init(controls: EPUBReaderControls, groups: [EPUBReaderControlGroup] = EPUBReaderControlGroup.allCases) {
+        self.init(controls: controls, groups: groups) { EmptyView() }
+    }
+}
+
+/// Individual groups let hosts customize labels/icons by composing their own buttons with
+/// the public controls model, and mix built-in groups with custom toolbar/overflow items.
+public struct EPUBReaderControl: View {
+    private let controls: EPUBReaderControls
+    private let group: EPUBReaderControlGroup
+    private let inlineSearch: Bool
+    @State private var showingSearch = false
+    public init(controls: EPUBReaderControls, group: EPUBReaderControlGroup, inlineSearch: Bool = false) {
+        self.controls = controls; self.group = group; self.inlineSearch = inlineSearch
+    }
+    public var body: some View {
+        Group {
+            switch group {
+            case .pages:
+                if controls.supports(.pagination) || controls.supports(.scrolling) { pages }
+            case .search:
+                if controls.supports(.searchHighlight) {
+                    if inlineSearch { EPUBSearchField(controls: controls) }
+                    else {
+                        Button("Search", systemImage: "magnifyingglass") { showingSearch = true }
+                            .popover(isPresented: $showingSearch) { EPUBSearchField(controls: controls).padding() }
+                    }
+                }
+            case .contents:
+                if controls.supports(.navigateHref) { contents }
+            case .appearance:
+                if controls.supports(.typography) || (controls.supports(.pagination) && controls.supports(.scrolling)) { appearance }
+            }
+        }
+        .disabled(!controls.isReady)
+    }
+    private var pages: some View {
+        HStack {
+            EPUBPageButton(controls: controls, forward: false)
+            EPUBPageButton(controls: controls, forward: true)
+        }
+        // Fixed logical order, reversed physically for RTL books, independent of UI language.
+        .environment(\.layoutDirection, controls.isRightToLeft ? .rightToLeft : .leftToRight)
+        .labelStyle(.iconOnly)
+    }
+    private var contents: some View {
+        Menu("Contents", systemImage: "list.bullet") {
+            if controls.publication.tableOfContents.isEmpty { Text("No contents available") }
+            else { EPUBContentsItems(controls: controls, items: controls.publication.tableOfContents) }
+        }
+    }
+    private var appearance: some View {
+        Menu("Appearance", systemImage: "textformat.size") {
+            if controls.supports(.typography) {
+                Button("Smaller Text", systemImage: "textformat.size.smaller") {
+                    controls.changeStyle { $0.fontSize = max(10, $0.fontSize - 2) }
+                }
+                Button("Larger Text", systemImage: "textformat.size.larger") {
+                    controls.changeStyle { $0.fontSize = min(36, $0.fontSize + 2) }
+                }
+                Button(controls.status?.style.isDark == true ? "Light Appearance" : "Dark Appearance") {
+                    controls.changeStyle { $0.isDark.toggle() }
+                }
+            }
+            if controls.supports(.pagination) && controls.supports(.scrolling) {
+                Button(controls.status?.style.flow == .scrolled ? "Paginated Flow" : "Scrolled Flow") {
+                    controls.changeStyle { $0.flow = $0.flow == .scrolled ? .paginated : .scrolled }
+                }
+            }
+            if controls.isBusy { Text("Applying commands…") }
+            if let error = controls.commandError { Text(error) }
+        }
+    }
+}
+
+private struct EPUBPageButton: View {
+    let controls: EPUBReaderControls
+    let forward: Bool
+    var body: some View {
+        Button(forward ? "Next Page" : "Previous Page",
+               systemImage: (forward != controls.isRightToLeft) ? "chevron.right" : "chevron.left") {
+            controls.send(forward ? .nextPage : .previousPage)
+        }
+        .labelStyle(.iconOnly)
+        .disabled(forward ? !controls.canGoNext : !controls.canGoPrevious)
+        .accessibilityLabel(forward ? "Next Page" : "Previous Page")
+        .help(forward ? "Next Page" : "Previous Page")
+    }
+}
+
+private struct EPUBContentsItems: View {
+    let controls: EPUBReaderControls
+    let items: [EPUBNavigationItem]
+    var body: some View {
+        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+            if item.children.isEmpty { entry(item) }
+            else {
+                Menu(item.title) {
+                    if item.href != nil { entry(item) }
+                    EPUBContentsItems(controls: controls, items: item.children)
+                }
+            }
+        }
+    }
+    private func entry(_ item: EPUBNavigationItem) -> some View {
+        Button {
+            if let href = item.href { controls.send(.navigate(href: href)) }
+        } label: {
+            if controls.isCurrent(item) { Label(item.title, systemImage: "checkmark") }
+            else { Text(item.title) }
+        }
+        .disabled(item.href == nil)
+        .accessibilityValue(controls.isCurrent(item) ? "Current section" : "")
+    }
+}
+
+private struct EPUBSearchField: View {
+    @Bindable var controls: EPUBReaderControls
+    @FocusState private var focused: Bool
+    var body: some View {
+        VStack(alignment: .leading) {
+            HStack {
+                TextField("Search in book", text: $controls.searchText)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focused)
+                    .submitLabel(.search)
+                    .onSubmit {
+                        controls.submitSearch()
+                        // UIKit ends editing on Return. Restore focus after that submission
+                        // has settled, without moving focus to the reading surface.
+                        Task { @MainActor in
+                            await Task.yield()
+                            focused = true
+                        }
+                    }
+                    .accessibilityLabel("Search in book")
+                    .frame(minWidth: 140, idealWidth: 220)
+                Button("Search", systemImage: "magnifyingglass") { controls.submitSearch(); focused = true }
+                    .labelStyle(.iconOnly).help("Search")
+                Button("Clear Search", systemImage: "xmark.circle") { controls.clearSearch(); focused = true }
+                    .labelStyle(.iconOnly).help("Clear Search")
+            }
+            feedback.font(.callout)
+            if let error = controls.commandError { Text(error).foregroundStyle(.red).font(.callout) }
+        }
+        .task { focused = true }
+    }
+    @ViewBuilder private var feedback: some View {
+        switch controls.status?.search ?? .idle {
+        case .idle:
+            if controls.pendingCommands > 0 { Text("Search queued…") }
+        case .searching: HStack { ProgressView().controlSize(.small); Text("Searching…") }
+        case .completed(_, let found): Text(found ? "Matches highlighted" : "No matches")
+        case .failed(_, let error): Text(error.message).foregroundStyle(.red)
+        }
+    }
+}
+
+private struct EPUBReaderCommandFeedback: View {
+    let controls: EPUBReaderControls
+    var body: some View {
+        if let error = controls.commandError {
+            Menu("Reader Error", systemImage: "exclamationmark.circle") {
+                Text(error)
+                Button("Dismiss error") { controls.dismissError() }
+            }.labelStyle(.iconOnly).accessibilityValue(error)
+        } else if controls.isBusy {
+            ProgressView().controlSize(.small).accessibilityLabel("Applying reader commands")
+        }
+    }
+}
