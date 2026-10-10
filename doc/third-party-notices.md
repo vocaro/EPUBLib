@@ -12,8 +12,8 @@
   with the copy of STIX Two Math (SIL Open Font License 1.1, Copyright 2001-2021 The STIX Fonts
   Project Authors) that macOS and iOS install; neither package distributes the font.
 
-The native viewer and its regression tests originate in StudyWright and EPUBLib, Copyright Trevor
-Harmon, and are distributed here under this repository's MIT license.
+The native viewer and its regression tests originate in StudyWright and EPUBLib,
+Copyright (c) 2026 Vocaro Technologies LLC, and are distributed here under this repository's MIT license.
 
 ## foliate-js license
 

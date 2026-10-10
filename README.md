@@ -131,8 +131,9 @@ See [release and API compatibility policy](doc/releasing.md) and [release notes]
 
 ## Licenses
 
-The library is MIT licensed. ZIPFoundation is MIT. The CFI and text-search code is ported from
-foliate-js (MIT). See [third-party notices](doc/third-party-notices.md).
+The library is copyright (c) 2026 Vocaro Technologies LLC and [MIT licensed](LICENSE).
+ZIPFoundation is MIT. The CFI and text-search code is ported from foliate-js (MIT).
+See [third-party notices](doc/third-party-notices.md).
 
 ## Extracting text
 
