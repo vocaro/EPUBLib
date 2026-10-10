@@ -87,11 +87,33 @@ public enum EPUBReaderError: Error, Equatable, Sendable {
     case engineFailure(String)
 }
 
+public extension EPUBReaderError {
+    var message: String {
+        switch self {
+        case .unsupported: "This reader does not support this action."
+        case .incompatibleLocation: "This saved position belongs to a different book or reader."
+        case .invalidCommand(let message), .engineFailure(let message): message
+        case .notReady: "The reader is not ready."
+        case .closed: "This book is closed."
+        }
+    }
+}
+
+/// Highlight search feedback, independent of relocation. Completion means the whole book
+/// has been searched; it does not move the reader or expose a result browser.
+public enum EPUBSearchState: Equatable, Sendable {
+    case idle
+    case searching(query: String)
+    case completed(query: String, hasMatches: Bool)
+    case failed(query: String, error: EPUBReaderError)
+}
+
 public enum EPUBReaderEvent: Equatable, Sendable {
     /// Emitted exactly once per session when commands can be submitted.
     case ready
     case relocated(EPUBLocation)
     case selectionChanged(EPUBSelection?)
+    case searchChanged(EPUBSearchState)
     /// Display these to disclose content the engine withheld or could not render faithfully.
     case disclosure(String)
     case notice(String)

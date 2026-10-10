@@ -17,18 +17,113 @@ import XCTest
         }
     }
 
-    private func open(_ data: Data, action: EPUBSelectionAction? = nil)
+    private func open(_ data: Data, action: EPUBSelectionAction? = nil, onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void = { _ in })
         throws -> (NativeSession, ReaderTestWindow, () -> [EPUBReaderEvent]) {
         let publication = try EPUBPublication.open(data: data)
         var events: [EPUBReaderEvent] = []
         let session = try XCTUnwrap(try NativeEngine().makeSession(publication: publication, selectionAction: action) {
             events.append($0)
+            onEvent($0)
         } as? NativeSession)
         return (session, ReaderTestWindow(session: session), { events })
     }
 
     private func locations(_ events: [EPUBReaderEvent]) -> [EPUBLocation] {
         events.compactMap { if case .relocated(let location) = $0 { return location }; return nil }
+    }
+
+    func testPublicControlStateAndSearchCompletion() async throws {
+        let (session, window, events) = try open(Fixture.epub())
+        defer { session.close(); window.close() }
+        let state = try XCTUnwrap(session.readerState)
+        try await wait("ready and first location") { state.status.lifecycle == .ready && state.status.location != nil }
+        XCTAssertEqual(state.status.canGoPrevious, false)
+        XCTAssertEqual(state.status.canGoNext, true)
+        let model = EPUBReaderControls(publication: session.publication, session: session)
+        XCTAssertTrue(model.isReady, "late attachment reads current state without taking over events")
+        try await session.send(.searchHighlight(text: "Opening words"))
+        XCTAssertEqual(state.status.search, .completed(query: "Opening words", hasMatches: true))
+        XCTAssertTrue(events().contains(.searchChanged(.searching(query: "Opening words"))))
+        XCTAssertTrue(events().contains(.searchChanged(.completed(query: "Opening words", hasMatches: true))))
+        try await session.send(.searchHighlight(text: "absent unicorn"))
+        XCTAssertEqual(state.status.search, .completed(query: "absent unicorn", hasMatches: false))
+        for query in [" ", String(repeating: "x", count: 513)] {
+            do { try await session.send(.searchHighlight(text: query)); XCTFail("Invalid query accepted") }
+            catch {
+                guard case .failed(let submitted, _) = state.status.search else { return XCTFail("No search error feedback") }
+                XCTAssertEqual(submitted, query)
+            }
+        }
+        try await session.send(.clearSearch)
+        XCTAssertEqual(state.status.search, .idle)
+        XCTAssertTrue(session.drawnHighlights.filter { $0.kind == .search }.isEmpty)
+        XCTAssertEqual(state.status.activeCommands, 0)
+        let original = try XCTUnwrap(state.status.location)
+        model.changeStyle { $0.fontSize = 21 }
+        model.changeStyle { $0.isDark = true }
+        model.changeStyle { $0.flow = .scrolled }
+        await model.waitForCommands()
+        XCTAssertEqual(state.status.style, .init(fontSize: 21, isDark: true, flow: .scrolled))
+        try await wait("style position") { state.status.location?.href == original.href }
+        XCTAssertTrue(events().contains(.ready), "host event callback still receives readiness")
+        session.close()
+        XCTAssertEqual(state.status.lifecycle, .closed)
+        XCTAssertFalse(model.isReady)
+    }
+
+    func testClearSupersedesSearchAndSuppressesStaleCompletion() async throws {
+        var retained: NativeSession?
+        var clear: Task<Void, Error>?
+        let (session, window, events) = try open(Fixture.epub(), onEvent: { event in
+            if case .searchChanged(.searching) = event {
+                clear = Task { try await retained?.send(.clearSearch) }
+            }
+        })
+        retained = session
+        defer { session.close(); window.close() }
+        try await wait("ready") { events().contains(.ready) }
+        try await session.send(.searchHighlight(text: "words"))
+        try await clear?.value
+        XCTAssertEqual(session.readerState?.status.search, .idle)
+        XCTAssertFalse(events().contains(.searchChanged(.completed(query: "words", hasMatches: true))))
+    }
+
+    func testCanceledSearchEndsActivityWithoutCompletion() async throws {
+        var search: Task<Void, Error>?
+        let (session, window, events) = try open(Fixture.epub(), onEvent: { event in
+            if case .searchChanged(.searching) = event { search?.cancel() }
+        })
+        defer { session.close(); window.close() }
+        try await wait("ready") { events().contains(.ready) }
+        search = Task { try await session.send(.searchHighlight(text: "words")) }
+        do { try await search?.value; XCTFail("Canceled search completed") } catch is CancellationError {}
+        XCTAssertEqual(session.readerState?.status.search, .idle)
+        XCTAssertEqual(session.readerState?.status.activeCommands, 0)
+        XCTAssertFalse(events().contains(.searchChanged(.completed(query: "words", hasMatches: true))))
+    }
+
+    func testPublicBoundariesInPaginatedAndScrolledFlow() async throws {
+        for flow in [EPUBReadingFlow.paginated, .scrolled] {
+            let (session, window, events) = try open(Fixture.epub())
+            defer { session.close(); window.close() }
+            try await wait("built book") { events().contains(.ready) && session.book.isComplete }
+            try await session.send(.style(.init(flow: flow)))
+            let state = try XCTUnwrap(session.readerState)
+            try await wait("first boundary") { state.status.canGoPrevious == false }
+            for _ in 0..<200 {
+                if state.status.canGoNext == false { break }
+                try await session.send(.nextPage)
+                await Task.yield()
+            }
+            XCTAssertEqual(state.status.canGoNext, false, "last boundary in \(flow)")
+            XCTAssertEqual(state.status.canGoPrevious, true)
+            for _ in 0..<200 {
+                if state.status.canGoPrevious == false { break }
+                try await session.send(.previousPage)
+                await Task.yield()
+            }
+            XCTAssertEqual(state.status.canGoPrevious, false, "first boundary in \(flow)")
+        }
     }
 
     func testReusableEngineContract() async throws {

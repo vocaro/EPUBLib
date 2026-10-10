@@ -2,9 +2,9 @@
 
 Keep the parsed publication and session outside SwiftUI `body`. Use a distinct view identity for
 each session (including when reopening the same book) and close it when the reader leaves the screen. The host owns persistence,
-selection action behavior, navigation intent, toolbars, disclosures and fallback UI.
+selection action behavior, navigation intent, disclosures and fallback UI. Optional [reader controls](reader-controls.md) provide reusable toolbar groups.
 
-Import `EPUBLib`, `EPUBViewing`, `Foundation` and `Observation`. The following is
+Import `EPUBCore`, `EPUBReading`, `EPUBViewing`, `Foundation` and `Observation`. The following is
 the sample app's compiled lifecycle code:
 
 <!-- snippet:lifecycle -->
@@ -13,18 +13,17 @@ the sample app's compiled lifecycle code:
 final class BookReader {
     private(set) var publication: EPUBPublication?
     private(set) var session: (any EPUBReaderSession)?
+    private(set) var controls: EPUBReaderControls?
     private(set) var ready = false
     private(set) var loading = false
-    private(set) var busy = false
+    var busy: Bool { controls?.isBusy == true }
     private(set) var location: EPUBLocation?
     private(set) var disclosure: String?
     private(set) var notice: String?
     private(set) var selectedText: String?
     private(set) var error: String?
     private var opening: Task<Void, Never>?
-    private var commands: Task<Void, Never>?
     private var generation = UUID()
-    private var latestCommand = UUID()
     var sessionID: UUID { generation }
 
     func reportImportError(_ error: Error) { self.error = error.localizedDescription }
@@ -69,30 +68,14 @@ final class BookReader {
                 case .disclosure(let value): disclosure = value
                 case .notice(let value): notice = value
                 case .failed(let value): error = String(describing: value); ready = false
-                case .selectionChanged: break
+                case .selectionChanged, .searchChanged: break
                 }
             })
+        if let session { controls = EPUBReaderControls(publication: book, session: session) }
     }
 
     func send(_ command: EPUBReaderCommand) {
-        guard ready, let session else { return }
-        let previous = commands
-        let token = generation
-        let commandID = UUID()
-        latestCommand = commandID
-        busy = true
-        commands = Task { [weak self] in
-            await previous?.value
-            do {
-                try Task.checkCancellation()
-                try await session.send(command)
-            } catch is CancellationError {
-            } catch {
-                guard let self, generation == token else { return }
-                self.error = String(describing: error)
-            }
-            if let self, generation == token, latestCommand == commandID { busy = false }
-        }
+        controls?.send(command)
     }
 
     func savePosition() {
@@ -113,9 +96,9 @@ final class BookReader {
     func close() {
         generation = UUID()
         opening?.cancel(); opening = nil
-        commands?.cancel(); commands = nil
+        controls?.cancelPendingCommands(); controls = nil
         session?.close(); session = nil
-        publication = nil; ready = false; loading = false; busy = false
+        publication = nil; ready = false; loading = false
         location = nil; disclosure = nil; notice = nil; selectedText = nil; error = nil
     }
 }
@@ -173,6 +156,33 @@ Shift-Space previous. `.hostOnly` disables all direct page input; buttons can st
 
 <!-- snippet:pageControls -->
 ```swift
+/// Retain the session while switching between host-only and custom built-in input.
+struct PageControlsExample: View {
+    let session: any EPUBReaderSession
+    @State private var hostOnly = true
+
+    static let customControls = EPUBPageControls(leftTapWidth: 32, rightTapWidth: 96,
+        keyboardBindings: [
+            .init(.character("n"), modifiers: [.command, .shift], action: .next),
+            .init(.character("p"), modifiers: [.command, .shift], action: .previous),
+        ])
+
+    var body: some View {
+        VStack {
+            Toggle("Use only host page controls", isOn: $hostOnly)
+            HStack {
+                Button("Previous") { send(.previousPage) }
+                Button("Next") { send(.nextPage) }
+            }
+            EPUBReaderView(session: session)
+                .epubReaderPageControls(hostOnly ? .hostOnly : Self.customControls)
+        }
+    }
+
+    private func send(_ command: EPUBReaderCommand) {
+        Task { @MainActor in try? await session.send(command) }
+    }
+}
 ```
 <!-- /snippet -->
 

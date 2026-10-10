@@ -28,6 +28,7 @@ import SwiftUI
         .searchHighlight, .highlights,
     ]
     let publication: EPUBPublication
+    let readerState: EPUBReaderState?
     private(set) var closed = false
     private(set) var style = EPUBReaderStyle()
     /// The host's reserved division, from `View.epubReaderDivision(_:)`.
@@ -67,6 +68,7 @@ import SwiftUI
     init(publication: EPUBPublication, action: EPUBSelectionAction?, rich: any RichContentFactory,
          onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) throws {
         self.publication = publication; self.action = action; self.onEvent = onEvent
+        readerState = EPUBReaderState(status: EPUBReaderStatus(capabilities: capabilities))
         do { spine = try SpineCFIs(publication: publication) }
         catch { throw EPUBReaderError.engineFailure("The package document could not be read: \(error)") }
         progress = NativeProgress(publication: publication)
@@ -86,6 +88,7 @@ import SwiftUI
     func close() {
         guard !closed else { return }
         closed = true
+        readerState?.modify { $0.lifecycle = .closed; $0.search = .idle }
         onEvent = nil
         for task in tasks { task.cancel() }
         tasks.removeAll()
@@ -104,6 +107,7 @@ import SwiftUI
         canvas.delegate = self
         applyConfiguration()
         if isReady {
+            readerState?.modify { $0.lifecycle = .ready }
             // A new view for a session already reading: the same place, the same highlights.
             canvas.show(visibleRange?.start ?? initialPosition, selecting: nil)
             refreshHighlights()
@@ -118,6 +122,7 @@ import SwiftUI
         canvas.delegate = nil
         canvas.dataSource = nil
         self.canvas = nil
+        if !closed { readerState?.modify { $0.lifecycle = .loading } }
     }
 
     private var configuration: ReaderCanvasConfiguration {
@@ -167,18 +172,27 @@ import SwiftUI
         try Task.checkCancellation()
         guard !closed else { throw EPUBReaderError.closed }
         guard isReady, let canvas else { throw EPUBReaderError.notReady }
+        readerState?.modify { $0.activeCommands += 1 }
+        defer { readerState?.modify { $0.activeCommands -= 1 } }
         switch command {
         case .nextPage: turn(canvas, forward: true)
         case .previousPage: turn(canvas, forward: false)
         case .navigate(let href): try await navigate(href)
         case .restore(let location): try await restore(location)
         case .locate(let text, let highlight): try await locate(text, highlight: highlight)
-        case .searchHighlight(let text): try await search(text)
+        case .searchHighlight(let text):
+            do { try await search(text) }
+            catch let error as EPUBReaderError {
+                searchGeneration += 1
+                emit(.searchChanged(.failed(query: text, error: error)))
+                throw error
+            }
         case .clearSearch:
             searchGeneration += 1
             searchMatches = [:]
             searchRanges = [:]
             refreshHighlights()
+            emit(.searchChanged(.idle))
         case .style(let newStyle): try applyStyle(newStyle)
         case .setHighlights(let list): setHighlights(list)
         }
@@ -278,6 +292,7 @@ import SwiftUI
         searchMatches = [:]
         searchRanges = [:]
         refreshHighlights()
+        emit(.searchChanged(.idle))
         // A match inside content that renders nothing of its own (a hidden footnote) is a place
         // to go, not a passage to select; one that renders is preferred.
         var hidden: ReaderTextPosition?
@@ -320,11 +335,18 @@ import SwiftUI
         guard !query.isEmpty, text.count <= Self.maximumSearchLength else {
             throw EPUBReaderError.invalidCommand("The search text is empty or too long")
         }
+        emit(.searchChanged(.searching(query: text)))
         searchMatches = [:]
+        searchRanges = [:]
+        refreshHighlights()
         searchGeneration += 1
         let ticket = searchGeneration
+        defer {
+            if Task.isCancelled, !closed, ticket == searchGeneration { emit(.searchChanged(.idle)) }
+        }
         var found: [Int: [TextSearch.Match]] = [:]
         for index in publication.spine.indices {
+            try Task.checkCancellation()
             guard !closed, ticket == searchGeneration else { return }
             guard let document = await book.document(index) else { continue }
             let locale = language(of: document)
@@ -334,15 +356,18 @@ import SwiftUI
             if !matches.isEmpty { found[index] = matches }
         }
         guard !closed, ticket == searchGeneration else { return }
+        try Task.checkCancellation()
         searchMatches = found
         searchRanges = [:]
         refreshHighlights()
+        emit(.searchChanged(.completed(query: text, hasMatches: !found.isEmpty)))
     }
 
     private func applyStyle(_ newStyle: EPUBReaderStyle) throws {
         guard newStyle.fontSize.isFinite else { throw EPUBReaderError.invalidCommand("Nonfinite font size") }
         let previous = style
         style = newStyle
+        readerState?.modify { $0.style = newStyle }
         if newStyle.flow != previous.flow || newStyle.isDark != previous.isDark { applyConfiguration() }
         let typography = NativeTypography(fontSize: newStyle.fontSize, isDark: newStyle.isDark)
         if typography != book.typography {
@@ -440,7 +465,19 @@ import SwiftUI
 
     // MARK: - Events
 
-    private func emit(_ event: EPUBReaderEvent) { if !closed { onEvent?(event) } }
+    private func emit(_ event: EPUBReaderEvent) {
+        guard !closed else { return }
+        readerState?.modify {
+            switch event {
+            case .ready: $0.lifecycle = .ready
+            case .relocated(let location): $0.location = location
+            case .searchChanged(let search): $0.search = search
+            case .failed(let error): $0.lifecycle = .failed(error)
+            default: break
+            }
+        }
+        onEvent?(event)
+    }
 
     /// Where a range's contents title is read: its end within its first section, so a heading on
     /// the page names it, as foliate's `TOCProgress` compared against the range's end.
@@ -508,6 +545,10 @@ extension NativeSession: ReaderCanvasDelegate {
     func canvas(_ canvas: any ReaderCanvas, didShow range: ReaderTextRange, sectionProgress: Double) {
         visibleRange = range
         guard isReady, !closed else { return }
+        readerState?.modify {
+            $0.canGoPrevious = self.canvas?.canTurnPage(forward: false)
+            $0.canGoNext = self.canvas?.canTurnPage(forward: true)
+        }
         // A page is read to its end, as foliate measured it: the last page of a book is 1.
         var fraction = sectionProgress
         if style.flow == .paginated, let length = book.section(range.start.section)?.string.length, length > 0 {

@@ -1,0 +1,102 @@
+import EPUBCore
+import EPUBReading
+import Observation
+import Foundation
+
+/// Retain one controls model with a publication and its existing session. All control
+/// submissions run in FIFO order. A closed/failed/detached session rejects queued work.
+@MainActor @Observable public final class EPUBReaderControls {
+    public let publication: EPUBPublication
+    public let session: any EPUBReaderSession
+    public var searchText = ""
+    public private(set) var pendingCommands = 0
+    public private(set) var commandError: String?
+    @ObservationIgnored private var commands: Task<Void, Never>?
+    @ObservationIgnored private var generation = 0
+
+    public init(publication: EPUBPublication, session: any EPUBReaderSession) {
+        self.publication = publication
+        self.session = session
+    }
+
+    public var status: EPUBReaderStatus? { session.readerState?.status }
+    public var isReady: Bool { status?.lifecycle == .ready }
+    public var isBusy: Bool { pendingCommands > 0 || (status?.activeCommands ?? 0) > 0 }
+    public var isRightToLeft: Bool { publication.pageProgression == .rtl }
+    public var canGoPrevious: Bool { canTurn && status?.canGoPrevious != false }
+    public var canGoNext: Bool { canTurn && status?.canGoNext != false }
+    private var canTurn: Bool {
+        guard let status else { return false }
+        return isReady && status.capabilities.contains(status.style.flow == .scrolled ? .scrolling : .pagination)
+    }
+    public func supports(_ capability: EPUBReaderCapability) -> Bool {
+        status?.capabilities.contains(capability) == true
+    }
+    public func dismissError() { commandError = nil }
+
+    public func send(_ command: EPUBReaderCommand) { enqueue { command } }
+    /// Edits the latest style when this command executes, preserving changes queued before it
+    /// and style fields updated through the session by the host.
+    public func changeStyle(_ change: @escaping @MainActor (inout EPUBReaderStyle) -> Void) {
+        enqueue { [weak self] in
+            var style = self?.status?.style ?? EPUBReaderStyle()
+            change(&style)
+            return .style(style)
+        }
+    }
+    /// Submit-only search. Typing never sends a command. Whitespace-only input clears;
+    /// the native engine validates its normalized query and 512-character limit.
+    public func submitSearch() {
+        let query = searchText
+        send(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .clearSearch : .searchHighlight(text: query))
+    }
+    public func clearSearch() { searchText = ""; send(.clearSearch) }
+
+    /// Cancels work that has not been submitted. Already submitted commands cannot be undone.
+    /// Call when discarding controls; close the session when leaving the book.
+    public func cancelPendingCommands() {
+        generation += 1
+        commands?.cancel()
+        commands = nil
+        pendingCommands = 0
+    }
+    public func waitForCommands() async { await commands?.value }
+
+    private func enqueue(_ command: @escaping @MainActor () -> EPUBReaderCommand) {
+        guard isReady else { return }
+        let previous = commands
+        let token = generation
+        pendingCommands += 1
+        commands = Task { [weak self] in
+            await previous?.value
+            guard let self, generation == token else { return }
+            defer { if generation == token { pendingCommands -= 1 } }
+            do {
+                try Task.checkCancellation()
+                guard isReady else { return }
+                commandError = nil
+                try await session.send(command())
+            } catch is CancellationError {
+            } catch {
+                guard generation == token, status?.lifecycle != .closed else { return }
+                commandError = (error as? EPUBReaderError)?.message ?? error.localizedDescription
+            }
+        }
+    }
+
+    /// A section-only href is exact; for fragment entries the current title disambiguates
+    /// entries within a section. Unknown or ambiguous titles produce no checkmark.
+    public func isCurrent(_ item: EPUBNavigationItem) -> Bool {
+        guard let href = item.href, let location = status?.location,
+              href.split(separator: "#", maxSplits: 1).first == location.href?.split(separator: "#", maxSplits: 1).first else { return false }
+        if !href.contains("#") { return true }
+        guard location.title == item.title else { return false }
+        func matches(_ items: [EPUBNavigationItem]) -> Int {
+            items.reduce(0) { count, candidate in
+                let sameSection = candidate.href?.split(separator: "#", maxSplits: 1).first == href.split(separator: "#", maxSplits: 1).first
+                return count + (sameSection && candidate.title == item.title ? 1 : 0) + matches(candidate.children)
+            }
+        }
+        return matches(publication.tableOfContents) == 1
+    }
+}
