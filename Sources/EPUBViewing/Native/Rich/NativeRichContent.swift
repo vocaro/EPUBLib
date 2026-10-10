@@ -62,7 +62,8 @@ struct NativeRichContent: RichContentFactory {
         if intrinsic.width <= 0 || intrinsic.height <= 0 { intrinsic = source.pixelSize }
         let sizing = ImageSizing(intrinsic: intrinsic, style: style, widthHint: element.attribute("width"),
                                  heightHint: element.attribute("height"))
-        return attachment(ReaderImageAttachment(source: source, sizing: sizing, alt: alt, style: style, cache: images),
+        return attachment(ReaderImageAttachment(source: source, sizing: sizing, alt: alt, style: style,
+                                                isDark: context.typography.isDark, cache: images),
                           style: style, context: context)
     }
 
@@ -90,7 +91,7 @@ struct NativeRichContent: RichContentFactory {
             let placement = SVGContent.placement(of: image, in: element, imageSize: source.pixelSize, fontSize: style.fontSize)
             let alt = title.isEmpty ? Self.normalized(image.attribute("alt") ?? "") : title
             return attachment(ReaderImageAttachment(source: source, sizing: sizing, alt: alt, style: style,
-                                                    contentRect: placement, cache: images),
+                                                    contentRect: placement, isDark: context.typography.isDark, cache: images),
                               style: style, context: context)
         }
         let key = context.publication.id + "\u{0}" + context.document.path + "\u{0}\(element.order)"
@@ -101,7 +102,8 @@ struct NativeRichContent: RichContentFactory {
         }
         let intrinsic = SVGContent.intrinsicSize(element, fontSize: style.fontSize, fallback: source.pixelSize)
         let sizing = ImageSizing(intrinsic: intrinsic, style: style, widthHint: widthHint, heightHint: heightHint)
-        return attachment(ReaderImageAttachment(source: source, sizing: sizing, alt: title, style: style, cache: images),
+        return attachment(ReaderImageAttachment(source: source, sizing: sizing, alt: title, style: style,
+                                                isDark: context.typography.isDark, cache: images),
                           style: style, context: context)
     }
 

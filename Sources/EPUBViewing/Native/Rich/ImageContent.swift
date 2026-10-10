@@ -96,15 +96,18 @@ final class ReaderImageAttachment: ReaderAttachment {
     let fontSize: CGFloat
     /// CSS `filter: invert()`: drawn with its colors inverted (dark-appearance line art).
     let invertsColors: Bool
+    /// Reader appearance, kept with the attachment through layout clones and table draws.
+    let isDark: Bool
     let cache: ReaderImageCache
 
     init(source: ReaderImageSource, sizing: ImageSizing, alt: String, style: ComputedStyle,
-         contentRect: CGRect? = nil, cache: ReaderImageCache) {
+         contentRect: CGRect? = nil, isDark: Bool = false, cache: ReaderImageCache) {
         self.source = source; self.sizing = sizing; self.alt = alt; self.contentRect = contentRect
         isBlock = style.display.isBlockLevel
         verticalAlign = style.verticalAlign
         fontSize = style.fontSize
         invertsColors = style.invertsColors
+        self.isDark = isDark
         self.cache = cache
         super.init()
     }
@@ -181,7 +184,7 @@ final class ReaderImageAttachment: ReaderAttachment {
     /// Decodes for drawing `rect` at `scale` device pixels per point.
     func bitmap(for rect: CGRect, scale: CGFloat) -> CGImage? {
         let pixels = Int((max(rect.width, rect.height) * scale).rounded(.up))
-        return cache.image(for: source, maxPixelSize: pixels, inverted: invertsColors)
+        return cache.image(for: source, maxPixelSize: pixels, inverted: invertsColors, lightBackdrop: isDark)
     }
 
     private func render(_ size: CGSize) -> PlatformImage? {
