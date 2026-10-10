@@ -81,7 +81,7 @@ final class RichTableTests: XCTestCase {
         XCTAssertEqual(bounds.height, shrunk.height(ofRow: 0), accuracy: 0.01)
     }
 
-    func testARowTallerThanThePageShrinksTheTableThenIsClippedToThePage() throws {
+    func testASingleLineTallerThanThePageHasACompleteScaledContinuation() throws {
         let fixture = try fixture("<table id='t'><tr><td>A cell</td><td>Another</td></tr></table>")
         let row = try rows(fixture, "t")[0]
         let table = row.table
@@ -90,8 +90,10 @@ final class RichTableTests: XCTestCase {
         XCTAssertLessThan(short.scale, 1)
         XCTAssertGreaterThanOrEqual(short.scale, TableModel.minimumScale)
         XCTAssertGreaterThan(short.height(ofRow: 0), 5, "Still taller than the page at the smallest scale")
-        XCTAssertEqual(row.height(width: 400, viewportHeight: 5), 5, "So the row is clipped to the page")
-        XCTAssertEqual(row.layoutBounds(line(400, viewport: CGSize(width: 400, height: 5))).height, 5)
+        XCTAssertGreaterThan(row.height(width: 400, viewportHeight: 5), 5, "Scroll never clips the row")
+        let slices = short.fragments(ofRow: 0, maximumHeight: 5)
+        XCTAssertTrue(slices.allSatisfy { $0.height * short.scale * $0.fitScale <= 5.01 })
+        XCTAssertTrue(slices.contains { $0.fitScale < 1 }, "One glyph line taller than a page is fitted as a whole")
     }
 
     func testMinimumContentIsTheWidestWord() throws {
@@ -173,15 +175,19 @@ final class RichTableTests: XCTestCase {
         XCTAssertGreaterThan(Self.ink(pixels, columns: 0..<12), 0, "The spanning cell's left border")
     }
 
-    @MainActor func testARowTallerThanAPageGetsAPageOfItsOwn() throws {
+    @MainActor func testARowTallerThanAPageContinuesAcrossPages() throws {
         let long = Array(repeating: "words", count: 600).joined(separator: " ")
         let fixture = try fixture("<table id='t'><tr><td>\(long)</td><td>x</td></tr><tr><td>a</td><td>b</td></tr></table>")
         let text = try XCTUnwrap(fixture.table("t"))
         let rows = RichFixture.attachments(in: text).compactMap { $0 as? TableRowAttachment }
         let size = CGSize(width: 300, height: 400)
-        XCTAssertEqual(rows[0].height(width: size.width, viewportHeight: size.height), size.height)
-        let pages = ReaderPaginator(text: text, size: size).allPages
-        XCTAssertEqual(pages.count, 2)
+        XCTAssertGreaterThan(rows[0].height(width: size.width, viewportHeight: size.height), size.height)
+        let paginator = ReaderPaginator(text: text, size: size)
+        let pages = paginator.allPages
+        XCTAssertGreaterThan(pages.count, 1)
+        XCTAssertEqual(paginator.text.string, text.string)
+        XCTAssertEqual(paginator.pageIndex(containing: 0), 0)
+        for page in pages { XCTAssertEqual(paginator.text(for: page).length, page.range.length) }
         XCTAssertTrue(pages.allSatisfy { $0.height <= size.height + 0.5 })
     }
 

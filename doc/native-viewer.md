@@ -81,9 +81,16 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   image-drawn attachment per row so pages can break between any two rows; rows a rowspan
   joins, and the header, keep with the next row and share a page when they fit. `colspan`/
   `rowspan` honoured (`rowspan="0"` spans one row, as WebKit does); a spanning cell is drawn in
-  each row it covers. Tables too wide for the line shrink their text to 60%, then wrap by
-  character. One-column tables, which books use as callout boxes, flow as ordinary text. Cell
-  text is not selectable; it is searchable, and VoiceOver reads each row's cells.
+  each row it covers. Oversized rows continue across pages using complete cell glyph lines;
+  a line crossing a rowspan boundary is finished in its preceding row and never drawn twice.
+  Continuous scroll retains full row heights. Tables too wide for the line shrink their text
+  to 60%, then wrap by character. A single glyph line taller than a page is fitted as a whole.
+  One-column tables, which books use as callout boxes, flow as ordinary text. Cell text is not
+  selectable; it is searchable, and VoiceOver reads only each continuation's words, completing
+  a word once if character wrapping splits it between pages. Continuations retain original
+  source offsets: several pages can report the same row range, and bookmarks/search navigation
+  retain table-unit granularity rather than identifying a particular continuation. Cell TextKit
+  layouts and glyph metadata are retained for drawing in the table's bounded layout cache.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow; endnotes stay in place and also show in popovers.
 - **Continuous scroll** is whole-book: one `UITextView`/`NSTextView` over every linear
@@ -278,9 +285,10 @@ Go: the native viewer is the bundled engine.
   geometry are unsupported. Unsized inline-blocks remain inline. Percentages in ordinary margins and
   indents still resolve against a nominal 600-pt column. [#19](https://github.com/vocaro/EPUBLib/issues/19)
   remains open for adjacent-text float wrapping and faithful positioning.
-- Table cell text is not selectable and links inside cells do not activate; a single table row
-  taller than a page (after shrinking to 60%) is clipped to the page, and a spanning cell's
-  text can be cut at a page break between the rows it spans.
+- Table cell text is not selectable and links inside cells do not activate. Search and saved
+  highlights cover the original table unit, including its continuations; navigating/restoring
+  that unit starts at its first page. A resize or flow change also returns a continued row to
+  its source position rather than preserving its particular visual fragment.
 - MathML has no line breaking (wide formulas scale down), no `mglyph` or elementary-math
   elements, and English-only spoken readings when `alttext` is absent.
 - Search in languages with tailored collation (Turkish, Swedish, Spanish…) finds a superset
