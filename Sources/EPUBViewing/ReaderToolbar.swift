@@ -98,7 +98,7 @@ public struct EPUBReaderControl: View {
             case .contents:
                 if controls.supports(.navigateHref) { contents }
             case .appearance:
-                if controls.supports(.typography) || controls.supports(.pagination) || controls.supports(.scrolling) { appearance }
+                if controls.supports(.typography) || (controls.supports(.pagination) && controls.supports(.scrolling)) { appearance }
             }
         }
         .disabled(!controls.isReady)
