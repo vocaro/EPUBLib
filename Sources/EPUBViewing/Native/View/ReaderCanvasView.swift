@@ -169,6 +169,11 @@ import AppKit
     }
 
     private func configurationDidChange(from old: ReaderCanvasConfiguration) {
+        if old.pageControls != configuration.pageControls || old.flow != configuration.flow {
+            pointerDown = nil
+            wheelTurner = ReaderWheelPageTurner()
+            updateInputHandlers()
+        }
         if old.isDark != configuration.isDark {
             applyAppearance()
             applyHighlights()
@@ -801,15 +806,16 @@ import AppKit
     /// Text is selected in a text view on screen.
     var hasSelection: Bool { textViews.contains { $0.selectedRange.length > 0 } }
 
-    /// The width of the paginated tap zones at the left and right edges.
-    static let edgeZoneWidth: CGFloat = 56
-
-    /// The page turn a tap or click at `point` (canvas coordinates) makes: within 56 points of
-    /// the left or right edge in paginated flow (the left one goes back, mirrored right to
+    /// The page turn a tap or click at `point` (canvas coordinates) makes: within a configured
+    /// physical edge zone in paginated flow (the left one goes back, mirrored right to
     /// left), unless it is on a link or text is selected, where the text view's own tap belongs.
     func edgeTurn(at point: CGPoint) -> Bool? {
-        guard configuration.flow == .paginated, bounds.contains(point), !hasSelection else { return nil }
-        let left = point.x < bounds.minX + Self.edgeZoneWidth, right = point.x > bounds.maxX - Self.edgeZoneWidth
+        guard configuration.flow == .paginated, configuration.pageControls.edgeTapsEnabled, bounds.contains(point), !hasSelection else { return nil }
+        if let division = ReaderCanvasGeometry.usableDivision(configuration.division, in: bounds),
+           point.x >= division.minX, point.x <= division.maxX { return nil }
+        func width(_ value: CGFloat) -> CGFloat { value.isFinite ? min(bounds.width, max(0, value)) : 0 }
+        let left = point.x < bounds.minX + width(configuration.pageControls.leftTapWidth)
+        let right = point.x > bounds.maxX - width(configuration.pageControls.rightTapWidth)
         guard left || right else { return nil }
         if let view = columns.first(where: { !$0.isHidden && $0.frame.contains(point) }),
            view.link(at: convert(point, to: view)) != nil { return nil }

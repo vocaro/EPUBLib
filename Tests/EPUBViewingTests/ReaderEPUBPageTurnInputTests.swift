@@ -1,44 +1,62 @@
-#if DEBUG
 import XCTest
 @testable import EPUBViewing
 
 final class ReaderEPUBPageTurnInputTests: XCTestCase {
-
-    func testArrowKeysMapToTheAdjacentPageTurnDirection() {
-        XCTAssertEqual(
-            ReaderEPUBPageTurnKey.command(forKeyCode: 123, hasShift: false), .previous, "Left")
-        XCTAssertEqual(
-            ReaderEPUBPageTurnKey.command(forKeyCode: 124, hasShift: false), .next, "Right")
+    func testDefaultsAndHostOnly() {
+        let controls = EPUBPageControls()
+        XCTAssertTrue(controls.edgeTapsEnabled)
+        XCTAssertTrue(controls.touchSwipesEnabled)
+        XCTAssertTrue(controls.wheelEnabled)
+        XCTAssertEqual(controls.leftTapWidth, 56)
+        XCTAssertEqual(controls.rightTapWidth, 56)
+        for key: EPUBPageKey in [.leftArrow, .pageUp] {
+            XCTAssertEqual(controls.direction(for: key, modifiers: []), false)
+        }
+        for key: EPUBPageKey in [.rightArrow, .pageDown, .space] {
+            XCTAssertEqual(controls.direction(for: key, modifiers: []), true)
+        }
+        XCTAssertEqual(controls.direction(for: .space, modifiers: .shift), false)
+        XCTAssertFalse(EPUBPageControls.hostOnly.edgeTapsEnabled)
+        XCTAssertFalse(EPUBPageControls.hostOnly.touchSwipesEnabled)
+        XCTAssertFalse(EPUBPageControls.hostOnly.wheelEnabled)
+        XCTAssertTrue(EPUBPageControls.hostOnly.effectiveBindings.isEmpty)
     }
 
-    func testPageUpAndPageDownMapToTheAdjacentPageTurnDirection() {
-        XCTAssertEqual(
-            ReaderEPUBPageTurnKey.command(forKeyCode: 116, hasShift: false), .previous, "Page Up")
-        XCTAssertEqual(
-            ReaderEPUBPageTurnKey.command(forKeyCode: 121, hasShift: false), .next, "Page Down")
-    }
-
-    func testSpaceTurnsForwardAndShiftSpaceTurnsBackward() {
-        XCTAssertEqual(ReaderEPUBPageTurnKey.command(forKeyCode: 49, hasShift: false), .next)
-        XCTAssertEqual(ReaderEPUBPageTurnKey.command(forKeyCode: 49, hasShift: true), .previous)
-    }
-
-    func testAnUnboundKeyMapsToNoCommand() {
-        for keyCode: UInt16 in [0, 1, 36, 51, 53, 125, 126] {
-            XCTAssertNil(
-                ReaderEPUBPageTurnKey.command(forKeyCode: keyCode, hasShift: false),
-                "key code \(keyCode) should not be a page-turn binding")
+    func testDefaultBindingsLeaveSelectionAndSystemChords() {
+        let controls = EPUBPageControls()
+        XCTAssertNil(controls.direction(for: .rightArrow, modifiers: .shift))
+        XCTAssertNil(controls.direction(for: .character("a"), modifiers: .command))
+        XCTAssertNil(controls.direction(for: .character("c"), modifiers: .command))
+        for modifier: EPUBPageKeyModifiers in [.command, .control, .option, [.shift, .command]] {
+            XCTAssertNil(controls.direction(for: .space, modifiers: modifier))
+            XCTAssertNil(controls.direction(for: .pageDown, modifiers: modifier))
         }
     }
 
-    func testTheSwiftUIKeyMappingAgreesWithTheKeyDownFallbackMapping() {
-        XCTAssertEqual(ReaderEPUBPageTurnKey.command(for: .leftArrow, hasShift: false), .previous)
-        XCTAssertEqual(ReaderEPUBPageTurnKey.command(for: .rightArrow, hasShift: false), .next)
-        XCTAssertEqual(ReaderEPUBPageTurnKey.command(for: .pageUp, hasShift: false), .previous)
-        XCTAssertEqual(ReaderEPUBPageTurnKey.command(for: .pageDown, hasShift: false), .next)
-        XCTAssertEqual(ReaderEPUBPageTurnKey.command(for: .space, hasShift: false), .next)
-        XCTAssertEqual(ReaderEPUBPageTurnKey.command(for: .space, hasShift: true), .previous)
-        XCTAssertNil(ReaderEPUBPageTurnKey.command(for: .escape, hasShift: false))
+    func testReplacementBindingsMatchExactModifiersAndNormalizeLetters() {
+        let controls = EPUBPageControls(keyboardBindings: [
+            .init(.character("N"), modifiers: [.command, .shift], action: .next),
+            .init(.leftArrow, modifiers: .option, action: .next),
+            .init(.character("p"), modifiers: .control, action: .previous),
+        ])
+        XCTAssertEqual(controls.direction(for: .character("n"), modifiers: [.shift, .command]), true)
+        XCTAssertNil(controls.direction(for: .character("n"), modifiers: .command))
+        XCTAssertNil(controls.direction(for: .rightArrow, modifiers: []), "removed default")
+        XCTAssertEqual(controls.direction(for: .leftArrow, modifiers: .option), true)
+        XCTAssertEqual(controls.direction(for: .character("P"), modifiers: .control), false)
+        XCTAssertNil(EPUBPageControls(keyboardBindings: []).direction(for: .space, modifiers: []))
+    }
+
+    func testDuplicatesInvalidCharactersAndUnsupportedModifiers() {
+        let controls = EPUBPageControls(keyboardBindings: [
+            .init(.character("n"), action: .previous), .init(.character("N"), action: .next),
+            .init(.character("!"), action: .next), .init(.character("é"), action: .next),
+            .init(.space, modifiers: .init(rawValue: 128), action: .next),
+            .init(.character("3"), action: .next),
+        ])
+        XCTAssertEqual(controls.effectiveBindings.count, 2)
+        XCTAssertEqual(controls.direction(for: .character("N"), modifiers: []), false, "first duplicate wins")
+        XCTAssertEqual(controls.direction(for: .character("3"), modifiers: []), true)
+        XCTAssertNil(controls.direction(for: .character("!"), modifiers: []))
     }
 }
-#endif

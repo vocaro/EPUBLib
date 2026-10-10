@@ -33,6 +33,8 @@ import SwiftUI
     /// The host's reserved division, from `View.epubReaderDivision(_:)`.
     var division: CGRect? { didSet { if division != oldValue { applyConfiguration() } } }
 
+    var pageControls = EPUBPageControls() { didSet { if pageControls != oldValue { applyConfiguration() } } }
+
     @ObservationIgnored let book: NativeBook
     @ObservationIgnored private let spine: SpineCFIs
     @ObservationIgnored private let progress: NativeProgress
@@ -124,6 +126,7 @@ import SwiftUI
         configuration.isDark = style.isDark
         configuration.isRightToLeft = publication.pageProgression == .rtl
         configuration.division = division
+        configuration.pageControls = pageControls
         configuration.selectionActionTitle = action?.title
         configuration.selectionActionImage = action?.systemImage ?? "text.quote"
         return configuration
@@ -571,17 +574,14 @@ extension NativeSession: ReaderCanvasDelegate {
 private struct NativeSurface: View {
     let session: NativeSession
     @Environment(\.epubReaderDivision) private var division
+    @Environment(\.epubReaderPageControls) private var pageControls
 
     var body: some View {
         if !session.closed {
             NativeCanvasHost(session: session)
-                .onAppear { session.division = division }
+                .onAppear { session.division = division; session.pageControls = pageControls }
                 .onChange(of: division) { session.division = division }
-                .onKeyPress(keys: [.leftArrow, .rightArrow, .pageUp, .pageDown, .space]) { press in
-                    guard let command = ReaderEPUBPageTurnKey.command(for: press.key, hasShift: press.modifiers.contains(.shift)) else { return .ignored }
-                    submit(command == .next ? .nextPage : .previousPage)
-                    return .handled
-                }
+                .onChange(of: pageControls) { session.pageControls = pageControls }
                 .accessibilityScrollAction { edge in
                     if edge == .leading { submit(.previousPage) }
                     if edge == .trailing { submit(.nextPage) }

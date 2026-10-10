@@ -8,6 +8,15 @@ struct ReaderScreen: View {
     @State private var reader = BookReader()
     @State private var importing = false
     @State private var style = EPUBReaderStyle()
+    @State private var pageInput = 0
+
+    private var pageControls: EPUBPageControls {
+        switch pageInput {
+        case 1: .hostOnly
+        case 2: PageControlsExample.customControls
+        default: .init()
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,6 +45,11 @@ struct ReaderScreen: View {
                                 }
                             }
                         }
+                        Picker("Page Input", selection: $pageInput) {
+                            Text("Default").tag(0)
+                            Text("Host Only").tag(1)
+                            Text("Custom: ⇧⌘N / ⇧⌘P").tag(2)
+                        }.fixedSize()
                         if session.capabilities.contains(.typography) {
                             Button("Larger Text") { style.fontSize = min(36, style.fontSize + 2); reader.send(.style(style)) }
                         }
@@ -51,7 +65,9 @@ struct ReaderScreen: View {
                         }
                     }.padding(.horizontal)
                 }.disabled(!reader.ready || reader.busy)
-                EPUBReaderView(session: session).id(reader.sessionID)
+                EPUBReaderView(session: session)
+                    .epubReaderPageControls(pageControls)
+                    .id(reader.sessionID)
                 Text(book.metadata.title).font(.caption).padding(6)
             } else {
                 ContentUnavailableView("Open a book", systemImage: "book", description: Text("Choose an EPUB file or explore the included sample."))

@@ -15,8 +15,23 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         tap.delegate = self
         tap.cancelsTouchesInView = false
         addGestureRecognizer(tap)
+        updateInputHandlers()
         NotificationCenter.default.addObserver(self, selector: #selector(memoryWarning(_:)),
                                                name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+    }
+
+    /// Disabled recognizers cannot compete with a host gesture, even before recognition.
+    func updateInputHandlers() {
+        for recognizer in gestureRecognizers ?? [] {
+            if recognizer is UISwipeGestureRecognizer {
+                recognizer.isEnabled = configuration.flow == .paginated && configuration.pageControls.touchSwipesEnabled
+            } else if recognizer is UITapGestureRecognizer {
+                recognizer.isEnabled = configuration.flow == .paginated && configuration.pageControls.edgeTapsEnabled
+            }
+        }
+        UIMenuSystem.main.setNeedsRebuild()
+        if isFirstResponder { reloadInputViews() }
+        for view in textViews where view.isFirstResponder { view.reloadInputViews() }
     }
 
     @objc private func memoryWarning(_ notification: Notification) { trimCaches() }
@@ -167,12 +182,12 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     // MARK: Input
 
     @objc private func swiped(_ recognizer: UISwipeGestureRecognizer) {
-        guard configuration.flow == .paginated else { return }
+        guard configuration.flow == .paginated, configuration.pageControls.touchSwipesEnabled, !hasSelection else { return }
         turnPageFromInput(forward: ReaderCanvasInput.swipeDirection(
             towardsLeft: recognizer.direction == .left, isRightToLeft: configuration.isRightToLeft))
     }
 
-    /// A tap within 56 points of the left or right edge turns the page, unless it lands on a
+    /// A tap within a configured physical edge zone turns the page, unless it lands on a
     /// link, text is selected, or the touch was a long press (a selection beginning).
     @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
         guard let down = pointerDown, ProcessInfo.processInfo.systemUptime - down.time < 0.35,
@@ -185,12 +200,13 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer.view === self else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
         guard configuration.flow == .paginated else { return false }
-        if gestureRecognizer is UISwipeGestureRecognizer { return !hasSelection }
+        if gestureRecognizer is UISwipeGestureRecognizer { return configuration.pageControls.touchSwipesEnabled && !hasSelection }
         if gestureRecognizer is UITapGestureRecognizer { return edgeTurn(at: gestureRecognizer.location(in: self)) != nil }
         return super.gestureRecognizerShouldBegin(gestureRecognizer)
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer.isEnabled else { return false }
         if gestureRecognizer is UITapGestureRecognizer { pointerDown = (touch.location(in: self), touch.timestamp) }
         return true
     }
@@ -202,21 +218,29 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// would dismiss a keyboard elsewhere in the window.
     override var canBecomeFirstResponder: Bool { true }
 
-    /// Page-turn keys for the canvas and its text views. They take priority over the text
-    /// views' own arrow-key handling; Shift-arrow, Command, Option and Control chords stay theirs.
-    override var keyCommands: [UIKeyCommand]? {
-        let keys: [(String, UIKeyModifierFlags)] = [
-            (UIKeyCommand.inputLeftArrow, []), (UIKeyCommand.inputRightArrow, []), (UIKeyCommand.inputPageUp, []),
-            (UIKeyCommand.inputPageDown, []), (" ", []), (" ", .shift)]
-        return keys.map { input, flags in
-            let command = UIKeyCommand(input: input, modifierFlags: flags, action: #selector(pageTurnKeyCommand(_:)))
+    /// Bindings are read from the current configuration by both canvas and focused children.
+    override var keyCommands: [UIKeyCommand]? { pageKeyCommands }
+
+    var pageKeyCommands: [UIKeyCommand] {
+        configuration.pageControls.effectiveBindings.map { binding in
+            let command = UIKeyCommand(input: binding.key.uiInput, modifierFlags: binding.modifiers.uiFlags,
+                                       action: #selector(pageTurnKeyCommand(_:)))
             command.wantsPriorityOverSystemBehavior = true
             return command
         }
     }
 
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(pageTurnKeyCommand(_:)), let command = sender as? UIKeyCommand {
+            return ReaderTextView.pageTurnDirection(input: command.input, flags: command.modifierFlags,
+                                                    controls: configuration.pageControls) != nil
+        }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
     @objc func pageTurnKeyCommand(_ command: UIKeyCommand) {
-        guard let forward = ReaderTextView.pageTurnDirection(input: command.input, flags: command.modifierFlags) else { return }
+        guard let forward = ReaderTextView.pageTurnDirection(input: command.input, flags: command.modifierFlags,
+                                                             controls: configuration.pageControls) else { return }
         turnPageFromInput(forward: forward)
     }
 
