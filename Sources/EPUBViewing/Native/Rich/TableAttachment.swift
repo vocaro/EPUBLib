@@ -8,8 +8,8 @@ import AppKit
 
 /// One source row of a table, or one of its pagination-time continuations. Continuations
 /// retain the source attachment character; only their drawing and spoken text differ. Whole
-/// rows in continuous scroll have their full height. Cell text remains attachment content,
-/// so native character selection and link activation inside cells are not available.
+/// rows in continuous scroll have their full height. Native cell interaction views use the
+/// same line slices and glyph metrics, without changing the attachment's source character.
 final class TableRowAttachment: ReaderAttachment {
     let table: TableModel
     let row: Int
@@ -110,6 +110,39 @@ final class TableRowAttachment: ReaderAttachment {
 
     func image(at point: CGPoint, size: CGSize, viewportHeight: CGFloat) -> ReaderImageAttachment? {
         images(size: size, viewportHeight: viewportHeight).first { $0.frame.contains(point) }?.image
+    }
+
+    struct InteractionCell {
+        var cell: Int
+        var text: NSAttributedString
+        var characters: NSRange
+        /// Clipped viewport frame in row coordinates; origin identifies the full cell text's
+        /// first glyph, before clipping to this complete-line continuation.
+        var frame: CGRect
+        var textOrigin: CGPoint
+        var width: CGFloat
+        var scale: CGFloat
+    }
+
+    func interactionCells(size: CGSize, viewportHeight: CGFloat) -> [InteractionCell] {
+        let layout = layout(width: size.width, viewportHeight: viewportHeight)
+        let slice = fragment ?? layout.fragments(ofRow: row, maximumHeight: .greatestFiniteMagnitude)[0]
+        let scale = layout.scale * slice.fitScale
+        return slice.cells.compactMap { entry in
+            let cell = layout.cellText[entry.cell], content = layout.contentFrames[entry.cell]
+            guard let first = entry.lines.first, let last = entry.lines.last else { return nil }
+            let top = cell.lines[first].frame.minY, bottom = cell.lines[last].frame.maxY
+            let origin = CGPoint(x: (layout.originX + content.minX) * scale,
+                y: (content.minY - slice.top) * scale)
+            let full = CGRect(x: origin.x, y: origin.y + top * scale, width: content.width * scale,
+                height: (bottom - top) * scale)
+            let frame = full.intersection(CGRect(origin: .zero, size: size))
+            guard !frame.isNull, !frame.isEmpty else { return nil }
+            return InteractionCell(cell: entry.cell, text: cell.interactionText,
+                characters: NSRange(location: cell.lines[first].characters.location,
+                    length: cell.lines[last].characters.upperBound - cell.lines[first].characters.location),
+                frame: frame, textOrigin: origin, width: content.width, scale: scale)
+        }
     }
 
     private func render(_ size: CGSize, container: NSTextContainer?) -> PlatformImage? {

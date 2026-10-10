@@ -32,7 +32,7 @@ struct NativeRichContent: RichContentFactory {
         } else {
             reference = element.attribute("src")
         }
-        let alt = Self.normalized(element.attribute("alt") ?? (isObject || isEmbed ? element.attribute("title") : nil) ?? "")
+        var alt = Self.normalized(element.attribute("alt") ?? (isObject || isEmbed ? element.attribute("title") : nil) ?? "")
         // An `<object>` falls back to its own content, an image to its alt text.
         let fallback = { isObject ? nil : Self.altText(alt, style: style, context: context) }
         guard let reference = reference?.trimmingCharacters(in: .whitespacesAndNewlines), !reference.isEmpty,
@@ -47,8 +47,10 @@ struct NativeRichContent: RichContentFactory {
         if Self.isSVG(data, path: path, context: context) {
             guard let (svg, root) = svgDocument(data, path: path, key: key, context: context) else {
                 context.report.report.unsupportedElements["svg", default: 0] += 1
+                if alt.isEmpty, let document = try? ContentDocument.parse(data, path: path) { alt = SVGContent.fallbackText(document.root) }
                 return fallback()
             }
+            if alt.isEmpty { alt = SVGContent.accessibleLabel(root) ?? "" }
             source = svg
             intrinsic = SVGContent.intrinsicSize(root, fontSize: style.fontSize, fallback: svg.pixelSize)
         } else {
@@ -68,9 +70,10 @@ struct NativeRichContent: RichContentFactory {
     }
 
     func svg(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
-        let title = SVGContent.title(element) ?? ""
-        // Nothing at all rather than the drawing's text content, when it cannot be shown.
-        let nothing = { Self.altText(title, style: style, context: context) ?? NSAttributedString() }
+        let title = SVGContent.accessibleLabel(element) ?? ""
+        // Prefer authored title/description, then drawing labels, when it cannot be shown.
+        let nothing = { Self.altText(SVGContent.fallbackText(element), style: style, context: context) ?? NSAttributedString() }
+        discloseSVG(element, context: context)
         let widthHint = element.attribute("width"), heightHint = element.attribute("height")
         if let image = SVGContent.wrappedImage(element), let reference = SVGContent.href(image), !reference.hasPrefix("#") {
             guard let path = context.resolve(reference) else { return nothing() }
@@ -95,8 +98,11 @@ struct NativeRichContent: RichContentFactory {
                               style: style, context: context)
         }
         let key = context.publication.id + "\u{0}" + context.document.path + "\u{0}\(element.order)"
-        guard let data = SVGContent.serialize(element, resolve: context.resolve, publication: context.publication),
-              let source = ReaderImageSource.svg(data, path: "", key: key) else {
+        let fonts = context.fonts.svgFonts(families: SVGContent.fontFamilies(element))
+        if fonts.strippedColorGlyphs { context.report.report.unsupportedElements["svg:font-color", default: 0] += 1 }
+        guard let data = SVGContent.serialize(element, resolve: context.resolve, publication: context.publication,
+                                             fontAliases: fonts.aliases, report: context.report),
+              let source = ReaderImageSource.svg(data, path: "", key: key, fonts: fonts.fonts) else {
             context.report.report.unsupportedElements["svg", default: 0] += 1
             return nothing()
         }
@@ -125,11 +131,12 @@ struct NativeRichContent: RichContentFactory {
         NSAttributedString(attachment: attachment, attributes: [.font: context.fonts.font(for: style)])
     }
 
-    /// An SVG resource as a sanitized document the platform decoder can draw, and its root.
+    /// An SVG resource as a sanitized document the static renderer can draw, and its root.
     private func svgDocument(_ data: Data, path: String, key: String,
                              context: RichContentContext) -> (ReaderImageSource, ContentNode)? {
         guard let document = try? ContentDocument.parse(data, path: path),
               SVGContent.isSVG(document.root, root: document.root), document.root.name == "svg" else { return nil }
+        discloseSVG(document.root, context: context)
         let resolve: (String) -> String? = { reference in
             guard let resolved = try? ResourceReference.resolve(reference, relativeTo: path) else {
                 context.report.report.remoteResourcesRefused += 1
@@ -138,9 +145,16 @@ struct NativeRichContent: RichContentFactory {
             let file = String(resolved.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0])
             return file.removingPercentEncoding ?? file
         }
-        guard let serialized = SVGContent.serialize(document.root, resolve: resolve, publication: context.publication),
-              let source = ReaderImageSource.svg(serialized, path: path, key: key) else { return nil }
+        let fonts = context.fonts.svgFonts(families: SVGContent.fontFamilies(document.root))
+        if fonts.strippedColorGlyphs { context.report.report.unsupportedElements["svg:font-color", default: 0] += 1 }
+        guard let serialized = SVGContent.serialize(document.root, resolve: resolve, publication: context.publication,
+                                                   fontAliases: fonts.aliases, report: context.report),
+              let source = ReaderImageSource.svg(serialized, path: path, key: key, fonts: fonts.fonts) else { return nil }
         return (source, document.root)
+    }
+
+    private func discloseSVG(_ element: ContentNode, context: RichContentContext) {
+        for name in SVGContent.unsupportedConstructs(element) { context.report.report.unsupportedElements[name, default: 0] += 1 }
     }
 
     /// Bitmaps are known by their first bytes, so the manifest is only searched for the rest.

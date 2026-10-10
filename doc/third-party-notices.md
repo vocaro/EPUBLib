@@ -11,6 +11,12 @@
   https://github.com/vocaro/MathMLLayout. Its Swift package includes its MIT license. It draws
   with the copy of STIX Two Math (SIL Open Font License 1.1, Copyright 2001-2021 The STIX Fonts
   Project Authors) that macOS and iOS install; neither package distributes the font.
+- **resvg 0.48.1** — MIT/Apache-2.0 — https://github.com/linebender/resvg.
+  The native viewer bundles static Apple libraries in `Vendor/Resvg/Resvg.xcframework`.
+  [Build provenance and redistribution details](../Vendor/Resvg/README.md), the locked
+  dependency inventory, and complete dependency and Rust standard-library notices are
+  included in `Vendor/Resvg/`. Applications redistributing the static code must retain
+  these notices.
 
 The native viewer and its regression tests originate in StudyWright and EPUBLib,
 Copyright (c) 2026 Vocaro Technologies LLC, and are distributed here under this repository's MIT license.

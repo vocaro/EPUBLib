@@ -211,7 +211,7 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     // page; edge taps begin only in the zones.
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer.view === self else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
-        guard imageInspector == nil, configuration.flow == .paginated else { return false }
+        guard imageInspector == nil, configuration.flow == .paginated, !hasSelection, !isDraggingSelection else { return false }
         if gestureRecognizer is UISwipeGestureRecognizer { return configuration.pageControls.touchSwipesEnabled && !hasSelection }
         if gestureRecognizer is UITapGestureRecognizer { return edgeTurn(at: gestureRecognizer.location(in: self)) != nil }
         return super.gestureRecognizerShouldBegin(gestureRecognizer)
@@ -260,7 +260,7 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// VoiceOver's three-finger swipes turn pages: towards the left or up reads forward (mirrored
     /// right to left), and the page is announced.
     override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
-        guard imageInspector == nil, configuration.flow == .paginated else { return false }
+        guard imageInspector == nil, configuration.flow == .paginated, !hasSelection, !isDraggingSelection else { return false }
         let forward: Bool
         switch direction {
         case .left: forward = !configuration.isRightToLeft

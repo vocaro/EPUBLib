@@ -136,6 +136,11 @@ Highlights restore every segment in paginated and scrolled flow and survive typo
 The reader draws the complete annotation once all segments are available, or emits a `.notice`
 if any segment cannot be resolved; it never silently draws just its first section.
 
+Paginated selections can span both columns. Copy and the host action receive the complete
+passage, including a located passage extending onto later pages; the viewer shows continuation
+controls when part of that selection is offscreen. Table-cell selections also carry precise
+character CFIs, so hosts persist and highlight them through the same `EPUBLocation` API.
+
 A book with print or source page equivalents lists them in `EPUBPublication.pageList`; send
 an entry's `href` with `.navigate` to go to that page. Its locations carry `page`, the entry in
 effect where the shown range starts, and `pages`, every entry the range shows part of. To keep

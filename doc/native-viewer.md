@@ -74,9 +74,15 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   `mrow`, `mfrac`, `msup`, `msub`, `msqrt` and `mstyle` (1,798 formulas, all with `alttext`);
   the engine also covers the common remainder. Anything it cannot lay out shows its `alttext`
   and is disclosed. No WebKit.
-- **SVG.** Every inline SVG in the corpus wraps one `<image>` (covers and title pages); those
-  render as that image with the SVG's sizing. Other SVG is shown where the platform image
-  decoder supports it, else as its title or nothing, and is disclosed.
+- **SVG.** Inline and archive SVG illustrations render through the bundled resvg static
+  renderer, including paths, text, gradients, transforms, clipping, local definitions and
+  `viewBox`/`preserveAspectRatio`. A plain single-image wrapper retains the raster-image fast
+  path. Archive raster references are resolved and bounded before rendering; scripts,
+  animation, foreign content and external resources are omitted with a disclosure. SVG
+  filters, pattern fills and illustrations exceeding the rendering limits show their title, description or
+  drawing text instead. Title and description provide the image's accessible label. No WebKit.
+  The renderer ships as an Apple XCFramework; consumers do not need Rust. Its source pins,
+  rebuild script and redistribution notices are in [Vendor/Resvg](../Vendor/Resvg/README.md).
 - **Image contrast.** In dark appearance, transparent images containing dark strokes receive
   a white backdrop so diagram edges and labels remain legible. Their authored colors and
   publication bytes are preserved. Opaque images and transparent light artwork retain their
@@ -102,11 +108,15 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   a line crossing a rowspan boundary is finished in its preceding row and never drawn twice.
   Continuous scroll retains full row heights. Tables too wide for the line shrink their text
   to 60%, then wrap by character. A single glyph line taller than a page is fitted as a whole.
-  One-column tables, which books use as callout boxes, flow as ordinary text. Cell text is not
-  selectable; it is searchable, and VoiceOver reads only each continuation's words, completing
+  One-column tables, which books use as callout boxes, flow as ordinary text. Visible cells have
+  native text interaction surfaces aligned to their drawn glyphs: select and Copy cell text,
+  invoke the host's selection action, follow internal links and open notes. External links retain
+  the reader's refusal notice. Cell selections, located passages and saved highlights use exact
+  DOM-based character ranges, including Unicode and inline markup. VoiceOver reads each continuation's words, completing
   a word once if character wrapping splits it between pages. Continuations retain original
-  source offsets: several pages can report the same row range, and bookmarks/search navigation
-  retain table-unit granularity rather than identifying a particular continuation. Cell TextKit
+  source offsets: several pages can report the same row range. Existing bookmarks naming a
+  whole table still resolve to that table; new cell ranges identify the selected characters.
+  Interaction surfaces are mounted only for visible cells. Cell TextKit
   layouts and glyph metadata are retained for drawing in the table's bounded layout cache.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow; endnotes stay in place and also show in popovers.
@@ -169,8 +179,9 @@ as they did.
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
   past the page's first line, and only when both fit on the next page). An attachment taller than a page gets a page of its own. A
   spread shows consecutive slices. Each column is a non-scrolling TextKit 2 text view holding
-  only its page's text, so selection, VoiceOver and link interaction are native and stay on the
-  page. A paragraph that continues onto the next page is laid out a few lines further (or to
+  only its page's text. Native selections are coordinated across the spread's columns using
+  one complete source range; Copy and host actions consume that whole range. VoiceOver and
+  links retain native page interaction. A paragraph that continues onto the next page is laid out a few lines further (or to
   a line break) and clipped, so its lines break exactly as in the measuring layout; justified
   text takes more, because CoreText justifies a paragraph of up to 8,192 characters as a whole
   and a longer one line by line. Paginations are cached per section and column size; a resize,
@@ -233,7 +244,12 @@ The following are the defaults. Host commands and accessibility actions stay ena
 - VoiceOver: page-turn actions via `accessibilityScrollAction` and the named "Next Page" and
   "Previous Page" actions; text reads in order from the text views.
 - Selection: native selection UI with the host's `EPUBSelectionAction` in the edit or context
-  menu, no length cap. `.selectionChanged` settles 150 ms after the selection stops changing.
+  menu, no length cap. Dragging can extend a selection across a two-column spread in either
+  reading direction. A located passage is selected in every visible column and remains
+  selected on its continuation pages. When part is offscreen, the reader shows a continuation
+  indicator with Previous/Next controls for following the selected passage. Direct page input
+  is suppressed while a selection is active; host commands and these continuation controls
+  remain available. `.selectionChanged` settles 150 ms after the selection stops changing.
 
 ## Commands and events
 
@@ -316,20 +332,23 @@ Go: the native viewer is the bundled engine.
   visible unless explicitly hidden or clipped. General clipping and arbitrary offscreen
   geometry are unsupported. Unsized inline-blocks remain inline. Percentages in ordinary margins and
   indents still resolve against a nominal 600-pt column.
-- Table cell text is not selectable and links inside cells do not activate. Search and saved
-  highlights cover the original table unit, including its continuations; navigating/restoring
-  that unit starts at its first page. A resize or flow change also returns a continued row to
-  its source position rather than preserving its particular visual fragment.
+- Whole-table bookmarks and visible row ranges retain attachment granularity. A resize or
+  flow change without a precise cell endpoint returns a continued row to its source position
+  rather than preserving its particular visual fragment.
 - MathML has no line breaking (wide formulas scale down), no `mglyph` or elementary-math
   elements, and English-only spoken readings when `alttext` is absent.
+- SVG is static: filters, pattern fills, animation and foreign content are unsupported. Rendering limits
+  include 4 MiB of SVG, 10,000 nodes, depth 64 and 8 MiB of expanded local references.
+  Embedded raster images are capped at 4 megapixels each and 16 megapixels in total.
+  Output is capped at 4,096 pixels on its long side and 16 megapixels, reduced further for
+  isolated layers to fit the raster working-memory budget. SVG text uses outline fonts;
+  embedded color-glyph tables are omitted and disclosed. Retained renderer font databases
+  share a 64 MiB budget.
 - Search in languages with tailored collation (Turkish, Swedish, Spanish…) finds a superset
   of foliate's matches. Documents WebKit would have re-read as HTML can yield CFIs that differ
   from foliate's in whitespace outside the body or where HTML tree construction reshapes markup.
 - VoiceOver's line-by-line navigation inside a column may reach the clipped lines of a
   paragraph that continues on the next page.
-- A selection stays within one column: in a two-column spread it cannot run from one column
-  into the other (each column is its own text view), and `locate` selects the part of a passage
-  on its first page while reporting the whole passage.
 - The last lines of a justified paragraph over 8,192 characters may break differently from the
   measured page when the page starts inside the paragraph and also shows what follows it; the
   column then grows to show them rather than clip.

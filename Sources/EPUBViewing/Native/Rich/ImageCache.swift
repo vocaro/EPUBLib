@@ -21,14 +21,16 @@ final class ReaderImageSource: @unchecked Sendable {
     let format: Format
     /// Pixels (bitmap) or points (SVG), with EXIF orientation applied.
     let pixelSize: CGSize
+    private let svgRenderer: SVGRenderer?
 
     /// Bitmaps over this many pixels are refused as unreadable rather than decoded.
     static let maximumPixelCount = 64 * 1024 * 1024
     /// SVG is rasterized at most this many pixels on its long side.
     static let maximumSVGDimension = 4096
 
-    private init(key: String, path: String, data: Data, format: Format, pixelSize: CGSize) {
+    private init(key: String, path: String, data: Data, format: Format, pixelSize: CGSize, svgRenderer: SVGRenderer? = nil) {
         self.key = key; self.path = path; self.data = data; self.format = format; self.pixelSize = pixelSize
+        self.svgRenderer = svgRenderer
     }
 
     /// Reads a bitmap's header (`CGImageSourceCopyPropertiesAtIndex`); nil when ImageIO cannot
@@ -45,17 +47,16 @@ final class ReaderImageSource: @unchecked Sendable {
         return ReaderImageSource(key: key, path: path, data: data, format: .bitmap, pixelSize: size)
     }
 
-    /// An SVG document the platform image decoder can draw; nil when it cannot.
-    static func svg(_ data: Data, path: String, key: String) -> ReaderImageSource? {
-        guard let image = PlatformImage(data: data), image.size.width.isFinite, image.size.height.isFinite,
-              image.size.width > 0, image.size.height > 0 else { return nil }
+    /// A bounded static SVG, parsed by the same renderer on every platform.
+    static func svg(_ data: Data, path: String, key: String, fonts: [SVGFontData] = []) -> ReaderImageSource? {
+        guard let renderer = SVGRenderer(data, fonts: fonts) else { return nil }
         // The document's own width and height, which a book controls: kept to a size every
         // later computation (decode buckets, rasterizing) can represent.
-        let long = max(image.size.width, image.size.height)
+        let long = max(renderer.size.width, renderer.size.height)
         let scale = min(1, CGFloat(maximumSVGDimension) / long)
-        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let size = CGSize(width: renderer.size.width * scale, height: renderer.size.height * scale)
         guard size.width >= 1 / 64, size.height >= 1 / 64 else { return nil }
-        return ReaderImageSource(key: key, path: path, data: data, format: .svg, pixelSize: size)
+        return ReaderImageSource(key: key, path: path, data: data, format: .svg, pixelSize: size, svgRenderer: renderer)
     }
 
     /// Decodes at most `maxPixelSize` pixels on the long side: a downsampled thumbnail with the
@@ -76,27 +77,7 @@ final class ReaderImageSource: @unchecked Sendable {
     }
 
     private func rasterizeSVG(maxPixelSize: Int) -> CGImage? {
-        guard let image = PlatformImage(data: data) else { return nil }
-        let long = max(pixelSize.width, pixelSize.height)
-        let scale = CGFloat(min(maxPixelSize, Self.maximumSVGDimension)) / long
-        let width = max(1, Int((pixelSize.width * scale).rounded())), height = max(1, Int((pixelSize.height * scale).rounded()))
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        let rect = CGRect(x: 0, y: 0, width: width, height: height)
-        #if os(iOS)
-        context.translateBy(x: 0, y: CGFloat(height))
-        context.scaleBy(x: 1, y: -1)
-        UIGraphicsPushContext(context)
-        image.draw(in: rect)
-        UIGraphicsPopContext()
-        #else
-        let previous = NSGraphicsContext.current
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
-        image.draw(in: rect)
-        NSGraphicsContext.current = previous
-        #endif
-        return context.makeImage()
+        svgRenderer?.render(maxPixelSize: maxPixelSize)
     }
 }
 

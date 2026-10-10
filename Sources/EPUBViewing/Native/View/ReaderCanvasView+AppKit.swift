@@ -202,6 +202,26 @@ extension ReaderCanvasView: NSTextViewDelegate {
         return true
     }
 
+    /// Native body and table-cell surfaces share the same source-based spread drag. Native
+    /// clicks, word selection, links and edit menus remain with the originating text surface.
+    func handleSpreadSelectionMouseDown(_ event: NSEvent) -> Bool {
+        guard imageInspector == nil, configuration.flow == .paginated,
+              columns.filter({ !$0.isHidden }).count > 1, event.clickCount == 1,
+              let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged], until: .distantFuture,
+                                           inMode: .eventTracking, dequeue: false), next.type == .leftMouseDragged,
+              let start = selectionPosition(at: convert(event.locationInWindow, from: nil)) else { return false }
+        beginSelectionDrag(at: start)
+        while let drag = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged], until: .distantFuture,
+                                           inMode: .eventTracking, dequeue: true) {
+            if let end = selectionPosition(at: convert(drag.locationInWindow, from: nil)) {
+                extendSelectionDrag(to: end)
+            }
+            if drag.type == .leftMouseUp { break }
+        }
+        endSelectionDrag()
+        return true
+    }
+
     // A click in a configured physical edge zone turns the page (`edgeTurn(at:)`); the
     // column text views handle clicks on themselves the same way.
     override func mouseDown(with event: NSEvent) {

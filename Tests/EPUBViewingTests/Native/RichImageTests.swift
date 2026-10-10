@@ -290,15 +290,13 @@ final class RichImageTests: XCTestCase {
         XCTAssertEqual(fixture.report.report, SectionReport())
     }
 
-    func testOtherSVGUsesThePlatformDecoderWhereItCan() throws {
+    func testOtherSVGUsesTheSameStaticRendererOnEveryPlatform() throws {
         let drawing = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='60' viewBox='0 0 120 60'><rect width='120' height='60' fill='red'/></svg>"
         let fixture = try RichFixture("""
         \(drawing.replacingOccurrences(of: "<svg ", with: "<svg id='inline' "))<img id='file' src='diagram.svg' alt='Diagram'/>
         """, files: ["diagram.svg": Data(drawing.utf8)])
         let decodes = ReaderImageSource.svg(Data(drawing.utf8), path: "", key: "probe") != nil
-        #if os(macOS)
-        XCTAssertTrue(decodes, "NSImage decodes SVG on macOS 27")
-        #endif
+        XCTAssertTrue(decodes, "SVG rendering must be available on both platform families")
         if decodes {
             let inline = try XCTUnwrap(RichFixture.attachments(in: fixture.svg("inline")).first as? ReaderImageAttachment)
             XCTAssertEqual(inline.source.format, .svg)

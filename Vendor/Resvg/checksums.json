@@ -1,0 +1,5 @@
+{
+  "Resvg.xcframework/ios-arm64/libresvg.a": "10180ccaf911e6e73906ea11613b133dcbccb4617b5b4e0953a7cafb3aaa591a",
+  "Resvg.xcframework/ios-arm64_x86_64-simulator/libresvg.a": "b1d1469db7f0b671989022890496e19cecfb2d2e76f17c685e92883f2ad69884",
+  "Resvg.xcframework/macos-arm64_x86_64/libresvg.a": "db4fce5d95c09745554d5e1f9f6ea9275167f930e87ef4c2bb79c8d47a528ad2"
+}

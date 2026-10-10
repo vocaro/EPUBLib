@@ -228,7 +228,10 @@ import SwiftUI
         let text = await book.build(section)
         guard isCurrent(ticket) else { return }
         canvas?.clearSelection()
-        canvas?.show(ReaderTextPosition(section: section, offset: fragment.flatMap { text.anchors[$0] } ?? 0), selecting: nil)
+        let position = fragment.flatMap { id in text.document.nodes.first(where: { $0.id == id }) }
+            .map { text.renderedPosition(DOMPosition($0, 0)) }
+            ?? ReaderTextPosition(section: section, offset: fragment.flatMap { text.anchors[$0] } ?? 0)
+        canvas?.show(position, selecting: nil)
     }
 
     /// The legacy bookmark remains the first segment. Reject contradictory or foreign ranges
@@ -304,8 +307,7 @@ import SwiftUI
     }
 
     private func range(from start: DOMPosition, to end: DOMPosition, in text: SectionText) -> ReaderTextRange {
-        let first = text.map.location(of: start)
-        return ReaderTextRange(section: text.spineIndex, first..<max(first, text.map.location(of: end, isEnd: true)))
+        return ReaderTextRange(start: text.renderedPosition(start), end: text.renderedPosition(end, isEnd: true))
     }
 
     private func locate(_ text: String, highlight: Bool) async throws {
@@ -524,9 +526,9 @@ import SwiftUI
     private func cfi(for range: ReaderTextRange) -> String? {
         guard let section = book.section(range.start.section) else { return nil }
         let endOffset = range.end.section == range.start.section ? range.end.offset : section.string.length
-        guard let start = section.map.position(at: range.start.offset, in: section.document),
-              let end = endOffset > range.start.offset
-                ? section.map.endPosition(at: endOffset, in: section.document) : start else {
+        guard let start = section.domPosition(range.start),
+              let end = range.end.tableCell != nil || endOffset > range.start.offset
+                ? section.domPosition(range.end.section == range.start.section ? range.end : ReaderTextPosition(section: range.start.section, offset: endOffset), isEnd: true) : start else {
             return spine.bases[range.start.section]
         }
         return spine.cfi(spineIndex: range.start.section, start: start, end: end, in: section.document)
@@ -541,8 +543,12 @@ import SwiftUI
             let lower = index == range.start.section ? range.start.offset : 0
             let upper = index == range.end.section ? range.end.offset : section.string.length
             if range.start.section != range.end.section,
+               !(index == range.start.section && range.start.tableCell != nil),
+               !(index == range.end.section && range.end.tableCell != nil),
                !section.map.spans.contains(where: { $0.location < upper && $0.location + $0.length > lower }) { continue }
-            guard let cfi = cfi(for: ReaderTextRange(section: index, lower..<max(lower, upper))) else { return [] }
+            let segment = ReaderTextRange(start: index == range.start.section ? range.start : ReaderTextPosition(section: index, offset: lower),
+                end: index == range.end.section ? range.end : ReaderTextPosition(section: index, offset: max(lower, upper)))
+            guard let cfi = cfi(for: segment) else { return [] }
             bookmarks.append(EPUBEngineBookmark(engineID: NativeEngine.identifier, format: NativeEngine.bookmarkFormat, value: cfi))
         }
         return bookmarks
@@ -576,7 +582,9 @@ import SwiftUI
             let lower = index == range.start.section ? range.start.offset : 0
             let upper = index == range.end.section ? range.end.offset : section.string.length
             if index != range.start.section { text += "\n" }
-            text += section.mappedText(in: lower..<max(lower, upper))
+            let segment = ReaderTextRange(start: index == range.start.section ? range.start : ReaderTextPosition(section: index, offset: lower),
+                end: index == range.end.section ? range.end : ReaderTextPosition(section: index, offset: max(lower, upper)))
+            text += section.tablePassage(segment) ?? section.mappedText(in: lower..<max(lower, upper))
         }
         return text
     }
@@ -590,6 +598,7 @@ import SwiftUI
 extension NativeSession: ReaderCanvasDataSource {
     var sectionCount: Int { book.count }
     func text(forSection index: Int) -> NSAttributedString? { book.section(index)?.string }
+    func selectionText(in range: ReaderTextRange) -> String? { passageText(range) }
     func isLinear(section index: Int) -> Bool { publication.spine[index].isLinear }
     var bookText: ReaderBookText? { book.bookText }
 }

@@ -11,6 +11,8 @@ final class ReaderTextView: NSTextView {
     let isPageColumn: Bool
     var placement = ReaderTextPlacement()
     var flowSourceText: NSAttributedString?
+    var tableInteraction: ReaderTableInteraction?
+    var containsTableRows = false
     weak var canvas: ReaderCanvasView?
     /// The accessibility element of each textual attachment, by its location.
     private var attachmentElements: [Int: NSAccessibilityElement] = [:]
@@ -64,7 +66,7 @@ final class ReaderTextView: NSTextView {
 
     override func writeSelection(to pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
         guard type == .string else { return false }
-        return pboard.setString(plainText(in: selectedRange), forType: .string)
+        return pboard.setString(canvas?.selectionText(for: self) ?? plainText(in: selectedRange), forType: .string)
     }
 
     // MARK: Keys, links and accessibility
@@ -124,6 +126,8 @@ final class ReaderTextView: NSTextView {
             if event.clickCount == 2 { canvas?.inspectImage(image); return }
             return super.mouseDown(with: event)
         }
+        if let canvas, isPageColumn, link(at: point) == nil,
+           canvas.handleSpreadSelectionMouseDown(event) { return }
         guard let canvas, isPageColumn, event.clickCount == 1,
               let forward = canvas.edgeTurn(at: canvas.convert(event.locationInWindow, from: nil)),
               let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged], until: .distantFuture,
@@ -169,10 +173,16 @@ final class ReaderTextView: NSTextView {
         let images = imageAttachments(in: range)
         guard !attachments.isEmpty || !images.isEmpty else { return base }
         let result = NSMutableAttributedString(attributedString: base)
-        for (_, text, run) in attachments {
+        for (attachment, text, run) in attachments {
             let local = NSRange(location: run.location - range.location, length: run.length)
             guard NSMaxRange(local) <= result.length else { continue }
-            result.addAttribute(.accessibilityAttachment, value: accessibilityElement(at: run, label: text), range: local)
+            let element = accessibilityElement(at: run, label: text)
+            if attachment is TableRowAttachment, let cells = tableInteraction?.accessibilityCells(at: run.location), !cells.isEmpty {
+                element.setAccessibilityRole(.group)
+                element.setAccessibilityLabel("Table row")
+                element.setAccessibilityChildren(cells)
+            }
+            result.addAttribute(.accessibilityAttachment, value: element, range: local)
         }
         var exposed = Set<NSRange>()
         for (image, run) in images where exposed.insert(run).inserted {
@@ -197,8 +207,15 @@ final class ReaderTextView: NSTextView {
     private func accessibilityElement(at range: NSRange, label: String) -> NSAccessibilityElement {
         let element = attachmentElements[range.location] ?? NSAccessibilityElement()
         attachmentElements[range.location] = element
-        element.setAccessibilityRole(.image)
-        element.setAccessibilityLabel(label)
+        if let cells = tableInteraction?.accessibilityCells(at: range.location), !cells.isEmpty {
+            element.setAccessibilityRole(.group)
+            element.setAccessibilityLabel("Table row")
+            element.setAccessibilityChildren(cells)
+        } else {
+            element.setAccessibilityRole(.image)
+            element.setAccessibilityLabel(label)
+            element.setAccessibilityChildren(nil)
+        }
         element.setAccessibilityParent(self)
         let frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
         if !frame.isNull {

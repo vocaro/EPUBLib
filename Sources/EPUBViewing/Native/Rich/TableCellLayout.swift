@@ -17,6 +17,7 @@ final class TableCellLayout: @unchecked Sendable {
     }
     let lines: [Line]
     let height: CGFloat
+    let interactionText: NSAttributedString
     private let spokenTokens: [(range: NSRange, text: String)]
     private let storage: NSTextStorage
     private let manager: NSLayoutManager
@@ -25,6 +26,7 @@ final class TableCellLayout: @unchecked Sendable {
     init(_ text: NSAttributedString, width: CGFloat, viewportHeight: CGFloat) {
         let text = ReaderFlowBoxLayout.applying(to: text,
             viewport: CGSize(width: max(1, width), height: max(1, viewportHeight)))
+        interactionText = text
         let source = text.string as NSString
         let whitespace = CharacterSet.whitespacesAndNewlines
         var tokens: [(NSRange, String)] = [], start = 0
