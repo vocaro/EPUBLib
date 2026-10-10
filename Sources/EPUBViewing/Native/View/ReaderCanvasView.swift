@@ -487,6 +487,15 @@ import AppKit
     /// Puts the whole book in the scroll view when the data source has it, else the anchor's section.
     private func loadScrollContent() {
         guard let textView = scrollTextView else { return }
+        // Capture in the old placement before a section becomes the whole book (or vice versa).
+        // A pending locate owns the selection; a native user edit supersedes a cached locate.
+        let carried: ReaderTextRange?
+        if pendingSelection == nil, textView.selectedRange.length > 0 {
+            if let programmaticSelection, programmaticSelection.view === textView,
+               programmaticSelection.local == textView.selectedRange {
+                carried = programmaticSelection.selection.range
+            } else { carried = selection(textView.selectedRange, in: textView)?.range }
+        } else { carried = nil }
         let content: (text: NSAttributedString, placement: ReaderTextPlacement)
         // A section the whole book leaves out (nonlinear) is shown on its own.
         if let book = dataSource?.bookText, anchor.map({ book.contains(section: $0.section) }) ?? true {
@@ -498,10 +507,21 @@ import AppKit
         } else {
             return
         }
+        programmaticSelection = nil
         isApplyingSelection = true
+        textView.selectedRange = NSRange(location: 0, length: 0)
         textView.placement = content.placement
         withProgrammaticScroll { textView.setContent(content.text) }
         isApplyingSelection = false
+        if let carried { pendingSelection = carried }
+        applyPendingSelection()
+        if carried != nil, pendingSelection != nil { // Do not resurrect an unmappable old selection.
+            pendingSelection = nil
+        }
+        if textView.selectedRange.length == 0 {
+            currentSelection = nil
+            scheduleSelectionReport()
+        }
         applyHighlights()
     }
 

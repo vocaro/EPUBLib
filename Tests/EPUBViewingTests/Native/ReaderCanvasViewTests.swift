@@ -581,6 +581,117 @@ import UIKit
         XCTAssertNil(host.canvas.scrollBook)
     }
 
+    func testWholeBookSwapRemapsTheNativeSelection() async throws {
+        let all: [NSAttributedString?] = [NSAttributedString(string: "\u{FFFC}"),
+                                         CanvasText.section(1, paragraphs: 2)]
+        let section = try XCTUnwrap(all[1])
+        let range = ReaderTextRange(section: 1, 10..<30)
+        let expected = section.readerPlainText(in: NSRange(location: 10, length: 20))
+        let host = scrolledHost(all, book: false, show: range.start)
+        host.canvas.show(range.start, selecting: range)
+        let view = try XCTUnwrap(host.canvas.scrollTextView)
+        XCTAssertEqual(view.selectedRange, NSRange(location: 10, length: 20))
+        XCTAssertEqual(view.plainText(in: view.selectedRange), expected)
+        host.source.book = CanvasText.book(all.compactMap { $0 })
+        host.canvas.reloadContent(keeping: nil)
+        XCTAssertEqual(view.selectedRange, NSRange(location: 12, length: 20))
+        XCTAssertEqual(view.plainText(in: view.selectedRange), expected)
+        try await Task.sleep(for: .milliseconds(250))
+        let selection = try XCTUnwrap(host.recorder.selections.last ?? nil)
+        XCTAssertEqual(selection.range, range)
+        XCTAssertEqual(selection.text, expected)
+    }
+
+    func testWholeBookSwapUsesAnUnsettledNativeUserSelection() async throws {
+        let all: [NSAttributedString?] = [NSAttributedString(string: "\u{FFFC}"),
+                                         CanvasText.section(1, paragraphs: 2)]
+        let host = scrolledHost(all, book: false, show: ReaderTextPosition(section: 1, offset: 10))
+        host.canvas.show(ReaderTextPosition(section: 1, offset: 10), selecting: ReaderTextRange(section: 1, 10..<30))
+        let view = try XCTUnwrap(host.canvas.scrollTextView)
+        // The actual native range wins even before a selection callback/report settles.
+        view.selectedRange = NSRange(location: 35, length: 15)
+        let expected = view.plainText(in: view.selectedRange)
+        host.source.book = CanvasText.book(all.compactMap { $0 })
+        host.canvas.reloadContent(keeping: nil)
+        XCTAssertEqual(view.selectedRange, NSRange(location: 37, length: 15))
+        XCTAssertEqual(view.plainText(in: view.selectedRange), expected)
+        try await Task.sleep(for: .milliseconds(250))
+        let selection = try XCTUnwrap(host.recorder.selections.last ?? nil)
+        XCTAssertEqual(selection.range, ReaderTextRange(section: 1, 35..<50))
+        XCTAssertEqual(selection.text, expected)
+        host.canvas.reloadContent(keeping: nil)
+        XCTAssertEqual(view.selectedRange, NSRange(location: 37, length: 15), "reload does not add the prefix twice")
+        XCTAssertEqual(view.plainText(in: view.selectedRange), expected)
+    }
+
+    func testFreshLocateOwnsSelectionDuringWholeBookSwap() async throws {
+        let all: [NSAttributedString?] = [NSAttributedString(string: "\u{FFFC}"),
+                                         CanvasText.section(1, paragraphs: 2)]
+        let host = scrolledHost(all, book: false, show: ReaderTextPosition(section: 1, offset: 10))
+        host.canvas.show(ReaderTextPosition(section: 1, offset: 10), selecting: ReaderTextRange(section: 1, 10..<30))
+        host.source.book = CanvasText.book(all.compactMap { $0 })
+        let fresh = ReaderTextRange(section: 1, 40..<60)
+        host.canvas.show(fresh.start, selecting: fresh)
+        let view = try XCTUnwrap(host.canvas.scrollTextView)
+        let expected = try XCTUnwrap(all[1]).readerPlainText(in: NSRange(location: 40, length: 20))
+        XCTAssertEqual(view.selectedRange, NSRange(location: 42, length: 20))
+        XCTAssertEqual(view.plainText(in: view.selectedRange), expected)
+        try await Task.sleep(for: .milliseconds(250))
+        let selection = try XCTUnwrap(host.recorder.selections.last ?? nil)
+        XCTAssertEqual(selection.range, fresh)
+        XCTAssertEqual(selection.text, expected)
+    }
+
+    func testUnmappableCarriedSelectionDoesNotResurrect() async throws {
+        let all = sections(3, paragraphs: 2)
+        var configuration = ReaderCanvasConfiguration()
+        configuration.flow = .scrolled
+        let host = host(all, linear: [true, false, true], configuration: configuration, show: nil)
+        host.source.book = CanvasText.book(all.compactMap { $0 }, omitting: [1])
+        let range = ReaderTextRange(section: 0, 10..<30)
+        host.canvas.show(range.start, selecting: range)
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertNotNil(host.recorder.selections.last ?? nil)
+        host.canvas.show(ReaderTextPosition(section: 1, offset: 0), selecting: nil)
+        let view = try XCTUnwrap(host.canvas.scrollTextView)
+        XCTAssertEqual(view.selectedRange.length, 0)
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertNil(host.recorder.selections.last ?? nil)
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        XCTAssertEqual(view.selectedRange.length, 0)
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertNil(host.recorder.selections.last ?? nil)
+    }
+
+    func testWholeBookSelectionSurvivesSelectedSectionRebuild() async throws {
+        let all: [NSAttributedString?] = [NSAttributedString(string: "\u{FFFC}"),
+                                         CanvasText.section(1, paragraphs: 2)]
+        let range = ReaderTextRange(section: 1, 35..<50)
+        let host = scrolledHost(all, book: true, show: range.start)
+        host.canvas.show(range.start, selecting: range)
+        let view = try XCTUnwrap(host.canvas.scrollTextView)
+        let expected = try XCTUnwrap(all[1]).readerPlainText(in: NSRange(location: 35, length: 15))
+        XCTAssertEqual(view.selectedRange, NSRange(location: 37, length: 15))
+        // A typography rebuild can temporarily replace the full book with the same section.
+        host.source.book = nil
+        host.canvas.reloadContent(keeping: range.start)
+        XCTAssertNil(host.canvas.scrollBook)
+        XCTAssertEqual(view.selectedRange, NSRange(location: 35, length: 15))
+        XCTAssertEqual(view.plainText(in: view.selectedRange), expected)
+        try await Task.sleep(for: .milliseconds(250))
+        let sectionSelection = try XCTUnwrap(host.recorder.selections.last ?? nil)
+        XCTAssertEqual(sectionSelection.range, range)
+        XCTAssertEqual(sectionSelection.text, expected)
+        host.source.book = CanvasText.book(all.compactMap { $0 })
+        host.canvas.reloadContent(keeping: range.start)
+        XCTAssertEqual(view.selectedRange, NSRange(location: 37, length: 15))
+        XCTAssertEqual(view.plainText(in: view.selectedRange), expected)
+        try await Task.sleep(for: .milliseconds(250))
+        let bookSelection = try XCTUnwrap(host.recorder.selections.last ?? nil)
+        XCTAssertEqual(bookSelection.range, range)
+        XCTAssertEqual(bookSelection.text, expected)
+    }
+
     func testWholeBookSwapKeepsTheVisibleStart() throws {
         let all = sections(4)
         let host = scrolledHost(all, book: false, show: ReaderTextPosition(section: 2, offset: 3_000))
