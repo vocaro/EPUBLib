@@ -31,11 +31,15 @@ import AppKit
     /// start stops repeated resizes from drifting.
     private(set) var anchor: ReaderTextPosition?
     private var pendingSelection: ReaderTextRange?
+    /// Intentional selection requests may span beyond a page or temporary section view.
+    /// A carried native user selection must instead fit replacement scroll content in full.
+    private var pendingSelectionPreservesFullRange = false
     private var highlights: [ReaderHighlight] = []
     private var reportedSelection: ReaderSelection?
     /// The selection `show(_:selecting:)` made, which may run past the page it is selected on:
     /// reported as given while the text view still holds it.
-    private var programmaticSelection: (view: ReaderTextView, local: NSRange, selection: ReaderSelection)?
+    private var programmaticSelection: (view: ReaderTextView, local: NSRange, selection: ReaderSelection,
+                                       preservesFullRange: Bool)?
     private var selectionReport: Task<Void, Never>?
     private var isApplyingSelection = false
 
@@ -98,7 +102,7 @@ import AppKit
 
     func reloadContent(keeping position: ReaderTextPosition?) {
         settleLayout()
-        carrySelectionAcrossRelayout()
+        if configuration.flow != .scrolled || scrollTextView == nil { carrySelectionAcrossRelayout() }
         anchor = position ?? currentStart() ?? anchor
         anchorFollowsScroll = false
         // Paginators of rebuilt sections are replaced as they are next used (`paginator(for:)`).
@@ -121,6 +125,7 @@ import AppKit
         anchor = position
         anchorFollowsScroll = false
         pendingSelection = range.flatMap { $0.isEmpty ? nil : $0 }
+        pendingSelectionPreservesFullRange = pendingSelection != nil
         switch configuration.flow {
         case .paginated:
             if spread == nil { layOutCanvas() } else { displayAnchor() }
@@ -140,6 +145,7 @@ import AppKit
 
     func clearSelection() {
         pendingSelection = nil
+        pendingSelectionPreservesFullRange = false
         isApplyingSelection = true
         for view in textViews where view.selectedRange.length > 0 {
             view.selectedRange = NSRange(location: view.selectedRange.location, length: 0)
@@ -270,9 +276,20 @@ import AppKit
     /// Keep the complete source range when typography reloads text or a flow/size change
     /// replaces its views, even if a paginated column can only show part of the selection.
     private func carrySelectionAcrossRelayout() {
-        guard pendingSelection == nil, let range = programmaticSelection?.selection.range ?? currentSelection?.range,
-              !range.isEmpty else { return }
+        guard pendingSelection == nil else { return }
+        let range: ReaderTextRange?
+        if let programmaticSelection,
+           textViews.contains(where: { $0 === programmaticSelection.view }),
+           programmaticSelection.view.selectedRange == programmaticSelection.local {
+            range = programmaticSelection.selection.range
+        } else {
+            range = textViews.lazy.compactMap { view in
+                view.selectedRange.length > 0 ? self.selection(view.selectedRange, in: view)?.range : nil
+            }.first
+        }
+        guard let range, !range.isEmpty else { return }
         pendingSelection = range
+        pendingSelectionPreservesFullRange = true
     }
 
     private func cancelPendingSpread() {
@@ -499,10 +516,12 @@ import AppKit
         // Capture in the old placement before a section becomes the whole book (or vice versa).
         // A pending locate owns the selection; a native user edit supersedes a cached locate.
         let carried: ReaderTextRange?
+        var carriedPreservesFullRange = false
         if pendingSelection == nil, textView.selectedRange.length > 0 {
             if let programmaticSelection, programmaticSelection.view === textView,
                programmaticSelection.local == textView.selectedRange {
                 carried = programmaticSelection.selection.range
+                carriedPreservesFullRange = programmaticSelection.preservesFullRange
             } else { carried = selection(textView.selectedRange, in: textView)?.range }
         } else { carried = nil }
         let content: (text: NSAttributedString, placement: ReaderTextPlacement)
@@ -524,13 +543,15 @@ import AppKit
         isApplyingSelection = false
         // A carried native selection must fit the replacement section in full. Explicit locates
         // still keep their existing clipped-page semantics in `applyPendingSelection`.
-        if let carried, scrollBook != nil ||
+        if let carried, carriedPreservesFullRange || scrollBook != nil ||
             (carried.start.section == content.placement.section && carried.end.section == content.placement.section) {
             pendingSelection = carried
+            pendingSelectionPreservesFullRange = carriedPreservesFullRange
         }
         applyPendingSelection()
         if carried != nil, pendingSelection != nil { // Do not resurrect an unmappable old selection.
             pendingSelection = nil
+            pendingSelectionPreservesFullRange = false
         }
         if textView.selectedRange.length == 0 {
             currentSelection = nil
@@ -689,14 +710,16 @@ import AppKit
         guard let range = pendingSelection,
               let view = textViews.first(where: { localRange(of: range, in: $0) != nil }),
               let local = localRange(of: range, in: view) else { return }
+        let preservesFullRange = pendingSelectionPreservesFullRange
         pendingSelection = nil
+        pendingSelectionPreservesFullRange = false
         isApplyingSelection = true
         for other in textViews where other !== view { other.selectedRange = NSRange(location: 0, length: 0) }
         focus(view)
         view.selectedRange = local
         isApplyingSelection = false
         let selection = ReaderSelection(range: range, text: text(of: range) ?? view.plainText(in: local))
-        programmaticSelection = (view, local, selection)
+        programmaticSelection = (view, local, selection, preservesFullRange)
         currentSelection = selection
         scheduleSelectionReport()
     }
