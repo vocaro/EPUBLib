@@ -81,6 +81,7 @@ import AppKit
 
     var wheelTurner = ReaderWheelPageTurner()
     var presentedNote: AnyObject?
+    var imageInspector: ReaderImageInspector?
     /// Where and when the last touch or click on the canvas began, for edge taps.
     var pointerDown: (location: CGPoint, time: TimeInterval)?
 
@@ -170,9 +171,19 @@ import AppKit
     /// Lays out for the current bounds and flow; cheap when nothing changed.
     func layOutCanvas() {
         guard bounds.width > 0, bounds.height > 0 else { return }
+        imageInspector?.frame = bounds
         switch configuration.flow {
         case .paginated: layOutPages()
         case .scrolled: layOutScroll()
+        }
+        if let imageInspector {
+            #if os(macOS)
+            addSubview(imageInspector, positioned: .above, relativeTo: nil)
+            for view in textViews { view.setAccessibilityHidden(true) }
+            scrollContainer?.setAccessibilityHidden(true)
+            #else
+            bringSubviewToFront(imageInspector)
+            #endif
         }
     }
 
@@ -844,6 +855,7 @@ import AppKit
 
     /// A page-turn key, swipe, wheel tick or edge tap.
     func turnPageFromInput(forward: Bool) {
+        guard imageInspector == nil else { return }
         _ = turnPage(forward: forward)
     }
 
@@ -854,7 +866,7 @@ import AppKit
     /// physical edge zone in paginated flow (the left one goes back, mirrored right to
     /// left), unless it is on a link or text is selected, where the text view's own tap belongs.
     func edgeTurn(at point: CGPoint) -> Bool? {
-        guard configuration.flow == .paginated, configuration.pageControls.edgeTapsEnabled, bounds.contains(point), !hasSelection else { return nil }
+        guard imageInspector == nil, configuration.flow == .paginated, configuration.pageControls.edgeTapsEnabled, bounds.contains(point), !hasSelection else { return nil }
         if let division = ReaderCanvasGeometry.usableDivision(configuration.division, in: bounds),
            point.x >= division.minX, point.x <= division.maxX { return nil }
         func width(_ value: CGFloat) -> CGFloat { value.isFinite ? min(bounds.width, max(0, value)) : 0 }
@@ -862,7 +874,7 @@ import AppKit
         let right = point.x > bounds.maxX - width(configuration.pageControls.rightTapWidth)
         guard left || right else { return nil }
         if let view = columns.first(where: { !$0.isHidden && $0.frame.contains(point) }),
-           view.link(at: convert(point, to: view)) != nil { return nil }
+           (view.link(at: convert(point, to: view)) != nil || view.image(at: convert(point, to: view)) != nil) { return nil }
         return right != configuration.isRightToLeft
     }
 }

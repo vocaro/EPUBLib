@@ -89,6 +89,29 @@ final class TableRowAttachment: ReaderAttachment {
         render(imageBounds.size, container: textContainer)
     }
 
+    /// Inspectable cell images, transformed exactly as the row/continuation is drawn.
+    func images(size: CGSize, viewportHeight: CGFloat) -> [(image: ReaderImageAttachment, frame: CGRect)] {
+        let layout = layout(width: size.width, viewportHeight: viewportHeight)
+        let slice = fragment ?? layout.fragments(ofRow: row, maximumHeight: .greatestFiniteMagnitude)[0]
+        let scale = layout.scale * slice.fitScale
+        var result: [(ReaderImageAttachment, CGRect)] = []
+        for entry in slice.cells {
+            let origin = layout.contentFrames[entry.cell].origin
+            for image in layout.cellText[entry.cell].images(in: entry.lines) {
+                let frame = CGRect(x: (layout.originX + origin.x + image.frame.minX) * scale,
+                    y: (origin.y + image.frame.minY - slice.top) * scale,
+                    width: image.frame.width * scale, height: image.frame.height * scale)
+                let visible = frame.intersection(CGRect(origin: .zero, size: size))
+                if !visible.isNull, !visible.isEmpty { result.append((image.image, visible)) }
+            }
+        }
+        return result
+    }
+
+    func image(at point: CGPoint, size: CGSize, viewportHeight: CGFloat) -> ReaderImageAttachment? {
+        images(size: size, viewportHeight: viewportHeight).first { $0.frame.contains(point) }?.image
+    }
+
     private func render(_ size: CGSize, container: NSTextContainer?) -> PlatformImage? {
         guard size.width > 0, size.height > 0 else { return nil }
         let viewport = Self.viewportHeight(container, width: size.width)

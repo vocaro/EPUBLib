@@ -71,6 +71,23 @@ final class TableCellLayout: @unchecked Sendable {
             .map(\.text).filter { !$0.isEmpty }.joined(separator: " ")
     }
 
+    /// Image hit regions use the same glyph layout and complete-line ownership as drawing.
+    func images(in indices: Range<Int>) -> [(image: ReaderImageAttachment, frame: CGRect)] {
+        guard let first = indices.first, let last = indices.last,
+              let container = manager.textContainers.first else { return [] }
+        let characters = NSRange(location: lines[first].characters.location,
+            length: lines[last].characters.upperBound - lines[first].characters.location)
+        return lock.withLock {
+            var result: [(ReaderImageAttachment, CGRect)] = []
+            storage.enumerateAttribute(.attachment, in: characters) { value, range, _ in
+                guard let image = value as? ReaderImageAttachment else { return }
+                let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+                result.append((image, manager.boundingRect(forGlyphRange: glyphs, in: container)))
+            }
+            return result
+        }
+    }
+
     func draw(_ indices: Range<Int>, at origin: CGPoint) {
         guard let first = indices.first, let last = indices.last else { return }
         let glyphs = NSRange(location: lines[first].glyphs.location,

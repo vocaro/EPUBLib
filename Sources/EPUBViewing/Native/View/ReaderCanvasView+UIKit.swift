@@ -158,6 +158,11 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     }
 
     func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
+        if case .textAttachment(let attachment) = textItem.content, let image = attachment as? ReaderImageAttachment {
+            return UIAction(title: "Inspect Image", image: UIImage(systemName: "arrow.up.left.and.arrow.down.right")) {
+                [weak self] _ in self?.inspectImage(image)
+            }
+        }
         guard case .link(let url) = textItem.content, let view = textView as? ReaderTextView else { return nil }
         let range = textItem.range
         return UIAction { [weak self, weak view] _ in
@@ -166,9 +171,16 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         }
     }
 
-    /// No link previews or link menus: links use a private scheme and are never opened.
+    /// Images, including linked ones, can be inspected without opening a private link preview.
     func textView(_ textView: UITextView, menuConfigurationFor textItem: UITextItem,
-                  defaultMenu: UIMenu) -> UITextItem.MenuConfiguration? { nil }
+                  defaultMenu: UIMenu) -> UITextItem.MenuConfiguration? {
+        guard let view = textView as? ReaderTextView,
+              let image = view.imageAttachments(in: textItem.range).first?.image else { return nil }
+        let action = UIAction(title: "Inspect Image", image: UIImage(systemName: "arrow.up.left.and.arrow.down.right")) {
+            [weak self] _ in self?.inspectImage(image)
+        }
+        return UITextItem.MenuConfiguration(menu: UIMenu(children: [action]))
+    }
 
     func textView(_ textView: UITextView, editMenuForTextInRanges ranges: [NSValue],
                   suggestedActions: [UIMenuElement]) -> UIMenu? {
@@ -182,7 +194,7 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     // MARK: Input
 
     @objc private func swiped(_ recognizer: UISwipeGestureRecognizer) {
-        guard configuration.flow == .paginated, configuration.pageControls.touchSwipesEnabled, !hasSelection else { return }
+        guard imageInspector == nil, configuration.flow == .paginated, configuration.pageControls.touchSwipesEnabled, !hasSelection else { return }
         turnPageFromInput(forward: ReaderCanvasInput.swipeDirection(
             towardsLeft: recognizer.direction == .left, isRightToLeft: configuration.isRightToLeft))
     }
@@ -199,7 +211,7 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     // page; edge taps begin only in the zones.
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer.view === self else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
-        guard configuration.flow == .paginated else { return false }
+        guard imageInspector == nil, configuration.flow == .paginated else { return false }
         if gestureRecognizer is UISwipeGestureRecognizer { return configuration.pageControls.touchSwipesEnabled && !hasSelection }
         if gestureRecognizer is UITapGestureRecognizer { return edgeTurn(at: gestureRecognizer.location(in: self)) != nil }
         return super.gestureRecognizerShouldBegin(gestureRecognizer)
@@ -222,7 +234,8 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     override var keyCommands: [UIKeyCommand]? { pageKeyCommands }
 
     var pageKeyCommands: [UIKeyCommand] {
-        configuration.pageControls.effectiveBindings.map { binding in
+        guard imageInspector == nil else { return [] }
+        return configuration.pageControls.effectiveBindings.map { binding in
             let command = UIKeyCommand(input: binding.key.uiInput, modifierFlags: binding.modifiers.uiFlags,
                                        action: #selector(pageTurnKeyCommand(_:)))
             command.wantsPriorityOverSystemBehavior = true
@@ -239,7 +252,7 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     }
 
     @objc func pageTurnKeyCommand(_ command: UIKeyCommand) {
-        guard let forward = ReaderTextView.pageTurnDirection(input: command.input, flags: command.modifierFlags,
+        guard imageInspector == nil, let forward = ReaderTextView.pageTurnDirection(input: command.input, flags: command.modifierFlags,
                                                              controls: configuration.pageControls) else { return }
         turnPageFromInput(forward: forward)
     }
@@ -247,7 +260,7 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// VoiceOver's three-finger swipes turn pages: towards the left or up reads forward (mirrored
     /// right to left), and the page is announced.
     override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
-        guard configuration.flow == .paginated else { return false }
+        guard imageInspector == nil, configuration.flow == .paginated else { return false }
         let forward: Bool
         switch direction {
         case .left: forward = !configuration.isRightToLeft

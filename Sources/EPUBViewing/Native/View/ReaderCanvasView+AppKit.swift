@@ -195,7 +195,7 @@ extension ReaderCanvasView: NSTextViewDelegate {
     }
 
     func handlePageKeyEquivalent(_ event: NSEvent) -> Bool {
-        guard hasKeyboardFocus,
+        guard imageInspector == nil, hasKeyboardFocus,
               let forward = ReaderTextView.pageTurnDirection(for: event, controls: configuration.pageControls)
         else { return false }
         turnPageFromInput(forward: forward)
@@ -219,7 +219,7 @@ extension ReaderCanvasView: NSTextViewDelegate {
 
     /// In paginated flow a trackpad gesture or wheel tick turns a page; the columns do not scroll.
     override func scrollWheel(with event: NSEvent) {
-        guard configuration.flow == .paginated, configuration.pageControls.wheelEnabled else { return super.scrollWheel(with: event) }
+        guard imageInspector == nil, configuration.flow == .paginated, configuration.pageControls.wheelEnabled else { return super.scrollWheel(with: event) }
         // Line-based mouse wheels report lines; scale them to points as WebKit did.
         let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
         let phase: ReaderWheelPageTurner.Phase =

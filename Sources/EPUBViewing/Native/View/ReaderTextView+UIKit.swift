@@ -12,6 +12,7 @@ final class ReaderTextView: UITextView {
     var placement = ReaderTextPlacement()
     var flowSourceText: NSAttributedString?
     weak var canvas: ReaderCanvasView?
+    private var imageGestureDelegate: ReaderImageGestureDelegate?
 
     init(pageColumn: Bool) {
         (contentStorage, readerLayoutManager, readerContainer) = Self.makeTextKitStack()
@@ -22,6 +23,12 @@ final class ReaderTextView: UITextView {
         dataDetectorTypes = []
         linkTextAttributes = [:] // The builder colors links.
         backgroundColor = .clear
+        let imageDelegate = ReaderImageGestureDelegate(view: self)
+        imageGestureDelegate = imageDelegate
+        let imageTap = UITapGestureRecognizer(target: imageDelegate, action: #selector(ReaderImageGestureDelegate.openImage(_:)))
+        imageTap.numberOfTapsRequired = 2
+        imageTap.delegate = imageDelegate
+        addGestureRecognizer(imageTap)
         textContainerInset = .zero
         textDragInteraction?.isEnabled = false
         if pageColumn {
@@ -97,6 +104,22 @@ final class ReaderTextView: UITextView {
         return canvas.accessibilityScroll(direction)
     }
 
+    override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
+        get {
+            let rect = bounds.offsetBy(dx: -containerOrigin.x, dy: -containerOrigin.y)
+            guard let range = visibleCharacterRange(in: rect) else { return super.accessibilityCustomActions }
+            let actions = imageAttachments(in: range).map { image, _ in
+                UIAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") {
+                    [weak self] _ in
+                    self?.canvas?.inspectImage(image)
+                    return self?.canvas != nil
+                }
+            }
+            return (super.accessibilityCustomActions ?? []) + actions
+        }
+        set { super.accessibilityCustomActions = newValue }
+    }
+
     // VoiceOver reads the page, not the clipped context after it, with attachments as their text.
     override var accessibilityValue: String? {
         get { isPageColumn ? visibleText : super.accessibilityValue }
@@ -109,6 +132,20 @@ final class ReaderTextView: UITextView {
         for (attachment, text, _) in textualAttachments() where attachment.accessibilityLabel == nil {
             attachment.accessibilityLabel = text
         }
+    }
+}
+
+@MainActor private final class ReaderImageGestureDelegate: NSObject, UIGestureRecognizerDelegate {
+    weak var view: ReaderTextView?
+    init(view: ReaderTextView) { self.view = view }
+    func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+        guard let view else { return false }
+        let point = recognizer.location(in: view)
+        return view.image(at: point) != nil && view.link(at: point) == nil && view.selectedRange.length == 0
+    }
+    @objc func openImage(_ recognizer: UITapGestureRecognizer) {
+        guard let view, let image = view.image(at: recognizer.location(in: view)) else { return }
+        view.canvas?.inspectImage(image)
     }
 }
 
