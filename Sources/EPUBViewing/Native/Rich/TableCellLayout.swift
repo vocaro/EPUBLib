@@ -23,6 +23,8 @@ final class TableCellLayout: @unchecked Sendable {
     private let lock = NSLock()
 
     init(_ text: NSAttributedString, width: CGFloat, viewportHeight: CGFloat) {
+        let text = ReaderFlowBoxLayout.applying(to: text,
+            viewport: CGSize(width: max(1, width), height: max(1, viewportHeight)))
         let source = text.string as NSString
         let whitespace = CharacterSet.whitespacesAndNewlines
         var tokens: [(NSRange, String)] = [], start = 0

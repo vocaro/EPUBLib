@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- Continue oversized native table rows and rowspan text across pages without clipping glyph lines; preserve source offsets and read each continued word once.
+- Continue oversized native table rows and rowspan text across pages without clipping glyph lines; preserve source offsets and read each continued word once ([#24](https://github.com/vocaro/EPUBLib/issues/24)).
+- Preserve positioned callouts, floats and sized inline-block text as responsive, selectable blocks with a layout disclosure. Full float wrapping and author positioning remain unsupported ([#19](https://github.com/vocaro/EPUBLib/issues/19)).
+- Add optional `EPUBLocation.rangeBookmarks` to preserve every section of a saved selection or highlight while retaining existing single-section bookmarks. Keep selections through typography and flow changes ([#31](https://github.com/vocaro/EPUBLib/issues/31)).
 - Replace the bundled foliate-js WebKit renderer with a native TextKit 2 viewer ([#3](https://github.com/vocaro/EPUBLib/issues/3)). CFIs are generated and resolved exactly as foliate-js did, so a CFI the WebKit reader recorded names the same position. See [native viewer](native-viewer.md).
 - `EPUBReader` has its own engine identifier, `org.epublib.reader`, and bookmark format, `epublib-cfi-v1`, as `EPUBReader.identifier` and the new `EPUBReader.bookmarkFormat`. Bookmarks tagged `org.epubreaderlib.foliate`/`epubcfi-v1` are refused as another engine's; nothing had shipped, so hosts migrate stored ones by replacing those two fields (the CFI value is unchanged).
 - Continuous scroll is one real scroll view over the whole book, running under the bars with the system scroll edge effects; the drawn edge fades are gone and nothing resets at a section boundary. This supersedes the unreleased interim bottom-inset fix (`4b7942d`) ([vocaro/studywright#379](https://github.com/vocaro/studywright/issues/379), [#73](https://github.com/vocaro/studywright/issues/73)).
