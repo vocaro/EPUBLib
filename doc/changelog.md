@@ -16,7 +16,8 @@
 - Move Continuous Scroll/Paging into a separate `.readingMode` control group with joined
   mode buttons using `scroll` and `doc.text` symbols. Successful toolbar searches no longer
   show a redundant highlight message. Keep command progress within the controls so search
-  submissions do not shift the toolbar or its popover.
+  submissions do not shift the toolbar or its popover. Give the search pane an explicit X
+  to close it, separate from Clear Search.
 
 - Add `.search(text:)` and the `.search` capability for highlighting matches and opening the
   first rendered match. The reader toolbar uses this action when available; `.searchHighlight`

@@ -73,8 +73,9 @@ newer page navigation prevents a pending search from moving the reader back. Tas
 ends pending search feedback and close suppresses all subsequent callbacks. Hosts switching on
 `EPUBReaderEvent` must add the new `.searchChanged` case.
 
-The field shows pending/queued, no matches or an error. Successful searches leave only the
-field and action buttons. Feedback describes the submitted query; editing text does not
+The field shows pending/queued, no matches or an error. The search pane's X closes it without
+clearing the query or highlights; its separate Clear Search button clears both and retains
+field focus. Successful searches leave only the field and action buttons. Feedback describes the submitted query; editing text does not
 replace the active highlight query.
 There is no result browser, count, or next/previous-match command. Those remain follow-up APIs.
 

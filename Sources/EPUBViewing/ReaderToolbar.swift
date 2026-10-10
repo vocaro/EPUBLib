@@ -96,7 +96,9 @@ public struct EPUBReaderControl: View {
                     if inlineSearch { EPUBSearchField(controls: controls) }
                     else {
                         Button("Search", systemImage: "magnifyingglass") { showingSearch = true }
-                            .popover(isPresented: $showingSearch) { EPUBSearchField(controls: controls).padding() }
+                            .popover(isPresented: $showingSearch) {
+                                EPUBSearchField(controls: controls, onDismiss: { showingSearch = false }).padding()
+                            }
                     }
                 }
             case .contents:
@@ -207,6 +209,7 @@ private struct EPUBContentsItems: View {
 
 private struct EPUBSearchField: View {
     @Bindable var controls: EPUBReaderControls
+    var onDismiss: (() -> Void)? = nil
     @FocusState private var focused: Bool
     var body: some View {
         VStack(alignment: .leading) {
@@ -228,8 +231,19 @@ private struct EPUBSearchField: View {
                     .frame(minWidth: 140, idealWidth: 220)
                 Button("Search", systemImage: "magnifyingglass") { controls.submitSearch(); focused = true }
                     .labelStyle(.iconOnly).help("Search")
-                Button("Clear Search", systemImage: "xmark.circle") { controls.clearSearch(); focused = true }
-                    .labelStyle(.iconOnly).help("Clear Search")
+                if let onDismiss {
+                    Button("Close Search", systemImage: "xmark") {
+                        focused = false
+                        onDismiss()
+                    }
+                    .labelStyle(.iconOnly).help("Close Search")
+                } else {
+                    Button("Clear Search", systemImage: "xmark.circle") { controls.clearSearch(); focused = true }
+                        .labelStyle(.iconOnly).help("Clear Search")
+                }
+            }
+            if onDismiss != nil {
+                Button("Clear Search") { controls.clearSearch(); focused = true }
             }
             feedback.font(.callout)
             if let error = controls.commandError { Text(error).foregroundStyle(.red).font(.callout) }
