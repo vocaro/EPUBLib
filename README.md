@@ -83,6 +83,9 @@ func navigateToFirstSection(publication: EPUBPublication, session: any EPUBReade
 Check `session.capabilities` before offering optional features. Retain the session outside `body`,
 mount it once, and call `session.close()` when leaving the book. See the
 [host integration guide](doc/integration.md) for a complete lifecycle example.
+Use `epubReaderPageControls(_:)` for live gesture toggles, custom tap zones and keyboard
+bindings, or `.hostOnly` to turn pages through your own controls
+([example](doc/integration.md#configuring-page-controls)).
 
 ## Runnable sample
 

@@ -935,6 +935,162 @@ import UIKit
 
     // MARK: Edge taps, focus
 
+    func testCustomPhysicalZonesAcrossResizeRTLOverlapAndDivision() throws {
+        let host = host(sections(1, paragraphs: 20))
+        let canvas = host.canvas
+        canvas.configuration.pageControls.leftTapWidth = 20
+        canvas.configuration.pageControls.rightTapWidth = 100
+        XCTAssertEqual(canvas.edgeTurn(at: CGPoint(x: 19, y: 350)), false)
+        XCTAssertNil(canvas.edgeTurn(at: CGPoint(x: 20, y: 350)))
+        XCTAssertNil(canvas.edgeTurn(at: CGPoint(x: 500, y: 350)))
+        XCTAssertEqual(canvas.edgeTurn(at: CGPoint(x: 501, y: 350)), true)
+        canvas.configuration.isRightToLeft = true
+        XCTAssertEqual(canvas.edgeTurn(at: CGPoint(x: 19, y: 350)), true)
+        XCTAssertEqual(canvas.edgeTurn(at: CGPoint(x: 501, y: 350)), false)
+        host.resize(to: CGSize(width: 1100, height: 700))
+        XCTAssertEqual(canvas.edgeTurn(at: CGPoint(x: 1001, y: 350)), false)
+        XCTAssertNil(canvas.edgeTurn(at: CGPoint(x: 999, y: 350)))
+        canvas.configuration.division = CGRect(x: 530, y: 0, width: 40, height: 700)
+        canvas.configuration.pageControls.leftTapWidth = 2000
+        canvas.configuration.pageControls.rightTapWidth = 2000
+        XCTAssertNil(canvas.edgeTurn(at: CGPoint(x: 550, y: 350)), "fold excluded even with overlapping zones")
+        XCTAssertEqual(canvas.edgeTurn(at: CGPoint(x: 600, y: 350)), false, "physical right wins in RTL overlap")
+        canvas.configuration.isRightToLeft = false
+        XCTAssertEqual(canvas.edgeTurn(at: CGPoint(x: 600, y: 350)), true)
+        host.resize(to: CGSize(width: 80, height: 700))
+        XCTAssertEqual(canvas.edgeTurn(at: CGPoint(x: 40, y: 350)), true, "narrow overlap")
+    }
+
+    func testZeroNegativeAndNonfiniteWidthsAndIndependentEdgeToggle() {
+        let canvas = host(sections(1)).canvas
+        for width: CGFloat in [0, -1, .nan, .infinity, -.infinity] {
+            canvas.configuration.pageControls.leftTapWidth = width
+            XCTAssertNil(canvas.edgeTurn(at: CGPoint(x: 1, y: 350)))
+            XCTAssertEqual(canvas.edgeTurn(at: CGPoint(x: 599, y: 350)), true)
+        }
+        canvas.configuration.pageControls.leftTapWidth = 56
+        canvas.configuration.pageControls.rightTapWidth = 0
+        XCTAssertEqual(canvas.edgeTurn(at: CGPoint(x: 1, y: 350)), false)
+        XCTAssertNil(canvas.edgeTurn(at: CGPoint(x: 599, y: 350)))
+        canvas.configuration.pageControls.edgeTapsEnabled = false
+        XCTAssertNil(canvas.edgeTurn(at: CGPoint(x: 1, y: 350)))
+        XCTAssertTrue(canvas.configuration.pageControls.touchSwipesEnabled)
+        XCTAssertTrue(canvas.configuration.pageControls.wheelEnabled)
+    }
+
+    #if os(iOS)
+    func testDisabledRecognizersAndLiveKeyboardBindingsWithChildFocus() throws {
+        let canvas = host(sections(1, paragraphs: 20)).canvas
+        let tap = try XCTUnwrap(canvas.gestureRecognizers?.first { $0 is UITapGestureRecognizer })
+        let swipes = try XCTUnwrap(canvas.gestureRecognizers?.filter { $0 is UISwipeGestureRecognizer })
+        canvas.configuration.pageControls.edgeTapsEnabled = false
+        XCTAssertFalse(tap.isEnabled)
+        XCTAssertTrue(swipes.allSatisfy(\.isEnabled))
+        canvas.configuration.pageControls.touchSwipesEnabled = false
+        XCTAssertTrue(swipes.allSatisfy { !$0.isEnabled })
+        canvas.configuration.pageControls.edgeTapsEnabled = true
+        XCTAssertTrue(tap.isEnabled)
+        canvas.focus(canvas.textViews.first)
+        let child = try XCTUnwrap(canvas.textViews.first)
+        canvas.configuration.pageControls.keyboardBindings = [
+            .init(.character("n"), modifiers: [.command, .shift], action: .next),
+        ]
+        let command = try XCTUnwrap(canvas.keyCommands?.first)
+        let action = try XCTUnwrap(command.action)
+        XCTAssertEqual(command.input, "n")
+        XCTAssertEqual(command.modifierFlags, [.command, .shift])
+        XCTAssertTrue(child.canPerformAction(action, withSender: command))
+        XCTAssertTrue(child.keyCommands?.contains { $0.input == "n" && $0.modifierFlags == [.command, .shift] } == true)
+        let before = canvas.visibleRange
+        child.pageTurnKeyCommand(command)
+        XCTAssertNotEqual(canvas.visibleRange, before)
+        canvas.focus(canvas.textViews.first)
+        canvas.configuration.pageControls = .hostOnly
+        XCTAssertTrue(canvas.keyCommands?.isEmpty == true)
+        XCTAssertFalse(child.canPerformAction(action, withSender: command))
+        XCTAssertFalse(canvas.canPerformAction(action, withSender: command))
+        let after = canvas.visibleRange
+        canvas.pageTurnKeyCommand(command) // Even a previously captured command is revalidated.
+        XCTAssertEqual(canvas.visibleRange, after)
+        XCTAssertTrue(canvas.hasKeyboardFocus)
+        canvas.configuration.flow = .scrolled
+        XCTAssertTrue((canvas.gestureRecognizers ?? []).allSatisfy { !$0.isEnabled })
+        XCTAssertTrue(canvas.scrollTextView?.isScrollEnabled == true)
+    }
+
+    func testVoiceOverPageActionWorksWithHostOnlyInput() {
+        let canvas = host(sections(1, paragraphs: 20)).canvas
+        canvas.configuration.pageControls = .hostOnly
+        let before = canvas.visibleRange
+        XCTAssertTrue(canvas.accessibilityScroll(.next))
+        XCTAssertNotEqual(canvas.visibleRange, before)
+    }
+    #else
+    func testLiveCustomKeysInBothFlowsFocusAndSelectionChords() throws {
+        for flow: EPUBReadingFlow in [.paginated, .scrolled] {
+            var configuration = ReaderCanvasConfiguration()
+            configuration.flow = flow
+            configuration.isRightToLeft = true
+            let host = host(sections(1, paragraphs: 30), configuration: configuration)
+            let canvas = host.canvas
+            func key(_ code: UInt16, _ characters: String, _ flags: NSEvent.ModifierFlags = []) -> NSEvent {
+                NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+                    windowNumber: host.window.windowNumber, context: nil, characters: characters,
+                    charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
+            }
+            canvas.focus(canvas.textViews.first)
+            canvas.configuration.pageControls.keyboardBindings = [
+                .init(.character("n"), modifiers: [.command, .shift], action: .next),
+                .init(.character("p"), modifiers: .option, action: .previous),
+            ]
+            let before = try XCTUnwrap(canvas.visibleRange)
+            let command = key(45, "N", [.command, .shift])
+            XCTAssertTrue(canvas.textViews[0].performKeyEquivalent(with: command))
+            let next = try XCTUnwrap(canvas.visibleRange)
+            XCTAssertGreaterThan(next.start, before.start, "logical next also in RTL and scrolled flow")
+            canvas.focus(canvas.textViews.first)
+            XCTAssertNil(ReaderTextView.pageTurnDirection(for: key(124, "\u{F703}"), controls: canvas.configuration.pageControls))
+            let view = canvas.textViews[0]
+            view.selectedRange = NSRange(location: 5, length: 4)
+            view.keyDown(with: key(124, "\u{F703}", .shift))
+            XCTAssertEqual(canvas.visibleRange, next, "selection extension never pages")
+            XCTAssertGreaterThan(view.selectedRange.length, 0)
+            XCTAssertFalse(canvas.performKeyEquivalent(with: key(0, "a", .command)))
+            canvas.configuration.pageControls = .hostOnly
+            XCTAssertFalse(view.performKeyEquivalent(with: command))
+            XCTAssertEqual(canvas.visibleRange, next)
+            canvas.configuration.pageControls.keyboardBindings = [.init(.character("n"), modifiers: .command, action: .next)]
+            host.window.makeFirstResponder(nil)
+            XCTAssertFalse(canvas.handlePageKeyEquivalent(key(45, "n", .command)), "keys stay with other focused controls")
+        }
+    }
+
+    func testDisabledWheelPassesToHostAndReenableResetsCooldown() throws {
+        let host = host(sections(1, paragraphs: 30))
+        let canvas = host.canvas
+        let event = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -30, wheel2: 0, wheel3: 0))
+        let wheel = try XCTUnwrap(NSEvent(cgEvent: event))
+        let start = canvas.visibleRange
+        let receiver = WheelReceiver()
+        let original = canvas.nextResponder
+        canvas.nextResponder = receiver
+        defer { canvas.nextResponder = original }
+        canvas.configuration.pageControls.wheelEnabled = false
+        canvas.scrollWheel(with: wheel)
+        XCTAssertEqual(canvas.visibleRange, start)
+        XCTAssertEqual(receiver.events, 1, "disabled page wheel reaches host responder")
+        XCTAssertTrue(canvas.configuration.pageControls.edgeTapsEnabled)
+        canvas.configuration.pageControls.wheelEnabled = true
+        canvas.scrollWheel(with: wheel)
+        XCTAssertNotEqual(canvas.visibleRange, start)
+        let next = canvas.visibleRange
+        canvas.configuration.pageControls.wheelEnabled = false
+        canvas.configuration.pageControls.wheelEnabled = true
+        canvas.scrollWheel(with: wheel)
+        XCTAssertNotEqual(canvas.visibleRange, next, "old wheel cooldown reset")
+    }
+    #endif
+
     func testEdgeTapsTurnPagesUnlessOnALinkOrASelection() throws {
         let text = NSMutableAttributedString(attributedString: NSAttributedString(string: "Linked", attributes: [
             .font: PlatformFont.systemFont(ofSize: 17), .link: ReaderLink.internal(href: "OPS/two.xhtml").url]))
@@ -949,7 +1105,7 @@ import UIKit
         let linkFrame = try XCTUnwrap(column.segmentFrames(for: NSRange(location: 0, length: 6)).first)
         let origin = column.containerOrigin
         let onLink = column.convert(CGPoint(x: linkFrame.midX + origin.x, y: linkFrame.midY + origin.y), to: canvas)
-        XCTAssertLessThan(onLink.x, ReaderCanvasView.edgeZoneWidth)
+        XCTAssertLessThan(onLink.x, EPUBPageControls().leftTapWidth)
         XCTAssertEqual(column.link(at: canvas.convert(onLink, to: column)), ReaderLink.internal(href: "OPS/two.xhtml").url)
         XCTAssertNil(canvas.edgeTurn(at: onLink), "the link keeps its tap")
         XCTAssertEqual(canvas.edgeTurn(at: CGPoint(x: onLink.x, y: onLink.y + 200)), false)
@@ -1146,3 +1302,10 @@ extension ReaderTextView {
         #endif
     }
 }
+
+#if os(macOS)
+@MainActor private final class WheelReceiver: NSResponder {
+    var events = 0
+    override func scrollWheel(with event: NSEvent) { events += 1 }
+}
+#endif

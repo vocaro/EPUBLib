@@ -44,6 +44,41 @@ import XCTest
         }
     }
 
+    func testMountedModifierUpdatesPreserveSessionSelectionHighlightsAndCommands() async throws {
+        let (session, window, events) = try open(Fixture.epub())
+        defer { session.close(); window.close() }
+        try await wait("ready") { events().contains(.ready) }
+        for flow: EPUBReadingFlow in [.paginated, .scrolled] {
+            try await session.send(.style(.init(flow: flow)))
+            try await session.send(.locate(text: "Opening words are visible.", highlight: true))
+            try await wait("selection") { session.selection != nil }
+            try await session.send(.searchHighlight(text: "Opening"))
+            let canvas = try XCTUnwrap(session.canvas)
+            let views = canvas.textViews
+            let range = canvas.visibleRange
+            let selection = canvas.currentSelection
+            let highlights = session.drawnHighlights
+            let location = session.lastLocation
+            let relocated = locations(events()).count
+            window.pageControls.value = .hostOnly
+            try await wait("live controls") { canvas.configuration.pageControls == .hostOnly }
+            XCTAssertTrue(session.canvas === canvas)
+            XCTAssertEqual(canvas.visibleRange, range)
+            XCTAssertEqual(canvas.currentSelection, selection)
+            XCTAssertEqual(session.drawnHighlights, highlights)
+            XCTAssertEqual(session.lastLocation, location)
+            XCTAssertEqual(locations(events()).count, relocated)
+            XCTAssertEqual(canvas.textViews.count, views.count)
+            XCTAssertTrue(zip(canvas.textViews, views).allSatisfy { $0 === $1 })
+            try await session.send(.nextPage)
+            try await wait("host next command") { canvas.visibleRange != range }
+            window.pageControls.value = EPUBPageControls(keyboardBindings: [
+                .init(.character("n"), modifiers: .command, action: .next),
+            ])
+            try await wait("replacement bindings") { canvas.configuration.pageControls == window.pageControls.value }
+        }
+    }
+
     func testNotReadyAndCancellationDoNotSubmit() async throws {
         let book = try EPUBPublication.open(data: Fixture.epub())
         let session = try NativeEngine().makeSession(publication: book) { _ in XCTFail("Unmounted reader emitted") }
