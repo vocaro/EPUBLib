@@ -83,4 +83,73 @@ import UIKit
             XCTAssertGreaterThan(ink(image, in: area, scale: scale), 100, "The cells and rules are drawn (\(flow))")
         }
     }
+
+    func testFloatAndUpwardPositionedTextDrawAsSelectableNativeGlyphs() async throws {
+        let prose = Array(repeating: "Ordinary prose shares visual rows with the native boxes, then continues below them.", count: 6).joined(separator: " ")
+        let publication = try StyleTestSupport.publication(section: StyleTestSupport.xhtml(body: """
+            <p id="prefix">Leading paragraph before native boxes.</p>
+            <figure id="float"><figcaption>FLOAT GLYPHS</figcaption></figure>
+            <p>\(prose)</p>
+            <aside id="callout">UPWARD GLYPHS</aside>
+            <p>Trailing paragraph remains visible.</p>
+            """, css: """
+            body, p, figure, figcaption, aside { margin:0; padding:0; }
+            p { text-indent:0; }
+            figure { float:left; width:140px; height:96px; }
+            aside { position:absolute; left:200px; top:24px; width:160px; height:64px; }
+            """))
+        let section = SectionBuilder.build(.init(publication: publication, spineIndex: 0,
+            typography: .init(fontSize: 16), fonts: FontRegistry(publication: publication), rich: NativeRichContent()))
+        for flow in [EPUBReadingFlow.paginated, .scrolled] {
+            var configuration = ReaderCanvasConfiguration()
+            configuration.flow = flow
+            let source = FakeCanvasSource([section.string])
+            if flow == .scrolled { source.book = CanvasText.book([section.string]) }
+            let host = CanvasHost(source, size: CGSize(width: 500, height: 700), configuration: configuration)
+            defer { host.close() }
+            host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+            host.layOut()
+            try await host.settle(100)
+            let view = try XCTUnwrap(host.canvas.textViews.first)
+            view.ensureFullLayout()
+            let geometry = try XCTUnwrap(view.readerContainer.boxPage?.geometry)
+            for phrase in ["FLOAT GLYPHS", "UPWARD GLYPHS"] {
+                let sourceRange = (section.string.string as NSString).range(of: phrase)
+                XCTAssertNotEqual(sourceRange.location, NSNotFound)
+                let localRange = NSRange(location: sourceRange.location - view.placement.offset, length: sourceRange.length)
+                let paragraph = try XCTUnwrap(geometry.paragraph(at: sourceRange.location))
+                XCTAssertTrue(paragraph.isBox, "\(flow) \(phrase): the fixture must exercise native box layout")
+                XCTAssertEqual(paragraph.flowStart, paragraph.flowEnd, accuracy: 0.01,
+                               "\(flow) \(phrase): rendering must survive a box with zero flow advance")
+                if phrase == "UPWARD GLYPHS" {
+                    XCTAssertLessThan(paragraph.topAdjustment, -50, "The later DOM callout must draw above its flow cursor")
+                }
+                let frames = view.segmentFrames(for: localRange)
+                XCTAssertFalse(frames.isEmpty)
+                let origin = view.containerOrigin
+                let image = try XCTUnwrap(snapshot(host.canvas))
+                let scale = CGFloat(image.width) / host.canvas.bounds.width
+                for frame in frames {
+                    let area = view.convert(frame.offsetBy(dx: origin.x, dy: origin.y), to: host.canvas)
+                    XCTAssertTrue(host.canvas.bounds.contains(area), "\(flow) \(phrase): glyphs must be inside the snapshot")
+                    XCTAssertGreaterThan(ink(image, in: area, scale: scale), 40,
+                                         "Native box glyphs must actually draw, even with zero flow height: \(flow) \(phrase)")
+                }
+                let storage = try XCTUnwrap(view.contentStorage.textStorage)
+                var hasAttachment = false
+                storage.enumerateAttribute(.attachment, in: localRange) { value, _, _ in
+                    if value != nil { hasAttachment = true }
+                }
+                XCTAssertFalse(hasAttachment, "Box text must remain native glyphs rather than a raster attachment")
+                let selection = ReaderTextRange(section: 0, sourceRange.location..<sourceRange.upperBound)
+                host.canvas.show(selection.start, selecting: selection)
+                host.layOut()
+                try await host.settle(30)
+                let selectedView = try XCTUnwrap(host.canvas.textViews.first)
+                XCTAssertEqual(selectedView.plainText(in: selectedView.selectedRange), phrase,
+                               "Rendered native box glyphs retain their exact selectable text")
+            }
+        }
+    }
+
 }

@@ -27,9 +27,9 @@ import AppKit
 /// - Whitespace follows CSS Text 3 per `white-space`: collapsible runs collapse across inline
 ///   boundaries, a run at a line's start or end is removed, and a segment break between two East
 ///   Asian wide characters disappears. A single trailing forced break in a block makes no line.
-/// - Floats, positioned callouts and sized inline-blocks render as separate in-flow blocks,
-///   preserving DOM order and exact text mapping. Width constraints resolve at layout time;
-///   wrapping adjacent text around floats and positioning offsets are not reproduced.
+/// - Floats, positioned callouts and sized inline-blocks keep separate source paragraphs and
+///   symbolic constraints. The native layout resolves wrapping and positions at viewport size;
+///   oversized or complex boxes remain pageable in-flow text with the same exact map.
 /// - Every rendered character from the DOM is mapped (`TextMap`); generated text is not.
 final class SectionWriter {
     enum Mode: Equatable {
@@ -561,8 +561,13 @@ final class SectionWriter {
         var boxes = parent?.format.boxes ?? []
         // Replaced content (images, tables, formulas) already sizes itself against its line.
         let replaced = node.map { ["img", "object", "embed", "svg", "math", "table", "hr"].contains($0.name) } ?? false
-        if style.requiresFlowBox && !replaced && boxes.count < 8 { boxes.append(ReaderFlowBoxConstraint(style: style)) }
-        return BlockFormat(boxes: boxes, alignment: alignment, endAligned: endAligned, float: style.float, direction: direction,
+        let containing = parent?.format.scope
+        let scope = style.position != .static || containing == nil ? ReaderBoxScope(style: style, left: left, right: right, parent: containing) : containing!
+        if style.requiresFlowBox && boxes.count < 8 {
+            boxes.append(ReaderFlowBoxConstraint(style: style, containing: containing, replaced: replaced))
+        }
+        return BlockFormat(boxes: boxes, flow: ReaderParagraphFlow(style: style, scope: scope), scope: scope,
+                           alignment: alignment, endAligned: endAligned, float: style.float, direction: direction,
                            left: left, right: right, textIndent: resolve(style.textIndent),
                            lineHeightMultiple: multiple, lineHeight: cssLineHeight, hyphenate: style.hyphens == .auto,
                            characterWrap: style.whiteSpace == .pre,
@@ -668,6 +673,12 @@ final class SectionWriter {
                                 value: ReaderFlowBoxParagraph(constraints: paragraphs[index].format.boxes,
                                     base: string.attribute(.paragraphStyle, at: start, effectiveRange: nil) as? NSParagraphStyle ?? .default),
                                 range: NSRange(location: start, length: end - start))
+        }
+        for index in paragraphs.indices {
+            let start = paragraphs[index].start
+            let end = index + 1 < paragraphs.count ? paragraphs[index + 1].start : length
+            if end > start { string.addAttribute(.readerParagraphFlow, value: paragraphs[index].format.flow,
+                                                range: NSRange(location: start, length: end - start)) }
         }
         for attribute in postAttributes where NSMaxRange(attribute.range) <= length {
             string.addAttribute(attribute.key, value: attribute.value, range: attribute.range)
@@ -1215,6 +1226,8 @@ private struct MarginGap {
 /// A block box's paragraph formatting, resolved when the box opens.
 private struct BlockFormat {
     var boxes: [ReaderFlowBoxConstraint]
+    var flow: ReaderParagraphFlow
+    var scope: ReaderBoxScope
     var alignment: NSTextAlignment
     var endAligned: Bool
     var float: ComputedStyle.Float

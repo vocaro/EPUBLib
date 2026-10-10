@@ -10,6 +10,7 @@ final class ReaderTextView: UITextView {
     let readerContainer: ReaderTextContainer
     let isPageColumn: Bool
     var placement = ReaderTextPlacement()
+    var flowSourceText: NSAttributedString?
     weak var canvas: ReaderCanvasView?
 
     init(pageColumn: Bool) {

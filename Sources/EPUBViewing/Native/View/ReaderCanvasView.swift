@@ -562,6 +562,17 @@ import AppKit
     /// is still past.
     private func scrollLineToTop(containing location: Int, in textView: ReaderTextView) {
         guard var line = textView.line(containing: location) else { return }
+        if textView.readerContainer.hasNonlinearGeometry {
+            // Layout can refine its estimate after the viewport moves. Correct against the
+            // target's own visual line; source offsets are not monotonic in Y around floats.
+            for _ in 0..<8 {
+                scrollToContainerY(line.frame.minY)
+                guard let updated = textView.line(containing: location) else { break }
+                if abs(updated.frame.minY - line.frame.minY) <= 0.5 { break }
+                line = updated
+            }
+            return
+        }
         scrollToContainerY(line.frame.minY)
         var climb: CGFloat = 0
         for _ in 0..<8 {
@@ -609,8 +620,14 @@ import AppKit
     private func scrollVisibleRange() -> ReaderTextRange? {
         guard let textView = scrollTextView, scrollBook != nil || textView.placement.section != nil else { return nil }
         let rect = scrollVisibleContainerRect
-        let start = textView.lineBoundary(atContainerY: rect.minY, lineEnd: false)
-        let end = max(start, textView.lineBoundary(atContainerY: rect.maxY, lineEnd: true))
+        let start: Int, end: Int
+        if textView.readerContainer.hasNonlinearGeometry {
+            guard let shown = textView.visibleCharacterRange(in: rect) else { return nil }
+            start = shown.location; end = NSMaxRange(shown)
+        } else {
+            start = textView.lineBoundary(atContainerY: rect.minY, lineEnd: false)
+            end = max(start, textView.lineBoundary(atContainerY: rect.maxY, lineEnd: true))
+        }
         if let book = scrollBook {
             return ReaderTextRange(start: book.position(at: start), end: book.position(at: end))
         }

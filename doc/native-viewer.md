@@ -161,28 +161,40 @@ as they did.
   old spread on screen until the new one is ready. A finished pagination keeps only its pages.
 - **Right to left.** `page-progression-direction="rtl"` mirrors spreads, swipes and tap zones.
 
-### Reflowed callout boxes
+### Floats and positioned boxes
 
-The native CSS subset preserves floated figures/text, absolute and fixed positioned callouts,
-and sized inline-blocks as ordinary selectable paragraph boxes. It preserves text, links,
-anchors and text-to-DOM mapping instead of dropping out-of-flow content. The box width,
-minimum width and maximum width may use points, percentages or viewport units; each resolves
-at the current column size in both pagination and continuous scroll. Right floats align their
-box with the physical right edge, left floats with the left edge; auto margins center a
-non-floated box. Up to eight nested width constraints resolve within the enclosing box. Native paragraph styles retain
-text alignment, direction and typography, and a box with long text continues across pages.
-A narrow requested width is expanded to at least the lesser of available width and the larger
-of one third of the viewport width or four font sizes, so a large-font callout remains readable.
-Requested heights do not truncate text. Images and other rich attachments retain their existing
-responsive sizing. Selection, search and saved highlights use the same exact text map as ordinary
-prose. Resizing recomputes widths from the original paragraph formatting and retains selection.
+The native CSS subset wraps prose beside left/right floated figures, text and archive images,
+then restores the full column below the box. Auto-width text floats use their content width,
+including narrow drop caps. Horizontal margins and padding reserve space around the native
+glyph column. `clear: left`, `right` and `both` move subsequent prose below the
+requested float side. Sized `inline-block` text fits after its prefix when space permits,
+and following prose wraps beside the box without overwriting the prefix.
 
-This is a content-preserving subset, not full CSS box layout: surrounding text follows a float
-rather than wrapping it, and positioned content appears once where it occurs in the DOM rather
-than at its offsets or on every page. A `.disclosure` reports these substitutions. Conventional
-positioned, visually hidden accessibility labels remain omitted to avoid visible duplicate
-text. The offscreen heuristic recognizes only absolute-unit top/left offsets of -1,000 CSS
-pixels or less, including calculations containing only absolute units; it is evaluated from
+Absolute callouts honor `top`, `right`, `bottom`, `left` and `inset` within their nearest
+positioned ancestor, including a top inset that places them before their source location.
+Relative containers honor column sizing and horizontal offsets, with positive vertical
+offsets moving their content downward. Fixed callouts use the section's viewport coordinates
+and appear once; they do not remain pinned while scrolling or repeat on each page. The reader
+reserves space around rectangular boxes to keep prose readable rather than reproducing
+arbitrary overlapping layers.
+
+Widths, minimum/maximum widths and insets resolve points, percentages and viewport units at
+the current column size in pagination and continuous scroll; auto margins center a non-floated
+box. Native paragraph styles retain text alignment, direction and typography. Native text
+retains selection, links, anchors, search and the same exact text-to-DOM mapping as ordinary prose. Resizing and
+reader typography changes recompute geometry from source formatting and retain selection.
+Requested heights do not truncate content. A box and the prose wrapping beside it stay together
+when they fit a page. Oversized groups and nested complex boxes instead continue as native
+blocks in reading order; fallback widths expand when necessary to leave readable lines, and
+long box text can continue across pages. Up to eight nested width constraints resolve within
+the enclosing box in this fallback.
+
+A `.disclosure` explains that box layouts may be simplified. Sticky positioning, negative
+relative vertical offsets, arbitrary overlap and `z-index`, and page-pinned or repeating fixed
+boxes are outside the supported subset. Conventional positioned, visually hidden accessibility
+labels remain omitted to avoid visible duplicate text. The offscreen heuristic recognizes only
+absolute-unit top/left offsets of -1,000 CSS pixels or less, including calculations containing
+only absolute units; it is evaluated from
 author values independently of reader typography. Font-relative, percentage, viewport and
 mixed-unit offsets remain visible unless explicitly clipped or hidden. This keeps rendered
 text and saved range offsets identical across reader font-size changes. General clipping,
@@ -273,18 +285,16 @@ Go: the native viewer is the bundled engine.
 
 - Fixed-layout books reflow ([#5](https://github.com/vocaro/EPUBLib/issues/5)); vertical writing
   renders horizontally ([#7](https://github.com/vocaro/EPUBLib/issues/7)); both are disclosed.
-- Floats, absolute/fixed callouts and sized `inline-block` content are preserved as separate
-  blocks in DOM reading order, with a disclosure. Width/min-width/max-width resolve against
-  the actual column, with left/right float placement and centered auto margins. Boxes shrink
-  to the column and expand when necessary to leave readable lines; their text can continue
-  across pages. Floats do not wrap adjacent prose, positioning offsets are not reproduced,
-  and height/overflow never clip callout text. Common positioned accessibility labels hidden
-  with zero-area `clip: rect(...)`, `clip-path: inset(50%)`, visibility or large negative
+- Floats, positioned callouts and sized `inline-block` content use the rectangular native
+  subset described above. Oversized groups and nested complex boxes fall back to native blocks
+  in reading order without clipping text. Sticky positioning, negative relative vertical
+  offsets, arbitrary overlap/`z-index` and page-pinned or repeating fixed boxes are unsupported.
+  A layout disclosure accompanies books using these box styles. Common positioned accessibility
+  labels hidden with zero-area `clip: rect(...)`, `clip-path: inset(50%)`, visibility or large negative
   top/left offsets in absolute units stay omitted; font-relative or mixed-unit offsets remain
   visible unless explicitly hidden or clipped. General clipping and arbitrary offscreen
   geometry are unsupported. Unsized inline-blocks remain inline. Percentages in ordinary margins and
-  indents still resolve against a nominal 600-pt column. [#19](https://github.com/vocaro/EPUBLib/issues/19)
-  remains open for adjacent-text float wrapping and faithful positioning.
+  indents still resolve against a nominal 600-pt column.
 - Table cell text is not selectable and links inside cells do not activate. Search and saved
   highlights cover the original table unit, including its continuations; navigating/restoring
   that unit starts at its first page. A resize or flow change also returns a continued row to

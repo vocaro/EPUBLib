@@ -115,7 +115,9 @@ enum NativeDisclosure {
         if report.withheld { sentences.append("Some sections of this book could not be shown.") }
         if report.fixedLayoutReflowed { sentences.append("This book's fixed page layout is shown as reflowable text.") }
         if report.verticalWritingFlattened { sentences.append("Vertical text is shown horizontally.") }
-        if report.flowBoxesReflowed { sentences.append("Floating, positioned or inline boxes are shown as separate blocks in reading order.") }
+        if report.flowBoxesReflowed {
+            sentences.append("Some floating, positioned or inline box layouts may be simplified to keep their content readable in reading order. Fixed boxes appear once rather than staying pinned to each page.")
+        }
         if report.stylesTruncated { sentences.append("Some of this book's styling was too large to apply.") }
         return sentences.isEmpty ? nil : sentences.joined(separator: " ")
     }

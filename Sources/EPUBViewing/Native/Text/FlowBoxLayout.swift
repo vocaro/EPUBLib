@@ -6,9 +6,13 @@ import UIKit
 import AppKit
 #endif
 
-/// A conservative in-flow substitute for a CSS float, positioned callout or sized atomic inline.
-/// Text stays ordinary text, so a box can split across pages without clipping or losing its map.
+/// Authored constraints for a CSS float, positioned callout or sized inline box.
+/// The native visual plan consumes these; oversized or complex boxes use the in-flow widths.
 struct ReaderFlowBoxConstraint: Sendable {
+    let id = UUID()
+    let style: ComputedStyle
+    let containing: ReaderBoxScope?
+    let replaced: Bool
     let width: ComputedStyle.Length
     let minimum: ComputedStyle.Length
     let maximum: ComputedStyle.Length
@@ -16,12 +20,33 @@ struct ReaderFlowBoxConstraint: Sendable {
     let centers: Bool
     let direction: ComputedStyle.Direction
 
-    init(style: ComputedStyle) {
+    init(style: ComputedStyle, containing: ReaderBoxScope? = nil, replaced: Bool = false) {
+        self.style = style; self.containing = containing; self.replaced = replaced
         width = style.width; minimum = style.minWidth; maximum = style.maxWidth
         side = style.float
         centers = style.float == .none && style.margin.left == .auto && style.margin.right == .auto
         direction = style.direction
     }
+}
+
+final class ReaderBoxScope: @unchecked Sendable {
+    let id = UUID()
+    let style: ComputedStyle
+    let sectionRoot: UUID
+    let parent: ReaderBoxScope?
+    let left: CGFloat
+    let right: CGFloat
+    init(style: ComputedStyle, left: CGFloat = 0, right: CGFloat = 0, parent: ReaderBoxScope? = nil) {
+        self.style = style; self.left = left; self.right = right
+        self.parent = parent
+        self.sectionRoot = parent?.sectionRoot ?? id
+    }
+}
+
+final class ReaderParagraphFlow: NSObject, @unchecked Sendable {
+    let style: ComputedStyle
+    let scope: ReaderBoxScope
+    init(style: ComputedStyle, scope: ReaderBoxScope) { self.style = style; self.scope = scope }
 }
 
 /// The original paragraph formatting is retained so scroll resizing never compounds insets.
@@ -35,8 +60,11 @@ final class ReaderFlowBoxParagraph: NSObject, @unchecked Sendable {
 
 extension NSAttributedString.Key {
     static let readerFlowBox = NSAttributedString.Key("org.epublib.flowBox")
+    static let readerParagraphFlow = NSAttributedString.Key("org.epublib.paragraphFlow")
+    static let readerBoxPage = NSAttributedString.Key("org.epublib.boxPage")
 }
 
+/// Reversible width resolution, also used by the ordinary-text continuation fallback.
 enum ReaderFlowBoxLayout {
     static func applying(to text: NSAttributedString, viewport: CGSize) -> NSAttributedString {
         guard text.length > 0 else { return text }
@@ -68,6 +96,7 @@ enum ReaderFlowBoxLayout {
             let font = text.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont
             let readableWidth = min(viewport.width, max(viewport.width / 3, (font?.pointSize ?? 16) * 4))
             for constraint in box.constraints {
+                if constraint.replaced { continue }
                 let available = max(1, viewport.width - left - right)
                 func resolve(_ length: ComputedStyle.Length) -> CGFloat? {
                     guard let value = length.resolve(reference: available, viewport: viewport), value.isFinite else { return nil }

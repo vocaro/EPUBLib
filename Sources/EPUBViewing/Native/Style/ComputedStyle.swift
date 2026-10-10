@@ -47,6 +47,8 @@ struct ComputedStyle: Equatable, Sendable {
     enum Hyphens: Equatable, Sendable { case none, manual, auto }
     enum Break: Equatable, Sendable { case auto, avoid, page, column }
     enum Float: Equatable, Sendable { case none, left, right }
+    enum Clear: Equatable, Sendable { case none, left, right, both }
+    enum Position: Equatable, Sendable { case `static`, relative, absolute, fixed, sticky }
     enum CaptionSide: Equatable, Sendable { case top, bottom }
     enum LineHeight: Equatable, Sendable {
         case normal
@@ -104,10 +106,21 @@ struct ComputedStyle: Equatable, Sendable {
     // Box and flow. Not inherited.
     var display: Display = .inline
     var float: Float = .none
-    /// `position: absolute` or `fixed`: the box is out of flow and its offsets are not honoured.
-    var isOutOfFlow = false
-    /// Computed offsets; out-of-flow box geometry is not reproduced by the native subset.
+    var clear: Clear = .none
+    var position: Position = .static
+    /// Compatibility for clients of the internal computed style that only distinguish flow.
+    var isOutOfFlow: Bool {
+        get { position == .absolute || position == .fixed }
+        set {
+            if newValue {
+                if !isOutOfFlow { position = .absolute }
+            } else if isOutOfFlow { position = .static }
+        }
+    }
+    /// Insets resolve against the containing box at layout; `auto` leaves an edge unconstrained.
     var positionTop: Length = .auto
+    var positionRight: Length = .auto
+    var positionBottom: Length = .auto
     var positionLeft: Length = .auto
     /// Classified from specified absolute CSS lengths, never the reader's computed font size.
     var positionTopIsOffscreen = false

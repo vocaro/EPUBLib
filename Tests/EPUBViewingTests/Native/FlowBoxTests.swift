@@ -268,14 +268,19 @@ import UIKit
                 view.ensureFullLayout()
                 let storage = try XCTUnwrap(view.contentStorage.textStorage)
                 let visible = (storage.string as NSString).substring(with: view.shownCharacters) as NSString
-                var cursor = 0, bottom: CGFloat = -.greatestFiniteMagnitude
+                var cursor = 0
+                var preceding: [CGRect] = []
                 while cursor < visible.length {
                     let paragraph = visible.paragraphRange(for: NSRange(location: cursor, length: 0))
-                    let rect = view.segmentFrames(for: paragraph).reduce(CGRect.null) { $0.union($1) }
-                    if !rect.isNull {
-                        XCTAssertGreaterThanOrEqual(rect.minY, bottom - 0.5, "Paragraphs overlap: \(flow) \(id)")
-                        bottom = rect.maxY
+                    let frames = view.segmentFrames(for: paragraph)
+                    for rect in frames {
+                        for earlier in preceding {
+                            let intersection = rect.intersection(earlier)
+                            XCTAssertTrue(intersection.isNull || intersection.width < 0.5 || intersection.height < 0.5,
+                                          "Glyphs overlap: \(flow) \(id) \(earlier) \(rect)")
+                        }
                     }
+                    preceding.append(contentsOf: frames)
                     cursor = NSMaxRange(paragraph)
                 }
             }
@@ -286,9 +291,8 @@ import UIKit
                 host.resize(to: CGSize(width: 600, height: 420))
                 XCTAssertEqual(view.selectedRange, original)
                 let right = try XCTUnwrap(section.anchors["right"])
-                let style = try XCTUnwrap(view.contentStorage.textStorage?.attribute(.paragraphStyle, at: right,
-                                                                                   effectiveRange: nil) as? NSParagraphStyle)
-                XCTAssertGreaterThan(style.headIndent, 0)
+                let rect = try XCTUnwrap(view.lineFrame(containing: right))
+                XCTAssertGreaterThan(rect.minX, 0)
                 host.resize(to: CGSize(width: 420, height: 420))
                 XCTAssertEqual(view.selectedRange, original)
             }

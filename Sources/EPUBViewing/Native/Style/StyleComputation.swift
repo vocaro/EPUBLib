@@ -231,10 +231,13 @@ extension StyleResolver {
         case .color: style.color = source.color
         case .display: style.display = source.display; style.blockifiesChildren = source.blockifiesChildren
         case .float: style.float = source.float
-        case .position: style.isOutOfFlow = source.isOutOfFlow
+        case .clear: style.clear = source.clear
+        case .position: style.position = source.position
         case .top:
             style.positionTop = source.positionTop
             style.positionTopIsOffscreen = source.positionTopIsOffscreen
+        case .right: style.positionRight = source.positionRight
+        case .bottom: style.positionBottom = source.positionBottom
         case .left:
             style.positionLeft = source.positionLeft
             style.positionLeftIsOffscreen = source.positionLeftIsOffscreen
@@ -322,14 +325,16 @@ extension StyleResolver {
         case (.display, .display(let display, let blockifies)):
             style.display = display; style.blockifiesChildren = blockifies
         case (.float, .float(let float)): style.float = float
-        case (.position, .flag(let outOfFlow)): style.isOutOfFlow = outOfFlow
-        case (.top, _), (.left, _):
+        case (.clear, .clear(let clear)): style.clear = clear
+        case (.position, .position(let position)): style.position = position
+        case (.top, _), (.right, _), (.bottom, _), (.left, _):
             let length: ComputedStyle.Length = if case .length(let l) = value { computed(l, own, points: StyleLimits.offset) } else { .auto }
             let offscreen = if case .length(let specified) = value { isAbsoluteOffscreenOffset(specified) } else { false }
-            if property == .top {
-                style.positionTop = length; style.positionTopIsOffscreen = offscreen
-            } else {
-                style.positionLeft = length; style.positionLeftIsOffscreen = offscreen
+            switch property {
+            case .top: style.positionTop = length; style.positionTopIsOffscreen = offscreen
+            case .right: style.positionRight = length
+            case .bottom: style.positionBottom = length
+            default: style.positionLeft = length; style.positionLeftIsOffscreen = offscreen
             }
         case (.clip, .flag(let clipped)): style.clipsAllContent = clipped
         case (.clipPath, .flag(let clipped)): style.clipsAllContentWithPath = clipped

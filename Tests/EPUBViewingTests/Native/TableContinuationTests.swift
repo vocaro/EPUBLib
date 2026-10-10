@@ -80,6 +80,18 @@ final class TableContinuationTests: XCTestCase {
         let entry = try XCTUnwrap(pages.first?.tableFragments.first)
         let layout = entry.attachment.layout(width: 300, viewportHeight: 400)
         XCTAssertEqual(layout.lineWidth * layout.scale, 240, accuracy: 0.5)
+        // The whole row in scroll must use the same width/height as its continued pages,
+        // including TextKit's preliminary attachment callback before headIndent is applied.
+        let view = ReaderTextView(pageColumn: false)
+        view.frame = CGRect(x: 0, y: 0, width: 300, height: 400)
+        view.readerContainer.size = CGSize(width: 300, height: 0)
+        view.readerContainer.viewportSize = CGSize(width: 300, height: 400)
+        view.placement.visibleLength = text.length
+        view.setContent(text); view.ensureFullLayout()
+        let whole = try XCTUnwrap(RichFixture.attachments(in: text).first as? TableRowAttachment)
+        let frame = try XCTUnwrap(view.segmentFrames(for: NSRange(location: 0, length: 1)).first)
+        XCTAssertEqual(frame.width, 240, accuracy: 0.5)
+        XCTAssertEqual(frame.height, whole.height(width: 240, viewportHeight: 400), accuracy: 0.5)
     }
 
     @MainActor func testSearchAndCFIsKeepTheOriginalTableUnitMapping() throws {

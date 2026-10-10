@@ -10,6 +10,7 @@ final class ReaderTextView: NSTextView {
     let readerContainer: ReaderTextContainer
     let isPageColumn: Bool
     var placement = ReaderTextPlacement()
+    var flowSourceText: NSAttributedString?
     weak var canvas: ReaderCanvasView?
     /// The accessibility element of each textual attachment, by its location.
     private var attachmentElements: [Int: NSAccessibilityElement] = [:]

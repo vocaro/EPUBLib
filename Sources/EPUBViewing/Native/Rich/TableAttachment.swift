@@ -43,7 +43,7 @@ final class TableRowAttachment: ReaderAttachment {
     }
 
     override func layoutBounds(_ line: Line) -> CGRect {
-        let width = max(1, line.width - line.position)
+        let width = max(1, line.width - max(line.position, line.leadingIndent))
         return CGRect(x: 0, y: line.font?.descender ?? 0, width: width,
                       height: height(width: width, viewportHeight: line.viewport.height))
     }
