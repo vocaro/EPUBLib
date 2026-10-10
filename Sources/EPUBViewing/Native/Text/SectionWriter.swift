@@ -27,8 +27,9 @@ import AppKit
 /// - Whitespace follows CSS Text 3 per `white-space`: collapsible runs collapse across inline
 ///   boundaries, a run at a line's start or end is removed, and a segment break between two East
 ///   Asian wide characters disappears. A single trailing forced break in a block makes no line.
-/// - Floats render in place (a lone floated attachment sets to its side). Out-of-flow boxes
-///   (`position: absolute|fixed`) are left out of reflowable sections, keeping their anchors.
+/// - Floats, positioned callouts and sized inline-blocks keep separate source paragraphs and
+///   symbolic constraints. The native layout resolves wrapping and positions at viewport size;
+///   oversized or complex boxes remain pageable in-flow text with the same exact map.
 /// - Every rendered character from the DOM is mapped (`TextMap`); generated text is not.
 final class SectionWriter {
     enum Mode: Equatable {
@@ -229,10 +230,13 @@ final class SectionWriter {
         guard style.display != .none, style.display != .tableColumn, style.display != .tableColumnGroup else {
             skip(node, registered: true); return
         }
-        // A box positioned out of flow cannot be placed in reflowed text (overlay labels, text moved
-        // off-screen for assistive technology), except on a fixed-layout page, where everything is.
-        if style.isOutOfFlow, !state.isFixedLayout, !node.isHTML("html"), !node.isHTML("body") {
+        // Common visually hidden labels must not become visible duplicate text when their
+        // positioned geometry is replaced by normal flow. Actual callouts remain selectable.
+        if style.isOutOfFlow, !state.isFixedLayout, style.isVisuallyHiddenPositionedBox {
             skip(node, registered: true); return
+        }
+        if style.requiresFlowBox, !node.isHTML("html"), !node.isHTML("body") {
+            state.report.report.flowBoxesReflowed = true
         }
         var context = parent.context
         if let language = node.language { context.language = language.isEmpty ? nil : language }
@@ -328,7 +332,7 @@ final class SectionWriter {
                       parentStyle: ComputedStyle, role: Role) {
         let entry = Entry(node: node, children: node.children, style: style, context: context)
         entry.role = role
-        let blockLevel = style.display.isBlockLevel
+        let blockLevel = style.display.isBlockLevel || style.requiresFlowBox
         if blockLevel && flattenDepth == 0 {
             enterBlock(node, style: style, language: context.language)
             entry.exit.block = true
@@ -511,7 +515,7 @@ final class SectionWriter {
         var left = parent?.format.left ?? 0, right = parent?.format.right ?? 0
         if parent != nil { // The base frame is the column itself; a box adds its own edges.
             var marginLeft = resolve(style.margin.left), marginRight = resolve(style.margin.right)
-            if style.margin.left == .auto, style.margin.right == .auto {
+            if style.margin.left == .auto, style.margin.right == .auto, !style.requiresFlowBox {
                 let width: CGFloat? = switch (style.width, style.maxWidth) {
                 case (.percent(let value), _), (.auto, .percent(let value)): value
                 default: nil
@@ -554,7 +558,16 @@ final class SectionWriter {
         case .points(let value):
             cssLineHeight = min(max(value, style.fontSize * 0.5), style.fontSize * 5)
         }
-        return BlockFormat(alignment: alignment, endAligned: endAligned, float: style.float, direction: direction,
+        var boxes = parent?.format.boxes ?? []
+        // Replaced content (images, tables, formulas) already sizes itself against its line.
+        let replaced = node.map { ["img", "object", "embed", "svg", "math", "table", "hr"].contains($0.name) } ?? false
+        let containing = parent?.format.scope
+        let scope = style.position != .static || containing == nil ? ReaderBoxScope(style: style, left: left, right: right, parent: containing) : containing!
+        if style.requiresFlowBox && boxes.count < 8 {
+            boxes.append(ReaderFlowBoxConstraint(style: style, containing: containing, replaced: replaced))
+        }
+        return BlockFormat(boxes: boxes, flow: ReaderParagraphFlow(style: style, scope: scope), scope: scope,
+                           alignment: alignment, endAligned: endAligned, float: style.float, direction: direction,
                            left: left, right: right, textIndent: resolve(style.textIndent),
                            lineHeightMultiple: multiple, lineHeight: cssLineHeight, hyphenate: style.hyphens == .auto,
                            characterWrap: style.whiteSpace == .pre,
@@ -651,6 +664,21 @@ final class SectionWriter {
             let first = NSRange(location: paragraph.start, length: 1)
             if paragraph.pageBreakBefore { string.addAttribute(.readerPageBreakBefore, value: true, range: first) }
             if paragraph.keepWithNext { string.addAttribute(.readerKeepWithNext, value: true, range: first) }
+        }
+        for index in paragraphs.indices where !paragraphs[index].format.boxes.isEmpty {
+            let start = paragraphs[index].start
+            let end = index + 1 < paragraphs.count ? paragraphs[index + 1].start : length
+            guard end > start else { continue }
+            string.addAttribute(.readerFlowBox,
+                                value: ReaderFlowBoxParagraph(constraints: paragraphs[index].format.boxes,
+                                    base: string.attribute(.paragraphStyle, at: start, effectiveRange: nil) as? NSParagraphStyle ?? .default),
+                                range: NSRange(location: start, length: end - start))
+        }
+        for index in paragraphs.indices {
+            let start = paragraphs[index].start
+            let end = index + 1 < paragraphs.count ? paragraphs[index + 1].start : length
+            if end > start { string.addAttribute(.readerParagraphFlow, value: paragraphs[index].format.flow,
+                                                range: NSRange(location: start, length: end - start)) }
         }
         for attribute in postAttributes where NSMaxRange(attribute.range) <= length {
             string.addAttribute(attribute.key, value: attribute.value, range: attribute.range)
@@ -1081,7 +1109,7 @@ final class SectionWriter {
     private func insert(_ result: NSAttributedString, for node: ContentNode, style: ComputedStyle, context: InlineContext) {
         let result = Self.trimmingParagraphBreaks(result)
         guard result.length > 0 else { skip(node, registered: true); return }
-        let block = style.display.isBlockLevel && flattenDepth == 0
+        let block = (style.display.isBlockLevel || style.requiresFlowBox) && flattenDepth == 0
         if block { enterBlock(node, style: style, language: context.language) }
         let utf16 = Array(result.string.utf16)
         prepareForContent(next: Self.scalar(utf16, at: 0))
@@ -1197,6 +1225,9 @@ private struct MarginGap {
 
 /// A block box's paragraph formatting, resolved when the box opens.
 private struct BlockFormat {
+    var boxes: [ReaderFlowBoxConstraint]
+    var flow: ReaderParagraphFlow
+    var scope: ReaderBoxScope
     var alignment: NSTextAlignment
     var endAligned: Bool
     var float: ComputedStyle.Float

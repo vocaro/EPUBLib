@@ -51,8 +51,12 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
 - **Engine identity and bookmarks.** `EPUBReader.identifier` is `org.epublib.reader` and its
   bookmarks are `epublib-cfi-v1` (`EPUBReader.bookmarkFormat`): names for the library, not a
   renderer, so they outlive any change of how pages are drawn. The value is an EPUB CFI in the
-  form foliate-js produced (relocations carry the visible range's CFI, selections the
-  selection's range CFI), generated and resolved by a port of its code. Bookmarks tagged with
+  form foliate-js produced, generated and resolved by a port of its code. A range contained
+  in one document carries its CFI in `bookmark`. A range spanning documents also carries
+  `rangeBookmarks`, ordered per-document CFIs for every nonempty included section, with
+  `bookmark` equal to the first entry. Nonlinear sections omitted from continuous scroll and
+  empty section endpoints or sections containing only generated markers contribute no segment. Existing single-document locations continue
+  to decode and restore; the bookmark identity and format are unchanged. Bookmarks tagged with
   the WebKit reader's `org.epubreaderlib.foliate`/`epubcfi-v1` are refused as another engine's;
   nothing had shipped, so a host migrates its own stored ones by re-tagging them, since the CFI
   value names the same position. A CFI that no longer resolves (a changed book has a different
@@ -77,9 +81,16 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   image-drawn attachment per row so pages can break between any two rows; rows a rowspan
   joins, and the header, keep with the next row and share a page when they fit. `colspan`/
   `rowspan` honoured (`rowspan="0"` spans one row, as WebKit does); a spanning cell is drawn in
-  each row it covers. Tables too wide for the line shrink their text to 60%, then wrap by
-  character. One-column tables, which books use as callout boxes, flow as ordinary text. Cell
-  text is not selectable; it is searchable, and VoiceOver reads each row's cells.
+  each row it covers. Oversized rows continue across pages using complete cell glyph lines;
+  a line crossing a rowspan boundary is finished in its preceding row and never drawn twice.
+  Continuous scroll retains full row heights. Tables too wide for the line shrink their text
+  to 60%, then wrap by character. A single glyph line taller than a page is fitted as a whole.
+  One-column tables, which books use as callout boxes, flow as ordinary text. Cell text is not
+  selectable; it is searchable, and VoiceOver reads only each continuation's words, completing
+  a word once if character wrapping splits it between pages. Continuations retain original
+  source offsets: several pages can report the same row range, and bookmarks/search navigation
+  retain table-unit granularity rather than identifying a particular continuation. Cell TextKit
+  layouts and glyph metadata are retained for drawing in the table's bounded layout cache.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow; endnotes stay in place and also show in popovers.
 - **Continuous scroll** is whole-book: one `UITextView`/`NSTextView` over every linear
@@ -92,7 +103,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   parallel. Images decode lazily, downsampled to their displayed size, under a shared cache
   budget.
 - **Highlights.** New public `EPUBReaderCommand.setHighlights([EPUBHighlight])` and capability
-  `.highlights` draw host highlights from their range CFIs (StudyWright #85). Search and
+  `.highlights` draw host highlights from their range CFIs, including every `rangeBookmarks`
+  segment of a multi-document annotation (StudyWright #85). Search and
   highlights are TextKit 2 rendering attributes; they never change the text.
 - **Pages.** Locations report `EPUBPublication.pageList` entries: `page`, the last entry at or
   before the range's first character, and `pages`, that one followed by every entry whose
@@ -149,6 +161,47 @@ as they did.
   old spread on screen until the new one is ready. A finished pagination keeps only its pages.
 - **Right to left.** `page-progression-direction="rtl"` mirrors spreads, swipes and tap zones.
 
+### Floats and positioned boxes
+
+The native CSS subset wraps prose beside left/right floated figures, text and archive images,
+then restores the full column below the box. Auto-width text floats use their content width,
+including narrow drop caps. Horizontal margins and padding reserve space around the native
+glyph column. `clear: left`, `right` and `both` move subsequent prose below the
+requested float side. Sized `inline-block` text fits after its prefix when space permits,
+and following prose wraps beside the box without overwriting the prefix.
+
+Absolute callouts honor `top`, `right`, `bottom`, `left` and `inset` within their nearest
+positioned ancestor, including a top inset that places them before their source location.
+Relative containers honor column sizing and horizontal offsets, with positive vertical
+offsets moving their content downward. Fixed callouts use the section's viewport coordinates
+and appear once; they do not remain pinned while scrolling or repeat on each page. The reader
+reserves space around rectangular boxes to keep prose readable rather than reproducing
+arbitrary overlapping layers.
+
+Widths, minimum/maximum widths and insets resolve points, percentages and viewport units at
+the current column size in pagination and continuous scroll; auto margins center a non-floated
+box. Native paragraph styles retain text alignment, direction and typography. Native text
+retains selection, links, anchors, search and the same exact text-to-DOM mapping as ordinary prose. Resizing and
+reader typography changes recompute geometry from source formatting and retain selection.
+Requested heights do not truncate content. A box and the prose wrapping beside it stay together
+when they fit a page. Oversized groups and nested complex boxes instead continue as native
+blocks in reading order; fallback widths expand when necessary to leave readable lines, and
+long box text can continue across pages. Up to eight nested width constraints resolve within
+the enclosing box in this fallback.
+
+A `.disclosure` explains that box layouts may be simplified. Sticky positioning, negative
+relative vertical offsets, arbitrary overlap and `z-index`, and page-pinned or repeating fixed
+boxes are outside the supported subset. Conventional positioned, visually hidden accessibility
+labels remain omitted to avoid visible duplicate text. The offscreen heuristic recognizes only
+absolute-unit top/left offsets of -1,000 CSS pixels or less, including calculations containing
+only absolute units; it is evaluated from
+author values independently of reader typography. Font-relative, percentage, viewport and
+mixed-unit offsets remain visible unless explicitly clipped or hidden. This keeps rendered
+text and saved range offsets identical across reader font-size changes. General clipping,
+arbitrary offscreen geometry and transforms are outside this subset.
+Fixed-layout publications still reflow and report their existing fixed-layout disclosure; this
+subset does not implement fixed-page geometry.
+
 ## Input and accessibility
 
 `View.epubReaderPageControls(_:)` configures direct page input live; see
@@ -171,7 +224,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
 | --- | --- |
 | `nextPage` / `previousPage` | Page turn (paginated) or one viewport (scrolled); stops at the book's ends; skips nonlinear sections as foliate-js did. |
 | `navigate(href:)` | An encoded spine or resource href with optional fragment; unknown or non-local hrefs throw `invalidCommand`. |
-| `restore(location)` | Same publication, engine ID and `epublib-cfi-v1` format or `incompatibleLocation`; resolves the CFI and shows its start. |
+| `restore(location)` | Same publication, engine ID and `epublib-cfi-v1` format or `incompatibleLocation`; validates/resolves every bookmark segment and shows the first segment's start. Does not select text or add a highlight. |
 | `locate(text, highlight)` | First match in reading order with foliate's matcher. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A miss emits `.notice("the cited passage could not be found in this book")`. Clears search highlights. |
 | `searchHighlight` / `clearSearch` | Draws every match across the book / removes them. |
 | `style` | Font size 12–96, dark, flow. Size or appearance rebuilds the text; the position is kept across rebuilds and flow switches. |
@@ -181,8 +234,17 @@ The following are the defaults. Host commands and accessibility actions stay ena
 `.relocated` reports the opening position (the text start, see Decisions). `.relocated`
 carries the section href, overall progression (by section byte size, as foliate-js computed it),
 the table-of-contents title for the position, the page-list entries it shows (see Decisions)
-and the visible range's CFI. A selection's location carries the pages it spans. `.disclosure` text
-summarises the books' `SectionReport`s and is re-emitted when it changes. `.notice` reports
+and the visible range's CFIs. A selection's `.selectionChanged` event and host selection action
+carry the same complete passage: `text` omits nonlinear sections, and `location.rangeBookmarks`
+preserves all included documents. Its `page` names the entry in effect at its start and `pages`
+includes the entries it spans, omitting nonlinear pages. Save the entire `EPUBLocation` and pass
+it to `.setHighlights` to restore all segments in either flow, including after typography changes.
+No partial annotation is drawn while a section is building or if any segment fails to resolve.
+An empty collection, a contradictory first bookmark, a foreign identity/format or malformed CFI
+is incompatible; unordered/duplicate document targets, nonlinear multi-document targets or
+unresolved CFIs emit one `.notice` per rejected highlight. `restore` similarly refuses an
+incompatible location or emits a notice for an unresolved collection without navigating.
+`.disclosure` text summarises the books' `SectionReport`s and is re-emitted when it changes. `.notice` reports
 refused external links, unresolved CFIs and quotes, and highlights that could not be drawn.
 
 ## Security
@@ -227,12 +289,20 @@ Go: the native viewer is the bundled engine.
 
 - Fixed-layout books reflow ([#5](https://github.com/vocaro/EPUBLib/issues/5)); vertical writing
   renders horizontally ([#7](https://github.com/vocaro/EPUBLib/issues/7)); both are disclosed.
-- Floats and absolute positioning are not laid out: a floated attachment sets to its side, an
-  out-of-flow box is skipped; `inline-block` is inline; percentages in margins and indents
-  resolve against a nominal 600-pt column.
-- Table cell text is not selectable and links inside cells do not activate; a single table row
-  taller than a page (after shrinking to 60%) is clipped to the page, and a spanning cell's
-  text can be cut at a page break between the rows it spans.
+- Floats, positioned callouts and sized `inline-block` content use the rectangular native
+  subset described above. Oversized groups and nested complex boxes fall back to native blocks
+  in reading order without clipping text. Sticky positioning, negative relative vertical
+  offsets, arbitrary overlap/`z-index` and page-pinned or repeating fixed boxes are unsupported.
+  A layout disclosure accompanies books using these box styles. Common positioned accessibility
+  labels hidden with zero-area `clip: rect(...)`, `clip-path: inset(50%)`, visibility or large negative
+  top/left offsets in absolute units stay omitted; font-relative or mixed-unit offsets remain
+  visible unless explicitly hidden or clipped. General clipping and arbitrary offscreen
+  geometry are unsupported. Unsized inline-blocks remain inline. Percentages in ordinary margins and
+  indents still resolve against a nominal 600-pt column.
+- Table cell text is not selectable and links inside cells do not activate. Search and saved
+  highlights cover the original table unit, including its continuations; navigating/restoring
+  that unit starts at its first page. A resize or flow change also returns a continued row to
+  its source position rather than preserving its particular visual fragment.
 - MathML has no line breaking (wide formulas scale down), no `mglyph` or elementary-math
   elements, and English-only spoken readings when `alttext` is absent.
 - Search in languages with tailored collation (Turkish, Swedish, Spanish…) finds a superset
@@ -246,7 +316,5 @@ Go: the native viewer is the bundled engine.
 - The last lines of a justified paragraph over 8,192 characters may break differently from the
   measured page when the page starts inside the paragraph and also shows what follows it; the
   column then grows to show them rather than clip.
-- In continuous scroll a selection can span sections, but its bookmark (a CFI, which names one
-  content document) covers only the part in the first section.
 - Flexbox and grid lay out as blocks: content a book centres vertically with `min-height` and
   flex alignment (Standard Ebooks epigraphs) starts at the top of the page.

@@ -128,6 +128,9 @@ struct TableLayout {
     }
 
     var scale: CGFloat
+    var cellText: [TableCellLayout]
+    struct OwnedLine { let cell: Int, line: Int; let top: CGFloat, bottom: CGFloat }
+    var rowLines: [[OwnedLine]]
     /// The line width the table was laid out for, before scaling (the line's width / scale).
     var lineWidth: CGFloat
     var size: CGSize
@@ -150,18 +153,18 @@ struct TableLayout {
         let constraints = table.constraints
         var scale = constraints.minimumTableWidth > available
             ? max(TableModel.minimumScale, available / constraints.minimumTableWidth) : 1
-        var layout = make(table, constraints: constraints, width: available / scale, scale: scale)
-        // A row taller than the page would be cut: shrink the table until it fits, within limits.
+        var layout = make(table, constraints: constraints, width: available / scale, scale: scale, viewportHeight: viewportHeight / scale)
+        // Try a modest scale reduction before continuing tall rows across pages.
         var attempts = 0
         while layout.tallestRow > viewportHeight, scale > TableModel.minimumScale + 0.001, attempts < 6 {
             scale = max(TableModel.minimumScale, scale * 0.85)
-            layout = make(table, constraints: constraints, width: available / scale, scale: scale)
+            layout = make(table, constraints: constraints, width: available / scale, scale: scale, viewportHeight: viewportHeight / scale)
             attempts += 1
         }
         return layout
     }
 
-    private static func make(_ table: TableModel, constraints: Constraints, width: CGFloat, scale: CGFloat) -> TableLayout {
+    private static func make(_ table: TableModel, constraints: Constraints, width: CGFloat, scale: CGFloat, viewportHeight: CGFloat) -> TableLayout {
         let columns = constraints.widths(available: width, tableWidth: table.width)
         let gap = table.spacing
         let edges = table.borders.widths
@@ -169,9 +172,11 @@ struct TableLayout {
             let range = cell.column..<min(columns.count, cell.column + cell.columnSpan)
             return range.reduce(0) { $0 + columns[$1] } + gap.width * CGFloat(max(0, range.count - 1))
         }
-        let contentHeights = table.cells.map { cell in
-            TableMeasure.height(cell.content, width: max(1, spanWidth(cell) - cell.chrome.horizontal))
+        let cellText = table.cells.map { cell in
+            TableCellLayout(cell.content, width: max(1, spanWidth(cell) - cell.chrome.horizontal),
+                            viewportHeight: viewportHeight)
         }
+        let contentHeights = cellText.map(\.height)
         var rows = table.rows.map(\.height)
         for (index, cell) in table.cells.enumerated() where cell.rowSpan == 1 {
             rows[cell.row] = max(rows[cell.row], contentHeights[index] + cell.chrome.vertical, cell.height + cell.chrome.vertical)
@@ -215,8 +220,65 @@ struct TableLayout {
         case (.end, false), (.start, true): max(0, width - size.width)
         default: 0
         }
-        return TableLayout(scale: scale, lineWidth: width, size: size, originX: originX, columnWidths: columns,
+        var rowLines = [[OwnedLine]](repeating: [], count: rows.count)
+        for (cell, text) in cellText.enumerated() {
+            for (line, metadata) in text.lines.enumerated() {
+                let top = contents[cell].minY + metadata.frame.minY
+                var low = 0, high = rows.count - 1
+                while low < high {
+                    let middle = (low + high + 1) / 2
+                    if tops[middle] - 0.01 <= top { low = middle } else { high = middle - 1 }
+                }
+                rowLines[low].append(OwnedLine(cell: cell, line: line, top: top, bottom: contents[cell].minY + metadata.frame.maxY))
+            }
+        }
+        for row in rowLines.indices { rowLines[row].sort { $0.top < $1.top } }
+        return TableLayout(scale: scale, cellText: cellText, rowLines: rowLines, lineWidth: width, size: size, originX: originX, columnWidths: columns,
                            rowHeights: rows, cellFrames: frames, contentFrames: contents, rowTops: tops)
+    }
+
+    /// Whole lines whose top belongs to this row. Lines crossing its bottom finish in this
+    /// row's attachment; the next row never draws or reads them a second time.
+    func fragments(ofRow row: Int, maximumHeight: CGFloat) -> [TableRowFragment] {
+        let top = rowTops[row], bottom = rowTops[row + 1]
+        let limit = max(1, maximumHeight / scale)
+        let owned = rowLines[row]
+        // Leave room to finish any line whose top falls just before the cut. A short row
+        // retains its original height; only a tall row is subdivided.
+        let overflow = max(0, (owned.map(\.bottom).max() ?? bottom) - bottom)
+        if bottom - top + overflow <= limit + 0.01 {
+            return [fragment(row: row, top: top, bottom: bottom, lines: owned, limit: limit)]
+        }
+        var result: [TableRowFragment] = []
+        var cursor = top, firstLine = 0
+        while cursor < bottom - 0.01 {
+            var end = min(bottom, cursor + limit)
+            var lastLine = firstLine
+            while lastLine < owned.count, owned[lastLine].top < end - 0.01 { lastLine += 1 }
+            let crossing = owned[firstLine..<lastLine].filter { $0.bottom > cursor + limit + 0.01 }
+            if let first = crossing.map(\.top).min(), first > cursor + 0.01 {
+                end = first
+                while lastLine > firstLine, owned[lastLine - 1].top >= end - 0.01 { lastLine -= 1 }
+            }
+            result.append(fragment(row: row, top: cursor, bottom: end,
+                                   lines: Array(owned[firstLine..<lastLine]), limit: limit))
+            firstLine = lastLine
+            cursor = end
+        }
+        return result
+    }
+
+    private func fragment(row: Int, top: CGFloat, bottom: CGFloat,
+                          lines: [OwnedLine], limit: CGFloat) -> TableRowFragment {
+        var cells: [TableRowFragment.CellLines] = []
+        let grouped = Dictionary(grouping: lines, by: \.cell)
+        for cell in grouped.keys.sorted() {
+            let indices = grouped[cell]!.map(\.line)
+            if let first = indices.min(), let last = indices.max() { cells.append(.init(cell: cell, lines: first..<(last + 1))) }
+        }
+        let height = max(bottom, lines.map(\.bottom).max() ?? bottom) - top
+        return TableRowFragment(row: row, top: top, bottom: bottom,
+                                height: height, fitScale: min(1, limit / max(1, height)), cells: cells)
     }
 
     /// A cell's frame in a row attachment's coordinates (top-left origin).
@@ -230,16 +292,17 @@ struct TableLayout {
 extension TableModel {
     /// Draws one row's slice of the table into the current graphics context (top-left origin,
     /// flipped, as a view draws), whose origin is the slice's top-left on its line. A cell
-    /// spanning rows is drawn whole and clipped to the slice, so consecutive rows join up. Cell
-    /// text goes through string drawing, so it needs the platform's current context to be this.
-    func draw(row: Int, layout: TableLayout, in context: CGContext) {
+    /// spanning rows has its decoration clipped to the slice; cell glyphs are drawn as complete
+    /// lines belonging to this continuation, using the same layout that measured them.
+    func draw(row: Int, layout: TableLayout, fragment: TableRowFragment, in context: CGContext) {
         guard row < rows.count else { return }
-        let top = layout.rowTops[row], bottom = layout.rowTops[row + 1]
+        let top = fragment.top, bottom = fragment.bottom
         context.saveGState()
         defer { context.restoreGState() }
-        context.scaleBy(x: layout.scale, y: layout.scale)
+        context.scaleBy(x: layout.scale * fragment.fitScale, y: layout.scale * fragment.fitScale)
         context.translateBy(x: layout.originX, y: -top)
         let slice = CGRect(x: 0, y: top, width: layout.size.width, height: bottom - top)
+        context.saveGState()
         context.clip(to: slice.insetBy(dx: -1, dy: 0))
         let tableRect = CGRect(origin: .zero, size: layout.size)
         if let background {
@@ -256,11 +319,6 @@ extension TableModel {
             guard let color = cells[index].background else { continue }
             context.setFillColor(color)
             context.fill(layout.cellFrames[index])
-        }
-        for index in indices where cells[index].content.length > 0 {
-            let frame = layout.contentFrames[index]
-            cells[index].content.draw(with: CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height + 1),
-                                      options: [.usesLineFragmentOrigin], context: nil)
         }
         var edges: [(TableModel.Stroke, CGPoint, CGPoint)] = []
         func add(_ borders: TableModel.Borders, around rect: CGRect, inside: Bool) {
@@ -299,6 +357,13 @@ extension TableModel {
             context.move(to: start)
             context.addLine(to: end)
             context.strokePath()
+        }
+        context.restoreGState()
+        // Text is drawn separately from the geometric row slice. A line crossing a row
+        // boundary is completed here, including its descenders, and excluded from the next.
+        for entry in fragment.cells {
+            let frame = layout.contentFrames[entry.cell]
+            layout.cellText[entry.cell].draw(entry.lines, at: frame.origin)
         }
     }
 }

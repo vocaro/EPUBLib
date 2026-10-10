@@ -135,11 +135,14 @@ import UIKit
         let layout = table.layout(available: lineWidth, viewportHeight: 600)
         for (index, row) in rows.enumerated() {
             XCTAssertEqual(row.1.width, lineWidth, accuracy: 0.5)
+            let glyphHeight = layout.rowLines[index].map { ($0.bottom - layout.rowTops[index]) * layout.scale }.max() ?? 0
+            let completeHeight = max(layout.height(ofRow: index), glyphHeight)
             if index < rows.count - 1 {
-                XCTAssertEqual(row.1.height, layout.height(ofRow: index), accuracy: 0.01, "Row \(index)'s line is the row")
+                XCTAssertEqual(row.1.height, completeHeight, accuracy: 0.01,
+                               "Row \(index)'s line includes complete rowspan glyphs")
                 XCTAssertEqual(rows[index + 1].1.minY, row.1.maxY, accuracy: 0.01, "No gap between rows")
             } else {
-                XCTAssertGreaterThanOrEqual(row.1.height, layout.height(ofRow: index) - 0.01)
+                XCTAssertGreaterThanOrEqual(row.1.height, completeHeight - 0.01)
             }
         }
         let rule = try XCTUnwrap(frames.first { $0.0 is ReaderRuleAttachment })

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Continue oversized native table rows and rowspan text across pages without clipping glyph lines; preserve source offsets and read each continued word once ([#24](https://github.com/vocaro/EPUBLib/issues/24)).
+- Wrap native prose around left/right floats, including auto-width drop caps and archive images; honor float clearing, positioned callout insets and sized inline-blocks beside surrounding text. Preserve native selection, links and source offsets. Oversized or complex box groups continue in reading order with a layout disclosure; fixed boxes appear once, without page pinning ([#19](https://github.com/vocaro/EPUBLib/issues/19)).
+- Add optional `EPUBLocation.rangeBookmarks` to preserve every section of a saved selection or highlight while retaining existing single-section bookmarks. Keep selections through typography and flow changes ([#31](https://github.com/vocaro/EPUBLib/issues/31)).
 - Add live `View.epubReaderPageControls(_:)` configuration for native page input: independent gesture toggles, physical edge widths and replacement keyboard bindings, with `.hostOnly` for host controls. Commands, selection and accessibility remain available ([#32](https://github.com/vocaro/EPUBLib/issues/32)).
 - Add optional `EPUBReaderToolbar`, `EPUBReaderControlStrip` and individually composable control groups, backed by a retained `EPUBReaderControls` model. Sessions expose observable lifecycle, style, location, boundaries and command activity through `readerState`; existing session conformers default to nil. See [reader controls](reader-controls.md).
 - Add `EPUBSearchState` and `.searchChanged` events for search pending, completion/no-match, validation failures and clearing. Hosts with exhaustive event switches must handle the new case. The toolbar-free viewer API is unchanged.

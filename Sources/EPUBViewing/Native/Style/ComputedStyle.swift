@@ -47,6 +47,8 @@ struct ComputedStyle: Equatable, Sendable {
     enum Hyphens: Equatable, Sendable { case none, manual, auto }
     enum Break: Equatable, Sendable { case auto, avoid, page, column }
     enum Float: Equatable, Sendable { case none, left, right }
+    enum Clear: Equatable, Sendable { case none, left, right, both }
+    enum Position: Equatable, Sendable { case `static`, relative, absolute, fixed, sticky }
     enum CaptionSide: Equatable, Sendable { case top, bottom }
     enum LineHeight: Equatable, Sendable {
         case normal
@@ -104,8 +106,40 @@ struct ComputedStyle: Equatable, Sendable {
     // Box and flow. Not inherited.
     var display: Display = .inline
     var float: Float = .none
-    /// `position: absolute` or `fixed`: the box is out of flow and its offsets are not honoured.
-    var isOutOfFlow = false
+    var clear: Clear = .none
+    var position: Position = .static
+    /// Compatibility for clients of the internal computed style that only distinguish flow.
+    var isOutOfFlow: Bool {
+        get { position == .absolute || position == .fixed }
+        set {
+            if newValue {
+                if !isOutOfFlow { position = .absolute }
+            } else if isOutOfFlow { position = .static }
+        }
+    }
+    /// Insets resolve against the containing box at layout; `auto` leaves an edge unconstrained.
+    var positionTop: Length = .auto
+    var positionRight: Length = .auto
+    var positionBottom: Length = .auto
+    var positionLeft: Length = .auto
+    /// Classified from specified absolute CSS lengths, never the reader's computed font size.
+    var positionTopIsOffscreen = false
+    var positionLeftIsOffscreen = false
+    /// Common zero-area clipping techniques for visually hidden positioned labels.
+    var clipsAllContent = false
+    var clipsAllContentWithPath = false
+
+    var requiresFlowBox: Bool {
+        isOutOfFlow || float != .none || (display == .inlineBlock &&
+            (width != .auto || height != .auto || minWidth != .auto || maxWidth != .auto || minHeight != .auto))
+    }
+
+    var isVisuallyHiddenPositionedBox: Bool {
+        if clipsAllContent || clipsAllContentWithPath || isHidden { return true }
+        // Rendering must never change its source characters when the reader changes typography.
+        // Font-relative/viewport offsets therefore cannot participate in this hiding heuristic.
+        return positionTopIsOffscreen || positionLeftIsOffscreen
+    }
     /// A flex or grid container, which renders as a block; its in-flow children are blockified.
     var blockifiesChildren = false
     var margin = Edges<Length>(.zero)

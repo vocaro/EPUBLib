@@ -11,7 +11,7 @@ struct ReaderTextPosition: Hashable, Comparable, Sendable {
 }
 
 /// A rendered range; `end` is exclusive. Selections and visible ranges may span sections in
-/// continuous scroll; CFIs and highlights never do.
+/// continuous scroll. Individual CFIs and drawn highlight segments stay within one document.
 struct ReaderTextRange: Hashable, Sendable {
     var start: ReaderTextPosition
     var end: ReaderTextPosition
