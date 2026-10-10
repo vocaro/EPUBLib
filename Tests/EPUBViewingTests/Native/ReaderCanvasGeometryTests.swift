@@ -132,23 +132,8 @@ final class ReaderCanvasGeometryTests: XCTestCase {
     }
 }
 
-/// Page-turn input rules: keys through `ReaderEPUBPageTurnKey`, wheel ticks, swipes.
+/// Page-turn input rules: wheel ticks and swipes.
 final class ReaderCanvasInputTests: XCTestCase {
-    func testKeysMapToPageTurnsWithoutTakingSelectionShortcuts() {
-        XCTAssertEqual(ReaderCanvasInput.direction(for: .leftArrow, shift: false, otherModifiers: false), false)
-        XCTAssertEqual(ReaderCanvasInput.direction(for: .pageUp, shift: false, otherModifiers: false), false)
-        XCTAssertEqual(ReaderCanvasInput.direction(for: .rightArrow, shift: false, otherModifiers: false), true)
-        XCTAssertEqual(ReaderCanvasInput.direction(for: .pageDown, shift: false, otherModifiers: false), true)
-        XCTAssertEqual(ReaderCanvasInput.direction(for: .space, shift: false, otherModifiers: false), true)
-        XCTAssertEqual(ReaderCanvasInput.direction(for: .space, shift: true, otherModifiers: false), false)
-        XCTAssertNil(ReaderCanvasInput.direction(for: .leftArrow, shift: true, otherModifiers: false),
-                     "Shift-arrow extends a selection")
-        XCTAssertNil(ReaderCanvasInput.direction(for: .rightArrow, shift: false, otherModifiers: true),
-                     "Command-arrow is the system's")
-        XCTAssertNil(ReaderCanvasInput.direction(for: "a", shift: false, otherModifiers: true), "Cmd-A selects all")
-        XCTAssertNil(ReaderCanvasInput.direction(for: "c", shift: false, otherModifiers: true), "Cmd-C copies")
-    }
-
     func testWheelTicksTurnOncePerCooldown() {
         var turner = ReaderWheelPageTurner()
         XCTAssertNil(turner.direction(deltaX: 0, deltaY: 3.9, isRightToLeft: false, at: 0), "below the threshold")

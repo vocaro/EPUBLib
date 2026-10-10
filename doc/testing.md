@@ -38,7 +38,7 @@ geometry and the TextKit 2 views. CFI and search tests replay vectors recorded f
 `epubcfi.js` and `search.js` in WebKit before they were removed, so CFIs the WebKit reader
 recorded keep naming the same positions. Live session tests mount a reader in a window, open at
 the text start (a `bodymatter` landmark, a guide `text` reference or the first linear section),
-navigate between sections, exercise styles and flows, locate/select passages, restore positions
+navigate between sections, exercise styles and flows, update page controls without changing location/selection/highlights, locate/select passages, restore positions
 (including a foliate-written CFI under EPUBLib's bookmark identity, refusing the old tag, and a
 restore on `.ready` replacing the text start), report the page-list entries on screen in both
 flows after page turns, scrolling, navigation to markers, a restore and a resize, and for a
@@ -46,6 +46,11 @@ selection, and close the session. Separate fixtures exercise
 encoded filenames and fragments, fixed layout, RTL and vertical writing. The illustrated fixture
 has 40 sections and eight incompressible 1024×1024 images; its test enforces an archive size over
 20 MiB and verifies that later sections remain navigable.
+
+Page-input tests cover default and replaced/cleared shortcuts, exact modifiers, duplicate/invalid
+bindings, canvas and child focus, selection chords, live iOS recognizer disabling, Mac wheel
+pass-through and reset, zero/invalid/asymmetric/overlapping zones, RTL, resizing, fold exclusion,
+both reading flows, host commands and iOS VoiceOver page turns with direct input disabled.
 
 These are deterministic regression fixtures, not an EPUB conformance certification, a comprehensive
 typographic review, an accessibility audit or a memory budget measurement.

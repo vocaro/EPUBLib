@@ -172,3 +172,56 @@ The protocol permits other adapters, such as Readium; they require their own imp
 platform support checks, licensing review and tests. The package ships only its native viewer.
 
 Run the shared [engine contract checks](testing.md#adapter-contract-tests) against each adapter.
+
+## Configuring page controls
+
+Apply `epubReaderPageControls(_:)` to the retained `EPUBReaderView` for the bundled native
+reader. `EPUBPageControls()` keeps existing behavior: 56-point edge zones, iOS horizontal
+swipes, Mac wheel/trackpad turns, and Left/Page Up previous, Right/Page Down/Space next,
+Shift-Space previous. `.hostOnly` disables all direct page input; buttons can still send
+`.nextPage` / `.previousPage`, and VoiceOver page actions remain available.
+
+<!-- snippet:pageControls -->
+```swift
+```
+<!-- /snippet -->
+
+The sample's Page Input picker switches between defaults, host-only input and custom zones
+with Command-Shift-N/P shortcuts while the book stays mounted. The modifier is specific to
+the native reader; other engines can choose their own input API.
+
+- `edgeTapsEnabled`, `touchSwipesEnabled` and `wheelEnabled` independently enable each input
+  family. All gestures turn pages only in paginated flow. Disabled iOS recognizers cannot
+  compete with host gestures; disabled Mac wheel handling passes events up the responder
+  chain. Native scrolling, text selection, links and context menus remain available.
+- `leftTapWidth` / `rightTapWidth` are physical edge widths in points, measured inward from
+  the reader's bounds, including outer margins. Positive finite values are clipped to the
+  current reader width. Zero, negative, NaN and infinity disable that edge. Boundaries are
+  exclusive at the inner edge; in overlaps the right edge wins, including in narrow readers.
+  A usable reserved vertical division is excluded across its full x band; no additional
+  zones are created at the fold. Resizing uses the new bounds immediately. In RTL books,
+  the physical left zone turns next and right turns previous; the widths do not swap.
+  Touch swipes and horizontal wheel directions also mirror automatically. Vertical wheel
+  movement retains its forward/backward direction.
+- `keyboardBindings` **replaces** the default bindings. Empty disables built-in page
+  shortcuts. Keys support arrows, Page Up/Down, Home/End, Space and ASCII letters/digits.
+  Letters are case-insensitive; specify `.shift` explicitly. Other character keys and
+  unsupported modifier bits are ignored. Modifiers (`shift`, `command`, `option`, `control`)
+  match exactly; Caps Lock and the system's arrow Function/Numeric Pad flags are ignored.
+  Duplicate key/modifier pairs use the first binding. Layout-specific letter keys use the
+  event's character rather than a Mac physical key code.
+- Keyboard actions are **logical** `.next` / `.previous` and never mirror in RTL. In
+  scrolled flow they move one viewport less a line. A single native responder path handles
+  a key whether the canvas or a child text view has focus. The reader does not take focus
+  from another control when bindings change; focus must be within the reader for a shortcut
+  to apply. On iOS the reader can receive hardware keys when its native text view has focus.
+- Copy, Select All, Shift-arrow selection extension and other host/system chords remain
+  native unless explicitly assigned. There are no library-reserved supported combinations,
+  but OS-reserved or app-menu shortcuts may be consumed before delivery to the reader.
+  Removed bindings cease claiming page keys; native text handling may still use an arrow
+  for selection or scrolling. No binding is installed globally.
+
+Changing the modifier on an already mounted session updates only input handling. It does
+not rebuild text, repaginate, clear selection or highlights, or emit a relocation. The
+current wheel gesture/cooldown and pending edge press are reset. Host commands and
+accessibility use the same page/viewport operation regardless of direct-input configuration.

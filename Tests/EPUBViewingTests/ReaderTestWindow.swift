@@ -8,7 +8,18 @@ import AppKit
 import UIKit
 #endif
 
+@MainActor @Observable final class TestPageControls {
+    var value = EPUBPageControls()
+}
+
+private struct ControlledTestReader: View {
+    let session: any EPUBReaderSession
+    let controls: TestPageControls
+    var body: some View { EPUBReaderView(session: session).epubReaderPageControls(controls.value) }
+}
+
 @MainActor final class ReaderTestWindow {
+    let pageControls = TestPageControls()
     #if os(macOS)
     let window: NSWindow
     #else
@@ -20,13 +31,13 @@ import UIKit
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700),
                           styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: EPUBReaderView(session: session))
+        window.contentView = NSHostingView(rootView: ControlledTestReader(session: session, controls: pageControls))
         window.orderFront(nil)
         #else
         if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
             window = UIWindow(windowScene: scene)
         } else { window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844)) }
-        window.rootViewController = UIHostingController(rootView: EPUBReaderView(session: session))
+        window.rootViewController = UIHostingController(rootView: ControlledTestReader(session: session, controls: pageControls))
         window.makeKeyAndVisible()
         #endif
     }

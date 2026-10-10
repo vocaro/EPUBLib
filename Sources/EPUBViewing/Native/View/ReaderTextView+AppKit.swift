@@ -69,23 +69,39 @@ final class ReaderTextView: NSTextView {
     // MARK: Keys, links and accessibility
 
     override func keyDown(with event: NSEvent) {
-        guard let canvas, let forward = Self.pageTurnDirection(for: event) else { return super.keyDown(with: event) }
+        guard let canvas, let forward = Self.pageTurnDirection(for: event, controls: canvas.configuration.pageControls) else { return super.keyDown(with: event) }
         canvas.turnPageFromInput(forward: forward)
     }
 
-    /// The page-turn direction of a key event, through `ReaderEPUBPageTurnKey`.
-    static func pageTurnDirection(for event: NSEvent) -> Bool? {
-        guard ReaderEPUBPageTurnKey.command(forKeyCode: event.keyCode, hasShift: false) != nil else { return nil }
-        let key: KeyEquivalent = switch event.keyCode {
-        case 123: .leftArrow
-        case 124: .rightArrow
-        case 116: .pageUp
-        case 121: .pageDown
-        default: .space
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let canvas, canvas.handlePageKeyEquivalent(event) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    static func pageTurnDirection(for event: NSEvent, controls: EPUBPageControls = .init()) -> Bool? {
+        let key: EPUBPageKey
+        switch event.keyCode {
+        case 123: key = .leftArrow
+        case 124: key = .rightArrow
+        case 125: key = .downArrow
+        case 126: key = .upArrow
+        case 116: key = .pageUp
+        case 121: key = .pageDown
+        case 115: key = .home
+        case 119: key = .end
+        case 49: key = .space
+        default:
+            guard let characters = event.charactersIgnoringModifiers, characters.count == 1,
+                  let character = characters.first else { return nil }
+            key = .character(character)
         }
+        var modifiers: EPUBPageKeyModifiers = []
         let flags = event.modifierFlags
-        return ReaderCanvasInput.direction(for: key, shift: flags.contains(.shift),
-                                           otherModifiers: !flags.isDisjoint(with: [.command, .option, .control]))
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        if flags.contains(.command) { modifiers.insert(.command) }
+        if flags.contains(.option) { modifiers.insert(.option) }
+        if flags.contains(.control) { modifiers.insert(.control) }
+        return controls.direction(for: key, modifiers: modifiers)
     }
 
     // A link is activated, never dragged out as a URL or previewed (its scheme is private).

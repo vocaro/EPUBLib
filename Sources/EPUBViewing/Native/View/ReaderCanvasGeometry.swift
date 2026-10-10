@@ -87,7 +87,7 @@ enum ReaderCanvasGeometry {
     }
 
     /// A division that splits the page into two non-empty sides; nil otherwise.
-    private static func usableDivision(_ division: CGRect?, in page: CGRect) -> CGRect? {
+    static func usableDivision(_ division: CGRect?, in page: CGRect) -> CGRect? {
         guard let division, !division.isNull, division.minX > page.minX, division.maxX < page.maxX
         else { return nil }
         return division

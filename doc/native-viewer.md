@@ -204,6 +204,10 @@ subset does not implement fixed-page geometry.
 
 ## Input and accessibility
 
+`View.epubReaderPageControls(_:)` configures direct page input live; see
+[integration](integration.md#configuring-page-controls) for the API, validation and examples.
+The following are the defaults. Host commands and accessibility actions stay enabled.
+
 - Paginated: a tap or click within 56 pt of either edge (except on a link, a press-and-hold or
   while text is selected), a horizontal swipe (not while text is selected), and on macOS a
   trackpad gesture or wheel tick turns a page. Continuous scroll scrolls natively.

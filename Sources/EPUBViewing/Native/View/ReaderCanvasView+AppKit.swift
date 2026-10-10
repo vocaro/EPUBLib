@@ -11,6 +11,8 @@ extension ReaderCanvasView: NSTextViewDelegate {
                                                name: ReaderMemoryPressure.notification, object: nil)
     }
 
+    func updateInputHandlers() {} // AppKit handlers read live configuration.
+
     @objc private func memoryPressure(_ notification: Notification) { trimCaches() }
 
     // A live resize keeps the spread on screen and paginates once, at its end.
@@ -184,11 +186,23 @@ extension ReaderCanvasView: NSTextViewDelegate {
     }
 
     override func keyDown(with event: NSEvent) {
-        guard let forward = ReaderTextView.pageTurnDirection(for: event) else { return super.keyDown(with: event) }
+        guard let forward = ReaderTextView.pageTurnDirection(for: event, controls: configuration.pageControls) else { return super.keyDown(with: event) }
         turnPageFromInput(forward: forward)
     }
 
-    // A click within 56 points of the left or right edge turns the page (`edgeTurn(at:)`); the
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        handlePageKeyEquivalent(event) || super.performKeyEquivalent(with: event)
+    }
+
+    func handlePageKeyEquivalent(_ event: NSEvent) -> Bool {
+        guard hasKeyboardFocus,
+              let forward = ReaderTextView.pageTurnDirection(for: event, controls: configuration.pageControls)
+        else { return false }
+        turnPageFromInput(forward: forward)
+        return true
+    }
+
+    // A click in a configured physical edge zone turns the page (`edgeTurn(at:)`); the
     // column text views handle clicks on themselves the same way.
     override func mouseDown(with event: NSEvent) {
         pointerDown = (convert(event.locationInWindow, from: nil), event.timestamp)
@@ -205,7 +219,7 @@ extension ReaderCanvasView: NSTextViewDelegate {
 
     /// In paginated flow a trackpad gesture or wheel tick turns a page; the columns do not scroll.
     override func scrollWheel(with event: NSEvent) {
-        guard configuration.flow == .paginated else { return super.scrollWheel(with: event) }
+        guard configuration.flow == .paginated, configuration.pageControls.wheelEnabled else { return super.scrollWheel(with: event) }
         // Line-based mouse wheels report lines; scale them to points as WebKit did.
         let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
         let phase: ReaderWheelPageTurner.Phase =

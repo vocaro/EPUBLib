@@ -1,18 +1,8 @@
 import CoreGraphics
 import Foundation
-import SwiftUI
 
 /// Page-turn input rules shared by both platforms' text views and canvas.
 enum ReaderCanvasInput {
-    /// The page-turn direction (`true` forward) of a key, or nil to leave it to text selection
-    /// and the system: Command, Option and Control chords (Cmd-C, Cmd-A) and Shift with
-    /// anything but Space (Shift-arrow extends a selection) are never page turns.
-    static func direction(for key: KeyEquivalent, shift: Bool, otherModifiers: Bool) -> Bool? {
-        guard !otherModifiers, !shift || key == .space,
-              let command = ReaderEPUBPageTurnKey.command(for: key, hasShift: shift) else { return nil }
-        return command == .next
-    }
-
     /// A horizontal swipe's direction: towards the left reads forward, mirrored right to left.
     static func swipeDirection(towardsLeft: Bool, isRightToLeft: Bool) -> Bool { towardsLeft != isRightToLeft }
 }

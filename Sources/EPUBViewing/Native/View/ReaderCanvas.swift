@@ -73,6 +73,7 @@ struct ReaderHighlight: Hashable, Sendable {
 }
 
 struct ReaderCanvasConfiguration: Equatable, Sendable {
+    var pageControls = EPUBPageControls()
     var flow: EPUBReadingFlow = .paginated
     var isDark = false
     /// The spine's `page-progression-direction` is `rtl`: spreads read right to left and the

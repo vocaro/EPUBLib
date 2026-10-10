@@ -171,6 +171,11 @@ import AppKit
     }
 
     private func configurationDidChange(from old: ReaderCanvasConfiguration) {
+        if old.pageControls != configuration.pageControls || old.flow != configuration.flow {
+            pointerDown = nil
+            wheelTurner = ReaderWheelPageTurner()
+            updateInputHandlers()
+        }
         if old.isDark != configuration.isDark {
             applyAppearance()
             applyHighlights()
@@ -491,6 +496,15 @@ import AppKit
     /// Puts the whole book in the scroll view when the data source has it, else the anchor's section.
     private func loadScrollContent() {
         guard let textView = scrollTextView else { return }
+        // Capture in the old placement before a section becomes the whole book (or vice versa).
+        // A pending locate owns the selection; a native user edit supersedes a cached locate.
+        let carried: ReaderTextRange?
+        if pendingSelection == nil, textView.selectedRange.length > 0 {
+            if let programmaticSelection, programmaticSelection.view === textView,
+               programmaticSelection.local == textView.selectedRange {
+                carried = programmaticSelection.selection.range
+            } else { carried = selection(textView.selectedRange, in: textView)?.range }
+        } else { carried = nil }
         let content: (text: NSAttributedString, placement: ReaderTextPlacement)
         // A section the whole book leaves out (nonlinear) is shown on its own.
         if let book = dataSource?.bookText, anchor.map({ book.contains(section: $0.section) }) ?? true {
@@ -502,10 +516,26 @@ import AppKit
         } else {
             return
         }
+        programmaticSelection = nil
         isApplyingSelection = true
+        textView.selectedRange = NSRange(location: 0, length: 0)
         textView.placement = content.placement
         withProgrammaticScroll { textView.setContent(content.text) }
         isApplyingSelection = false
+        // A carried native selection must fit the replacement section in full. Explicit locates
+        // still keep their existing clipped-page semantics in `applyPendingSelection`.
+        if let carried, scrollBook != nil ||
+            (carried.start.section == content.placement.section && carried.end.section == content.placement.section) {
+            pendingSelection = carried
+        }
+        applyPendingSelection()
+        if carried != nil, pendingSelection != nil { // Do not resurrect an unmappable old selection.
+            pendingSelection = nil
+        }
+        if textView.selectedRange.length == 0 {
+            currentSelection = nil
+            scheduleSelectionReport()
+        }
         applyHighlights()
     }
 
@@ -797,15 +827,16 @@ import AppKit
     /// Text is selected in a text view on screen.
     var hasSelection: Bool { textViews.contains { $0.selectedRange.length > 0 } }
 
-    /// The width of the paginated tap zones at the left and right edges.
-    static let edgeZoneWidth: CGFloat = 56
-
-    /// The page turn a tap or click at `point` (canvas coordinates) makes: within 56 points of
-    /// the left or right edge in paginated flow (the left one goes back, mirrored right to
+    /// The page turn a tap or click at `point` (canvas coordinates) makes: within a configured
+    /// physical edge zone in paginated flow (the left one goes back, mirrored right to
     /// left), unless it is on a link or text is selected, where the text view's own tap belongs.
     func edgeTurn(at point: CGPoint) -> Bool? {
-        guard configuration.flow == .paginated, bounds.contains(point), !hasSelection else { return nil }
-        let left = point.x < bounds.minX + Self.edgeZoneWidth, right = point.x > bounds.maxX - Self.edgeZoneWidth
+        guard configuration.flow == .paginated, configuration.pageControls.edgeTapsEnabled, bounds.contains(point), !hasSelection else { return nil }
+        if let division = ReaderCanvasGeometry.usableDivision(configuration.division, in: bounds),
+           point.x >= division.minX, point.x <= division.maxX { return nil }
+        func width(_ value: CGFloat) -> CGFloat { value.isFinite ? min(bounds.width, max(0, value)) : 0 }
+        let left = point.x < bounds.minX + width(configuration.pageControls.leftTapWidth)
+        let right = point.x > bounds.maxX - width(configuration.pageControls.rightTapWidth)
         guard left || right else { return nil }
         if let view = columns.first(where: { !$0.isHidden && $0.frame.contains(point) }),
            view.link(at: convert(point, to: view)) != nil { return nil }
