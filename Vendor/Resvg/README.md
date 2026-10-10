@@ -1,0 +1,42 @@
+# Bundled static SVG renderer
+
+EPUBViewing uses resvg 0.48.1, MIT/Apache-2.0, from upstream commit
+`68b14c4c3bccdb60344c777406486b54c36ec1a4`. The source tarball SHA-256 is
+`fda0203e2dc383ea334c2d95a9af83526d32647e63d8dee43c2875e95c641c0c`.
+
+`Resvg.xcframework` contains static macOS arm64/x86_64, iOS arm64, and iOS simulator
+arm64/x86_64 libraries, built with isolated Rust 1.95.0 and the upstream production
+profile (`opt-level=3`, LTO, one codegen unit, stripped debug information).
+Features: `text,raster-images`; filesystem font scanning, font memory mapping, and
+SVGZ are disabled. Swift package consumers do not need Rust. Only EPUBViewing
+depends on CResvg; the headless products retain their existing dependencies.
+
+Rebuild on either Apple Silicon or Intel macOS with Xcode installed:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bash scripts/build-resvg.sh
+```
+
+The script pins/checks the source archive, downloads an isolated Rust toolchain
+under `.build/resvg`, preserves the previous framework, and regenerates license
+inventory and archive checksums. `EPUBLIB_RESVG_BUILD_DIR` and
+`EPUBLIB_RESVG_OUTPUT` can redirect these outputs. The library's build deployment
+targets are macOS 11.0 and iOS 10.0 (Rust's Apple defaults); EPUBLib itself
+requires iOS/macOS 27.
+
+The only upstream changes, in `scripts/patch-resvg.py`, close every non-data image
+resolver, allow raster data types only (never nested SVG/SVGZ), and fix the C API's
+feature gates so filesystem font methods compile to no-ops. Fonts are supplied
+as host-exported CoreText SFNT outline bytes, with SVG/COLR/bitmap color-glyph
+tables removed and disclosed as `svg:font-color`. No script or remote/file-resource loader is
+installed. SVG filters and patterns are refused with authored fallback text and a disclosure;
+the native pipeline bounds SVG bytes, depth, nodes, use expansion, image bytes and
+pixels, and output/isolated-layer raster memory before rendering. Font databases
+share immutable options and retain a process-wide 64 MiB byte reservation for
+their full lifetime, including SVG trees remaining after cache eviction.
+
+The XCFramework is approximately 45 MiB before compression. `checksums.json`
+records the exact vendored archive hashes. `dependencies.json` identifies the
+locked normal dependency graph. `Licenses/` contains their complete license and
+notice texts, plus Rust's standard-library copyright/third-party notices. Host
+applications redistributing this static code must retain these notices.

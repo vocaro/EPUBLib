@@ -58,6 +58,7 @@ final class SectionWriter {
     private let document: ContentDocument
     private let styling: InlineStyling
     private var isSection: Bool { mode == .section }
+    private var recordsMap: Bool { !isNote }
     private var isNote: Bool { if case .note = mode { true } else { false } }
 
     private var buffer = TextBuffer()
@@ -117,7 +118,13 @@ final class SectionWriter {
         var context = InlineContext()
         context.language = language
         walk(Entry(node: element, children: element.children, style: style, context: context))
-        return finish().string
+        let result = finish()
+        let text = NSMutableAttributedString(attributedString: result.string)
+        if text.length > 0 {
+            text.addAttribute(.readerDetachedMap, value: ReaderDetachedTextMap(map: result.map,
+                node: element.order, subtreeEnd: element.subtreeEnd), range: NSRange(location: 0, length: text.length))
+        }
+        return text
     }
 
     func renderNote(_ element: ContentNode) -> NSAttributedString {
@@ -909,7 +916,7 @@ final class SectionWriter {
     }
 
     private func mapSpan(location: Int, length: Int, node: ContentNode, offset: Int, sourceLength: Int, exact: Bool) {
-        guard isSection else { return }
+        guard recordsMap else { return }
         map.append(TextMap.Span(location: location, length: length, node: node.order, offset: offset,
                                 sourceLength: sourceLength, isExact: exact))
     }
@@ -958,7 +965,7 @@ final class SectionWriter {
         flushAnchors(before: space.anchorSerial)
         let location = buffer.count
         buffer.append(CollectionOfOne(0x20), attributes: space.attributes)
-        if isSection, let node = space.node {
+        if recordsMap, let node = space.node {
             map.append(TextMap.Span(location: location, length: 1, node: node, offset: space.offset,
                                     sourceLength: space.length, isExact: space.exact))
         }
@@ -985,7 +992,7 @@ final class SectionWriter {
             flushAnchors(before: pending.anchorSerial)
             let location = buffer.count
             buffer.append(CollectionOfOne(0x2028), attributes: pending.attributes)
-            if isSection, let node = pending.node {
+            if recordsMap, let node = pending.node {
                 map.append(TextMap.Span(location: location, length: 1, node: node, offset: pending.offset,
                                         sourceLength: pending.length, isExact: pending.length == 1))
             }
@@ -1118,6 +1125,11 @@ final class SectionWriter {
         claimSubtree(of: node, at: location)
         buffer.append(unit: result, link: style.isHidden ? nil : context.link?.url)
         if isSection {
+            result.enumerateAttribute(.attachment, in: NSRange(location: 0, length: result.length)) { value, range, _ in
+                if let row = value as? TableRowAttachment { row.table.sourceRowOffsets[row.row] = location + range.location }
+            }
+        }
+        if recordsMap {
             map.append(TextMap.Span(location: location, length: result.length, node: node.order, offset: 0,
                                     sourceLength: 0, isExact: false))
         }

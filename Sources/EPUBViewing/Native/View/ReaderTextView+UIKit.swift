@@ -11,8 +11,11 @@ final class ReaderTextView: UITextView {
     let isPageColumn: Bool
     var placement = ReaderTextPlacement()
     var flowSourceText: NSAttributedString?
+    var tableInteraction: ReaderTableInteraction?
+    var containsTableRows = false
     weak var canvas: ReaderCanvasView?
     private var imageGestureDelegate: ReaderImageGestureDelegate?
+    private var selectionGestureDelegate: ReaderSpreadSelectionGestureDelegate?
 
     init(pageColumn: Bool) {
         (contentStorage, readerLayoutManager, readerContainer) = Self.makeTextKitStack()
@@ -29,6 +32,7 @@ final class ReaderTextView: UITextView {
         imageTap.numberOfTapsRequired = 2
         imageTap.delegate = imageDelegate
         addGestureRecognizer(imageTap)
+        if pageColumn { selectionGestureDelegate = ReaderSpreadSelectionGestureDelegate.install(on: self) }
         textContainerInset = .zero
         textDragInteraction?.isEnabled = false
         if pageColumn {
@@ -64,7 +68,7 @@ final class ReaderTextView: UITextView {
 
     // Copy carries the reader's text: attachments as their alt text, never U+FFFC.
     override func copy(_ sender: Any?) {
-        let text = plainText(in: selectedRange)
+        let text = canvas?.selectionText(for: self) ?? plainText(in: selectedRange)
         guard !text.isEmpty else { return }
         pasteboard.string = text
     }
@@ -115,7 +119,10 @@ final class ReaderTextView: UITextView {
                     return self?.canvas != nil
                 }
             }
-            return (super.accessibilityCustomActions ?? []) + actions
+            let tableActions = (tableInteraction?.accessibilityActions() ?? []).map { action in
+                UIAccessibilityCustomAction(name: action.name) { _ in action.perform() }
+            }
+            return (super.accessibilityCustomActions ?? []) + actions + tableActions
         }
         set { super.accessibilityCustomActions = newValue }
     }
@@ -135,12 +142,95 @@ final class ReaderTextView: UITextView {
     }
 }
 
+/// Observes native selection gestures simultaneously and takes over only when their endpoint
+/// crosses into the other column. Long press starts a selection; pan extends a native handle.
+@MainActor final class ReaderSpreadSelectionGestureDelegate: NSObject, UIGestureRecognizerDelegate {
+    weak var view: UIView?
+    private weak var activeGesture: UIGestureRecognizer?
+    private var crossesSurface = false
+    init(view: UIView) { self.view = view }
+
+    static func install(on view: UIView) -> ReaderSpreadSelectionGestureDelegate {
+        let delegate = ReaderSpreadSelectionGestureDelegate(view: view)
+        let drag = UIPanGestureRecognizer(target: delegate, action: #selector(Self.drag(_:)))
+        drag.delegate = delegate
+        drag.maximumNumberOfTouches = 1
+        drag.cancelsTouchesInView = false
+        view.addGestureRecognizer(drag)
+        let press = UILongPressGestureRecognizer(target: delegate, action: #selector(Self.drag(_:)))
+        press.minimumPressDuration = 0.45
+        press.delegate = delegate
+        press.cancelsTouchesInView = false
+        view.addGestureRecognizer(press)
+        return delegate
+    }
+
+    private var canvas: ReaderCanvasView? {
+        (view as? ReaderTextView)?.canvas ?? (view as? TableCellTextView)?.canvas
+    }
+
+    func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+        guard let view, let canvas, canvas.imageInspector == nil,
+              canvas.columns.filter({ !$0.isHidden }).count > 1 else { return false }
+        let point = recognizer.location(in: view)
+        let selected: NSRange
+        if let body = view as? ReaderTextView {
+            guard body.tableInteraction?.selectionPosition(at: point) == nil else { return false }
+            guard body.link(at: point) == nil, body.image(at: point) == nil else { return false }
+            selected = body.selectedRange
+        } else if let cell = view as? TableCellTextView {
+            guard cell.cellLink(at: point) == nil, cell.cellImage(at: point) == nil else { return false }
+            selected = cell.cellSelection
+        } else { return false }
+        return recognizer is UILongPressGestureRecognizer || selected.length > 0
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
+
+    @objc func drag(_ recognizer: UIGestureRecognizer) {
+        guard let view, let canvas else { return }
+        let point = recognizer.location(in: canvas)
+        switch recognizer.state {
+        case .began:
+            guard activeGesture == nil, let position = canvas.selectionPosition(at: point) else { return }
+            activeGesture = recognizer
+            crossesSurface = false
+            var anchor = position
+            if recognizer is UIPanGestureRecognizer, let selection = canvas.currentSelection {
+                func distance(to endpoint: ReaderTextPosition) -> Int {
+                    if let cell = position.tableCell, let target = endpoint.tableCell,
+                       cell.table == target.table, cell.cell == target.cell {
+                        return abs(cell.offset - target.offset)
+                    }
+                    if position.offset == endpoint.offset, position.tableCell != endpoint.tableCell { return Int.max }
+                    return abs(position.offset - endpoint.offset)
+                }
+                anchor = distance(to: selection.range.start) < distance(to: selection.range.end)
+                    ? selection.range.end : selection.range.start
+            }
+            canvas.beginSelectionDrag(at: anchor)
+        case .changed:
+            guard activeGesture === recognizer, let end = canvas.selectionPosition(at: point) else { return }
+            if !view.convert(view.bounds, to: canvas).contains(point) { crossesSurface = true }
+            if crossesSurface { canvas.extendSelectionDrag(to: end) }
+        case .ended, .cancelled, .failed:
+            guard activeGesture === recognizer else { return }
+            if crossesSurface, let end = canvas.selectionPosition(at: point) { canvas.extendSelectionDrag(to: end) }
+            canvas.endSelectionDrag()
+            activeGesture = nil
+        default: break
+        }
+    }
+}
+
 @MainActor private final class ReaderImageGestureDelegate: NSObject, UIGestureRecognizerDelegate {
     weak var view: ReaderTextView?
     init(view: ReaderTextView) { self.view = view }
     func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
         guard let view else { return false }
         let point = recognizer.location(in: view)
+        guard view.tableInteraction?.selectionPosition(at: point) == nil else { return false }
         return view.image(at: point) != nil && view.link(at: point) == nil && view.selectedRange.length == 0
     }
     @objc func openImage(_ recognizer: UITapGestureRecognizer) {

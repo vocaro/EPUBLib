@@ -43,6 +43,8 @@ final class FontRegistry: @unchecked Sendable {
     private var resolutions: [ResolutionKey: Resolution] = [:]
     private var cache: [FontKey: PlatformFont] = [:]
     private var syntheticSmallCaps: [FontKey: Bool] = [:]
+    private var svgFontExports: [String: SVGFontData?] = [:]
+    private var svgFontExportBytes = 0
 
     private struct Face {
         let weights: ClosedRange<Int>
@@ -62,6 +64,45 @@ final class FontRegistry: @unchecked Sendable {
     private struct FontKey: Hashable { let families: [String]; let size: CGFloat; let weight: Int; let italic: Bool; let smallCaps: Bool }
 
     init(publication: EPUBPublication) { self.publication = publication }
+
+    /// Registered archive faces requested by an SVG. Export under the registration lock so
+    /// concurrent section builds cannot observe half-loaded faces. No platform font scan.
+    func svgFonts(families: Set<String>) -> (fonts: [SVGFontData], aliases: [String: String], strippedColorGlyphs: Bool) {
+        registration.lock(); defer { registration.unlock() }
+        var result: [SVGFontData] = []
+        var aliases: [String: String] = [:]
+        var strippedColorGlyphs = false
+        var bytes = 0
+        for family in families.sorted().prefix(32) {
+            lock.lock(); var matches = faces[family.lowercased()] ?? []; lock.unlock()
+            // Query only explicitly requested installed families, using the same bounded
+            // CoreText matching as body text; never enumerate/scan the system font folders.
+            if matches.isEmpty { matches = installedFaces(family.lowercased()) ?? [] }
+            for face in matches.prefix(8) {
+                let font = CTFontCreateWithFontDescriptor(face.descriptor, 12, nil)
+                strippedColorGlyphs = strippedColorGlyphs || SVGFontData.hasColorGlyphs(font)
+                let key = CTFontCopyPostScriptName(font) as String
+                lock.lock(); let cached = svgFontExports[key]; lock.unlock()
+                let exported: SVGFontData?
+                if let cached { exported = cached }
+                else {
+                    let candidate = SVGFontData.export(font)
+                    lock.lock()
+                    if let candidate, candidate.data.count <= Self.maximumFontBytes - svgFontExportBytes {
+                        svgFontExportBytes += candidate.data.count
+                        exported = candidate
+                    } else { exported = nil }
+                    svgFontExports[key] = .some(exported)
+                    lock.unlock()
+                }
+                guard let exported, exported.data.count <= Self.maximumFontBytes - bytes else { continue }
+                bytes += exported.data.count
+                result.append(exported)
+                aliases[family.lowercased()] = exported.family
+            }
+        }
+        return (result, aliases, strippedColorGlyphs)
+    }
 
     /// Registers a section's `@font-face` rules. Faces already registered are ignored. Sources are
     /// read and decoded now so failures reach the section's report; the book's total is bounded.

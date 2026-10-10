@@ -64,6 +64,10 @@ extension ReaderTextView {
     var textLength: Int { contentStorage.textStorage?.length ?? 0 }
 
     func setContent(_ text: NSAttributedString) {
+        containsTableRows = false
+        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, stop in
+            if value is TableRowAttachment { containsTableRows = true; stop.pointee = true }
+        }
         flowSourceText = text
         contentStorage.textStorage?.setAttributedString(text)
         refreshFlowBoxLayout()
@@ -107,6 +111,7 @@ extension ReaderTextView {
     /// Lays out every line, so a page column has exact positions (no estimates).
     func ensureFullLayout() {
         readerLayoutManager.ensureLayout(for: readerLayoutManager.documentRange)
+        refreshTableInteractions()
     }
 
     func textRange(for range: NSRange) -> NSTextRange? {
@@ -141,6 +146,23 @@ extension ReaderTextView {
             guard let range = textRange(for: highlight.range) else { continue }
             layoutManager.addRenderingAttribute(.backgroundColor, value: highlight.color, for: range)
         }
+    }
+
+    /// Native TextKit insertion offset nearest a point, without invoking TextKit 1.
+    func characterOffset(at point: CGPoint) -> Int {
+        let local = CGPoint(x: point.x - containerOrigin.x, y: point.y - containerOrigin.y)
+        guard let fragment = readerLayoutManager.textLayoutFragment(for: local) else {
+            return local.y <= 0 ? 0 : textLength
+        }
+        let start = offset(of: fragment.rangeInElement.location)
+        let frame = fragment.layoutFragmentFrame
+        let relative = CGPoint(x: local.x - frame.minX, y: local.y - frame.minY)
+        guard let line = fragment.textLineFragments.min(by: {
+            abs($0.typographicBounds.midY - relative.y) < abs($1.typographicBounds.midY - relative.y)
+        }) else { return start }
+        let bounds = line.typographicBounds
+        return min(textLength, max(0, start + line.characterIndex(for:
+            CGPoint(x: relative.x - bounds.minX, y: relative.y - bounds.minY))))
     }
 
     /// The link under `point` (this view's coordinates), if any.

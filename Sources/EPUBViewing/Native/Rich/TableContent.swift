@@ -266,6 +266,7 @@ enum TableContent {
             spacing: spacing, borders: tableBorders,
             background: isDark ? nil : (style.backgroundColor ?? color(table.attribute("bgcolor")))?.cgColor,
             alignment: alignment, isRightToLeft: style.direction == .rtl)
+        model.sourceOrder = table.order
         return (model, caption)
     }
 

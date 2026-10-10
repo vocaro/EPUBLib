@@ -6,8 +6,15 @@ import Foundation
 struct ReaderTextPosition: Hashable, Comparable, Sendable {
     var section: Int
     var offset: Int
-    init(section: Int, offset: Int) { self.section = section; self.offset = offset }
-    static func < (a: Self, b: Self) -> Bool { (a.section, a.offset) < (b.section, b.offset) }
+    var tableCell: ReaderTablePosition?
+    init(section: Int, offset: Int, tableCell: ReaderTablePosition? = nil) {
+        self.section = section; self.offset = offset; self.tableCell = tableCell
+    }
+    static func < (a: Self, b: Self) -> Bool {
+        if (a.section, a.offset) != (b.section, b.offset) { return (a.section, a.offset) < (b.section, b.offset) }
+        let left = a.tableCell, right = b.tableCell
+        return (left?.cell ?? -1, left?.offset ?? -1) < (right?.cell ?? -1, right?.offset ?? -1)
+    }
 }
 
 /// A rendered range; `end` is exclusive. Selections and visible ranges may span sections in
@@ -98,10 +105,16 @@ enum PageTurnResult: Equatable, Sendable {
     var sectionCount: Int { get }
     /// A section's rendered text, or nil while it is not built.
     func text(forSection index: Int) -> NSAttributedString?
+    /// Full semantic passage, including precise cell coordinates and offscreen continuations.
+    func selectionText(in range: ReaderTextRange) -> String?
     /// Nonlinear sections are reached by links and navigation; page turns step over them.
     func isLinear(section index: Int) -> Bool
     /// The whole book for continuous scroll, once every section is built.
     var bookText: ReaderBookText? { get }
+}
+
+extension ReaderCanvasDataSource {
+    func selectionText(in range: ReaderTextRange) -> String? { nil }
 }
 
 @MainActor protocol ReaderCanvasDelegate: AnyObject {

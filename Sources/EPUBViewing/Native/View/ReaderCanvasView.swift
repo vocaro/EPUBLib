@@ -11,8 +11,8 @@ import AppKit
 ///
 /// Paginated flow slices the current section into pages from one layout per column size
 /// (`ReaderPaginator`) and shows a spread's slices in non-scrolling text views, one per column.
-/// Each holds only its own page's text, so selection, links and VoiceOver are native and stay on
-/// the page, and its layout is small enough to be exact. Continuous scroll is one real scroll
+/// Each holds its own page's text; a source selection coordinates native ranges across columns,
+/// while links and VoiceOver stay on the page, and its layout is small enough to be exact. Continuous scroll is one real scroll
 /// view over the whole book once the data source has it, and over the current section until then.
 ///
 /// This file holds the platform-neutral state and logic; `ReaderCanvasView+UIKit.swift` and
@@ -36,12 +36,16 @@ import AppKit
     private var pendingSelectionPreservesFullRange = false
     private var highlights: [ReaderHighlight] = []
     private var reportedSelection: ReaderSelection?
-    /// The selection `show(_:selecting:)` made, which may run past the page it is selected on:
-    /// reported as given while the text view still holds it.
+    /// A source selection projected into every visible native text column. Its full text
+    /// is used for Copy and host actions, including pages reached through continuation controls.
     private var programmaticSelection: (view: ReaderTextView, local: NSRange, selection: ReaderSelection,
-                                       preservesFullRange: Bool)?
+                                       preservesFullRange: Bool, segments: [(view: ReaderTextView, local: NSRange)])?
     private var selectionReport: Task<Void, Never>?
     private var isApplyingSelection = false
+    private weak var externalSelectionSource: AnyObject?
+    private var selectionDragAnchor: ReaderTextPosition?
+    private var selectionDragOverridesNative = false
+    private var selectionContinuation: ReaderSelectionContinuation?
 
     // Paginated flow.
     private(set) var spread: ReaderCanvasGeometry.Spread?
@@ -103,7 +107,7 @@ import AppKit
 
     func reloadContent(keeping position: ReaderTextPosition?) {
         settleLayout()
-        if configuration.flow != .scrolled || scrollTextView == nil { carrySelectionAcrossRelayout() }
+        if configuration.flow != .scrolled || scrollTextView == nil || externalSelectionSource != nil { carrySelectionAcrossRelayout() }
         anchor = position ?? currentStart() ?? anchor
         anchorFollowsScroll = false
         // Paginators of rebuilt sections are replaced as they are next used (`paginator(for:)`).
@@ -123,6 +127,7 @@ import AppKit
 
     func show(_ position: ReaderTextPosition, selecting range: ReaderTextRange?) {
         settleLayout()
+        clearSelection()
         anchor = position
         anchorFollowsScroll = false
         pendingSelection = range.flatMap { $0.isEmpty ? nil : $0 }
@@ -170,12 +175,17 @@ import AppKit
         pendingSelection = nil
         pendingSelectionPreservesFullRange = false
         isApplyingSelection = true
-        for view in textViews where view.selectedRange.length > 0 {
-            view.selectedRange = NSRange(location: view.selectedRange.location, length: 0)
+        for view in textViews {
+            view.clearTableSelection()
+            if view.selectedRange.length > 0 { view.selectedRange = NSRange(location: view.selectedRange.location, length: 0) }
         }
         isApplyingSelection = false
         programmaticSelection = nil
+        externalSelectionSource = nil
+        selectionDragAnchor = nil
+        selectionDragOverridesNative = false
         currentSelection = nil
+        updateSelectionContinuation()
         selectionReport?.cancel()
         if reportedSelection != nil {
             reportedSelection = nil
@@ -198,6 +208,8 @@ import AppKit
         case .paginated: layOutPages()
         case .scrolled: layOutScroll()
         }
+        for view in textViews { view.refreshTableInteractions() }
+        updateSelectionContinuation()
         if let imageInspector {
             #if os(macOS)
             addSubview(imageInspector, positioned: .above, relativeTo: nil)
@@ -311,9 +323,11 @@ import AppKit
     private func carrySelectionAcrossRelayout() {
         guard pendingSelection == nil else { return }
         let range: ReaderTextRange?
-        if let programmaticSelection,
+        if externalSelectionSource != nil {
+            range = currentSelection?.range
+        } else if let programmaticSelection,
            textViews.contains(where: { $0 === programmaticSelection.view }),
-           programmaticSelection.view.selectedRange == programmaticSelection.local {
+           programmaticSelection.segments.allSatisfy({ $0.view.selectedRange == $0.local }) {
             range = programmaticSelection.selection.range
         } else {
             range = textViews.lazy.compactMap { view in
@@ -414,12 +428,14 @@ import AppKit
     private func displayAnchor() {
         guard let anchor, let spread, spread.columnSize.width > 0, let paginator = paginator(for: anchor.section)
         else { return }
-        let page = paginator.pageIndex(containing: anchor.offset)
+        let page = paginator.pageIndex(containing: anchor)
         display(section: anchor.section, firstPage: page - page % spread.columns.count)
     }
 
     private func display(section: Int, firstPage: Int) {
         guard let spread, let paginator = paginator(for: section) else { return }
+        let carriedSelection = programmaticSelection?.selection.range ?? (externalSelectionSource != nil ? currentSelection?.range : nil)
+        let preservesFullRange = programmaticSelection?.preservesFullRange ?? false
         shownPage = (section, firstPage)
         while columns.count < spread.columns.count {
             let column = makeColumnView()
@@ -458,7 +474,14 @@ import AppKit
         trimPaginators()
         applyHighlights()
         updateVisibleRange(force: true)
+        if let carriedSelection, carriedSelection.start.tableCell != nil || carriedSelection.end.tableCell != nil
+            || textViews.contains(where: { localRange(of: carriedSelection, in: $0) != nil }) {
+            pendingSelection = carriedSelection
+            pendingSelectionPreservesFullRange = preservesFullRange
+            applyPendingSelection()
+        }
         selectionMayHaveChanged()
+        updateSelectionContinuation()
     }
 
     private func pagesVisibleRange() -> ReaderTextRange? {
@@ -633,6 +656,17 @@ import AppKit
             return true
         }
         withProgrammaticScroll { scrollLineToTop(containing: location, in: textView) }
+        if anchor.tableCell != nil, var cell = tableAnchorFrame(for: anchor) {
+            withProgrammaticScroll {
+                for _ in 0..<8 {
+                    scrollToContainerY(cell.minY)
+                    guard let updated = tableAnchorFrame(for: anchor) else { break }
+                    if abs(updated.minY - cell.minY) <= 0.5 { break }
+                    cell = updated
+                }
+            }
+            return true
+        }
         guard let line = textView.lineFrame(containing: location) else { return true }
         return textView.fragment(atContainerY: line.midY, holds: location)
     }
@@ -687,6 +721,11 @@ import AppKit
 
     /// The platform scroll view moved; reports the visible range at most every 150 ms.
     func scrollPositionDidChange() {
+        let ordered = highlights.filter { $0.kind == .annotation } + highlights.filter { $0.kind == .search }
+        scrollTextView?.setTableHighlights(ordered)
+        if let range = currentSelection?.range, range.start.tableCell != nil || range.end.tableCell != nil {
+            _ = scrollTextView?.selectTableRange(range, reporting: false)
+        }
         guard !isScrollingProgrammatically else { return }
         anchorFollowsScroll = true
         guard !scrollReportPending else { return }
@@ -740,27 +779,173 @@ import AppKit
 
     /// Selects the range `show(_:selecting:)` asked for, once its text is on screen.
     private func applyPendingSelection() {
-        guard let range = pendingSelection,
-              let view = textViews.first(where: { localRange(of: range, in: $0) != nil }),
-              let local = localRange(of: range, in: view) else { return }
+        guard let range = pendingSelection else { return }
+        if range.start.tableCell != nil || range.end.tableCell != nil {
+            isApplyingSelection = true
+            var selectedTables = [ReaderTableInteraction]()
+            var segments = [(view: ReaderTextView, local: NSRange)]()
+            for view in textViews {
+                let local = localRange(of: range, in: view)
+                view.selectedRange = local ?? NSRange(location: 0, length: 0)
+                if let local { segments.append((view, local)) }
+                if view.selectTableRange(range, reporting: false), let interaction = view.tableInteraction {
+                    selectedTables.append(interaction)
+                }
+            }
+            isApplyingSelection = false
+            guard let first = selectedTables.first, let owner = first.owner else { return }
+            let fullText = dataSource?.selectionText(in: range) ?? currentSelection.flatMap { $0.range == range ? $0.text : nil }
+            let selection = ReaderSelection(range: range, text: fullText ?? selectedTables.map { $0.selectedText() }.joined(separator: "\t"))
+            let primary = segments.first ?? (owner, NSRange(location: 0, length: 0))
+            programmaticSelection = (primary.0, primary.1, selection, pendingSelectionPreservesFullRange, segments)
+            externalSelectionSource = first
+            currentSelection = selection
+            pendingSelection = nil
+            pendingSelectionPreservesFullRange = false
+            updateSelectionContinuation()
+            scheduleSelectionReport()
+            return
+        }
+        let segments = textViews.compactMap { view -> (view: ReaderTextView, local: NSRange)? in
+            localRange(of: range, in: view).map { (view, $0) }
+        }
+        guard let first = segments.first else { return }
         let preservesFullRange = pendingSelectionPreservesFullRange
         pendingSelection = nil
         pendingSelectionPreservesFullRange = false
         isApplyingSelection = true
-        for other in textViews where other !== view { other.selectedRange = NSRange(location: 0, length: 0) }
-        focus(view)
-        view.selectedRange = local
+        for view in textViews {
+            view.selectedRange = segments.first { $0.view === view }?.local ?? NSRange(location: 0, length: 0)
+        }
+        focus(first.view)
         isApplyingSelection = false
-        let selection = ReaderSelection(range: range, text: text(of: range) ?? view.plainText(in: local))
-        programmaticSelection = (view, local, selection, preservesFullRange)
+        let selection = ReaderSelection(range: range, text: text(of: range) ?? first.view.plainText(in: first.local))
+        programmaticSelection = (first.view, first.local, selection, preservesFullRange, segments)
+        externalSelectionSource = nil
         currentSelection = selection
+        updateSelectionContinuation()
         scheduleSelectionReport()
+    }
+
+    /// Full passage text for native Copy, including the other spread column and continuation pages.
+    func selectionText(for source: AnyObject) -> String? {
+        if externalSelectionSource === source { return currentSelection?.text }
+        if source is ReaderTableInteraction, externalSelectionSource != nil,
+           textViews.contains(where: { $0.tableInteraction === source }) { return currentSelection?.text }
+        guard let view = source as? ReaderTextView, let programmaticSelection,
+              programmaticSelection.segments.contains(where: { $0.view === view && view.selectedRange == $0.local })
+        else { return nil }
+        return programmaticSelection.selection.text
+    }
+
+    /// Selection in a native table-cell surface uses its precise cell source range.
+    func setExternalSelection(_ selection: ReaderSelection?, source: AnyObject) {
+        guard !isApplyingSelection else { return }
+        if selection == nil, externalSelectionSource !== source { return }
+        isApplyingSelection = true
+        for view in textViews {
+            if view.tableInteraction !== source { view.clearTableSelection() }
+            if view.selectedRange.length > 0 { view.selectedRange = NSRange(location: view.selectedRange.location, length: 0) }
+        }
+        isApplyingSelection = false
+        pendingSelection = nil
+        programmaticSelection = nil
+        externalSelectionSource = selection == nil ? nil : source
+        currentSelection = selection
+        updateSelectionContinuation()
+        scheduleSelectionReport()
+    }
+
+    /// Source insertion position nearest a drag point; physical columns map in source order,
+    /// including right-to-left spreads. The gutter chooses the closest column edge.
+    func selectionPosition(at point: CGPoint) -> ReaderTextPosition? {
+        let candidates = columns.filter { !$0.isHidden && $0.placement.visibleLength > 0 }
+        guard let view = candidates.min(by: { a, b in
+            func distance(_ frame: CGRect) -> CGFloat {
+                let dx = max(frame.minX - point.x, 0, point.x - frame.maxX)
+                let dy = max(frame.minY - point.y, 0, point.y - frame.maxY)
+                return dx * dx + dy * dy
+            }
+            return distance(a.frame) < distance(b.frame)
+        }) else { return nil }
+        let local = convert(point, to: view)
+        if let cell = view.tableInteraction?.selectionPosition(at: local) { return cell }
+        let index = view.characterOffset(at: local)
+        return position(at: min(view.placement.visibleLength, max(0, index)), in: view)
+    }
+
+    func beginSelectionDrag(at position: ReaderTextPosition) {
+        selectionDragAnchor = position
+        selectionDragOverridesNative = false
+    }
+
+    func extendSelectionDrag(to position: ReaderTextPosition) {
+        guard let anchor = selectionDragAnchor, anchor.section == position.section else { return }
+        let range = ReaderTextRange(start: min(anchor, position), end: max(anchor, position))
+        guard !range.isEmpty else { return }
+        selectionDragOverridesNative = true
+        pendingSelection = range
+        pendingSelectionPreservesFullRange = true
+        applyPendingSelection()
+    }
+
+    func endSelectionDrag() { selectionDragAnchor = nil; selectionDragOverridesNative = false }
+
+    var isDraggingSelection: Bool { selectionDragAnchor != nil }
+
+    private func updateSelectionContinuation() {
+        guard configuration.flow == .paginated, let selection = programmaticSelection?.selection,
+              let visibleRange else {
+            selectionContinuation?.removeFromSuperview()
+            selectionContinuation = nil
+            return
+        }
+        func continues(_ endpoint: ReaderTextPosition, forward: Bool) -> Bool {
+            if let target = endpoint.tableCell {
+                let visible = textViews.compactMap { $0.tableInteraction?.visibleCharacters(for: endpoint) }
+                if !visible.isEmpty {
+                    return forward ? visible.map(NSMaxRange).max()! < target.offset
+                        : visible.map(\.location).min()! > target.offset
+                }
+            }
+            return forward ? endpoint > visibleRange.end : endpoint < visibleRange.start
+        }
+        let previous = continues(selection.range.start, forward: false)
+        let next = continues(selection.range.end, forward: true)
+        guard previous || next else {
+            selectionContinuation?.removeFromSuperview()
+            selectionContinuation = nil
+            return
+        }
+        let indicator = selectionContinuation ?? ReaderSelectionContinuation(canvas: self)
+        selectionContinuation = indicator
+        indicator.configure(previous: previous, next: next, dark: configuration.isDark)
+        indicator.frame = CGRect(x: pageArea.minX + 12, y: pageArea.maxY - 44, width: max(0, pageArea.width - 24), height: 44)
+        if indicator.superview == nil { addSubview(indicator) }
+        #if os(macOS)
+        addSubview(indicator, positioned: .above, relativeTo: nil)
+        #else
+        bringSubviewToFront(indicator)
+        #endif
     }
 
     /// A text view's selection changed, by the person or with new text.
     func textViewSelectionDidChange(_ view: ReaderTextView) {
         guard !isApplyingSelection else { return }
+        // Native delegate notifications may be delivered after a coordinated update or drag
+        // completes. An unchanged segment is still part of the same source selection.
+        if let programmaticSelection,
+           programmaticSelection.segments.contains(where: { $0.view === view }),
+           programmaticSelection.segments.allSatisfy({ $0.view.selectedRange == $0.local }) { return }
+        if selectionDragOverridesNative, let programmaticSelection {
+            isApplyingSelection = true
+            for segment in programmaticSelection.segments { segment.view.selectedRange = segment.local }
+            isApplyingSelection = false
+            return
+        }
+        externalSelectionSource = nil
         isApplyingSelection = true
+        for other in textViews { other.clearTableSelection() }
         if view.isPageColumn, NSMaxRange(view.selectedRange) > view.placement.visibleLength {
             view.selectedRange = NSIntersectionRange(view.selectedRange,
                                                      NSRange(location: 0, length: view.placement.visibleLength))
@@ -776,8 +961,11 @@ import AppKit
 
     /// Recomputes the selection from the text views; it is reported once it settles.
     private func selectionMayHaveChanged() {
+        if externalSelectionSource != nil, currentSelection != nil { return }
         if let programmatic = programmaticSelection {
-            if textViews.contains(where: { $0 === programmatic.view }), programmatic.view.selectedRange == programmatic.local {
+            if !programmatic.segments.isEmpty, programmatic.segments.allSatisfy({ segment in
+                textViews.contains(where: { $0 === segment.view }) && segment.view.selectedRange == segment.local
+            }) {
                 return
             }
             programmaticSelection = nil
@@ -787,6 +975,7 @@ import AppKit
         }.first
         guard selected != currentSelection else { return }
         currentSelection = selected
+        updateSelectionContinuation()
         scheduleSelectionReport()
     }
 
@@ -840,12 +1029,14 @@ import AppKit
     func localRange(of range: ReaderTextRange, in view: ReaderTextView) -> NSRange? {
         if view === scrollTextView, let book = scrollBook {
             guard book.contains(section: range.start.section), book.contains(section: range.end.section) else { return nil }
-            let start = book.location(of: range.start), end = book.location(of: range.end)
+            var lower = range.start
+            if lower.tableCell != nil { lower.offset += 1; lower.tableCell = nil }
+            let start = book.location(of: lower), end = book.location(of: range.end)
             return end > start ? NSRange(location: start, length: end - start) : nil
         }
         guard let section = view.placement.section, range.start.section <= section, range.end.section >= section
         else { return nil }
-        let start = range.start.section == section ? range.start.offset : 0
+        let start = range.start.section == section ? range.start.offset + (range.start.tableCell == nil ? 0 : 1) : 0
         let end = range.end.section == section ? range.end.offset : Int.max
         let lower = max(start, view.placement.offset)
         let upper = min(end, view.placement.offset + view.placement.visibleLength)
@@ -857,6 +1048,7 @@ import AppKit
         // Search matches draw over host highlights.
         let ordered = highlights.filter { $0.kind == .annotation } + highlights.filter { $0.kind == .search }
         for view in textViews {
+            view.setTableHighlights(ordered)
             view.setHighlights(ordered.compactMap { highlight in
                 guard let range = localRange(of: highlight.range, in: view) else { return nil }
                 let color = highlight.kind == .search ? ReaderPalette.searchHighlight(dark: dark)
@@ -864,6 +1056,11 @@ import AppKit
                 return (range, color)
             })
         }
+    }
+
+    func activateExternalLink(_ url: URL, position: ReaderTextPosition, rect: CGRect) {
+        guard let link = ReaderLink(url: url) else { return }
+        delegate?.canvas(self, didActivate: link, at: position, rect: rect)
     }
 
     /// A link in a text view was activated: decode it and report where it is. Nothing is opened.
@@ -877,12 +1074,12 @@ import AppKit
 
     /// A page-turn key, swipe, wheel tick or edge tap.
     func turnPageFromInput(forward: Bool) {
-        guard imageInspector == nil else { return }
+        guard imageInspector == nil, !hasSelection, !isDraggingSelection else { return }
         _ = turnPage(forward: forward)
     }
 
     /// Text is selected in a text view on screen.
-    var hasSelection: Bool { textViews.contains { $0.selectedRange.length > 0 } }
+    var hasSelection: Bool { currentSelection != nil || textViews.contains { $0.selectedRange.length > 0 } }
 
     /// The page turn a tap or click at `point` (canvas coordinates) makes: within a configured
     /// physical edge zone in paginated flow (the left one goes back, mirrored right to

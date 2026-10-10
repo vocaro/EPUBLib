@@ -59,6 +59,9 @@ final class TableModel: @unchecked Sendable {
         var isHeader: Bool
     }
 
+    var sourceOrder: Int = -1
+    /// Source section offsets assigned once when the section inserts the table.
+    var sourceRowOffsets: [Int: Int] = [:]
     let cells: [Cell]
     let rows: [Row]
     let columnCount: Int
