@@ -19,17 +19,27 @@ public struct EPUBReaderToolbar: ToolbarContent {
         ForEach(groups, id: \.self) { group in
             if group == .pages {
                 if controls.supports(.pagination) || controls.supports(.scrolling) {
-                    ToolbarItem(placement: placement) {
+                    #if os(macOS)
+                    ToolbarItemGroup(placement: placement) {
                         EPUBPageButton(controls: controls, forward: controls.isRightToLeft)
-                    }
-                    ToolbarItem(placement: placement) {
                         EPUBPageButton(controls: controls, forward: !controls.isRightToLeft)
                     }
+                    .visibilityPriority(.init(higherThan: .high))
+                    #else
+                    ToolbarItem(placement: placement) {
+                        // A pinned placement accepts one item. Keep both arrows in it so
+                        // neither replaces the other or overflows separately.
+                        EPUBReaderControl(controls: controls, group: .pages)
+                    }
+                    .visibilityPriority(.init(higherThan: .high))
+                    #endif
                 }
             } else {
                 ToolbarItem(placement: placement) {
                     EPUBReaderControl(controls: controls, group: group).labelStyle(.iconOnly)
                 }
+                // A segmented picker has no automatic overflow-menu representation.
+                .visibilityPriority(group == .readingMode ? .high : .automatic)
             }
         }
         // Keep command progress in the controls themselves. Inserting a transient toolbar
@@ -163,6 +173,7 @@ public struct EPUBReaderControl: View {
         .pickerStyle(.segmented)
         .labelsHidden()
         .labelStyle(.iconOnly)
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 

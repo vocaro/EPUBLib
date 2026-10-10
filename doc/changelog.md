@@ -5,6 +5,10 @@
 - Make native table cell text selectable with precise CFIs, Copy, host selection actions, saved highlights and internal, note and external-link handling, including continued rows ([#23](https://github.com/vocaro/EPUBLib/issues/23)).
 - Coordinate native selections across both columns in either reading direction. Preserve the complete located passage, Copy text and saved range through page turns and typography changes, with controls to follow offscreen selected text ([#29](https://github.com/vocaro/EPUBLib/issues/29)).
 - Render static SVG illustrations with bundled resvg on Mac, iPhone and iPad, including paths, text, transforms, gradients and clipping. Resolve archive raster resources within bounded memory; disclose unsupported filters, pattern fills, animation and foreign content with authored fallback text ([#22](https://github.com/vocaro/EPUBLib/issues/22)).
+- Keep sample page arrows pinned at the trailing edge on iPhone/iPad instead of moving
+  into overflow. Keep Mac page arrows in a native group with visibility priority above
+  the other controls, and keep the reading-mode picker at its natural width.
+
 - Preserve authored nonempty XHTML image alternatives in headless text extraction, including formula images, truth-table headings and exercise items. Image IDs, headings and later anchors include the alternative's UTF-8 bytes; decorative images contribute nothing ([#37](https://github.com/vocaro/EPUBLib/issues/37)).
 - Keep transparent dark diagram strokes readable in dark appearance with a faithful white backdrop. Preserve original colors and source bytes, retaining explicit author inversion and the bounded image cache ([#34](https://github.com/vocaro/EPUBLib/issues/34)).
 - Add native image inspection with zoom, pan, fit and close controls on Mac, iPhone and iPad, including table images and page-image fallbacks. Decode from archive pixels independently of body typography, keeping inspection bounded and preserving reader position and selection ([#35](https://github.com/vocaro/EPUBLib/issues/35)).

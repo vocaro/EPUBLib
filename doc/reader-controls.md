@@ -22,8 +22,12 @@ struct ToolbarReader: View {
                 ToolbarItem(placement: .automatic) {
                     Button("Save Bookmark", systemImage: "bookmark", action: savePosition)
                 }
+                #if os(iOS)
+                EPUBReaderToolbar(controls: controls, groups: [.pages], placement: .topBarPinnedTrailing)
+                #else
                 ToolbarSpacer(.fixed)
                 EPUBReaderToolbar(controls: controls, groups: [.pages])
+                #endif
             }
     }
 }
@@ -36,8 +40,13 @@ disjoint groups for different placements. Add host `ToolbarItem`s in the same bu
 The toolbar uses icons with accessible labels to fit phone widths; search opens a popover
 (which SwiftUI adapts on compact devices), and contents/appearance use system menus. Native
 window/navigation toolbar overflow remains controlled by SwiftUI and the host's placements.
+Page arrows have visibility priority above all other built-in controls and form a paired
+native group on Mac. On iPhone/iPad, use `.topBarPinnedTrailing`
+as shown above to keep them outside overflow, even when other controls do not fit.
 Reading mode uses joined Continuous Scroll/Paging buttons with the active mode selected.
-It is available when the session supports both modes and is separate from appearance.
+It sizes to its icons, is available when the session supports both modes, and is separate from appearance.
+The mode picker has high visibility priority, below the page arrows, because segmented
+pickers have no automatic overflow-menu representation on iOS.
 
 For an embedded reader use `EPUBReaderControlStrip(controls: controls) { /* host views */ }`.
 It lays out horizontally when it fits and stacks groups and custom views vertically at narrow

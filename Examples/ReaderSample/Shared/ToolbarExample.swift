@@ -13,8 +13,12 @@ struct ToolbarReader: View {
                 ToolbarItem(placement: .automatic) {
                     Button("Save Bookmark", systemImage: "bookmark", action: savePosition)
                 }
+                #if os(iOS)
+                EPUBReaderToolbar(controls: controls, groups: [.pages], placement: .topBarPinnedTrailing)
+                #else
                 ToolbarSpacer(.fixed)
                 EPUBReaderToolbar(controls: controls, groups: [.pages])
+                #endif
             }
     }
 }

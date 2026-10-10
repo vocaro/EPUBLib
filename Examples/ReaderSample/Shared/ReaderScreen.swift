@@ -49,8 +49,12 @@ struct ReaderScreen: View {
                         bookmarkMenu.labelStyle(.iconOnly)
                     }
                 }
+                #if os(iOS)
+                EPUBReaderToolbar(controls: controls, groups: [.pages], placement: .topBarPinnedTrailing)
+                #else
                 ToolbarSpacer(.fixed)
                 EPUBReaderToolbar(controls: controls, groups: [.pages])
+                #endif
             }
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [UTType(filenameExtension: "epub") ?? .data]) { result in
