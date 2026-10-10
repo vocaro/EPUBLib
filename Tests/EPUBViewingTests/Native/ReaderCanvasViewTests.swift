@@ -532,7 +532,7 @@ import UIKit
         let view = try XCTUnwrap(canvas.scrollTextView)
         XCTAssertTrue(view.isScrollEnabledForReader)
         XCTAssertEqual(canvas.visibleRange?.start, ReaderTextPosition(section: 0, offset: 0))
-        let column = ReaderCanvasGeometry.scrollColumn(in: canvas.pageArea, division: nil)
+        let column = ReaderCanvasGeometry.scrollColumn(in: canvas.scrollColumnArea(), division: nil)
         XCTAssertEqual(view.readerContainer.size.width, column.width, accuracy: 0.5)
         #if os(macOS)
         let scrollView = try XCTUnwrap(canvas.scrollContainer as? NSScrollView)

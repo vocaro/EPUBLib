@@ -529,14 +529,18 @@ import AppKit
             scrollContainer = container
             scrollTextView = textView
         }
-        let area = pageArea
+        // Capture the old source position before sizing the clip view: AppKit can reflow
+        // the document immediately, making the old scroll Y refer to earlier characters.
+        let retainedStart = !created && anchorFollowsScroll ? scrollVisibleRange()?.start : nil
+        var area = pageArea
+        withProgrammaticScroll { area = scrollColumnArea() }
         let column = ReaderCanvasGeometry.scrollColumn(
             in: CGRect(x: area.minX, y: bounds.minY, width: area.width, height: bounds.height),
             division: configuration.division)
         defer { updateScrollViewport() }
         if let geometry = scrollGeometry, geometry.bounds == bounds, geometry.minX == column.minX,
            geometry.width == column.width { return }
-        if !created, anchorFollowsScroll, let start = scrollVisibleRange()?.start { anchor = start }
+        if let retainedStart { anchor = retainedStart }
         scrollGeometry = (bounds, column.minX, column.width)
         withProgrammaticScroll { applyScrollGeometry(columnMinX: column.minX, width: column.width) }
         updateScrollViewport()
@@ -641,8 +645,8 @@ import AppKit
         anchorFollowsScroll = false
     }
 
-    /// Scrolls the line holding the anchor to the top; false when TextKit lays other text where
-    /// it puts that line.
+    /// Scrolls the line holding the anchor to the top; false when TextKit puts other text
+    /// there, or refinement did not bring the target into the viewport.
     @discardableResult private func scrollToAnchorLine() -> Bool {
         guard let textView = scrollTextView, let anchor else { return true }
         let location: Int
@@ -658,17 +662,28 @@ import AppKit
         withProgrammaticScroll { scrollLineToTop(containing: location, in: textView) }
         if anchor.tableCell != nil, var cell = tableAnchorFrame(for: anchor) {
             withProgrammaticScroll {
-                for _ in 0..<8 {
+                for _ in 0..<32 {
                     scrollToContainerY(cell.minY)
                     guard let updated = tableAnchorFrame(for: anchor) else { break }
-                    if abs(updated.minY - cell.minY) <= 0.5 { break }
                     cell = updated
+                    if anchorFrameIsVisible(cell) { break }
                 }
             }
-            return true
+            return anchorFrameIsVisible(cell)
         }
         guard let line = textView.lineFrame(containing: location) else { return true }
-        return textView.fragment(atContainerY: line.midY, holds: location)
+        return textView.fragment(atContainerY: line.midY, holds: location) && anchorFrameIsVisible(line)
+    }
+
+    /// A coherent offscreen fragment is insufficient: estimates can move its line during the
+    /// last viewport pass. Success requires the actual line at the visible top, or visible at
+    /// a document boundary where the scroll view cannot put it there.
+    private func anchorFrameIsVisible(_ frame: CGRect) -> Bool {
+        let visible = scrollVisibleContainerRect
+        if abs(frame.minY - visible.minY) <= 1 { return true }
+        let intersects = frame.maxY > visible.minY && frame.minY < visible.maxY
+        return intersects && ((isScrolledToStart && frame.minY <= visible.minY)
+            || (isScrolledToEnd && frame.maxY <= visible.maxY + 1))
     }
 
     /// Scrolls the line holding `location` to the top of the visible area, as far as the content
@@ -683,21 +698,23 @@ import AppKit
         if textView.readerContainer.hasNonlinearGeometry {
             // Layout can refine its estimate after the viewport moves. Correct against the
             // target's own visual line; source offsets are not monotonic in Y around floats.
-            for _ in 0..<8 {
+            for _ in 0..<32 {
                 scrollToContainerY(line.frame.minY)
                 guard let updated = textView.line(containing: location) else { break }
-                if abs(updated.frame.minY - line.frame.minY) <= 0.5 { break }
                 line = updated
+                if anchorFrameIsVisible(line.frame) { break }
             }
             return
         }
         scrollToContainerY(line.frame.minY)
         var climb: CGFloat = 0
-        for _ in 0..<8 {
+        for _ in 0..<32 {
             let visible = scrollVisibleContainerRect
             let shown = textView.lineBoundary(atContainerY: visible.minY, lineEnd: false)
-            if shown == line.range.location || (shown <= location && isScrolledToEnd) { break }
-            if shown < location {
+            if let updated = textView.line(containing: location) { line = updated }
+            if shown == line.range.location && anchorFrameIsVisible(line.frame) { break }
+            if shown <= location && isScrolledToEnd && anchorFrameIsVisible(line.frame) { break }
+            if shown <= location {
                 textView.ensureLayout(from: shown, through: location)
                 guard let laidOut = textView.line(containing: location) else { break }
                 line = laidOut

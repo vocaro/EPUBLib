@@ -103,6 +103,51 @@ import UIKit
         }
     }
 
+    func testFractionalFloatColumnsReserveNativeLineBoundsInBothDirections() throws {
+        for side in ["left", "right"] {
+            let caption = "Left floating figure with a caption link."
+            let (_, section) = try build("<p>Before the boxes.</p><figure><figcaption>Left floating figure with <a href='#after'>a caption link</a>.</figcaption></figure><p id='after'>\(prose)</p>",
+                                         css: "figure { margin:0; float:\(side); width:35%; }", resetMargins: false)
+            for width: CGFloat in [374.79, 374.2, 335.31] {
+                let native = view(section, size: CGSize(width: width, height: 700))
+                let captionRange = try range(caption, in: section)
+                let paragraph = (section.string.string as NSString).paragraphRange(for: captionRange)
+                let captionFrames = native.segmentFrames(for: paragraph)
+                let text = section.string.string as NSString
+                // Native standard selection rectangles include hanging trailing blanks. Check
+                // actual prose characters against the float, retaining those blanks in source.
+                let bodyFrames = lines(in: native, intersecting: try range(prose, in: section)).flatMap { line in
+                    var length = line.range.length
+                    while length > 0, text.substring(with: NSRange(location: line.range.location + length - 1, length: 1)).allSatisfy(\.isWhitespace) {
+                        length -= 1
+                    }
+                    return native.segmentFrames(for: NSRange(location: line.range.location, length: length))
+                }
+                XCTAssertFalse(captionFrames.isEmpty)
+                XCTAssertFalse(bodyFrames.isEmpty)
+                for ink in captionFrames {
+                    for adjacent in bodyFrames {
+                        let overlap = ink.intersection(adjacent)
+                        XCTAssertTrue(overlap.isNull || overlap.width < 0.5 || overlap.height < 0.5,
+                                      "\(side), \(width): native caption \(ink) and surrounding prose \(adjacent) must not overlap")
+                    }
+                }
+                let region = try XCTUnwrap(native.readerContainer.boxRegions.first { NSIntersectionRange($0.range, captionRange).length > 0 })
+                for frame in captionFrames {
+                    XCTAssertGreaterThanOrEqual(frame.minX, region.frame.minX - 0.01)
+                    XCTAssertLessThanOrEqual(frame.maxX, region.frame.maxX + 0.01,
+                                             "The full native caption line belongs inside its reserved exclusion")
+                }
+                XCTAssertEqual((region.contentFrame ?? region.frame).width, width * 0.35, accuracy: 0.01,
+                               "The exclusion's glyph overhang must not widen the authored content column")
+                native.selectedRange = captionRange
+                XCTAssertEqual(native.plainText(in: native.selectedRange), caption)
+                XCTAssertEqual(native.contentStorage.textStorage?.string, section.string.string)
+            }
+            BuilderHarness.assertMapRoundTrips(section)
+        }
+    }
+
     func testNearPageHeightFloatWithLeadingMarginFallsBackWithoutOverflow() throws {
         let (_, section) = try build("<figure>High caption.</figure><p>Short trailing prose.</p>",
             css: "figure { float:left; width:120px; height:590px; margin-top:32px; }")

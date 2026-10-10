@@ -63,8 +63,11 @@ extension ReaderCanvasView: NSTextViewDelegate {
         textView.frame = CGRect(origin: .zero, size: scrollView.contentSize)
         scrollView.documentView = textView
         scrollView.contentView.postsBoundsChangedNotifications = true
+        scrollView.contentView.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(scrollBoundsDidChange(_:)),
                                                name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+        NotificationCenter.default.addObserver(self, selector: #selector(scrollViewportDidChange(_:)),
+                                               name: NSView.frameDidChangeNotification, object: scrollView.contentView)
         addSubview(scrollView)
         return (scrollView, textView)
     }
@@ -73,7 +76,25 @@ extension ReaderCanvasView: NSTextViewDelegate {
         if (notification.object as? NSClipView)?.documentView === scrollTextView { scrollPositionDidChange() }
     }
 
+    @objc private func scrollViewportDidChange(_ notification: Notification) {
+        // A legacy scroller can appear after the document is loaded, or the person can
+        // change their system scroller preference without resizing the reader window.
+        if (notification.object as? NSClipView)?.documentView === scrollTextView { needsLayout = true }
+    }
+
     private var scrollView: NSScrollView? { scrollContainer as? NSScrollView }
+
+    /// A legacy scroller occupies document width. Derive the wrapping column from the clip
+    /// view's actual horizontal extent, retaining the reader's safe area inside that extent.
+    func scrollColumnArea() -> CGRect {
+        guard let scrollView else { return pageArea }
+        scrollView.frame = bounds
+        scrollView.layoutSubtreeIfNeeded()
+        let clip = scrollView.convert(scrollView.contentView.frame, to: self)
+        let area = pageArea
+        let left = max(area.minX, clip.minX)
+        return CGRect(x: left, y: area.minY, width: max(0, min(area.maxX, clip.maxX) - left), height: area.height)
+    }
 
     /// Sizes the scroll view to the canvas and places the text column, which a division can move
     /// off centre (`ReaderTextView.columnMinX`).
@@ -81,7 +102,7 @@ extension ReaderCanvasView: NSTextViewDelegate {
         guard let scrollView, let textView = scrollTextView else { return }
         scrollView.frame = bounds
         textView.frame.size.width = scrollView.contentSize.width
-        textView.columnMinX = columnMinX - bounds.minX
+        textView.columnMinX = textView.convert(CGPoint(x: columnMinX, y: bounds.minY), from: self).x
         if textView.readerContainer.size.width != width {
             textView.readerContainer.size = CGSize(width: width, height: 0)
         }

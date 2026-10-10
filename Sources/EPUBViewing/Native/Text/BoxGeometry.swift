@@ -348,6 +348,15 @@ enum ReaderBoxLayout {
                         // Rectangular floats/callouts avoid one another and existing content.
                         var frame = CGRect(x: max(0, x - edgeLeft), y: y,
                             width: min(viewport.width, width + edgeLeft + edgeRight), height: height)
+                        // Native line bounds can extend fractionally beyond a box's advance
+                        // width. Reserve those bounds for surrounding prose, while retaining the
+                        // authored content column so the box does not rewrap at its exclusion width.
+                        let ink = measured.paragraphs.flatMap(\.lines).reduce(CGRect.null) { $0.union($1.frame) }
+                        if !ink.isNull {
+                            let left = min(frame.minX, ink.minX), right = max(frame.maxX, ink.maxX)
+                            frame.origin.x = left
+                            frame.size.width = right - left
+                        }
                         let hasVerticalInset = style.positionTop != .auto || style.positionBottom != .auto
                         let obstacles = style.isOutOfFlow ? (hasVerticalInset ? plan.regions.filter(\.wrapsEarlierText) : plan.regions)
                             : plan.regions + anticipated.filter { candidate in
@@ -385,7 +394,7 @@ enum ReaderBoxLayout {
                             plan.regions.append(.init(range: boxRange, frame: frame, side: style.float,
                                 wrapsEarlierText: style.isOutOfFlow && (style.positionTop != .auto || style.positionBottom != .auto),
                                 scope: box.containing?.id,
-                                contentFrame: edgeLeft > 0 || edgeRight > 0 ? CGRect(x: x, y: frame.minY, width: width, height: height) : nil))
+                                contentFrame: CGRect(x: x, y: frame.minY, width: width, height: height)))
                             index = end
                             continue
                         }
@@ -532,8 +541,22 @@ enum ReaderBoxLayout {
             guard start < measured.length else { return false }
             let frame = fragment.layoutFragmentFrame
             var lines = fragment.textLineFragments.filter { $0.characterRange.length > 0 }.map { line in
-                (NSRange(location: start + line.characterRange.location, length: line.characterRange.length),
-                 line.typographicBounds.offsetBy(dx: frame.minX, dy: frame.minY))
+                let range = NSRange(location: start + line.characterRange.location, length: line.characterRange.length)
+                var bounds = line.typographicBounds.offsetBy(dx: frame.minX, dy: frame.minY)
+                // A constrained line's typographic width is capped at the requested column,
+                // while native selection segments can retain the full fractional advance.
+                // Reserve that advance around boxes as well as their typographic glyph bounds.
+                if boxFrame != nil, let lower = storage.location(storage.documentRange.location, offsetBy: range.location),
+                   let upper = storage.location(lower, offsetBy: range.length),
+                   let textRange = NSTextRange(location: lower, end: upper) {
+                    manager.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, segment, _, _ in
+                        let left = min(bounds.minX, segment.minX), right = max(bounds.maxX, segment.maxX)
+                        bounds.origin.x = left
+                        bounds.size.width = right - left
+                        return true
+                    }
+                }
+                return (range, bounds)
             }
             if hasTerminator && end == measured.length {
                 end += 1

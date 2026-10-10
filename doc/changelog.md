@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Keep continuous-scroll section jumps on the requested passage after distant diagram visits. Correct refined TextKit estimates until the target is visibly aligned, retaining bounded work and fresh-layout recovery ([#41](https://github.com/vocaro/EPUBLib/issues/41)).
+- Wrap continuous-scroll Mac prose within the actual native scroll viewport, including space occupied by legacy scrollbars. Preserve the passage through resize, recalculate wrapping after scrollbar changes, and reserve fractional native float bounds without changing the authored content width ([#47](https://github.com/vocaro/EPUBLib/issues/47)).
+- Preserve authored MathML alternatives in headless extraction, or serialize fractions, powers, indices, roots and fences with explicit structure. Preserve UTF-8 anchors, headings and existing extraction limits without executing math scripts or loading resources ([#44](https://github.com/vocaro/EPUBLib/issues/44)).
+- Support XHTML named character references without loading DTDs, and add opt-in HTML recovery for malformed content with a `recoveredAsHTML` result flag. Preserve extraction limits, cancellation, source bytes and declaration/network protections ([#43](https://github.com/vocaro/EPUBLib/issues/43)).
 - Make native table cell text selectable with precise CFIs, Copy, host selection actions, saved highlights and internal, note and external-link handling, including continued rows ([#23](https://github.com/vocaro/EPUBLib/issues/23)).
 - Coordinate native selections across both columns in either reading direction. Preserve the complete located passage, Copy text and saved range through page turns and typography changes, with controls to follow offscreen selected text ([#29](https://github.com/vocaro/EPUBLib/issues/29)).
 - Render static SVG illustrations with bundled resvg on Mac, iPhone and iPad, including paths, text, transforms, gradients and clipping. Resolve archive raster resources within bounded memory; disclose unsupported filters, pattern fills, animation and foreign content with authored fallback text ([#22](https://github.com/vocaro/EPUBLib/issues/22)).
