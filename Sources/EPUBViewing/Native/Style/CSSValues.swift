@@ -6,7 +6,7 @@ import Foundation
 enum CSSProperty: Int, CaseIterable, Sendable {
     // Font properties first: other lengths resolve against the computed font size.
     case fontSize, fontFamily, fontWeight, fontStyle, fontVariantCaps, lineHeight, color
-    case display, float, position
+    case display, float, position, top, left, clip, clipPath
     case marginTop, marginRight, marginBottom, marginLeft
     case paddingTop, paddingRight, paddingBottom, paddingLeft
     case borderTopStyle, borderRightStyle, borderBottomStyle, borderLeftStyle
@@ -283,6 +283,10 @@ enum CSSPropertyParser {
         case "display": .display
         case "float": .float
         case "position": .position
+        case "top": .top
+        case "left": .left
+        case "clip": .clip
+        case "clip-path": .clipPath
         case "width", "inline-size": .width
         case "height", "block-size": .height
         case "min-width", "min-inline-size": .minWidth
@@ -417,6 +421,26 @@ enum CSSPropertyParser {
             case "absolute", "fixed": return .flag(true)
             default: return nil
             }
+        case .top, .left:
+            return single.flatMap { length($0, percent: true, negative: true, auto: true) }
+        case .clip, .clipPath:
+            if keyword == "auto" || keyword == "none" { return .flag(false) }
+            // Only recognize empty clips used by visually hidden labels, not general clipping.
+            guard c.count == 1, case .function(let name, let body) = c[0] else { return nil }
+            let parts = body.significant
+            if property == .clip, name == "rect" {
+                let values: [CSSComponent]
+                if parts.count == 4, !parts.contains(.token(.comma)) { values = parts }
+                else if parts.count == 7, [1, 3, 5].allSatisfy({ parts[$0] == .token(.comma) }) {
+                    values = [parts[0], parts[2], parts[4], parts[6]]
+                } else { return nil }
+                guard values.allSatisfy({ length($0, percent: false, negative: true, auto: true) != nil }) else { return nil }
+                let concrete = values.allSatisfy { length($0, percent: false, negative: true, auto: false) != nil }
+                return .flag(concrete && values[0] == values[2] && values[1] == values[3])
+            }
+            if property == .clipPath, name == "inset", parts.count == 1,
+               case .token(.percentage(let amount)) = parts[0] { return .flag(amount >= 50) }
+            return nil
         case .marginTop, .marginRight, .marginBottom, .marginLeft:
             return single.flatMap { length($0, percent: true, negative: true, auto: true) }
         case .paddingTop, .paddingRight, .paddingBottom, .paddingLeft:

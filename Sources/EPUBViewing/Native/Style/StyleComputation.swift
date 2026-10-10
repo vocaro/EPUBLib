@@ -212,6 +212,10 @@ extension StyleResolver {
         case .display: style.display = source.display; style.blockifiesChildren = source.blockifiesChildren
         case .float: style.float = source.float
         case .position: style.isOutOfFlow = source.isOutOfFlow
+        case .top: style.positionTop = source.positionTop
+        case .left: style.positionLeft = source.positionLeft
+        case .clip: style.clipsAllContent = source.clipsAllContent
+        case .clipPath: style.clipsAllContentWithPath = source.clipsAllContentWithPath
         case .marginTop: style.margin.top = source.margin.top
         case .marginRight: style.margin.right = source.margin.right
         case .marginBottom: style.margin.bottom = source.margin.bottom
@@ -295,6 +299,11 @@ extension StyleResolver {
             style.display = display; style.blockifiesChildren = blockifies
         case (.float, .float(let float)): style.float = float
         case (.position, .flag(let outOfFlow)): style.isOutOfFlow = outOfFlow
+        case (.top, _), (.left, _):
+            let length: ComputedStyle.Length = if case .length(let l) = value { computed(l, own, points: StyleLimits.offset) } else { .auto }
+            if property == .top { style.positionTop = length } else { style.positionLeft = length }
+        case (.clip, .flag(let clipped)): style.clipsAllContent = clipped
+        case (.clipPath, .flag(let clipped)): style.clipsAllContentWithPath = clipped
         case (.marginTop, _), (.marginRight, _), (.marginBottom, _), (.marginLeft, _):
             let length: ComputedStyle.Length = if case .length(let l) = value { computed(l, own, points: StyleLimits.offset) } else { .auto }
             switch property {

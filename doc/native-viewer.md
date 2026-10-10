@@ -149,6 +149,30 @@ as they did.
   old spread on screen until the new one is ready. A finished pagination keeps only its pages.
 - **Right to left.** `page-progression-direction="rtl"` mirrors spreads, swipes and tap zones.
 
+### Reflowed callout boxes
+
+The native CSS subset preserves floated figures/text, absolute and fixed positioned callouts,
+and sized inline-blocks as ordinary selectable paragraph boxes. It preserves text, links,
+anchors and text-to-DOM mapping instead of dropping out-of-flow content. The box width,
+minimum width and maximum width may use points, percentages or viewport units; each resolves
+at the current column size in both pagination and continuous scroll. Right floats align their
+box with the physical right edge, left floats with the left edge; auto margins center a
+non-floated box. Up to eight nested width constraints resolve within the enclosing box. Native paragraph styles retain
+text alignment, direction and typography, and a box with long text continues across pages.
+A narrow requested width is expanded to at least the lesser of available width and the larger
+of one third of the viewport width or four font sizes, so a large-font callout remains readable.
+Requested heights do not truncate text. Images and other rich attachments retain their existing
+responsive sizing. Selection, search and saved highlights use the same exact text map as ordinary
+prose. Resizing recomputes widths from the original paragraph formatting and retains selection.
+
+This is a content-preserving subset, not full CSS box layout: surrounding text follows a float
+rather than wrapping it, and positioned content appears once where it occurs in the DOM rather
+than at its offsets or on every page. A `.disclosure` reports these substitutions. Conventional
+positioned, visually hidden accessibility labels remain omitted to avoid visible duplicate
+text. General clipping, arbitrary offscreen geometry and transforms are outside this subset.
+Fixed-layout publications still reflow and report their existing fixed-layout disclosure; this
+subset does not implement fixed-page geometry.
+
 ## Input and accessibility
 
 - Paginated: a tap or click within 56 pt of either edge (except on a link, a press-and-hold or
@@ -223,9 +247,17 @@ Go: the native viewer is the bundled engine.
 
 - Fixed-layout books reflow ([#5](https://github.com/vocaro/EPUBLib/issues/5)); vertical writing
   renders horizontally ([#7](https://github.com/vocaro/EPUBLib/issues/7)); both are disclosed.
-- Floats and absolute positioning are not laid out: a floated attachment sets to its side, an
-  out-of-flow box is skipped; `inline-block` is inline; percentages in margins and indents
-  resolve against a nominal 600-pt column.
+- Floats, absolute/fixed callouts and sized `inline-block` content are preserved as separate
+  blocks in DOM reading order, with a disclosure. Width/min-width/max-width resolve against
+  the actual column, with left/right float placement and centered auto margins. Boxes shrink
+  to the column and expand when necessary to leave readable lines; their text can continue
+  across pages. Floats do not wrap adjacent prose, positioning offsets are not reproduced,
+  and height/overflow never clip callout text. Common positioned accessibility labels hidden
+  with zero-area `clip: rect(...)`, `clip-path: inset(50%)`, visibility or large negative
+  top/left offsets stay omitted; general clipping and arbitrary offscreen geometry are
+  unsupported. Unsized inline-blocks remain inline. Percentages in ordinary margins and
+  indents still resolve against a nominal 600-pt column. [#19](https://github.com/vocaro/EPUBLib/issues/19)
+  remains open for adjacent-text float wrapping and faithful positioning.
 - Table cell text is not selectable and links inside cells do not activate; a single table row
   taller than a page (after shrinking to 60%) is clipped to the page, and a spanning cell's
   text can be cut at a page break between the rows it spans.

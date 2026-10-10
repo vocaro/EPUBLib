@@ -106,6 +106,27 @@ struct ComputedStyle: Equatable, Sendable {
     var float: Float = .none
     /// `position: absolute` or `fixed`: the box is out of flow and its offsets are not honoured.
     var isOutOfFlow = false
+    /// Used only to recognize intentionally off-screen positioned accessibility labels.
+    var positionTop: Length = .auto
+    var positionLeft: Length = .auto
+    /// Common zero-area clipping techniques for visually hidden positioned labels.
+    var clipsAllContent = false
+    var clipsAllContentWithPath = false
+
+    var requiresFlowBox: Bool {
+        isOutOfFlow || float != .none || (display == .inlineBlock &&
+            (width != .auto || height != .auto || minWidth != .auto || maxWidth != .auto || minHeight != .auto))
+    }
+
+    var isVisuallyHiddenPositionedBox: Bool {
+        if clipsAllContent || clipsAllContentWithPath || isHidden { return true }
+        // Large negative offsets are a conventional hiding technique. Modest negative offsets
+        // may be genuine callouts and must remain readable. This is deliberately a narrow test.
+        return [positionTop, positionLeft].contains {
+            if case .points(let value) = $0 { return value <= -1_000 }
+            return false
+        }
+    }
     /// A flex or grid container, which renders as a block; its in-flow children are blockified.
     var blockifiesChildren = false
     var margin = Edges<Length>(.zero)

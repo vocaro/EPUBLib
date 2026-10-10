@@ -34,7 +34,14 @@ extension ReaderTextView {
 
     func setContent(_ text: NSAttributedString) {
         contentStorage.textStorage?.setAttributedString(text)
+        refreshFlowBoxLayout()
         exposeTextualAttachments()
+    }
+
+    /// Resolves flow-box widths without replacing characters or disturbing native selection.
+    func refreshFlowBoxLayout() {
+        guard let storage = contentStorage.textStorage else { return }
+        ReaderFlowBoxLayout.apply(to: storage, viewport: readerContainer.viewportSize)
     }
 
     /// Each attachment that stands for text (`ReaderTextualAttachment`), with its range.

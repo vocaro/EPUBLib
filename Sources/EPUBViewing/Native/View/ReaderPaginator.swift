@@ -41,6 +41,8 @@ struct ReaderPage: Equatable {
     /// The longest paragraph (UTF-16 units, with its terminator) CoreText justifies as a whole.
     static let wholeParagraphJustification = 8_192
 
+    /// Identity of the section attributes supplied by the data source, for pagination caching.
+    let sourceText: NSAttributedString
     let text: NSAttributedString
     /// One column's width by the page's text height.
     let size: CGSize
@@ -74,6 +76,8 @@ struct ReaderPage: Equatable {
     private var directions: [Int: NSWritingDirection?] = [:]
 
     init(text: NSAttributedString, size: CGSize) {
+        sourceText = text
+        let text = ReaderFlowBoxLayout.applying(to: text, viewport: size)
         self.text = text
         self.size = size
         characters = text.string as NSString
@@ -150,8 +154,11 @@ struct ReaderPage: Equatable {
     /// paragraph continued from the previous page restyled so it does not start afresh.
     func text(for page: ReaderPage) -> NSAttributedString {
         let range = NSRange(location: page.range.location, length: page.layoutEnd - page.range.location)
-        guard (page.continuesParagraph || page.filler > 0), range.length > 0 else { return text.attributedSubstring(from: range) }
         let slice = NSMutableAttributedString(attributedString: text.attributedSubstring(from: range))
+        // Widths are already resolved by the measuring layout; do not reset continuation styles
+        // when the displayed text view receives this page.
+        slice.removeAttribute(.readerFlowBox, range: NSRange(location: 0, length: slice.length))
+        guard (page.continuesParagraph || page.filler > 0), range.length > 0 else { return slice }
         if page.filler > 0 {
             // Inside the paragraph, before any terminator: a line break and unseen characters.
             let end = slice.string.utf16.last == 0x0A ? slice.length - 1 : slice.length

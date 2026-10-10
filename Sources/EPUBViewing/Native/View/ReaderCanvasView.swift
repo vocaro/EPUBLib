@@ -312,7 +312,7 @@ import AppKit
         let key = PaginatorKey(section: section, width: size.width, height: size.height)
         paginatorUse.removeAll { $0 == key }
         paginatorUse.append(key)
-        if let cached = paginators[key], cached.text === text { return cached }
+        if let cached = paginators[key], cached.sourceText === text { return cached }
         let paginator = ReaderPaginator(text: text, size: size)
         paginators[key] = paginator
         trimPaginators()
@@ -473,7 +473,10 @@ import AppKit
     func updateScrollViewport() {
         guard let textView = scrollTextView, let geometry = scrollGeometry else { return }
         let viewport = CGSize(width: geometry.width, height: max(0, scrollVisibleContainerRect.height))
-        if textView.readerContainer.viewportSize != viewport { textView.readerContainer.viewportSize = viewport }
+        if textView.readerContainer.viewportSize != viewport {
+            textView.readerContainer.viewportSize = viewport
+            textView.refreshFlowBoxLayout()
+        }
     }
 
     private func tearDownScroll() {

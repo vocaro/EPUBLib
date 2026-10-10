@@ -570,11 +570,13 @@ final class SectionBuilderTests: XCTestCase {
         H.assertMapRoundTrips(text)
     }
 
-    func testOutOfFlowBoxesAreLeftOutOfReflowedText() throws {
+    func testOutOfFlowBoxesStayInReadingOrder() throws {
         let text = try H.build("<p>Figure<span class='label' id='l'>x+y</span></p><h1 class='label'>Title page</h1><p id='n'>Next</p>",
                                rules: [(".label", { $0.isOutOfFlow = true })])
-        XCTAssertEqual(text.string.string, "Figure\nNext")
-        XCTAssertEqual(text.anchors["l"], H.location(of: "Next", in: text))
+        XCTAssertEqual(text.string.string, "Figure\nx+y\nTitle page\nNext")
+        XCTAssertEqual(text.anchors["l"], H.location(of: "x+y", in: text))
+        XCTAssertTrue(text.report.flowBoxesReflowed)
+        H.assertMapRoundTrips(text)
         let fixed = try EPUBPublication.open(data: Fixture.rendering(.fixedLayout))
         let document = try ContentDocument.parse(fixed.data(for: fixed.spine[0].resource), path: fixed.spine[0].resource.path)
         let page = H.build(document: document, rules: [("h1", { $0.isOutOfFlow = true })], publication: fixed)
