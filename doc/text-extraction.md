@@ -23,8 +23,9 @@ exact spine occurrence, even when a resource repeats. The resource's encoded `hr
 for navigation; its decoded `path` is suitable for resource access. Titles come from XHTML's
 `head/title`; an absent or empty title is `nil`, leaving fallback naming to the host.
 
-`EPUBPublication.textSection(at:limits:) throws` extracts one entry on demand. It returns empty
-text for an image-only XHTML section and retains nonlinear entries and all semantic roles.
+`EPUBPublication.textSection(at:limits:) throws` extracts one entry on demand. An image-only
+XHTML section returns its publisher-supplied alternatives, or empty text when none are supplied.
+The extraction retains nonlinear entries and all semantic roles.
 It supports XHTML resources (`application/xhtml+xml`); other spine media types fail explicitly.
 Semantic types are the whitespace-separated tokens on EPUB-namespace `type` attributes throughout
 that section's body, including nested sections. They describe author markup; they are neither
@@ -36,6 +37,14 @@ subtrees are excluded. XML entities and CDATA are decoded. Whitespace is normali
 within lines and single newlines at block boundaries. This is structural text extraction, not a
 browser's computed visible-text representation: CSS layout, generated content, image OCR and
 external resources are not evaluated. No page numbers or engine-specific bookmarks are invented.
+
+Nonempty `alt` attributes on XHTML `img` elements contribute text at the image's source position,
+using the same whitespace normalization as surrounding prose. This preserves authored alternatives
+for formulas, table headings and exercise items. Missing, empty and whitespace-only alternatives
+contribute nothing; `title` attributes are not substituted or duplicated. Alternatives in excluded
+script, style and template subtrees are also excluded. Images are never fetched or decoded for
+extraction, and missing alternatives are not inferred. An image's ID and any enclosing heading mark
+refer to its alternative in the returned UTF-8 text, and subsequent offsets include those bytes.
 
 `EPUBTextExtractionLimits` bounds input bytes (default 4 MiB), UTF-8 bytes per output field (8 MiB), nesting
 (64 elements) and element count (100,000) per section. Callers processing a whole book enforce

@@ -301,7 +301,7 @@ enum ReaderBoxLayout {
                         sizing.width = .points(size.width); sizing.height = .points(size.height)
                         var imageStyle = style; imageStyle.display = .block
                         let resolved = ReaderImageAttachment(source: image.source, sizing: sizing, alt: image.alt,
-                            style: imageStyle, contentRect: image.contentRect, cache: image.cache)
+                            style: imageStyle, contentRect: image.contentRect, isDark: image.isDark, cache: image.cache)
                         text.addAttribute(.attachment, value: resolved, range: NSRange(location: boxRange.location, length: 1))
                     }
                     func resolve(_ value: ComputedStyle.Length, _ reference: CGFloat) -> CGFloat? {

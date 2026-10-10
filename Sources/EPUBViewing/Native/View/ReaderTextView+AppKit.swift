@@ -14,6 +14,7 @@ final class ReaderTextView: NSTextView {
     weak var canvas: ReaderCanvasView?
     /// The accessibility element of each textual attachment, by its location.
     private var attachmentElements: [Int: NSAccessibilityElement] = [:]
+    private var menuImage: ReaderImageAttachment?
     /// The text column's left edge in continuous scroll, where a division can move it off centre.
     var columnMinX: CGFloat = 0
 
@@ -69,7 +70,7 @@ final class ReaderTextView: NSTextView {
     // MARK: Keys, links and accessibility
 
     override func keyDown(with event: NSEvent) {
-        guard let canvas, let forward = Self.pageTurnDirection(for: event, controls: canvas.configuration.pageControls) else { return super.keyDown(with: event) }
+        guard let canvas, canvas.imageInspector == nil, let forward = Self.pageTurnDirection(for: event, controls: canvas.configuration.pageControls) else { return super.keyDown(with: event) }
         canvas.turnPageFromInput(forward: forward)
     }
 
@@ -111,11 +112,18 @@ final class ReaderTextView: NSTextView {
     }
 
     override func quickLook(with event: NSEvent) {
-        if link(at: convert(event.locationInWindow, from: nil)) == nil { super.quickLook(with: event) }
+        let point = convert(event.locationInWindow, from: nil)
+        if let image = image(at: point) { canvas?.inspectImage(image) }
+        else if link(at: point) == nil { super.quickLook(with: event) }
     }
 
     // A click in the canvas's edge zone turns the page; a drag from there still selects.
     override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let image = image(at: point), link(at: point) == nil {
+            if event.clickCount == 2 { canvas?.inspectImage(image); return }
+            return super.mouseDown(with: event)
+        }
         guard let canvas, isPageColumn, event.clickCount == 1,
               let forward = canvas.edgeTurn(at: canvas.convert(event.locationInWindow, from: nil)),
               let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged], until: .distantFuture,
@@ -123,6 +131,22 @@ final class ReaderTextView: NSTextView {
               next.type == .leftMouseUp else { return super.mouseDown(with: event) }
         _ = window?.nextEvent(matching: .leftMouseUp)
         canvas.turnPageFromInput(forward: forward)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event) ?? NSMenu()
+        menuImage = image(at: convert(event.locationInWindow, from: nil))
+        if menuImage != nil {
+            let item = NSMenuItem(title: "Inspect Image", action: #selector(inspectMenuImage), keyEquivalent: "")
+            item.target = self
+            menu.insertItem(item, at: 0)
+        }
+        return menu
+    }
+
+    @objc private func inspectMenuImage() {
+        if let image = menuImage { canvas?.inspectImage(image) }
+        menuImage = nil
     }
 
     // VoiceOver reads the page, not the clipped context after it. The characters stay as they
@@ -142,12 +166,30 @@ final class ReaderTextView: NSTextView {
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard let base = super.accessibilityAttributedString(for: range) else { return nil }
         let attachments = textualAttachments(in: range)
-        guard !attachments.isEmpty else { return base }
+        let images = imageAttachments(in: range)
+        guard !attachments.isEmpty || !images.isEmpty else { return base }
         let result = NSMutableAttributedString(attributedString: base)
         for (_, text, run) in attachments {
             let local = NSRange(location: run.location - range.location, length: run.length)
             guard NSMaxRange(local) <= result.length else { continue }
             result.addAttribute(.accessibilityAttachment, value: accessibilityElement(at: run, label: text), range: local)
+        }
+        var exposed = Set<NSRange>()
+        for (image, run) in images where exposed.insert(run).inserted {
+            let local = NSRange(location: run.location - range.location, length: run.length)
+            guard NSMaxRange(local) <= result.length else { continue }
+            let label = attachments.first { $0.range == run }?.text ?? (image.alt.isEmpty ? "Book image" : image.alt)
+            let element = accessibilityElement(at: run, label: label)
+            element.setAccessibilityHelp("Double-click or choose Inspect Image to enlarge.")
+            let actions = images.filter { $0.range == run }.map { entry in
+                NSAccessibilityCustomAction(name: entry.image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(entry.image.alt)") {
+                    [weak self] in
+                    self?.canvas?.inspectImage(entry.image)
+                    return self?.canvas != nil
+                }
+            }
+            element.setAccessibilityCustomActions(actions)
+            result.addAttribute(.accessibilityAttachment, value: element, range: local)
         }
         return result
     }

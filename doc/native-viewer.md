@@ -77,6 +77,23 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
 - **SVG.** Every inline SVG in the corpus wraps one `<image>` (covers and title pages); those
   render as that image with the SVG's sizing. Other SVG is shown where the platform image
   decoder supports it, else as its title or nothing, and is disclosed.
+- **Image contrast.** In dark appearance, transparent images containing dark strokes receive
+  a white backdrop so diagram edges and labels remain legible. Their authored colors and
+  publication bytes are preserved. Opaque images and transparent light artwork retain their
+  pixels; an author's explicit CSS inversion retains its own appearance treatment. Display
+  renditions are cached separately by appearance under the existing image memory budget.
+- **Image inspection.** Double-click or double-tap an unlinked book image to inspect it in a separate
+  native zoomable scroll surface, including images drawn inside table cells. On Mac, images
+  also offer an Inspect Image context-menu action; UIKit supplies an attachment action and
+  menu. Linked images retain link navigation and offer inspection through the menu.
+  Accessibility actions expose inspection for visible images. Zoom In, Zoom Out, Fit
+  and Close controls complement pinch/trackpad magnification and panning; Escape closes the
+  inspector and Command-plus/minus/zero zooms or fits it. Reader page input is suspended while
+  inspecting. Closing preserves the reader's text, selection and reading position.
+  Inspection decodes the original archive resource independently of its inline CSS size and
+  body font size, retaining resolution up to 16 megapixels and an 8,192-pixel long side.
+  Larger raster images are downsampled within those bounds; SVG retains its existing
+  4,096-pixel rasterization limit. The same image contrast policy and bounded cache apply.
 - **Tables.** Attachments drawn natively (TextKit 2 has no `NSTextTable` on iOS), one
   image-drawn attachment per row so pages can break between any two rows; rows a rowspan
   joins, and the header, keep with the next row and share a page when they fit. `colspan`/
@@ -208,7 +225,7 @@ subset does not implement fixed-page geometry.
 [integration](integration.md#configuring-page-controls) for the API, validation and examples.
 The following are the defaults. Host commands and accessibility actions stay enabled.
 
-- Paginated: a tap or click within 56 pt of either edge (except on a link, a press-and-hold or
+- Paginated: a tap or click within 56 pt of either edge (except on a link, an image, a press-and-hold or
   while text is selected), a horizontal swipe (not while text is selected), and on macOS a
   trackpad gesture or wheel tick turns a page. Continuous scroll scrolls natively.
 - Keys (all flows): Left/Page Up previous, Right/Page Down/Space next, Shift-Space previous.

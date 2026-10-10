@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Preserve authored nonempty XHTML image alternatives in headless text extraction, including formula images, truth-table headings and exercise items. Image IDs, headings and later anchors include the alternative's UTF-8 bytes; decorative images contribute nothing ([#37](https://github.com/vocaro/EPUBLib/issues/37)).
+- Keep transparent dark diagram strokes readable in dark appearance with a faithful white backdrop. Preserve original colors and source bytes, retaining explicit author inversion and the bounded image cache ([#34](https://github.com/vocaro/EPUBLib/issues/34)).
+- Add native image inspection with zoom, pan, fit and close controls on Mac, iPhone and iPad, including table images and page-image fallbacks. Decode from archive pixels independently of body typography, keeping inspection bounded and preserving reader position and selection ([#35](https://github.com/vocaro/EPUBLib/issues/35)).
 - Continue oversized native table rows and rowspan text across pages without clipping glyph lines; preserve source offsets and read each continued word once ([#24](https://github.com/vocaro/EPUBLib/issues/24)).
 - Wrap native prose around left/right floats, including auto-width drop caps and archive images; honor float clearing, positioned callout insets and sized inline-blocks beside surrounding text. Preserve native selection, links and source offsets. Oversized or complex box groups continue in reading order with a layout disclosure; fixed boxes appear once, without page pinning ([#19](https://github.com/vocaro/EPUBLib/issues/19)).
 - Add optional `EPUBLocation.rangeBookmarks` to preserve every section of a saved selection or highlight while retaining existing single-section bookmarks. Keep selections through typography and flow changes ([#31](https://github.com/vocaro/EPUBLib/issues/31)).

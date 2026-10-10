@@ -105,7 +105,7 @@ final class ReaderImageSource: @unchecked Sendable {
 final class ReaderImageCache: @unchecked Sendable {
     static let shared = ReaderImageCache(budget: 96 * 1024 * 1024, observesMemoryPressure: true)
 
-    private struct Key: Hashable { let source: String; let pixels: Int; let inverted: Bool }
+    private struct Key: Hashable { let source: String; let pixels: Int; let inverted: Bool; let lightBackdrop: Bool }
     private struct Entry { let image: CGImage; let cost: Int; var used: Int }
 
     private let lock = NSLock()
@@ -147,16 +147,21 @@ final class ReaderImageCache: @unchecked Sendable {
 
     /// The image decoded to at least `maxPixelSize` on its long side (rounded up, and never more
     /// than the source has), its colors `inverted` if asked (cached apart). A cached decode up
-    /// to twice that size is reused.
-    func image(for source: ReaderImageSource, maxPixelSize: Int, inverted: Bool = false) -> CGImage? {
+    /// to twice that size is reused. A strict `maximumDecodedPixelSize` bounds both bucketing
+    /// and cache reuse for the inspector's memory budget; `lightBackdrop` is display-only.
+    func image(for source: ReaderImageSource, maxPixelSize: Int, inverted: Bool = false,
+               lightBackdrop: Bool = false, maximumDecodedPixelSize: Int? = nil) -> CGImage? {
         let long = max(source.pixelSize.width, source.pixelSize.height)
         let available = long.isFinite ? max(1, Int(min(long, CGFloat(1 << 30)).rounded(.up))) : 1
-        let pixels = source.format == .svg ? min(Self.bucket(maxPixelSize), ReaderImageSource.maximumSVGDimension)
-            : min(Self.bucket(maxPixelSize), available)
-        let key = Key(source: source.key, pixels: pixels, inverted: inverted)
-        if let image = lock.withLock({ hit(key) }) { return image }
+        let bucket = maximumDecodedPixelSize.map { min(Self.bucket(maxPixelSize), max(1, $0)) } ?? Self.bucket(maxPixelSize)
+        let pixels = source.format == .svg ? min(bucket, ReaderImageSource.maximumSVGDimension)
+            : min(bucket, available)
+        // An explicit author inversion supplies its own dark-appearance treatment.
+        let backdrop = lightBackdrop && !inverted
+        let key = Key(source: source.key, pixels: pixels, inverted: inverted, lightBackdrop: backdrop)
+        if let image = lock.withLock({ hit(key, maximumDecodedPixelSize: maximumDecodedPixelSize) }) { return image }
         guard let decoded = source.decode(maxPixelSize: pixels),
-              let image = inverted ? Self.inverted(decoded) : decoded else { return nil }
+              let image = inverted ? Self.inverted(decoded) : (backdrop ? Self.addingLightBackdrop(decoded) : decoded) else { return nil }
         let entry = Entry(image: image, cost: image.bytesPerRow * image.height, used: 0)
         lock.withLock {
             decodes += 1
@@ -171,6 +176,42 @@ final class ReaderImageCache: @unchecked Sendable {
     }
 
     private static func bucket(_ pixels: Int) -> Int { (max(1, pixels) + 63) / 64 * 64 }
+
+    /// Preserve the source colors, placing transparent dark artwork on white so its black
+    /// strokes remain readable on the reader's dark canvas. Opaque images and transparent
+    /// light artwork keep their original pixels. This only changes a display rendition;
+    /// publication bytes and ordinary cached decodes remain untouched.
+    static func addingLightBackdrop(_ image: CGImage) -> CGImage? {
+        switch image.alphaInfo {
+        case .none, .noneSkipFirst, .noneSkipLast: return image
+        default: break
+        }
+        let width = image.width, height = image.height
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let data = context.data else { return image }
+        let rect = CGRect(x: 0, y: 0, width: width, height: height)
+        context.draw(image, in: rect)
+        let pixels = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+        var transparent = false, darkInk = false
+        for index in stride(from: 0, to: width * height * 4, by: 4) {
+            let alpha = Int(pixels[index + 3])
+            if alpha < 255 { transparent = true }
+            // Ignore nearly transparent antialiasing. Channels are premultiplied: compare
+            // the weighted sRGB luminance with alpha rather than unpremultiplying pixels.
+            if alpha >= 32 {
+                let luminance = 54 * Int(pixels[index]) + 183 * Int(pixels[index + 1]) + 19 * Int(pixels[index + 2])
+                if luminance < alpha * 96 { darkInk = true }
+            }
+            if transparent && darkInk { break }
+        }
+        guard transparent && darkInk else { return image }
+        context.setBlendMode(.destinationOver)
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(rect)
+        return context.makeImage()
+    }
 
     /// CSS `filter: invert(100%)` in sRGB: each color channel inverted, alpha kept.
     static func inverted(_ image: CGImage) -> CGImage? {
@@ -191,11 +232,16 @@ final class ReaderImageCache: @unchecked Sendable {
         return context.makeImage()
     }
 
-    private func hit(_ key: Key) -> CGImage? {
-        var found = entries[key] == nil ? nil : key
+    private func hit(_ key: Key, maximumDecodedPixelSize: Int?) -> CGImage? {
+        func fits(_ candidate: Key) -> Bool {
+            guard let limit = maximumDecodedPixelSize, let image = entries[candidate]?.image else { return true }
+            return max(image.width, image.height) <= max(1, limit)
+        }
+        var found = entries[key] == nil || !fits(key) ? nil : key
         if found == nil {
             found = entries.keys.filter {
-                $0.source == key.source && $0.inverted == key.inverted && $0.pixels >= key.pixels && $0.pixels <= key.pixels * 2
+                $0.source == key.source && $0.inverted == key.inverted && $0.lightBackdrop == key.lightBackdrop
+                    && $0.pixels >= key.pixels && $0.pixels <= key.pixels * 2 && fits($0)
             }
                 .min { $0.pixels < $1.pixels }
         }
