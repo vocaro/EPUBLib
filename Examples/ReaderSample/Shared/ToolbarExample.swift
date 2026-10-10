@@ -9,10 +9,16 @@ struct ToolbarReader: View {
     var body: some View {
         EPUBReaderView(session: controls.session)
             .toolbar {
-                EPUBReaderToolbar(controls: controls, groups: [.pages, .search, .contents, .appearance])
+                EPUBReaderToolbar(controls: controls, groups: [.search, .contents, .appearance, .readingMode])
                 ToolbarItem(placement: .automatic) {
-                    Button("Save Position", systemImage: "bookmark", action: savePosition)
+                    Button("Save Bookmark", systemImage: "bookmark", action: savePosition)
                 }
+                #if os(iOS)
+                EPUBReaderToolbar(controls: controls, groups: [.pages], placement: .topBarPinnedTrailing)
+                #else
+                ToolbarSpacer(.fixed)
+                EPUBReaderToolbar(controls: controls, groups: [.pages])
+                #endif
             }
     }
 }

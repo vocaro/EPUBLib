@@ -25,12 +25,14 @@ import SwiftUI
 
     let capabilities: Set<EPUBReaderCapability> = [
         .navigateHref, .pagination, .scrolling, .typography, .selection, .bookmarks, .locateText,
-        .searchHighlight, .highlights,
+        .search, .searchHighlight, .highlights,
     ]
     let publication: EPUBPublication
     let readerState: EPUBReaderState?
     private(set) var closed = false
     private(set) var style = EPUBReaderStyle()
+    @ObservationIgnored private(set) var systemIsDark = false
+    private var effectiveIsDark: Bool { style.appearance == .system ? systemIsDark : style.appearance == .dark }
     /// The host's reserved division, from `View.epubReaderDivision(_:)`.
     var division: CGRect? { didSet { if division != oldValue { applyConfiguration() } } }
 
@@ -128,7 +130,7 @@ import SwiftUI
     private var configuration: ReaderCanvasConfiguration {
         var configuration = ReaderCanvasConfiguration()
         configuration.flow = style.flow
-        configuration.isDark = style.isDark
+        configuration.isDark = effectiveIsDark
         configuration.isRightToLeft = publication.pageProgression == .rtl
         configuration.division = division
         configuration.pageControls = pageControls
@@ -180,8 +182,10 @@ import SwiftUI
         case .navigate(let href): try await navigate(href)
         case .restore(let location): try await restore(location)
         case .locate(let text, let highlight): try await locate(text, highlight: highlight)
-        case .searchHighlight(let text):
-            do { try await search(text) }
+        case .search(let text), .searchHighlight(let text):
+            let navigateToMatch: Bool
+            if case .search = command { navigateToMatch = true } else { navigateToMatch = false }
+            do { try await search(text, navigateToMatch: navigateToMatch) }
             catch let error as EPUBReaderError {
                 searchGeneration += 1
                 emit(.searchChanged(.failed(query: text, error: error)))
@@ -358,11 +362,12 @@ import SwiftUI
         }.value
     }
 
-    private func search(_ text: String) async throws {
+    private func search(_ text: String, navigateToMatch: Bool) async throws {
         let query = TextSearch.normalizeQuote(text)
         guard !query.isEmpty, text.count <= Self.maximumSearchLength else {
             throw EPUBReaderError.invalidCommand("The search text is empty or too long")
         }
+        let navigationTicket = navigateToMatch ? beginNavigation() : nil
         emit(.searchChanged(.searching(query: text)))
         searchMatches = [:]
         searchRanges = [:]
@@ -385,19 +390,56 @@ import SwiftUI
         }
         guard !closed, ticket == searchGeneration else { return }
         try Task.checkCancellation()
+        var firstPosition: ReaderTextPosition?
+        if let navigationTicket, isCurrent(navigationTicket) {
+            // Rebase a matched DOM range onto the rendered section, just as `.locate` does.
+            // Building can suspend; a newer search, clear, or navigation must win.
+            for index in found.keys.sorted() {
+                guard let matches = found[index] else { continue }
+                let section = await book.build(index)
+                try Task.checkCancellation()
+                guard !closed, ticket == searchGeneration else { return }
+                guard isCurrent(navigationTicket) else { break }
+                if let first = matches.lazy.map({ self.range(of: $0, in: section) }).first(where: { !$0.isEmpty }) {
+                    firstPosition = first.start
+                    break
+                }
+            }
+        }
+        guard !closed, ticket == searchGeneration else { return }
+        try Task.checkCancellation()
         searchMatches = found
         searchRanges = [:]
         refreshHighlights()
+        if let firstPosition, let navigationTicket, isCurrent(navigationTicket) {
+            canvas?.clearSelection()
+            canvas?.show(firstPosition, selecting: nil)
+        }
+        guard !closed, ticket == searchGeneration else { return }
         emit(.searchChanged(.completed(query: text, hasMatches: !found.isEmpty)))
     }
 
     private func applyStyle(_ newStyle: EPUBReaderStyle) throws {
         guard newStyle.fontSize.isFinite else { throw EPUBReaderError.invalidCommand("Nonfinite font size") }
-        let previous = style
         style = newStyle
-        readerState?.modify { $0.style = newStyle }
-        if newStyle.flow != previous.flow || newStyle.isDark != previous.isDark { applyConfiguration() }
-        let typography = NativeTypography(fontSize: newStyle.fontSize, isDark: newStyle.isDark)
+        updatePresentation()
+    }
+
+    /// The host's environment stays outside the canvas's explicit platform appearance.
+    /// Remember it even in an explicit mode so choosing System uses the latest preference.
+    func updateSystemAppearance(isDark: Bool) {
+        guard !closed, systemIsDark != isDark else { return }
+        systemIsDark = isDark
+        if style.appearance == .system { updatePresentation() }
+    }
+
+    private func updatePresentation() {
+        readerState?.modify {
+            $0.style = style
+            $0.effectiveAppearance = effectiveIsDark ? .dark : .light
+        }
+        applyConfiguration()
+        let typography = NativeTypography(fontSize: style.fontSize, isDark: effectiveIsDark)
         if typography != book.typography {
             book.setTypography(typography)
             let current = visibleRange?.start.section ?? initialSection
@@ -678,13 +720,19 @@ private struct NativeSurface: View {
     let session: NativeSession
     @Environment(\.epubReaderDivision) private var division
     @Environment(\.epubReaderPageControls) private var pageControls
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         if !session.closed {
             NativeCanvasHost(session: session)
-                .onAppear { session.division = division; session.pageControls = pageControls }
+                .onAppear {
+                    session.updateSystemAppearance(isDark: colorScheme == .dark)
+                    session.division = division
+                    session.pageControls = pageControls
+                }
                 .onChange(of: division) { session.division = division }
                 .onChange(of: pageControls) { session.pageControls = pageControls }
+                .onChange(of: colorScheme) { session.updateSystemAppearance(isDark: colorScheme == .dark) }
                 .accessibilityScrollAction { edge in
                     if edge == .leading { submit(.previousPage) }
                     if edge == .trailing { submit(.nextPage) }

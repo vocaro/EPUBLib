@@ -64,7 +64,7 @@ func makeReader(publication: EPUBPublication,
 <!-- /snippet -->
 
 After `.ready`, send commands with `try await session.send(...)`. For example,
-`.nextPage`, `.locate(text: "a passage", highlight: true)` or `.style(.init(fontSize: 20, isDark: true))`.
+`.nextPage`, `.locate(text: "a passage", highlight: true)` or `.style(.init(fontSize: 20, appearance: .dark))`.
 Navigate using an encoded resource href, safely handling optional entries:
 
 <!-- snippet:navigation -->
@@ -88,7 +88,7 @@ bindings, or `.hostOnly` to turn pages through your own controls
 ([example](doc/integration.md#configuring-page-controls)).
 
 Optional [reader controls](doc/reader-controls.md) add previous/next, submit-only search, nested
-contents and appearance controls to a window/navigation toolbar or an embedded strip. Retain
+contents, appearance and reading mode controls to a window/navigation toolbar or an embedded strip. Retain
 `EPUBReaderControls(publication:session:)` alongside your existing session; no new session is created.
 
 ## Runnable sample

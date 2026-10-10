@@ -97,6 +97,7 @@ import Foundation
             (.pagination, .nextPage), (.pagination, .previousPage),
             (.navigateHref, .navigate(href: firstHref)),
             (.locateText, .locate(text: text, highlight: false)),
+            (.search, .search(text: text)),
             (.searchHighlight, .searchHighlight(text: text)), (.searchHighlight, .clearSearch),
             (.highlights, .setHighlights([])),
         ]
