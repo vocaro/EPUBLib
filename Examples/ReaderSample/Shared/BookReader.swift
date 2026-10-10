@@ -14,6 +14,7 @@ final class BookReader {
     private(set) var loading = false
     var busy: Bool { controls?.isBusy == true }
     private(set) var location: EPUBLocation?
+    private(set) var savedPosition: EPUBLocation?
     private(set) var disclosure: String?
     private(set) var notice: String?
     private(set) var selectedText: String?
@@ -52,6 +53,9 @@ final class BookReader {
     func install(_ book: EPUBPublication, engine: any EPUBReaderEngine) throws {
         let token = generation
         publication = book
+        if let data = UserDefaults.standard.data(forKey: "position.\(book.id)") {
+            savedPosition = try? JSONDecoder().decode(EPUBLocation.self, from: data)
+        }
         session = try engine.makeSession(publication: book,
             selectionAction: EPUBSelectionAction(title: "Use passage") { [weak self] selection in
                 guard let self, generation == token else { return }
@@ -75,18 +79,33 @@ final class BookReader {
     }
 
     func savePosition() {
-        guard let location, let data = try? JSONEncoder().encode(location) else { return }
-        UserDefaults.standard.set(data, forKey: "position.\(location.publicationID)")
-        notice = "Position saved."
+        guard let location else {
+            notice = "Reading position is not available yet."
+            return
+        }
+        do {
+            let data = try JSONEncoder().encode(location)
+            UserDefaults.standard.set(data, forKey: "position.\(location.publicationID)")
+            savedPosition = location
+            notice = "Bookmark saved."
+        } catch {
+            self.error = "Could not save the bookmark: \(error.localizedDescription)"
+        }
     }
 
     func restorePosition() {
-        guard let publication,
-              let data = UserDefaults.standard.data(forKey: "position.\(publication.id)"),
-              let saved = try? JSONDecoder().decode(EPUBLocation.self, from: data) else {
-            notice = "No saved position for this book."; return
+        guard let savedPosition else {
+            notice = "No bookmark saved for this book."
+            return
         }
-        send(.restore(saved))
+        send(.restore(savedPosition))
+    }
+
+    func clearPosition() {
+        guard let publication else { return }
+        UserDefaults.standard.removeObject(forKey: "position.\(publication.id)")
+        savedPosition = nil
+        notice = "Bookmark cleared."
     }
 
     func close() {
@@ -96,6 +115,7 @@ final class BookReader {
         session?.close(); session = nil
         publication = nil; ready = false; loading = false
         location = nil; disclosure = nil; notice = nil; selectedText = nil; error = nil
+        savedPosition = nil
     }
 }
 // snippet:end lifecycle

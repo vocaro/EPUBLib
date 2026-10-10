@@ -71,6 +71,121 @@ import XCTest
         XCTAssertFalse(model.isReady)
     }
 
+    func testSystemAppearanceFollowsEnvironmentAndExplicitModesStayFixed() async throws {
+        for flow in [EPUBReadingFlow.paginated, .scrolled] {
+            let (session, window, events) = try open(Fixture.epub())
+            defer { session.close(); window.close() }
+            let state = try XCTUnwrap(session.readerState)
+            window.pageControls.colorScheme = .dark
+            try await wait("initial System appearance") {
+                events().contains(.ready) && session.book.isComplete && session.book.typography.isDark &&
+                    session.canvas?.configuration.isDark == true && state.status.effectiveAppearance == .dark
+            }
+            XCTAssertEqual(state.status.style.appearance, .system)
+            try await session.send(.style(.init(fontSize: 23, flow: flow)))
+            try await session.send(.search(text: "unique destination"))
+            let match = try XCTUnwrap(session.drawnHighlights.first { $0.kind == .search }?.range)
+
+            for scheme in [ColorScheme.light, .dark] {
+                window.pageControls.colorScheme = scheme
+                let dark = scheme == .dark
+                try await wait("live System appearance and rebuilt book") {
+                    session.systemIsDark == dark && session.book.isComplete && session.book.typography.isDark == dark &&
+                        session.canvas?.configuration.isDark == dark && state.status.effectiveAppearance == (dark ? .dark : .light)
+                }
+                XCTAssertEqual(state.status.style, .init(fontSize: 23, flow: flow))
+                XCTAssertEqual(session.drawnHighlights.filter { $0.kind == .search }.map(\.range), [match])
+                let visible = try XCTUnwrap(session.visibleRange)
+                XCTAssertTrue(visible.start <= match.start && match.start < visible.end, "Theme change lost the matched position")
+                let color = session.book.section(match.start.section)?.string.attribute(.foregroundColor, at: match.start.offset, effectiveRange: nil) as? PlatformColor
+                XCTAssertEqual(color, ReaderPalette.text(dark: dark), "Rebuilt text must use the new palette")
+            }
+
+            for appearance in [EPUBReaderAppearance.light, .dark] {
+                try await session.send(.style(.init(fontSize: 23, appearance: appearance, flow: flow)))
+                let dark = appearance == .dark
+                try await wait("explicit appearance") { session.book.isComplete && session.book.typography.isDark == dark }
+                for scheme in [ColorScheme.light, .dark] {
+                    window.pageControls.colorScheme = scheme
+                    try await wait("host color scheme change") { session.systemIsDark == (scheme == .dark) }
+                    XCTAssertEqual(state.status.style.appearance, appearance)
+                    XCTAssertEqual(state.status.effectiveAppearance, appearance)
+                    XCTAssertEqual(session.canvas?.configuration.isDark, dark)
+                    XCTAssertEqual(session.book.typography.isDark, dark)
+                }
+            }
+            try await session.send(.style(.init(fontSize: 23, appearance: .system, flow: flow)))
+            XCTAssertEqual(state.status.effectiveAppearance, .dark, "System must use the latest preference after an override")
+            session.close()
+            let closedState = state.status
+            session.updateSystemAppearance(isDark: false)
+            XCTAssertEqual(state.status, closedState, "OS changes must not update a closed session")
+        }
+    }
+
+    func testToolbarSearchOpensFirstOffscreenMatchAndKeepsHighlights() async throws {
+        let padding = String(repeating: "<p>Ordinary text before the destination.</p>", count: 80)
+        let chapter = """
+        <html xmlns="http://www.w3.org/1999/xhtml"><head><title>Destination</title></head><body>
+        \(padding)<p>Findneedle first match.</p>\(padding)<p>Findneedle second match.</p>
+        </body></html>
+        """
+        let opening = """
+        <html xmlns="http://www.w3.org/1999/xhtml"><head><title>Opening</title></head><body>
+        <p style="display:none">Findneedle hidden match.</p><p>Visible opening text.</p>
+        </body></html>
+        """
+        for flow in [EPUBReadingFlow.paginated, .scrolled] {
+            let (session, window, events) = try open(Fixture.epub(overrides: ["OPS/one.xhtml": opening, "OPS/two.xhtml": chapter]))
+            defer { session.close(); window.close() }
+            try await wait("built book and location") { session.book.isComplete && session.lastLocation != nil }
+            try await session.send(.style(.init(flow: flow)))
+            let original = session.visibleRange
+            try await session.send(.searchHighlight(text: "findneedle"))
+            XCTAssertEqual(session.visibleRange, original, "highlight-only API must not navigate")
+            let controls = EPUBReaderControls(publication: session.publication, session: session)
+            controls.searchText = "findneedle"
+            XCTAssertEqual(session.visibleRange, original, "typing must not navigate")
+            controls.submitSearch()
+            await controls.waitForCommands()
+            let matches = session.drawnHighlights.filter { $0.kind == .search }.sorted { $0.range.start < $1.range.start }
+            XCTAssertEqual(matches.count, 2)
+            let first = try XCTUnwrap(matches.first?.range)
+            XCTAssertEqual(first.start.section, 1)
+            XCTAssertGreaterThan(first.start.offset, 0)
+            try await wait("first match visible") {
+                guard let visible = session.visibleRange else { return false }
+                return visible.start <= first.start && first.start < visible.end
+            }
+            XCTAssertNil(session.selection, "search highlights should not become an editing selection")
+            XCTAssertEqual(session.readerState?.status.search, .completed(query: "findneedle", hasMatches: true))
+            let foundPosition = session.visibleRange
+            controls.searchText = "absent unicorn"
+            controls.submitSearch()
+            await controls.waitForCommands()
+            XCTAssertEqual(session.visibleRange, foundPosition, "no-match search must preserve position")
+            XCTAssertEqual(session.readerState?.status.search, .completed(query: "absent unicorn", hasMatches: false))
+            XCTAssertTrue(events().contains(.searchChanged(.completed(query: "findneedle", hasMatches: true))))
+        }
+    }
+
+    func testNewerNavigationWinsOverPendingSearch() async throws {
+        var retained: NativeSession?
+        var navigation: Task<Void, Error>?
+        let (session, window, events) = try open(Fixture.epub(), onEvent: { event in
+            if case .searchChanged(.searching) = event {
+                navigation = Task { try await retained?.send(.navigate(href: "OPS/one.xhtml#start")) }
+            }
+        })
+        retained = session
+        defer { session.close(); window.close() }
+        try await wait("ready and location") { events().contains(.ready) && session.lastLocation != nil }
+        try await session.send(.search(text: "unique destination"))
+        try await navigation?.value
+        XCTAssertEqual(session.visibleRange?.start.section, 0)
+        XCTAssertEqual(session.readerState?.status.search, .completed(query: "unique destination", hasMatches: true))
+    }
+
     func testClearSupersedesSearchAndSuppressesStaleCompletion() async throws {
         var retained: NativeSession?
         var clear: Task<Void, Error>?
@@ -82,10 +197,12 @@ import XCTest
         retained = session
         defer { session.close(); window.close() }
         try await wait("ready") { events().contains(.ready) }
-        try await session.send(.searchHighlight(text: "words"))
+        let original = session.visibleRange
+        try await session.send(.search(text: "unique destination"))
         try await clear?.value
         XCTAssertEqual(session.readerState?.status.search, .idle)
-        XCTAssertFalse(events().contains(.searchChanged(.completed(query: "words", hasMatches: true))))
+        XCTAssertFalse(events().contains(.searchChanged(.completed(query: "unique destination", hasMatches: true))))
+        XCTAssertEqual(session.visibleRange, original, "cleared search must not navigate later")
     }
 
     func testCanceledSearchEndsActivityWithoutCompletion() async throws {
@@ -95,11 +212,13 @@ import XCTest
         })
         defer { session.close(); window.close() }
         try await wait("ready") { events().contains(.ready) }
-        search = Task { try await session.send(.searchHighlight(text: "words")) }
+        let original = session.visibleRange
+        search = Task { try await session.send(.search(text: "unique destination")) }
         do { try await search?.value; XCTFail("Canceled search completed") } catch is CancellationError {}
         XCTAssertEqual(session.readerState?.status.search, .idle)
         XCTAssertEqual(session.readerState?.status.activeCommands, 0)
-        XCTAssertFalse(events().contains(.searchChanged(.completed(query: "words", hasMatches: true))))
+        XCTAssertFalse(events().contains(.searchChanged(.completed(query: "unique destination", hasMatches: true))))
+        XCTAssertEqual(session.visibleRange, original)
     }
 
     func testPublicBoundariesInPaginatedAndScrolledFlow() async throws {

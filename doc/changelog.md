@@ -8,6 +8,20 @@
 - Preserve authored nonempty XHTML image alternatives in headless text extraction, including formula images, truth-table headings and exercise items. Image IDs, headings and later anchors include the alternative's UTF-8 bytes; decorative images contribute nothing ([#37](https://github.com/vocaro/EPUBLib/issues/37)).
 - Keep transparent dark diagram strokes readable in dark appearance with a faithful white backdrop. Preserve original colors and source bytes, retaining explicit author inversion and the bounded image cache ([#34](https://github.com/vocaro/EPUBLib/issues/34)).
 - Add native image inspection with zoom, pan, fit and close controls on Mac, iPhone and iPad, including table images and page-image fallbacks. Decode from archive pixels independently of body typography, keeping inspection bounded and preserving reader position and selection ([#35](https://github.com/vocaro/EPUBLib/issues/35)).
+
+- Default reader appearance to System, following live host/OS color scheme changes. Add
+  `EPUBReaderAppearance` (System/Light/Dark), `EPUBReaderStyle.appearance`, and resolved
+  `EPUBReaderStatus.effectiveAppearance`. Explicit `isDark:` calls and writes remain supported.
+
+- Move Continuous Scroll/Paging into a separate `.readingMode` control group with joined
+  mode buttons using `scroll` and `doc.text` symbols. Successful toolbar searches no longer
+  show a redundant highlight message. Keep command progress within the controls so search
+  submissions do not shift the toolbar or its popover.
+
+- Add `.search(text:)` and the `.search` capability for highlighting matches and opening the
+  first rendered match. The reader toolbar uses this action when available; `.searchHighlight`
+  remains highlight-only. Hosts with exhaustive command switches must handle the new case.
+
 - Continue oversized native table rows and rowspan text across pages without clipping glyph lines; preserve source offsets and read each continued word once ([#24](https://github.com/vocaro/EPUBLib/issues/24)).
 - Wrap native prose around left/right floats, including auto-width drop caps and archive images; honor float clearing, positioned callout insets and sized inline-blocks beside surrounding text. Preserve native selection, links and source offsets. Oversized or complex box groups continue in reading order with a layout disclosure; fixed boxes appear once, without page pinning ([#19](https://github.com/vocaro/EPUBLib/issues/19)).
 - Add optional `EPUBLocation.rangeBookmarks` to preserve every section of a saved selection or highlight while retaining existing single-section bookmarks. Keep selections through typography and flow changes ([#31](https://github.com/vocaro/EPUBLib/issues/31)).

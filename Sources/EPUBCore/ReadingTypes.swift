@@ -51,17 +51,32 @@ public struct EPUBSelection: Equatable, Sendable {
 
 public enum EPUBReadingFlow: String, Codable, Sendable { case paginated, scrolled }
 
+public enum EPUBReaderAppearance: String, CaseIterable, Codable, Sendable { case system, light, dark }
+
 public struct EPUBReaderStyle: Equatable, Sendable {
     public var fontSize: Double
-    public var isDark: Bool
+    /// System follows the mounted view's color scheme, including live OS theme changes.
+    public var appearance: EPUBReaderAppearance
     public var flow: EPUBReadingFlow
-    public init(fontSize: Double = 17, isDark: Bool = false, flow: EPUBReadingFlow = .paginated) {
-        self.fontSize = fontSize; self.isDark = isDark; self.flow = flow
+    public init(fontSize: Double = 17, appearance: EPUBReaderAppearance = .system, flow: EPUBReadingFlow = .paginated) {
+        self.fontSize = fontSize; self.appearance = appearance; self.flow = flow
+    }
+    /// Compatibility with explicit light/dark style calls. Omitting appearance now follows System.
+    public init(fontSize: Double = 17, isDark: Bool, flow: EPUBReadingFlow = .paginated) {
+        self.init(fontSize: fontSize, appearance: isDark ? .dark : .light, flow: flow)
+    }
+    /// True only for explicit Dark. Read `EPUBReaderStatus.effectiveAppearance` for the
+    /// resolved System appearance. Setting this property selects an explicit mode.
+    public var isDark: Bool {
+        get { appearance == .dark }
+        set { appearance = newValue ? .dark : .light }
     }
 }
 
 public enum EPUBReaderCapability: String, Hashable, Sendable {
     case pagination, scrolling, typography, selection, bookmarks, locateText, navigateHref, searchHighlight, highlights
+    /// Whole-book highlighting with navigation to the first rendered match.
+    case search
 }
 
 /// A host-owned highlight drawn while reading. `location.bookmark` names a passage in one
@@ -78,6 +93,9 @@ public enum EPUBReaderCommand: Equatable, Sendable {
     case restore(EPUBLocation)
     case navigate(href: String)
     case locate(text: String, highlight: Bool)
+    /// Highlights matches and opens the first rendered match in reading order.
+    case search(text: String)
+    /// Highlights matches without changing the reading position.
     case searchHighlight(text: String)
     case clearSearch
     case style(EPUBReaderStyle)
@@ -107,7 +125,7 @@ public extension EPUBReaderError {
 }
 
 /// Highlight search feedback, independent of relocation. Completion means the whole book
-/// has been searched; it does not move the reader or expose a result browser.
+/// has been searched. Navigation depends on the command; no result browser is exposed.
 public enum EPUBSearchState: Equatable, Sendable {
     case idle
     case searching(query: String)

@@ -10,12 +10,18 @@ import UIKit
 
 @MainActor @Observable final class TestPageControls {
     var value = EPUBPageControls()
+    var colorScheme: ColorScheme?
 }
 
 private struct ControlledTestReader: View {
     let session: any EPUBReaderSession
     let controls: TestPageControls
-    var body: some View { EPUBReaderView(session: session).epubReaderPageControls(controls.value) }
+    @Environment(\.colorScheme) private var inheritedColorScheme
+    var body: some View {
+        EPUBReaderView(session: session)
+            .epubReaderPageControls(controls.value)
+            .environment(\.colorScheme, controls.colorScheme ?? inheritedColorScheme)
+    }
 }
 
 @MainActor final class ReaderTestWindow {
