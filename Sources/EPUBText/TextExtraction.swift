@@ -10,6 +10,7 @@ public struct EPUBTextSection: Equatable, Sendable {
     public let isLinear: Bool
     /// XHTML head/title, with normalized whitespace. No inferred fallback.
     public let title: String?
+    /// Body text in source order, including publisher-supplied, nonempty XHTML image alternatives.
     public let text: String
     /// EPUB-namespace type tokens throughout the body; no application inclusion policy.
     public let semanticTypes: Set<String>
@@ -236,6 +237,14 @@ private final class XHTMLTextReader {
         }
         stack.append(Frame(namespaces: namespaces, body: inBody,
             title: startsTitle || stack.last?.title == true, suppressed: suppressed, block: block, name: local, heading: heading))
+        // Treat an authored image alternative as inline character data. Use the same normalizer
+        // after registering this element's marks so image IDs, enclosing headings and later
+        // anchors all refer to the returned text. Decorative whitespace-only alternatives must
+        // not introduce a separator between surrounding characters.
+        if html, local == "img", inBody, !suppressed, let alternative = attributes["alt"],
+           alternative.contains(where: { !$0.isWhitespace }) {
+            try body.append(alternative, limit: limits.outputBytes)
+        }
     }
 
     private func characters(_ string: String) throws {

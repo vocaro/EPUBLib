@@ -66,11 +66,132 @@ final class TextExtractionTests: XCTestCase {
         XCTAssertEqual(section.semanticTypes, ["chapter", "bodymatter", "footnote"])
     }
 
-    func testEmptyImageOnlySectionsAndAbsentTitlesArePreserved() throws {
-        let section = try book("<img src='image.png' alt='Not OCR'/>", head: "<title> \n </title>").textSection(at: 0)
+    func testDecorativeImageOnlySectionsAndAbsentTitlesArePreserved() throws {
+        let section = try book("<img src='image.png' alt=''/><img src='another.png'/>", head: "<title> \n </title>").textSection(at: 0)
         XCTAssertNil(section.title)
         XCTAssertEqual(section.text, "")
         XCTAssertNil(try book("<p>Text</p>", head: "").textSection(at: 0).title)
+    }
+
+    func testImageAlternativesPreserveFormulaTableHeadingAndExerciseOrder() throws {
+        // Representative publisher XHTML, without relying on the availability of image bytes.
+        let section = try book("""
+        <h2>Exercises</h2>
+        <p>Evaluate <img src='missing.svg' alt='p ∧ q'/> when p is true.</p>
+        <table><tr><th><img src='header.png' alt='p ∨ q'/></th><th>Result</th></tr>
+        <tr><td>True</td><td>False</td></tr></table>
+        <ol><li><img src='formula1.png' alt='¬p'/></li><li><img src='formula2.png' alt='p → q'/></li></ol>
+        """).textSection(at: 0)
+        XCTAssertEqual(section.text, "Exercises\nEvaluate p ∧ q when p is true.\np ∨ q\nResult\nTrue\nFalse\n¬p\np → q")
+    }
+
+    func testImageAlternativesShareInlineWhitespaceNormalization() throws {
+        let section = try book("""
+        <p>f(<img src='formula.png' alt='x²'/>)=<img src='answer.png' alt='  x&#x9;+&#xA;1  '/> units.</p>
+        <p>A<img alt=''/><img/><img alt='&#x9; &#xA; '/>B<img alt='C'/>D</p>
+        """).textSection(at: 0)
+        XCTAssertEqual(section.text, "f(x²)= x + 1 units.\nABCD")
+    }
+
+    func testPublisherMathJaxAlternativesRemainLiteralAndAppearOnce() throws {
+        // Markup from Introduction to Philosophy: Logic (2020), abbreviated to the relevant
+        // nodes. Preserve the publisher's LaTeX string; neither title nor rendering rewrites it.
+        let section = try book(#"""
+        <table class="grid aligncenter"><caption>Truth table for negation</caption><tbody><tr>
+        <th scope="col"><strong><img src="assets/297a066ea90d7b8037a5e99d9505f27a.png" alt="A" title="A" class="latex mathjax" /></strong></th>
+        <th scope="col"><strong><img src="assets/ff6c3c3e1e7102327509062af3d5a429.png" alt="\neg A" title="\neg A" class="latex mathjax" /></strong></th>
+        </tr><tr><td>T</td><td>F</td></tr><tr><td>F</td><td>T</td></tr></tbody></table>
+        <ol><li class="therefore-med"><img src="assets/b4c0918653e3ff6b7a9233ecac70db98.png" alt="/ \therefore" title="/ \therefore" class="latex mathjax" /> Alex is not a sea bream.</li></ol>
+        """#).textSection(at: 0)
+        XCTAssertEqual(section.text, #"Truth table for negation"# + "\nA\n" + #"\neg A"# + "\nT\nF\nF\nT\n" + #"/ \therefore Alex is not a sea bream."#)
+    }
+
+    func testImageAlternativesAreDecodedOnceAndNeverUseTitleOrForeignAttributes() throws {
+        let section = try book("""
+        <p><img alt='A &amp; B &lt;x&gt; &quot;q&quot; &#x3B1;' title='Duplicate title'/></p>
+        <img title='Title only'/><img xmlns:a='urn:other' a:alt='Foreign attribute'/>
+        <svg xmlns='http://www.w3.org/2000/svg'><img alt='Foreign element'/></svg>
+        <x:img xmlns:x='http://www.w3.org/1999/xhtml' alt='Aliased XHTML'/>
+        """).textSection(at: 0)
+        XCTAssertEqual(section.text, "A & B <x> \"q\" α\nAliased XHTML")
+    }
+
+    func testImageAlternativesAreExcludedFromHeadAndSuppressedSubtrees() throws {
+        let section = try book("""
+        <p>Kept</p><script><img alt='Script alternative'/></script>
+        <style><img alt='Style alternative'/></style><template><img id='hidden' alt='Template alternative'/></template>
+        <p><img alt='Body alternative'/></p>
+        """, head: "<title>Metadata</title><img alt='Head alternative'/>").textSection(at: 0)
+        XCTAssertEqual(section.title, "Metadata")
+        XCTAssertEqual(section.text, "Kept\nBody alternative")
+        XCTAssertNil(section.anchors["hidden"])
+    }
+
+    func testImageAlternativesContributeToHeadingAndUTF8AnchorOffsets() throws {
+        let section = try book("""
+        <p>Préface</p><h2 id='heading'><img id='formula' alt='  α²  '/> law</h2>
+        <p id='after'>Next <img id='inline' alt='é'/>!</p><img id='end' alt=''/>
+        """).textSection(at: 0)
+        let prefix = "Préface\n"
+        let afterPrefix = "Préface\nα² law\n"
+        XCTAssertEqual(section.text, afterPrefix + "Next é!")
+        let headingMark = EPUBTextMark(offset: prefix.utf8.count, separator: 1)
+        XCTAssertEqual(section.anchors["heading"], headingMark)
+        XCTAssertEqual(section.anchors["formula"], headingMark)
+        XCTAssertEqual(section.headings, [EPUBTextHeading(mark: headingMark, text: "α² law")])
+        XCTAssertEqual(section.anchors["after"], EPUBTextMark(offset: afterPrefix.utf8.count, separator: 1))
+        XCTAssertEqual(section.anchors["inline"], EPUBTextMark(offset: (afterPrefix + "Next ").utf8.count, separator: 1))
+        XCTAssertEqual(section.anchors["end"], EPUBTextMark(offset: section.text.utf8.count, separator: 0))
+    }
+
+    func testImageOnlyAlternativeUsesNoTitleFallbackOrResourceAccess() throws {
+        let section = try book("<img id='image' src='https://example.invalid/never-fetch' alt='  Publisher formula: x²  ' title='Do not duplicate'/>",
+            head: "<title> \n </title>").textSection(at: 0)
+        XCTAssertNil(section.title)
+        XCTAssertEqual(section.text, "Publisher formula: x²")
+        XCTAssertEqual(section.anchors["image"], EPUBTextMark(offset: 0, separator: 0))
+    }
+
+    func testImageAlternativesRespectOutputDepthAndElementLimits() throws {
+        let publication = try book("<p><img alt='éééé'/></p>", head: "")
+        var limits = EPUBTextExtractionLimits()
+        limits.outputBytes = 8
+        XCTAssertEqual(try publication.textSection(at: 0, limits: limits).text, "éééé")
+        limits.outputBytes = 7
+        XCTAssertThrowsError(try publication.textSection(at: 0, limits: limits)) {
+            XCTAssertEqual($0 as? EPUBTextExtractionError, .limitExceeded("outputBytes"))
+        }
+        limits = EPUBTextExtractionLimits()
+        limits.depth = 3
+        XCTAssertThrowsError(try publication.textSection(at: 0, limits: limits)) {
+            XCTAssertEqual($0 as? EPUBTextExtractionError, .limitExceeded("depth"))
+        }
+        limits = EPUBTextExtractionLimits()
+        limits.elementCount = 4
+        XCTAssertThrowsError(try publication.textSection(at: 0, limits: limits)) {
+            XCTAssertEqual($0 as? EPUBTextExtractionError, .limitExceeded("elementCount"))
+        }
+        let combined = try book("<p>A<img alt=' é '/>Z</p>", head: "")
+        limits = EPUBTextExtractionLimits()
+        limits.outputBytes = 6
+        XCTAssertEqual(try combined.textSection(at: 0, limits: limits).text, "A é Z")
+        limits.outputBytes = 5
+        XCTAssertThrowsError(try combined.textSection(at: 0, limits: limits)) {
+            XCTAssertEqual($0 as? EPUBTextExtractionError, .limitExceeded("outputBytes"))
+        }
+    }
+
+    func testMalformedAndEntityBearingImageAlternativesFailSafely() throws {
+        for xml in [
+            "<html><body><img alt='unescaped & alternative'/></body></html>",
+            "<!DOCTYPE html [<!ENTITY formula 'unsafe'>]><html><body><img alt='&formula;'/></body></html>",
+            "<!DOCTYPE html [<!ENTITY formula SYSTEM 'https://example.invalid/never-fetch'>]><html><body><img alt='&formula;'/></body></html>",
+        ] {
+            let publication = try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/one.xhtml": xml]))
+            XCTAssertThrowsError(try publication.textSection(at: 0)) {
+                XCTAssertEqual($0 as? EPUBTextExtractionError, .malformedContent("OPS/one.xhtml"))
+            }
+        }
     }
 
     func testNonlinearAndRepeatedResourcesRetainTheirSpineOccurrence() throws {
@@ -109,10 +230,10 @@ final class TextExtractionTests: XCTestCase {
 
     func testUTF16AndOrdinaryExternalDoctype() throws {
         var files = try Fixture.files()
-        let xml = "<?xml version='1.0' encoding='UTF-16'?><!DOCTYPE html SYSTEM 'https://example.invalid/never-fetch'><html><head><title>Encoded</title></head><body><p>Café [one]</p></body></html>"
+        let xml = "<?xml version='1.0' encoding='UTF-16'?><!DOCTYPE html SYSTEM 'https://example.invalid/never-fetch'><html><head><title>Encoded</title></head><body><p>Café [one] <img alt='α &amp; β'/></p></body></html>"
         files["OPS/one.xhtml"] = try XCTUnwrap(xml.data(using: .utf16))
         let publication = try EPUBPublication.open(data: Fixture.archive(files))
-        XCTAssertEqual(try publication.textSection(at: 0).text, "Café [one]")
+        XCTAssertEqual(try publication.textSection(at: 0).text, "Café [one] α & β")
         files["OPS/one.xhtml"] = try XCTUnwrap("<?xml version='1.0' encoding='UTF-16'?><!DOCTYPE html [<!ENTITY x 'unsafe'>]><html><body>&x;</body></html>".data(using: .utf16))
         let unsafe = try EPUBPublication.open(data: Fixture.archive(files))
         XCTAssertThrowsError(try unsafe.textSection(at: 0))
