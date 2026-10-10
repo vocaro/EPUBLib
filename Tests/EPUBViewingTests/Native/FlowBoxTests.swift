@@ -105,6 +105,67 @@ import UIKit
         }
     }
 
+    func testHiddenLabelClassificationNeverChangesMappedTextWithReaderTypography() throws {
+        let body = """
+            <p id="begin">Before labels.</p>
+            <span id="em">Font relative offset.</span>
+            <span id="rem">Root relative offset.</span>
+            <span id="mixed">Mixed calculation offset.</span>
+            <span id="relativeCalc">Font relative calculation offset.</span>
+            <span id="absolute">Absolute offscreen label.</span>
+            <span id="absoluteCalc">Absolute calculation offscreen label.</span>
+            <div id="inheritedRelative"><span id="relativeChild">Inherited font relative offset.</span></div>
+            <div id="inheritedAbsolute"><span id="absoluteChild">Inherited absolute offscreen label.</span></div>
+            <span id="initial">Reset offscreen label.</span>
+            <span id="clippedRelative">Clipped font relative label.</span>
+            <p id="end">After labels.</p>
+            """
+        let css = """
+            span { position:absolute; }
+            #em { left:-64em; }
+            #rem { top:-64rem; }
+            #mixed { left:calc(-9999px + 2em); }
+            #relativeCalc { top:calc(-32em * 2); }
+            #absolute { left:-9999px; }
+            #absoluteCalc { top:calc(-1200px + 100px); }
+            #inheritedRelative { left:-64em; font-size:2em; }
+            #relativeChild { left:inherit; }
+            #inheritedAbsolute { top:calc(-9999px + 100px); font-size:2em; }
+            #absoluteChild { top:inherit; }
+            #initial { left:-9999px; left:initial; }
+            #clippedRelative { left:-64em; clip:rect(0,0,0,0); }
+            """
+        let publication = try StyleTestSupport.publication(section: StyleTestSupport.xhtml(body: body, css: css))
+        let spine = try SpineCFIs(publication: publication)
+        var baseline: SectionText?
+        for fontSize: CGFloat in [12, 17, 32, 96] {
+            let section = SectionBuilder.build(SectionBuildRequest(publication: publication, spineIndex: 0,
+                typography: .init(fontSize: fontSize), fonts: FontRegistry(publication: publication), rich: NativeRichContent()))
+            if let baseline {
+                XCTAssertEqual(section.string.string, baseline.string.string, "Font size \(fontSize)")
+                XCTAssertEqual(section.map, baseline.map, "Font size \(fontSize)")
+                XCTAssertEqual(section.anchors, baseline.anchors, "Font size \(fontSize)")
+            } else { baseline = section }
+            for phrase in ["Font relative offset.", "Root relative offset.", "Mixed calculation offset.",
+                           "Font relative calculation offset.", "Inherited font relative offset.", "Reset offscreen label."] {
+                XCTAssertTrue(section.string.string.contains(phrase), "Font size \(fontSize): \(phrase)")
+            }
+            for phrase in ["Absolute offscreen label.", "Absolute calculation offscreen label.",
+                           "Inherited absolute offscreen label.", "Clipped font relative label."] {
+                XCTAssertFalse(section.string.string.contains(phrase), "Font size \(fontSize): \(phrase)")
+            }
+            let range = (section.string.string as NSString).range(of: "After labels.")
+            let start = try XCTUnwrap(section.map.position(at: range.location, in: section.document))
+            let end = try XCTUnwrap(section.map.endPosition(at: NSMaxRange(range), in: section.document))
+            let cfi = spine.cfi(spineIndex: 0, start: start, end: end, in: section.document)
+            let local = try XCTUnwrap(spine.resolve(cfi))
+            let resolved = try XCTUnwrap(EPUBCFI.resolve(localPath: local.localPath, in: section.document))
+            XCTAssertEqual(section.map.location(of: resolved.start), range.location)
+            XCTAssertEqual(section.map.location(of: resolved.end, isEnd: true), NSMaxRange(range))
+            BuilderHarness.assertMapRoundTrips(section)
+        }
+    }
+
     func testWidthsAndRightFloatPlacementResolveAgainstActualColumn() throws {
         let section = try build().1
         for column: CGFloat in [180, 360, 600] {

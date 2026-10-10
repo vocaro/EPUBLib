@@ -174,7 +174,12 @@ This is a content-preserving subset, not full CSS box layout: surrounding text f
 rather than wrapping it, and positioned content appears once where it occurs in the DOM rather
 than at its offsets or on every page. A `.disclosure` reports these substitutions. Conventional
 positioned, visually hidden accessibility labels remain omitted to avoid visible duplicate
-text. General clipping, arbitrary offscreen geometry and transforms are outside this subset.
+text. The offscreen heuristic recognizes only absolute-unit top/left offsets of -1,000 CSS
+pixels or less, including calculations containing only absolute units; it is evaluated from
+author values independently of reader typography. Font-relative, percentage, viewport and
+mixed-unit offsets remain visible unless explicitly clipped or hidden. This keeps rendered
+text and saved range offsets identical across reader font-size changes. General clipping,
+arbitrary offscreen geometry and transforms are outside this subset.
 Fixed-layout publications still reflow and report their existing fixed-layout disclosure; this
 subset does not implement fixed-page geometry.
 
@@ -268,8 +273,9 @@ Go: the native viewer is the bundled engine.
   across pages. Floats do not wrap adjacent prose, positioning offsets are not reproduced,
   and height/overflow never clip callout text. Common positioned accessibility labels hidden
   with zero-area `clip: rect(...)`, `clip-path: inset(50%)`, visibility or large negative
-  top/left offsets stay omitted; general clipping and arbitrary offscreen geometry are
-  unsupported. Unsized inline-blocks remain inline. Percentages in ordinary margins and
+  top/left offsets in absolute units stay omitted; font-relative or mixed-unit offsets remain
+  visible unless explicitly hidden or clipped. General clipping and arbitrary offscreen
+  geometry are unsupported. Unsized inline-blocks remain inline. Percentages in ordinary margins and
   indents still resolve against a nominal 600-pt column. [#19](https://github.com/vocaro/EPUBLib/issues/19)
   remains open for adjacent-text float wrapping and faithful positioning.
 - Table cell text is not selectable and links inside cells do not activate; a single table row

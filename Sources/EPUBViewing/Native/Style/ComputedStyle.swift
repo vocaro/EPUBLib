@@ -106,9 +106,12 @@ struct ComputedStyle: Equatable, Sendable {
     var float: Float = .none
     /// `position: absolute` or `fixed`: the box is out of flow and its offsets are not honoured.
     var isOutOfFlow = false
-    /// Used only to recognize intentionally off-screen positioned accessibility labels.
+    /// Computed offsets; out-of-flow box geometry is not reproduced by the native subset.
     var positionTop: Length = .auto
     var positionLeft: Length = .auto
+    /// Classified from specified absolute CSS lengths, never the reader's computed font size.
+    var positionTopIsOffscreen = false
+    var positionLeftIsOffscreen = false
     /// Common zero-area clipping techniques for visually hidden positioned labels.
     var clipsAllContent = false
     var clipsAllContentWithPath = false
@@ -120,12 +123,9 @@ struct ComputedStyle: Equatable, Sendable {
 
     var isVisuallyHiddenPositionedBox: Bool {
         if clipsAllContent || clipsAllContentWithPath || isHidden { return true }
-        // Large negative offsets are a conventional hiding technique. Modest negative offsets
-        // may be genuine callouts and must remain readable. This is deliberately a narrow test.
-        return [positionTop, positionLeft].contains {
-            if case .points(let value) = $0 { return value <= -1_000 }
-            return false
-        }
+        // Rendering must never change its source characters when the reader changes typography.
+        // Font-relative/viewport offsets therefore cannot participate in this hiding heuristic.
+        return positionTopIsOffscreen || positionLeftIsOffscreen
     }
     /// A flex or grid container, which renders as a block; its in-flow children are blockified.
     var blockifiesChildren = false
