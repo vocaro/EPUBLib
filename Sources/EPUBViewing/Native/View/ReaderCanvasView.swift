@@ -513,7 +513,12 @@ import AppKit
         textView.placement = content.placement
         withProgrammaticScroll { textView.setContent(content.text) }
         isApplyingSelection = false
-        if let carried { pendingSelection = carried }
+        // A carried native selection must fit the replacement section in full. Explicit locates
+        // still keep their existing clipped-page semantics in `applyPendingSelection`.
+        if let carried, scrollBook != nil ||
+            (carried.start.section == content.placement.section && carried.end.section == content.placement.section) {
+            pendingSelection = carried
+        }
         applyPendingSelection()
         if carried != nil, pendingSelection != nil { // Do not resurrect an unmappable old selection.
             pendingSelection = nil

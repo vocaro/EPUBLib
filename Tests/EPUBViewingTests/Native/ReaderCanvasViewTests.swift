@@ -663,6 +663,35 @@ import UIKit
         XCTAssertNil(host.recorder.selections.last ?? nil)
     }
 
+    func testCrossSectionCarriedSelectionIsDroppedBySectionRebuild() async throws {
+        let all = sections(2, paragraphs: 2)
+        let host = scrolledHost(all, book: true, show: ReaderTextPosition(section: 0, offset: 0))
+        let view = try XCTUnwrap(host.canvas.scrollTextView)
+        let book = try XCTUnwrap(host.canvas.scrollBook)
+        let start = try XCTUnwrap(all[0]).length - 10
+        let end = book.location(of: ReaderTextPosition(section: 1, offset: 10))
+        view.selectedRange = NSRange(location: start, length: end - start)
+        host.canvas.textViewSelectionDidChange(view)
+        try await Task.sleep(for: .milliseconds(250))
+        let selection = try XCTUnwrap(host.recorder.selections.last ?? nil)
+        XCTAssertEqual(selection.range.start, ReaderTextPosition(section: 0, offset: start))
+        XCTAssertEqual(selection.range.end, ReaderTextPosition(section: 1, offset: 10))
+        XCTAssertEqual(selection.text, view.plainText(in: view.selectedRange))
+        host.source.book = nil
+        host.canvas.reloadContent(keeping: selection.range.start)
+        XCTAssertNil(host.canvas.scrollBook)
+        XCTAssertEqual(view.selectedRange.length, 0, "a partial section must not masquerade as the full selection")
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertNil(host.canvas.currentSelection)
+        XCTAssertNil(host.recorder.selections.last ?? nil)
+        host.source.book = CanvasText.book(all.compactMap { $0 })
+        host.canvas.reloadContent(keeping: selection.range.start)
+        XCTAssertEqual(view.selectedRange.length, 0)
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertNil(host.canvas.currentSelection)
+        XCTAssertNil(host.recorder.selections.last ?? nil)
+    }
+
     func testWholeBookSelectionSurvivesSelectedSectionRebuild() async throws {
         let all: [NSAttributedString?] = [NSAttributedString(string: "\u{FFFC}"),
                                          CanvasText.section(1, paragraphs: 2)]
