@@ -8,7 +8,8 @@ import AppKit
 
 /// One page of a section: a run of whole lines of the section's layout at one column size.
 struct ReaderPage: Equatable {
-    /// The section characters on the page. A section's pages are contiguous and cover it.
+    /// The section characters on the page. Pages cover the section in order; continuations
+    /// of one table row repeat its source range and differ by `tableFragments`.
     var range: NSRange
     /// Where the characters the page's text view lays out end, past `range` when the page ends
     /// inside a paragraph; the view clips them. Line breaking looks ahead (hyphenation, pushing
@@ -27,12 +28,29 @@ struct ReaderPage: Equatable {
     var height: CGFloat
     /// The page begins inside a paragraph, whose first-line indent and spacing must not repeat.
     var continuesParagraph: Bool
+    /// Continued table rows use the same source character on several pages. The fragment
+    /// distinguishes their visual/accessible content without inserting synthetic source text.
+    var tableFragments: [ReaderTableFragment] = []
+    /// The full section's visual top, independent of source order and repeated table offsets.
+    var layoutTop: CGFloat = 0
+}
+
+struct ReaderTableFragment: Equatable {
+    let offset: Int
+    let attachment: TableRowAttachment
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.offset == rhs.offset && lhs.attachment.table === rhs.attachment.table
+            && lhs.attachment.row == rhs.attachment.row && lhs.attachment.fragment == rhs.attachment.fragment
+    }
 }
 
 /// Slices one section into pages from a single TextKit 2 layout at one column size.
 ///
 /// Layout is lazy and in order, so every position it reports is exact: opening a section lays
 /// out only as far as the pages asked for, and the whole section only for its end or page count.
+/// Box geometry preflights the source needed for wrapping/positioning, leaving the ordinary tail
+/// lazy; supported box groups are kept within a page as one visual envelope.
 /// Once every page is known the layout is released (about 60 bytes per character), keeping only
 /// the pages.
 @MainActor final class ReaderPaginator {
@@ -41,9 +59,12 @@ struct ReaderPage: Equatable {
     /// The longest paragraph (UTF-16 units, with its terminator) CoreText justifies as a whole.
     static let wholeParagraphJustification = 8_192
 
+    /// Identity of the section attributes supplied by the data source, for pagination caching.
+    let sourceText: NSAttributedString
     let text: NSAttributedString
     /// One column's width by the page's text height.
     let size: CGSize
+    private let boxGeometry: ReaderBoxGeometry?
     private(set) var pages: [ReaderPage] = []
     private(set) var isComplete = false
 
@@ -59,6 +80,7 @@ struct ReaderPage: Equatable {
         /// The paragraph the line belongs to (its layout fragment).
         var paragraph: NSRange
         var isJustified: Bool
+        var tableFragment: ReaderTableFragment? = nil
     }
 
     /// The measuring layout, released once pagination completes.
@@ -74,6 +96,10 @@ struct ReaderPage: Equatable {
     private var directions: [Int: NSWritingDirection?] = [:]
 
     init(text: NSAttributedString, size: CGSize) {
+        sourceText = text
+        let resolved = ReaderBoxLayout.resolve(text, viewport: size)
+        let text = resolved.text
+        boxGeometry = resolved.geometry
         self.text = text
         self.size = size
         characters = text.string as NSString
@@ -84,12 +110,14 @@ struct ReaderPage: Equatable {
             return
         }
         let storage = NSTextContentStorage()
-        let layoutManager = NSTextLayoutManager()
+        let layoutManager = ReaderBoxLayoutManager()
         storage.addTextLayoutManager(layoutManager)
         let container = ReaderTextContainer(size: CGSize(width: size.width, height: 0))
         container.lineFragmentPadding = 0
         container.viewportSize = size
+        container.configureBoxes(in: text)
         layoutManager.textContainer = container
+        layoutManager.configureGeometry()
         storage.attributedString = text
         contentStorage = storage
         self.layoutManager = layoutManager
@@ -150,8 +178,24 @@ struct ReaderPage: Equatable {
     /// paragraph continued from the previous page restyled so it does not start afresh.
     func text(for page: ReaderPage) -> NSAttributedString {
         let range = NSRange(location: page.range.location, length: page.layoutEnd - page.range.location)
-        guard (page.continuesParagraph || page.filler > 0), range.length > 0 else { return text.attributedSubstring(from: range) }
         let slice = NSMutableAttributedString(attributedString: text.attributedSubstring(from: range))
+        // Widths are already resolved by the measuring layout; do not reset continuation styles
+        // when the displayed text view receives this page.
+        slice.removeAttribute(.readerFlowBox, range: NSRange(location: 0, length: slice.length))
+        if let geometry = boxGeometry, slice.length > 0 {
+            slice.addAttribute(.readerBoxPage, value: ReaderBoxPage(geometry: geometry,
+                offset: page.range.location, origin: page.layoutTop - page.topSpacing,
+                beginsTableContinuation: page.tableFragments.first.map { entry in
+                    guard entry.offset == page.range.location, let fragment = entry.attachment.fragment else { return false }
+                    let layout = entry.attachment.layout(width: size.width, viewportHeight: size.height)
+                    return fragment.top > layout.rowTops[entry.attachment.row] + 0.5
+                } ?? false), range: NSRange(location: 0, length: slice.length))
+        }
+        for entry in page.tableFragments {
+            slice.addAttribute(.attachment, value: entry.attachment,
+                               range: NSRange(location: entry.offset - page.range.location, length: 1))
+        }
+        guard (page.continuesParagraph || page.filler > 0), range.length > 0 else { return slice }
         if page.filler > 0 {
             // Inside the paragraph, before any terminator: a line break and unseen characters.
             let end = slice.string.utf16.last == 0x0A ? slice.length - 1 : slice.length
@@ -201,11 +245,28 @@ struct ReaderPage: Equatable {
         let keepsSpacing = first.startsParagraph && (firstIndex == 0 || first.breaksBefore)
         let topSpacing = keepsSpacing ? min(max(0, first.spacingBefore), size.height / 2) : 0
         let available = size.height - topSpacing
-        var end = firstIndex + 1
+        var end = firstIndex
+        var pageTop = first.top, pageBottom = first.bottom
         while layOutLines(through: end) {
             let line = lines[end]
-            if line.breaksBefore || line.bottom - first.top > available + 0.5 { break }
-            end += 1
+            var unitEnd = end + 1
+            var unitBounds = CGRect.null
+            if let group = boxGeometry?.group(containing: line.range.location) {
+                unitBounds = boxGeometry?.bounds(of: group) ?? .null
+                while layOutLines(through: unitEnd), lines[unitEnd].range.location < group.upperBound {
+                    if lines[unitEnd].tableFragment?.offset == lines[unitEnd - 1].tableFragment?.offset,
+                       lines[unitEnd].tableFragment != nil { break }
+                    unitEnd += 1
+                }
+            }
+            let unit = lines[end..<unitEnd]
+            let top = min(pageTop, unit.map(\.top).min() ?? line.top, unitBounds.isNull ? line.top : unitBounds.minY)
+            let bottom = max(pageBottom, unit.map(\.bottom).max() ?? line.bottom, unitBounds.isNull ? line.bottom : unitBounds.maxY)
+            if end > firstIndex && (line.breaksBefore || bottom - top > available + 0.5
+                || (line.tableFragment != nil && lines[end - 1].tableFragment?.offset == line.tableFragment?.offset)) { break }
+            pageTop = top; pageBottom = bottom
+            end = unitEnd
+            if bottom - top > available + 0.5 { break }
         }
         if end < lines.count, !lines[end].breaksBefore { // An unforced break: keep headings with what follows.
             // The whole run of kept blocks ending here moves to the next page, or none of it
@@ -218,14 +279,30 @@ struct ReaderPage: Equatable {
                 while !lines[paragraphStart].startsParagraph { paragraphStart -= 1 }
                 start = paragraphStart
             }
+            // A heading may share a visual group with an earlier float. Backtracking must
+            // move that whole group, never leave the float on a different page from its prose.
+            if start < end, let group = boxGeometry?.group(containing: lines[start].range.location) {
+                while start > firstIndex, lines[start - 1].range.upperBound > group.location { start -= 1 }
+                if lines[start].range.location > group.location { start = firstIndex }
+            }
             if start > firstIndex, start < end, lines[end].bottom - lines[start].top <= size.height + 0.5 { end = start }
         }
         let last = lines[end - 1]
+        if end > firstIndex {
+            // A kept heading may have changed end above; recompute the chosen visual envelope.
+            pageTop = lines[firstIndex..<end].map(\.top).min() ?? first.top
+            pageBottom = lines[firstIndex..<end].map(\.bottom).max() ?? last.bottom
+            for group in boxGeometry?.groups ?? [] where group.location >= first.range.location && group.upperBound <= last.range.upperBound {
+                let bounds = boxGeometry?.bounds(of: group) ?? .null
+                if !bounds.isNull { pageTop = min(pageTop, bounds.minY); pageBottom = max(pageBottom, bounds.maxY) }
+            }
+        }
         let (layoutEnd, filler) = context(after: last, at: end - 1, pageStart: first.range.location)
         pages.append(ReaderPage(
             range: NSRange(location: first.range.location, length: last.range.upperBound - first.range.location),
-            layoutEnd: layoutEnd, filler: filler, topSpacing: topSpacing, height: last.bottom - first.top,
-            continuesParagraph: !first.startsParagraph))
+            layoutEnd: layoutEnd, filler: filler, topSpacing: topSpacing, height: pageBottom - pageTop,
+            continuesParagraph: !first.startsParagraph,
+            tableFragments: lines[firstIndex..<end].compactMap(\.tableFragment), layoutTop: pageTop))
         nextLine = end
         if !layOutLines(through: end) { finish() }
         return true
@@ -313,14 +390,35 @@ struct ReaderPage: Equatable {
                                                                               to: fragment.rangeInElement.endLocation))
         for (index, line) in fragmentLines.enumerated() {
             let bounds = line.typographicBounds
-            lines.append(Line(
-                range: NSRange(location: start + line.characterRange.location, length: line.characterRange.length),
-                top: frame.minY + bounds.minY, bottom: frame.minY + bounds.maxY,
-                startsParagraph: index == 0, endsParagraph: index == fragmentLines.count - 1,
-                breaksBefore: index == 0 && attributes[.readerPageBreakBefore] as? Bool == true,
-                keepsWithNext: attributes[.readerKeepWithNext] as? Bool == true,
-                spacingBefore: style?.paragraphSpacingBefore ?? 0,
-                paragraph: paragraph, isJustified: style?.alignment == .justified))
+            let range = NSRange(location: start + line.characterRange.location, length: line.characterRange.length)
+            let top = frame.minY + bounds.minY
+            if let row = text.attribute(.attachment, at: range.location, effectiveRange: nil) as? TableRowAttachment {
+                let layout = row.layout(width: max(1, bounds.width), viewportHeight: size.height)
+                let firstSpacing = start == 0 || attributes[.readerPageBreakBefore] as? Bool == true
+                    ? min(max(0, style?.paragraphSpacingBefore ?? 0), size.height / 2) : 0
+                let slices = layout.fragments(ofRow: row.row, maximumHeight: max(1, size.height - firstSpacing - 1))
+                var y = top
+                for (index, slice) in slices.enumerated() {
+                    let attachment = TableRowAttachment(table: row.table, row: row.row, fragment: slice, layout: layout)
+                    let height = slice.height * layout.scale * slice.fitScale
+                    lines.append(Line(range: range, top: y, bottom: y + height,
+                                      startsParagraph: true, endsParagraph: true,
+                                      breaksBefore: index == 0 && attributes[.readerPageBreakBefore] as? Bool == true,
+                                      keepsWithNext: index == slices.count - 1 && attributes[.readerKeepWithNext] as? Bool == true,
+                                      spacingBefore: index == 0 ? style?.paragraphSpacingBefore ?? 0 : 0,
+                                      paragraph: paragraph, isJustified: false,
+                                      tableFragment: ReaderTableFragment(offset: range.location, attachment: attachment)))
+                    y += height
+                }
+            } else {
+                lines.append(Line(range: range,
+                                  top: top, bottom: frame.minY + bounds.maxY,
+                                  startsParagraph: index == 0, endsParagraph: index == fragmentLines.count - 1,
+                                  breaksBefore: index == 0 && attributes[.readerPageBreakBefore] as? Bool == true,
+                                  keepsWithNext: attributes[.readerKeepWithNext] as? Bool == true,
+                                  spacingBefore: style?.paragraphSpacingBefore ?? 0,
+                                  paragraph: paragraph, isJustified: style?.alignment == .justified))
+            }
         }
     }
 

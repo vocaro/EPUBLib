@@ -24,6 +24,9 @@ class ReaderAttachment: NSTextAttachment, ReaderTextualAttachment {
         var viewport: CGSize
         /// The attachment character's font, when known.
         var font: PlatformFont?
+        /// Stable first-line reservation for block attachments. TextKit's preliminary sizing
+        /// callback can report position zero before applying the paragraph's leading indent.
+        var leadingIndent: CGFloat = 0
 
         /// The width the attachment may use. At the start of a line the rest of the line, so a
         /// first-line or block indent never pushes it onto a line of its own; after text the
@@ -37,12 +40,21 @@ class ReaderAttachment: NSTextAttachment, ReaderTextualAttachment {
             self.width = width; self.position = position; self.viewport = viewport; self.font = font
         }
 
-        init(container: NSTextContainer?, fragment: CGRect, position: CGPoint, font: PlatformFont?) {
+        init(container: NSTextContainer?, fragment: CGRect, position: CGPoint, font: PlatformFont?, paragraphStyle: NSParagraphStyle? = nil) {
             let size = ReaderTextContainer.available(in: container, lineWidth: fragment.width)
             let viewportWidth = (container as? ReaderTextContainer)?.viewportSize.width ?? 0
-            self.init(width: size.width, position: max(0, position.x),
+            // A custom text container clips the paragraph tail, but TextKit can still ask
+            // attachments to size against an unclipped proposed rectangle. Apply that same
+            // trailing edge before subtracting the native leading/glyph position.
+            var width = size.width
+            if let style = paragraphStyle, viewportWidth > 0 {
+                let trailing = style.tailIndent <= 0 ? viewportWidth + style.tailIndent : style.tailIndent
+                width = min(width, max(1, trailing - fragment.minX))
+            }
+            self.init(width: width, position: max(0, position.x),
                       viewport: CGSize(width: viewportWidth > 0 ? viewportWidth : size.width, height: size.height),
                       font: font)
+            leadingIndent = max(0, paragraphStyle?.firstLineHeadIndent ?? 0)
         }
     }
 
@@ -67,12 +79,14 @@ class ReaderAttachment: NSTextAttachment, ReaderTextualAttachment {
                                    textContainer: NSTextContainer?, proposedLineFragment: CGRect,
                                    position: CGPoint) -> CGRect {
         layoutBounds(Line(container: textContainer, fragment: proposedLineFragment, position: position,
-                          font: attributes[.font] as? PlatformFont))
+                          font: attributes[.font] as? PlatformFont, paragraphStyle: attributes[.paragraphStyle] as? NSParagraphStyle))
     }
 
     override func attachmentBounds(for textContainer: NSTextContainer?, proposedLineFragment lineFrag: CGRect,
                                    glyphPosition position: CGPoint, characterIndex charIndex: Int) -> CGRect {
-        layoutBounds(Line(container: textContainer, fragment: lineFrag, position: position, font: nil))
+        let text = (textContainer as? ReaderTextContainer)?.paragraphText
+        let style = text.flatMap { charIndex < $0.length ? $0.attribute(.paragraphStyle, at: charIndex, effectiveRange: nil) as? NSParagraphStyle : nil }
+        return layoutBounds(Line(container: textContainer, fragment: lineFrag, position: position, font: nil, paragraphStyle: style))
     }
 
     /// No view: the attachment is drawn from `image(for:…)`. AppKit's TextKit 2 text view only

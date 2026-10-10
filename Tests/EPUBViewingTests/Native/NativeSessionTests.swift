@@ -277,6 +277,216 @@ import XCTest
         XCTAssertEqual(session.selection?.text, "She said hello there and left.")
     }
 
+    /// Three linear sections with a nonlinear note in the middle and page markers in each.
+    private func multiSectionFixture(middle: String = "<p id=\"page\">Beta middle words.</p>") throws -> Data {
+        var package = String(decoding: try XCTUnwrap(Fixture.files()["OPS/book.opf"]), as: UTF8.self)
+        package = package.replacingOccurrences(of: "<item id=\"nav\"", with:
+            "<item id=\"note\" href=\"note.xhtml\" media-type=\"application/xhtml+xml\"/>"
+            + "<item id=\"three\" href=\"three.xhtml\" media-type=\"application/xhtml+xml\"/><item id=\"nav\"")
+            .replacingOccurrences(of: "<itemref idref=\"two\"/>", with:
+                "<itemref idref=\"note\" linear=\"no\"/><itemref idref=\"two\"/><itemref idref=\"three\"/>")
+        let pages = [("one", "A"), ("note", "N"), ("two", "B"), ("three", "C")]
+            .map { "<li><a href=\"\($0.0).xhtml#page\">\($0.1)</a></li>" }.joined()
+        return try Fixture.epub(overrides: [
+            "OPS/book.opf": package,
+            "OPS/one.xhtml": chapter("<p id=\"page\">Alpha opening words.</p>"),
+            "OPS/note.xhtml": chapter("<p id=\"page\">OMITTED nonlinear note.</p>"),
+            "OPS/two.xhtml": chapter(middle),
+            "OPS/three.xhtml": chapter("<p id=\"page\">Gamma ending words.</p>"),
+            "OPS/nav.xhtml": "<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\">"
+                + "<head><title>Pages</title></head><body><nav epub:type=\"page-list\"><ol>\(pages)</ol></nav></body></html>",
+        ])
+    }
+
+    private func lastSelection(_ events: [EPUBReaderEvent]) throws -> EPUBSelection {
+        try XCTUnwrap(events.compactMap { if case .selectionChanged(let value) = $0 { return value }; return nil }.last)
+    }
+
+    private func exerciseMultiSectionSelection(endingAt last: Int) async throws {
+        var actionSelection: EPUBSelection?
+        let data = try multiSectionFixture()
+        let (session, window, events) = try open(data,
+            action: EPUBSelectionAction(title: "Save") { actionSelection = $0 })
+        defer { session.close(); window.close() }
+        try await wait("complete book") { session.isReady && session.book.isComplete }
+        try await session.send(.style(.init(flow: .scrolled)))
+        try await wait("whole book scroll") { session.canvas?.scrollBook != nil }
+        let range = ReaderTextRange(start: .init(section: 0, offset: 4), end: .init(section: last, offset: 5))
+        let canvas = try XCTUnwrap(session.canvas)
+        canvas.show(range.start, selecting: range)
+        try await wait("multi-section selection") { session.selection?.range == range }
+        let selected = try lastSelection(events())
+        XCTAssertFalse(selected.text.contains("OMITTED"))
+        XCTAssertTrue(selected.text.hasPrefix("a opening words."))
+        XCTAssertTrue(selected.text.hasSuffix(last == 2 ? "Beta " : "Gamma"))
+        XCTAssertEqual(selected.location.rangeBookmarks?.count, last == 2 ? 2 : 3)
+        XCTAssertEqual(selected.location.bookmark, selected.location.rangeBookmarks?.first)
+        XCTAssertEqual(selected.location.page?.label, "A")
+        XCTAssertEqual(selected.location.pages?.map(\.label), last == 2 ? ["A", "B"] : ["A", "B", "C"])
+        XCTAssertNil(selected.location.title)
+        canvasRequestsSelectionAction(session)
+        XCTAssertEqual(actionSelection, selected)
+        let saved = try JSONDecoder().decode(EPUBLocation.self, from: JSONEncoder().encode(selected.location))
+        XCTAssertEqual(saved, selected.location)
+
+        // Live relayout preserves the selection, including both endpoints and omitted sections.
+        for style in [EPUBReaderStyle(fontSize: 28, isDark: true, flow: .scrolled),
+                      EPUBReaderStyle(fontSize: 21, flow: .paginated), EPUBReaderStyle(flow: .scrolled)] {
+            let before = events().count
+            try await session.send(.style(style))
+            try await wait("relayout") { session.book.isComplete && canvas.currentSelection?.range == range }
+            // Wait past the 150-ms selection debounce so stale session state cannot mask a lost
+            // native selection when its text views were replaced during the flow change.
+            try await Task.sleep(for: .milliseconds(250))
+            XCTAssertEqual(canvas.currentSelection?.range, range)
+            XCTAssertEqual(session.selection?.range, range)
+            XCTAssertFalse(events().dropFirst(before).contains(.selectionChanged(nil)))
+            XCTAssertEqual(try lastSelection(events()).location.rangeBookmarks, saved.rangeBookmarks)
+        }
+
+        // A new session resolves every saved segment at a different typography and in both flows.
+        let (reopened, again, reopenedEvents) = try open(data)
+        defer { reopened.close(); again.close() }
+        try await wait("reopened ready") { reopened.isReady }
+        for style in [EPUBReaderStyle(fontSize: 26), EPUBReaderStyle(fontSize: 31, isDark: true, flow: .scrolled)] {
+            try await reopened.send(.style(style))
+            try await wait("rebuilt reopened book") { reopened.book.isComplete }
+            try await reopened.send(.setHighlights([EPUBHighlight(id: "saved", location: saved)]))
+            let segments = reopened.drawnHighlights.filter { $0.id == "saved" }
+            XCTAssertEqual(segments.map { $0.range.start.section }, last == 2 ? [0, 2] : [0, 2, 3])
+            XCTAssertEqual(segments.first?.range.start, range.start)
+            XCTAssertEqual(segments.last?.range.end, range.end)
+            XCTAssertTrue(segments.dropFirst().allSatisfy { $0.range.start.offset == 0 })
+            let restoredText = try segments.map { segment in
+                let section = try XCTUnwrap(reopened.book.section(segment.range.start.section))
+                return section.mappedText(in: segment.range.start.offset..<segment.range.end.offset)
+            }.joined(separator: "\n")
+            XCTAssertEqual(restoredText, selected.text)
+            for segment in segments.dropLast() {
+                let section = try XCTUnwrap(reopened.book.section(segment.range.start.section))
+                // Generated inter-section separators have no DOM CFI; every book character does.
+                XCTAssertEqual(segment.range.end.offset, section.map.length)
+            }
+            XCTAssertFalse(reopenedEvents().contains { if case .notice = $0 { return true }; return false })
+            try await reopened.send(.navigate(href: last == 2 ? "OPS/two.xhtml" : "OPS/three.xhtml"))
+            try await reopened.send(.restore(saved))
+            XCTAssertEqual(reopened.canvas?.visibleRange?.start.section, 0)
+            XCTAssertNil(reopened.selection, "restore navigates; setHighlights restores the passage")
+        }
+    }
+
+    func testSelectionCrossingTwoLinearSectionsRoundTrips() async throws {
+        try await exerciseMultiSectionSelection(endingAt: 2)
+    }
+
+    func testSelectionCrossingThreeLinearSectionsRoundTrips() async throws {
+        try await exerciseMultiSectionSelection(endingAt: 3)
+    }
+
+    func testEmptySectionAndZeroOffsetEndDoNotProduceEmptyHighlightSegments() async throws {
+        let (session, window, events) = try open(multiSectionFixture(middle: ""))
+        defer { session.close(); window.close() }
+        try await wait("complete book") { session.isReady && session.book.isComplete }
+        XCTAssertEqual(session.book.section(2)?.string.length, 0)
+        let canvas = try XCTUnwrap(session.canvas)
+        // The exclusive end at the final section's start does not select any of that section.
+        let range = ReaderTextRange(start: .init(section: 0, offset: 4), end: .init(section: 3, offset: 0))
+        session.canvas(canvas, didChangeSelection: ReaderSelection(range: range, text: ""))
+        let selected = try lastSelection(events())
+        XCTAssertNil(selected.location.rangeBookmarks, "only one nonempty document was selected")
+        XCTAssertEqual(selected.location.href, "OPS/one.xhtml")
+        try await session.send(.setHighlights([EPUBHighlight(id: "edge", location: selected.location)]))
+        XCTAssertEqual(session.drawnHighlights.count, 1)
+        XCTAssertEqual(session.drawnHighlights.first?.range.start, range.start)
+        XCTAssertEqual(session.drawnHighlights.first?.range.end.offset, session.book.section(0)?.string.length)
+        XCTAssertFalse(selected.text.contains("Gamma"))
+        XCTAssertFalse(events().contains { if case .notice = $0 { return true }; return false })
+
+        // Including part of the final document produces two segments, skipping the empty one.
+        let extended = ReaderTextRange(start: range.start, end: .init(section: 3, offset: 5))
+        session.canvas(canvas, didChangeSelection: ReaderSelection(range: extended, text: ""))
+        let saved = try lastSelection(events()).location
+        XCTAssertEqual(saved.rangeBookmarks?.count, 2)
+        try await session.send(.setHighlights([EPUBHighlight(id: "extended", location: saved)]))
+        XCTAssertEqual(session.drawnHighlights.map { $0.range.start.section }, [0, 3])
+        XCTAssertFalse(events().contains { if case .notice = $0 { return true }; return false })
+
+        // Starting exactly after the first document's final character names the next meaningful
+        // document, without keeping an empty first CFI or a contradictory section href.
+        let afterFirst = ReaderTextRange(start: .init(section: 0, offset: try XCTUnwrap(session.book.section(0)?.string.length)),
+                                        end: extended.end)
+        session.canvas(canvas, didChangeSelection: ReaderSelection(range: afterFirst, text: ""))
+        let final = try lastSelection(events()).location
+        XCTAssertNil(final.rangeBookmarks)
+        XCTAssertEqual(final.href, "OPS/three.xhtml")
+        try await session.send(.setHighlights([EPUBHighlight(id: "after-first", location: final)]))
+        XCTAssertEqual(session.drawnHighlights.first?.range, ReaderTextRange(section: 3, 0..<5))
+    }
+
+    func testGeneratedOnlySectionDoesNotMakeMultiSectionHighlightUnresolvable() async throws {
+        let (session, window, events) = try open(multiSectionFixture(middle: "<ol><li/></ol>"))
+        defer { session.close(); window.close() }
+        try await wait("complete book") { session.isReady && session.book.isComplete }
+        let generated = try XCTUnwrap(session.book.section(2))
+        XCTAssertGreaterThan(generated.string.length, 0, "the empty list item draws a generated marker")
+        XCTAssertTrue(generated.map.spans.isEmpty, "the marker has no source text")
+        let range = ReaderTextRange(start: .init(section: 0, offset: 4), end: .init(section: 3, offset: 5))
+        session.canvas(try XCTUnwrap(session.canvas), didChangeSelection: ReaderSelection(range: range, text: ""))
+        let selected = try lastSelection(events())
+        XCTAssertEqual(selected.location.rangeBookmarks?.count, 2)
+        XCTAssertFalse(selected.text.contains("1."))
+        try await session.send(.setHighlights([EPUBHighlight(id: "generated", location: selected.location)]))
+        XCTAssertEqual(session.drawnHighlights.map { $0.range.start.section }, [0, 3])
+        XCTAssertFalse(events().contains { if case .notice = $0 { return true }; return false })
+    }
+
+    func testMalformedMultiSectionHighlightsAreRejectedWithoutPartialDrawing() async throws {
+        let (session, window, events) = try open(multiSectionFixture())
+        defer { session.close(); window.close() }
+        try await wait("complete book") { session.isReady && session.book.isComplete }
+        let canvas = try XCTUnwrap(session.canvas)
+        let range = ReaderTextRange(start: .init(section: 0, offset: 4), end: .init(section: 3, offset: 5))
+        session.canvas(canvas, didChangeSelection: ReaderSelection(range: range, text: ""))
+        let location = try lastSelection(events()).location
+        var cases: [EPUBLocation] = []
+        var invalid = location; invalid.rangeBookmarks = []; cases.append(invalid)
+        invalid = location; invalid.rangeBookmarks?[1].engineID = "foreign"; cases.append(invalid)
+        invalid = location; invalid.rangeBookmarks?[1].format = "foreign"; cases.append(invalid)
+        invalid = location; invalid.rangeBookmarks?[0].value = "epubcfi(/6/2)"; cases.append(invalid)
+        invalid = location; invalid.rangeBookmarks = location.rangeBookmarks?.reversed();
+        invalid.bookmark = invalid.rangeBookmarks?.first; cases.append(invalid)
+        invalid = location; invalid.rangeBookmarks?[1].value = "epubcfi(/6/4!/4/2/1:2)"; cases.append(invalid) // nonlinear
+        invalid = location; invalid.rangeBookmarks?[2].value = "epubcfi(/6/8!/400/2/1:5)"; cases.append(invalid) // unresolved DOM
+        invalid = location; invalid.rangeBookmarks?[2].value = "epubcfi(/6/8!/4/2/1:5)"; cases.append(invalid) // empty segment
+        invalid = location; invalid.publicationID = "foreign"; cases.append(invalid)
+        for (index, invalid) in cases.enumerated() {
+            let before = events().count
+            try await session.send(.setHighlights([EPUBHighlight(id: "bad-\(index)", location: invalid)]))
+            XCTAssertTrue(session.drawnHighlights.isEmpty)
+            XCTAssertEqual(events().dropFirst(before).filter { if case .notice = $0 { return true }; return false }.count, 1)
+            try await session.send(.navigate(href: "OPS/three.xhtml"))
+            let position = session.visibleRange?.start
+            do { try await session.send(.restore(invalid)) }
+            catch { XCTAssertEqual(error as? EPUBReaderError, .incompatibleLocation) }
+            XCTAssertEqual(session.visibleRange?.start, position, "invalid range must not restore its first segment")
+        }
+    }
+
+    func testLegacySingleSectionCodableLocationStillRestores() async throws {
+        let (session, window, events) = try open(Fixture.epub())
+        defer { session.close(); window.close() }
+        try await wait("ready") { session.isReady }
+        // Exact old schema: no rangeBookmarks, page or pages keys.
+        let legacy = Data("""
+            {"publicationID":"\(session.publication.id)","bookmark":{"engineID":"org.epublib.reader",            "format":"epublib-cfi-v1","value":"epubcfi(/6/4!/4/2/1:4)"}}
+            """.utf8)
+        let saved = try JSONDecoder().decode(EPUBLocation.self, from: legacy)
+        XCTAssertNil(saved.rangeBookmarks)
+        try await session.send(.restore(saved))
+        try await wait("legacy section") { session.visibleRange?.start.section == 1 }
+        XCTAssertFalse(events().contains { if case .notice = $0 { return true }; return false })
+    }
+
     func testTheWholeBookLeavesOutNonlinearSections() async throws {
         let package = String(decoding: try XCTUnwrap(Fixture.files()["OPS/book.opf"]), as: UTF8.self)
             .replacingOccurrences(of: "<itemref idref=\"two\"/>", with: "<itemref idref=\"two\" linear=\"no\"/>")

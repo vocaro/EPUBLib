@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Continue oversized native table rows and rowspan text across pages without clipping glyph lines; preserve source offsets and read each continued word once ([#24](https://github.com/vocaro/EPUBLib/issues/24)).
+- Wrap native prose around left/right floats, including auto-width drop caps and archive images; honor float clearing, positioned callout insets and sized inline-blocks beside surrounding text. Preserve native selection, links and source offsets. Oversized or complex box groups continue in reading order with a layout disclosure; fixed boxes appear once, without page pinning ([#19](https://github.com/vocaro/EPUBLib/issues/19)).
+- Add optional `EPUBLocation.rangeBookmarks` to preserve every section of a saved selection or highlight while retaining existing single-section bookmarks. Keep selections through typography and flow changes ([#31](https://github.com/vocaro/EPUBLib/issues/31)).
 - Add live `View.epubReaderPageControls(_:)` configuration for native page input: independent gesture toggles, physical edge widths and replacement keyboard bindings, with `.hostOnly` for host controls. Commands, selection and accessibility remain available ([#32](https://github.com/vocaro/EPUBLib/issues/32)).
 
 - Replace the bundled foliate-js WebKit renderer with a native TextKit 2 viewer ([#3](https://github.com/vocaro/EPUBLib/issues/3)). CFIs are generated and resolved exactly as foliate-js did, so a CFI the WebKit reader recorded names the same position. See [native viewer](native-viewer.md).

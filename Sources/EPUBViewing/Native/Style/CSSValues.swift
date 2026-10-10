@@ -6,7 +6,7 @@ import Foundation
 enum CSSProperty: Int, CaseIterable, Sendable {
     // Font properties first: other lengths resolve against the computed font size.
     case fontSize, fontFamily, fontWeight, fontStyle, fontVariantCaps, lineHeight, color
-    case display, float, position
+    case display, float, clear, position, top, right, bottom, left, clip, clipPath
     case marginTop, marginRight, marginBottom, marginLeft
     case paddingTop, paddingRight, paddingBottom, paddingLeft
     case borderTopStyle, borderRightStyle, borderBottomStyle, borderLeftStyle
@@ -33,6 +33,7 @@ enum CSSProperty: Int, CaseIterable, Sendable {
         }
     }
 
+    static let insets: [CSSProperty] = [.top, .right, .bottom, .left]
     static let margins: [CSSProperty] = [.marginTop, .marginRight, .marginBottom, .marginLeft]
     static let paddings: [CSSProperty] = [.paddingTop, .paddingRight, .paddingBottom, .paddingLeft]
     static let borderStyles: [CSSProperty] = [.borderTopStyle, .borderRightStyle, .borderBottomStyle, .borderLeftStyle]
@@ -126,8 +127,10 @@ enum CSSValue: Equatable, Sendable {
     /// `blockifies`: a flex or grid container.
     case display(ComputedStyle.Display, blockifies: Bool)
     case float(ComputedStyle.Float)
+    case clear(ComputedStyle.Clear)
+    case position(ComputedStyle.Position)
     /// `font-style: italic`, small caps, `visibility: hidden`, `border-collapse: collapse` and
-    /// out-of-flow positioning.
+    /// generic Boolean properties.
     case flag(Bool)
     case borderStyle(ComputedStyle.BorderStyle)
     case color(CSSColor)
@@ -239,6 +242,7 @@ enum CSSPropertyParser {
     static func longhands(of name: String) -> [CSSProperty]? {
         if let single = longhand(name) { return [single] }
         switch name {
+        case "inset": return CSSProperty.insets
         case "margin": return CSSProperty.margins
         case "padding": return CSSProperty.paddings
         case "border": return CSSProperty.borderStyles + CSSProperty.borderWidths + CSSProperty.borderColors
@@ -282,7 +286,14 @@ enum CSSPropertyParser {
         case "color": .color
         case "display": .display
         case "float": .float
+        case "clear": .clear
         case "position": .position
+        case "top": .top
+        case "right": .right
+        case "bottom": .bottom
+        case "left": .left
+        case "clip": .clip
+        case "clip-path": .clipPath
         case "width", "inline-size": .width
         case "height", "block-size": .height
         case "min-width", "min-inline-size": .minWidth
@@ -338,6 +349,8 @@ enum CSSPropertyParser {
             return value.map { [(property, $0)] }
         }
         switch name {
+        case "inset":
+            return boxSides(c, CSSProperty.insets) { length($0, percent: true, negative: true, auto: true) }
         case "margin":
             return boxSides(c, CSSProperty.margins) { length($0, percent: true, negative: true, auto: true) }
         case "padding":
@@ -411,12 +424,43 @@ enum CSSPropertyParser {
             case "right", "inline-end": return .float(.right)
             default: return nil
             }
-        case .position:
+        case .clear:
             switch keyword {
-            case "static", "relative", "sticky", "-webkit-sticky": return .flag(false)
-            case "absolute", "fixed": return .flag(true)
+            case "none": return .clear(.none)
+            case "left": return .clear(.left)
+            case "right": return .clear(.right)
+            case "both": return .clear(.both)
             default: return nil
             }
+        case .position:
+            switch keyword {
+            case "static": return .position(.static)
+            case "relative": return .position(.relative)
+            case "absolute": return .position(.absolute)
+            case "fixed": return .position(.fixed)
+            case "sticky", "-webkit-sticky": return .position(.sticky)
+            default: return nil
+            }
+        case .top, .right, .bottom, .left:
+            return single.flatMap { length($0, percent: true, negative: true, auto: true) }
+        case .clip, .clipPath:
+            if keyword == "auto" || keyword == "none" { return .flag(false) }
+            // Only recognize empty clips used by visually hidden labels, not general clipping.
+            guard c.count == 1, case .function(let name, let body) = c[0] else { return nil }
+            let parts = body.significant
+            if property == .clip, name == "rect" {
+                let values: [CSSComponent]
+                if parts.count == 4, !parts.contains(.token(.comma)) { values = parts }
+                else if parts.count == 7, [1, 3, 5].allSatisfy({ parts[$0] == .token(.comma) }) {
+                    values = [parts[0], parts[2], parts[4], parts[6]]
+                } else { return nil }
+                guard values.allSatisfy({ length($0, percent: false, negative: true, auto: true) != nil }) else { return nil }
+                let concrete = values.allSatisfy { length($0, percent: false, negative: true, auto: false) != nil }
+                return .flag(concrete && values[0] == values[2] && values[1] == values[3])
+            }
+            if property == .clipPath, name == "inset", parts.count == 1,
+               case .token(.percentage(let amount)) = parts[0] { return .flag(amount >= 50) }
+            return nil
         case .marginTop, .marginRight, .marginBottom, .marginLeft:
             return single.flatMap { length($0, percent: true, negative: true, auto: true) }
         case .paddingTop, .paddingRight, .paddingBottom, .paddingLeft:

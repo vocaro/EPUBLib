@@ -143,6 +143,16 @@ those two fields; its CFI value names the same position. If restoration reports 
 incompatible location, offer an explicit section/quote fallback where supported. EPUB files that
 change have a different SHA-256 identity, even when their metadata identifier is unchanged.
 
+For a saved passage, persist the entire selection's `location` and pass it to
+`.setHighlights([EPUBHighlight(id: ..., location: saved)])`. In continuous scroll a selection
+can span documents: `rangeBookmarks` contains the ordered per-document range CFIs, while
+`bookmark` remains the first segment for compatibility. Do not discard `rangeBookmarks` when
+copying a location. Existing JSON without this optional field remains valid. `.restore` validates
+all segments and navigates to the passage's start; it does not recreate the native selection.
+Highlights restore every segment in paginated and scrolled flow and survive typography changes.
+The reader draws the complete annotation once all segments are available, or emits a `.notice`
+if any segment cannot be resolved; it never silently draws just its first section.
+
 A book with print or source page equivalents lists them in `EPUBPublication.pageList`; send
 an entry's `href` with `.navigate` to go to that page. Its locations carry `page`, the entry in
 effect where the shown range starts, and `pages`, every entry the range shows part of. To keep

@@ -110,6 +110,26 @@ extension StyleResolver {
         }
     }
 
+    /// A stable author-side decision: only absolute units can hide conventional off-screen
+    /// labels. Evaluating computed em/rem lengths here would make the section's text depend on
+    /// reader typography, invalidating cached ranges and changing a saved CFI's rendered offset.
+    private func isAbsoluteOffscreenOffset(_ length: CSSLength) -> Bool {
+        func independent(_ expression: CSSCalc) -> Bool {
+            switch expression {
+            case .value(_, let unit): unit.pixels != nil || unit == .number
+            case .sum(let terms), .min(let terms), .max(let terms): terms.allSatisfy(independent)
+            case .product(let term, _): independent(term)
+            case .clamp(let low, let value, let high): independent(low) && independent(value) && independent(high)
+            }
+        }
+        let absolute: Bool = switch length {
+        case .value(_, let unit): unit.pixels != nil || unit == .number
+        case .calc(let expression): independent(expression)
+        }
+        guard absolute else { return false }
+        return points(length, LengthContext(em: 16, rem: 16, scale: 1)) <= -1_000
+    }
+
     private func color(_ value: CSSColor, current: ComputedStyle.Color?) -> ComputedStyle.Color? {
         switch value {
         case .rgba(let color): color
@@ -211,7 +231,18 @@ extension StyleResolver {
         case .color: style.color = source.color
         case .display: style.display = source.display; style.blockifiesChildren = source.blockifiesChildren
         case .float: style.float = source.float
-        case .position: style.isOutOfFlow = source.isOutOfFlow
+        case .clear: style.clear = source.clear
+        case .position: style.position = source.position
+        case .top:
+            style.positionTop = source.positionTop
+            style.positionTopIsOffscreen = source.positionTopIsOffscreen
+        case .right: style.positionRight = source.positionRight
+        case .bottom: style.positionBottom = source.positionBottom
+        case .left:
+            style.positionLeft = source.positionLeft
+            style.positionLeftIsOffscreen = source.positionLeftIsOffscreen
+        case .clip: style.clipsAllContent = source.clipsAllContent
+        case .clipPath: style.clipsAllContentWithPath = source.clipsAllContentWithPath
         case .marginTop: style.margin.top = source.margin.top
         case .marginRight: style.margin.right = source.margin.right
         case .marginBottom: style.margin.bottom = source.margin.bottom
@@ -294,7 +325,19 @@ extension StyleResolver {
         case (.display, .display(let display, let blockifies)):
             style.display = display; style.blockifiesChildren = blockifies
         case (.float, .float(let float)): style.float = float
-        case (.position, .flag(let outOfFlow)): style.isOutOfFlow = outOfFlow
+        case (.clear, .clear(let clear)): style.clear = clear
+        case (.position, .position(let position)): style.position = position
+        case (.top, _), (.right, _), (.bottom, _), (.left, _):
+            let length: ComputedStyle.Length = if case .length(let l) = value { computed(l, own, points: StyleLimits.offset) } else { .auto }
+            let offscreen = if case .length(let specified) = value { isAbsoluteOffscreenOffset(specified) } else { false }
+            switch property {
+            case .top: style.positionTop = length; style.positionTopIsOffscreen = offscreen
+            case .right: style.positionRight = length
+            case .bottom: style.positionBottom = length
+            default: style.positionLeft = length; style.positionLeftIsOffscreen = offscreen
+            }
+        case (.clip, .flag(let clipped)): style.clipsAllContent = clipped
+        case (.clipPath, .flag(let clipped)): style.clipsAllContentWithPath = clipped
         case (.marginTop, _), (.marginRight, _), (.marginBottom, _), (.marginLeft, _):
             let length: ComputedStyle.Length = if case .length(let l) = value { computed(l, own, points: StyleLimits.offset) } else { .auto }
             switch property {

@@ -19,6 +19,12 @@ public struct EPUBLocation: Codable, Equatable, Sendable {
     public var title: String?
     public var quote: String?
     public var bookmark: EPUBEngineBookmark?
+    /// Ordered bookmarks covering the complete range when it spans content documents.
+    /// Each bookmark names a range in one document; `bookmark` equals the first entry for
+    /// compatibility with hosts that only restore a reading position. nil for one document.
+    /// Preserve this field when saving a selection as a highlight. Engines must validate and
+    /// resolve the entire collection, or report that the range could not be restored.
+    public var rangeBookmarks: [EPUBEngineBookmark]?
     /// The `EPUBPublication.pageList` entry in effect where the shown (or selected) range
     /// starts: the last whose target is at or before its first character. nil when the book has
     /// no page list, the range starts before its first entry or the engine does not read it.
@@ -29,10 +35,11 @@ public struct EPUBLocation: Codable, Equatable, Sendable {
     public var pages: [EPUBPageListEntry]?
     public init(publicationID: String, href: String? = nil, progression: Double? = nil,
                 title: String? = nil, quote: String? = nil, bookmark: EPUBEngineBookmark? = nil,
-                page: EPUBPageListEntry? = nil, pages: [EPUBPageListEntry]? = nil) {
+                page: EPUBPageListEntry? = nil, pages: [EPUBPageListEntry]? = nil,
+                rangeBookmarks: [EPUBEngineBookmark]? = nil) {
         self.publicationID = publicationID; self.href = href; self.progression = progression
         self.title = title; self.quote = quote; self.bookmark = bookmark
-        self.page = page; self.pages = pages
+        self.page = page; self.pages = pages; self.rangeBookmarks = rangeBookmarks
     }
 }
 
@@ -57,9 +64,9 @@ public enum EPUBReaderCapability: String, Hashable, Sendable {
     case pagination, scrolling, typography, selection, bookmarks, locateText, navigateHref, searchHighlight, highlights
 }
 
-/// A host-owned highlight drawn while reading. `location.bookmark` names the passage precisely
-/// (a selection's range CFI for the bundled reader); highlights the engine cannot resolve are
-/// not drawn and are reported with `.notice`.
+/// A host-owned highlight drawn while reading. `location.bookmark` names a passage in one
+/// document; `location.rangeBookmarks` covers a multi-document selection precisely.
+/// Highlights the engine cannot resolve completely are not drawn and are reported with `.notice`.
 public struct EPUBHighlight: Equatable, Sendable, Identifiable {
     public var id: String
     public var location: EPUBLocation

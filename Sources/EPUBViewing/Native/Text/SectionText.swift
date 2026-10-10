@@ -49,6 +49,8 @@ struct SectionReport: Equatable, Sendable {
     var verticalWritingFlattened = false
     /// A fixed-layout spine item, rendered as reflowable text.
     var fixedLayoutReflowed = false
+    /// Floats, positioned callouts or sized inline-blocks rendered as ordinary flow boxes.
+    var flowBoxesReflowed = false
     /// CSS rules or declarations dropped by the parser's bounds.
     var stylesTruncated = false
 
@@ -63,6 +65,7 @@ struct SectionReport: Equatable, Sendable {
         verticalWritingFlattened = verticalWritingFlattened || other.verticalWritingFlattened
         fixedLayoutReflowed = fixedLayoutReflowed || other.fixedLayoutReflowed
         stylesTruncated = stylesTruncated || other.stylesTruncated
+        flowBoxesReflowed = flowBoxesReflowed || other.flowBoxesReflowed
     }
 }
 

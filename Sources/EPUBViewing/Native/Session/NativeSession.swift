@@ -57,8 +57,8 @@ import SwiftUI
     /// Rendered ranges never change with typography, so each is computed once, when its
     /// section first exists: search matches by section, host highlights by id.
     @ObservationIgnored private var searchRanges: [Int: [ReaderTextRange]] = [:]
-    @ObservationIgnored private var highlightTargets: [String: (spineIndex: Int, localPath: String)] = [:]
-    @ObservationIgnored private var highlightRanges: [String: ReaderTextRange] = [:]
+    @ObservationIgnored private var highlightTargets: [String: [(spineIndex: Int, localPath: String)]] = [:]
+    @ObservationIgnored private var highlightRanges: [String: [ReaderTextRange]] = [:]
     @ObservationIgnored private var publishedDisclosure: String?
     /// What the canvas was last asked to draw.
     @ObservationIgnored private(set) var drawnHighlights: [ReaderHighlight] = []
@@ -217,31 +217,57 @@ import SwiftUI
         canvas?.show(ReaderTextPosition(section: section, offset: fragment.flatMap { text.anchors[$0] } ?? 0), selecting: nil)
     }
 
+    /// The legacy bookmark remains the first segment. Reject contradictory or foreign ranges
+    /// rather than silently restoring only part of a saved selection.
     private func isCompatible(_ location: EPUBLocation) -> Bool {
-        guard location.publicationID == publication.id, let bookmark = location.bookmark,
-              bookmark.engineID == NativeEngine.identifier, bookmark.format == NativeEngine.bookmarkFormat,
-              EPUBCFI.isWellFormed(bookmark.value) else { return false }
-        return true
+        guard location.publicationID == publication.id, let bookmark = location.bookmark else { return false }
+        let bookmarks = location.rangeBookmarks ?? [bookmark]
+        guard !bookmarks.isEmpty, bookmarks.first == bookmark else { return false }
+        return bookmarks.allSatisfy {
+            $0.engineID == NativeEngine.identifier && $0.format == NativeEngine.bookmarkFormat
+                && EPUBCFI.isWellFormed($0.value)
+        }
+    }
+
+    private func targets(for location: EPUBLocation) -> [(spineIndex: Int, localPath: String)]? {
+        guard isCompatible(location), let bookmark = location.bookmark else { return nil }
+        let bookmarks = location.rangeBookmarks ?? [bookmark]
+        var targets: [(spineIndex: Int, localPath: String)] = []
+        for bookmark in bookmarks {
+            guard let target = spine.resolve(bookmark.value), publication.spine.indices.contains(target.spineIndex),
+                  targets.last.map({ $0.spineIndex < target.spineIndex }) ?? true else { return nil }
+            targets.append(target)
+        }
+        // A multi-section range follows continuous-scroll order and never includes a nonlinear
+        // section, even when it lies between the endpoints in the package's spine.
+        if targets.count > 1, targets.contains(where: { book.isOmitted($0.spineIndex) }) { return nil }
+        return targets
     }
 
     private func restore(_ location: EPUBLocation) async throws {
-        guard isCompatible(location), let cfi = location.bookmark?.value else { throw EPUBReaderError.incompatibleLocation }
+        guard isCompatible(location) else { throw EPUBReaderError.incompatibleLocation }
         let ticket = beginNavigation()
-        let range = await resolve(cfi)
+        guard let targets = targets(for: location) else {
+            emit(.notice("the saved position could not be found in this book"))
+            return
+        }
+        var ranges: [ReaderTextRange] = []
+        for target in targets {
+            let section = await book.build(target.spineIndex)
+            guard isCurrent(ticket) else { return }
+            guard let range = range(of: target.localPath, in: section), targets.count == 1 || !range.isEmpty else {
+                emit(.notice("the saved position could not be found in this book"))
+                return
+            }
+            ranges.append(range)
+        }
         guard isCurrent(ticket) else { return }
-        guard let range else {
+        guard let range = ranges.first else {
             emit(.notice("the saved position could not be found in this book"))
             return
         }
         canvas?.clearSelection()
         canvas?.show(range.start, selecting: nil)
-    }
-
-    /// A full CFI as a rendered range in one section, building that section if needed.
-    private func resolve(_ cfi: String) async -> ReaderTextRange? {
-        guard let target = spine.resolve(cfi), book.publication.spine.indices.contains(target.spineIndex) else { return nil }
-        let text = await book.build(target.spineIndex)
-        return range(of: target.localPath, in: text)
     }
 
     private func range(of localPath: String, in text: SectionText) -> ReaderTextRange? {
@@ -364,9 +390,8 @@ import SwiftUI
         highlightRanges = [:]
         highlightTargets = [:]
         for highlight in highlights {
-            if let cfi = highlight.location.bookmark?.value, let target = spine.resolve(cfi),
-               publication.spine.indices.contains(target.spineIndex) {
-                highlightTargets[highlight.id] = target
+            if let targets = targets(for: highlight.location) {
+                highlightTargets[highlight.id] = targets
             } else { reportUnresolved(highlight) }
         }
         refreshHighlights()
@@ -391,13 +416,22 @@ import SwiftUI
             }
         }
         for highlight in highlights {
-            guard let target = highlightTargets[highlight.id] else { continue }
-            if highlightRanges[highlight.id] == nil, let section = book.section(target.spineIndex) {
-                if let range = range(of: target.localPath, in: section), !range.isEmpty {
-                    highlightRanges[highlight.id] = range
-                } else { reportUnresolved(highlight) }
+            guard let targets = highlightTargets[highlight.id], !unresolvedHighlights.contains(highlight.id) else { continue }
+            if highlightRanges[highlight.id] == nil {
+                var ranges: [ReaderTextRange] = []
+                var pending = false
+                for target in targets {
+                    guard let section = book.section(target.spineIndex) else { pending = true; continue }
+                    guard let range = range(of: target.localPath, in: section), !range.isEmpty else {
+                        reportUnresolved(highlight)
+                        break
+                    }
+                    ranges.append(range)
+                }
+                if !pending, ranges.count == targets.count { highlightRanges[highlight.id] = ranges }
             }
-            if let range = highlightRanges[highlight.id] {
+            for range in highlightRanges[highlight.id] ?? [] {
+                // A host id identifies every segment of the same annotation.
                 drawn.append(ReaderHighlight(id: highlight.id, range: range, kind: .annotation))
             }
         }
@@ -461,9 +495,25 @@ import SwiftUI
         return spine.cfi(spineIndex: range.start.section, start: start, end: end, in: section.document)
     }
 
+    /// Split at document boundaries; nonlinear sections and empty endpoints contribute no CFI.
+    private func bookmarks(for range: ReaderTextRange) -> [EPUBEngineBookmark] {
+        var bookmarks: [EPUBEngineBookmark] = []
+        for index in range.start.section...max(range.start.section, range.end.section) {
+            if range.start.section != range.end.section, book.isOmitted(index) { continue }
+            guard let section = book.section(index) else { return [] }
+            let lower = index == range.start.section ? range.start.offset : 0
+            let upper = index == range.end.section ? range.end.offset : section.string.length
+            if range.start.section != range.end.section,
+               !section.map.spans.contains(where: { $0.location < upper && $0.location + $0.length > lower }) { continue }
+            guard let cfi = cfi(for: ReaderTextRange(section: index, lower..<max(lower, upper))) else { return [] }
+            bookmarks.append(EPUBEngineBookmark(engineID: NativeEngine.identifier, format: NativeEngine.bookmarkFormat, value: cfi))
+        }
+        return bookmarks
+    }
+
     private func location(for range: ReaderTextRange, fraction: Double?, quote: String? = nil) -> EPUBLocation {
-        let index = range.start.section
-        let cfi = cfi(for: range)
+        let bookmarks = bookmarks(for: range)
+        let index = bookmarks.first.flatMap { spine.resolve($0.value)?.spineIndex } ?? range.start.section
         let anchor = { [book] (section: Int, fragment: String) in book.section(section)?.anchors[fragment] }
         // Only continuous scroll over the whole book shows a range across sections.
         let pages = progress.pages(in: range, isShown: { [book] in !book.isOmitted($0) }, anchor: anchor)
@@ -472,8 +522,10 @@ import SwiftUI
             progression: fraction.flatMap { progress.progression(section: index, fraction: $0) },
             title: fraction == nil ? nil : progress.title(at: titlePosition(of: range), anchor: anchor),
             quote: quote,
-            bookmark: cfi.map { EPUBEngineBookmark(engineID: NativeEngine.identifier, format: NativeEngine.bookmarkFormat, value: $0) },
-            page: pages.page, pages: pages.pages)
+            bookmark: bookmarks.first ?? cfi(for: range).map {
+                EPUBEngineBookmark(engineID: NativeEngine.identifier, format: NativeEngine.bookmarkFormat, value: $0)
+            },
+            page: pages.page, pages: pages.pages, rangeBookmarks: bookmarks.count > 1 ? bookmarks : nil)
     }
 
     /// A passage's text as foliate's `Selection.toString()` gave it: the book's own characters
@@ -482,11 +534,12 @@ import SwiftUI
     private func passageText(_ range: ReaderTextRange) -> String? {
         var text = ""
         for index in range.start.section...max(range.start.section, range.end.section) {
+            if range.start.section != range.end.section, book.isOmitted(index) { continue }
             guard let section = book.section(index) else { return nil }
             let lower = index == range.start.section ? range.start.offset : 0
             let upper = index == range.end.section ? range.end.offset : section.string.length
+            if index != range.start.section { text += "\n" }
             text += section.mappedText(in: lower..<max(lower, upper))
-            if index < range.end.section { text += "\n" }
         }
         return text
     }

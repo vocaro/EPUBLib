@@ -677,6 +677,9 @@ import UIKit
         XCTAssertEqual(selection.range.start, ReaderTextPosition(section: 0, offset: start))
         XCTAssertEqual(selection.range.end, ReaderTextPosition(section: 1, offset: 10))
         XCTAssertEqual(selection.text, view.plainText(in: view.selectedRange))
+        // Remapping a user selection must not turn it into an explicit full-range locate.
+        host.canvas.reloadContent(keeping: selection.range.start)
+        XCTAssertEqual(host.canvas.currentSelection?.range, selection.range)
         host.source.book = nil
         host.canvas.reloadContent(keeping: selection.range.start)
         XCTAssertNil(host.canvas.scrollBook)
