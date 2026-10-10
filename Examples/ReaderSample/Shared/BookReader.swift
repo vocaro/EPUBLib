@@ -1,7 +1,6 @@
 import EPUBViewing
 import EPUBCore
 import EPUBReading
-import EPUBViewing
 import Foundation
 import Observation
 
@@ -10,18 +9,17 @@ import Observation
 final class BookReader {
     private(set) var publication: EPUBPublication?
     private(set) var session: (any EPUBReaderSession)?
+    private(set) var controls: EPUBReaderControls?
     private(set) var ready = false
     private(set) var loading = false
-    private(set) var busy = false
+    var busy: Bool { controls?.isBusy == true }
     private(set) var location: EPUBLocation?
     private(set) var disclosure: String?
     private(set) var notice: String?
     private(set) var selectedText: String?
     private(set) var error: String?
     private var opening: Task<Void, Never>?
-    private var commands: Task<Void, Never>?
     private var generation = UUID()
-    private var latestCommand = UUID()
     var sessionID: UUID { generation }
 
     func reportImportError(_ error: Error) { self.error = error.localizedDescription }
@@ -66,30 +64,14 @@ final class BookReader {
                 case .disclosure(let value): disclosure = value
                 case .notice(let value): notice = value
                 case .failed(let value): error = String(describing: value); ready = false
-                case .selectionChanged: break
+                case .selectionChanged, .searchChanged: break
                 }
             })
+        if let session { controls = EPUBReaderControls(publication: book, session: session) }
     }
 
     func send(_ command: EPUBReaderCommand) {
-        guard ready, let session else { return }
-        let previous = commands
-        let token = generation
-        let commandID = UUID()
-        latestCommand = commandID
-        busy = true
-        commands = Task { [weak self] in
-            await previous?.value
-            do {
-                try Task.checkCancellation()
-                try await session.send(command)
-            } catch is CancellationError {
-            } catch {
-                guard let self, generation == token else { return }
-                self.error = String(describing: error)
-            }
-            if let self, generation == token, latestCommand == commandID { busy = false }
-        }
+        controls?.send(command)
     }
 
     func savePosition() {
@@ -110,9 +92,9 @@ final class BookReader {
     func close() {
         generation = UUID()
         opening?.cancel(); opening = nil
-        commands?.cancel(); commands = nil
+        controls?.cancelPendingCommands(); controls = nil
         session?.close(); session = nil
-        publication = nil; ready = false; loading = false; busy = false
+        publication = nil; ready = false; loading = false
         location = nil; disclosure = nil; notice = nil; selectedText = nil; error = nil
     }
 }

@@ -24,13 +24,20 @@ public struct EPUBSelectionAction {
 /// Cancellation before submission has no effect; after submission it cannot undo a displayed page turn.
 @MainActor public protocol EPUBReaderSession: AnyObject {
     var capabilities: Set<EPUBReaderCapability> { get }
+    /// Shared observable state for optional controls. Third-party engines may opt in;
+    /// the default nil leaves existing conformers source-compatible.
+    var readerState: EPUBReaderState? { get }
     func makeView() -> AnyView
     func send(_ command: EPUBReaderCommand) async throws
     /// Idempotent. Releases engine resources and suppresses subsequent callbacks.
     func close()
 }
 
-/// Mount exactly once per session. The host supplies its own loading, error, disclosure and toolbar UI.
+public extension EPUBReaderSession {
+    var readerState: EPUBReaderState? { nil }
+}
+
+/// Mount exactly once per session. Hosts may add `EPUBReaderToolbar` or supply their own chrome.
 public struct EPUBReaderView: View {
     private let session: any EPUBReaderSession
     public init(session: any EPUBReaderSession) { self.session = session }
