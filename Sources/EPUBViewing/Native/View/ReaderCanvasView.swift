@@ -98,6 +98,7 @@ import AppKit
 
     func reloadContent(keeping position: ReaderTextPosition?) {
         settleLayout()
+        carrySelectionAcrossRelayout()
         anchor = position ?? currentStart() ?? anchor
         anchorFollowsScroll = false
         // Paginators of rebuilt sections are replaced as they are next used (`paginator(for:)`).
@@ -111,6 +112,7 @@ import AppKit
             scrollToAnchor()
             updateVisibleRange(force: true)
         }
+        applyPendingSelection()
         selectionMayHaveChanged()
     }
 
@@ -178,12 +180,11 @@ import AppKit
         guard old.flow != configuration.flow else { return layOutCanvas() }
         anchor = currentStart(in: old.flow) ?? anchor
         anchorFollowsScroll = false
-        pendingSelection = nil
-        // The text views go; keyboard focus must not go with them.
+        carrySelectionAcrossRelayout()
+        // The text views go; keyboard focus and the complete selection must not go with them.
         let hadFocus = hasKeyboardFocus
         tearDownPages()
         tearDownScroll()
-        selectionMayHaveChanged()
         layOutCanvas()
         if hadFocus { focus(textViews.first) }
     }
@@ -261,8 +262,8 @@ import AppKit
         applyPendingSelection()
     }
 
-    /// New columns hold new text views; the selection on screen (above all one a locate made,
-    /// which may still be waiting to be reported) is made again in them.
+    /// Keep the complete source range when typography reloads text or a flow/size change
+    /// replaces its views, even if a paginated column can only show part of the selection.
     private func carrySelectionAcrossRelayout() {
         guard pendingSelection == nil, let range = programmaticSelection?.selection.range ?? currentSelection?.range,
               !range.isEmpty else { return }

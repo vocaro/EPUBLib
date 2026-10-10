@@ -51,8 +51,12 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
 - **Engine identity and bookmarks.** `EPUBReader.identifier` is `org.epublib.reader` and its
   bookmarks are `epublib-cfi-v1` (`EPUBReader.bookmarkFormat`): names for the library, not a
   renderer, so they outlive any change of how pages are drawn. The value is an EPUB CFI in the
-  form foliate-js produced (relocations carry the visible range's CFI, selections the
-  selection's range CFI), generated and resolved by a port of its code. Bookmarks tagged with
+  form foliate-js produced, generated and resolved by a port of its code. A range contained
+  in one document carries its CFI in `bookmark`. A range spanning documents also carries
+  `rangeBookmarks`, ordered per-document CFIs for every nonempty included section, with
+  `bookmark` equal to the first entry. Nonlinear sections omitted from continuous scroll and
+  empty section endpoints or sections containing only generated markers contribute no segment. Existing single-document locations continue
+  to decode and restore; the bookmark identity and format are unchanged. Bookmarks tagged with
   the WebKit reader's `org.epubreaderlib.foliate`/`epubcfi-v1` are refused as another engine's;
   nothing had shipped, so a host migrates its own stored ones by re-tagging them, since the CFI
   value names the same position. A CFI that no longer resolves (a changed book has a different
@@ -92,7 +96,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   parallel. Images decode lazily, downsampled to their displayed size, under a shared cache
   budget.
 - **Highlights.** New public `EPUBReaderCommand.setHighlights([EPUBHighlight])` and capability
-  `.highlights` draw host highlights from their range CFIs (StudyWright #85). Search and
+  `.highlights` draw host highlights from their range CFIs, including every `rangeBookmarks`
+  segment of a multi-document annotation (StudyWright #85). Search and
   highlights are TextKit 2 rendering attributes; they never change the text.
 - **Pages.** Locations report `EPUBPublication.pageList` entries: `page`, the last entry at or
   before the range's first character, and `pages`, that one followed by every entry whose
@@ -191,7 +196,7 @@ subset does not implement fixed-page geometry.
 | --- | --- |
 | `nextPage` / `previousPage` | Page turn (paginated) or one viewport (scrolled); stops at the book's ends; skips nonlinear sections as foliate-js did. |
 | `navigate(href:)` | An encoded spine or resource href with optional fragment; unknown or non-local hrefs throw `invalidCommand`. |
-| `restore(location)` | Same publication, engine ID and `epublib-cfi-v1` format or `incompatibleLocation`; resolves the CFI and shows its start. |
+| `restore(location)` | Same publication, engine ID and `epublib-cfi-v1` format or `incompatibleLocation`; validates/resolves every bookmark segment and shows the first segment's start. Does not select text or add a highlight. |
 | `locate(text, highlight)` | First match in reading order with foliate's matcher. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A miss emits `.notice("the cited passage could not be found in this book")`. Clears search highlights. |
 | `searchHighlight` / `clearSearch` | Draws every match across the book / removes them. |
 | `style` | Font size 12–96, dark, flow. Size or appearance rebuilds the text; the position is kept across rebuilds and flow switches. |
@@ -201,8 +206,17 @@ subset does not implement fixed-page geometry.
 `.relocated` reports the opening position (the text start, see Decisions). `.relocated`
 carries the section href, overall progression (by section byte size, as foliate-js computed it),
 the table-of-contents title for the position, the page-list entries it shows (see Decisions)
-and the visible range's CFI. A selection's location carries the pages it spans. `.disclosure` text
-summarises the books' `SectionReport`s and is re-emitted when it changes. `.notice` reports
+and the visible range's CFIs. A selection's `.selectionChanged` event and host selection action
+carry the same complete passage: `text` omits nonlinear sections, and `location.rangeBookmarks`
+preserves all included documents. Its `page` names the entry in effect at its start and `pages`
+includes the entries it spans, omitting nonlinear pages. Save the entire `EPUBLocation` and pass
+it to `.setHighlights` to restore all segments in either flow, including after typography changes.
+No partial annotation is drawn while a section is building or if any segment fails to resolve.
+An empty collection, a contradictory first bookmark, a foreign identity/format or malformed CFI
+is incompatible; unordered/duplicate document targets, nonlinear multi-document targets or
+unresolved CFIs emit one `.notice` per rejected highlight. `restore` similarly refuses an
+incompatible location or emits a notice for an unresolved collection without navigating.
+`.disclosure` text summarises the books' `SectionReport`s and is re-emitted when it changes. `.notice` reports
 refused external links, unresolved CFIs and quotes, and highlights that could not be drawn.
 
 ## Security
@@ -274,7 +288,5 @@ Go: the native viewer is the bundled engine.
 - The last lines of a justified paragraph over 8,192 characters may break differently from the
   measured page when the page starts inside the paragraph and also shows what follows it; the
   column then grows to show them rather than clip.
-- In continuous scroll a selection can span sections, but its bookmark (a CFI, which names one
-  content document) covers only the part in the first section.
 - Flexbox and grid lay out as blocks: content a book centres vertically with `min-height` and
   flex alignment (Standard Ebooks epigraphs) starts at the top of the page.
