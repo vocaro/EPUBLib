@@ -20,6 +20,22 @@ enum SVGContent {
     static let maximumExpandedBytes = 8 * 1024 * 1024
     static let maximumImagePixels = 4 * 1024 * 1024
     static let maximumTotalImagePixels = 16 * 1024 * 1024
+    /// Characters in one `<text>` element (its own text and that of its `tspan`/`textPath`
+    /// descendants). Text layout is super-linear in the length of one run, so the document
+    /// byte limit alone lets a single run cost minutes; a real label is far shorter.
+    static let maximumTextRunCharacters = 20_000
+    /// Marker instances the renderer may build: summed over marker-bearing shapes, each shape's
+    /// vertex count times the graphic nodes in the markers it references. Markers are cloned per
+    /// vertex inside the renderer and are counted by neither the node nor the expansion limit.
+    static let maximumMarkerInstances = 100_000
+
+    /// Shapes whose vertices can carry a marker, and whose geometry the renderer builds.
+    private static let markerableShapes: Set<String> = ["path", "line", "polyline", "polygon", "rect", "circle", "ellipse"]
+    /// Local names of the marker properties (`marker` is the shorthand for all three).
+    private static let markerProperties: Set<String> = ["marker", "marker-start", "marker-mid", "marker-end"]
+    /// Graphic nodes a marker clones at each vertex.
+    private static let markerContent: Set<String> = ["path", "line", "polyline", "polygon", "rect", "circle", "ellipse",
+                                                      "text", "image", "use"]
 
     private static let graphics: Set<String> = ["rect", "circle", "ellipse", "line", "polyline", "polygon", "path",
                                                 "text", "use", "image", "foreignObject", "switch"]
@@ -125,6 +141,7 @@ enum SVGContent {
         collect(svg, depth: 0)
         let refused: Set<String> = omittingFilters ? ["svg:pattern"] : ["svg:filter", "svg:pattern"]
         guard valid, unsupportedConstructs(svg).isDisjoint(with: refused) else { return false }
+        guard textRunsAreBounded(nodes), markerInstancesAreBounded(nodes, ids: ids) else { return false }
         var costs: [ObjectIdentifier: Int] = [:]
         var active = Set<ObjectIdentifier>()
         func cost(_ node: ContentNode, depth: Int) -> Int? {
@@ -147,6 +164,136 @@ enum SVGContent {
             return total
         }
         return cost(svg, depth: 0) != nil
+    }
+
+    /// Whether every `<text>` element's run is within the per-run character bound. A run is the
+    /// element's own text plus that of its `tspan`/`textPath` descendants, which the renderer
+    /// shapes as one super-linear unit; separate `<text>` elements stay roughly linear.
+    private static func textRunsAreBounded(_ nodes: [ContentNode]) -> Bool {
+        for node in nodes where node.name == "text" {
+            var characters = 0
+            func count(_ node: ContentNode) -> Bool {
+                if node.isText {
+                    characters += node.text.unicodeScalars.count
+                    return characters <= maximumTextRunCharacters
+                }
+                for child in node.children where !count(child) { return false }
+                return true
+            }
+            guard count(node) else { return false }
+        }
+        return true
+    }
+
+    /// Whether the markers the drawing instantiates stay within the instance bound. The renderer
+    /// clones a marker's content at every vertex of each shape that references it, which neither
+    /// the node nor the expansion limit counts, so a small shape and marker can amplify into
+    /// hundreds of megabytes. Resolution is an upper bound: a shape is charged the vertices it
+    /// has times the graphic nodes in the markers reachable from it, its ancestors (markers are
+    /// inherited) or, when a stylesheet declares one, any marker in the document.
+    private static func markerInstancesAreBounded(_ nodes: [ContentNode], ids: [String: ContentNode]) -> Bool {
+        let markers = nodes.filter { $0.name == "marker" }
+        guard !markers.isEmpty else { return true }
+        var graphicCount: [ObjectIdentifier: Int] = [:]
+        func count(_ marker: ContentNode) -> Int {
+            let key = ObjectIdentifier(marker)
+            if let cached = graphicCount[key] { return cached }
+            var total = 0
+            func visit(_ node: ContentNode) {
+                for child in node.elementChildren {
+                    if markerContent.contains(child.name) { total += 1 }
+                    visit(child)
+                }
+            }
+            visit(marker)
+            graphicCount[key] = total
+            return total
+        }
+        // A stylesheet can attach a marker to shapes this scan does not follow, so when one
+        // names a marker property every shape is charged the largest marker in the document.
+        let stylesheetMarkers = nodes.contains { node in
+            node.name == "style" && markerProperties.contains { node.textContent.lowercased().contains($0 + ":") || node.textContent.lowercased().contains($0 + " :") }
+        }
+        let maximumMarker = stylesheetMarkers ? markers.map(count).max() ?? 0 : 0
+        func markerShapes(for shape: ContentNode) -> Int {
+            var shapes = maximumMarker
+            var node: ContentNode? = shape
+            var seen = Set<String>()
+            while let current = node {
+                for property in markerProperties {
+                    for reference in markerReferences(current, property: property) where seen.insert(reference).inserted {
+                        if let target = ids[reference], target.name == "marker" { shapes += count(target) }
+                    }
+                }
+                node = current.parent
+            }
+            return shapes
+        }
+        var instances = 0
+        for shape in nodes where markerableShapes.contains(shape.name) {
+            let shapes = markerShapes(for: shape)
+            guard shapes > 0 else { continue }
+            instances += vertexCount(shape) * shapes
+            guard instances <= maximumMarkerInstances else { return false }
+        }
+        return true
+    }
+
+    /// The fragment ids a node's marker `property` points at, from the attribute (any namespace)
+    /// or its `style`. A `none` or missing value contributes nothing.
+    private static func markerReferences(_ node: ContentNode, property: String) -> [String] {
+        var values: [String] = []
+        for attribute in node.attributes where attribute.name == property { values.append(attribute.value) }
+        if let style = node.attribute("style") {
+            var search = style[...]
+            while let range = style.range(of: property + ":", options: .caseInsensitive, range: search.startIndex..<style.endIndex)
+                ?? style.range(of: property + " :", options: .caseInsensitive, range: search.startIndex..<style.endIndex) {
+                values.append(String(style[range.upperBound...].prefix { $0 != ";" }))
+                search = style[range.upperBound...]
+            }
+        }
+        return values.compactMap { value in
+            guard let start = value.range(of: "url(", options: .caseInsensitive) else { return nil }
+            let inside = value[start.upperBound...].drop { $0 == " " || $0 == "\"" || $0 == "'" }
+            guard inside.hasPrefix("#") else { return nil }
+            return String(inside.dropFirst().prefix { $0 != ")" && $0 != " " && $0 != "\"" && $0 != "'" })
+        }
+    }
+
+    /// An upper bound on a shape's marker vertices: numeric tokens in a `path` `d` or a
+    /// `polyline`/`polygon` `points` (each real vertex needs at least one, curves and arcs
+    /// several), or a small constant for the closed and two-point primitives.
+    private static func vertexCount(_ shape: ContentNode) -> Int {
+        switch shape.name {
+        case "path": return numberCount(shape.attribute("d") ?? "")
+        case "polyline", "polygon": return numberCount(shape.attribute("points") ?? "")
+        case "line": return 2
+        default: return 5 // rect, circle and ellipse expand to a closed five-vertex path.
+        }
+    }
+
+    /// The count of numeric tokens in SVG coordinate data, over-counting rather than under.
+    private static func numberCount(_ value: String) -> Int {
+        var count = 0
+        var inNumber = false
+        var sawDot = false
+        var previous: Character = " "
+        for character in value {
+            if character.isNumber {
+                if !inNumber { count += 1; inNumber = true; sawDot = false }
+            } else if character == "." {
+                if inNumber, sawDot { count += 1 } else if !inNumber { count += 1; inNumber = true }
+                sawDot = true
+            } else if character == "e" || character == "E" {
+                // Part of the current number's exponent; never a token on its own.
+            } else if character == "+" || character == "-" {
+                if previous != "e", previous != "E" { count += 1; inNumber = true; sawDot = false }
+            } else {
+                inNumber = false; sawDot = false
+            }
+            previous = character
+        }
+        return count
     }
 
     /// The direct renderer entry point is also used by tests and inspection. Validate data
