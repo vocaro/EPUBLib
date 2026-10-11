@@ -54,7 +54,10 @@ A host granting security-scoped file access must keep access active until openin
 Inputs need an EPUB mimetype, a container rootfile and a nonempty resolvable spine. Unsupported
 encryption, archive entries named outside the archive (a `..` segment, a leading `/`, a backslash),
 duplicate paths, symlinks, entity declarations, malformed metadata/navigation XML, one manifest id
-naming two resources and a spine that names a remote resource fail explicitly.
+naming two resources and a spine that names a remote resource fail explicitly. So do bytes with
+no ZIP end record in their last 65,557, as far back as one with the longest comment begins: they
+are refused as no archive without the rest being searched, an archive followed by more than
+65,535 other bytes among them.
 
 Faults that leave a book readable are read past instead. The publication model has no channel for
 warnings, so this list is where they are disclosed:
