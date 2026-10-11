@@ -91,7 +91,7 @@ struct NativeRichContent: RichContentFactory {
             }
             let intrinsic = SVGContent.intrinsicSize(element, fontSize: style.fontSize, fallback: source.pixelSize)
             let sizing = ImageSizing(intrinsic: intrinsic, style: style, widthHint: widthHint, heightHint: heightHint)
-            let placement = SVGContent.placement(of: image, in: element, imageSize: source.pixelSize, fontSize: style.fontSize)
+            let placement = SVGContent.placement(of: image, in: element, source: source, fontSize: style.fontSize)
             let alt = title.isEmpty ? Self.normalized(image.attribute("alt") ?? "") : title
             return attachment(ReaderImageAttachment(source: source, sizing: sizing, alt: alt, style: style,
                                                     contentRect: placement, isDark: context.typography.isDark, cache: images),

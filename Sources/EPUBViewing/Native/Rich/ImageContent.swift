@@ -50,7 +50,9 @@ struct ImageSizing: Equatable, Sendable {
         let maxH = min(heightLimit, maxHeight.resolve(reference: viewport.height, viewport: viewport) ?? .infinity)
         if size.width > maxW { if ratio != nil { scale(maxW / size.width) } else { size.width = maxW } }
         if size.height > maxH { if ratio != nil { scale(maxH / size.height) } else { size.height = maxH } }
-        return CGSize(width: max(1, size.width), height: max(1, size.height))
+        // A ratio at the edge of what a number holds overflows the dimension it gives, and a
+        // maximum of zero leaves no factor to scale by: the line and `heightLimit` still hold.
+        return CGSize(width: max(1, min(size.width, lineWidth)), height: max(1, min(size.height, heightLimit)))
     }
 
     /// CSS sizes, with an element's `width`/`height` attributes as hints where CSS says `auto`.
@@ -183,7 +185,10 @@ final class ReaderImageAttachment: ReaderAttachment {
 
     /// Decodes for drawing `rect` at `scale` device pixels per point.
     func bitmap(for rect: CGRect, scale: CGFloat) -> CGImage? {
-        let pixels = Int((max(rect.width, rect.height) * scale).rounded(.up))
+        // The cache decodes no more pixels than the source has, so a long side is counted only up
+        // to a size no source reaches; an infinite one, or none, asks for the smallest decode.
+        let long = max(rect.width, rect.height) * scale
+        let pixels = long.isFinite ? Int(min(long, CGFloat(1 << 30)).rounded(.up)) : 1
         return cache.image(for: source, maxPixelSize: pixels, inverted: invertsColors, lightBackdrop: isDark)
     }
 

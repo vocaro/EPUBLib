@@ -225,22 +225,147 @@ final class RichMediaSVGCoverageTests: XCTestCase {
         XCTAssertNil(source("<svg \(ns) width='10' height='10'><image href='data:image/png;base64,\(bomb)' width='10' height='10'/></svg>"))
     }
 
-    // MARK: A documented crash — a tiny viewBox on a single-image wrapper
+    // MARK: Degenerate geometry — a viewBox far from the size of what it holds
 
-    /// DISABLED: adversarial input crashes the test process (SIGTRAP). An `<svg>` wrapping one
-    /// `<image>` with an extremely small `viewBox` (here `0 0 1e-20 1e-20`) makes
-    /// `SVGContent.placement` return a `contentRect` ~1e21 wide. Drawing the attachment reaches
-    /// `ReaderImageAttachment.bitmap(for:scale:)`, whose `Int((max(rect.width, rect.height) *
-    /// scale).rounded(.up))` overflows `Int` (2e21 > Int.max) and traps. Books are untrusted, so
-    /// this is a crash on hostile input. See Sources/EPUBViewing/Native/Rich/ImageContent.swift:186
-    /// (and SVGContent.placement, which does not bound the returned rect). Re-enable once the
-    /// overflow is guarded.
-    // https://github.com/vocaro/EPUBLib/issues/135
-    func disabled_testTinyViewBoxWrapperTrapsOnDraw() throws {
+    private var pageLine: ReaderAttachment.Line { ReaderAttachment.Line(width: 400, viewport: CGSize(width: 400, height: 600), font: PlatformFont.systemFont(ofSize: 16)) }
+
+    /// Lays `image` out on a 400-point line of a 600-point page and decodes it as a draw would:
+    /// the attachment fits its line and page, a table measures it within the widest line there
+    /// is, and its picture goes in a rectangle no further off than a placement may put it.
+    private func assertDrawsWithinItsLine(_ image: ReaderImageAttachment, _ message: String, file: StaticString = #filePath, line: UInt = #line) {
+        let bounds = image.layoutBounds(pageLine)
+        XCTAssertTrue((1...400).contains(bounds.width) && (1...600).contains(bounds.height), "\(message): laid out at \(bounds.size)", file: file, line: line)
+        let widths = image.contentWidths()
+        XCTAssertTrue((0...100_000).contains(widths.min) && (0...100_000).contains(widths.max), "\(message): measured at \(widths)", file: file, line: line)
+        let rect = image.imageRect(in: bounds.size)
+        let reach = SVGContent.maximumPlacement * 600
+        XCTAssertTrue([rect.minX, rect.minY, rect.maxX, rect.maxY].allSatisfy { abs($0) <= reach }, "\(message): drawn at \(rect)", file: file, line: line)
+        XCTAssertNotNil(image.bitmap(for: rect, scale: 2), "\(message): decodes", file: file, line: line)
+    }
+
+    /// An `<svg>` wrapping one `<image>` in a `viewBox` far smaller than it (here `0 0 1e-20
+    /// 1e-20` around a 10 × 5 image) places the image 1e21 boxes wide. The long side of that
+    /// rectangle in pixels is past `Int.max`, and converting it trapped the process. A placement
+    /// that leaves less than a pixel of the image in the box is not kept: the image fills its box.
+    func testTinyViewBoxWrapperDrawsAtABoundedSize() throws {
         let png = RichMediaImages.solid(width: 40, height: 20)
         let body = "<p><svg \(Self.ns) viewBox='0 0 1e-20 1e-20'><image width='10' height='5' href='w.png'/></svg></p>"
         let image = try XCTUnwrap(try self.image(body, files: ["w.png": png]).0)
         let bounds = image.layoutBounds(ReaderAttachment.Line(width: 400, viewport: CGSize(width: 400, height: 600), font: PlatformFont.systemFont(ofSize: 16)))
-        _ = image.bitmap(for: image.imageRect(in: bounds.size), scale: 2) // traps here
+        let rect = image.imageRect(in: bounds.size)
+        let bitmap = try XCTUnwrap(image.bitmap(for: rect, scale: 2), "the image is decoded, not skipped")
+        XCTAssertEqual([bitmap.width, bitmap.height], [40, 20], "decoded at no more than the source's own pixels")
+        XCTAssertNil(image.contentRect, "a placement 1e21 boxes wide is not kept")
+        XCTAssertTrue(CGRect(origin: .zero, size: bounds.size).contains(rect), "the whole image is drawn inside its attachment: \(rect) in \(bounds.size)")
+        XCTAssertEqual(rect.width / rect.height, 2, accuracy: 0.001, "at its own proportions")
+        // As TextKit draws it, in a box with a size of its own: the picture is painted across it.
+        let sized = try XCTUnwrap(try self.image(body.replacingOccurrences(of: "viewBox", with: "width='200' height='100' viewBox"), files: ["w.png": png]).0)
+        let size = sized.layoutBounds(pageLine).size
+        XCTAssertEqual(size, CGSize(width: 200, height: 100))
+        let platform = try XCTUnwrap(sized.image(forBounds: CGRect(origin: .zero, size: size), textContainer: nil, characterIndex: 0))
+        let drawn = try XCTUnwrap(RichImageTests.draw(platform, size: size, scale: 2))
+        for (x, y) in [(4, 4), (200, 100), (395, 195)] {
+            let pixel = RichMediaImages.rgba(drawn, x: x, y: y)
+            XCTAssertTrue(pixel[3] == 255 && pixel[2] > pixel[0], "the image's blue at (\(x), \(y)): \(pixel)")
+        }
+    }
+
+    func testWrapperPlacementIsKeptOnlyWhileItShowsThePictureNearItsBox() throws {
+        let vector = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><rect width='1' height='1' fill='red'/></svg>"
+        let files = ["w.png": RichMediaImages.solid(width: 40, height: 20), "unit.svg": Data(vector.utf8)]
+        /// The placement of a 10 × 5 image of 40 × 20 pixels, unless `image` gives another.
+        func placement(viewBox: String, image attributes: String = "width='10' height='5' href='w.png'") throws -> CGRect? {
+            let image = try XCTUnwrap(try self.image("<p><svg \(Self.ns) viewBox='\(viewBox)'><image \(attributes)/></svg></p>", files: files).0, viewBox)
+            XCTAssertEqual(image.source.format, attributes.contains(".svg") ? .svg : .bitmap, "\(viewBox): still the fast path")
+            if image.source.format == .bitmap { assertDrawsWithinItsLine(image, viewBox) }
+            return image.contentRect
+        }
+        // A magnified detail of the image is an ordinary placement, down to one pixel of it across the box.
+        XCTAssertEqual(try placement(viewBox: "4 2 1 0.5"), CGRect(x: -4, y: -4, width: 10, height: 10))
+        XCTAssertEqual(try placement(viewBox: "0 0 0.25 0.25"), CGRect(x: 0, y: 0, width: 40, height: 20), "one pixel across and down")
+        XCTAssertNil(try placement(viewBox: "0 0 0.24 0.25"), "less than a pixel across")
+        XCTAssertNil(try placement(viewBox: "0 0 0.25 0.24"), "less than a pixel down")
+        for size in ["1e-3", "1e-9", "1e-18", "1e-20", "1e-300", "1e-310"] {
+            XCTAssertNil(try placement(viewBox: "0 0 \(size) \(size)"), "a box \(size) across")
+            XCTAssertNil(try placement(viewBox: "0 0 10 \(size)"), "a box \(size) high")
+            XCTAssertNil(try placement(viewBox: "0 0 \(size) 5"), "a box \(size) wide")
+        }
+        // An image out of its box's sight is one too, as far as the largest length an attribute gives.
+        let limit = SVGContent.maximumPlacement
+        XCTAssertEqual(try placement(viewBox: "-999990 0 10 10"), CGRect(x: limit - 1, y: 0, width: 1, height: 0.5))
+        XCTAssertNil(try placement(viewBox: "-1000000 0 10 10"), "an edge past the limit")
+        XCTAssertNil(try placement(viewBox: "1e9 0 10 10"), "an image 1e8 boxes to the left")
+        XCTAssertNil(try placement(viewBox: "0 -1e9 10 10"), "an image 1e8 boxes down")
+        XCTAssertNil(try placement(viewBox: "-1.7e308 0 0.25 0.25"), "an offset that overflows to infinity")
+        XCTAssertNil(try placement(viewBox: "-1e308 -1e308 1e-300 1e-300"), "an offset and a size that do")
+        // A vector image has the pixels it is rasterized at, whatever its own size in points.
+        XCTAssertEqual(try placement(viewBox: "0.25 0.25 0.5 0.5", image: "width='1' height='1' href='unit.svg'"), CGRect(x: -0.5, y: -0.5, width: 2, height: 2))
+        let raster = ReaderImageSource.maximumSVGDimension
+        XCTAssertEqual(try placement(viewBox: "0 0 1 1", image: "width='\(raster)' height='\(raster)' href='unit.svg'")?.width, CGFloat(raster))
+        XCTAssertNil(try placement(viewBox: "0 0 1 1", image: "width='\(raster + 1)' height='\(raster)' href='unit.svg'"))
+    }
+
+    func testDegenerateViewBoxProportionsKeepTheAttachmentOnItsLine() throws {
+        let files = ["w.png": RichMediaImages.solid(width: 40, height: 20)]
+        let wrapped = "<image width='10' height='5' href='w.png'/>", drawn = "<rect width='10' height='5'/><circle r='3'/>"
+        // A ratio that under- or overflows, with the one length it is applied to, and the box alone.
+        for attributes in ["width='100' viewBox='0 0 1e-300 1e300'", "height='50' viewBox='0 0 1e300 1e-300'",
+                           "width='100' viewBox='0 0 1e300 1e-300'", "height='50' viewBox='0 0 1e-300 1e300'",
+                           "width='100000in' viewBox='0 0 1e-300 100'", "viewBox='0 0 1e300 1e-300'", "viewBox='0 0 1e-300 1e300'",
+                           "viewBox='0 0 1e300 1e300'", "viewBox='0 0 1e-300 1e-300'"] {
+            for (content, format) in [(wrapped, ReaderImageSource.Format.bitmap), (drawn, .svg)] {
+                // A drawing may be refused by the renderer instead; only one that is shown is measured.
+                guard let image = try self.image("<p><svg \(Self.ns) \(attributes)>\(content)</svg></p>", files: files).0 else {
+                    XCTAssertEqual(format, .svg, "\(attributes): a wrapped image is always shown")
+                    continue
+                }
+                XCTAssertEqual(image.source.format, format, attributes)
+                XCTAssertTrue(image.sizing.intrinsic.width.isFinite && image.sizing.intrinsic.height.isFinite, "\(attributes): intrinsic size \(image.sizing.intrinsic)")
+                assertDrawsWithinItsLine(image, "\(attributes) \(format)")
+            }
+        }
+        // The ratio overflowing leaves the image's own proportions to size the box, or the renderer's.
+        let thin = try XCTUnwrap(try image("<p><svg \(Self.ns) width='100' viewBox='0 0 1e-300 1e300'>\(wrapped)</svg></p>", files: files).0)
+        XCTAssertEqual(thin.sizing.intrinsic, CGSize(width: 40, height: 20))
+        XCTAssertEqual(thin.layoutBounds(pageLine).size, CGSize(width: 100, height: 50))
+        let drawing = try XCTUnwrap(try image("<p><svg \(Self.ns) width='100' viewBox='0 0 1e-300 1e300'>\(drawn)</svg></p>").0, "the drawing is shown too")
+        XCTAssertEqual(drawing.source.format, .svg)
+        XCTAssertEqual(drawing.sizing.intrinsic, drawing.source.pixelSize)
+        // A box as large as a number holds, whose own styles refuse to scale it, is still held to its line.
+        let huge = try XCTUnwrap(try image("<p><svg \(Self.ns) viewBox='0 0 1e300 1e300' style='max-width:0;max-height:0'>\(wrapped)</svg></p>", files: files).0)
+        assertDrawsWithinItsLine(huge, "max-width and max-height of zero")
+    }
+
+    func testImageSizeAndDecodeAreBoundedForAnyGeometry() throws {
+        let viewport = CGSize(width: 400, height: 600)
+        let values: [CGFloat] = [.nan, .infinity, .greatestFiniteMagnitude, 1e300, 100, 1e-300, .leastNonzeroMagnitude, 0, -1]
+        var checked = 0
+        for width in values {
+            for height in values {
+                for (w, h) in [(ComputedStyle.Length.auto, ComputedStyle.Length.auto), (.points(100), .auto), (.auto, .points(50)), (.points(100), .points(50))] {
+                    for maximum in [ComputedStyle.Length.auto, .points(0)] {
+                        var sizing = ImageSizing(intrinsic: CGSize(width: width, height: height))
+                        sizing.width = w; sizing.height = h; sizing.minWidth = .points(10); sizing.maxWidth = maximum; sizing.maxHeight = maximum
+                        let size = sizing.size(lineWidth: 400, viewport: viewport, heightLimit: 600)
+                        XCTAssertTrue((1...400).contains(size.width) && (1...600).contains(size.height), "intrinsic \(width) × \(height), \(w) × \(h), max \(maximum): \(size)")
+                        checked += 1
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(checked, 81 * 8)
+        // Ordinary sizes are the same as before: scaled to the line with their proportions kept.
+        XCTAssertEqual(ImageSizing(intrinsic: CGSize(width: 800, height: 600)).size(lineWidth: 400, viewport: viewport, heightLimit: 600), CGSize(width: 400, height: 300))
+        XCTAssertEqual(ImageSizing(intrinsic: CGSize(width: 40, height: 20)).size(lineWidth: 400, viewport: viewport, heightLimit: 600), CGSize(width: 40, height: 20))
+        // A rectangle no bitmap can cover asks for the pixels the source has, or the smallest decode.
+        let image = try XCTUnwrap(try self.image("<p><img src='w.png' alt=''/></p>", files: ["w.png": RichMediaImages.solid(width: 300, height: 150)]).0)
+        for side in [1e19, 1e300] as [CGFloat] {
+            XCTAssertEqual(image.bitmap(for: CGRect(x: 0, y: 0, width: side, height: 1), scale: 2)?.width, 300, "\(side) points across")
+        }
+        for side in [CGFloat.greatestFiniteMagnitude, .infinity, .nan] {
+            let bitmap = try XCTUnwrap(image.bitmap(for: CGRect(x: 0, y: 0, width: side, height: side), scale: 2), "\(side) points across")
+            XCTAssertLessThanOrEqual(bitmap.width, 300, "\(side) points across")
+        }
+        XCTAssertNotNil(image.bitmap(for: CGRect(x: 0, y: 0, width: 10, height: 10), scale: .infinity), "an infinite scale")
     }
 }
