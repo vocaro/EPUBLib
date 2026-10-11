@@ -7,7 +7,7 @@
   `Sources/EPUBViewing/Native/Position/` ports its `epubcfi.js`, `search.js` and
   `text-walker.js` to Swift, and the native viewer's column arithmetic follows its
   `paginator.js`. The license follows. No foliate-js file ships in the package.
-- **MathMLLayout 0.1.0** — MIT — Copyright (c) 2026 Trevor Harmon.
+- **MathMLLayout 0.1.0** — MIT — Copyright (c) 2026 Vocaro Technologies LLC.
   https://github.com/vocaro/MathMLLayout. Its Swift package includes its MIT license. It draws
   with the copy of STIX Two Math (SIL Open Font License 1.1, Copyright 2001-2021 The STIX Fonts
   Project Authors) that macOS and iOS install; neither package distributes the font.
