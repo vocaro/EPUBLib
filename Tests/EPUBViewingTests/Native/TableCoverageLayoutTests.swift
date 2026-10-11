@@ -491,8 +491,9 @@ final class TableCoverageLayoutTests: XCTestCase {
         let shared = Int(layout.cellFrames[0].maxX)
         XCTAssertEqual(Array(RichImageTests.rgba(image, x: shared, y: Int(size.height / 2)).prefix(3)), [255, 0, 0])
         XCTAssertEqual(Array(RichImageTests.rgba(image, x: shared - 3, y: Int(size.height / 2)).prefix(3)), [255, 0, 0])
-        // The thin cell's own outer edge is its own.
-        XCTAssertEqual(Array(RichImageTests.rgba(image, x: Int(layout.cellFrames[1].maxX) - 1, y: Int(size.height / 2)).prefix(3)), [0, 0, 255])
+        // The thin cell's own outer edge is its own: blue, whatever the edge pixel's coverage on this platform.
+        let edge = RichImageTests.rgba(image, x: Int(layout.cellFrames[1].maxX) - 1, y: Int(size.height / 2))
+        XCTAssertTrue(edge[0] < 32 && edge[1] < 32 && edge[2] > 192, "\(edge)")
     }
 
     func testEveryRowOfAVariedTableDrawsInBothDirectionsAndBorderModels() throws {
