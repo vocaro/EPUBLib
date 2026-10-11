@@ -732,7 +732,7 @@ import AppKit
 
     /// The platform scroll view moved; reports the visible range at most every 150 ms.
     func scrollPositionDidChange() {
-        let ordered = highlights.filter { $0.kind == .annotation } + highlights.filter { $0.kind == .search }
+        let ordered = ReaderHighlight.drawingOrder(highlights)
         scrollTextView?.setTableHighlights(ordered)
         if let range = currentSelection?.range, range.start.tableCell != nil || range.end.tableCell != nil {
             _ = scrollTextView?.selectTableRange(range, reporting: false)
@@ -1056,14 +1056,13 @@ import AppKit
 
     private func applyHighlights() {
         let dark = configuration.isDark
-        // Search matches draw over host highlights.
-        let ordered = highlights.filter { $0.kind == .annotation } + highlights.filter { $0.kind == .search }
+        // Search matches draw over host highlights, the current match over both.
+        let ordered = ReaderHighlight.drawingOrder(highlights)
         for view in textViews {
             view.setTableHighlights(ordered)
             view.setHighlights(ordered.compactMap { highlight in
                 guard let range = localRange(of: highlight.range, in: view) else { return nil }
-                let color = highlight.kind == .search ? ReaderPalette.searchHighlight(dark: dark)
-                    : ReaderPalette.annotationHighlight(dark: dark)
+                let color = ReaderPalette.highlight(highlight.kind, dark: dark)
                 return (range, color)
             })
         }

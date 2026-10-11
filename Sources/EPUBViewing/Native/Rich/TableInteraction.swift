@@ -246,9 +246,8 @@ import UIKit
                     if row.table.sourceOrder == endpoint.table && key.cell == endpoint.cell { upper = endpoint.offset }
                 } else if position >= end { continue }
                 if upper > lower {
-                    runs.append((NSRange(location: lower, length: upper - lower), highlight.kind == .search
-                        ? ReaderPalette.searchHighlight(dark: canvas.configuration.isDark)
-                        : ReaderPalette.annotationHighlight(dark: canvas.configuration.isDark)))
+                    runs.append((NSRange(location: lower, length: upper - lower),
+                                 ReaderPalette.highlight(highlight.kind, dark: canvas.configuration.isDark)))
                 }
             }
             cell.setCellHighlights(runs)

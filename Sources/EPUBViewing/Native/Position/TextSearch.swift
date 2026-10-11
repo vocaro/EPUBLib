@@ -96,6 +96,33 @@ enum TextSearch {
         return matches
     }
 
+    /// The book's own characters a match covers: the searched text nodes from the match's
+    /// start to its end, joined without separators as the matcher read them, white space and
+    /// format characters included. Empty unless the match's nodes belong to `document`.
+    static func text(of match: Match, in document: ContentDocument) -> String {
+        let first = match.start.node.order, last = match.end.node.order
+        guard document.nodes.indices.contains(first), document.nodes.indices.contains(last), first <= last,
+              document.nodes[first] === match.start.node, document.nodes[last] === match.end.node else { return "" }
+        var string = ""
+        var order = first
+        while order <= last {
+            let node = document.nodes[order]
+            if node.isElement, node.name.utf8.count <= 6, ["script", "style"].contains(node.name.lowercased()) {
+                order = node.subtreeEnd + 1
+                continue
+            }
+            if node.isText {
+                let text = node.text.utf16
+                let lower = order == first ? min(max(match.start.offset, 0), node.utf16Length) : 0
+                let upper = order == last ? min(max(match.end.offset, lower), node.utf16Length) : node.utf16Length
+                let start = text.index(text.startIndex, offsetBy: lower)
+                string += String(Substring(text[start..<text.index(start, offsetBy: upper - lower)]))
+            }
+            order += 1
+        }
+        return string
+    }
+
     /// The prefilter key of a grapheme that is neither white space nor only format characters.
     /// Graphemes that compare equal must share it; `matches` relies on that.
     static func prefilterKey(of grapheme: Character, locale: String = "en") -> [UInt8] {
