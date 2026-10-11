@@ -37,7 +37,8 @@ final class SectionWriter {
         /// A table cell or caption for a rich-content factory: no map.
         case detached
         /// A note's content for showing in place: no map, blocks flattened to plain paragraphs.
-        case note(id: String)
+        /// `ids` are the ids the note is captured under.
+        case note(ids: Set<String>)
     }
 
     struct Output {
@@ -474,7 +475,8 @@ final class SectionWriter {
         let parts = resolved.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
         let path = String(parts[0]).removingPercentEncoding ?? String(parts[0])
         let fragment = parts.count == 2 ? String(parts[1]).removingPercentEncoding ?? String(parts[1]) : nil
-        if case .note(let id) = mode, path == document.path, fragment == id { return nil } // The note's own number.
+        // The note's own number.
+        if case .note(let ids) = mode, path == document.path, let fragment, ids.contains(fragment) { return nil }
         if ContentSemantics.isNoteReference(element) { return .note(href: resolved) }
         if path == document.path, let fragment, let target = document.element(id: fragment),
            state.noteKind(target) != nil || target.parent.flatMap(state.noteKind) != nil {
