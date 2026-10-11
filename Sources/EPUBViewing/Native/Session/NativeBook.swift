@@ -23,15 +23,18 @@ import AppKit
     private var builtTypography: [NativeTypography?]
     /// On-demand builds, with the typography each was started for.
     private var inFlight: [Int: (typography: NativeTypography, task: Task<SectionText, Never>)] = [:]
-    /// The typography `onBookComplete` last fired for, so it fires once per typography.
-    private var completedTypography: NativeTypography?
+    /// Whether `onBookComplete` has fired since the typography last changed, so it fires once
+    /// each time the book becomes complete.
+    private var announcedComplete = false
     private var background: Task<Void, Never>?
     private var cachedBookText: ReaderBookText?
     private var closed = false
 
     /// A section (re)build arrived. `isCurrentTypography` is false for a stale build.
     var onSectionBuilt: ((Int) -> Void)?
-    /// Every section is built for the current typography; `bookText` is available.
+    /// Every section is built for the current typography; `bookText` is available. It fires
+    /// again whenever the book becomes complete after a typography change, also for a
+    /// typography it has completed for before.
     var onBookComplete: (() -> Void)?
 
     init(publication: EPUBPublication, typography: NativeTypography, rich: any RichContentFactory) {
@@ -109,6 +112,10 @@ import AppKit
         guard typography != self.typography else { return }
         self.typography = typography
         cachedBookText = nil
+        // The whole text is gone until every section is current again, and a view filled
+        // meanwhile holds one section. Coming back to a typography the book completed for,
+        // with or without a section rebuilt in between, is therefore a new completion.
+        announcedComplete = false
         background?.cancel()
     }
 
@@ -185,8 +192,8 @@ import AppKit
     }
 
     private func completeIfReady() {
-        guard !closed, isComplete, completedTypography != typography else { return }
-        completedTypography = typography
+        guard !closed, isComplete, !announcedComplete else { return }
+        announcedComplete = true
         onBookComplete?()
     }
 }

@@ -407,7 +407,6 @@ import XCTest
     /// are stale again, so the whole text is gone until they are rebuilt, and its return must be
     /// announced like any other completion.
     func testTheBookCompletesAgainAfterReturningToATypographyItHadCompletedFor() async throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/156")
         let publication = try mixedBook()
         let book = book(publication)
         var completions: [NativeTypography] = []
@@ -432,6 +431,43 @@ import XCTest
         // The completion follows the last section within the same background task.
         try? await wait("the second completion", timeout: 5) { completions.count == 2 }
         XCTAssertEqual(completions, [regular, regular], "the book became complete a second time without saying so")
+    }
+
+    /// A typography taken back before any section was rebuilt for it leaves nothing to build,
+    /// yet the book had no whole text in between, and a scroll view filled then shows one
+    /// section. Its return is a completion like any other, announced once however many of the
+    /// superseded changes ask for the rest of the book.
+    func testTheBookCompletesAgainAfterATypographyIsTakenBackBeforeAnySectionIsRebuilt() async throws {
+        let publication = try mixedBook()
+        let book = book(publication)
+        var completions: [NativeTypography] = []
+        book.onBookComplete = { [unowned book] in completions.append(book.typography) }
+        let light = NativeTypography(), dark = NativeTypography(isDark: true)
+        _ = await book.build(0)
+        book.buildRemaining(from: 0)
+        try await wait("the first build") { completions == [light] }
+
+        book.setTypography(dark)
+        XCTAssertFalse(book.isComplete)
+        XCTAssertNil(book.bookText)
+        book.setTypography(light)
+        XCTAssertTrue(book.isComplete, "no section was rebuilt in between")
+        // Each change's own task asks for the rest: the superseded one and the one that stands.
+        book.buildRemaining(from: 0)
+        book.buildRemaining(from: 0)
+        XCTAssertEqual(completions, [light, light], "the whole text came back without the book saying so")
+
+        // The same between two typographies the book has both completed for.
+        book.setTypography(dark)
+        _ = await book.build(0)
+        book.buildRemaining(from: 0)
+        try await wait("the dark build") { completions == [light, light, dark] }
+        book.setTypography(light)
+        XCTAssertFalse(book.isComplete)
+        book.setTypography(dark)
+        XCTAssertTrue(book.isComplete)
+        book.buildRemaining(from: 0)
+        XCTAssertEqual(completions, [light, light, dark, dark])
     }
 
     func testClosingABookDropsItsSectionsAndLaterBuildsStoreNothing() async throws {

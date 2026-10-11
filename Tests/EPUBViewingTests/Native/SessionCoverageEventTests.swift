@@ -618,7 +618,6 @@ import XCTest
     /// in place." A text size taken back before its rebuild finished leaves sections to rebuild
     /// again; once they are, the whole book must return.
     func testContinuousScrollShowsTheWholeBookAgainAfterATextSizeIsTakenBackMidRebuild() async throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/156")
         // Sections of growing size, so a rebuild reaches the small ones long before the large.
         let reader = try open(SessionCoverageBook.epub((0..<10).map {
             Section("s\($0)", "<h1>Section \($0)</h1>\(SessionCoverageBook.filler(60 + $0 * 250))")
@@ -649,6 +648,86 @@ import XCTest
         try? await reader.wait("the whole book again", timeout: 5) { reader.session.canvas?.scrollBook != nil }
         XCTAssertNotNil(reader.session.canvas?.scrollBook,
                         "every section is built, but continuous scroll still shows section \(String(describing: reader.session.canvas?.scrollTextView?.placement.section)) alone")
+    }
+
+    /// The same for an appearance, which rebuilds the text as a size does: dark, and light again
+    /// as soon as the dark rebuild has stored a section that is not on screen.
+    func testContinuousScrollShowsTheWholeBookAgainAfterAnAppearanceIsTakenBackMidRebuild() async throws {
+        let reader = try open(SessionCoverageBook.epub((0..<10).map {
+            Section("s\($0)", "<h1>Section \($0)</h1>\(SessionCoverageBook.filler(60 + $0 * 250))")
+        }))
+        try await reader.settle()
+        let session = reader.session, book = session.book
+        // Explicit appearances, so the host's own does not decide which of them is a change.
+        let light = EPUBReaderStyle(appearance: .light, flow: .scrolled), dark = EPUBReaderStyle(appearance: .dark, flow: .scrolled)
+        try await session.send(.style(light))
+        try await reader.wait("the whole light book") {
+            book.isComplete && session.canvas?.scrollBook != nil && session.canvas?.scrollBook?.string === book.bookText?.string && reader.section == 0
+        }
+        let lightText = book.typography
+        XCTAssertFalse(lightText.isDark)
+
+        var reverted: Task<Void, Error>?
+        var rebuildWasUnfinished: Bool?
+        let report = book.onSectionBuilt
+        book.onSectionBuilt = { [weak reader] index in
+            report?(index)
+            guard reverted == nil, index != 0, book.typography != lightText, let reader else { return }
+            reverted = Task {
+                rebuildWasUnfinished = !book.isComplete
+                try await reader.session.send(.style(light))
+            }
+        }
+        try await session.send(.style(dark))
+        try await reader.wait("the appearance taken back") { reverted != nil }
+        try await reverted?.value
+        XCTAssertEqual(rebuildWasUnfinished, true, "the dark rebuild finished before the appearance was taken back; grow the fixture")
+        try await reader.wait("the light book") { book.isComplete && book.typography == lightText }
+        try? await reader.wait("the whole book again", timeout: 5) { session.canvas?.scrollBook != nil }
+        let shown = try XCTUnwrap(session.canvas?.scrollBook,
+                                  "every section is built, but continuous scroll still shows section \(String(describing: session.canvas?.scrollTextView?.placement.section)) alone")
+        XCTAssertTrue(shown.string === book.bookText?.string, "the scroll view shows a whole book, but not the one just completed")
+        XCTAssertEqual(shown.sectionStarts.count, 10)
+    }
+
+    /// A scroll view made while the text is being rebuilt shows the current section, whatever
+    /// started the rebuild. When the change is taken back before any section was rebuilt for
+    /// it, nothing is left to build, and the whole book must still take the section's place.
+    func testContinuousScrollEnteredDuringARebuildShowsTheWholeBookOnceTheChangeIsTakenBack() async throws {
+        let reader = try open(SessionCoverageBook.epub((0..<6).map {
+            Section("s\($0)", "<h1>Section \($0)</h1>\(SessionCoverageBook.filler(40))")
+        }))
+        try await reader.settle()
+        let session = reader.session, book = session.book, first = book.typography
+        let scrolled = EPUBReaderStyle(flow: .scrolled)
+        func expectTheWholeBook(after change: String, line: UInt = #line) async throws {
+            try await reader.wait("the book as it was before \(change)", line: line) { book.isComplete && book.typography == first }
+            try? await reader.wait("the whole book after \(change)", timeout: 5) { session.canvas?.scrollBook != nil }
+            let shown = try XCTUnwrap(session.canvas?.scrollBook,
+                                      "\(change) was taken back and every section is built, but continuous scroll still shows section \(String(describing: session.canvas?.scrollTextView?.placement.section)) alone", line: line)
+            XCTAssertTrue(shown.string === book.bookText?.string, line: line)
+            XCTAssertEqual(shown.sectionStarts.count, 6, line: line)
+        }
+
+        // A text size. The three commands run without the reader building anything between them.
+        try await session.send(.style(EPUBReaderStyle(fontSize: 24)))
+        try await session.send(.style(EPUBReaderStyle(fontSize: 24, flow: .scrolled)))
+        XCTAssertEqual(session.canvas?.scrollTextView?.placement.section, 0, "the rebuild is unfinished, so the section stands alone")
+        XCTAssertNil(session.canvas?.scrollBook)
+        try await session.send(.style(scrolled))
+        try await expectTheWholeBook(after: "a text size")
+
+        // The system's appearance, which reaches the session from the host's environment.
+        try await session.send(.style(EPUBReaderStyle()))
+        XCTAssertNil(session.canvas?.scrollTextView)
+        let wasDark = session.systemIsDark
+        session.updateSystemAppearance(isDark: !wasDark)
+        XCTAssertNotEqual(book.typography, first)
+        try await session.send(.style(scrolled))
+        XCTAssertEqual(session.canvas?.scrollTextView?.placement.section, 0)
+        XCTAssertNil(session.canvas?.scrollBook)
+        session.updateSystemAppearance(isDark: wasDark)
+        try await expectTheWholeBook(after: "the system's appearance")
     }
 
     /// "`.searchResultsChanged` reports … nil when a clear, another query, a failure, a
