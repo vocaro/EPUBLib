@@ -2,9 +2,10 @@
 
 Use real VoiceOver speech to verify the paginated reader on a Mac, physical iPhone and
 physical iPad. Native accessibility API tests and simulator runs support this work but do
-not establish what VoiceOver reads. The Mac sessions are recorded in the
-[Mac verification](issue-55-voiceover-mac.md); the complete acceptance matrix, with its
-iPhone and iPad sessions, is in [#28](https://github.com/vocaro/EPUBLib/issues/28).
+not establish what VoiceOver reads. The sessions so far are recorded in the
+[Mac verification](issue-55-voiceover-mac.md) and the
+[iPad verification](issue-28-voiceover-ipad.md); the complete acceptance matrix, with its
+iPhone sessions, is in [#28](https://github.com/vocaro/EPUBLib/issues/28).
 
 ## Isolated reader and fixture
 
@@ -146,6 +147,7 @@ element again rather than reuse a value, and treat neither XCTest nor the observ
 Choose each connected device explicitly and run the native probe on it:
 
 ```sh
+TEST_RUNNER_VOICEOVER_STEPS='visible,touch=Page boundary,read,activate=Next Page,visible,touch=word,read' \
 xcodebuild -project Examples/VoiceOverVerification/VoiceOverVerification.xcodeproj \
   -scheme VoiceOverProbeIOS -destination 'platform=iOS,id=YOUR_DEVICE_ID' \
   -derivedDataPath .build/voiceover/ios -allowProvisioningUpdates \
@@ -155,16 +157,36 @@ xcodebuild -project Examples/VoiceOverVerification/VoiceOverVerification.xcodepr
 ```
 
 Use a new result-bundle path for each run, including the iPad. The native service enables
-VoiceOver if necessary and restores its original state on normal test completion. Put a
-deadline around device runs and independently check the device state afterward, especially
-after cancellation. A user must enter any required XCTest UI Automation passcode directly
-on the device. Never collect it in logs or chat.
+VoiceOver if necessary and restores its original state on normal test completion; the
+transcript's `voiceOver` line says which. Put a deadline around device runs and independently
+check the device state afterward, especially after cancellation. A user must enter any
+required XCTest UI Automation passcode directly on the device. Never collect it in logs or chat.
 
-The mobile probe records forward navigation until speech repeats or reaches its step limit.
-It does not automatically cover page actions, every layout or every text size. Ensure the
-search field is not editing and the software keyboard is dismissed before evaluating reading
-order. The first iPad capture began with search focused and a keyboard visible, so it could
-not establish clean column order. Use physical-device sessions for acceptance.
+The probe launches the reader and performs the comma-separated steps, recording VoiceOver's
+phrase after each. Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
+
+- `read`: move forward until VoiceOver repeats itself at the end of the screen.
+- `visible`: the window size and each column's first and last numbered lines as XCTest sees
+  them, to compare with the speech.
+- `touch=LABEL`: touch the first item whose label begins with LABEL. Under VoiceOver a touch
+  moves its cursor there; `touch=word` is the first numbered line.
+- `activate=LABEL`: touch the item, then double-tap, which is VoiceOver's activation.
+- `rotate=landscape`, `rotate=portrait`: an iPad shows two columns in landscape and one in
+  portrait. End a session in the orientation it started in.
+- `wait=SECONDS`, and `screenshot`, attached to the result bundle: what is on the glass,
+  independent of every accessibility snapshot.
+
+`TEST_RUNNER_VOICEOVER_FONT_SIZE` sets the launch text size. `TEST_RUNNER_VOICEOVER_OFF=1`
+leaves VoiceOver off, so the same steps are plain touches: use it to tell a VoiceOver failure
+from one of the reader's own. The probe stops when the reader is no longer in the foreground.
+Another session's tests on the same device bring their own app forward or switch VoiceOver
+off; discard such a run.
+
+XCTest cannot perform VoiceOver's three-finger scroll or choose its Next Page and Previous Page
+actions, and its synthesized hardware keys (Control-Option-Space, Option with an arrow) did
+not reach VoiceOver on an iPad. The probe turns pages by activating the page buttons. Ensure
+the search field is not editing and the software keyboard is dismissed before evaluating
+reading order. Use physical-device sessions for acceptance.
 
 ## Acceptance and evidence
 
@@ -225,9 +247,10 @@ The Mac runner's transcript is plain text and needs no export.
 - On 2026-10-11 the Mac sessions verified first and last lines, word order, end of text,
   line counts and page-turn continuity in one and two columns at 17 and 23 points, with value
   notifications for page turns, text-size changes and resizes. See the
-  [Mac verification](issue-55-voiceover-mac.md). Physical iPhone speech reached `0001–0036` on
-  2026-10-10; iPad focus/keyboard interfered with the ordering check. Those device sessions
-  keep #28's acceptance matrix open.
+  [Mac verification](issue-55-voiceover-mac.md). The same day a physical iPad passed reading
+  order, page boundaries and VoiceOver-activated page turns in both orientations at 17 and 23
+  points; see the [iPad verification](issue-28-voiceover-ipad.md). Physical iPhone speech
+  reached `0001–0036` on 2026-10-10; its remaining sessions keep #28's acceptance matrix open.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
