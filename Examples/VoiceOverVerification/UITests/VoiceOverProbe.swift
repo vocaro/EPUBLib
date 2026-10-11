@@ -9,8 +9,10 @@ import XCUIAutomation
         #if os(macOS)
         // The outer runner owns the Mac toggle and restoration, including timeouts.
         guard wasEnabled else { throw XCTSkip("Run with scripts/run-voiceover-mac.py") }
+        let environment = ProcessInfo.processInfo.environment
+        // Attach to a fresh, normally launched reader; do not relaunch it.
         let app = XCUIApplication(bundleIdentifier: "org.epubreaderlib.voiceoververify.mac")
-        app.activate() // Attach to a fresh, normally launched reader; do not relaunch it.
+        let snapshots = environment["VOICEOVER_SNAPSHOTS"] != nil
         #else
         defer {
             if !wasEnabled && voiceOver.isEnabled {
@@ -23,39 +25,62 @@ import XCUIAutomation
         app.launchArguments = ["-SampleFlow", "paginated"]
         app.launch()
         #endif
+        #if os(macOS)
+        if snapshots {
+            app.activate()
+            guard app.buttons["Close"].waitForExistence(timeout: 20) else {
+                XCTFail("The bundled synthetic EPUB must be open")
+                return
+            }
+        }
+        #else
         guard app.buttons["Close"].waitForExistence(timeout: 20) else {
             XCTFail("The bundled synthetic EPUB must be open")
             return
         }
+        #endif
         var events: [[String: String]] = []
-        func record(_ command: String, _ output: XCUIVoiceOverService.Output) {
-            events.append(["command": command, "utterance": output.utterance])
-            print("VOICEOVER_EVENT \(command): \(output.utterance)")
+        let clock = ISO8601DateFormatter()
+        clock.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        func note(_ command: String, _ text: String) {
+            let time = clock.string(from: Date())
+            events.append(["command": command, "utterance": text, "time": time])
+            print("VOICEOVER_EVENT \(time) \(command): \(text)")
         }
+        func record(_ command: String, _ output: XCUIVoiceOverService.Output) { note(command, output.utterance) }
         defer {
             let data = try? JSONSerialization.data(withJSONObject: events, options: [.prettyPrinted, .sortedKeys])
             attach(data.flatMap { String(data: $0, encoding: .utf8) } ?? "[]", name: "VoiceOver speech")
         }
         #if os(macOS)
-        let columns = app.textViews.allElementsBoundByIndex.sorted { $0.frame.minX < $1.frame.minX }
-        guard let column = columns.last else { XCTFail("No reading column"); return }
-        print("MAC_COLUMN_COUNT=\(columns.count)")
-        attach(column.value as? String ?? "", name: "Initial column accessibility value")
-        // Stay outside the 56-point page-turn edge zones; record the current line
-        // before advancing, so a one-word first line is not silently skipped by the probe.
-        column.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)).click()
-        column.typeKey(.downArrow, modifierFlags: [.control, .option, .shift])
-        record("interact", try voiceOver.currentSpeech())
-        column.typeKey("l", modifierFlags: [.control, .option])
-        record("currentLineAfterEntry", try voiceOver.currentSpeech())
-        column.typeKey(.downArrow, modifierFlags: [.control, .option])
-        record("nextLine", try voiceOver.currentSpeech())
-        column.typeKey(.end, modifierFlags: [.control, .option])
-        record("endOfText", try voiceOver.currentSpeech())
-        column.typeKey("l", modifierFlags: [.control, .option])
-        record("currentLineAtEnd", try voiceOver.currentSpeech())
-        column.typeKey(.downArrow, modifierFlags: [.control, .option])
-        record("attemptBeyondPage", try voiceOver.currentSpeech())
+        // The outer runner sends the VoiceOver commands while this records. XCTest's own
+        // synthesized VoiceOver keys return about ten seconds later, when a delayed hint may
+        // have replaced the phrase they produced.
+        let deadline = Date().addingTimeInterval(300)
+        var heard = "", shown = ""
+        note("recording", snapshots ? "speech and XCTest values" : "speech")
+        repeat {
+            if snapshots {
+                // XCTest's own snapshot, for comparison with fresh external reads and speech.
+                let columns = app.textViews.allElementsBoundByIndex.sorted { $0.frame.minX < $1.frame.minX }
+                let values = columns.map { column in
+                    let words = (column.value as? String ?? "").split { !$0.isLetter && !$0.isNumber }
+                    return "\(words.first ?? "")…\(words.last ?? "") (\(words.count) words)"
+                }.joined(separator: " | ")
+                if values != shown {
+                    shown = values
+                    print("MAC_COLUMN_COUNT=\(columns.count)")
+                    note("xctestValues", values)
+                }
+            }
+            let speech: String
+            do { speech = try voiceOver.currentSpeech().utterance } catch { speech = "ERROR \((error as NSError).code)" }
+            if speech != heard {
+                heard = speech
+                note("heard", speech)
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        } while Date() < deadline && !FileManager.default.fileExists(atPath: environment["VOICEOVER_STOP"] ?? "")
         #else
         record("initial", try voiceOver.currentSpeech())
         var repeated = 0
