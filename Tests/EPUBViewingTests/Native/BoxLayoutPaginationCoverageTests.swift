@@ -92,9 +92,6 @@ import UIKit
     }
 
     func testEveryPageOfAMixedBoxSectionShowsItsOwnTextOnceWithinItsColumn() throws {
-        #if os(iOS)
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/147")
-        #endif
         for fontSize: CGFloat in [16, 25] {
             let section = try build(mixedBody, css: mixedCSS, fontSize: fontSize)
             XCTAssertTrue(section.report.flowBoxesReflowed)
@@ -127,6 +124,77 @@ import UIKit
         let after = try paged("After the box.", in: section, paginator, pages: pages)
         XCTAssertEqual(after.page, 1)
         XCTAssertEqual(pages[1].topSpacing + after.frame.minY, 300, accuracy: 2)
+    }
+
+    /// A page that opens just below a box as wide as the column is the section's own layout
+    /// from that line down: each line breaks where the whole section breaks it and stands as
+    /// far below the page's first line, a float further down the page keeps its place with its
+    /// prose beside it, and a point on the first line hits the page's first word.
+    func testAPageOpeningBelowAFullWidthBoxIsLaidOutAsTheSectionIs() throws {
+        let short = Array(repeating: "Ordinary prose returns to the full column below the box.", count: 3).joined(separator: " ")
+        let rest = "After the box. \(short)</p><figure class='y'>Second box.</figure><p>Beside second. \(H.prose)</p>"
+        let kinds = [("a float as wide as the column", "<figure class='x'>Boxed words.</figure><p>" + rest, ".x { float:left; width:100%; height:100px }"),
+                     ("an absolute box as wide as the column", "<aside class='x'>Boxed words.</aside><p>" + rest, ".x { position:absolute; width:100%; height:100px }"),
+                     ("a sized inline-block wider than the column", "<p>Before <span class='x'>Boxed words.</span> " + rest, ".x { display:inline-block; width:500px; height:100px }")]
+        for (name, body, css) in kinds {
+            var checked = false
+            // A margin under the first paragraph moves the box down to the foot of the first page.
+            for margin in stride(from: 380, through: 520, by: 10) where !checked {
+                let section = try build("<p class='lead'>Lead words.</p>" + body,
+                                        css: ".lead { margin-bottom:\(margin)px } .y { float:left; width:120px; height:90px } " + css)
+                let (paginator, pages) = H.pages(section, size: size, name)
+                let after = H.range("After the box.", in: section), beside = H.range("Beside second.", in: section)
+                guard let index = pages.firstIndex(where: { $0.range.location == after.location }), index > 0,
+                      NSLocationInRange(beside.location, pages[index].range) else { continue }
+                checked = true
+                let page = pages[index], label = "below \(name) (lead margin \(margin))"
+                let view = H.pageView(paginator, page: page)
+                assertLinesFit(view, page: page, size: size, label)
+                // The whole section in one view, measured from the line that opens the page.
+                let whole = H.view(section.string, size: size)
+                let expected = H.lines(in: whole, intersecting: page.range)
+                let top = try XCTUnwrap(expected.first, label).frame.minY
+                let lines = H.lines(in: view, intersecting: view.shownCharacters)
+                XCTAssertEqual(lines.map { NSRange(location: $0.range.location + page.range.location, length: $0.range.length) }, expected.map(\.range),
+                               "the section's line breaks, \(label)")
+                for (line, other) in zip(lines, expected) {
+                    XCTAssertEqual(line.frame.minX, other.frame.minX, accuracy: 0.5, "\(label) \(other.range)")
+                    XCTAssertEqual(line.frame.minY, other.frame.minY - top, accuracy: 0.5, "\(label) \(other.range)")
+                }
+                // The float further down the page: where the section has it, its prose beside it.
+                let region = try XCTUnwrap(H.region("Second box.", in: section, view: whole), label).frame.offsetBy(dx: 0, dy: -top)
+                XCTAssertGreaterThan(region.minY, 60, "the second float is below the page's first lines, \(label)")
+                let caption = H.range("Second box.", in: section)
+                let words = view.segmentFrames(for: NSRange(location: caption.location - page.range.location, length: caption.length))
+                XCTAssertFalse(words.isEmpty, label)
+                XCTAssertTrue(words.allSatisfy { region.insetBy(dx: -1, dy: -1).contains($0) }, "the float's words are in its box, \(label)")
+                let wrapped = lines.filter { $0.range.location >= beside.location - page.range.location && $0.frame.minY < region.maxY - 0.5 }
+                XCTAssertGreaterThanOrEqual(wrapped.count, 3, label)
+                XCTAssertTrue(wrapped.allSatisfy { $0.frame.minX >= region.maxX - 0.5 }, "prose stays beside the float, \(label)")
+                let first = try XCTUnwrap(lines.first, label)
+                let hit = view.characterOffset(at: CGPoint(x: view.containerOrigin.x + first.frame.minX + 2, y: view.containerOrigin.y + first.frame.midY))
+                XCTAssertLessThanOrEqual(hit, 1, "a point on the first line hits the page's first word, \(label)")
+            }
+            XCTAssertTrue(checked, "the fixture puts the prose and the second float on one page: \(name)")
+        }
+    }
+
+    /// The same below a forced break, where the page keeps the paragraph's own margin above its
+    /// first line: the column starts that far down and the line at the column's top.
+    func testProseAfterAForcedBreakBelowAFullWidthFloatOpensItsColumn() throws {
+        let section = try build("<p class='lead'>Lead words.</p><figure>Boxed words.</figure><p class='b'>After the box. \(H.prose)</p>",
+                                css: ".lead { margin-bottom:100px } figure { float:left; width:100%; height:100px } .b { break-before:page; margin-top:30px }")
+        let (paginator, pages) = H.pages(section, size: size)
+        XCTAssertEqual(pages.count, 2)
+        let page = try XCTUnwrap(pages.last)
+        XCTAssertEqual(page.range.location, H.range("After the box.", in: section).location, "the forced break opens the page")
+        XCTAssertEqual(page.topSpacing, 30, accuracy: 0.5)
+        let view = H.pageView(paginator, page: page)
+        let lines = shownLines(view)
+        XCTAssertGreaterThan(lines.count, 10)
+        XCTAssertEqual(lines.first?.frame.minY ?? -1, 0, accuracy: 0.5, "the prose opens its column")
+        XCTAssertEqual(lines.map(\.frame.maxY).max() ?? 0, page.height, accuracy: 0.5, "the page is as tall as its lines")
+        assertLinesFit(view, page: page, size: size, "the page after the break")
     }
 
     func testALongParagraphBesideATallFloatInAVeryWideColumnWrapsAllTheWayDown() throws {
@@ -207,10 +275,9 @@ import UIKit
     }
 
     /// A page shows every line of its own characters: none above its top or below its column.
-    /// When prose that follows a box as wide as the column opens the next page, the page lays
-    /// its first lines out above its top edge, twice the box's height up, where nobody sees them.
+    /// Prose that follows a box as wide as the column and opens the next page starts at that
+    /// page's top; its first lines were once laid out twice the box's height above it.
     func testProseOpeningAPageBelowAFullWidthBoxIsDrawnOnThatPage() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/145")
         let prose = "After the box. \(H.prose) \(H.prose)"
         let kinds = [("a float as wide as the column", "<figure class='x'>Boxed words.</figure><p>\(prose)</p>", ".x { float:left; width:100%; height:100px }"),
                      ("an absolute box as wide as the column", "<aside class='x'>Boxed words.</aside><p>\(prose)</p>", ".x { position:absolute; width:100%; height:100px }"),

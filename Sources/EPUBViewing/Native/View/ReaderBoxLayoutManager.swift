@@ -50,8 +50,14 @@ final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDele
             fragment.topAdjustment = 0
             fragment.bottomAdjustment = 0
         } else if offset == 0 {
+            // The fragment starts as far below the page's top as in the section, never above
+            // it. Where a box as wide as the column pushed the first line down inside its
+            // fragment, the page's origin is that line's top: the box lies above the page and
+            // pushes nothing here, so there is no distance to take back. TextKit would apply a
+            // negative margin on a document's first fragment twice, to it and to its lines,
+            // and even a rounding residual below zero moves every line of the page up with it.
             let shift = paragraph.flowStart - page.origin
-            fragment.topAdjustment += shift
+            fragment.topAdjustment = max(0, fragment.topAdjustment + shift)
         }
         return fragment
     }
