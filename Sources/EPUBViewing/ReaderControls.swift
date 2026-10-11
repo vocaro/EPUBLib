@@ -14,6 +14,9 @@ import Foundation
     /// Labels remain concise and independent of this longer help text.
     public var customizePageButtonHelp: (@MainActor (EPUBPageAction, String) -> String)?
     public private(set) var pendingCommands = 0
+    /// Queued or running searches. The search field's feedback follows these alone: a line shown
+    /// for any pending command resizes inline controls, and the reader under them, during a page turn.
+    private(set) var pendingSearches = 0
     public private(set) var commandError: String?
     @ObservationIgnored private var commands: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
@@ -54,7 +57,10 @@ import Foundation
         return customizePageButtonHelp?(action, defaultHelp) ?? defaultHelp
     }
 
-    public func send(_ command: EPUBReaderCommand) { enqueue { command } }
+    public func send(_ command: EPUBReaderCommand) {
+        let isSearch = switch command { case .search, .searchHighlight: true; default: false }
+        enqueue(isSearch: isSearch) { command }
+    }
     /// Edits the latest style when this command executes, preserving changes queued before it
     /// and style fields updated through the session by the host.
     public func changeStyle(_ change: @escaping @MainActor (inout EPUBReaderStyle) -> Void) {
@@ -81,18 +87,25 @@ import Foundation
         commands?.cancel()
         commands = nil
         pendingCommands = 0
+        pendingSearches = 0
     }
     public func waitForCommands() async { await commands?.value }
 
-    private func enqueue(_ command: @escaping @MainActor () -> EPUBReaderCommand) {
+    private func enqueue(isSearch: Bool = false, _ command: @escaping @MainActor () -> EPUBReaderCommand) {
         guard isReady else { return }
         let previous = commands
         let token = generation
         pendingCommands += 1
+        if isSearch { pendingSearches += 1 }
         commands = Task { [weak self] in
             await previous?.value
             guard let self, generation == token else { return }
-            defer { if generation == token { pendingCommands -= 1 } }
+            defer {
+                if generation == token {
+                    pendingCommands -= 1
+                    if isSearch { pendingSearches -= 1 }
+                }
+            }
             do {
                 try Task.checkCancellation()
                 guard isReady else { return }

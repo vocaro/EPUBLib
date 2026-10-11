@@ -152,6 +152,26 @@ extension PageAccessibilityTests {
     }
 
     #if os(iOS)
+    func testVoiceOverReadsSpreadColumnsInSourceOrder() throws {
+        for rtl in [false, true] {
+            let text = CanvasText.body((0..<900).map { String(format: "word%04d", $0) }.joined(separator: " "))
+            let host = CanvasHost(FakeCanvasSource([text]), size: CGSize(width: 1100, height: 420),
+                                  configuration: ReaderCanvasConfiguration(isRightToLeft: rtl))
+            hosts.append(host)
+            host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+            host.layOut()
+            // Geometry alone puts a lower or right-hand column second; the reading order is the source's.
+            let columns = try XCTUnwrap(host.canvas.accessibilityElements as? [ReaderTextView])
+            XCTAssertEqual(columns.count, 2)
+            XCTAssertLessThan(columns[0].placement.offset, columns[1].placement.offset)
+            XCTAssertEqual(columns[0].frame.minX < columns[1].frame.minX, !rtl)
+            XCTAssertFalse(host.canvas.isAccessibilityElement)
+            host.canvas.configuration.flow = .scrolled
+            host.layOut()
+            XCTAssertNil(host.canvas.accessibilityElements, "continuous scroll keeps UIKit's own traversal")
+        }
+    }
+
     func testLayoutOnlyParagraphMetadataDoesNotSplitAccessibleLinesOrInventHeadings() throws {
         let text = NSMutableAttributedString(attributedString:
             CanvasText.body("An ordinary body paragraph " + CanvasText.sentence(200, seed: 0)))

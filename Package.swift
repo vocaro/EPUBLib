@@ -16,6 +16,7 @@ let package = Package(
         .package(url: "https://github.com/vocaro/MathMLLayout.git", exact: "0.1.0"),
     ],
     targets: [
+        .executableTarget(name: "SearchFocusProbe", dependencies: ["EPUBCore", "EPUBReading", "EPUBViewing", "EPUBTestSupport"], path: "Examples/SearchFocusProbe"),
         .target(name: "EPUBCore"),
         .target(name: "EPUBReading", dependencies: ["EPUBCore", "ZIPFoundation"]),
         .target(name: "EPUBText", dependencies: ["EPUBCore", "EPUBReading"]),

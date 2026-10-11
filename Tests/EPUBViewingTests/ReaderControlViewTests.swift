@@ -397,6 +397,17 @@ import UIKit
         XCTAssertEqual(session.visibleRange?.start, found, "clearing does not move the reader")
     }
     #else
+    /// The strip's search field is always on screen. Taking focus as it appears would raise the
+    /// keyboard over the book as soon as it opens, and start VoiceOver in an editing field.
+    func testInlineSearchFieldLeavesFocusAloneWhenItAppears() async throws {
+        let model = try controls(Session())
+        let host = Host(EPUBReaderControlStrip(controls: model, groups: [.pages, .search]))
+        defer { host.close() }
+        let field = try await host.view(UITextField.self, "the inline search field")
+        for _ in 0..<25 where !field.isFirstResponder { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertFalse(field.isFirstResponder)
+    }
+
     /// A hardware key reaches the reader's page commands only through its own responders. The
     /// search field beside it is not among them, so Space and the arrows stay editing keys.
     func testSearchFieldIsOutsideTheReadersPageKeyCommands() async throws {

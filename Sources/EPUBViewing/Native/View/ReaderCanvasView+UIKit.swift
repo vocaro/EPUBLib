@@ -259,6 +259,17 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         turnPageFromInput(forward: forward)
     }
 
+    /// VoiceOver orders sibling containers by their frames, top first. A column starting below
+    /// its neighbour, as a chapter opening does with its top spacing, or placed to its right in
+    /// a right-to-left book, was read after the page that follows it. Columns are in source order.
+    override var accessibilityElements: [Any]? {
+        get {
+            guard configuration.flow == .paginated, imageInspector == nil else { return super.accessibilityElements }
+            return columns.filter { !$0.isHidden } + [selectionContinuation].compactMap { $0 }
+        }
+        set { super.accessibilityElements = newValue }
+    }
+
     /// VoiceOver's three-finger swipes turn pages: towards the left or up reads forward (mirrored
     /// right to left), and the page is announced.
     override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
