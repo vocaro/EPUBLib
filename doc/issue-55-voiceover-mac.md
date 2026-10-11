@@ -49,9 +49,10 @@ VoiceOver then read the new page from its first line. It also says "2 updated it
 columns, or repeats the item under its cursor.
 
 **A nonsensical line count.** VoiceOver described a column as "text 9,223,372,036,854,775,808
-visible lines": the insertion point after the page's last character had no accessibility
-line. It is now on the last line (`1ea923c`); Control-Option-F3 twice reports "8 lines 8
-visible lines", "13 lines 13 visible lines", "14…", "19…" and "21…", matching the observer.
+visible lines". That is one more than `NSNotFound`, which was the line reported for the
+insertion point after the page's last character. It is now on the last line (`1ea923c`);
+Control-Option-F3 twice reports "8 lines 8 visible lines", "13 lines 13 visible lines", "14…",
+"19…" and "21…", matching the observer's line counts.
 
 **Silence after the page became shorter.** VoiceOver restores its own text cursor when it
 enters a column. With that cursor at the end of a 21-point column, a text-size increase left
@@ -105,10 +106,10 @@ after VoiceOver activated Next Page in two columns at 17 points (values abbrevia
 XCTest's own column values, re-queried for each read, followed every native page turn,
 text-size change and resize within about 0.3 seconds and matched the fresh external reads;
 one read in between paired a new right column with the previous left one. They did the same
-on a scratch build with the value and layout notifications removed. The
-stale first-page values of the initial session were therefore not caused by the missing
-notification and were not reproduced; a value held from an earlier query is the likely
-source. They are not page-turn failures.
+on a scratch build with the value and layout notifications removed. The stale first-page
+values of the initial session were therefore not caused by the missing notification and were
+not reproduced; a value held from an earlier query is the likely source. They are not
+page-turn failures.
 
 ## What remains VoiceOver's own
 
