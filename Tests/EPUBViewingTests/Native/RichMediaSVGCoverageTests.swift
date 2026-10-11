@@ -235,6 +235,7 @@ final class RichMediaSVGCoverageTests: XCTestCase {
     /// this is a crash on hostile input. See Sources/EPUBViewing/Native/Rich/ImageContent.swift:186
     /// (and SVGContent.placement, which does not bound the returned rect). Re-enable once the
     /// overflow is guarded.
+    // https://github.com/vocaro/EPUBLib/issues/135
     func disabled_testTinyViewBoxWrapperTrapsOnDraw() throws {
         let png = RichMediaImages.solid(width: 40, height: 20)
         let body = "<p><svg \(Self.ns) viewBox='0 0 1e-20 1e-20'><image width='10' height='5' href='w.png'/></svg></p>"

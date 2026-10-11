@@ -343,6 +343,7 @@ final class PositionSearchCoverageTests: XCTestCase {
     /// sensitivity `Intl.Collator('ja')` equates らあめん with ラーメン and こころ with こゝろ, and
     /// so does the comparison here. The prefilter's keys are per character and drop them.
     func testJapaneseLengthAndIterationMarksAreNotLostToThePrefilter() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/106")
         let document = try document("<p>ラーメン らあめん コーヒー こゝろ かゞみ</p>", lang: "ja")
         for (query, expected) in [("らあめん", ["ラーメン", "らあめん"]), ("こおひい", ["コーヒー"]), ("こころ", ["こゝろ"]), ("かがみ", ["かゞみ"])] {
             let complete = TextSearch.matches(of: query, in: document, locale: "ja", usePrefilter: false).map { TextSearch.text(of: $0, in: document) }
@@ -356,6 +357,7 @@ final class PositionSearchCoverageTests: XCTestCase {
     /// every locale does). The Swedish and Danish key path folds case first, which spells the
     /// subscript out as a second letter, so the keys no longer agree.
     func testGreekIotaSubscriptIsNotLostToThePrefilterInSwedishAndDanish() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/106")
         for locale in ["en", "sv", "da"] {
             let document = try document("<p>ἐν τῷ κόσμῳ, τω ᾳ ᾼ</p>", lang: locale)
             for (query, expected) in [("τω", ["τῷ", "τω"]), ("α", ["ᾳ", "ᾼ"]), ("κοσμω", ["κόσμῳ"])] {
@@ -374,6 +376,7 @@ final class PositionSearchCoverageTests: XCTestCase {
     /// converters produce; typed queries are composed) must still be found. The comparison
     /// here fails when the grapheme that differs in form is the last of the window.
     func testCanonicallyEquivalentHangulAndKanaMatchAcrossNormalizationForms() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/107")
         let cases: [(String, String, String, String)] = [
             ("ko", "Hangul", "\u{D55C}\u{AE00}", "\u{1112}\u{1161}\u{11AB}\u{1100}\u{1173}\u{11AF}"),
             ("en", "Hangul in an English book", "\u{D55C}\u{AE00}", "\u{1112}\u{1161}\u{11AB}\u{1100}\u{1173}\u{11AF}"),
@@ -400,6 +403,7 @@ final class PositionSearchCoverageTests: XCTestCase {
     /// basic letter (`Intl.Collator('en', { sensitivity: 'base' })` equates a with 🅰 and s with
     /// ꞅ). The prefilter derives keys from decompositions and files them elsewhere.
     func testLettersWithoutDecompositionsAreNotLostToThePrefilter() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/106")
         let document = try document("<p>🅰 a ꞅ s Ꝛ r</p>")
         for (query, expected) in [("a", ["🅰", "a"]), ("s", ["ꞅ", "s"]), ("r", ["Ꝛ", "r"])] {
             let complete = TextSearch.matches(of: query, in: document, locale: "en", usePrefilter: false).map { TextSearch.text(of: $0, in: document) }

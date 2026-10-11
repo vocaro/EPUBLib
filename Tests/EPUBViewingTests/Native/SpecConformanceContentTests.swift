@@ -166,6 +166,7 @@ import UIKit
     /// media type resource like any other, and RS 3.4 only forbids opening one as a top-level
     /// document (W3C test pub-data-urls_browsing-context).
     func testAnImageInADataURLIsShown() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/134")
         let png = Book.image(width: 40, height: 30).base64EncodedString()
         let book = try build("<p>Before.</p><p><img src=\"data:image/png;base64,\(png)\" alt=\"An embedded square\"/></p>")
         let section = book[0]
@@ -261,6 +262,7 @@ import UIKit
     /// its fallback, never its own bytes read as markup (W3C tests pub-foreign_json-spine,
     /// lay-pp-images-in-spine).
     func testASpineItemOfAForeignTypeShowsItsManifestFallback() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/78")
         var book = Book()
         book.add(href: "data.json", id: "data", mediaType: "application/json", Data(#"{ "chapter": [ { "text": "Raw data, not for reading." } ] }"#.utf8),
                  item: "fallback=\"data-fallback\"")
@@ -296,6 +298,7 @@ import UIKit
     /// RS 5.4 and EPUB 3.3 section 3.5.2.2: an `img` may reference a foreign resource when the
     /// manifest gives it a fallback, which a reader that cannot show the resource uses.
     func testAnImageOfAForeignTypeShowsItsManifestFallback() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/78")
         let book = try build("<p><img src=\"chart.xcf\" alt=\"A chart\"/></p>") { book in
             book.resource("chart.xcf", id: "chart", mediaType: "image/x-xcf", Data("gimp xcf file, which nothing here decodes".utf8),
                           item: "fallback=\"chart-png\"")
@@ -311,6 +314,7 @@ import UIKit
     /// scripted spine item whose manifest item names a fallback shows the fallback (W3C test
     /// scr-support-fallback).
     func testAScriptedDocumentWithAManifestFallbackShowsTheFallback() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/78")
         var book = Book()
         book.add("interactive", item: "properties=\"scripted\" fallback=\"static\"", body: """
             <p id="output">Nothing has been computed, because no script ran.</p>
@@ -414,6 +418,7 @@ import UIKit
     /// allowed". The attribute is not allowed in the `head`: a `title` typed `footnote` is no
     /// note, so nothing is shown in place of a reference to it (W3C test pss-support_ignore-title).
     func testStructuralSemanticsOnTheTitleElementAreIgnored() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/133")
         var book = Book()
         book.add(href: "chapter.xhtml", id: "chapter", mediaType: "application/xhtml+xml", Data("""
             <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en">
@@ -473,6 +478,7 @@ import UIKit
     /// the package's `dc:language`: what the reader generates from language (the marks around a
     /// `q`) is the same whatever the package says (W3C test pkg-lang_but_not_content).
     func testThePackagesLanguageIsNotAssumedForContent() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/109")
         let body = "<p>She said <q>the better is the enemy of the good</q>.</p>"
         var rendered: [String: String] = [:]
         for language in ["en", "fr", "de", "ja"] {

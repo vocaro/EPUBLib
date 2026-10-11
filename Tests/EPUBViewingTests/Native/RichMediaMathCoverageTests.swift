@@ -250,6 +250,7 @@ final class RichMediaMathCoverageTests: XCTestCase {
     /// the plus-minus operator is lost. (Without a DOCTYPE the same entities instead leak as the
     /// literal text "&PlusMinus;" and the whole section loses CFI support.)
     func testNamedMathMLEntitiesAreDecoded() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/100")
         let doc = "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1 plus MathML 2.0//EN\" \"http://www.w3.org/Math/DTD/mathml2/xhtml-math11-f.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>T</title></head><body><p>\(F.math("<mi>a</mi><mo>&InvisibleTimes;</mo><mi>b</mi><mo>&PlusMinus;</mo><mi>c</mi>"))</p></body></html>"
         let text = try RichMediaBook(section: doc).build()
         let formula = try XCTUnwrap(text.richMediaFormulas.first)

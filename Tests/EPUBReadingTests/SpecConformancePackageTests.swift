@@ -155,6 +155,7 @@ final class SpecConformancePackageTests: XCTestCase {
     /// RS 5.3: "Reading systems MUST strip and collapse ASCII whitespace from Dublin Core and
     /// meta element values before processing" (W3C test pkg-meta-whitespace).
     func testMetadataValuesAreStrippedAndCollapsed() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/75")
         var book = twoChapters()
         book.metadata = """
             <dc:title>
@@ -309,6 +310,7 @@ final class SpecConformancePackageTests: XCTestCase {
     /// RS 5.5.1: when an itemref carries more than one override of the same property, only the
     /// first is used (W3C test fxl-spine-overrides_duplicate).
     func testTheFirstOfSeveralLayoutOverridesWins() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/79")
         var book = Book()
         book.metadata += "<meta property=\"rendition:layout\">pre-paginated</meta>"
         book.add("page", body: "<p>A fixed page.</p>")
@@ -361,6 +363,7 @@ final class SpecConformancePackageTests: XCTestCase {
     /// its words separated by single spaces, as a browser renders it (and as foliate-js's
     /// `normalizeWhitespace` read it).
     func testANavigationLabelWrappedByItsAuthoringToolReadsAsCollapsedText() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/75")
         var book = twoChapters()
         book.navigation = """
             <nav epub:type="toc">

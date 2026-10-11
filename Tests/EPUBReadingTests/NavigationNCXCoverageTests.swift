@@ -123,6 +123,7 @@ final class NavigationNCXCoverageTests: XCTestCase {
     }
 
     func testWhiteSpaceInAnNCXLabelIsCollapsed() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/75")
         // As in the navigation document: a label wrapped by a pretty-printer is one line of text.
         let document = ncx("""
             <navMap>

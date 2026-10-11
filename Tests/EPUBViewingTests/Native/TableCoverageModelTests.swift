@@ -48,6 +48,7 @@ final class TableCoverageModelTests: XCTestCase {
     /// integers (§2.3.4.2): leading ASCII whitespace is skipped and the digits are read up to
     /// the first character that is not one, so `" 2"`, `"2 "`, `"2px"` and `"2.9"` are all 2.
     func testSpanAttributesAreReadAsHTMLNonNegativeIntegers() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/143")
         for value in [" 2", "2 ", "\t2\n", "2px", "2.9", "+2", "02"] {
             let columns = try TableCoverage.table("<table><tr><td colspan='\(value)'>A</td></tr><tr><td>B</td><td>C</td></tr></table>")
             XCTAssertEqual(TableCoverage.grid(columns).first, ["A@0x2"], "colspan=\(value.debugDescription)")
@@ -73,6 +74,7 @@ final class TableCoverageModelTests: XCTestCase {
     /// than that; a title row written with a large `colspan` to span "everything" still has to
     /// show its text.
     func testACellSpanningMoreColumnsThanTheReaderLaysOutKeepsItsText() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/139")
         for span in [TableModel.maximumColumns + 1, 1000, 100_000] {
             let text = try plain("<table><tr><td colspan='\(span)'>Quarterly totals</td></tr><tr><td>North</td><td>South</td></tr></table>")
             XCTAssertTrue(text.contains("Quarterly totals"), "colspan=\(span) rendered \(text.debugDescription)")
@@ -98,6 +100,7 @@ final class TableCoverageModelTests: XCTestCase {
     /// title row (a common way to say "all columns") lays out like `colspan="3"`: at most one
     /// more border spacing than `colspan="2"`. Here every phantom column adds its own.
     func testColumnsNoCellStartsInAddNoWidth() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/140")
         func width(_ span: Int) throws -> CGFloat {
             try TableCoverage.table("<table><tr><td colspan='\(span)'>T</td></tr><tr><td>North</td><td>South</td></tr></table>")
                 .constraints.minimumTableWidth
@@ -279,6 +282,7 @@ final class TableCoverageModelTests: XCTestCase {
     /// parsed as XML, which performs no tree repair, so such markup reaches the renderer as
     /// written and browsers show its content.
     func testContentInATableOutsideItsRowsAndCellsIsStillShown() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/139")
         let cellInTable = try plain("<table><tr><td>A</td><td>B</td></tr><td>Cell without a row</td></table>")
         XCTAssertTrue(cellInTable.contains("Cell without a row"), cellInTable.debugDescription)
         let cellInGroup = try plain("<table><tbody><tr><td>A</td><td>B</td></tr><td>Cell in a group</td></tbody></table>")
@@ -299,6 +303,7 @@ final class TableCoverageModelTests: XCTestCase {
     /// CSS 2.2 §17.2: "All elements with 'display: table-caption' must be rendered", and §17.4
     /// places every caption box in the table wrapper.
     func testEveryCaptionIsShown() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/139")
         let text = try plain("<table><caption>Table 4</caption><caption>Source: field notes</caption><tr><td>A</td><td>B</td></tr></table>")
         XCTAssertTrue(text.contains("Table 4"), text.debugDescription)
         XCTAssertTrue(text.contains("Source: field notes"), text.debugDescription)
@@ -460,6 +465,7 @@ final class TableCoverageModelTests: XCTestCase {
     /// Rendering nests at most eight levels; past that a cell is shown as its plain text. The
     /// words of separate cells are still separate words.
     func testTablesNestedPastTheRenderingDepthKeepTheirCellsApart() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/144")
         var markup = "<table><tr><td>leaf</td><td>twig</td></tr></table>"
         for level in 0..<10 { markup = "<table><tr><td>\(markup)</td><td>level\(level)</td></tr></table>" }
         let text = try plain(markup)
@@ -513,6 +519,7 @@ final class TableCoverageModelTests: XCTestCase {
     /// CSS 2.2 §17.2: the footer group is displayed after all other rows. A callout written the
     /// HTML 4 way, `tfoot` before `tbody`, reads body first in a browser.
     func testAOneColumnTableWithItsFooterWrittenFirstReadsTheBodyFirst() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/144")
         let text = try plain("<table><tfoot><tr><td>Source: survey</td></tr></tfoot><tbody><tr><td>Finding one</td></tr><tr><td>Finding two</td></tr></tbody></table>")
         XCTAssertEqual(text, "Finding one\nFinding two\nSource: survey")
     }

@@ -163,6 +163,7 @@ final class CSSCascadeValueCoverageTests: XCTestCase {
 
     /// CSS Values 4 §10 (calc() syntax): "whitespace is required on both sides of the + and - operators."
     func testCalcRequiresWhitespaceOnBothSidesOfPlus() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/125")
         let style = try CSSCascadeSupport.paragraph("width: 11px; width: calc(1px+ 2px)")
         XCTAssertEqual(style.width, .points(11), "`calc(1px+ 2px)` is invalid, as `calc(1px +2px)` is, so the earlier width stays")
     }
@@ -170,6 +171,7 @@ final class CSSCascadeValueCoverageTests: XCTestCase {
     /// CSS Values 4 §10 (calc() syntax): `<calc-product> = <calc-value> [ [ '*' | '/' ] <calc-value> ]*`, where a
     /// `<calc-value>` is also a parenthesized sum; a product needs only one side to be a number.
     func testCalcMultipliesAndDividesByNumericSubexpressions() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/122")
         let cases: [(String, CGFloat)] = [("calc(2 * 3 * 4px)", 24), ("calc((1 + 2) * 4px)", 12), ("calc(4px * (1 + 2))", 12),
                                           ("calc(2 / 4 * 10px)", 5), ("calc(12px / (1 + 2))", 4), ("calc(1em * (18 / 16))", 18)]
         let styles = try paragraphs(cases.map { "width: \($0.0)" })
@@ -182,6 +184,7 @@ final class CSSCascadeValueCoverageTests: XCTestCase {
     /// `line-height` takes a `<number>`, and a math function may stand wherever its type is allowed
     /// (CSS Values 4 §10): designers write the ratio, `calc(24 / 16)`.
     func testLineHeightAcceptsANumericCalcExpression() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/122")
         let styles = try paragraphs(["line-height: calc(24 / 16)", "line-height: calc(1 + 0.5)", "line-height: calc(1.5)"])
         XCTAssertEqual(styles[2].lineHeight, .multiple(1.5))
         XCTAssertEqual(styles[0].lineHeight, .multiple(1.5), "calc(24 / 16)")
@@ -268,6 +271,7 @@ final class CSSCascadeValueCoverageTests: XCTestCase {
     /// the closest value supported by the implementation". A number past `Double`'s range is
     /// such a value, and the closest supported one is the largest, as for `1e30px`.
     func testNumbersBeyondDoubleRangeClampLikeOtherHugeValues() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/125")
         let styles = try paragraphs(["width: 1e30px", "width: 1e400px", "font-size: 1e30px", "font-size: 1e400px",
                                      "margin-left: -1e30px", "margin-left: -1e400px"])
         XCTAssertEqual(styles[1].width, styles[0].width, "width: 1e400px")
@@ -300,6 +304,7 @@ final class CSSCascadeValueCoverageTests: XCTestCase {
     /// CSS Values 4 §6.1.1: `lh` is "the computed value of the line-height property of the
     /// element on which it is used", and `rlh` "the value of the lh unit on the root element".
     func testLhAndRlhFollowTheComputedLineHeight() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/125")
         let result = try CSSCascadeSupport.styled(#"<p id="p">x</p><p id="q">y</p>"#, css: """
             html { line-height: 2 }
             #p { font-size: 20px; line-height: 3; margin-top: 1lh; margin-bottom: 1rlh }
@@ -328,6 +333,7 @@ final class CSSCascadeValueCoverageTests: XCTestCase {
     /// CSS Values 4 §6.1: rem is "the computed value of the em unit on the root element". Only in
     /// the root's own `font-size` does it stand for the initial size instead.
     func testRemInTheRootsOtherPropertiesIsTheRootsOwnComputedFontSize() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/118")
         let section = """
             <html xmlns="http://www.w3.org/1999/xhtml" id="html"><head><title>T</title><style>
             html { font-size: 20px; padding-left: 2rem; text-indent: 1rem; line-height: 1.5rem }

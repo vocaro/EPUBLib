@@ -312,6 +312,7 @@ final class RichMediaImageCoverageTests: XCTestCase {
     /// `data:` URL MUST be displayed. The engine decodes `data:` images inside SVG already, but a
     /// top-level `<img src="data:...">` is counted unreadable and shown as its alt text instead.
     func testDataURLImageIsDisplayed() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/134")
         let b64 = RichMediaImages.solid(width: 40, height: 20).base64EncodedString()
         let (image, text) = try firstImage("<p><img src='data:image/png;base64,\(b64)' alt='Data'/></p>")
         XCTAssertNotNil(image, "a data: URL image must be displayed, not shown as alt text")

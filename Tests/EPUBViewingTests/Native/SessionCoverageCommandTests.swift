@@ -346,6 +346,7 @@ import XCTest
     /// linear" — "a book with no linear section keeps all". Such a book has to be readable from
     /// end to end by page turns in either flow.
     func testABookWithNoLinearSectionIsReadThroughByPageTurnsInEitherFlow() async throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/159")
         for flow in [EPUBReadingFlow.scrolled, .paginated] {
             let reader = try open(SessionCoverageBook.epub([
                 Section("a", "<p>First section.</p>\(SessionCoverageBook.filler(60))", linear: false),
@@ -588,6 +589,7 @@ import XCTest
     /// footnote) is a place to go, not a passage to select; one that renders is preferred."
     /// Where in its section the hidden content sits cannot change which occurrence is chosen.
     func testLocatePrefersARenderedOccurrenceWhereverAnEarlierHiddenOneSitsInItsSection() async throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/158")
         let hidden = "<p style=\"display:none\">Twice told tale, kept from readers.</p>"
         let placements = [
             ("at its section's start", hidden + "<p>Second chapter.</p>" + SessionCoverageBook.filler(20)),

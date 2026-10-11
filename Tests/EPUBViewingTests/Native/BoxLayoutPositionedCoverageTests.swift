@@ -99,6 +99,7 @@ import UIKit
     /// and the box's right edge is at the inset. The reader gives the box the whole column, so
     /// a note positioned at the right appears at the left.
     func testAnAbsoluteBoxWithOnlyARightInsetEndsAtThatInset() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/153")
         let (section, view) = try layout("<aside>Note.</aside><p>\(H.prose)</p>", css: "aside { position:absolute; right:40px; top:10px }")
         let note = H.frame("Note.", in: section, view: view)
         XCTAssertEqual(note.minY, 10, accuracy: 1)
@@ -110,12 +111,14 @@ import UIKit
     /// CSS 2.2 10.3.7: with `left`, `width` and `right` all set and both side margins auto, the
     /// margins are equal: the box is centred between the insets.
     func testAnAbsoluteBoxBetweenLeftAndRightInsetsWithAutoMarginsIsCentred() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/153")
         let frame = try callout("top:0; left:0; right:0; width:100px; margin:0 auto")
         XCTAssertEqual(frame.midX, 180, accuracy: 1, "centred between left:0 and right:0")
     }
 
     /// CSS 2.2 10.3.7: over-constrained in a right-to-left containing block, `left` is ignored.
     func testOverConstrainedInsetsIgnoreLeftInARightToLeftContainingBlock() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/153")
         let (section, view) = try layout("<div class='c' dir='rtl'><aside>Callout words.</aside><p>نص عربي قصير.</p></div>",
                                          css: ".c { position:relative; direction:rtl } aside { position:absolute; left:20px; right:40px; width:100px; top:0 }")
         let region = try XCTUnwrap(H.region("Callout words.", in: section, view: view))
@@ -213,6 +216,7 @@ import UIKit
     /// CSS 2.2 9.4.3: `left` moves a relatively positioned box to the right by that amount. The
     /// reader drops the offset of a box as wide as the column, the usual case.
     func testARelativeLeftOffsetMovesAFullWidthBlock() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/153")
         let (section, view) = try layout("<p>Before words.</p><div class='r'><p>Relative words.</p></div><p>After words.</p>",
                                          css: ".r { position:relative; left:30px }")
         XCTAssertEqual(H.frame("Before words.", in: section, view: view).minX, 0, accuracy: 0.5)

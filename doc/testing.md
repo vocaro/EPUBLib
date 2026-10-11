@@ -96,6 +96,21 @@ pane beside a real reader, and that the field stands outside the reader's page k
 draws the supplied buttons and menus itself and exposes them to no in-process test; their
 names, capabilities and disabled states are checked in the model they read.
 
+Coverage-gap suites (`…CoverageTests`, `SpecConformance…`, `EPUBCheck…`) come from a review
+of the package by source area, against the EPUB Reading Systems 3.3 requirements one by one
+and against EPUBCheck's scenario inventory. Their fixtures are original and built in code. A
+test that exposes an open defect is marked `XCTExpectFailure` (or `withKnownIssue`) with its
+issue's URL, and fails once the defect is fixed: remove the marker with the fix. Ratio-timed
+cost tests and tests that fail on one platform only are marked non-strictly or for that
+platform. A test whose input kills the test process is disabled by name (`disabled_test…`)
+with its issue above it. Three corpus runs are opt-in: `EPUBLIB_W3C_EPUB_TESTS` (the `tests`
+directory of w3c/epub-tests) holds each W3C reading-system test to an expected outcome,
+`EPUBLIB_EPUBCHECK_FIXTURES` (`src/test/resources` of w3c/epubcheck) takes every EPUBCheck
+fixture through opening, text extraction and a native build, and `EPUBLIB_EPUBCHECK_CLI` (the
+`epubcheck` executable, macOS only) validates a matrix of written books.
+`EPUBLIB_W3C_EPUB_TESTS_REPORT` (a file) and `EPUBLIB_EPUBCHECK_REPORT` (a directory) keep
+their per-fixture results. Those runs fail today on the same open issues.
+
 These are deterministic regression fixtures, not an EPUB conformance certification, a comprehensive
 typographic review, an accessibility audit or a memory budget measurement. They do not establish
 VoiceOver speech or focus order, keyboard-only traversal, native toolbar overflow or iPhone Duo

@@ -173,6 +173,7 @@ import UIKit
     /// `option`, `control`) match exactly". AppKit's `charactersIgnoringModifiers` ignores every
     /// modifier except Shift, so Shift-1 on a US keyboard arrives as "!".
     func testADigitBoundWithShiftTurnsThePageWhenItsKeyIsPressedWithShift() {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/163")
         let host = host([CanvasText.body("Keys")])
         let controls = EPUBPageControls(keyboardBindings: [.init(.character("1"), modifiers: .shift, action: .next),
                                                           .init(.character("2"), modifiers: [.command, .shift], action: .previous)])
@@ -222,6 +223,7 @@ import UIKit
     /// is a tenth of a line (Chromium's `web_input_event_builders_mac.mm`, "Of Mice and Men");
     /// WebKit and Chromium make 4 pixels of it (40 a line), the 4 points the reader asks for.
     func testOneSlowNotchOfAMouseWheelTurnsThePage() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/163")
         let host = host([CanvasText.section(0, paragraphs: 30)])
         let canvas = host.canvas
         let first = try XCTUnwrap(canvas.visibleRange?.start)

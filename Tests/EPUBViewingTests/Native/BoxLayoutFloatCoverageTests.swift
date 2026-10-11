@@ -299,6 +299,7 @@ import UIKit
     /// so everything inside it starts below them. The reader reads `clear` only from the block
     /// that directly owns a paragraph.
     func testClearOnABlockContainerMovesItsParagraphsBelowTheFloat() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/151")
         let (section, view) = try layout("<figure>Alpha box.</figure><div class='c'><p>Cleared words here.</p></div>",
                                          css: "figure { float:left; width:100px; height:80px } .c { clear:both }")
         let frame = H.frame("Cleared words here.", in: section, view: view)
@@ -309,6 +310,7 @@ import UIKit
     /// HTML's rendering section gives `br` the `clear` property (`br[clear]`), and every browser
     /// starts the next line below the floats: the idiom old books use after a floated figure.
     func testALineBreakWithClearMovesTheRestOfItsParagraphBelowTheFloat() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/151")
         let (section, view) = try layout("<figure>Alpha box.</figure><p>Short.<br style='clear:both'/>Cleared words here.</p>",
                                          css: "figure { float:left; width:100px; height:80px }")
         XCTAssertEqual(H.frame("Short.", in: section, view: view).minY, 0, accuracy: 1, "before the break: beside the float")
@@ -318,6 +320,7 @@ import UIKit
     /// CSS 2.2 9.5.2: on a float, `clear` adds the constraint that its top is below the bottom of
     /// earlier floats of the named side.
     func testClearOnAFloatPutsItBelowEarlierFloatsOfTheOtherSide() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/151")
         let (section, view) = try layout("<figure class='l'>Alpha box.</figure><figure class='r'>Beta box.</figure><p>\(H.prose)</p>",
                                          css: "figure { width:100px; height:80px } .l { float:left } .r { float:right; clear:left }")
         let right = try XCTUnwrap(H.region("Beta box.", in: section, view: view))
@@ -330,6 +333,7 @@ import UIKit
     /// CSS 2.2 9.5 and 10.1: a float moves to the edge of its containing block, the content box
     /// of its nearest block container, not to the edge of the column.
     func testAFloatInsideAnIndentedBlockSitsAtThatBlocksContentEdge() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/150")
         for (side, edge) in [("left", CGFloat(40)), ("right", 320)] {
             let (section, view) = try layout("<blockquote><figure>Alpha box.</figure><p>\(H.prose)</p></blockquote>",
                                              css: "blockquote { margin:0 40px } figure { float:\(side); width:100px; height:60px }")
@@ -342,6 +346,7 @@ import UIKit
     /// CSS 2.2 9.5: line boxes beside a float are shortened to make room for it, so a paragraph
     /// whose own margin is narrower than the float starts at the float's edge.
     func testProseWithItsOwnLeftMarginStartsAtTheFloatsEdgeNotPastIt() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/150")
         let (section, view) = try layout("<figure>Alpha box.</figure><p class='m'>\(H.prose)</p>",
                                          css: "figure { float:left; width:100px; height:60px } .m { margin-left:50px }")
         let region = try XCTUnwrap(H.region("Alpha box.", in: section, view: view))
@@ -356,6 +361,7 @@ import UIKit
     /// float in the section the reader's text container takes over line placement, and for a
     /// right-to-left paragraph with margins that placement leaves the column.
     func testRightToLeftProseWithMarginsKeepsThemInASectionWithAFloat() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/150")
         let column = CGSize(width: 400, height: 600)
         let css = "figure { float:left; width:100px; height:40px } .m { margin:0 30px 0 50px }"
         /// The horizontal extent of the paragraph's selectable text, over all of its lines.
@@ -381,6 +387,7 @@ import UIKit
     /// CSS Logical Properties 1, 3.1: `inline-start` and `inline-end` map to left and right by
     /// the containing block's direction.
     func testFloatInlineStartAndInlineEndFollowTheWritingDirection() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/124")
         let css = "figure { width:100px; height:40px } .s { float:inline-start } .e { float:inline-end }"
         let (ltr, ltrView) = try layout("<figure class='s'>Start box.</figure><figure class='e'>End box.</figure><p>\(H.prose)</p>", css: css)
         XCTAssertEqual(try XCTUnwrap(H.region("Start box.", in: ltr, view: ltrView)).frame.minX, 0, accuracy: 0.5)
@@ -396,6 +403,7 @@ import UIKit
 
     /// CSS 2.2 10.4: when `min-width` is greater than `max-width`, the minimum wins.
     func testMinimumWidthWinsOverASmallerMaximumInBoxGeometry() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/153")
         let limits = "width:100px; min-width:200px; max-width:150px"
         var (section, view) = try layout("<figure>Alpha box.</figure><p>\(H.prose)</p>", css: "figure { float:left; \(limits) }")
         XCTAssertEqual(try XCTUnwrap(H.region("Alpha box.", in: section, view: view)).frame.width, 200, accuracy: 1, "a float")
@@ -411,6 +419,7 @@ import UIKit
     /// default centres a `figcaption`, and a float holding paragraphs of different alignment is
     /// measured as wide as the column.
     func testAnAutoWidthFloatedFigureWithACaptionShrinksToItsContent() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/148")
         let (section, view) = try layout("<figure><img src='picture.png' alt='Pic'/><figcaption>Caption text.</figcaption></figure><p>\(H.prose)</p>",
                                          css: "figure { float:left } img { width:120px; height:80px }",
                                          files: ["picture.png": RichFixture.image(width: 240, height: 160)])
@@ -425,6 +434,7 @@ import UIKit
     /// CSS 2.2 10.2: a percentage width refers to the containing block, here the float's 160-point
     /// content box. The image is sized against the whole column instead and leaves the float.
     func testAPercentageWidthImageInsideASizedFloatIsSizedByTheFloat() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/148")
         let column = CGSize(width: 400, height: 600)
         for declaration in ["width:100%", "max-width:100%"] {
             let (section, view) = try layout("<figure><img id='image' src='picture.png' alt='Pic'/><figcaption>Caption text.</figcaption></figure><p>\(H.prose)</p>",
@@ -444,6 +454,7 @@ import UIKit
     /// CSS Text 3, 5.2: with `overflow-wrap: normal` a line breaks only at a wrap opportunity, so
     /// a number wider than its float overflows on one line. The reader breaks it inside the word.
     func testAWordIsNotBrokenInsideAFloatNarrowerThanIt() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/152")
         let (section, view) = try layout("<p><span class='n'>12345</span>Verse text follows the number. \(H.prose)</p>", css: ".n { float:left; width:20px }")
         let number = H.range("12345", in: section)
         XCTAssertEqual(H.lines(in: view, intersecting: number).count, 1, "the number is one word on one line")
@@ -454,6 +465,7 @@ import UIKit
     /// box is shifted downward … until either some content fits or there are no more floats
     /// present." A word wider than the slot beside a float goes below it; it is never cut in two.
     func testProseWordsAreNotBrokenInANarrowSlotBesideAFloat() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/152")
         let words = "Extraordinarily considerable vocabulary necessitates uninterrupted consideration."
         let (section, view) = try layout("<figure>Alpha box.</figure><p>\(words) \(H.prose)</p>", css: "figure { float:left; width:300px; height:120px }")
         let text = section.string.string as NSString
@@ -475,6 +487,7 @@ import UIKit
     /// a page. Oversized groups … instead continue as native blocks". Each row here is one float
     /// and the one line beside it; rows that only touch are not one group.
     func testARunOfFloatAndTextRowsLongerThanAPageKeepsItsFloats() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/149")
         func rows(_ count: Int) throws -> (SectionText, ReaderTextView) {
             try layout("<dl>" + (0..<count).map { "<dt>Term\($0)</dt><dd>Meaning \($0).</dd>" }.joined() + "</dl>",
                        css: "dl, dt, dd { margin:0; padding:0 } dt { float:left; width:80px }")

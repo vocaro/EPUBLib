@@ -168,6 +168,7 @@ final class CSSSyntaxRobustnessCoverageTests: XCTestCase {
     }
 
     func testSubsequentSiblingMatchingDoesNotGrowWithTheSquareOfTheSiblingCount() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/112", options: .nonStrict())
         // A body of a book's paragraphs under one parent is ordinary, and a hostile one may hold
         // every node the document bound allows. Four times the siblings is four times the
         // elements to style; sixteen times the work means each one rescans all before it.

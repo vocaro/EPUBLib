@@ -108,6 +108,7 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
     }
 
     func testClassNamesAreSeparatedByASCIIWhitespaceOnly() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // Selectors 4 §6.6: `.x` is `[class~=x]`, a whitespace-separated list, and CSS and HTML
         // whitespace is space, tab, line feed, carriage return and form feed.
         let body = #"<p id="ascii" class="a&#9;b&#10;c&#13;d">x</p><p id="nbsp" class="x&#160;y">y</p>"#
@@ -261,6 +262,7 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
     }
 
     func testADefaultNamespaceDoesNotReachInsideNotAndIsWithoutAnExplicitTypeOrUniversal() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // Selectors 4 §4.2 and §4.3: "Default namespace declarations do not affect the compound
         // selector representing the subject of any selector within a :is() [:not()] pseudo-class,
         // unless that compound selector contains an explicit universal selector or type selector."
@@ -295,6 +297,7 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
     }
 
     func testANamespaceRuleAfterAStyleRuleIsIgnored() {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // CSS Namespaces §3: "Any @namespace rules must follow all @charset and @import rules and
         // precede all other non-ignored at-rules and style rules in a style sheet."
         let sheet = CSSSyntaxSupport.sheet(#"p { clear: both } @namespace svg "http://www.w3.org/2000/svg"; svg|a { clear: both }"#)
@@ -409,6 +412,7 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
     }
 
     func testAPseudoElementInsideIsNeverMatchesTheElementItself() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // Selectors 4 §4.2: "Pseudo-elements cannot be represented by the matches-any pseudo-class;
         // they are not valid within :is()." The forgiving list drops that argument.
         XCTAssertEqual(try matched("li:is(.x, li::before)", in: list), ["l1", "l3", "l4"])
@@ -459,6 +463,7 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
     }
 
     func testAPseudoElementAloneImpliesTheUniversalSelectorAndLeavesItsListValid() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/110")
         // Selectors 4 §3.7: "a pseudo-element immediately follows the compound selector
         // representing its originating element. If this compound selector is omitted, it is
         // assumed to be the universal selector *." Resets written `*, ::before, ::after` rely on it.
@@ -470,6 +475,7 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
     }
 
     func testAnUnknownPseudoElementInvalidatesItsSelectorList() {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // Selectors 4 §3.9: UAs must treat as invalid any pseudo-elements "for which they have no
         // usable level of support", and "a selector list containing an invalid selector is invalid".
         XCTAssertEqual(CSSSyntaxSupport.subjects(CSSSyntaxSupport.sheet("p, i::no-such-pseudo-element { clear: both } q { clear: both }")), ["q"])
@@ -577,6 +583,7 @@ final class CSSSyntaxSelectorCoverageTests: XCTestCase {
     }
 
     func testAnEscapedColonAttributeSelectorMatchesThePrefixedAttributeOfAnHTMLParsedDocument() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/111")
         // In an HTML DOM the attribute's name is literally `epub:type`, so `[epub\:type]` is the
         // selector that addresses it (Selectors 4 §6.1 with an escaped identifier).
         for linked in [true, false] {

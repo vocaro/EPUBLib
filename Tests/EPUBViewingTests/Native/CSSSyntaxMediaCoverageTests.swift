@@ -50,6 +50,7 @@ final class CSSSyntaxMediaCoverageTests: XCTestCase {
     }
 
     func testNegatingAnUnknownFeatureStillMatchesNothing() {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/114")
         // Media Queries 4 §3.2: "An unknown <mf-name> or <mf-value> … results in the value
         // 'unknown'. A <media-query> whose value is 'unknown' must be replaced with not all", and
         // "the negation of unknown is unknown". web-platform-tests pins `not all and (bogus)`.

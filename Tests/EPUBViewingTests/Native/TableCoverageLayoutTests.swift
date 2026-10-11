@@ -460,6 +460,7 @@ final class TableCoverageLayoutTests: XCTestCase {
     /// crosses into the next row. The table does not stop there: its border and the spanning
     /// cell's background run on to the next row, as the cell's box does (CSS 2.2 §17.5.1).
     func testARowExtendedToFinishASpanningCellsLineKeepsItsBorderAndBackgroundToItsEnd() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/141")
         let table = try TableCoverage.table("""
         <table border="1" cellpadding="4"><tr><td rowspan="2" bgcolor="#ff0000">line one<br/>line two<br/>line three</td><td>a</td></tr>
         <tr><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>

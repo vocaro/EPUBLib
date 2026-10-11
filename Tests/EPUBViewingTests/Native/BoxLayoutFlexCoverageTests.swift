@@ -543,6 +543,7 @@ import UIKit
     /// are content of the container and come out of its free space. The reader measures the
     /// item's lines alone and puts its padding outside the box's height.
     func testAnItemsOwnPaddingIsPartOfTheContainersContent() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/154")
         let (section, view) = try scrolled("<p>Before.</p><div class='box'><div class='item'><p>Line.</p></div></div><p>After.</p>",
                                            css: ".box { \(column); justify-content:center; height:400px } .item { padding:40px 0 }")
         let top = H.frame("Before.", in: section, view: view).maxY
@@ -553,6 +554,7 @@ import UIKit
     /// CSS Flexbox 4: a flex item establishes an independent formatting context, so the margins
     /// of what it holds stay inside it (CSS 2.2 8.3.1) and count as the container's content.
     func testMarginsNestedInsideTheFirstAndLastItemsStayInsideTheBox() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/154")
         let (section, view) = try scrolled("<p>Before.</p><div class='box'><div class='item'><p class='m'>Line.</p></div></div><p>After.</p>",
                                            css: ".box { \(column); justify-content:center; height:400px } .m { margin:16px 0 }")
         let top = H.frame("Before.", in: section, view: view).maxY
@@ -563,6 +565,7 @@ import UIKit
     /// CSS Flexbox 4 and 9.7: every in-flow child is a flex item, an empty one too, and takes
     /// its share of the free space: the spacer that pushes a footer to the bottom.
     func testAnEmptyGrowingItemTakesTheFreeSpace() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/154")
         let (section, view) = try scrolled("<div class='box'><p>Top line.</p><div class='spacer'></div><p>Bottom line.</p></div><p>After.</p>",
                                            css: ".box { \(column); height:400px } .spacer { flex:1 }")
         XCTAssertEqual(H.frame("Top line.", in: section, view: view).minY, 0, accuracy: tolerance)
@@ -573,6 +576,7 @@ import UIKit
     /// CSS Box Alignment 3, 6.1 and 6.3: `left` and `right` are values of `justify-*` only.
     /// `align-items: right` is invalid, so the earlier declaration stands.
     func testAlignItemsAndAlignSelfRejectLeftAndRight() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/154")
         for value in ["right", "left"] {
             assert(try single("display:flex; flex-direction:column; align-items:center; align-items:\(value)").item, .centre, "align-items:\(value) is invalid")
             assert(try single("display:flex; flex-direction:column; align-items:center", item: "align-self:\(value)").item, .centre, "align-self:\(value) is invalid")

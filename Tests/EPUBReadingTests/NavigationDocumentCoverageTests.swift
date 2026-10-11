@@ -20,6 +20,7 @@ final class NavigationDocumentCoverageTests: XCTestCase {
     // MARK: Labels
 
     func testWhiteSpaceInAContentsLabelIsCollapsed() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/75")
         // EPUB 3.3 §7.3 defines a label as the "concatenation of all child content and application
         // of whitespace normalization rules"; HTML renders the same link with single spaces.
         let entries = try contents("""
@@ -45,6 +46,7 @@ final class NavigationDocumentCoverageTests: XCTestCase {
     }
 
     func testAnImageLabelReadsAsItsAlternativeText() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/83")
         // EPUB Reading Systems 3.3 §7: outside HTML a reader should "replace unsupported non-text
         // elements in headings and labels with their alternative text" (W3C test nav-non-text_img).
         let entries = try contents("<ol><li><a href=\"one.xhtml\"><img src=\"one.png\" alt=\"The First Chapter\"/></a></li>"
@@ -54,6 +56,7 @@ final class NavigationDocumentCoverageTests: XCTestCase {
     }
 
     func testNamedCharacterReferencesUnderAnXHTMLDoctypeDoNotVanishFromALabel() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/77")
         // With an external DOCTYPE the XML parser cannot call an undeclared reference an error, and
         // it reports no text for it. Browsers know XHTML's set by this public identifier, as this
         // library's content-document parser does; the DTD itself is never read. The label must
@@ -166,6 +169,7 @@ final class NavigationDocumentCoverageTests: XCTestCase {
     }
 
     func testAnEntryHrefSurroundedBySpacesNamesItsTarget() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/76")
         // An HTML href is a URL "potentially surrounded by spaces", stripped before parsing. EPUBCheck
         // passes content-model-a-with-leading-trailing-spaces-valid.xhtml, written this way.
         let entries = try contents("<ol><li><a href=\" one.xhtml\">Chapter 1</a></li><li><a href=\"two.xhtml#start \">Chapter 2</a></li>"
@@ -234,6 +238,7 @@ final class NavigationDocumentCoverageTests: XCTestCase {
     }
 
     func testAnEntityDeclarationInAnEncodingTheScreenDoesNotDecodeIsStillRefused() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/86")
         // doc/architecture.md: "entity declarations ... fail explicitly". In UTF-7 the declaration
         // below has no `<!` byte sequence, yet the XML parser honours the declared encoding and
         // reads `+ADw-` as `<`: a DOCTYPE with an internal subset declaring an entity.

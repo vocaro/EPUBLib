@@ -261,7 +261,13 @@ import UIKit
         #if os(macOS)
         (control as? NSButton)?.performClick(nil)
         #else
-        (control as? UIButton)?.sendActions(for: .touchUpInside)
+        // `sendActions(for:)` goes through `UIApplication.shared`, and the package's tests run without an application.
+        guard let button = control as? UIButton else { return }
+        for target in button.allTargets {
+            for action in button.actions(forTarget: target, forControlEvent: .touchUpInside) ?? [] {
+                _ = (target as NSObject).perform(NSSelectorFromString(action))
+            }
+        }
         #endif
     }
 
@@ -412,6 +418,7 @@ import UIKit
     /// "A resize, rotation or bar change repaginates once it ends": a toolbar shown over the
     /// reader takes more of its top, and the pages must move out from under it.
     func testPagesMoveClearOfAToolbarShownOverThem() async throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/162")
         let (canvas, window) = underTitleBar(flow: .paginated)
         canvas.show(ReaderTextPosition(section: 0, offset: 9_000), selecting: nil)
         canvas.layoutSubtreeIfNeeded()

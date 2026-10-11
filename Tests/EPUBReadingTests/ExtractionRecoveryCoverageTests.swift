@@ -128,6 +128,7 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
     // continues in the data state. Browsers show "p < 0.05"; an unescaped "<" is exactly why such
     // a file needs recovery.
     func testRecoveryKeepsProseAfterABareLessThanSign() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/93")
         let section = try recovered(page("<p>The result p < 0.05 was significant.</p><p>Next</p>"))
         XCTAssertEqual(section.text, "The result p < 0.05 was significant.\nNext")
     }
@@ -135,6 +136,7 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
     // HTML Standard, "after body" and "after after body" insertion modes: a start tag or text
     // there is a parse error that is reprocessed "in body", so the content stays in the document.
     func testRecoveryKeepsContentAfterAnEarlyBodyOrDocumentEndTag() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/93")
         let section = try recovered("<html xmlns='http://www.w3.org/1999/xhtml'><head><title>T</title></head><body><p>One</b></p></body></html><p>Two</p>")
         XCTAssertEqual(section.text, "One\nTwo")
     }
@@ -143,6 +145,7 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
     // doc/text-extraction.md: recovery "never yields partial text". Refusing the document would
     // also honour that; returning only what precedes the NUL does not.
     func testRecoveryDoesNotSilentlyTruncateAtANULCharacter() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/93")
         let publication = try book(page("<p>before</b></p>\u{0}<p>after</p>"))
         guard let section = try? publication.textSection(at: 0, recoversMalformedMarkup: true) else { return }
         XCTAssertEqual(section.text, "before\nafter")

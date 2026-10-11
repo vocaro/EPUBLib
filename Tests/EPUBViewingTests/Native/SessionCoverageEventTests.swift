@@ -618,6 +618,7 @@ import XCTest
     /// in place." A text size taken back before its rebuild finished leaves sections to rebuild
     /// again; once they are, the whole book must return.
     func testContinuousScrollShowsTheWholeBookAgainAfterATextSizeIsTakenBackMidRebuild() async throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/156")
         // Sections of growing size, so a rebuild reaches the small ones long before the large.
         let reader = try open(SessionCoverageBook.epub((0..<10).map {
             Section("s\($0)", "<h1>Section \($0)</h1>\(SessionCoverageBook.filler(60 + $0 * 250))")
@@ -655,6 +656,7 @@ import XCTest
     /// is `.completed`." A cancellation that arrives as the results are published either comes
     /// too late or withdraws them; it cannot report an idle search beside a published list.
     func testACancellationArrivingWithTheResultsLeavesSearchStateAndResultsAgreeing() async throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/157")
         var search: Task<Void, Error>?
         let reader = try open(SessionCoverageBook.chapters()) { event in
             if case .searchResultsChanged(.some) = event { search?.cancel() }

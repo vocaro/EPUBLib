@@ -35,6 +35,7 @@ final class EPUBCheckWriterOutputCoverageTests: XCTestCase {
     // MARK: What EPUBCheck reports of the writer's output
 
     func testABookWithoutPagesWritesNoEmptyPageList() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/94")
         // RSC-005 `element "ol" incomplete; missing required element "li"`. EPUB 3.3, 7.3: a
         // `nav`'s `ol` holds one or more `li`; the page list itself is optional (7.4.3).
         let lists = try navigation(.minimal).descendants("ol")
@@ -43,6 +44,7 @@ final class EPUBCheckWriterOutputCoverageTests: XCTestCase {
     }
 
     func testContentsWithoutAnEntryAreRefusedOrWrittenAsAValidList() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/96")
         // RSC-005, as above: the contents `nav` is required and its list needs an entry, so
         // empty contents cannot be written as they are.
         for (name, contents) in [("no entries", [EPUBNavigationItem]()), ("an entry with no target or children", [.init(title: "A heading")])] {
@@ -55,6 +57,7 @@ final class EPUBCheckWriterOutputCoverageTests: XCTestCase {
     }
 
     func testNavigationLabelsAreNeverWrittenEmpty() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/96")
         // RSC-005 "Anchors within nav elements must contain text". EPUB 3.3, 7.3: the `a` or
         // `span` "MUST provide a non-zero-length text label".
         for title in ["", "  \n", "\u{1}"] {
@@ -69,6 +72,7 @@ final class EPUBCheckWriterOutputCoverageTests: XCTestCase {
     }
 
     func testOptionalMetadataWithoutAValueIsLeftOut() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/96")
         // RSC-005 `character content of element "dc:creator" invalid; must be a string with
         // length at least 1`. EPUB 3.3, 5.5.2: these elements "MUST have non-empty values after
         // leading and trailing ASCII whitespace is stripped".
@@ -85,6 +89,7 @@ final class EPUBCheckWriterOutputCoverageTests: XCTestCase {
     }
 
     func testRequiredMetadataWithoutAValueIsRefusedOrNeverWrittenEmpty() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/96")
         // RSC-005, as above, for `dc:title`, `dc:language` and `dc:identifier`, each REQUIRED.
         var untitled = paged, unidentified = paged, unspoken = paged
         untitled.metadata.metadata = .init(title: " \n ", authors: ["Test Author"], languages: ["en"])
@@ -99,6 +104,7 @@ final class EPUBCheckWriterOutputCoverageTests: XCTestCase {
     }
 
     func testResourceIdentifiersThatAreNotXMLNamesAreRefusedOrNeverWritten() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/96")
         // RSC-005 `value of attribute "id" is invalid; must be an XML name without colons`.
         for id in ["1 chapter", "7", "a:b", "-x", "two words"] {
             var book = Book()
@@ -115,6 +121,7 @@ final class EPUBCheckWriterOutputCoverageTests: XCTestCase {
     // MARK: Facts given and facts written
 
     func testEveryLanguageGivenIsWritten() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/95")
         var book = paged
         book.metadata.metadata = .init(title: "A Written Book", languages: ["en", "fr", "ja"])
         let metadata = try XCTUnwrap(try package(book).children.first { $0.name == "metadata" })
@@ -122,6 +129,7 @@ final class EPUBCheckWriterOutputCoverageTests: XCTestCase {
     }
 
     func testEveryIdentifierGivenIsWritten() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/95")
         var book = paged
         book.metadata.metadata = .init(title: "A Written Book", languages: ["en"], identifiers: ["urn:isbn:9780000000002", "doi:10.0000/example"])
         let package = try package(book)

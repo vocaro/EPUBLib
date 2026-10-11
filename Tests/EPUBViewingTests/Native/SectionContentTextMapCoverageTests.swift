@@ -126,6 +126,7 @@ final class SectionContentTextMapCoverageTests: XCTestCase {
     }
 
     func testARangeEndingWithTheDocumentsLastImageIncludesIt() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/129")
         // Markup with nothing after its last image, not even white space (a minified cover or figure page).
         // "A range ending with an image, table or formula includes it" (`TextMap.endPosition`).
         let text = try H.build("<p>See <img src='picture.png' alt='I'/></p>")
@@ -136,6 +137,7 @@ final class SectionContentTextMapCoverageTests: XCTestCase {
     }
 
     func testARangeOfOnlyGeneratedTextIsNeverAnInvertedDOMRange() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/129")
         // A selection can hold nothing but a list marker, a quotation mark or a paragraph break. Its DOM range
         // (`position(at:)` to `endPosition(at:)`, as the session makes a CFI) must still run forwards.
         let text = try H.build("<p>A</p><ol><li>B</li></ol><p>He said <q>hi</q>.</p>")
@@ -169,6 +171,7 @@ final class SectionContentTextMapCoverageTests: XCTestCase {
     }
 
     func testPreformattedLineBreaksComeBackAsLineFeedsInThePassageText() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/128")
         // Copy and `EPUBSelection.text` are the passage text, "the book's own characters". A listing's line
         // breaks are U+000A in the book (and in any browser's copy), not the U+2028 the reader lays them out with.
         let text = try H.build("<pre>let a = 1\n  b()\n</pre>")
@@ -177,6 +180,7 @@ final class SectionContentTextMapCoverageTests: XCTestCase {
     }
 
     func testAFloatedDropCapStaysInItsWordInThePassageText() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/127")
         // The passage text is what a selection reports and what a host later asks the reader to locate.
         // WebKit, like foliate before, puts no break around a float: the word is "Drop".
         let text = try S.styled("<p><span class='cap'>D</span>rop caps open the chapter.</p><p>Next paragraph.</p>",

@@ -93,6 +93,7 @@ final class CSSCascadeHintCoverageTests: XCTestCase {
     /// HTML §15.3.8: "The table element's width attribute maps to the dimension property
     /// (ignoring zero) 'width'", and likewise the width and height of `td` and `th`.
     func testZeroWidthAndHeightOnTablesAndCellsAreIgnored() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/121")
         let result = try styled(#"<table id="table" width="0"><tr><td id="cell" width="0" height="0">x</td><th id="head" width="0%">y</th></tr></table>"#)
         XCTAssertEqual(result.style("table").width, .auto, "<table width=\"0\">")
         XCTAssertEqual(result.style("cell").width, .auto, "<td width=\"0\">")
@@ -211,6 +212,7 @@ final class CSSCascadeHintCoverageTests: XCTestCase {
     /// HTML §15.3.3: `br[clear=left i] { clear: left; }`, `br[clear=right i] { clear: right; }`,
     /// `br[clear=all i], br[clear=both i] { clear: both; }`.
     func testBrClearAttributeClearsFloats() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/121")
         let result = try styled(#"<p>a<br id="left" clear="left"/>b<br id="right" clear="RIGHT"/>c<br id="all" clear="all"/>d<br id="both" clear="both"/>e<br id="plain"/></p>"#)
         XCTAssertEqual(result.style("plain").clear, ComputedStyle.Clear.none)
         XCTAssertEqual(result.style("left").clear, .left, "<br clear=\"left\">")
@@ -223,6 +225,7 @@ final class CSSCascadeHintCoverageTests: XCTestCase {
     /// maps them to the CSS properties), so `2in` is 192px and `210mm` an A4 page's width, as
     /// `ImageSizing.length` reads them.
     func testSVGSizeAttributesHonourCSSUnits() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/117")
         func svg(_ id: String, _ width: String, _ height: String) -> String {
             "<svg xmlns=\"http://www.w3.org/2000/svg\" id=\"\(id)\" width=\"\(width)\" height=\"\(height)\" viewBox=\"0 0 2 1\"><rect width=\"2\" height=\"1\"/></svg>"
         }

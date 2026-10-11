@@ -400,6 +400,7 @@ final class PositionCFIResolutionCoverageTests: XCTestCase {
     /// Unicode normalization form are different elements. An assertion naming the second must
     /// not resolve to the first.
     func testAnIDAssertionMatchesItsExactCodeUnits() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/105")
         let document = try page("<p id=\"caf&#xE9;\">composed</p><p id=\"cafe&#x301;\">decomposed</p>")
         let composed = try element("p", 0, in: document), decomposed = try element("p", 1, in: document)
         XCTAssertEqual(Array(try XCTUnwrap(composed.attribute("id")).unicodeScalars.map(\.value)), [0x63, 0x61, 0x66, 0xE9])
@@ -415,6 +416,7 @@ final class PositionCFIResolutionCoverageTests: XCTestCase {
     /// (`incompatibleLocation`), so every CFI the library itself writes must pass it. An element
     /// ID is written into the CFI verbatim, control characters and line separators included.
     func testEveryIssuedCFIPassesTheReadersOwnWellFormednessCheck() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/105")
         let document = try page("<p id=\"plain\">a</p><p id=\"tab&#9;bed\">b</p><p id=\"next&#x85;line\">c</p><p id=\"line&#x2028;separator\">d</p>")
         let spine = SpineCFIs(package: nil, spineCount: 1)
         for node in document.nodes where node.isText && node.parent?.name == "p" {

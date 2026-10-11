@@ -195,6 +195,7 @@ final class TableCoverageContentTests: XCTestCase {
     /// `tr, td, th { vertical-align: inherit }`, so a row group's alignment (its `valign`, a hint in the same section,
     /// or CSS) reaches its cells through the rows.
     func testVerticalAlignmentOnARowGroupReachesItsCells() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/142")
         let hinted = try TableCoverage.table("""
         <table><tbody valign="top"><tr><td>a<br/>b<br/>c</td><td>d</td></tr></tbody><tbody valign="bottom"><tr><td>e<br/>f</td><td>g</td></tr></tbody></table>
         """)
@@ -454,6 +455,7 @@ final class TableCoverageContentTests: XCTestCase {
     /// own preferred width (`ReaderAttachment.contentWidths().max`), and a horizontal rule asks
     /// for none, so prose beside either gets the room they do not need.
     func testACellHoldingATableOrARuleAsksForItsContentsWidthNotTheWholeLine() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/138")
         let prose = "The quick brown fox jumps over the lazy dog while seven wizards quietly hex an amber jukebox near the old mill."
         let table = try TableCoverage.table("<table><tr><td>\(prose)</td><td><table><tr><td>a</td><td>b</td></tr></table></td></tr></table>")
         let inner = try XCTUnwrap(TableCoverage.tables(in: table.cells[1].content).first)

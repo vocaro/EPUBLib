@@ -269,6 +269,7 @@ final class SectionContentElementCoverageTests: XCTestCase {
     }
 
     func testAVisibilityHiddenRuleDrawsNothing() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/132")
         // CSS 2 section 11.2: "The generated box is invisible (fully transparent, nothing is drawn), but still affects layout."
         let text = try S.styled("<p>above</p><hr style='visibility: hidden'/><p>below</p>")
         var rules: [ReaderRuleAttachment] = []
@@ -456,6 +457,7 @@ final class SectionContentElementCoverageTests: XCTestCase {
     }
 
     func testQuotationMarksForBrazilianPortugueseAndTurkishAreThoseLanguagesOwn() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/133")
         // CSS Generated Content 3 section 2.4.1 (`quotes: auto`, what `q::before { content: open-quote }` uses):
         // "A typographically appropriate quotation mark system" for the content language, for which the
         // specification points at CLDR. CLDR gives “ ” for `pt` and `tr` (« » only for `pt-PT`), as
@@ -515,6 +517,7 @@ final class SectionContentElementCoverageTests: XCTestCase {
     }
 
     func testGeneratedContentFromBeforeAndAfterIsRendered() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/131")
         // CSS 2 section 12.1: `::before` and `::after` with `content` insert text. EPUB Reading Systems 3.3
         // section 6.3: a reading system with a viewport "MUST support the official definition of CSS as
         // described in the CSS Snapshot".

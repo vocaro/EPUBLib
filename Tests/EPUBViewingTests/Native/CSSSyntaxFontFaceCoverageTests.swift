@@ -81,6 +81,7 @@ final class CSSSyntaxFontFaceCoverageTests: XCTestCase {
     }
 
     func testALaterSrcDescriptorReplacesAnEarlierOne() {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // The two-`src` "bulletproof" pattern depends on CSS's ordinary rule that a later valid
         // declaration of a descriptor replaces an earlier one: the first `src` is for a browser
         // that cannot parse the second, and no other browser may read it.

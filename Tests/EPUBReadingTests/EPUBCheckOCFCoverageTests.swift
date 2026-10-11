@@ -270,6 +270,7 @@ final class EPUBCheckOCFCoverageTests: XCTestCase {
     }
 
     func testAnEntryWithACompressionMethodOtherThanStoredOrDeflatedIsATypedRefusal() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/74")
         // OCF allows only methods 0 and 8; method 12 is bzip2 and 93 is Zstandard.
         for method: UInt16 in [1, 9, 12, 14, 93, 99] {
             var all = try entries()
@@ -283,6 +284,7 @@ final class EPUBCheckOCFCoverageTests: XCTestCase {
     }
 
     func testACorruptDeflateStreamIsATypedRefusal() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/74")
         var all = try entries(deflated: true)
         let index = try XCTUnwrap(all.firstIndex { String(decoding: $0.name, as: UTF8.self) == "OPS/two.xhtml" })
         // Block type 3 is reserved: no inflater accepts it.
@@ -321,6 +323,7 @@ final class EPUBCheckOCFCoverageTests: XCTestCase {
     // `open(at:)` also calls) reaches it for any offset an archive's own directory names:
     // "Fatal error: Range requires lowerBound <= upperBound". Rename to `test…` to reproduce.
 
+    // https://github.com/vocaro/EPUBLib/issues/71
     func disabled_testALocalHeaderOffsetPastTheEndOfTheArchiveIsATypedRefusal() throws {
         var bytes = try RawZIP.archive(entries(files: smallBook()))
         let record = try XCTUnwrap(bytes.range(of: Data([0x50, 0x4B, 0x01, 0x02]))).lowerBound
@@ -328,12 +331,14 @@ final class EPUBCheckOCFCoverageTests: XCTestCase {
         XCTAssertThrowsError(try EPUBPublication.open(data: bytes)) { XCTAssertTrue($0 is EPUBPublicationError, "\(type(of: $0)) \($0)") }
     }
 
+    // https://github.com/vocaro/EPUBLib/issues/71
     func disabled_testACentralDirectoryOffsetPastTheEndOfTheArchiveIsATypedRefusal() throws {
         var bytes = try RawZIP.archive(entries(files: smallBook()))
         RawZIP.set(UInt32(bytes.count + 1), at: bytes.count - 22 + 16, in: &bytes)
         XCTAssertThrowsError(try EPUBPublication.open(data: bytes)) { XCTAssertTrue($0 is EPUBPublicationError, "\(type(of: $0)) \($0)") }
     }
 
+    // https://github.com/vocaro/EPUBLib/issues/71
     func disabled_testADataDescriptorPastTheEndOfTheArchiveIsATypedRefusal() throws {
         var bytes = try RawZIP.archive(entries(deflated: true, dataDescriptor: true, files: smallBook()))
         // The second record's compressed size: its data descriptor is sought after that many bytes.

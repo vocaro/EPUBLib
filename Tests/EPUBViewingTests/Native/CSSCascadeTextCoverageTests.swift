@@ -46,6 +46,7 @@ final class CSSCascadeTextCoverageTests: XCTestCase {
     /// computed value) except that an inherited value of start or end is interpreted against the
     /// parent's direction".
     func testMatchParentTakesTheParentsAlignment() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/125")
         let result = try styled("""
             <div style="text-align: center"><p id="center">a</p></div><div style="text-align: right"><p id="right">b</p></div>
             <div style="text-align: justify"><p id="justify">c</p></div>

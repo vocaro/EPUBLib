@@ -324,6 +324,7 @@ final class CSSCascadeOrderCoverageTests: XCTestCase {
     /// `SectionStyles` cuts an oversized sheet after a `}`, "so no rule is cut". A `style`
     /// attribute cut inside a value must likewise not apply a value its author never wrote.
     func testACutStyleAttributeNeverAppliesPartOfADeclaration() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/125")
         let limit = StyleResolver.maximumInlineStyleBytes
         let head = "color: red; "
         let padding = String(repeating: " ", count: limit - head.utf8.count - "line-height: 1.5".utf8.count)
@@ -342,6 +343,7 @@ final class CSSCascadeOrderCoverageTests: XCTestCase {
     /// CSS Custom Properties for Cascading Variables 1 §3 (part of the CSS Snapshot that EPUB
     /// Reading Systems 3.3 §6.3 requires): `var()` substitutes a custom property's value.
     func testCustomPropertiesSubstituteIntoVar() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/119")
         let result = try styled(#"<div id="d"><p id="a">a</p><p id="b">b</p><p id="c">c</p><p id="e">e<span id="f">f</span></p></div>"#, css: """
             :root { --accent: #0000ff; --gap: 12px }
             #d { color: red }

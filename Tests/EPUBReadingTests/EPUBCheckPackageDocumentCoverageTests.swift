@@ -32,6 +32,7 @@ final class EPUBCheckPackageDocumentCoverageTests: XCTestCase {
     // MARK: Identifiers
 
     func testAManifestIdentifierWithSurroundingWhitespaceIsTheIdentifierWithoutIt() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/80")
         // EPUBCheck accepts these (its issue 332): `id` and `idref` are XML IDs and ID
         // references, whose values are whitespace-normalized.
         let opf = package(
@@ -61,6 +62,7 @@ final class EPUBCheckPackageDocumentCoverageTests: XCTestCase {
     // MARK: Metadata
 
     func testMetadataValuesCollapseTheirWhitespace() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/75")
         // EPUB 3.3, 5.5.2: "Whitespace within these element values is not significant. Sequences
         // of one or more whitespace characters are collapsed to a single space during processing."
         let book = try open(package(metadata: """

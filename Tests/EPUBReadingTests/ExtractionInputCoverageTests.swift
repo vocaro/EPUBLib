@@ -326,6 +326,7 @@ final class ExtractionInputCoverageTests: XCTestCase {
     // the same parser cap under recovery that it "returns limitExceeded("depth") ... even with a
     // larger caller limit". A well-formed document is not malformed XHTML on either path.
     func testAWellFormedDocumentDeeperThanTheParserCapReportsTheDepthLimit() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/91")
         func nested(_ count: Int) -> String {
             page(String(repeating: "<div>", count: count) + "deep" + String(repeating: "</div>", count: count))
         }

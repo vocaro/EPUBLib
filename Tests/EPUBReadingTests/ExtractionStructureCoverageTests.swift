@@ -39,6 +39,7 @@ final class ExtractionStructureCoverageTests: XCTestCase {
     // hgroup, menu, dir, search, listing, xmp) are `display: block`, as in this package's own
     // reader (UserAgentStyleSheet.swift). Their text must not run into what follows.
     func testDisclosureFormAndLegacyBlockElementsDoNotRunTheirTextTogether() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/90")
         XCTAssertEqual(try section("<details><summary>Answer</summary>Forty-two</details>").text, "Answer\nForty-two")
         XCTAssertEqual(try section("<fieldset><legend>Question 1</legend>Pick one</fieldset>").text, "Question 1\nPick one")
         XCTAssertEqual(try section("<center>Title</center>Text").text, "Title\nText")
@@ -93,6 +94,7 @@ final class ExtractionStructureCoverageTests: XCTestCase {
     // 7.9 "Combining Marks"), and grammars list dependent vowel signs separated by spaces. Each
     // mark is body character data, not whitespace.
     func testCombiningSignsThatFollowASpaceAreNotDroppedAsWhitespace() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/89")
         let signs = try section("<p>Signs: \u{093E} \u{093F} \u{0940}</p>").text
         for sign in ["\u{093E}", "\u{093F}", "\u{0940}"] as [Unicode.Scalar] {
             XCTAssertTrue(signs.unicodeScalars.contains(sign), String(format: "U+%04X is missing from ", sign.value) + signs.debugDescription)

@@ -96,6 +96,7 @@ final class SectionContentInvarianceCoverageTests: XCTestCase {
     }
 
     func testBookColorSchemeQueriesDoNotChangeCharactersBetweenAppearances() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/130")
         // A book may show different content per appearance (a diagram drawn for each, say). The reader keeps
         // rendered ranges across an appearance change, which holds only while the characters stay the same.
         let body = "<p>See the <span class='for-light'>black</span><span class='for-dark'>white-on-black</span> figure.</p><p id='after'>After.</p>"

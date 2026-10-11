@@ -407,6 +407,7 @@ import XCTest
     /// are stale again, so the whole text is gone until they are rebuilt, and its return must be
     /// announced like any other completion.
     func testTheBookCompletesAgainAfterReturningToATypographyItHadCompletedFor() async throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/156")
         let publication = try mixedBook()
         let book = book(publication)
         var completions: [NativeTypography] = []

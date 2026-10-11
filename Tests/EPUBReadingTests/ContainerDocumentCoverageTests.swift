@@ -58,6 +58,7 @@ final class ContainerDocumentCoverageTests: XCTestCase {
     }
 
     func testAPercentEncodedRootfilePathNamesTheDecodedFile() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/81")
         // EPUB 3.3 §4.2.6.3.1.3: full-path is a path-relative-scheme-less-URL string, so a space
         // in the path is written %20.
         let literal = try EPUBPublication.open(data: relocated(to: "My Books/", fullPath: "My Books/book.opf"))
@@ -212,6 +213,7 @@ final class ContainerDocumentCoverageTests: XCTestCase {
     }
 
     func testTheIDPFKeyKeepsOtherSpaceCharactersOfTheIdentifier() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/82")
         // EPUB 3.3 §4.4.3 removes "specifically, the Unicode code points U+0020, U+0009, U+000D
         // and U+000A"; an ideographic or no-break space inside the identifier is part of the key.
         let identifier = "\u{66F8}\u{540D}\u{3000}\u{7B2C}\u{4E00}\u{5DFB}\u{A0}2"

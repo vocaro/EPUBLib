@@ -156,6 +156,7 @@ final class CSSCascadeColorCoverageTests: XCTestCase {
     /// gives a solid color first and a gradient the engine may not know second; an engine that
     /// cannot parse the second keeps the first.
     func testAnUnparsableBackgroundLeavesTheFallbackColor() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/120")
         let result = try CSSCascadeSupport.styled(#"<p id="prefixed">a</p><p id="unknown">b</p>"#, css: """
             #prefixed { background: #336699; background: -moz-linear-gradient(top, #fff, #000) }
             #unknown { background: #336699; background: no-such-keyword }

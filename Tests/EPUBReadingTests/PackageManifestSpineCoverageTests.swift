@@ -94,6 +94,7 @@ final class PackageManifestSpineCoverageTests: XCTestCase {
     }
 
     func testAPathAbsoluteManifestHrefStartsAtTheContainerRoot() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/84")
         // EPUB Reading Systems 3.3 §4.1.1: parsing "/" against the URL of the root directory gives
         // the root directory. W3C test ocf-url_link-path-absolute declares its picture this way.
         XCTAssertEqual(try book(items: "<item id=\"photo\" href=\"/media/photo.jpg\" media-type=\"image/jpeg\"/>",
@@ -101,6 +102,7 @@ final class PackageManifestSpineCoverageTests: XCTestCase {
     }
 
     func testDoubleDotSegmentsBeyondTheContainerRootStopAtTheRoot() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/84")
         // EPUB Reading Systems 3.3 §4.1.1: parsing "../" against the URL of the root directory gives
         // the root directory, so no reference leaves the container. W3C test
         // ocf-url_link-leaking-relative declares its picture four levels above a one-level package.
@@ -109,6 +111,7 @@ final class PackageManifestSpineCoverageTests: XCTestCase {
     }
 
     func testIdsWithSurroundingSpacesMatchTheirReferences() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/80")
         // An id is an XML ID, read without the white space around it: EPUBCheck passes
         // attr-id-with-spaces-valid.opf, whose items are `id="  t001"` and itemrefs `idref="t001"`.
         XCTAssertEqual(try book(items: "<item id=\"  three\" href=\"three.xhtml\" \(xhtml)/><item id=\"four  \" href=\"four.xhtml\" \(xhtml)/>",

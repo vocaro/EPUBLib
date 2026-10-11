@@ -101,6 +101,7 @@ final class CSSCascadeFontCoverageTests: XCTestCase {
     /// CSS Fonts 4 §2.4 and §2.7: `font-style` is `normal | italic | oblique <angle>?`, and the
     /// `font` shorthand takes any `<'font-style'>` before the size.
     func testFontShorthandAcceptsAnObliqueAngle() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/125")
         let result = try styled(#"<p id="p">x</p><p id="q">y</p>"#, css: """
             #p { font: oblique 10deg 12px serif }
             #q { font: bold oblique -8deg 12px/2 Georgia }

@@ -129,6 +129,9 @@ import UIKit
     }
 
     func testTurningBackIntoASectionBeforeTheBookIsBuiltShowsItsEnd() throws {
+        #if os(iOS)
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/165")
+        #endif
         let sections = [prose(0, length: 12_000), prose(1, length: 12_000)]
         let host = scrolledHost(sections, book: false, show: ReaderTextPosition(section: 1, offset: 0))
         let canvas = host.canvas
@@ -316,6 +319,7 @@ import UIKit
     /// the line that was first is the last on screen, whatever TextKit 2 had estimated for the
     /// two unlaid figures above. Otherwise what lies between is never shown.
     func testAPageTurnBackAfterAJumpPastFiguresKeepsTheLineThatWasFirstOnScreen() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/161", options: .nonStrict())
         let sections = [prose(0, length: 9_000), figures(1, count: 2, height: 400), prose(2, length: 6_000)]
         let host = scrolledHost(sections)
         let canvas = host.canvas
@@ -389,6 +393,7 @@ import UIKit
     /// once the person has scrolled) at the top, through any number of resizes." Nobody scrolls
     /// here; above the position are figures TextKit 2 has not laid out and misjudges.
     func testResizesBelowUnlaidFiguresKeepTheShownPositionsLineAtTheTop() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/164", options: .nonStrict())
         let sections = [prose(0, length: 20_000), figures(1, count: 12, height: 400), prose(2, length: 80_000), prose(3, length: 20_000)]
         let host = scrolledHost(sections, size: CGSize(width: 867, height: 669))
         let canvas = host.canvas

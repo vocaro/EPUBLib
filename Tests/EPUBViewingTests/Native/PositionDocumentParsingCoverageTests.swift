@@ -77,6 +77,7 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     /// references section": every HTML name, not only HTML 4's. WebKit resolves them so, and
     /// foliate's CFI offsets counted the characters they produce.
     func testHTML5NamedReferencesResolveUnderAnXHTMLDoctype() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/100")
         let document = try parse("\(Self.xhtml11)<html \(Self.xhtml)>\(Self.head)<body><p>Dvo&rcaron;&aacute;k &check; done</p></body></html>")
         XCTAssertEqual(bodyText(document), "Dvořák ✓ done", "the characters of the references are missing from the text")
         let text = try XCTUnwrap(document.body?.children.first?.children.first)
@@ -87,6 +88,7 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     /// the file as HTML, where the reference stays as the text the author wrote. Dropping it
     /// leaves no trace that anything was there.
     func testAnUndeclaredEntityUnderADoctypeIsNotSilentlyDropped() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/100")
         let document = try parse("\(Self.xhtml11)<html \(Self.xhtml)>\(Self.head)<body><p title=\"a&bogus;b\">10&bogus;20</p></body></html>")
         XCTAssertEqual(bodyText(document), "10&bogus;20", "the reference vanished from the text")
         XCTAssertEqual(try first("p", in: document).attribute("title"), "a&bogus;b", "the reference vanished from the attribute")
@@ -96,6 +98,7 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     /// EPUB 3.3, section 3.9 (XML conformance): an XML-based resource "MUST be encoded in UTF-8
     /// or UTF-16". A UTF-16 XHTML 1.1 document may use the DTD's entities like any other.
     func testNamedEntitiesSurviveInUTF16Documents() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/100")
         let markup = "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\(Self.xhtml11)<html \(Self.xhtml)>\(Self.head)"
             + "<body><p>caf&eacute;&nbsp;cr&egrave;me</p></body></html>"
         for (label, bom, encoding) in [("little endian", [UInt8](arrayLiteral: 0xFF, 0xFE), String.Encoding.utf16LittleEndian),
@@ -168,6 +171,7 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     /// document using any of them with a named reference is well-formed XML to WebKit and kept
     /// its XML tree (and its CFIs) in foliate. The same markup read as HTML grows a `tbody`.
     func testEveryXHTMLPublicIdentifierKeepsItsXMLTree() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/101")
         let identifiers = [
             "-//W3C//DTD XHTML 1.0 Transitional//EN", "-//W3C//DTD XHTML 1.1//EN", "-//W3C//DTD XHTML 1.0 Strict//EN",
             "-//W3C//DTD XHTML 1.0 Frameset//EN", "-//W3C//DTD XHTML Basic 1.0//EN", "-//W3C//DTD XHTML 1.1 plus MathML 2.0//EN",
@@ -397,11 +401,13 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     /// HTML, where "<" before anything but a tag name is text (HTML Standard, tokenization, Tag
     /// open state: "Emit a U+003C LESS-THAN SIGN character token").
     func testAStrayLessThanSignDoesNotWithholdTheSection() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/87")
         let markup = "<html \(Self.xhtml)>\(Self.head)<body><p>if x < y then it's done</p><p>next</p></body></html>"
         XCTAssertNoThrow(try parse(markup), "a quotation mark after the stray sign makes the whole section unreadable")
     }
 
     func testTextAfterAStrayLessThanSignSurvivesTheFallback() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/103")
         let document = try parse("<html \(Self.xhtml)>\(Self.head)<body><p>if x < y then done</p><p>next</p></body></html>")
         XCTAssertTrue(document.recoveredAsHTML)
         XCTAssertTrue(bodyText(document).contains("next"))
@@ -412,6 +418,7 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     /// type on section is not defined" and foliate then read the file as HTML, whose tree (here
     /// with a `tbody`) is the one its CFIs count. Keeping the XML tree resolves them elsewhere.
     func testAnUndeclaredNamespacePrefixIsReadAsFoliateReadIt() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/102")
         let document = try page("<section epub:type=\"chapter\"><table><tr><td>Cell</td></tr></table></section>")
         XCTAssertEqual(try first("section", in: document).epubTypes, ["chapter"], "the attribute is still read")
         XCTAssertTrue(document.recoveredAsHTML, "WebKit rejects this as XML; foliate re-read it as HTML")
@@ -549,6 +556,7 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     /// insertion mode", so it too lands at the end of the body. Almost every file ends with a
     /// newline, and WebKit's tree (hence foliate's CFIs) has it.
     func testWhiteSpaceAfterTheRootElementBelongsToTheBodyInQualifiedHTML() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/104")
         let document = try parse("<html><head><title>Book</title></head><body><p>One.</p><p>Two.</p></body></html>\n")
         XCTAssertTrue(document.canResolveCFIs)
         XCTAssertEqual(document.body?.children.map { $0.isElement ? "<\($0.name)>" : $0.text }, ["<p>", "<p>", "\n"],

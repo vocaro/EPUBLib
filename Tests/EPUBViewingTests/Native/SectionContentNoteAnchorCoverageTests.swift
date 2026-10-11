@@ -130,6 +130,7 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
     }
 
     func testANoteThatOpensAnotherNoteDoesNotTakeItsId() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/126")
         // A note's first child's id names the note too (a reference may point at its first paragraph), but not
         // when that child is a note itself: "each is a note of its own" (`SectionBuildState.captureNote`).
         let text = try H.build("""
@@ -176,6 +177,7 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
     }
 
     func testAFootnoteWhoseIdIsOnItsParagraphIsNotLost() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/126")
         // `epub:type="footnote"` on an `aside` without an id of its own, the reference naming the paragraph inside.
         // The aside is taken out of the flow, so the note must be there to show from its reference.
         let text = try H.build("""
@@ -248,6 +250,7 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
     }
 
     func testAnAnchorsNameIsAFragmentTargetWhenItAlsoHasAnotherId() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/133")
         // HTML 7.4.6.4 (find a potential indicated element): an element whose ID is the fragment, else an
         // `a` element whose `name` is. `<a id="page12" name="p12">` therefore answers to both.
         let text = try H.build("<p>before</p><p><a id='page12' name='p12'>both</a></p>")

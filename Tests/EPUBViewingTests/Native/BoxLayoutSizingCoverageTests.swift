@@ -127,6 +127,7 @@ import UIKit
     /// CSS 2.2 16.1: `text-indent` indents the first line of a block container. The paragraph is
     /// the block; the list marker sits outside the item's box and does not take the indent's place.
     func testTextIndentAppliesToAListItemsFirstParagraph() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/133")
         let section = try H.build("<ul><li><p>Item one.</p><p>Item two.</p></li></ul>", css: H.reset + "p { text-indent:2em } ul { padding-left:40px }")
         let view = H.view(section.string, size: CGSize(width: 400, height: 700))
         XCTAssertEqual(H.frame("Item two.", in: section, view: view).minX, 72, accuracy: 1, "the item's second paragraph: 40 points of padding and 2em")
@@ -243,6 +244,7 @@ import UIKit
     /// reads `vmin` as `vw` and `vmax` as `vh`, which is only right when the viewport is taller
     /// than it is wide.
     func testViewportMinimumAndMaximumUnitsFollowTheSmallerAndLargerSide() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/123")
         for viewport in [CGSize(width: 300, height: 500), CGSize(width: 700, height: 400)] {
             let smaller = min(viewport.width, viewport.height), larger = max(viewport.width, viewport.height)
             for (declaration, expected) in [("width:50vmin", smaller / 2), ("width:50vmax", larger / 2)] {

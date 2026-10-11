@@ -128,6 +128,7 @@ import UIKit
     /// purposes": a position in the second or third occurrence of a repeated spine item names
     /// that occurrence, not the first (W3C test pkg-spine-duplicate-item-ui).
     func testEachOccurrenceOfARepeatedSpineItemHasItsOwnPosition() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/108")
         var book = Book()
         book.add("first", body: "<p>The first document.</p>")
         book.add("refrain", body: "<p>A refrain that returns.</p>")

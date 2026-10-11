@@ -202,6 +202,7 @@ final class CSSCascadeBoxCoverageTests: XCTestCase {
     /// CSS 2.2 §17.6.1: 'border-spacing' has the initial value 0. Only HTML's `table` gets 2px,
     /// from the user-agent sheet, so a table built from `div`s with `display: table` has none.
     func testBorderSpacingIsInitiallyZeroOutsideHTMLTables() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/125")
         let result = try CSSCascadeSupport.styled("""
             <div id="grid" style="display: table"><div style="display: table-row"><div id="cell" style="display: table-cell">x</div></div></div>
             <table id="table"><tr><td>y</td></tr></table><table id="reset" style="border-spacing: initial"><tr><td>z</td></tr></table>

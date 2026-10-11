@@ -20,6 +20,7 @@ final class PackageMetadataCoverageTests: XCTestCase {
     // MARK: Values
 
     func testWhiteSpaceInMetadataValuesIsStrippedAndCollapsed() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/75")
         // EPUB Reading Systems 3.3 §5.3: "Reading systems MUST strip and collapse ASCII whitespace
         // from Dublin Core and meta element values before processing." (W3C test pkg-meta-whitespace)
         let book = try book(metadata: """
@@ -88,6 +89,7 @@ final class PackageMetadataCoverageTests: XCTestCase {
     }
 
     func testMetadataInsideTheDeprecatedDCMetadataAndXMetadataElementsIsRead() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/85")
         // OPF 2.0.1 §2.2: "Reading Systems must allow the specification of the deprecated
         // dc-metadata and x-metadata elements", as packages converted from OEBPS 1.2 still have.
         let book = try book(metadata: "<dc-metadata \(Self.dublinCore)><dc:title>An Older Book</dc:title><dc:creator>Older Author</dc:creator>"

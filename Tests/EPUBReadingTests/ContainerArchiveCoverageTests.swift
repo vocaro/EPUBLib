@@ -90,6 +90,7 @@ final class ContainerArchiveCoverageTests: XCTestCase {
     }
 
     func testAnEmptyEntryWithZIP64SizesIsRead() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/72")
         // The same layout holding one empty file, which Python's zipfile and Info-ZIP's unzip read
         // as empty. Its sizes are 0xFFFFFFFF in the headers and zero in the ZIP64 field.
         var files = try Fixture.files()
@@ -104,6 +105,7 @@ final class ContainerArchiveCoverageTests: XCTestCase {
     // and Info-ZIP's unzip read it. Every entry's header offset is 0xFFFFFFFF in the directory
     // with the real offset in its ZIP64 extra field, as a writer told always to use ZIP64 writes;
     // the first entry's real offset is zero, which ZIPFoundation takes for "absent".
+    // https://github.com/vocaro/EPUBLib/issues/72
     func disabled_testAZIP64ArchiveWithItsOffsetsInExtraFieldsIsRead() throws {
         // EPUB Reading Systems 3.3 §4.2: a reader must "support the ZIP64 extensions".
         let files = try Fixture.files()
@@ -128,6 +130,7 @@ final class ContainerArchiveCoverageTests: XCTestCase {
     // MARK: Entry names
 
     func testUTF8EntryNamesAreReadWithoutTheLanguageEncodingFlag() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/73")
         // EPUB 3.3 §4.3.2: names are UTF-8. The zip and ditto tools on a Mac write UTF-8 names and
         // leave general-purpose bit 11 clear, which ZIP itself reads as code page 437.
         var files = try Fixture.packageVariantFiles(
@@ -188,6 +191,7 @@ final class ContainerArchiveCoverageTests: XCTestCase {
     // ZIPFoundation's Archive.MemoryFile.readData, reached from EPUBPublication.open(data:) as it
     // iterates the archive). Rename to `test…` to reproduce; either input alone traps. A book is
     // untrusted input, and four changed bytes take the host down instead of failing to open.
+    // https://github.com/vocaro/EPUBLib/issues/71
     func disabled_testAnOffsetBeyondTheEndOfTheArchiveIsRefusedWithoutTrapping() throws {
         // An entry whose local header the directory places one byte past the end of the archive.
         var entry = try Fixture.epub()
@@ -205,6 +209,7 @@ final class ContainerArchiveCoverageTests: XCTestCase {
     }
 
     func testADamagedOrUnreadableEntryFailsAsAnInvalidArchive() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/74")
         // A stored entry's damage is typed (CRC). Deflated data that does not inflate, or a method
         // other than stored and Deflate (EPUB Reading Systems 3.3 §4.2: in error), must be too.
         var damaged = try Fixture.epub()

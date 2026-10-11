@@ -95,6 +95,7 @@ final class SectionContentStylingCoverageTests: XCTestCase {
     }
 
     func testSynthesizedSmallCapitalsLeaveThePassageTextInTheBooksOwnCase() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/128")
         // A font without small capitals shows lower-case letters as smaller capitals. That is how they are drawn;
         // the passage text (Copy, `EPUBSelection.text`) is "the book's own characters", as a browser's is.
         let style = ComputedStyle(fontFamilies: ["georgia"], fontSize: 16, isSmallCaps: true)

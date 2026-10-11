@@ -93,6 +93,7 @@ final class CSSSyntaxParserRecoveryCoverageTests: XCTestCase {
     }
 
     func testAStraySemicolonBetweenRulesBelongsToTheNextRulesPrelude() {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // §5.4.1 "consume a list of rules": only whitespace, CDO/CDC and at-keywords are special
         // at rule level, so `;` starts a qualified rule whose prelude is then an invalid selector.
         XCTAssertEqual(subjects("p { color: red }; q { color: red } i { color: red }"), ["p", "i"])

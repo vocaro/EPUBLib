@@ -100,6 +100,7 @@ final class CSSSyntaxImportCoverageTests: XCTestCase {
     }
 
     func testAnImportAfterANamespaceRuleIsIgnored() {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/116")
         // CSS Cascade 4 §2: "Any @import rules must precede all other valid at-rules and style
         // rules in a style sheet (ignoring @charset and @layer statement rules) … or else the
         // @import rule is invalid." CSS Namespaces §3 places @namespace after every @import.
@@ -107,6 +108,7 @@ final class CSSSyntaxImportCoverageTests: XCTestCase {
     }
 
     func testAnInvalidRuleBeforeAnImportDoesNotInvalidateIt() {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/113")
         // The same sentence counts only *valid* rules: one the parser discards cannot stand
         // between an @import and the start of the sheet.
         XCTAssertEqual(imports("@unknown-rule x; @import 'a.css';"), ["OPS/css/a.css"], "An unknown at-rule")

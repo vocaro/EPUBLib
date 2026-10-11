@@ -42,12 +42,14 @@ final class ExtractionAdversarialCoverageTests: XCTestCase {
     // recoverable namespace error, so the strict reader hands the name ":" to `start`, where
     // `name.split(separator: ":")` is empty and `parts.last!` traps. The input is otherwise
     // well-formed XHTML; any section of an untrusted book can carry it.
+    // https://github.com/vocaro/EPUBLib/issues/88
     func disabled_testAnElementNamedWithALoneColonIsReadOrRefusedWithoutTrapping() throws {
         try assertReturnsOrIsMalformed(Data(page("<p>a<:/>b</p>").utf8), recovering: false, "strict")
     }
 
     // CRASHES THE TEST PROCESS at the same line through the recovery path: libxml2's HTML parser
     // also accepts ":" as a tag name. Disabled by name (remove `disabled_` to reproduce).
+    // https://github.com/vocaro/EPUBLib/issues/88
     func disabled_testARecoveredElementNamedWithALoneColonIsReadOrRefusedWithoutTrapping() throws {
         try assertReturnsOrIsMalformed(Data(page("<p>a</b><:>b</p>").utf8), recovering: true, "recovery")
     }
@@ -67,6 +69,7 @@ final class ExtractionAdversarialCoverageTests: XCTestCase {
     // defaults) therefore costs quadratic time, where the same anchors each followed by a
     // character are linear. Both are timed in this process, best of three, so load cancels out.
     func testTextlessAnchorsDoNotMakeExtractionQuadratic() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/92", options: .nonStrict())
         let count = 6_000
         func seconds(_ body: String) throws -> (Double, EPUBTextSection) {
             let publication = try book(page(body))

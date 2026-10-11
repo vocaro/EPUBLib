@@ -227,6 +227,7 @@ final class TableCoverageTextMappingTests: XCTestCase {
     /// Blocks of a passage are a line break apart, as everywhere else a selection is read
     /// (`mappedText`): one between the prose and the table, not two.
     func testAPassageBetweenProseAndACellHasOneLineBreakBetweenItsBlocks() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/144")
         let (_, section, table) = try fixture("<p>Before table.</p><table><tr><td>Alpha</td><td>Beta</td></tr></table><p>After table.</p>")
         XCTAssertEqual(section.string.string, "Before table.\n\u{FFFC}\nAfter table.")
         XCTAssertEqual(section.mappedText(in: 7..<21), "table.\nAlpha\tBeta\nAfter", "the same selection without cell endpoints")
@@ -357,6 +358,7 @@ final class TableCoverageTextMappingTests: XCTestCase {
     /// the table is: four times the rows and matches is about four times the work, not sixteen.
     /// Timed as a ratio of best-of-several runs, with slack, so a busy machine does not decide it.
     func testMappingEveryMatchInALongTableGrowsInStepWithItsRows() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/137", options: .nonStrict())
         func seconds(rows: Int, runs: Int) throws -> TimeInterval {
             let markup = (0..<rows).map { "<tr><td>Row \($0)</td><td>Value \($0)</td></tr>" }.joined()
             let (_, section, _) = try fixture("<table>\(markup)</table>")

@@ -92,6 +92,9 @@ import UIKit
     }
 
     func testEveryPageOfAMixedBoxSectionShowsItsOwnTextOnceWithinItsColumn() throws {
+        #if os(iOS)
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/147")
+        #endif
         for fontSize: CGFloat in [16, 25] {
             let section = try build(mixedBody, css: mixedCSS, fontSize: fontSize)
             XCTAssertTrue(section.report.flowBoxesReflowed)
@@ -207,6 +210,7 @@ import UIKit
     /// When prose that follows a box as wide as the column opens the next page, the page lays
     /// its first lines out above its top edge, twice the box's height up, where nobody sees them.
     func testProseOpeningAPageBelowAFullWidthBoxIsDrawnOnThatPage() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/145")
         let prose = "After the box. \(H.prose) \(H.prose)"
         let kinds = [("a float as wide as the column", "<figure class='x'>Boxed words.</figure><p>\(prose)</p>", ".x { float:left; width:100%; height:100px }"),
                      ("an absolute box as wide as the column", "<aside class='x'>Boxed words.</aside><p>\(prose)</p>", ".x { position:absolute; width:100%; height:100px }"),
@@ -233,6 +237,7 @@ import UIKit
     /// the float went on, so the page's lines break differently from the measured ones and the
     /// last of them falls below the page.
     func testAClearedParagraphBelowAFloatIsLaidOutOnALaterPageAsItWasMeasured() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/147")
         let small = CGSize(width: 180, height: 240)
         let section = try build("<p class='lead'>Lead.</p><p>Before words.</p><figure>Float box.</figure><p class='c'>After the float. \(H.prose)</p>",
                                 css: ".lead { margin-bottom:216px } figure { float:left; width:60px; height:75px } .c { clear:both }")
@@ -253,6 +258,9 @@ import UIKit
     /// floated figure followed by a drop cap does. The paragraph after them is drawn with its
     /// first line above the page and every other line on one row.
     func testFloatsInARowOpeningAPageKeepTheProseAfterThemInRows() throws {
+        #if os(macOS)
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/146")
+        #endif
         let small = CGSize(width: 180, height: 240)
         for (name, css) in [("stacked on the left", ".x, .y { float:left; width:60px; height:75px }"),
                             ("left and right", ".x { float:left; width:50px; height:75px } .y { float:right; width:50px; height:75px }")] {
@@ -278,6 +286,9 @@ import UIKit
     /// edge and is placed beside the float's column as though the float went on: shifted right
     /// by the float's width, out of step with the rows after it and past the column's edge.
     func testATableDirectlyBelowAFloatSpansTheColumn() throws {
+        #if os(macOS)
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/147")
+        #endif
         let small = CGSize(width: 180, height: 240)
         var shifted: [String] = []
         for margin in [0, 8, 16, 24, 32, 40] {
@@ -431,6 +442,7 @@ import UIKit
     /// with nothing between. Four times as many floats must not cost sixty-four times as long:
     /// on the machine these tests were written on, 1,000 took 12 seconds and 3,000 over 4 minutes.
     func testResolvingConsecutiveFloatsDoesNotGrowCubically() throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/155", options: .nonStrict())
         func seconds(_ count: Int) throws -> TimeInterval {
             let section = try build((0..<count).map { "<figure>F\($0).</figure>" }.joined() + "<p>End.</p>", css: "figure { float:left; width:60px }")
             return (0..<2).map { _ in
