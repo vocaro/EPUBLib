@@ -48,6 +48,106 @@ final class XMLSafetyCoverageTests: XCTestCase {
         }
     }
 
+    /// A `<` that no tag can follow is a character to HTML (tokenization, tag open state) and an
+    /// error to XML. It opens nothing: quotes after it are prose, and a declaration after it is
+    /// still seen.
+    func testALessThanSignThatOpensNoTagIsACharacter() {
+        for xml in [
+            "<p>if x < y then it's done</p><p>next</p>", "<style>a::after { content: \"<\" }</style>", "<p>1<2, 3 <= 4 and it's \"so</p>",
+            "<p>a << b, a <> b, a <- b's</p>", "<pre>if (i < n) { s = \"it's\"; c = '\"'; }</pre>", "< '", "<\t\"", "<<<'<<\"",
+        ] {
+            XCTAssertTrue(safe(xml), xml)
+        }
+        XCTAssertTrue(safe("<p>if x < y then it's done</p>", .utf16), "decoded UTF-16")
+        for xml in [
+            "<p>x < y's <!ENTITY e 'f'></p>", "< ' <!DOCTYPE x [<!ENTITY y 'z'>]><x>&y;</x>", "<p>a < \"b\" <!DOCTYPE x []></p>",
+            // These two once passed, each declaration inside a tag that began at the stray sign.
+            "< \"<!DOCTYPE x [<!ENTITY y 'z'>]>\" ><x/>", "<x>1 < 2 <!ENTITY y SYSTEM 'file:///etc/passwd'> 3 > 2</x>",
+        ] {
+            XCTAssertFalse(safe(xml), xml)
+        }
+        XCTAssertFalse(safe("<p>x < y's <!ENTITY e 'f'></p>", .utf16), "decoded UTF-16")
+        XCTAssertFalse(safe("<p>x <"), "a sign that ends the input may yet open a tag")
+    }
+
+    /// In a tag a quote delimits only an attribute value, after `=`. Anywhere else XML has no
+    /// quoted string and HTML reads a character (tokenization, attribute name and unquoted
+    /// attribute value states), so it neither takes in the rest of the file nor hides a declaration.
+    func testAQuoteThatOpensNoAttributeValueIsACharacter() {
+        for xml in [
+            "<p>if x <y then it's done</p><p>next</p>", "<p>x <\u{A0}y, it's</p>", "<a title=it's>x</a>", "<img alt=\"5\" tall\"/><p>next</p>",
+            "</p it's>", "<!doctype html public \"-//W3C//DTD HTML 4.01//EN\"><p>it's</p>",
+            "<a b = 'c > [d] <!ENTITY' e\n=\n\"<!DOCTYPE x [\">f</a>", "<a\tb\r=\t'>'\n/>",
+        ] {
+            XCTAssertTrue(safe(xml), xml)
+        }
+        // These once passed, each declaration between two quotes that delimit nothing.
+        for xml in ["<a b'> <!ENTITY c 'd'> '>e</a>", "<a b'> <!DOCTYPE x [<!ENTITY c 'd'>]> '><x/>", "<a b=c'> <!ENTITY d 'e'> '/>"] {
+            XCTAssertFalse(safe(xml), xml)
+        }
+        // A declaration is no tag: its literals are quoted wherever they stand, and one that
+        // holds `=` must not make its own closing quote open a string over what follows.
+        XCTAssertTrue(safe("<!ATTLIST x a CDATA '>' b CDATA \"<!ENTITY\"><x/>"))
+        for xml in ["<!ATTLIST x a CDATA \"=\"><!ENTITY y \"z\">", "<!NOTATION n SYSTEM '='><!ENTITY y 'z'><x/>"] {
+            XCTAssertFalse(safe(xml), xml)
+        }
+    }
+
+    /// libxml2 2.9 reads a `[` that directly follows a DOCTYPE's closing `>` as that DOCTYPE's
+    /// internal subset all the same, and every XML parser behind the screen is built on it.
+    func testABracketDirectlyAfterADoctypeIsAnInternalSubset() {
+        for xml in [
+            "<!DOCTYPE x>[<!ATTLIST x a CDATA 'v'>]><x/>", "<!DOCTYPE x>[<!ELEMENT x ANY>]><x/>", "<!DOCTYPE x SYSTEM \"x.dtd\">[]><x/>",
+            "<?xml version=\"1.0\"?>\n<!DOCTYPE x PUBLIC 'p' 's' >[<!NOTATION n SYSTEM 's'>]><x/>", "<!DOCTYPE x>[",
+        ] {
+            XCTAssertFalse(safe(xml), xml)
+        }
+        for xml in ["<!DOCTYPE x> [x]<x/>", "<!DOCTYPE x>\n<x>[</x>", "<!DOCTYPE x><x a='['>[]</x>", "<!DOCTYPE x>"] {
+            XCTAssertTrue(safe(xml), xml)
+        }
+    }
+
+    /// What the screen is for, on generated markup: nothing that passes it, well-formed or not,
+    /// gives the XML parser behind it a declaration to read.
+    func testNothingThatPassesTheScreenDeclaresAnythingToTheXMLParser() {
+        let tokens = [
+            "<", "<", "<", ">", ">", "'", "'", "\"", "\"", "=", "=", " ", " ", "\n", "\t", "/", "!", "?", "[", "]", "-", "a", "y", "1", ":", "_", "\u{E9}", "\u{A0}",
+            "<x>", "</x>", "<x a='", "<x a=\"", "<x ", "<x/>", "<!DOCTYPE x ", "<!DOCTYPE x [", "<!DOCTYPE x>", "<!DOCTYPE x>[", "<!ENTITY y 'z'>", "<!ENTITY y \"z\">", "]>",
+            "<!ATTLIST x a CDATA 'v'>", "<!ATTLIST x a CDATA \"=\">", "<!NOTATION n SYSTEM '='>", "<!ELEMENT x ANY>", "PUBLIC 'p' 's'", "SYSTEM \"s\"",
+            "<!--", "-->", "<![CDATA[", "]]>", "<?", "?>", "<?xml version=\"1.0\"?>", "<!ATTLIST x a CDATA ", "\"=\"", "'='", "'>'", "\">\"",
+            "&y;", "&amp;", "it's", " < y ", "<y ", "a='b'", "a=\"b\"", "a = 'b'", "</", "<!", "<!doctype x [", "<!entity y 'z'>",
+        ]
+        let prologs = ["", "", "<?xml version=\"1.0\"?>", "<!-- c -->", "<!DOCTYPE x>", "<!DOCTYPE x SYSTEM 's'>", "<!DOCTYPE x [<!ENTITY y 'z'>]>", "<!DOCTYPE x ["]
+        var state: UInt64 = 0x1234_5678_9ABC_DEF0
+        func next(_ bound: Int) -> Int {
+            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            return Int((state >> 33) % UInt64(bound))
+        }
+        var passed = 0, declaring = 0
+        for round in 0..<30_000 {
+            var text = (0...next(14)).map { _ in tokens[next(tokens.count)] }.joined()
+            // One input in three stands in a root element after a prolog and one in three where
+            // the parser reads an internal subset, so that more of them are read past their start.
+            switch round % 3 {
+            case 1: text = prologs[next(prologs.count)] + "<x>" + text + "</x>"
+            case 2: text = "<!DOCTYPE x>[" + text + "]><x>&y;</x>"
+            default: break
+            }
+            let data = Data(text.utf8)
+            let declarations = DeclarationCounter()
+            let parser = XMLParser(data: data)
+            parser.externalEntityResolvingPolicy = .never
+            parser.delegate = declarations
+            parser.parse()
+            if declarations.count > 0 { declaring += 1 }
+            guard XMLSafety.hasSafeDeclarations(data) else { continue }
+            passed += 1
+            XCTAssertEqual(declarations.count, 0, text.debugDescription)
+        }
+        XCTAssertGreaterThan(passed, 2_000, "most inputs were refused, so little was checked")
+        XCTAssertGreaterThan(declaring, 500, "the generator must write declarations the parser reads")
+    }
+
     func testWideEncodingsAreDecodedBeforeScreening() throws {
         let harmless = "<?xml version='1.0'?><!-- <!DOCTYPE x [<!ENTITY y 'z'>]> --><x a='[' b=\"<!ENTITY\">\u{E9}\u{65E5}\u{1F600}</x>"
         let hostile = "<?xml version='1.0'?><!DOCTYPE x [<!ENTITY y 'z'>]><x>&y;\u{E9}\u{65E5}\u{1F600}</x>"
@@ -110,4 +210,16 @@ final class XMLSafetyCoverageTests: XCTestCase {
             XCTAssertFalse(XMLSafety.hasSafeDeclarations(ebcdic), "EBCDIC, which the XML parser reads")
         }
     }
+}
+
+/// Counts every declaration `XMLParser` reads from a DOCTYPE, including those of a document it
+/// goes on to reject.
+private final class DeclarationCounter: NSObject, XMLParserDelegate {
+    var count = 0
+    func parser(_ parser: XMLParser, foundInternalEntityDeclarationWithName name: String, value: String?) { count += 1 }
+    func parser(_ parser: XMLParser, foundExternalEntityDeclarationWithName name: String, publicID: String?, systemID: String?) { count += 1 }
+    func parser(_ parser: XMLParser, foundUnparsedEntityDeclarationWithName name: String, publicID: String?, systemID: String?, notationName: String?) { count += 1 }
+    func parser(_ parser: XMLParser, foundAttributeDeclarationWithName attributeName: String, forElement elementName: String, type: String?, defaultValue: String?) { count += 1 }
+    func parser(_ parser: XMLParser, foundElementDeclarationWithName elementName: String, model: String) { count += 1 }
+    func parser(_ parser: XMLParser, foundNotationDeclarationWithName name: String, publicID: String?, systemID: String?) { count += 1 }
 }
