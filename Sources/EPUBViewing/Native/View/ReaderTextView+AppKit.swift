@@ -184,6 +184,10 @@ final class ReaderTextView: NSTextView {
                 element.setAccessibilityChildren(cells)
             }
             result.addAttribute(.accessibilityAttachment, value: element, range: local)
+            // A formula's reading has its own voice: the book's language or the generator's.
+            if let language = (attachment as? ReaderTextualAttachment)?.textLanguage {
+                result.addAttribute(.accessibilityLanguage, value: language, range: local)
+            }
         }
         var exposed = Set<NSRange>()
         for (image, run) in images where exposed.insert(run).inserted {

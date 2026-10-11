@@ -183,6 +183,10 @@ final class ReaderTextView: UITextView {
                     if let image = attachment as? ReaderImageAttachment {
                         element.accessibilityLabel = image.alt.isEmpty ? "Book image" : image.alt
                     }
+                    // A formula's reading has its own voice: the book's language or the generator's.
+                    if let language = (attachment as? ReaderTextualAttachment)?.textLanguage {
+                        element.accessibilityLanguage = language
+                    }
                 }
                 element.accessibilityTraits = traits
                 let frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
