@@ -24,10 +24,11 @@ enum SVGContent {
     /// descendants). Text layout is super-linear in the length of one run, so the document
     /// byte limit alone lets a single run cost minutes; a real label is far shorter.
     static let maximumTextRunCharacters = 20_000
-    /// Marker instances the renderer may build: summed over the vertices of every marker-bearing
-    /// shape (each `<use>` and `<marker>` clone included), times the graphic nodes the markers
-    /// draw. Markers are cloned per vertex inside the renderer and are counted by neither the
-    /// node nor the expansion limit.
+    /// Marker instances the renderer may build, counted by neither the node nor the expansion
+    /// limit: for every marker-bearing shape in the use-expanded tree, its vertices times the
+    /// draw operations of its `marker-mid` marker plus one per shape for `marker-start`/`-end`,
+    /// with nested markers multiplied. `markerInstancesAreBounded` holds this as a sound upper
+    /// bound within a step budget; about 45 MB of renderer working memory at the limit.
     static let maximumMarkerInstances = 100_000
 
     /// Shapes whose vertices can carry a marker, and whose geometry the renderer builds.
@@ -167,7 +168,7 @@ enum SVGContent {
         }
         // Marker accounting runs after the byte cost passes, so `<use>` expansion is already
         // bounded (every instantiated node cost at least a few bytes), which bounds this walk.
-        guard cost(svg, depth: 0) != nil, markerInstancesAreBounded(svg, ids: ids) else { return false }
+        guard cost(svg, depth: 0) != nil, markerInstanceCheck(svg, ids: ids).withinLimits else { return false }
         return true
     }
 
@@ -190,124 +191,315 @@ enum SVGContent {
         return true
     }
 
-    /// Whether the markers the drawing instantiates stay within the instance bound. The renderer
-    /// clones a marker's content at every vertex of each shape that references it; the clone is
-    /// counted by neither the node nor the expansion limit, so a small shape and marker, a shape
-    /// multiplied by `<use>`, nested markers, or a stylesheet rule can amplify into hundreds of
-    /// megabytes. This walks the rendered tree once, following `<use>` so a marker-bearing shape
-    /// reached through N uses is charged N times, and multiplies nested markers. It is an upper
-    /// bound: a shape is charged its vertex count times the drawing load of every marker reached
-    /// from it or its ancestors (markers are inherited), start and end markers once each; a
-    /// stylesheet marker rule, whose selector this does not evaluate, charges every shape the
-    /// largest referenced marker. Cost (the byte limit) has already bounded `<use>` expansion,
-    /// so this walk terminates; it also saturates at the bound and stops early.
-    private static func markerInstancesAreBounded(_ svg: ContentNode, ids: [String: ContentNode]) -> Bool {
-        var markersByID: [String: [ContentNode]] = [:]
-        func collectMarkers(_ node: ContentNode) {
-            if node.name == "marker", let id = node.id { markersByID[id, default: []].append(node) }
-            for child in node.elementChildren { collectMarkers(child) }
+    /// A CSS simple selector this walk can evaluate: an optional element name (`nil` is the
+    /// universal `*`), class names and an id, with no combinator, attribute or pseudo part. A
+    /// selector outside this grammar is represented by `nil` and treated as matching every shape,
+    /// so a marker rule's charge stays an upper bound on what the renderer applies.
+    private struct SimpleSelector {
+        let name: String?
+        let classes: [String]
+        let id: String?
+    }
+
+    /// A `<style>` rule that sets a marker property, with its selector list (a `nil` entry matches
+    /// everything) and the marker ids it attaches to the mid and endpoint slots.
+    private struct MarkerStyleRule {
+        let selectors: [SimpleSelector?]
+        let mid: [String]
+        let end: [String]
+    }
+
+    /// Whether the markers the drawing instantiates stay within the instance bound, by a count
+    /// that is an upper bound on what the renderer builds for *every* document and that runs within
+    /// a fixed step budget. Three properties hold by construction:
+    ///
+    ///  * **Sound.** Every way the renderer instantiates a subtree is followed or refused.
+    ///    Instance-multiplying references — `<use>`, and `<symbol>`/nested `<svg>` reached through
+    ///    it — are followed to their target, like `cost`. A marker-bearing shape inside a `<mask>`
+    ///    is refused, because the renderer re-draws a mask's content (markers included) once per
+    ///    referencing element; patterns are already refused, and markers inside a `<clipPath>` are
+    ///    not drawn, so clip paths are ignored. A marker-mid shape whose geometry the renderer
+    ///    flattens by radius rather than by text — an arc, `circle`, `ellipse` or rounded `rect` —
+    ///    is refused (see `vertexCount`). Counts never under-count: vertices are over-counted from
+    ///    numeric tokens, `marker-start`/`marker-end` count once per shape, a `<style>` selector
+    ///    that is not evaluated matches every shape, and every sum saturates at the bound.
+    ///  * **Bounded cost.** A step budget is charged for every node visited and every reference
+    ///    followed, and the walk refuses when it runs out. Each marker's expanded size is computed
+    ///    once (memoized), a shape with no vertices never forces its marker (or that marker's
+    ///    chain) to be evaluated, and sums saturate at the bound and stop early — so a cyclic or
+    ///    densely cross-referenced marker graph cannot multiply work. `cost` has already bounded
+    ///    the use-expanded tree to `maximumExpandedBytes`, so a document the byte limit accepts
+    ///    stays well under the budget; one that would exceed it is refused rather than run on.
+    ///  * **No ordinary diagram refused.** A stylesheet marker rule is charged only to the shapes
+    ///    its selector can match (type, class, id, universal and comma groups are evaluated), and a
+    ///    `marker-start`/`marker-end` rule is one instance per shape, never per vertex.
+    /// The marker-instance verdict together with the steps the bounded walk spent — one per node
+    /// visited, reference followed and rule or marker id examined. Exposed so a test can assert the
+    /// walk stays near-linear (no exponential recomputation) rather than timing it.
+    static func markerInstanceCheck(_ svg: ContentNode, ids: [String: ContentNode]) -> (withinLimits: Bool, steps: Int) {
+        var markersByID: [String: ContentNode] = [:]
+        var masks: [ContentNode] = []
+        var styles: [ContentNode] = []
+        func gather(_ node: ContentNode) {
+            switch node.name {
+            case "marker": if let id = node.id, markersByID[id] == nil { markersByID[id] = node }
+            case "mask": masks.append(node)
+            case "style": styles.append(node)
+            default: break
+            }
+            for child in node.elementChildren { gather(child) }
         }
-        collectMarkers(svg)
-        guard !markersByID.isEmpty else { return true }
+        gather(svg)
+        guard !markersByID.isEmpty else { return (true, 0) }
 
         let ceiling = maximumMarkerInstances + 1
-        func clamp(_ value: Int) -> Int { value > ceiling ? ceiling : value }
-        var ambientMid = 0
-        var loadCache: [ObjectIdentifier: Int] = [:]
-        var active = Set<ObjectIdentifier>()
-        var uncacheable = 0
+        func clamp(_ value: Int) -> Int { value < 0 || value > ceiling ? ceiling : value }
 
-        func loadForID(_ id: String, _ depth: Int) -> Int {
-            (markersByID[id] ?? []).reduce(0) { max($0, markerLoad($1, depth)) }
+        let stepBudget = 8_000_000
+        var budget = stepBudget
+        var refused = false
+        @discardableResult func spend(_ amount: Int = 1) -> Bool {
+            budget -= amount
+            if budget < 0 { refused = true }
+            return !refused
         }
 
-        // Marker url ids a node declares, split into mid-like (mid + the `marker` shorthand) and
-        // endpoint (start, end), from its attributes (any namespace) and its `style`.
-        func ownReferences(_ node: ContentNode) -> (mid: [String], end: [String]) {
+        let cssRules = styles.flatMap(markerStyleRules)
+
+        // Draw operations one instantiation of a marker produces, nested markers included. Marker
+        // content does not inherit the referencing shape's markers, so this is a property of the
+        // marker alone and is memoized; a value reached through a cut recursive-marker edge depends
+        // on the stack and is not. `markerStack` cuts recursion the way the renderer does.
+        var drawsByMarker: [ObjectIdentifier: Int] = [:]
+        var markerStack = Set<ObjectIdentifier>()
+        var useStack = Set<ObjectIdentifier>()
+        var cutCount = 0
+
+        func markerDraws(_ marker: ContentNode) -> Int {
+            let key = ObjectIdentifier(marker)
+            if let cached = drawsByMarker[key] { return cached }
+            if markerStack.contains(key) { cutCount += 1; return 0 } // recursive marker: the renderer skips it
+            guard spend() else { return ceiling }
+            markerStack.insert(key)
+            let before = cutCount
+            var total = 0
+            for child in marker.children where child.isElement && !unrendered.contains(child.name) {
+                total = clamp(total + expand(child, midIDs: [], endIDs: [], countDrawables: true, inMask: false, depth: 1))
+                if total >= ceiling || refused { break }
+            }
+            markerStack.remove(key)
+            if cutCount == before { drawsByMarker[key] = total } // cacheable only when no cut was crossed
+            return clamp(total)
+        }
+        func drawsForID(_ id: String) -> Int { markersByID[id].map(markerDraws) ?? 0 }
+        func maxDraws(_ list: [String]) -> Int {
+            var best = 0
+            var seen = Set<String>()
+            for id in list {
+                guard spend() else { return ceiling }
+                guard seen.insert(id).inserted else { continue }
+                best = max(best, drawsForID(id))
+                if best >= ceiling { return ceiling }
+            }
+            return best
+        }
+
+        // Marker ids a node sets for the mid and endpoint slots, from its presentation attributes,
+        // its `style` attribute and the stylesheet rules that match it. Resolution to draw counts
+        // is deferred to the shapes that use them, so a zero-vertex shape never forces a referenced
+        // marker (hence its chain) to be evaluated.
+        func localMarkers(_ node: ContentNode) -> (mid: [String], end: [String]) {
             var mid: [String] = [], end: [String] = []
             for attribute in node.attributes where markerProperties.contains(attribute.name) {
                 guard let id = urlFragment(attribute.value) else { continue }
-                if attribute.name == "marker-start" || attribute.name == "marker-end" { end.append(id) } else { mid.append(id) }
+                if attribute.name == "marker-mid" { mid.append(id) }
+                else if attribute.name == "marker-start" || attribute.name == "marker-end" { end.append(id) }
+                else { mid.append(id); end.append(id) }
             }
             if let style = node.attribute("style") {
-                let references = markerCSSReferences(style)
-                mid += references.mid; end += references.end
+                let references = markerCSSReferences(style); mid += references.mid; end += references.end
+            }
+            if !cssRules.isEmpty {
+                let classes = Set(node.classNames)
+                let elementID = node.id
+                for rule in cssRules {
+                    guard spend() else { break }
+                    if ruleMatches(rule, name: node.name, id: elementID, classes: classes) { mid += rule.mid; end += rule.end }
+                }
             }
             return (mid, end)
         }
 
-        // Draw operations a subtree produces when instantiated once, under the marker loads
-        // inherited from its ancestors. `countDrawables` is true inside a marker, where each
-        // drawable is one instance per vertex of the referencing shape; false in the page tree,
-        // where a drawable is simply drawn and only its markers amplify.
-        func load(_ node: ContentNode, inMid: Int, inEnd: Int, countDrawables: Bool, depth: Int) -> Int {
-            guard depth <= maximumDepth else { uncacheable += 1; return ceiling }
-            let own = ownReferences(node)
-            let mid = clamp(inMid + own.mid.reduce(0) { $0 + loadForID($1, depth) })
-            let end = clamp(inEnd + own.end.reduce(0) { $0 + loadForID($1, depth) })
-            var total = countDrawables && drawableShapes.contains(node.name) ? 1 : 0
-            if markerableShapes.contains(node.name), mid + end > 0 {
-                total = clamp(total + clamp(vertexCount(node) * mid) + end)
-            }
-            if total >= ceiling { return ceiling }
-            if node.name == "use", let href = href(node), href.hasPrefix("#"), let target = ids[String(href.dropFirst())],
-               active.insert(ObjectIdentifier(target)).inserted {
-                total = clamp(total + load(target, inMid: mid, inEnd: end, countDrawables: countDrawables, depth: depth + 1))
-                active.remove(ObjectIdentifier(target))
-            }
-            for child in node.children where !unrendered.contains(child.name) {
-                total = clamp(total + load(child, inMid: mid, inEnd: end, countDrawables: countDrawables, depth: depth + 1))
-                if total >= ceiling { break }
-            }
-            return total
-        }
+        // Marker instances (or, inside a marker, draw operations) `node`'s subtree produces,
+        // following `<use>` to its target, under the mid/endpoint marker ids inherited from
+        // ancestors (a local declaration overrides the inherited one, as the renderer resolves).
+        func expand(_ node: ContentNode, midIDs inMid: [String], endIDs inEnd: [String],
+                    countDrawables: Bool, inMask: Bool, depth: Int) -> Int {
+            guard spend(), depth <= maximumDepth else { refused = true; return ceiling }
+            let name = node.name
+            let own = localMarkers(node)
+            let midIDs = own.mid.isEmpty ? inMid : own.mid
+            let endIDs = own.end.isEmpty ? inEnd : own.end
+            var total = countDrawables ? markerDrawCost(node) : 0
 
-        // Draw operations one instantiation of a marker produces, including nested markers.
-        func markerLoad(_ marker: ContentNode, _ depth: Int) -> Int {
-            let key = ObjectIdentifier(marker)
-            if let cached = loadCache[key] { return cached }
-            if active.contains(key) { uncacheable += 1; return 0 } // recursive marker: the renderer skips it
-            guard depth <= maximumDepth else { uncacheable += 1; return ceiling }
-            active.insert(key)
-            let before = uncacheable
-            var total = 0
-            for child in marker.children where !unrendered.contains(child.name) {
-                total = clamp(total + load(child, inMid: ambientMid, inEnd: 0, countDrawables: true, depth: depth + 1))
-                if total >= ceiling { break }
-            }
-            active.remove(key)
-            if uncacheable == before { loadCache[key] = total } // a value reached through a cycle is context-dependent
-            return total
-        }
-
-        // A stylesheet marker rule can attach a marker to shapes this walk does not match by
-        // selector, so when one is present every shape is charged the largest marker it could
-        // name (the referenced markers, or any marker in the document when the url is opaque).
-        var stylesheetIDs: [String] = []
-        var stylesheetNeedsLargest = false
-        func collectStylesheets(_ node: ContentNode) {
-            if node.name == "style" {
-                let references = markerCSSReferences(node.textContent)
-                if references.present {
-                    stylesheetIDs += references.mid + references.end
-                    if references.mid.isEmpty && references.end.isEmpty { stylesheetNeedsLargest = true }
+            if markerableShapes.contains(name), !midIDs.isEmpty || !endIDs.isEmpty {
+                let verts = vertexCount(node)
+                let midDraw = (!midIDs.isEmpty && verts > 0) ? maxDraws(midIDs) : 0
+                let endDraw = endIDs.isEmpty ? 0 : maxDraws(endIDs)
+                if midDraw > 0 || endDraw > 0 {
+                    if inMask { refused = true; return ceiling } // mask content is re-drawn per reference
+                    if midDraw > 0 { total = clamp(total + clamp(verts * midDraw)) }
+                    total = clamp(total + endDraw)
                 }
             }
-            for child in node.elementChildren { collectStylesheets(child) }
-        }
-        collectStylesheets(svg)
-        if !stylesheetIDs.isEmpty || stylesheetNeedsLargest {
-            // Base loads (no stylesheet charge yet) size the charge; `ambientMid` stays 0 here.
-            var charge = 0
-            for id in stylesheetIDs { charge = max(charge, loadForID(id, 0)) }
-            if stylesheetNeedsLargest {
-                for markers in markersByID.values { for marker in markers { charge = max(charge, markerLoad(marker, 0)) } }
+            if total >= ceiling || refused { return clamp(total) }
+
+            if name == "use", let href = href(node), href.hasPrefix("#"),
+               let target = ids[String(href.dropFirst())] {
+                let key = ObjectIdentifier(target)
+                if useStack.insert(key).inserted {
+                    total = clamp(total + expand(target, midIDs: midIDs, endIDs: endIDs,
+                                                 countDrawables: countDrawables, inMask: inMask, depth: depth + 1))
+                    useStack.remove(key)
+                }
             }
-            ambientMid = charge
-            loadCache.removeAll() // recompute marker loads with the ambient stylesheet charge applied
-            uncacheable = 0
+            for child in node.children where child.isElement {
+                // Definitions are instantiated only through a reference, a `<clipPath>` does not
+                // draw its markers, and patterns are refused; masks are examined separately. So the
+                // drawn walk descends only into drawn content.
+                if unrendered.contains(child.name) { continue }
+                total = clamp(total + expand(child, midIDs: midIDs, endIDs: endIDs,
+                                             countDrawables: countDrawables, inMask: inMask, depth: depth + 1))
+                if total >= ceiling || refused { break }
+            }
+            return clamp(total)
         }
-        return load(svg, inMid: ambientMid, inEnd: 0, countDrawables: false, depth: 0) <= maximumMarkerInstances
+
+        // The drawn tree: the marker instances the page builds, following `<use>`.
+        let total = expand(svg, midIDs: [], endIDs: [], countDrawables: false, inMask: false, depth: 0)
+
+        // The markers a `<mask>`'s content inherits come from the mask element's own ancestors
+        // (the renderer resolves `marker-*` up the static tree), not from the referencing element.
+        func inheritedMarkers(_ node: ContentNode) -> (mid: [String], end: [String]) {
+            var mid: [String] = [], end: [String] = []
+            var ancestor = node.parent
+            while let current = ancestor, mid.isEmpty || end.isEmpty {
+                let local = localMarkers(current)
+                if mid.isEmpty { mid = local.mid }
+                if end.isEmpty { end = local.end }
+                ancestor = current.parent
+            }
+            return (mid, end)
+        }
+
+        // Masks: the renderer re-draws a mask's content, markers included, once per referencing
+        // element, which the drawn walk does not multiply. A marker-bearing shape anywhere in a
+        // mask (reached through `<use>` or inherited from the mask's ancestors) is refused outright.
+        for mask in masks where !refused {
+            let inherited = inheritedMarkers(mask)
+            for child in mask.children where child.isElement && !unrendered.contains(child.name) {
+                _ = expand(child, midIDs: inherited.mid, endIDs: inherited.end, countDrawables: false, inMask: true, depth: 1)
+                if refused { break }
+            }
+        }
+
+        return (!refused && total <= maximumMarkerInstances, stepBudget - budget)
+    }
+
+    /// Convenience `markerInstanceCheck` that collects the id map itself, for tests.
+    static func markerInstanceCheck(_ svg: ContentNode) -> (withinLimits: Bool, steps: Int) {
+        var ids: [String: ContentNode] = [:]
+        func collect(_ node: ContentNode) {
+            if let id = node.id, ids[id] == nil { ids[id] = node }
+            for child in node.elementChildren { collect(child) }
+        }
+        collect(svg)
+        return markerInstanceCheck(svg, ids: ids)
+    }
+
+    /// The marker-setting rules in one `<style>` element, or none when the renderer ignores the
+    /// element — a `type` other than `text/css`, which it does not honour.
+    private static func markerStyleRules(_ style: ContentNode) -> [MarkerStyleRule] {
+        if let type = style.attribute("type"),
+           type.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "text/css" { return [] }
+        return parseMarkerRules(style.textContent)
+    }
+
+    /// Top-level style rules that set a marker property, each paired with its parsed selector list.
+    /// At-rules such as `@media`, which the renderer ignores, are skipped with their whole block.
+    private static func parseMarkerRules(_ css: String) -> [MarkerStyleRule] {
+        let characters = Array(stripCSSComments(css))
+        let count = characters.count
+        var rules: [MarkerStyleRule] = []
+        var index = 0
+        while index < count {
+            var brace = index
+            while brace < count, characters[brace] != "{", characters[brace] != "}" { brace += 1 }
+            guard brace < count, characters[brace] == "{" else { break }
+            let prelude = String(characters[index..<brace]).trimmingCharacters(in: .whitespacesAndNewlines)
+            var depth = 1
+            var cursor = brace + 1
+            let blockStart = cursor
+            while cursor < count, depth > 0 {
+                if characters[cursor] == "{" { depth += 1 }
+                else if characters[cursor] == "}" { depth -= 1 }
+                cursor += 1
+            }
+            let blockEnd = depth == 0 ? cursor - 1 : cursor
+            if !prelude.hasPrefix("@") {
+                let references = markerCSSReferences(String(characters[blockStart..<blockEnd]))
+                if references.present {
+                    let selectors = prelude.split(separator: ",", omittingEmptySubsequences: false)
+                        .map { parseSimpleSelector(String($0)) }
+                    rules.append(MarkerStyleRule(selectors: selectors, mid: references.mid, end: references.end))
+                }
+            }
+            index = cursor
+        }
+        return rules
+    }
+
+    /// A simple selector (`*`, a type, classes and an id, in any combination) parsed from one
+    /// comma-separated part, or `nil` for anything else — a descendant, combinator, attribute or
+    /// pseudo selector — which is then treated as matching every shape.
+    private static func parseSimpleSelector(_ raw: String) -> SimpleSelector? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return nil }
+        let unsupported: Set<Character> = [" ", "\t", "\n", "\r", ">", "+", "~", "[", "]", "(", ")", ":", ","]
+        if trimmed.contains(where: unsupported.contains) { return nil }
+        var name: String?
+        var classes: [String] = []
+        var id: String?
+        var token = ""
+        var kind: Character = "t"
+        func flush() {
+            guard !token.isEmpty else { return }
+            switch kind {
+            case ".": classes.append(token)
+            case "#": id = token
+            default: if token != "*" { name = token }
+            }
+            token = ""
+        }
+        for character in trimmed {
+            if character == "." || character == "#" { flush(); kind = character }
+            else { token.append(character) }
+        }
+        flush()
+        return SimpleSelector(name: name, classes: classes, id: id)
+    }
+
+    /// Whether a stylesheet marker rule matches a node, from its precomputed name, id and class
+    /// set: any selector matches, an unevaluated selector (`nil`) matching everything.
+    private static func ruleMatches(_ rule: MarkerStyleRule, name: String, id: String?, classes: Set<String>) -> Bool {
+        for selector in rule.selectors {
+            guard let selector else { return true }
+            if let type = selector.name, type != name { continue }
+            if let selectorID = selector.id, selectorID != id { continue }
+            if !selector.classes.allSatisfy(classes.contains) { continue }
+            return true
+        }
+        return false
     }
 
     /// The marker url ids a block of CSS declarations attaches, split into mid-like (mid and the
@@ -332,7 +524,10 @@ enum SVGContent {
             var valueEnd = cursor + 1
             while valueEnd < characters.count, characters[valueEnd] != ";", characters[valueEnd] != "}", characters[valueEnd] != "{" { valueEnd += 1 }
             if let id = urlFragment(String(characters[(cursor + 1)..<valueEnd])) {
-                if name == "marker-start" || name == "marker-end" { end.append(id) } else { mid.append(id) }
+                // `marker` is the shorthand for start, mid and end, so it charges both slots.
+                if name == "marker-mid" { mid.append(id) }
+                else if name == "marker-start" || name == "marker-end" { end.append(id) }
+                else { mid.append(id); end.append(id) }
             }
             index = valueEnd
         }
@@ -366,16 +561,74 @@ enum SVGContent {
         return id.isEmpty ? nil : String(id)
     }
 
-    /// An upper bound on a shape's marker vertices: numeric tokens in a `path` `d` or a
-    /// `polyline`/`polygon` `points` (each real vertex needs at least one, curves and arcs
-    /// several), or a small constant for the closed and two-point primitives.
+    /// An upper bound on the segments (hence the marker-mid positions, and the stored points) of a
+    /// shape's flattened geometry. Straight and Bezier path data over-counts safely: a line-to
+    /// pair, a cubic or a quadratic is one segment but several numeric tokens, and a
+    /// polyline/polygon point is one vertex but two tokens. A `circle`, `ellipse` or rounded
+    /// `rect` is flattened from elliptical arcs into a radius-dependent number of segments, bounded
+    /// here with `arcSegments` from the shape's radius. A path with an elliptical-arc command is
+    /// the one geometry whose segment count cannot be bounded from the text — the effective radius
+    /// depends on where the endpoints fall — so it is charged over the bound (refused).
     private static func vertexCount(_ shape: ContentNode) -> Int {
+        let unbounded = maximumMarkerInstances + 1
+        func radius(_ names: [String]) -> Int {
+            var worst = 0
+            for name in names {
+                guard let text = shape.attribute(name) else { continue }
+                guard let value = Double(text) else { return unbounded } // units/percent: cannot bound
+                worst = max(worst, arcSegments(abs(value)))
+            }
+            return worst
+        }
         switch shape.name {
-        case "path": return numberCount(shape.attribute("d") ?? "")
+        case "path":
+            let data = shape.attribute("d") ?? ""
+            return pathHasArc(data) ? unbounded : numberCount(data)
         case "polyline", "polygon": return numberCount(shape.attribute("points") ?? "")
         case "line": return 2
-        default: return 5 // rect, circle and ellipse expand to a closed five-vertex path.
+        case "rect":
+            guard shape.attribute("rx") != nil || shape.attribute("ry") != nil else { return 5 }
+            return clampToUnbounded(5 + radius(["rx", "ry"]))
+        case "circle": return max(5, radius(["r"]))
+        default: return max(5, radius(["rx", "ry"])) // ellipse
         }
+    }
+
+    private static func clampToUnbounded(_ value: Int) -> Int {
+        value < 0 || value > maximumMarkerInstances ? maximumMarkerInstances + 1 : value
+    }
+
+    /// A sound upper bound on the cubic segments the renderer flattens a full ellipse of the given
+    /// radius into, over-estimating `kurbo`'s per-arc count (`n_err = max((11.163·r)^(1/6), 4)`,
+    /// tolerance 0.1, summed over four quarter arcs) with headroom.
+    private static func arcSegments(_ radius: Double) -> Int {
+        guard radius.isFinite else { return maximumMarkerInstances + 1 }
+        let nErr = max(pow(11.163 * radius, 1.0 / 6.0), 4.0)
+        guard nErr.isFinite, nErr < Double(maximumMarkerInstances) else { return maximumMarkerInstances + 1 }
+        return Int(nErr.rounded(.up)) + 8
+    }
+
+    /// Whether path data contains an elliptical-arc command. In path data the only letters are
+    /// commands and the `e`/`E` of an exponent, so any `a`/`A` is an arc.
+    private static func pathHasArc(_ data: String) -> Bool {
+        data.contains("a") || data.contains("A")
+    }
+
+    /// The instances one drawn copy of a marker drawable costs, in the bound's units. A simple
+    /// node is one instance; a point-heavy one (a long path or polyline, a large-radius curve, or
+    /// a long text run) costs in proportion to its stored points, so a marker whose single node
+    /// holds thousands of points is charged for them. The divisor is the points whose storage
+    /// equals one instance's fixed overhead, keeping the 45 MB-per-100,000 calibration across node
+    /// sizes; `maximumTextRunCharacters` already bounds a single text run.
+    private static func markerDrawCost(_ node: ContentNode) -> Int {
+        guard drawableShapes.contains(node.name) else { return 0 }
+        let points: Int
+        switch node.name {
+        case "image": points = 1
+        case "text": points = node.textContent.unicodeScalars.count
+        default: points = vertexCount(node)
+        }
+        return clampToUnbounded(1 + points / 32)
     }
 
     /// The count of numeric tokens in SVG coordinate data, over-counting rather than under.

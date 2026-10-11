@@ -551,10 +551,16 @@ Go: the native viewer is the bundled engine.
   include 4 MiB of SVG, 10,000 nodes, depth 64 and 8 MiB of expanded local references.
   Two amplifications the byte and node limits do not catch are bounded too: one `<text>`
   run, whose layout is super-linear in its length, is held to 20,000 characters, and the
-  marker instances the renderer clones per path vertex — a shape's vertices times the graphic
-  nodes the markers draw, counting each `<use>` and nested-marker clone and markers set by a
-  `style` attribute or stylesheet — to 100,000. An SVG past either shows its fallback text
-  with the `svg` disclosure, as one past the node, depth or byte limits does.
+  marker instances the renderer clones per path vertex are held to 100,000. The marker count
+  is an upper bound on what the renderer instantiates, for every document, computed within a
+  fixed step budget: it follows a marker-bearing shape through `<use>`, `<symbol>` and nested
+  `<svg>`, charges markers set by attribute, `style` or an evaluated stylesheet selector,
+  multiplies nested markers, and counts each marker node's points so a point-heavy one is not
+  undercounted. Where a sound count is not possible it refuses — a marker-bearing shape inside a
+  `<mask>` (the renderer redraws mask content per reference), or `marker-mid` on an elliptical
+  arc whose flattened vertices the path text cannot bound. Markers inside a `<clipPath>` are not
+  drawn and so are ignored. An SVG past either amplification shows its fallback text with the
+  `svg` disclosure, as one past the node, depth or byte limits does.
   Embedded raster images are capped at 4 megapixels each and 16 megapixels in total.
   Output is capped at 4,096 pixels on its long side and 16 megapixels, reduced further for
   isolated layers to fit the raster working-memory budget. SVG text uses outline fonts;

@@ -19,6 +19,17 @@ final class RichMediaSVGBoundsCoverageTests: XCTestCase {
         ReaderImageSource.svg(Data(svg.utf8), path: "", key: UUID().uuidString) != nil
     }
 
+    /// The marker-instance verdict and the steps the bounded walk spent, straight from the
+    /// pre-render check. Used where calling the renderer would be expensive or where a test
+    /// asserts the walk stays near-linear.
+    private func markerCheck(_ svg: String) -> (withinLimits: Bool, steps: Int) {
+        guard let document = try? ContentDocument.parse(
+            Data(svg.utf8), path: "svg",
+            limits: .init(bytes: SVGContent.maximumBytes, depth: SVGContent.maximumDepth, nodes: SVGContent.maximumNodes),
+            asContent: false) else { return (false, 0) }
+        return SVGContent.markerInstanceCheck(document.root)
+    }
+
     private func image(_ body: String, files: [String: Data] = [:]) throws -> (ReaderImageAttachment?, SectionText) {
         let text = try RichMediaBook(body: body, files: files).build()
         return (text.richMediaImages.first, text)
@@ -64,7 +75,7 @@ final class RichMediaSVGBoundsCoverageTests: XCTestCase {
         XCTAssertEqual(text.report.unsupportedElements["svg"], 1)
     }
 
-    // MARK: Marker expansion (doc: 100,000 instances = shapes x vertices)
+    // MARK: Marker expansion (doc: 100,000 instances = shapes x vertices x marker draws)
 
     /// A `<marker>` of `shapes` rectangles on a path whose `d` holds exactly `tokens` numeric
     /// tokens (one `M` pair plus line-to pairs), so the instance count is `shapes * tokens`.
@@ -105,7 +116,7 @@ final class RichMediaSVGBoundsCoverageTests: XCTestCase {
         XCTAssertEqual(text.report.unsupportedElements["svg"], 1)
     }
 
-    // MARK: `<use>` multiplies a marker-bearing shape
+    // MARK: `<use>` multiplies a marker-bearing shape (evasion: multiplication)
 
     /// A 100-shape marker on a 400-vertex path (~80,000 instances per copy), defined once in
     /// `<defs>` and drawn through `<use>`. The renderer instantiates the marker afresh at every
@@ -127,7 +138,7 @@ final class RichMediaSVGBoundsCoverageTests: XCTestCase {
         XCTAssertFalse(renders(nested), "5 x 5 nested uses (~2,000,000 instances) are refused")
     }
 
-    // MARK: Markers applied through CSS the renderer honours
+    // MARK: Markers applied through CSS the renderer honours (evasion: CSS whitespace)
 
     /// The renderer accepts any whitespace and a comment between a marker property and its colon,
     /// the `marker` shorthand, and a stylesheet selector, in a `style` attribute or a `<style>`
@@ -143,8 +154,11 @@ final class RichMediaSVGBoundsCoverageTests: XCTestCase {
             XCTAssertFalse(renders("<svg \(ns) width='200' height='50'><defs>\(marker)</defs><style>path{\(declaration)}</style><path d='\(d)'/></svg>"),
                            "stylesheet '\(declaration.debugDescription)' is honoured and must be counted")
         }
-        // A stylesheet whose url the scan cannot read still charges the largest marker.
-        XCTAssertFalse(renders("<svg \(ns) width='200' height='50'><defs>\(marker)</defs><style>path{marker-mid:url(data:opaque)}</style><path d='\(d)'/></svg>"))
+        // A marker url the renderer cannot resolve to an element reference draws nothing: it
+        // requires `url(#id)` (svgtypes `FuncIRI`), so `url(data:opaque)` is not a bomb and renders.
+        XCTAssertTrue(renders("<svg \(ns) width='200' height='50'><defs>\(marker)</defs><style>path{marker-mid:url(data:opaque)}</style><path d='\(d)'/></svg>"))
+        XCTAssertTrue(renders("<svg \(ns) width='200' height='50'><defs>\(marker)</defs><path d='\(d)' marker-mid='url(#missing)'/></svg>"),
+                      "a reference to no existing marker instantiates nothing")
     }
 
     /// Proof the renderer honours a tab-before-colon marker in a stylesheet, so refusing the
@@ -172,22 +186,130 @@ final class RichMediaSVGBoundsCoverageTests: XCTestCase {
                        "nested markers multiply and are refused")
     }
 
-    // MARK: Real marker content must still render
+    // MARK: Markers inside a `<mask>` (evasion: masks)
 
-    /// A stylesheet marker rule charges every shape, so the detection must not refuse an ordinary
-    /// diagram: 100 short arrows with a CSS-applied arrowhead render, as does a long marker-less
-    /// polyline, and a stylesheet with no marker rule does not trigger the charge.
-    func testStylesheetMarkerDoesNotRefuseOrdinaryDiagrams() throws {
+    /// The renderer re-draws a mask's content, markers included, once per element that references
+    /// the mask, which the drawn-tree walk does not multiply. A marker-bearing shape inside a mask
+    /// is therefore refused outright, whether the shape is there directly, reached through `<use>`,
+    /// or applied a marker through CSS. A mask with no marker-bearing shape is unaffected.
+    func testMarkerInsideMaskIsRefused() throws {
         let ns = Self.ns
-        let arrow = "<marker id='a' markerWidth='10' markerHeight='10' refX='5' refY='5'><path d='M0 0 L10 5 L0 10 Z'/></marker>"
-        let edges = String(repeating: "<line class='edge' x1='0' y1='0' x2='50' y2='50'/>", count: 100)
-        XCTAssertTrue(renders("<svg \(ns) width='200' height='200'><defs>\(arrow)</defs><style>.edge{marker-end:url(#a)}</style>\(edges)</svg>"),
-                      "a real diagram of arrowed edges with a CSS marker rule renders")
-        let polyline = "<polyline points='" + (0..<4_000).map { "\($0) 1" }.joined(separator: " ") + "'/>"
-        XCTAssertTrue(renders("<svg \(ns) width='200' height='200'>\(polyline)</svg>"), "a long marker-less polyline renders")
-        let bigMarker = "<marker id='m' markerWidth='2' markerHeight='2'>" + String(repeating: "<rect width='1' height='1'/>", count: 400) + "</marker>"
-        let path = "<path d='M0 0" + String(repeating: " L1 1", count: 399) + "'/>"
-        XCTAssertTrue(renders("<svg \(ns) width='200' height='50'><defs>\(bigMarker)</defs><style>path{fill:red}</style>\(path)</svg>"),
-                      "a marker-less path under a marker-less stylesheet is not charged")
+        let marker = "<marker id='m' markerUnits='userSpaceOnUse' markerWidth='2' markerHeight='2'>" + String(repeating: "<rect width='1' height='1'/>", count: 100) + "</marker>"
+        let path = "M0 0" + String(repeating: " L1 1", count: 399)
+        // Directly inside the mask, referenced by one shape (the reviewer's e1b channel).
+        XCTAssertFalse(renders("<svg \(ns) width='200' height='50'><defs>\(marker)<mask id='k'><path d='\(path)' marker-mid='url(#m)'/></mask></defs><rect width='9' height='9' mask='url(#k)'/></svg>"),
+                       "a marker-bearing shape in a mask is refused; the renderer re-draws it per reference")
+        // Reached through <use> from inside the mask.
+        XCTAssertFalse(renders("<svg \(ns) width='200' height='50'><defs>\(marker)<g id='g'><path d='\(path)' marker-mid='url(#m)'/></g><mask id='k'><use xlink:href='#g'/></mask></defs><rect width='9' height='9' mask='url(#k)'/></svg>"),
+                       "a marker reached through <use> inside a mask is refused too")
+        // Applied through a stylesheet to a shape inside the mask.
+        XCTAssertFalse(renders("<svg \(ns) width='200' height='50'><defs>\(marker)<mask id='k'><path class='e' d='\(path)'/></mask></defs><style>.e{marker-mid:url(#m)}</style><rect width='9' height='9' mask='url(#k)'/></svg>"))
+        // Inherited from the mask element's own ancestor (the renderer resolves marker-* up the
+        // static tree, not from the referencing element).
+        XCTAssertFalse(markerCheck("<svg \(ns) width='200' height='50'><defs>\(marker)<g marker-mid='url(#m)'><mask id='k'><path d='\(path)'/></mask></g></defs><rect width='9' height='9' mask='url(#k)'/></svg>").withinLimits,
+                       "a marker inherited onto mask content from the mask's ancestor is refused")
+        // A mask without a marker-bearing shape renders.
+        XCTAssertTrue(renders("<svg \(ns) width='200' height='50'><defs>\(marker)<mask id='k'><rect width='9' height='9' fill='white'/></mask></defs><rect width='9' height='9' mask='url(#k)' fill='black'/></svg>"),
+                      "a mask with no marker is unaffected")
+    }
+
+    // MARK: Markers inside a `<clipPath>` are not drawn
+
+    /// The renderer never instantiates a marker on a shape inside a `<clipPath>` (`marker::is_valid`
+    /// rejects it), so a clip path is not an amplification channel and must not be refused.
+    func testMarkerInsideClipPathRenders() throws {
+        let ns = Self.ns
+        let marker = "<marker id='m' markerUnits='userSpaceOnUse' markerWidth='2' markerHeight='2'>" + String(repeating: "<rect width='1' height='1'/>", count: 400) + "</marker>"
+        let path = "M0 0" + String(repeating: " L1 1", count: 399)
+        XCTAssertTrue(renders("<svg \(ns) width='200' height='50'><defs>\(marker)<clipPath id='k'><path d='\(path)' marker-mid='url(#m)'/></clipPath></defs><rect width='200' height='50' clip-path='url(#k)'/></svg>"),
+                      "markers inside a clipPath are not drawn, so the clip path renders")
+    }
+
+    // MARK: A cyclic marker chain cannot make the check explode (evasion: exponential time)
+
+    /// A chain of markers each referencing the next twice, with a back-edge closing the cycle, made
+    /// the previous check take time exponential in its depth. The renderer draws nothing from it
+    /// (the linking paths are empty, so no vertex instantiates a marker); the check must agree and
+    /// stay near-linear. The verdict and the step counter are asserted, never wall-clock time, and
+    /// the depth is small enough that even an exponential regression would finish in seconds.
+    func testCyclicMarkerChainDoesNotExplode() throws {
+        let ns = Self.ns
+        func chain(_ depth: Int) -> String {
+            var markers = ""
+            for index in 0..<depth {
+                let next = (index + 1) % depth // the last marker points back to the first
+                markers += "<marker id='c\(index)' markerUnits='userSpaceOnUse' markerWidth='2' markerHeight='2'>"
+                    + "<path d='' marker-mid='url(#c\(next))'/><path d='' marker-mid='url(#c\(next))'/></marker>"
+            }
+            return "<svg \(ns) width='50' height='20'><defs>\(markers)</defs><path d='M0 0 L1 1' marker-mid='url(#c0)'/></svg>"
+        }
+        let result = markerCheck(chain(18))
+        XCTAssertTrue(result.withinLimits, "the empty-path chain draws nothing and is within limits")
+        XCTAssertLessThan(result.steps, 10_000, "the walk is near-linear in the node count, not exponential in the chain depth")
+        XCTAssertTrue(renders(chain(18)), "and it renders")
+    }
+
+    // MARK: A stylesheet marker rule is charged only to the shapes it can match (evasion: over-refusal)
+
+    /// A `marker-end` rule on a class attaches one arrowhead per connector, not one per vertex, and
+    /// its selector is evaluated so unrelated high-vertex paths are not charged. This mirrors an
+    /// ordinary flow or map diagram that the previous check refused.
+    func testStylesheetSelectorChargesOnlyMatchingShapes() throws {
+        let ns = Self.ns
+        let arrow = "<marker id='arr' markerWidth='10' markerHeight='10' refX='5' refY='5' orient='auto'><path d='M0 0 L10 5 L0 10 Z'/><path d='M0 2 L6 5'/><path d='M0 8 L6 5'/></marker>"
+        let edges = String(repeating: "<path class='edge' d='M0 0 C10 10 20 0 30 10'/>", count: 300)
+        let outlines = String(repeating: "<path class='outline' d='M0 0" + String(repeating: " L1 1", count: 3_999) + "'/>", count: 5)
+        XCTAssertTrue(renders("<svg \(ns) width='800' height='600'><defs>\(arrow)</defs><style>.edge{marker-end:url(#arr)}</style>\(edges)\(outlines)</svg>"),
+                      "300 CSS-arrowed connectors plus five 4,000-vertex outline paths render; marker-end is per shape and the outlines are not matched")
+        // A universal selector matches the high-vertex outline too, so it is charged and refused.
+        let big = "<marker id='m' markerWidth='2' markerHeight='2'>" + String(repeating: "<rect width='1' height='1'/>", count: 200) + "</marker>"
+        XCTAssertFalse(renders("<svg \(ns) width='800' height='600'><defs>\(big)</defs><style>*{marker-mid:url(#m)}</style><path d='M0 0" + String(repeating: " L1 1", count: 3_999) + "'/></svg>"),
+                       "a universal marker-mid rule matches the long path and is charged over the bound")
+        // A stylesheet with no marker property triggers no charge.
+        XCTAssertTrue(renders("<svg \(ns) width='200' height='200'><style>path{fill:red}</style><path d='M0 0" + String(repeating: " L1 1", count: 3_999) + "'/></svg>"),
+                      "a marker-less stylesheet is not charged")
+    }
+
+    // MARK: Geometry the renderer flattens by radius (new channel: arcs and curved primitives)
+
+    /// The renderer flattens an elliptical-arc path command, and a `circle`/`ellipse`/rounded
+    /// `rect`, into a radius-dependent number of segments, each a `marker-mid` vertex — so a few
+    /// tokens can become thousands of instances. A marker-mid path with an arc is refused (its
+    /// segment count cannot be bounded from the text); a small curved primitive is bounded by its
+    /// radius and renders, while a large-radius one is refused.
+    func testArcAndCurvedMarkerGeometryIsBounded() throws {
+        let ns = Self.ns
+        let marker = "<marker id='m' markerWidth='2' markerHeight='2'>" + String(repeating: "<rect width='1' height='1'/>", count: 100) + "</marker>"
+        // A path of a few arc commands: tiny text, but thousands of flattened marker vertices.
+        let arcs = "M0 0" + String(repeating: "a100000 100000 0 1 1 1 0", count: 40)
+        XCTAssertFalse(markerCheck("<svg \(ns) width='200' height='50'><defs>\(marker)</defs><path d='\(arcs)' marker-mid='url(#m)'/></svg>").withinLimits,
+                       "a marker-mid path with elliptical arcs is refused")
+        // A small circle flattens to a handful of segments and renders.
+        XCTAssertTrue(renders("<svg \(ns) width='200' height='50'><defs>\(marker)</defs><circle cx='10' cy='10' r='6' marker-mid='url(#m)'/></svg>"),
+                      "a small-radius circle with a marker is bounded by its radius and renders")
+        // An extreme-radius circle flattens to more segments than the bound and is refused (its
+        // stored coordinates would also be extreme; see #186).
+        XCTAssertFalse(markerCheck("<svg \(ns) width='200' height='50'><defs>\(marker)</defs><circle cx='0' cy='0' r='1e40' marker-mid='url(#m)'/></svg>").withinLimits,
+                       "an extreme-radius circle flattens to too many marker vertices and is refused")
+    }
+
+    // MARK: A marker whose single node is point-heavy (new channel: marker-content volume)
+
+    /// The renderer re-stores a marker's flattened geometry at every instance, so one marker node
+    /// holding thousands of points costs as much as thousands of small nodes. The count charges a
+    /// node's points, so a point-heavy marker on a high-vertex host is refused, while the same
+    /// marker on a low-vertex host, and a small marker on the high-vertex host, render.
+    func testPointHeavyMarkerContentIsBounded() throws {
+        let ns = Self.ns
+        let heavy = "<marker id='m' markerUnits='userSpaceOnUse' markerWidth='2' markerHeight='2'><path d='M0 0" + String(repeating: "h1", count: 10_000) + "'/></marker>"
+        let hostHigh = "M0 0" + String(repeating: " L1 1", count: 9_999) // ~10,000 marker-mid vertices
+        XCTAssertFalse(markerCheck("<svg \(ns) width='200' height='50'><defs>\(heavy)</defs><path d='\(hostHigh)' marker-mid='url(#m)'/></svg>").withinLimits,
+                       "a 10,000-point marker node on a 10,000-vertex host is refused")
+        let hostLow = "M0 0 L1 1 L2 2" // two marker-mid vertices
+        XCTAssertTrue(renders("<svg \(ns) width='200' height='50'><defs>\(heavy)</defs><path d='\(hostLow)' marker-mid='url(#m)'/></svg>"),
+                      "the same point-heavy marker on a low-vertex host renders")
+        let small = "<marker id='m' markerUnits='userSpaceOnUse' markerWidth='2' markerHeight='2'><rect width='1' height='1'/></marker>"
+        XCTAssertTrue(renders("<svg \(ns) width='200' height='50'><defs>\(small)</defs><path d='\(hostHigh)' marker-mid='url(#m)'/></svg>"),
+                      "a small marker on the high-vertex host renders")
     }
 }
