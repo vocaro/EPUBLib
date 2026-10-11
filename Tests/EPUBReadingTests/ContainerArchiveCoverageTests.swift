@@ -2,6 +2,7 @@ import CryptoKit
 import EPUBCore
 import EPUBReading
 import EPUBTestSupport
+import EPUBText
 import Foundation
 import XCTest
 import ZIPFoundation
@@ -125,7 +126,6 @@ final class ContainerArchiveCoverageTests: XCTestCase {
     // MARK: Entry names
 
     func testUTF8EntryNamesAreReadWithoutTheLanguageEncodingFlag() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/73")
         // EPUB 3.3 §4.3.2: names are UTF-8. The zip and ditto tools on a Mac write UTF-8 names and
         // leave general-purpose bit 11 clear, which ZIP itself reads as code page 437.
         var files = try Fixture.packageVariantFiles(
@@ -177,6 +177,253 @@ final class ContainerArchiveCoverageTests: XCTestCase {
         XCTAssertThrowsError(try EPUBPublication.open(data: Fixture.storedArchive(entries))) {
             guard case .invalidArchive(let reason) = $0 as? EPUBPublicationError else { return XCTFail("\($0)") }
             XCTAssertTrue(reason.contains("Duplicate"), reason)
+        }
+    }
+
+    // MARK: Entry names and the language-encoding flag
+
+    // A name that is well-formed UTF-8 is read as UTF-8 whether or not general-purpose bit 11
+    // says so; any other name is read as before: code page 437 without the bit, refused with it.
+
+    /// A stored entry named by `bytes` as they are, valid in an encoding or in none.
+    private func entry(named bytes: [UInt8], _ text: String = "", flags: UInt16) -> Fixture.StoredEntry {
+        var entry = Fixture.StoredEntry("", text, flags: flags)
+        entry.name = Data(bytes)
+        return entry
+    }
+
+    /// The plain book with `entries` after its own.
+    private func book(adding entries: [Fixture.StoredEntry]) throws -> Data {
+        Fixture.storedArchive(Fixture.storedEntries(try Fixture.files()) + entries)
+    }
+
+    func testNamesInSeveralScriptsAreReadAlikeWithAndWithoutTheFlag() throws {
+        // Accented Latin precomposed and decomposed, CJK, Cyrillic, an emoji beyond the BMP, one
+        // joined from three by zero-width joiners, and Greek, punctuation and Hebrew with spaces.
+        let names = ["caf\u{E9}", "re\u{301}sume\u{301}", "\u{65E5}\u{672C}\u{8A9E}", "\u{433}\u{43B}\u{430}\u{432}\u{430}",
+                     "\u{1F600}", "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}", "\u{3B1} \u{2013} \u{5D0}\u{5D1}"]
+        let items = names.enumerated().map { index, name in
+            "<item id=\"n\(index)\" href=\"\(name.utf8.map { String(format: "%%%02X", $0) }.joined()).xhtml\" media-type=\"application/xhtml+xml\"/>"
+        }
+        var files = try Fixture.packageVariantFiles(opf: {
+            $0.replacingOccurrences(of: "</manifest>", with: items.joined() + "</manifest>")
+                .replacingOccurrences(of: "</spine>", with: names.indices.map { "<itemref idref=\"n\($0)\"/>" }.joined() + "</spine>")
+        })
+        for name in names {
+            files["OPS/\(name).xhtml"] = Data("<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>\(name)</title></head><body><p>\(name)</p></body></html>".utf8)
+        }
+        let flagged = try EPUBPublication.open(data: Fixture.storedArchive(Fixture.storedEntries(files)))
+        XCTAssertEqual(flagged.spine.dropFirst(2).map(\.resource.path), names.map { "OPS/\($0).xhtml" })
+        // zip on a Mac leaves every flag clear; ditto sets bit 3 alone, for its data descriptors.
+        for flags: UInt16 in [0, 0x0008] {
+            let book = try EPUBPublication.open(data: Fixture.storedArchive(Fixture.storedEntries(files, flags: flags)))
+            XCTAssertEqual(book.resources, flagged.resources, "flags \(flags)")
+            XCTAssertEqual(book.spine, flagged.spine, "flags \(flags)")
+            XCTAssertEqual(book.resources.map { Array($0.path.utf8) }, flagged.resources.map { Array($0.path.utf8) }, "flags \(flags)")
+            for (path, bytes) in files { XCTAssertEqual(try book.data(at: path), bytes, "\(path), flags \(flags)") }
+            for index in book.spine.indices {
+                XCTAssertEqual(try book.textSection(at: index), try flagged.textSection(at: index), "section \(index), flags \(flags)")
+            }
+            XCTAssertEqual(try book.textSection(at: 2).text, names[0], "flags \(flags)")
+        }
+    }
+
+    func testWithoutTheFlagTheNormalizationFormsOfANameAreOnePath() throws {
+        // As with the flag: a decomposed entry answers to a precomposed href and the reverse, and
+        // the paths and hrefs the book gives are spelled the same, byte for byte, either way.
+        let decomposed = "OPS/cafe\u{301}.xhtml", precomposed = "OPS/caf\u{E9}.xhtml"
+        for (name, href) in [(decomposed, "caf%C3%A9.xhtml"), (precomposed, "cafe%CC%81.xhtml")] {
+            var files = try Fixture.packageVariantFiles(
+                opf: { $0.replacingOccurrences(of: "href=\"one.xhtml\"", with: "href=\"\(href)\"") },
+                nav: { $0.replacingOccurrences(of: "one.xhtml#start", with: "\(href)#start") })
+            let chapter = try XCTUnwrap(files.removeValue(forKey: "OPS/one.xhtml"))
+            func open(flags: UInt16) throws -> EPUBPublication {
+                try EPUBPublication.open(data: Fixture.storedArchive(Fixture.storedEntries(files, flags: flags) + [Fixture.StoredEntry(name, chapter, flags: flags)]))
+            }
+            let book = try open(flags: 0), flagged = try open(flags: 0x0800)
+            XCTAssertEqual(book.spine.count, 2, name)
+            XCTAssertEqual(try book.data(for: book.spine[0].resource), chapter, name)
+            XCTAssertEqual(try book.data(at: decomposed), chapter, name)
+            XCTAssertEqual(try book.data(at: precomposed), chapter, name)
+            XCTAssertEqual(Array(book.spine[0].resource.path.utf8), Array(flagged.spine[0].resource.path.utf8), name)
+            XCTAssertEqual(book.tableOfContents, flagged.tableOfContents, name)
+        }
+    }
+
+    func testEveryCollisionOfNamesAsTheyAreReadIsADuplicate() throws {
+        func assertDuplicates(_ first: Fixture.StoredEntry, _ second: Fixture.StoredEntry, _ message: String, line: UInt = #line) {
+            for entries in [[first, second], [second, first]] {
+                XCTAssertThrowsError(try EPUBPublication.open(data: book(adding: entries)), message, line: line) {
+                    guard case .invalidArchive(let reason) = $0 as? EPUBPublicationError else { return XCTFail("\(message): \($0)", line: line) }
+                    XCTAssertTrue(reason.contains("Duplicate"), "\(message): \(reason)", line: line)
+                }
+            }
+        }
+        let precomposed = Array("OPS/caf\u{E9}.css".utf8), decomposed = Array("OPS/cafe\u{301}.css".utf8)
+        assertDuplicates(entry(named: precomposed, flags: 0), entry(named: precomposed, flags: 0x0800), "the same bytes with and without the flag")
+        assertDuplicates(entry(named: precomposed, flags: 0), entry(named: decomposed, flags: 0), "both forms without the flag")
+        assertDuplicates(entry(named: precomposed, flags: 0x0800), entry(named: decomposed, flags: 0), "one form with the flag, the other without")
+        // Code page 437 has é at 0x82, which is not UTF-8 by itself: two spellings of one name.
+        let legacy = Array("OPS/caf".utf8) + [0x82] + Array(".css".utf8)
+        assertDuplicates(entry(named: precomposed, flags: 0), entry(named: legacy, flags: 0), "UTF-8 and code page 437 bytes of one name")
+        assertDuplicates(entry(named: decomposed, flags: 0x0800), entry(named: legacy, flags: 0), "decomposed UTF-8 and code page 437 bytes of one name")
+
+        // The reverse: a name flagged as UTF-8 that spells out what the other's bytes are in code
+        // page 437. The two were one path while the second was read so, and are two files.
+        let misread = "OPS/caf\u{251C}\u{2310}.css"
+        let two = try EPUBPublication.open(data: book(adding: [Fixture.StoredEntry(misread, "a{}"), entry(named: precomposed, "b{}", flags: 0)]))
+        XCTAssertEqual(try two.data(at: misread), Data("a{}".utf8))
+        XCTAssertEqual(try two.data(at: "OPS/caf\u{E9}.css"), Data("b{}".utf8))
+    }
+
+    func testANameThatIsNotUTF8IsReadAsCodePage437WithoutTheFlagAndRefusedWithIt() throws {
+        // A book whose chapter a DOS-era tool named: é is the single byte 0x82.
+        var files = try Fixture.packageVariantFiles(opf: { $0.replacingOccurrences(of: "href=\"one.xhtml\"", with: "href=\"caf%C3%A9.xhtml\"") })
+        let chapter = try XCTUnwrap(files.removeValue(forKey: "OPS/one.xhtml"))
+        let legacy = entry(named: Array("OPS/caf".utf8) + [0x82] + Array(".xhtml".utf8), String(decoding: chapter, as: UTF8.self), flags: 0)
+        let book = try EPUBPublication.open(data: Fixture.storedArchive(Fixture.storedEntries(files, flags: 0) + [legacy]))
+        XCTAssertEqual(book.spine.first?.resource.path, "OPS/caf\u{E9}.xhtml")
+        XCTAssertEqual(try book.data(at: "OPS/caf\u{E9}.xhtml"), chapter)
+
+        // Each way bytes fail to be UTF-8, and what code page 437 makes of them. One such byte
+        // decides for the whole name: the well-formed é before the last is read as ├⌐ with it.
+        let malformed: [(String, [UInt8], String)] = [
+            ("a continuation byte alone", [0x82], "\u{E9}"),
+            ("a lead byte with nothing after it", [0xC3], "\u{251C}"),
+            ("a sequence cut short", [0xE4, 0xB8], "\u{3A3}\u{2555}"),
+            ("an overlong form", [0xC0, 0xAF], "\u{2514}\u{BB}"),
+            ("a surrogate", [0xED, 0xA0, 0x80], "\u{3C6}\u{E1}\u{C7}"),
+            ("a value past U+10FFFF", [0xF4, 0x90, 0x80, 0x80], "\u{2320}\u{C9}\u{C7}\u{C7}"),
+            ("a byte UTF-8 never uses", [0xFF], "\u{A0}"),
+            ("a well-formed sequence before a byte that is not", [0xC3, 0xA9, 0x82], "\u{251C}\u{2310}\u{E9}"),
+        ]
+        for (form, bytes, reading) in malformed {
+            let name = Array("OPS/x".utf8) + bytes + Array(".css".utf8)
+            let book = try EPUBPublication.open(data: self.book(adding: [entry(named: name, "a{}", flags: 0)]))
+            XCTAssertEqual(try book.data(at: "OPS/x\(reading).css"), Data("a{}".utf8), form)
+            XCTAssertThrowsError(try EPUBPublication.open(data: self.book(adding: [entry(named: name, "a{}", flags: 0x0800)])), form) {
+                guard case .unsafePath = $0 as? EPUBPublicationError else { return XCTFail("\(form): \($0)") }
+            }
+        }
+    }
+
+    func testBytesThatAreBothUTF8AndCodePage437AreReadAsUTF8() throws {
+        // Well-formed UTF-8 is also some string of code page 437, whose every byte is a
+        // character: box-drawing characters, Greek letters and mathematical signs where UTF-8
+        // has its lead bytes. A manifest may name either reading; the entry is the UTF-8 one.
+        let readings: [([UInt8], String, String)] = [
+            ([0xC3, 0xA9], "\u{E9}", "\u{251C}\u{2310}"),
+            ([0xCE, 0xB1], "\u{3B1}", "\u{256C}\u{2592}"),
+            ([0xE2, 0x82, 0xAC], "\u{20AC}", "\u{393}\u{E9}\u{BC}"),
+            ([0xF0, 0x9F, 0x98, 0x80], "\u{1F600}", "\u{2261}\u{192}\u{FF}\u{C7}"),
+        ]
+        for (bytes, utf8, codePage437) in readings {
+            XCTAssertEqual(Array(utf8.utf8), bytes)
+            func item(_ id: String, _ name: String) -> String {
+                "<item id=\"\(id)\" href=\"\(name.utf8.map { String(format: "%%%02X", $0) }.joined()).css\" media-type=\"text/css\"/>"
+            }
+            let files = try Fixture.packageVariantFiles(opf: {
+                $0.replacingOccurrences(of: "</manifest>", with: item("utf8", utf8) + item("cp437", codePage437) + "</manifest>")
+            })
+            let name = Array("OPS/".utf8) + bytes + Array(".css".utf8)
+            let book = try EPUBPublication.open(data: Fixture.storedArchive(Fixture.storedEntries(files, flags: 0) + [entry(named: name, "a{}", flags: 0)]))
+            XCTAssertEqual(book.resources.first { $0.id == "utf8" }?.path, "OPS/\(utf8).css", utf8)
+            XCTAssertNil(book.resources.first { $0.id == "cp437" }, utf8)
+            XCTAssertEqual(try book.data(at: "OPS/\(utf8).css"), Data("a{}".utf8), utf8)
+            XCTAssertThrowsError(try book.data(at: "OPS/\(codePage437).css"), utf8) {
+                XCTAssertEqual($0 as? EPUBPublicationError, .missingResource("OPS/\(codePage437).css"))
+            }
+        }
+    }
+
+    func testAnUnsafeNameIsRefusedAsItIsReadWithAndWithoutTheFlag() throws {
+        // The refusal names the path that was judged: the UTF-8 one, which is what would have
+        // become the entry's key.
+        for name in ["OPS/caf\u{E9}/../x.css", "../caf\u{E9}.css", "OPS/caf\u{E9}/..", "OPS/./caf\u{E9}.css", "OPS//caf\u{E9}.css",
+                     "/caf\u{E9}.css", "OPS/caf\u{E9}\\x.css", "C:caf\u{E9}.css", "OPS/caf\u{E9}\0.css", "OPS/\u{65E5}\u{672C}/../../x"] {
+            for flags: UInt16 in [0, 0x0800] {
+                assertOpening(try book(adding: [Fixture.StoredEntry(name, "a{}", flags: flags)]), throws: .unsafePath(name),
+                              "\(name.debugDescription), flags \(flags)")
+            }
+        }
+        // Whatever is made of a name, the flag does not change it. These put a combining mark
+        // after a separator, a dot, a backslash and a colon, where it joins them in one character.
+        func outcome(_ name: String, flags: UInt16) -> String {
+            do { return try EPUBPublication.open(data: book(adding: [Fixture.StoredEntry(name, "a{}", flags: flags)])).data(at: name).count.description }
+            catch { return String(describing: error) }
+        }
+        for name in ["OPS/a/\u{301}../x.css", "OPS/..\u{301}/x.css", "OPS/.\u{301}/x.css", "OPS/a\\\u{301}x.css", "OPS/a:\u{301}x.css", "OPS/a/\u{301}"] {
+            XCTAssertEqual(outcome(name, flags: 0), outcome(name, flags: 0x0800), name.debugDescription)
+        }
+    }
+
+    func testBytesOnlyAForgivingDecoderReadsAsASeparatorOrADotAreNotUTF8() throws {
+        // Overlong forms: a dot, a slash, a backslash, a colon and a NUL each spelled in more
+        // bytes than UTF-8 allows. A decoder that accepted them would read `OPS/../x.css` in the
+        // first. They are not UTF-8, so without the flag each is a name in code page 437, a file
+        // like any other, and with it no name at all.
+        let overlong: [(String, [UInt8], String)] = [
+            ("../", [0xC0, 0xAE, 0xC0, 0xAE, 0xC0, 0xAF], "\u{2514}\u{AB}\u{2514}\u{AB}\u{2514}\u{BB}"),
+            ("/", [0xE0, 0x80, 0xAF], "\u{3B1}\u{C7}\u{BB}"),
+            ("\\", [0xC1, 0x9C], "\u{2534}\u{A3}"),
+            (":", [0xC0, 0xBA], "\u{2514}\u{2551}"),
+            ("\0", [0xC0, 0x80], "\u{2514}\u{C7}"),
+        ]
+        for (meant, bytes, reading) in overlong {
+            let name = Array("OPS/".utf8) + bytes + Array("x.css".utf8)
+            let book = try EPUBPublication.open(data: self.book(adding: [entry(named: name, "a{}", flags: 0)]))
+            XCTAssertEqual(try book.data(at: "OPS/\(reading)x.css"), Data("a{}".utf8), meant.debugDescription)
+            XCTAssertThrowsError(try book.data(at: "OPS/\(meant)x.css"), meant.debugDescription)
+            XCTAssertThrowsError(try book.data(at: "x.css"), meant.debugDescription)
+            XCTAssertThrowsError(try EPUBPublication.open(data: self.book(adding: [entry(named: name, "a{}", flags: 0x0800)])), meant.debugDescription) {
+                guard case .unsafePath = $0 as? EPUBPublicationError else { return XCTFail("\(meant.debugDescription): \($0)") }
+            }
+        }
+    }
+
+    func testAFlaglessUTF8NameIsOneKeyForEverythingThatNamesAnEntry() throws {
+        // The package document's folder as the container names it, manifest and navigation hrefs
+        // resolved from that folder, an obfuscated font's cipher reference, and text extraction.
+        let folder = "\u{152}uvres", font = "fonts/\u{E9}t\u{E9}.otf"
+        var files: [String: Data] = [:]
+        for (path, bytes) in try Fixture.packageVariantFiles(
+            opf: { $0.replacingOccurrences(of: "</manifest>", with: "<item id=\"font\" href=\"fonts/%C3%A9t%C3%A9.otf\" media-type=\"font/otf\"/></manifest>") },
+            container: { $0.replacingOccurrences(of: "OPS/book.opf", with: "%C5%92uvres/book.opf") }) {
+            files[path.hasPrefix("OPS/") ? "\(folder)\(path.dropFirst(3))" : path] = bytes
+        }
+        let original = Data((0..<1100).map { UInt8($0 % 251) }), key = Array(Insecure.SHA1.hash(data: Data("test-book".utf8)))
+        var obfuscated = original
+        for index in 0..<1040 { obfuscated[index] ^= key[index % key.count] }
+        files["\(folder)/\(font)"] = obfuscated
+        files["META-INF/encryption.xml"] = Data(("<encryption><EncryptedData><EncryptionMethod Algorithm='http://www.idpf.org/2008/embedding'/>"
+            + "<CipherData><CipherReference URI='%C5%92uvres/fonts/%C3%A9t%C3%A9.otf'/></CipherData></EncryptedData></encryption>").utf8)
+        for flags: UInt16 in [0x0800, 0] {
+            let book = try EPUBPublication.open(data: Fixture.storedArchive(Fixture.storedEntries(files, flags: flags)))
+            XCTAssertEqual(book.spine.map(\.resource.path), ["\(folder)/one.xhtml", "\(folder)/two.xhtml"], "flags \(flags)")
+            XCTAssertEqual(book.tableOfContents.first?.href, "%C5%92uvres/one.xhtml#start", "flags \(flags)")
+            XCTAssertEqual(book.resources.first { $0.id == "font" }?.path, "\(folder)/\(font)", "flags \(flags)")
+            XCTAssertEqual(try book.data(at: "\(folder)/\(font)"), original, "flags \(flags)")
+            XCTAssertEqual(try book.textSection(at: 1).title, "Second Chapter", "flags \(flags)")
+        }
+    }
+
+    func testBooksArchivedByZipAndDittoOnAMacOpen() throws {
+        let chapters = ["caf\u{E9}", "r\u{E9}sum\u{E9}", "\u{65E5}\u{672C}\u{8A9E}", "\u{433}\u{43B}\u{430}\u{432}\u{430}", "\u{1F600}"]
+        let titles = ["Latin, precomposed", "Latin, decomposed on disk", "CJK", "Cyrillic", "Emoji"]
+        for (tool, data) in [("zip", Fixture.MacToolArchive.zip), ("ditto", Fixture.MacToolArchive.ditto)] {
+            // What the tool wrote: the file system's bytes, one name decomposed, and bit 11 clear.
+            for name in ["OPS/caf\u{E9}.xhtml", "OPS/re\u{301}sume\u{301}.xhtml", "OPS/\u{65E5}\u{672C}\u{8A9E}.xhtml",
+                         "OPS/\u{433}\u{43B}\u{430}\u{432}\u{430}.xhtml", "OPS/\u{1F600}.xhtml"] {
+                let record = try XCTUnwrap(Fixture.directoryOffset(of: name, in: data), "\(tool): \(name)")
+                XCTAssertEqual(data[record + 9] & 0x08, 0, "\(tool): \(name)")
+            }
+            let book = try EPUBPublication.open(data: data)
+            XCTAssertEqual(book.spine.map(\.resource.path), chapters.map { "OPS/\($0).xhtml" }, tool)
+            XCTAssertEqual(book.tableOfContents.map(\.title), titles, tool)
+            XCTAssertEqual(book.tableOfContents.map { $0.href?.removingPercentEncoding }, chapters.map { Optional("OPS/\($0).xhtml") }, tool)
+            for (index, title) in titles.enumerated() {
+                XCTAssertEqual(try book.textSection(at: index).text, title, "\(tool): \(chapters[index])")
+            }
         }
     }
 
