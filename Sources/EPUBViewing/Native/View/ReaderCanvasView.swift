@@ -45,7 +45,7 @@ import AppKit
     private weak var externalSelectionSource: AnyObject?
     private var selectionDragAnchor: ReaderTextPosition?
     private var selectionDragOverridesNative = false
-    private var selectionContinuation: ReaderSelectionContinuation?
+    private(set) var selectionContinuation: ReaderSelectionContinuation?
 
     // Paginated flow.
     private(set) var spread: ReaderCanvasGeometry.Spread?

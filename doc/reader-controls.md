@@ -71,7 +71,9 @@ selectable. An empty contents menu says “No contents available”; entries wit
 
 Search sends commands only on Return or the Search button. Typing does not search, and no
 keyboard shortcut is installed that could intercept editing keys. Search and Clear retain
-focus in the field. Whitespace-only submission clears highlights. The native engine rejects
+focus in the field. A search pane's field takes focus when the pane opens; the strip's inline
+field does not when it appears, so opening a book raises no keyboard over it.
+Whitespace-only submission clears highlights. The native engine rejects
 empty normalized queries and queries longer than 512 Swift characters, reports errors, and
 emits `.searchChanged(.searching(query:))`, then `.completed(query:hasMatches:)` after the
 whole-book scan. With the `.search` capability, submission sends `.search(text:)`, highlights
@@ -84,7 +86,9 @@ newer page navigation prevents a pending search from moving the reader back. Tas
 ends pending search feedback and close suppresses all subsequent callbacks. Hosts switching on
 `EPUBReaderEvent` must add the new `.searchChanged` case.
 
-The field shows pending/queued, no matches or an error. The search pane's X closes it without
+The field shows pending/queued, no matches or an error. Its queued line counts searches only:
+a line for every pending command would resize inline controls, and the reader under them,
+during a page turn. The search pane's X closes it without
 clearing the query, highlights, results or current match; its separate Clear Search button
 clears them all and retains field focus. A successful search by an engine that only highlights
 leaves only the field and action buttons; with `.searchResults` the pane adds the match

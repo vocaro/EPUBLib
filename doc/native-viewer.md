@@ -253,6 +253,8 @@ as they did.
   a longer page, are on its last line.
   UIKit exposes visible line/run accessibility children with links, attachment labels and
   page actions, keeping hidden paragraph context out of its native text accessibility traversal.
+  The canvas lists its columns to VoiceOver in source order; by their frames alone a column
+  lowered by top spacing, or the first column of a right-to-left spread, would be read second.
   A paragraph that continues onto the next page is laid out a few lines further (or to
   a line break) and clipped, so its lines break exactly as in the measuring layout; justified
   text takes more, because CoreText justifies a paragraph of up to 8,192 characters as a whole
@@ -573,11 +575,14 @@ Go: the native viewer is the bundled engine.
   and window-size changes, with a value-change notification for each
   ([record](issue-55-voiceover-mac.md)). VoiceOver keeps its own text cursor for a column it
   rests on without interacting: after a page change it re-enters at its previous character
-  offset, or on the last line of a shorter page, until Control-Option-Home. Physical iPhone
-  speech reached numbered content; iPad initial focus and keyboard presentation prevented a
-  clean reading-order check. The iPhone and iPad sessions of the verification matrix remain
-  open ([#28](https://github.com/vocaro/EPUBLib/issues/28)); simulator/API checks do not
-  substitute for those sessions.
+  offset, or on the last line of a shorter page, until Control-Option-Home. Sessions on a
+  physical iPad and iPhone the same day verified reading order, the page boundary, link and
+  image labels, the link's activation, and continuity across page turns made with the page
+  buttons and with VoiceOver's Next Page and Previous Page actions, in portrait and landscape
+  at 17 and 23 points, through rotation and a text-size change
+  ([record](issue-28-voiceover-devices.md)). VoiceOver's three-finger scroll has API coverage
+  only: XCTest cannot perform it. Simulator and API checks do not substitute for device
+  sessions.
 - Flex and grid alignment covers the single-column subset described above. Side-by-side row
   items, wrapping and reversed flex, multi-column and explicitly placed grids, `order` and
   inline flex or grid containers render as blocks in reading order with a disclosure. Within

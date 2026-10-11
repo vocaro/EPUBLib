@@ -292,12 +292,14 @@ private struct EPUBSearchField: View {
             if let error = controls.commandError { Text(error).foregroundStyle(.red).font(.callout) }
             EPUBSearchResultPane(controls: controls, onDismiss: onDismiss)
         }
-        .task { focused = true }
+        // A search pane was just opened to type in. The inline field is always on screen: taking
+        // focus as it appears raised the keyboard over the book as soon as it opened.
+        .task { if onDismiss != nil { focused = true } }
     }
     @ViewBuilder private var feedback: some View {
         switch controls.status?.search ?? .idle {
         case .idle:
-            if controls.pendingCommands > 0 { Text("Search queued…") }
+            if controls.pendingSearches > 0 { Text("Search queued…") }
         case .searching: HStack { ProgressView().controlSize(.small); Text("Searching…") }
         case .completed(_, let found):
             if !found { Text("No matches") }
