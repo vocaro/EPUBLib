@@ -133,6 +133,13 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   the session emits `.ready` once it is on screen; the rest build in the background in
   parallel. Images decode lazily, downsampled to their displayed size, under a shared cache
   budget.
+- **Release.** A typography change keeps each built section on screen until its rebuild
+  arrives. A rebuilt SVG shares the font database its replaced build still holds, so a
+  relayout needs no more of the font budget than the book already has. The text view drops
+  replaced text's layout with the text, so its images go with it, also after a resize.
+  `close()` releases the session's sections and paginations and empties its text views at
+  once, as does a dismantled view. Neither waits for the platform to free the views
+  ([investigation](issue-54-svg-relayout.md)).
 - **Highlights.** New public `EPUBReaderCommand.setHighlights([EPUBHighlight])` and capability
   `.highlights` draw host highlights from their range CFIs, including every `rangeBookmarks`
   segment of a multi-document annotation (StudyWright #85). Search and
@@ -385,7 +392,10 @@ Go: the native viewer is the bundled engine.
   Output is capped at 4,096 pixels on its long side and 16 megapixels, reduced further for
   isolated layers to fit the raster working-memory budget. SVG text uses outline fonts;
   embedded color-glyph tables are omitted and disclosed. Retained renderer font databases
-  share a 64 MiB budget.
+  share a 64 MiB budget across the process. Each distinct set of fonts an SVG names is one
+  database, with its own copy of the fallback faces, shared by every drawing that names
+  those fonts. An SVG refused a database shows its fallback text. The networking book
+  needs five databases, 58 MB on macOS 27 ([investigation](issue-54-svg-relayout.md)).
 - Search uses locale-tailored primary collation for passage location and highlights.
   Locales without qualified prefilter coverage compare candidate windows directly, which
   can cost more on large sections. See the [collation qualification](issue-26-search-collation.md).

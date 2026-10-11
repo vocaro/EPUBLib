@@ -45,7 +45,10 @@ flows after page turns, scrolling, navigation to markers, a restore and a resize
 selection, and close the session. Separate fixtures exercise
 encoded filenames and fragments, fixed layout, RTL and vertical writing. The illustrated fixture
 has 40 sections and eight incompressible 1024×1024 images; its test enforces an archive size over
-20 MiB and verifies that later sections remain navigable.
+20 MiB and verifies that later sections remain navigable. Relayout tests take one mounted
+session of a book of labelled SVG figures from wide and light to narrow, large and dark, and
+require the images mounted in its text view to be those of a second session opened at that
+size and style. They also require replaced and closed text to release its images.
 
 Page-input tests cover default and replaced/cleared shortcuts, exact modifiers, duplicate/invalid
 bindings, canvas and child focus, selection chords, live iOS recognizer disabling, Mac wheel

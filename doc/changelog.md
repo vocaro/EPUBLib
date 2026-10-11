@@ -6,6 +6,7 @@
 - Preserve locale-tailored base-strength search distinctions, including Turkish I, Swedish letters, Spanish ñ and Cyrillic й, for passage location and search highlighting ([#26](https://github.com/vocaro/EPUBLib/issues/26)).
 - Describe enabled keyboard and gesture inputs in page-button help, with host customization and flow-aware labels ([#50](https://github.com/vocaro/EPUBLib/issues/50)).
 - Preserve SVG diagram shapes and labels when unsupported filter effects are omitted with a disclosure, including the networking book's TCP/IP layers ([#53](https://github.com/vocaro/EPUBLib/issues/53)).
+- Keep labelled SVG figures mounted when a reader is resized and its text size or appearance changes, as a cold open at that size and style shows them. Share one renderer font database among drawings naming the same fonts within the existing 64 MiB budget, and release a replaced layout's and a closed reader's images at once ([#54](https://github.com/vocaro/EPUBLib/issues/54)).
 
 - Bound paginated Mac accessibility text and line queries to the visible source range. Expose visible UIKit accessibility runs with link, image, table and page actions while preserving hidden TextKit context for layout ([#28](https://github.com/vocaro/EPUBLib/issues/28)).
 - Preserve Foliate CFIs for qualified XML-shaped HTML, including whitespace around the head/body. Refuse saved positions and highlights for unqualified HTML tree repairs, omit unsafe bookmarks and disclose the limitation while retaining readable content ([#27](https://github.com/vocaro/EPUBLib/issues/27)).
