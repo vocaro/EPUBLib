@@ -144,6 +144,27 @@ import AppKit
                                           .style(.init(fontSize: 24, isDark: true)), .nextPage])
         XCTAssertFalse(model.isBusy)
     }
+    func testOnlySearchesCountTowardsSearchFeedback() async throws {
+        let session = Session(), model = try controls(session)
+        model.send(.nextPage)
+        model.changeStyle { $0.fontSize += 2 }
+        model.clearSearch()
+        XCTAssertEqual(model.pendingCommands, 3)
+        XCTAssertEqual(model.pendingSearches, 0,
+            "a page turn must not show search feedback: its line resizes inline controls and the reader under them")
+        model.searchText = "chapter"
+        model.submitSearch()
+        model.send(.searchHighlight(text: "chapter"))
+        XCTAssertEqual(model.pendingSearches, 2)
+        await model.waitForCommands()
+        XCTAssertEqual(model.pendingSearches, 0)
+        XCTAssertEqual(model.pendingCommands, 0)
+        model.submitSearch()
+        model.cancelPendingCommands()
+        XCTAssertEqual(model.pendingSearches, 0)
+        await Task.yield()
+        XCTAssertEqual(model.pendingSearches, 0, "a canceled search does not count down twice")
+    }
     func testTypingSubmitClearAndCommandErrors() async throws {
         let session = Session(), model = try controls(session)
         model.searchText = "chapter"

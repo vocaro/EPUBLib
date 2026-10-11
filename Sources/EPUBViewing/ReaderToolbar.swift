@@ -292,7 +292,7 @@ private struct EPUBSearchField: View {
     @ViewBuilder private var feedback: some View {
         switch controls.status?.search ?? .idle {
         case .idle:
-            if controls.pendingCommands > 0 { Text("Search queued…") }
+            if controls.pendingSearches > 0 { Text("Search queued…") }
         case .searching: HStack { ProgressView().controlSize(.small); Text("Searching…") }
         case .completed(_, let found):
             if !found { Text("No matches") }
