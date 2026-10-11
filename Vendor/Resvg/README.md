@@ -34,7 +34,8 @@ drawing is preserved. Pattern fills are refused with authored fallback text and 
 the native pipeline bounds SVG bytes, depth, nodes, use expansion, image bytes and
 pixels, and output/isolated-layer raster memory before rendering. Font databases
 share immutable options and retain a process-wide 64 MiB byte reservation for
-their full lifetime, including SVG trees remaining after cache eviction.
+their full lifetime, including SVG trees remaining after cache eviction. A database
+a tree still holds is shared by later drawings naming the same fonts, never duplicated.
 
 The XCFramework is approximately 45 MiB before compression. `checksums.json`
 records the exact vendored archive hashes. `dependencies.json` identifies the

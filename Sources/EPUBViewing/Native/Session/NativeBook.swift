@@ -158,6 +158,7 @@ import AppKit
         }.value
     }
 
+    /// Nothing is built or shown again: the sections go now, with the images they hold.
     func close() {
         closed = true
         background?.cancel()
@@ -165,6 +166,9 @@ import AppKit
         inFlight.removeAll()
         onSectionBuilt = nil
         onBookComplete = nil
+        sections = Array(repeating: nil, count: sections.count)
+        builtTypography = Array(repeating: nil, count: builtTypography.count)
+        cachedBookText = nil
     }
 
     private func store(_ section: SectionText, typography target: NativeTypography) {
