@@ -43,6 +43,7 @@ import XCTest
         var painted: ReaderPaintBitmap { recorder.bitmap(background: background) }
         var searchPixels: Int { painted.count(of: ReaderPalette.searchHighlight(dark: dark), over: background) }
         var annotationPixels: Int { painted.count(of: ReaderPalette.annotationHighlight(dark: dark), over: background) }
+        var currentSearchPixels: Int { painted.count(of: ReaderPalette.currentSearchHighlight(dark: dark), over: background) }
         var inkPixels: Int { painted.ink(over: background) }
 
         /// Lets the system paint what it has scheduled until `condition` holds. Nothing is
@@ -144,7 +145,7 @@ import XCTest
     /// looking at a failure.
     private func keep(_ reader: Reader, _ label: String) {
         guard let directory = ProcessInfo.processInfo.environment["EPUBLIB_PAINT_DIR"] else { return }
-        print("PAINT \(label): ink=\(reader.inkPixels) search=\(reader.searchPixels) annotation=\(reader.annotationPixels)")
+        print("PAINT \(label): ink=\(reader.inkPixels) search=\(reader.searchPixels) current=\(reader.currentSearchPixels) annotation=\(reader.annotationPixels)")
         reader.painted.writePNG(to: URL(fileURLWithPath: directory).appendingPathComponent("\(label).png"))
     }
 
@@ -268,6 +269,71 @@ import XCTest
         try await exerciseHighlightsInPlace(flow: .scrolled)
     }
 
+    // MARK: Current search result
+
+    /// The search result last shown is drawn again over its match in a colour of its own
+    /// ([#49](https://github.com/vocaro/EPUBLib/issues/49)). Stepping to another result moves
+    /// that colour without laying the text out again, so the match left behind is repainted as
+    /// an ordinary one only if the change itself asks for it.
+    private func exerciseCurrentMatch(flow: EPUBReadingFlow, size: CGSize? = nil) async throws {
+        let reader = try await open(Fixture.epub(overrides: ["OPS/two.xhtml": kernels]), flow: flow, size: size)
+        defer { reader.close() }
+        XCTAssertEqual(reader.currentSearchPixels, 0, "\(flow): the book has no pixels of the current result's colour")
+        let controls = EPUBReaderControls(publication: reader.session.publication, session: reader.session)
+        controls.searchText = "kernels"
+        controls.submitSearch()
+        await controls.waitForCommands()
+        XCTAssertEqual(controls.searchResults?.currentIndex, 0, "\(flow)")
+        let found = try await reader.paint(timeout: 10) { reader.searchPixels > 0 && reader.currentSearchPixels > 0 }
+        XCTAssertTrue(found, "\(flow): the first result was not painted as the current one")
+        try await reader.quiesce()
+        let current = reader.currentSearchPixels, others = reader.searchPixels, first = reader.placement
+        keep(reader, "\(flow) current first")
+
+        // Every paragraph holds the word once, in the same glyphs: one current result paints
+        // about `current` pixels wherever it sits on its line, and the neighbouring result
+        // left in that colour would make it about twice that.
+        func showsOneCurrentResult() -> Bool {
+            reader.searchPixels > 0 && reader.currentSearchPixels > current / 2 && reader.currentSearchPixels < current * 3 / 2
+        }
+        controls.showNextSearchResult()
+        await controls.waitForCommands()
+        XCTAssertEqual(controls.searchResults?.currentIndex, 1, "\(flow)")
+        let moved = try await reader.paint(timeout: 5, until: showsOneCurrentResult)
+        keep(reader, "\(flow) current second")
+        XCTAssertTrue(moved, "\(flow): \(reader.currentSearchPixels) current-result pixels painted after Next Match, where one result is about \(current)")
+        try await reader.quiesce()
+
+        controls.showPreviousSearchResult()
+        await controls.waitForCommands()
+        XCTAssertEqual(controls.searchResults?.currentIndex, 0, "\(flow)")
+        let back = try await reader.paint(timeout: 5, until: showsOneCurrentResult)
+        keep(reader, "\(flow) current back")
+        XCTAssertTrue(back, "\(flow): \(reader.currentSearchPixels) current-result pixels painted after Previous Match, where one result is about \(current)")
+        if reader.placement == first { // The same page with the same result current: the same picture.
+            let same = try await reader.paint(timeout: 5) { reader.currentSearchPixels == current && reader.searchPixels == others }
+            XCTAssertTrue(same, "\(flow): \(reader.currentSearchPixels) current-result and \(reader.searchPixels) match pixels after stepping away and back, from \(current) and \(others)")
+        }
+        try await reader.quiesce()
+
+        let shown = reader.placement
+        controls.clearSearch()
+        await controls.waitForCommands()
+        XCTAssertTrue(reader.session.drawnHighlights.isEmpty, "\(flow)")
+        let cleared = try await reader.paint(timeout: 5) { reader.currentSearchPixels == 0 && reader.searchPixels == 0 }
+        keep(reader, "\(flow) current cleared")
+        XCTAssertTrue(cleared, "\(flow): \(reader.currentSearchPixels) current-result and \(reader.searchPixels) match pixels stayed painted after Clear Search")
+        XCTAssertEqual(reader.placement, shown, "\(flow): Clear Search repaints in place")
+    }
+
+    func testCurrentMatchMovesAndClearsOnAPaginatedPage() async throws {
+        try await exerciseCurrentMatch(flow: .paginated, size: onePage)
+    }
+
+    func testCurrentMatchMovesAndClearsInContinuousScroll() async throws {
+        try await exerciseCurrentMatch(flow: .scrolled)
+    }
+
     // MARK: Table cells
 
     /// Cell text is drawn by the table's own text views, over the row's ink.
@@ -286,7 +352,7 @@ import XCTest
             controls.searchText = "kernels"
             controls.submitSearch()
             await controls.waitForCommands()
-            XCTAssertEqual(reader.session.drawnHighlights.filter { $0.range.start.tableCell != nil }.count, 2, "\(flow)")
+            XCTAssertEqual(reader.session.drawnHighlights.filter { $0.kind == .search && $0.range.start.tableCell != nil }.count, 2, "\(flow)")
             let found = try await reader.paint(timeout: 10) { reader.searchPixels > 0 }
             keep(reader, "\(flow) table found")
             XCTAssertTrue(found, "\(flow): the cell matches were not painted")

@@ -373,7 +373,7 @@ import UIKit
         await model.waitForCommands()
         try await wait("the match") { session.visibleRange?.start.section == 1 }
         let highlights = Set(session.drawnHighlights)
-        XCTAssertEqual(highlights.count, 1)
+        XCTAssertEqual(highlights.filter { $0.kind == .search }.count, 1)
         let found = try XCTUnwrap(session.visibleRange?.start)
 
         // Closing the pane takes the field away and nothing else: the page only gains its room.
