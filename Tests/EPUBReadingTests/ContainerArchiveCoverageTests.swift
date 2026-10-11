@@ -180,6 +180,42 @@ final class ContainerArchiveCoverageTests: XCTestCase {
         }
     }
 
+    // A `Character` holds a "/", "\", ":" or "." together with a combining mark, variation
+    // selector or joiner after it, so read that way "../" + U+0301 + "x" is one harmless name. An
+    // archive and a file system read scalars (https://github.com/vocaro/EPUBLib/issues/181).
+    func testAnEntryNameIsCheckedByScalarWhateverMarkFollowsItsSeparatorsAndDots() throws {
+        let entries = Fixture.storedEntries(try Fixture.files())
+        for m in Fixture.clusteringMarks {
+            for name in ["../\(m)x", "OPS/../\(m)x", "OPS/../../\(m)x", "./\(m)x", "OPS/./\(m)x", "/\(m)x", "OPS//\(m)x", "OPS\\\(m)x", "..\\\(m)x",
+                         "OPS/a:\(m)x", "C:\(m)/x"] {
+                assertOpening(Fixture.storedArchive(entries + [Fixture.StoredEntry(name, "x")]), throws: .unsafePath(name), name.debugDescription)
+            }
+        }
+        // A prepended mark takes the separator after it into its `Character`. The last is a
+        // file's name to ZIPFoundation, which looks for a closing "/" by `Character`.
+        for name in ["OPS/x\u{600}/..", "OPS\u{600}/../x", "OPS/x\u{600}/./y", "OPS/x\u{600}//y", "OPS/x\u{600}\\y", "OPS/x\u{600}:y", "OPS/x\u{600}/"] {
+            assertOpening(Fixture.storedArchive(entries + [Fixture.StoredEntry(name, "x")]), throws: .unsafePath(name), name.debugDescription)
+        }
+    }
+
+    func testAnEntryWhoseNameBeginsWithAMarkIsAFileOfThatNameInItsFolder() throws {
+        // By scalar "OPS/" + U+0301 + "x.css" is a file in OPS: not OPS/x.css, nor x.css in a
+        // folder named "OPS" + U+0301. Dots and a mark are a name. Each answers to its own name.
+        for m in Fixture.clusteringMarks {
+            let names = ["OPS/\(m)x.css", "OPS/x.css", "OPS\(m)/x.css", "\(m)x.css", "OPS/.\(m)", "OPS/..\(m)", "OPS/\(m)/\(m)"]
+            var entries = Fixture.storedEntries(try Fixture.files())
+            // Folders, told by a closing slash and by a Unix mode.
+            entries.append(Fixture.StoredEntry("OPS/\(m)a/"))
+            entries.append(Fixture.StoredEntry("OPS/\(m)b/", versionMadeBy: 3 << 8 | 20, externalAttributes: 0o040755 << 16))
+            entries.append(Fixture.StoredEntry("OPS/c\u{600}/", versionMadeBy: 3 << 8 | 20, externalAttributes: 0o040755 << 16))
+            entries += names.map { Fixture.StoredEntry($0, $0) }
+            let book = try EPUBPublication.open(data: Fixture.storedArchive(entries))
+            for name in names { XCTAssertEqual(try book.data(at: name), Data(name.utf8), name.debugDescription) }
+            XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"])
+            XCTAssertThrowsError(try book.data(at: "OPS/\(m)a/"))
+        }
+    }
+
     // MARK: Damage
 
     // A book is untrusted input. ZIPFoundation's in-memory file traps when it is read after a seek

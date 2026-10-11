@@ -168,6 +168,32 @@ final class NavigationDocumentCoverageTests: XCTestCase {
         }
     }
 
+    // A `Character` holds a "/", "\", ":", "#" or "." together with a mark, selector or joiner
+    // after it, so read that way "../../" + U+0301 + "x.xhtml" leaves no container and
+    // "two.xhtml#" + U+0301 + "s" has no fragment (https://github.com/vocaro/EPUBLib/issues/181).
+    func testEntryHrefsAreResolvedByScalarWhateverMarkFollowsTheirSeparatorsAndDots() throws {
+        for m in Fixture.clusteringMarks {
+            let e = Fixture.escapingNonASCII(m)
+            let hrefs = ["../\(m)x.xhtml", "./\(m)x.xhtml#s", "a/../\(m)x.xhtml", "a/\(m)x.xhtml", "two.xhtml#\(m)s", "#\(m)s", "..%2F\(e)x.xhtml"]
+            let entries = try contents("<ol>" + hrefs.map { "<li><a href=\"\($0)\">x</a></li>" }.joined() + "</ol>")
+            XCTAssertEqual(entries.map(\.href), ["\(e)x.xhtml", "OPS/\(e)x.xhtml#s", "OPS/\(e)x.xhtml", "OPS/a/\(e)x.xhtml", "OPS/two.xhtml#\(e)s",
+                                                "OPS/nav.xhtml#\(e)s", "\(e)x.xhtml"], m.debugDescription)
+            // Refused as the same href is without the mark: it leaves the container, opens with a
+            // slash, or holds a backslash or a colon.
+            for href in ["../../\(m)x.xhtml", "/\(m)x.xhtml", "a\\\(m)x.xhtml", "./a:\(m)x.xhtml"] {
+                let list = "<ol><li><a href=\"\(href)\">x</a></li><li><a epub:type=\"bodymatter\" href=\"one.xhtml#p2\">kept</a></li></ol>"
+                XCTAssertThrowsError(try contents(list), href.debugDescription) {
+                    XCTAssertEqual($0 as? EPUBPublicationError, .unsafePath(href), href.debugDescription)
+                }
+                // Among landmarks and pages it is left out, as any entry that does not resolve is.
+                let book = try book(nav: "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">1</a></li></ol></nav>"
+                    + "<nav epub:type=\"landmarks\">\(list)</nav><nav epub:type=\"page-list\">\(list)</nav>")
+                XCTAssertEqual(book.landmarks.map(\.href), ["OPS/one.xhtml#p2"], href.debugDescription)
+                XCTAssertEqual(book.pageList?.map(\.href), ["OPS/one.xhtml#p2"], href.debugDescription)
+            }
+        }
+    }
+
     func testAnEntryHrefSurroundedBySpacesNamesItsTarget() throws {
         XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/76")
         // An HTML href is a URL "potentially surrounded by spaces", stripped before parsing. EPUBCheck

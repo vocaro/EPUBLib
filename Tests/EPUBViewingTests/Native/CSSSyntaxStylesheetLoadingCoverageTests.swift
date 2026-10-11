@@ -166,6 +166,28 @@ final class CSSSyntaxStylesheetLoadingCoverageTests: XCTestCase {
         XCTAssertEqual(result.report.unreadableResources, 2, "A missing sheet and one leaving the archive")
     }
 
+    /// A `Character` holds a "/", "\", "?" or "#" together with a combining mark, variation
+    /// selector or joiner after it; a reference is read by scalar, as the archive's paths are
+    /// (https://github.com/vocaro/EPUBLib/issues/181).
+    func testAStyleReferenceIsReadByScalarWhateverMarkFollowsItsSeparators() throws {
+        let base = "OPS/css/main.css"
+        func path(_ reference: String) -> [Unicode.Scalar]? {
+            guard case .local(let path) = StyleReference(reference, relativeTo: base) else { return nil }
+            return Array(path.unicodeScalars)
+        }
+        for mark in ["\u{301}", "\u{338}", "\u{20E3}", "\u{FE0F}", "\u{200D}", "\u{1F3FB}", "\u{93E}", "\u{3099}"] {
+            // The path ends at the first "?" or "#", and its dot segments resolve.
+            XCTAssertEqual(path("fonts/a.otf#\(mark)x"), Array("OPS/css/fonts/a.otf".unicodeScalars), mark.debugDescription)
+            XCTAssertEqual(path("fonts/a.otf?\(mark)v=2#iefix"), Array("OPS/css/fonts/a.otf".unicodeScalars), mark.debugDescription)
+            XCTAssertEqual(path("../\(mark)a.css"), Array("OPS/\(mark)a.css".unicodeScalars), mark.debugDescription)
+            XCTAssertEqual(path("x/../\(mark)a.css?\(mark)"), Array("OPS/css/\(mark)a.css".unicodeScalars), mark.debugDescription)
+            // Refused as the same reference is without the mark.
+            for reference in ["../../../\(mark)a.css", "/\(mark)a.css", "a\\\(mark)b.css", "./a:\(mark)b.css", "?\(mark)", "#\(mark)a"] {
+                XCTAssertEqual(StyleReference(reference, relativeTo: base), .invalid, reference.debugDescription)
+            }
+        }
+    }
+
     func testAMissingImportIsReportedAndARemoteOneCounted() throws {
         let section = StyleTestSupport.xhtml(body: #"<p id="a">a</p>"#, head: """
             <link rel="stylesheet" href="css/main.css"/><style>@import "css/gone.css"; @import url(https://example.com/inline.css);</style>

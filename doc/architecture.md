@@ -39,6 +39,17 @@ bytes does not execute document content. XML expansion and external entity resol
 actual DTD syntax from comments, CDATA, processing instructions and quoted identifiers; it decodes
 UTF-16/32 input before inspecting markup.
 
+A safe archive path is relative and made of names separated by single `/`: no name is empty, `.`
+or `..`, and the path holds no backslash, colon or NUL. Entry names, the rootfile path and the
+path of every resolved reference are held to that. Paths and references are read by Unicode
+scalar, as an archive and a file system read them, not by `Character`: a `/`, `\`, `:`, `#` or `.`
+followed by a combining mark, variation selector or joiner, or preceded by a prepended mark such
+as U+0600, is still that separator or dot. So `../` followed by U+0301 and a name is refused
+wherever `../` and the name alone is, and `a/` followed by U+0301 and `b` is the name `a` and a
+second name that begins with the mark. Paths are compared as Swift strings, by canonical
+equivalence: an entry answers to a reference in either normalization form, and two entry names
+equal after normalization are duplicates.
+
 Default limits are 256 MiB compressed, 512 MiB expanded, 32 MiB per resource, 20,000 entries and
 4 MiB per XML document, with depth/node limits. Hosts may lower or raise import limits. Resources
 are retained in memory; the total memory footprint includes both compressed and expanded data.

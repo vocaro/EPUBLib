@@ -231,6 +231,37 @@ final class ContainerDocumentCoverageTests: XCTestCase {
         XCTAssertEqual(book.tableOfContents.first?.href, "%252e%252e/one.xhtml#start")
     }
 
+    // A `Character` holds a "/", "\", ":" or "." together with a mark, selector or joiner after
+    // it, so read that way "../" + U+0301 + "book.opf" has no dot segment and no separator. An
+    // archive and a file system read scalars (https://github.com/vocaro/EPUBLib/issues/181).
+    func testARootfilePathIsReadByScalarWhateverMarkFollowsItsSeparatorsAndDots() throws {
+        for m in Fixture.clusteringMarks {
+            let e = Fixture.escapingNonASCII(m)
+            // A package document whose name, or whose folder's, begins with the mark: named as a
+            // URL, written out or escaped and through dot segments, and named as written.
+            let cases: [(folder: String, package: String, fullPath: String)] = [
+                ("OPS/", "\(m)book.opf", "OPS/\(m)book.opf"), ("OPS/", "\(m)book.opf", "OPS/\(e)book.opf"), ("OPS/", "\(m)book.opf", "OPS/x/../\(m)book.opf"),
+                ("OPS/", "\(m)book.opf", "OPS/./\(m)book.opf"), ("OPS/", "\(m)book.opf", "OPS%2F\(e)book.opf"), ("\(m)OPS/", "book.opf", "\(m)OPS/book.opf"),
+                ("a/\(m)b/", "book.opf", "a/c/../\(m)b/book.opf"), ("50% off/", "\(m)book.opf", "50% off/\(m)book.opf"),
+                ("50% off/\(m)x/", "book.opf", "50% off/\(m)x/book.opf"),
+            ]
+            for (folder, package, fullPath) in cases {
+                let book = try EPUBPublication.open(data: relocated(to: folder, package: package, fullPath: fullPath))
+                XCTAssertEqual(book.metadata.title, "A Test Book", fullPath.debugDescription)
+                XCTAssertEqual(book.spine.map { Array($0.resource.path.unicodeScalars) },
+                               [folder + "one.xhtml", folder + "two.xhtml"].map { Array($0.unicodeScalars) }, fullPath.debugDescription)
+                XCTAssertEqual(book.tableOfContents.first?.href.flatMap(\.removingPercentEncoding), folder + "one.xhtml#start", fullPath.debugDescription)
+            }
+            // Neither reading takes these: out of the container, an opening or doubled slash, a
+            // backslash or a colon, as a URL and where a "%" leaves only the path as written.
+            for fullPath in ["../\(m)OPS/book.opf", "OPS/../../\(m)OPS/book.opf", "/\(m)OPS/book.opf", "OPS//\(m)book.opf", "OPS\\\(m)book.opf",
+                             "OPS/a:\(m)book.opf", "50% off/../\(m)book.opf", "50% off/./\(m)book.opf", "50% off//\(m)book.opf", "50% off\\\(m)book.opf"] {
+                assertOpening(try Fixture.packageVariant(container: container("<rootfiles><rootfile full-path=\"\(fullPath)\"/></rootfiles>")),
+                              throws: .invalidXML("container rootfile"), fullPath.debugDescription)
+            }
+        }
+    }
+
     func testTheFirstRootfileNamesThePackageDocument() throws {
         // EPUB Reading Systems 3.3 §4.1.3: by default the package document of the first rootfile.
         let other = String(decoding: try Fixture.files()["OPS/book.opf"]!, as: UTF8.self)

@@ -69,6 +69,20 @@ final class SpineCFIsTests: XCTestCase {
         }
     }
 
+    /// A separator or dot segment of `full-path` is one whatever mark follows it, here as to the
+    /// publication (https://github.com/vocaro/EPUBLib/issues/181).
+    func testARootfilePathIsReadByScalarWhereAMarkFollowsASeparatorOrDotSegment() throws {
+        for mark in Fixture.clusteringMarks {
+            let folder = "Books/\(mark)x/"
+            let book = try files(in: folder, spineID: "s")
+            for fullPath in [folder + "book.opf", "Books/y/../\(mark)x/book.opf", "Books/./\(mark)x/book.opf", "Books%2F\(Fixture.escapingNonASCII(mark))x/book.opf"] {
+                let publication = try open(book, fullPath: fullPath)
+                XCTAssertEqual(publication.spine.map(\.resource.path), [folder + "one.xhtml", folder + "two.xhtml"], fullPath.debugDescription)
+                XCTAssertEqual(try SpineCFIs(publication: publication).bases, ["epubcfi(/6[s]/2)", "epubcfi(/6[s]/4)"], fullPath.debugDescription)
+            }
+        }
+    }
+
     func testFullCFIsJoinTheBaseAndTheLocalPath() throws {
         let publication = try EPUBPublication.open(data: Fixture.epub())
         let spine = try SpineCFIs(publication: publication)

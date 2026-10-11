@@ -122,6 +122,34 @@ final class NavigationNCXCoverageTests: XCTestCase {
                                                          "OPS/my%20chapter%20%C3%A9.xhtml"])
     }
 
+    // By `Character` a "/", "\", ":", "#" or "." takes a mark, selector or joiner after it into
+    // itself and is not found (https://github.com/vocaro/EPUBLib/issues/181).
+    func testNCXAndGuideTargetsAreResolvedByScalarWhateverMarkFollowsTheirSeparatorsAndDots() throws {
+        func page(_ label: String, _ src: String) -> String {
+            "<pageTarget><navLabel><text>\(label)</text></navLabel><content src=\"\(src)\"/></pageTarget>"
+        }
+        for m in Fixture.clusteringMarks {
+            let e = Fixture.escapingNonASCII(m)
+            let refused = ["../../\(m)x.xhtml", "/\(m)x.xhtml", "a\\\(m)x.xhtml", "./a:\(m)x.xhtml"]
+            let document = ncx("<navMap>" + point("a", "Up", "../\(m)x.xhtml") + point("b", "Beside", "./\(m)x.xhtml#\(m)s") + "</navMap>"
+                + "<pageList>" + refused.map { page("out", $0) }.joined() + page("1", "a/../\(m)x.xhtml") + page("2", "one.xhtml#\(m)p") + "</pageList>")
+            let guide = "<guide>" + refused.map { "<reference type=\"text\" title=\"out\" href=\"\($0)\"/>" }.joined()
+                + "<reference type=\"cover\" title=\"in\" href=\"../\(m)x.xhtml\"/></guide>"
+            let book = try EPUBPublication.open(data: Fixture.packageVariant(
+                epub2: true, opf: { $0.replacingOccurrences(of: "</package>", with: guide + "</package>") }, ncx: { _ in document }))
+            XCTAssertEqual(book.tableOfContents.map(\.href), ["\(e)x.xhtml", "OPS/\(e)x.xhtml#\(e)s"], m.debugDescription)
+            // A page or a guide reference that does not resolve is left out.
+            XCTAssertEqual(book.pageList, [EPUBPageListEntry(label: "1", href: "OPS/\(e)x.xhtml"), EPUBPageListEntry(label: "2", href: "OPS/one.xhtml#\(e)p")],
+                           m.debugDescription)
+            XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["cover"], title: "in", href: "\(e)x.xhtml")], m.debugDescription)
+            for src in refused {
+                XCTAssertThrowsError(try self.book(ncx: ncx("<navMap>" + point("a", "Out", src) + "</navMap>")), src.debugDescription) {
+                    XCTAssertEqual($0 as? EPUBPublicationError, .unsafePath(src), src.debugDescription)
+                }
+            }
+        }
+    }
+
     func testWhiteSpaceInAnNCXLabelIsCollapsed() throws {
         XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/75")
         // As in the navigation document: a label wrapped by a pretty-printer is one line of text.

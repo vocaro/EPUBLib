@@ -1,28 +1,36 @@
 import Foundation
 
+/// Paths and references are read here by Unicode scalar, as an archive and a file system read
+/// them, and never by `Character`: a "/", "\", ":", "#" or "." shares its `Character` with a
+/// combining mark, variation selector or joiner that follows it and with a prepended mark such
+/// as U+0600 before it. `"../\u{301}x"` is then one name with no "/" in it.
 package enum ResourceReference {
+    private static let dot = ".".unicodeScalars, dotDot = "..".unicodeScalars
+
     package static func isSafePath(_ path: String, directory: Bool = false) -> Bool {
-        let path = directory && path.hasSuffix("/") ? String(path.dropLast()) : path
-        return !path.isEmpty && !path.contains("\\") && !path.contains(":") && !path.contains("\0")
+        let path = directory && path.unicodeScalars.last == "/" ? path.unicodeScalars.dropLast() : path.unicodeScalars[...]
+        return !path.isEmpty && !path.contains(where: { $0 == "\\" || $0 == ":" || $0 == "\0" })
             && path.split(separator: "/", omittingEmptySubsequences: false).allSatisfy {
-                !$0.isEmpty && $0 != "." && $0 != ".."
+                !$0.isEmpty && !$0.elementsEqual(dot) && !$0.elementsEqual(dotDot)
             }
     }
 
     /// Resolve local EPUB references with a synthetic origin; escape the archive root only by failing.
+    /// The result is ASCII, where a `Character` is one scalar, so it may be cut at its "#" either way.
     package static func resolve(_ href: String, relativeTo path: String) throws -> String {
-        guard let decoded = href.removingPercentEncoding, !decoded.contains("\\"),
-              !decoded.contains("\0"), !decoded.hasPrefix("/"),
+        guard let decoded = href.removingPercentEncoding?.unicodeScalars,
+              !decoded.contains(where: { $0 == "\\" || $0 == "\0" }), decoded.first != "/",
               URLComponents(string: href)?.scheme == nil,
               URLComponents(string: href)?.query == nil else { throw EPUBPublicationError.unsafePath(href) }
-        let rawParts = href.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+        let rawParts = href.unicodeScalars.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
         let parts = rawParts.map { String($0).removingPercentEncoding! }
-        var stack = path.split(separator: "/").dropLast().map(String.init)
-        if parts[0].isEmpty { stack.append(String(path.split(separator: "/").last!)) }
+        let base = path.unicodeScalars.split(separator: "/")
+        var stack = base.dropLast().map { String($0) }
+        if parts[0].isEmpty { stack.append(String(base.last!)) }
         else {
-            for part in parts[0].split(separator: "/") {
-                if part == "." { continue }
-                if part == ".." {
+            for part in parts[0].unicodeScalars.split(separator: "/") {
+                if part.elementsEqual(dot) { continue }
+                if part.elementsEqual(dotDot) {
                     guard !stack.isEmpty else { throw EPUBPublicationError.unsafePath(href) }
                     stack.removeLast()
                 } else { stack.append(String(part)) }
@@ -53,8 +61,8 @@ package enum ResourceReference {
         var url: String?
         // An empty value would resolve to the base itself.
         if !fullPath.isEmpty, let reference = try? resolve(fullPath, relativeTo: "mimetype"), !reference.contains("#"),
-           let written = fullPath.removingPercentEncoding?.split(separator: "/", omittingEmptySubsequences: false),
-           !written.contains(""), written.last != ".", written.last != ".." {
+           let written = fullPath.removingPercentEncoding?.unicodeScalars.split(separator: "/", omittingEmptySubsequences: false),
+           let last = written.last, !written.contains(where: \.isEmpty), !last.elementsEqual(dot), !last.elementsEqual(dotDot) {
             url = reference.removingPercentEncoding
         }
         if let url, isEntry(url) { return url }

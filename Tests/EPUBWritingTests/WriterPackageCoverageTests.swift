@@ -313,6 +313,51 @@ struct WriterPackageCoverageTests {
         }
     }
 
+    // A `Character` holds a "/", "\", ":" or "." together with a combining mark, variation
+    // selector or joiner after it, so read that way "EPUB/../" + U+0301 + "x.xhtml" is a safe
+    // path under EPUB/, and was written into the manifest as "../%CC%81x.xhtml"
+    // (https://github.com/vocaro/EPUBLib/issues/181).
+    @Test func resourcePathsAreCheckedByScalarWhateverMarkFollowsASeparatorOrDot() {
+        for m in WriterCoverage.clusteringMarks {
+            for path in ["EPUB/../\(m)x.xhtml", "EPUB/a/../../\(m)x.xhtml", "EPUB/./\(m)x.xhtml", "EPUB//\(m)x.xhtml", "EPUB/a\\\(m)b.xhtml",
+                         "EPUB/a:\(m)b.xhtml", "/\(m)EPUB/x.xhtml", "EPUB\(m)/x.xhtml", "\(m)EPUB/x.xhtml", "EPUB/x\u{600}/..", "EPUB/x\u{600}/"] {
+                let resource = EPUBResource(id: "x", path: path, mediaType: "application/xhtml+xml")
+                #expect(throws: EPUBWritingError.invalidPublication("duplicate or invalid resource: \(path)"), "\(path.debugDescription)") {
+                    try generate(resources: [resource], spine: [.init(resource: resource)], contents: [])
+                }
+            }
+            // A target that leaves the package, or the archive, behind such a separator.
+            for href in ["EPUB/../\(m)x.xhtml", "EPUB/../\(m)EPUB/one.xhtml", "../\(m)x.xhtml", "/\(m)EPUB/one.xhtml", "EPUB\\\(m)one.xhtml"] {
+                #expect(throws: (any Error).self, "contents \(href.debugDescription)") { try generate(contents: [.init(title: "t", href: href)]) }
+                #expect(throws: (any Error).self, "stylesheet \(href.debugDescription)") { try generate(stylesheet: href) }
+            }
+        }
+    }
+
+    @Test func aResourceWhoseNameBeginsWithAMarkIsWrittenUnderThatNameAndReadsBack() async throws {
+        // By scalar "EPUB/" + U+0301 + "x.xhtml" is a file in EPUB/, as it is to the reader.
+        for m in WriterCoverage.clusteringMarks {
+            let e = WriterCoverage.escapingNonASCII(m)
+            let marked = EPUBResource(id: "m", path: "EPUB/\(m)x.xhtml", mediaType: "application/xhtml+xml")
+            let nested = EPUBResource(id: "n", path: "EPUB/a/\(m)y.css", mediaType: "text/css")
+            #expect(marked.href == "EPUB/\(e)x.xhtml")
+            // A target as the resource's href spells it, and written out.
+            let contents = [EPUBNavigationItem(title: "Escaped", href: marked.href + "#\(e)top"),
+                            EPUBNavigationItem(title: "Written", href: "EPUB/\(m)x.xhtml#\(m)top")]
+            let documents = try generate(resources: [marked, nested], spine: [.init(resource: marked)], contents: contents, stylesheet: "EPUB/a/\(m)y.css")
+            #expect(try opf(documents).named("item").map { $0.attributes["href"] } == ["nav.xhtml", "\(e)x.xhtml", "a/\(e)y.css"])
+            let links = try nav(documents).named("a").compactMap { $0.attributes["href"] }
+            #expect(links.map { Array($0.unicodeScalars) } == ["\(e)x.xhtml#\(e)top", "\(m)x.xhtml#\(m)top"].map { Array($0.unicodeScalars) }, "\(m.debugDescription)")
+            #expect(try nav(documents).named("link").map { $0.attributes["href"] } == ["a/\(m)y.css"])
+            let publication = try await reopened(documents, content: [marked.path: WriterCoverage.xhtml("<p>Marked</p>"), nested.path: Data("a{}".utf8)])
+            #expect(publication.spine.map { Array($0.resource.path.unicodeScalars) } == [Array(marked.path.unicodeScalars)], "\(m.debugDescription)")
+            #expect(Array(publication.resources.dropFirst()) == [marked, nested])
+            #expect(publication.tableOfContents.map(\.href) == ["EPUB/\(e)x.xhtml#\(e)top", "EPUB/\(e)x.xhtml#\(e)top"])
+            #expect(try publication.data(for: nested) == Data("a{}".utf8))
+            #expect(try publication.textSection(at: 0).text == "Marked")
+        }
+    }
+
     @Test func duplicateIDsDuplicatePathsAndUndeclaredSpineItemsAreEachRefused() {
         let sameID = EPUBResource(id: "c", path: "EPUB/two.xhtml", mediaType: "application/xhtml+xml")
         let samePath = EPUBResource(id: "other", path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml")

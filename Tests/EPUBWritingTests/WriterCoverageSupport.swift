@@ -6,6 +6,18 @@ import Foundation
 enum WriterCoverage {
     static let date = Date(timeIntervalSince1970: 1_700_000_000)
     static let chapter = EPUBResource(id: "c", path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml")
+    /// One scalar of each kind that `String` takes into the `Character` of a "/", "\", ":", "#" or
+    /// "." written before it, so that by `Character` the separator or dot is not there: a
+    /// combining accent and overlay, an enclosing mark, a variation selector of either block, the
+    /// zero-width non-joiner and joiner, an emoji modifier, an Indic vowel sign and virama, a
+    /// kana voicing mark and a tag.
+    static let clusteringMarks = ["\u{301}", "\u{338}", "\u{20E3}", "\u{FE0F}", "\u{E0100}", "\u{200C}", "\u{200D}", "\u{1F3FB}", "\u{93E}",
+                                  "\u{94D}", "\u{3099}", "\u{E0020}"]
+
+    /// `text` with each byte outside ASCII percent-encoded, as a resource's href writes it.
+    static func escapingNonASCII(_ text: String) -> String {
+        text.utf8.map { $0 < 0x80 ? String(UnicodeScalar($0)) : String(format: "%%%02X", $0) }.joined()
+    }
 
     static func facts(title: String = "A Book", authors: [String] = ["An Author"], languages: [String] = ["en"],
                       identifier: String = "urn:test:writer-coverage") -> EPUBPackageMetadata {
