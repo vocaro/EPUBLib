@@ -443,6 +443,19 @@ private enum SourceEncoding {
 /// value only directly after `=`) and script/style raw text are copied unchanged, so authored
 /// attribute values keep any literal `<![CDATA[`. An unterminated CDATA section or quoted
 /// attribute value is refused rather than turning the rest of the document into text.
+/// Three more rewrites keep text that libxml2 would drop where the HTML Standard keeps it:
+/// - A `<` that opens no markup becomes `&lt;`, as HTML's tag open state emits it as a
+///   character; libxml2 discards everything from it through the next `>`. Markup opens at a `<`
+///   before an ASCII letter, `/`, `!` or `?`, and before XML's other name starts `_` and `:`,
+///   which libxml2 reads as tags. A `<` that ends the input stays the cut-off tag it may be.
+/// - End tags that libxml2 reads as `</body>` or `</html>` become empty comments. In HTML they
+///   close nothing and later content stays in the body; libxml2 pops the element and builds
+///   that content outside the body, where the walk does not read it. A comment, unlike
+///   nothing, keeps the bytes on either side of the tag apart.
+/// - U+0000, where libxml2 ends its input, is dropped from text and CDATA, as HTML ignores it
+///   in body text, and becomes U+FFFD in markup, as HTML reads it there. Markup is whatever is
+///   copied unchanged, and anything from a `<` copied as is to the next `>`, so that dropping a
+///   NUL never completes an end tag or a comment opener.
 /// The HTML parser never processes declarations, but as defense in depth the prepared bytes must
 /// contain no declaration keyword anywhere (ASCII case-insensitive, even inside comments or
 /// attribute values) and no DOCTYPE internal subset.
@@ -452,13 +465,24 @@ private enum HTMLRecoverySource {
         var output = [UInt8](); output.reserveCapacity(bytes.count)
         let cdataOpen = Array("<![CDATA[".utf8), cdataClose = Array("]]>".utf8)
         let commentOpen = Array("<!--".utf8), commentClose = Array("-->".utf8)
+        let replacement: [UInt8] = [0xEF, 0xBF, 0xBD] // U+FFFD
+        // From a `<` copied as is (`<!`, `</`, `<?`, `<_`, `<:`) to the next `>`, libxml2 may be
+        // in a declaration, a processing instruction or a tag that this scan does not follow.
+        var inMarkup = false
+        func copyMarkup(_ range: Range<Int>) {
+            inMarkup = false
+            guard bytes[range].contains(0) else { output.append(contentsOf: bytes[range]); return }
+            for byte in bytes[range] {
+                if byte == 0 { output.append(contentsOf: replacement) } else { output.append(byte) }
+            }
+        }
         var index = 0
         while index < bytes.count {
             if bytes[index] == 0x3C, starts(bytes, commentOpen, at: index) {
                 guard let end = find(bytes, commentClose, from: index + commentOpen.count) else {
-                    output.append(contentsOf: bytes[index...]); break
+                    copyMarkup(index..<bytes.count); break
                 }
-                output.append(contentsOf: bytes[index..<end + commentClose.count]); index = end + commentClose.count
+                copyMarkup(index..<end + commentClose.count); index = end + commentClose.count
             } else if bytes[index] == 0x3C, let tag = tag(bytes, at: index) {
                 guard let end = tag.end else { return nil }
                 var next = end
@@ -467,7 +491,12 @@ private enum HTMLRecoverySource {
                     let close = Array("</\(raw)".utf8) // Uppercase, for case-insensitive `matches`.
                     next = (end..<bytes.count).first { matches(bytes, close, at: $0) } ?? bytes.count
                 }
-                output.append(contentsOf: bytes[index..<next]); index = next
+                if tag.endsBody {
+                    inMarkup = false; output.append(contentsOf: Array("<!---->".utf8))
+                } else {
+                    copyMarkup(index..<next)
+                }
+                index = next
             } else if bytes[index] == 0x3C, starts(bytes, cdataOpen, at: index) {
                 guard let end = find(bytes, cdataClose, from: index + cdataOpen.count) else { return nil }
                 for byte in bytes[(index + cdataOpen.count)..<end] {
@@ -475,12 +504,22 @@ private enum HTMLRecoverySource {
                     case 0x26: output.append(contentsOf: Array("&amp;".utf8))
                     case 0x3C: output.append(contentsOf: Array("&lt;".utf8))
                     case 0x3E: output.append(contentsOf: Array("&gt;".utf8))
+                    case 0: break
                     default: output.append(byte)
                     }
                 }
                 index = end + cdataClose.count
+            } else if bytes[index] == 0x3C, index + 1 < bytes.count, ![0x21, 0x2F, 0x3F, 0x3A, 0x5F].contains(bytes[index + 1]) {
+                // Before none of `!`, `/`, `?`, `:` and `_`, and not a tag: text.
+                output.append(contentsOf: Array("&lt;".utf8)); index += 1
             } else {
-                output.append(bytes[index]); index += 1
+                switch bytes[index] {
+                case 0: if inMarkup { output.append(contentsOf: replacement) }
+                case 0x3C: inMarkup = true; output.append(0x3C)
+                case 0x3E: inMarkup = false; output.append(0x3E)
+                default: output.append(bytes[index])
+                }
+                index += 1
             }
         }
         return hasDeclarations(output) ? nil : Data(output)
@@ -488,7 +527,8 @@ private enum HTMLRecoverySource {
 
     /// An HTML start or end tag at `position` (`<` then an ASCII letter, or `</` then a letter).
     /// `end` is the index after its `>` (or the input end), `nil` for an unterminated quoted value.
-    private static func tag(_ bytes: [UInt8], at position: Int) -> (end: Int?, rawText: String?)? {
+    /// `endsBody` marks an end tag that libxml2 reads as `</body>` or `</html>`.
+    private static func tag(_ bytes: [UInt8], at position: Int) -> (end: Int?, rawText: String?, endsBody: Bool)? {
         func letter(_ index: Int) -> Bool { index < bytes.count && (bytes[index] | 0x20) >= 0x61 && (bytes[index] | 0x20) <= 0x7A }
         func space(_ index: Int) -> Bool { [0x20, 0x09, 0x0A, 0x0C, 0x0D].contains(bytes[index]) }
         let closing = position + 1 < bytes.count && bytes[position + 1] == 0x2F // /
@@ -498,9 +538,19 @@ private enum HTMLRecoverySource {
         while index < bytes.count, !space(index), bytes[index] != 0x2F, bytes[index] != 0x3E { index += 1 }
         let name = String(decoding: bytes[nameStart..<index], as: UTF8.self).uppercased()
         let rawText = !closing && (name == "SCRIPT" || name == "STYLE") ? name : nil
+        if closing {
+            // libxml2 ends an end tag's name at the first byte that is not an ASCII letter or
+            // digit, `:`, `-`, `_` or `.`, and the tag at the first `>`, quoted or not: it reads
+            // `</body"x>` as `</body>`, and acts on a `</body>` in another end tag's quoted value.
+            let named = bytes[nameStart..<index].prefix {
+                ($0 | 0x20 >= 0x61 && $0 | 0x20 <= 0x7A) || ($0 >= 0x30 && $0 <= 0x39) || [0x3A, 0x2D, 0x5F, 0x2E].contains($0)
+            }
+            let endsBody = ["body", "html"].contains(String(decoding: named, as: UTF8.self).lowercased())
+            return (bytes[index...].firstIndex(of: 0x3E).map { $0 + 1 } ?? bytes.count, nil, endsBody)
+        }
         var selfClosing = false // libxml2 closes `<script/>` at once; no raw text follows.
         while index < bytes.count {
-            if bytes[index] == 0x3E { return (index + 1, selfClosing ? nil : rawText) } // >
+            if bytes[index] == 0x3E { return (index + 1, selfClosing ? nil : rawText, false) } // >
             if bytes[index] == 0x2F { selfClosing = true; index += 1; continue }
             if space(index) { index += 1; continue }
             selfClosing = false
@@ -513,14 +563,14 @@ private enum HTMLRecoverySource {
             while index < bytes.count, space(index) { index += 1 }
             if index < bytes.count, bytes[index] == 0x22 || bytes[index] == 0x27 {
                 let quote = bytes[index]
-                guard let close = bytes[(index + 1)...].firstIndex(of: quote) else { return (nil, rawText) }
+                guard let close = bytes[(index + 1)...].firstIndex(of: quote) else { return (nil, rawText, false) }
                 index = close + 1
             } else {
                 // Unquoted: a quote here is an ordinary character, as in HTML.
                 while index < bytes.count, !space(index), bytes[index] != 0x3E { index += 1 }
             }
         }
-        return (bytes.count, rawText)
+        return (bytes.count, rawText, false)
     }
 
     private static func hasDeclarations(_ bytes: [UInt8]) -> Bool {
