@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Honor flex and grid alignment that keeps the reading column: center or distribute a column flex container's or one-column grid's items within a definite `height` or `min-height`, align items across the line, and place a row container's only item, in paginated and continuous-scroll flow. Standard Ebooks epigraphs, dedications and centered title pages sit in the middle of their page or visible area. Side-by-side, wrapped, reversed, reordered and multi-column layouts stay in reading order with a disclosure; text, search, selections, highlights and CFIs are unchanged. The first page of a section with floats or positioned boxes no longer doubles the space above its first line ([#20](https://github.com/vocaro/EPUBLib/issues/20)).
 - Resolve ordinary paragraph percentage margins, padding and indents at the live containing width, retaining source positions across resizing. Use the resolved font's x-height for `ex` lengths and preserve author caption alignment ([#21](https://github.com/vocaro/EPUBLib/issues/21)).
 - Preserve locale-tailored base-strength search distinctions, including Turkish I, Swedish letters, Spanish ñ and Cyrillic й, for passage location and search highlighting ([#26](https://github.com/vocaro/EPUBLib/issues/26)).
 - Describe enabled keyboard and gesture inputs in page-button help, with host customization and flow-aware labels ([#50](https://github.com/vocaro/EPUBLib/issues/50)).

@@ -43,7 +43,9 @@ navigate between sections, exercise styles and flows, update page controls witho
 restore on `.ready` replacing the text start), report the page-list entries on screen in both
 flows after page turns, scrolling, navigation to markers, a restore and a resize, and for a
 selection, and close the session. Separate fixtures exercise
-encoded filenames and fragments, fixed layout, RTL and vertical writing. The illustrated fixture
+encoded filenames and fragments, fixed layout, RTL, vertical writing, and flex and grid alignment
+(a centred title page, a Standard Ebooks style epigraph, a grid dedication and layouts left in
+block flow, with their expected native geometry). The illustrated fixture
 has 40 sections and eight incompressible 1024×1024 images; its test enforces an archive size over
 20 MiB and verifies that later sections remain navigable.
 
