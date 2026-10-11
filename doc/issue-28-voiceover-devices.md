@@ -1,11 +1,11 @@
-# iPad VoiceOver verification
+# iPad and iPhone VoiceOver verification
 
-The iPad sessions of #28 were run on 2026-10-11 on a physical iPad Air 13-inch (M3) with
-iPadOS 27.2, from macOS 27.0 `26A428` and Xcode 27.0 `27A266a`, following the
-[VoiceOver testing process](voiceover-testing.md). The reader was `8896d61` with the two
-fixes described here. They cover reading order, the page boundary, page turns activated by
-VoiceOver, both orientations, two text sizes and changes while the reader is open. The
-iPhone sessions, and VoiceOver's three-finger scroll, remain with #28.
+The device sessions of #28 were run on 2026-10-11 on a physical iPad Air 13-inch (M3) and
+iPhone 17 Pro Max, both on OS 27.2, from macOS 27.0 `26A428` and Xcode 27.0 `27A266a`,
+following the [VoiceOver testing process](voiceover-testing.md). The reader was `0c00f99`
+with the three fixes described here. They cover reading order,
+the page boundary, page turns activated by VoiceOver, both orientations, two text sizes and
+changes while the reader is open. VoiceOver's three-finger scroll was not exercised.
 
 ## Defects found and fixed
 
@@ -27,7 +27,14 @@ by its top spacing, and VoiceOver orders sibling containers by their frames, top
 next spread, with no top spacing, was read in order. The canvas now lists its columns in
 source order, which also keeps a right-to-left spread in reading order.
 
-## Verified layouts
+**The book opened under the keyboard on iPhone.** The control strip's inline search field
+focused itself when it appeared, as a search pane's field should. On the iPhone the reader
+opened with "Search in book, Text field, Is editing" and the keyboard over most of the page:
+VoiceOver read the heading and one line of the paragraph, then the keyboard's keys. The
+inline field now leaves focus alone; a pane's field still takes it. The reader opens with
+VoiceOver on the first control and the whole page visible.
+
+## Verified iPad layouts
 
 VoiceOver was moved to the heading or the first numbered line by touch, then forward until
 it left the reader. In every case it spoke each visible numbered line once, in order, and the
@@ -61,14 +68,36 @@ through VoiceOver, showed `word0001–word0227` in 30 lines at 19 points in port
 `word0001–word0108` beside `word0109–word0264` in landscape, each read in order; Smaller Text
 restored the 17-point pages.
 
+## Verified iPhone layouts
+
+The iPhone shows one column in a 440×956 window in portrait and two in 956×440 in landscape.
+The same steps gave the same results: each visible numbered line spoken once and in order,
+then the book title; each page after a turn beginning with the successor word.
+
+| Layout | First page or spread | After Next |
+| --- | --- | --- |
+| 17 pt, portrait | word0001–word0036, 8 lines | word0037–word0123, 20 lines |
+| 23 pt, portrait | word0001–word0009, 3 lines | word0010–word0051, 14 lines |
+| 17 pt, landscape | heading to word0008 | word0009–word0036, word0037–word0064 |
+| 23 pt, landscape | heading and paragraph | word0001–word0009, word0010–word0024 |
+
+In landscape the first spread, whose left column starts with the heading, was read left
+column first. Next Page and Previous Page were activated on the page buttons, and through
+the rotor's actions in both orientations; in landscape the third spread,
+`word0065–word0092` and `word0093–word0120`, followed the second. Larger Text showed
+`word0001–word0024` in 6 lines, then `word0025–word0096` after Next. Activating the link
+showed `word1159–word1200` with VoiceOver on "Link target reached", followed by "This is
+the end of the numbered paragraph."; Previous Page showed `word1059–word1158`.
+
 ## Not covered
 
 - VoiceOver's three-finger scroll. XCTest cannot perform it, and its synthesized
   Control-Option-Space and Option-arrow keys did not reach VoiceOver. The scroll keeps its API
   regression coverage.
+- XCTest's downward flick did not register as a rotor gesture on the iPhone in landscape,
+  while upward and sideways flicks did. The actions were chosen there with the upward one.
 - A word hyphenated across lines is spoken as two fragments, "must re" and "sume at the next
   numbered word." at 19 points, since each line is its own item.
-- The iPhone was not connected.
 
 ## Evidence
 
@@ -77,5 +106,6 @@ checkout, with named summaries in `.build/voiceover/evidence/`; they are not com
 Another session was using the same iPad at first: its app came to the foreground during one
 run and VoiceOver was switched off during another. Both runs were discarded, and the probe
 now stops when the reader leaves the foreground. Every layout above was then run again with
-the iPad otherwise idle, with the same results. VoiceOver was left off and the iPad in
-portrait.
+the iPad otherwise idle, and once more on the final tree, with the same results; two of
+those runs were repeated after an incoming call's notification was spoken in place of a
+line. The iPhone was idle throughout. VoiceOver was left off and both devices in portrait.

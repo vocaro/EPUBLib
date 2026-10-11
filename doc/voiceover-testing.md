@@ -2,10 +2,10 @@
 
 Use real VoiceOver speech to verify the paginated reader on a Mac, physical iPhone and
 physical iPad. Native accessibility API tests and simulator runs support this work but do
-not establish what VoiceOver reads. The sessions so far are recorded in the
+not establish what VoiceOver reads. The sessions are recorded in the
 [Mac verification](issue-55-voiceover-mac.md) and the
-[iPad verification](issue-28-voiceover-ipad.md); the complete acceptance matrix, with its
-iPhone sessions, is in [#28](https://github.com/vocaro/EPUBLib/issues/28).
+[iPad and iPhone verification](issue-28-voiceover-devices.md); the acceptance matrix is in
+[#28](https://github.com/vocaro/EPUBLib/issues/28).
 
 ## Isolated reader and fixture
 
@@ -173,7 +173,8 @@ phrase after each. Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from t
 - `activate=LABEL`: touch the item, then double-tap, which is VoiceOver's activation.
 - `flick=down`, `flick=up`: one finger steps through the rotor. With the cursor on a line it
   offers the line's actions, Next Page first; `doubletap=LABEL` on that same line then
-  performs the chosen one without moving the cursor.
+  performs the chosen one without moving the cursor. On an iPhone in landscape only the
+  upward flick registered, which reaches the same actions.
 - `rotate=landscape`, `rotate=portrait`: an iPad shows two columns in landscape and one in
   portrait. End a session in the orientation it started in.
 - `wait=SECONDS`, and `screenshot`, attached to the result bundle: what is on the glass,
@@ -187,9 +188,9 @@ off; discard such a run.
 
 XCTest cannot perform VoiceOver's three-finger scroll, and its synthesized hardware keys
 (Control-Option-Space, Option with an arrow) did not reach VoiceOver on an iPad. The probe
-turns pages by activating the page buttons or a line's Next Page action. Ensure
-the search field is not editing and the software keyboard is dismissed before evaluating
-reading order. Use physical-device sessions for acceptance.
+turns pages by activating the page buttons or a line's Next Page action. A transcript that
+begins in an editing field, with the keyboard's keys after the page, is not a reading-order
+result. Use physical-device sessions for acceptance.
 
 ## Acceptance and evidence
 
@@ -250,10 +251,10 @@ The Mac runner's transcript is plain text and needs no export.
 - On 2026-10-11 the Mac sessions verified first and last lines, word order, end of text,
   line counts and page-turn continuity in one and two columns at 17 and 23 points, with value
   notifications for page turns, text-size changes and resizes. See the
-  [Mac verification](issue-55-voiceover-mac.md). The same day a physical iPad passed reading
-  order, page boundaries and VoiceOver-activated page turns in both orientations at 17 and 23
-  points; see the [iPad verification](issue-28-voiceover-ipad.md). Physical iPhone speech
-  reached `0001–0036` on 2026-10-10; its remaining sessions keep #28's acceptance matrix open.
+  [Mac verification](issue-55-voiceover-mac.md). The same day a physical iPad and iPhone
+  passed reading order, page boundaries and VoiceOver-activated page turns in both
+  orientations at 17 and 23 points; see the
+  [iPad and iPhone verification](issue-28-voiceover-devices.md).
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).

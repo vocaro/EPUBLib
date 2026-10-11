@@ -136,6 +136,7 @@ import XCUIAutomation
                 heard("activated")
             case "flick":
                 // One finger up or down steps through VoiceOver's rotor: for a line, its actions.
+                // On an iPhone in landscape only the upward flick registers.
                 switch parts.last {
                 case "up": app.swipeUp(velocity: .fast)
                 case "down": app.swipeDown(velocity: .fast)

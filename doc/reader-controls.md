@@ -71,7 +71,9 @@ selectable. An empty contents menu says “No contents available”; entries wit
 
 Search sends commands only on Return or the Search button. Typing does not search, and no
 keyboard shortcut is installed that could intercept editing keys. Search and Clear retain
-focus in the field. Whitespace-only submission clears highlights. The native engine rejects
+focus in the field. A search pane's field takes focus when the pane opens; the strip's inline
+field does not when it appears, so opening a book raises no keyboard over it.
+Whitespace-only submission clears highlights. The native engine rejects
 empty normalized queries and queries longer than 512 Swift characters, reports errors, and
 emits `.searchChanged(.searching(query:))`, then `.completed(query:hasMatches:)` after the
 whole-book scan. With the `.search` capability, submission sends `.search(text:)`, highlights
