@@ -84,6 +84,8 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// The column width is set on its own, and only when it changes: a container tracking the
     /// view's width would lay the whole text out at a passing width between the new frame and its
     /// insets, which TextKit 2 can follow with a wrong layout.
+    func scrollColumnArea() -> CGRect { pageArea }
+
     func applyScrollGeometry(columnMinX: CGFloat, width: CGFloat) {
         guard let view = scrollTextView else { return }
         if view.readerContainer.size.width != width {
