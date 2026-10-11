@@ -206,6 +206,40 @@ final class SectionContentRobustnessCoverageTests: XCTestCase {
         }
     }
 
+    func testElementsNamedOnlyWithColonsBuildAsUnknownInlineElementsInBothParsers() throws {
+        // XML 1.0's Name admits a name made only of colons, and libxml2's XML and HTML parsers both
+        // hand it on. The document keeps the parser's name whole, so nothing splits it at the colon.
+        let css = #"* { color: red } \: { font-style: italic } p > :first-child { font-weight: bold } [\:] { color: green }"#
+        let prose: [(body: String, text: String, recovered: Bool)] = [
+            ("<p>a<: id='q' class='k' style='color: blue' :='v'>b</:>c<:/>d<::>e</::></p>", "abcde", false),
+            ("<p>a</p><:>b</:><p>c</p>", "a\nb\nc", false),
+            ("<p>a</b><: id='q'>b</:>c<::>d</::></p>", "abcd", true),
+        ]
+        for (body, expected, recovered) in prose {
+            let text = try S.styled(body, css: css)
+            XCTAssertEqual(text.string.string, expected, body)
+            XCTAssertEqual(text.document.recoveredAsHTML, recovered, body)
+            XCTAssertTrue(text.document.nodes.contains { $0.isElement && $0.name == ":" }, body)
+            // The escaped type selector names the element. (HTML recovery reads the helper's
+            // CDATA-wrapped style sheet as one malformed rule, so nothing is styled there.)
+            XCTAssertEqual(S.traits("b", in: text).contains(.traitItalic), !recovered, body)
+            XCTAssertFalse(S.traits("a", in: text).contains(.traitItalic), body)
+            XCTAssertEqual(S.mapViolations(text) + S.rangeViolations(text) + S.locationViolations(text) + S.stringViolations(text), [], body)
+        }
+        // The native tables, formulas and drawings meet the same name among their own elements.
+        let rich = [
+            "<table><:><tr><td>a</td></tr></:><tr><:>b</:></tr></table><ul><:>a</:><li>b</li></ul>",
+            "<p>a<math xmlns='http://www.w3.org/1998/Math/MathML'><mrow><:/><: id='m'><mi>x</mi></:></mrow></math>b</p>",
+            "<p>a<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><: id='s'><rect width='5' height='5'/></:><text>t</text></svg>b</p>",
+            "<p>a</b><math><:>x</:></math>c</p>",
+        ]
+        for body in rich {
+            let text = try S.styled(body, css: css)
+            XCTAssertTrue(text.document.nodes.contains { $0.isElement && $0.name == ":" }, body)
+            XCTAssertEqual(S.mapViolations(text) + S.stringViolations(text), [], body)
+        }
+    }
+
     func testTablesNestedPastTheRenderingLimitKeepTheirText() throws {
         // Each cell's content is rendered by a nested writer, at most eight deep; deeper cells become plain text.
         let depth = 14
