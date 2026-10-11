@@ -90,7 +90,6 @@ final class ContainerArchiveCoverageTests: XCTestCase {
     }
 
     func testAnEmptyEntryWithZIP64SizesIsRead() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/72")
         // The same layout holding one empty file, which Python's zipfile and Info-ZIP's unzip read
         // as empty. Its sizes are 0xFFFFFFFF in the headers and zero in the ZIP64 field.
         var files = try Fixture.files()
@@ -99,15 +98,11 @@ final class ContainerArchiveCoverageTests: XCTestCase {
         XCTAssertEqual(try EPUBPublication.open(data: data).data(at: "OPS/empty.css"), Data())
     }
 
-    // DISABLED: TRAPS THE TEST PROCESS ("Fatal error: Range requires lowerBound <= upperBound" in
-    // ZIPFoundation's Archive.MemoryFile.readData, reached from EPUBPublication.open(data:) as it
-    // iterates the archive). Rename to `test…` to reproduce. The archive is valid: Python's zipfile
-    // and Info-ZIP's unzip read it. Every entry's header offset is 0xFFFFFFFF in the directory
-    // with the real offset in its ZIP64 extra field, as a writer told always to use ZIP64 writes;
-    // the first entry's real offset is zero, which ZIPFoundation takes for "absent".
-    // https://github.com/vocaro/EPUBLib/issues/72
-    func disabled_testAZIP64ArchiveWithItsOffsetsInExtraFieldsIsRead() throws {
-        // EPUB Reading Systems 3.3 §4.2: a reader must "support the ZIP64 extensions".
+    func testAZIP64ArchiveWithItsOffsetsInExtraFieldsIsRead() throws {
+        // EPUB Reading Systems 3.3 §4.2: a reader must "support the ZIP64 extensions". Every
+        // entry's header offset is 0xFFFFFFFF in the directory with the real offset in its ZIP64
+        // extra field, as a writer told always to use ZIP64 writes; Python's zipfile and
+        // Info-ZIP's unzip read it. The first entry's real offset is zero.
         let files = try Fixture.files()
         let book = try EPUBPublication.open(data: Fixture.storedArchive(Fixture.storedEntries(files), zip64: .everything))
         XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"])
