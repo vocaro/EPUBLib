@@ -273,6 +273,35 @@ final class SVGRenderingTests: XCTestCase {
         XCTAssertNotNil(SVGRenderer(svg, fonts: [SVGFontData(family: exported.family, data: replacement)]), "Releasing trees returns their reservations")
     }
 
+    func testLiveFontDatabaseIsSharedAfterOptionsCacheEviction() throws {
+        let exported = try XCTUnwrap(SVGFontData.export(CTFontCreateWithName("TimesNewRomanPSMT" as CFString, 12, nil)))
+        let svg = Data("<svg xmlns='http://www.w3.org/2000/svg' width='40' height='20'><text y='15'>ABC</text></svg>".utf8)
+        // SFNT permits trailing bytes: each distinct byte is a distinct immutable database.
+        func fonts(_ index: Int) -> [SVGFontData] {
+            var data = exported.data
+            data.append(UInt8(index))
+            return [SVGFontData(family: exported.family, data: data)]
+        }
+        // Hold one parsed tree per font set until the shared budget refuses another database.
+        // That refusal also empties the options cache, so none of these is cached any more.
+        var held: [SVGRenderer] = []
+        for index in 0..<64 {
+            guard let renderer = SVGRenderer(svg, fonts: fonts(index)) else { break }
+            held.append(renderer)
+        }
+        XCTAssertGreaterThan(held.count, 1)
+        XCTAssertLessThan(held.count, 64, "Distinct live databases stay bounded")
+        // A rebuilt section asks for the fonts its previous build still holds. That is the
+        // same database, already reserved: it must be shared, not loaded and counted twice.
+        for index in held.indices {
+            let again = try XCTUnwrap(SVGRenderer(svg, fonts: fonts(index)), "Live font set \(index) was refused")
+            XCTAssertNotNil(again.render(maxPixelSize: 40))
+        }
+        XCTAssertNil(SVGRenderer(svg, fonts: fonts(200)), "Sharing must not admit another database over the budget")
+        held.removeAll()
+        XCTAssertNotNil(SVGRenderer(svg, fonts: fonts(200)), "Releasing trees returns their reservations")
+    }
+
     func testRepeatedUseStylesAndRasterRequestsRespectLayerBudget() throws {
         let svg = """
         <svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'>

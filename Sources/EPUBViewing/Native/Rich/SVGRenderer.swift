@@ -62,8 +62,14 @@ private final class SVGRenderOptions: @unchecked Sendable {
     let pointer: OpaquePointer
     private let reservation: SVGFontReservation
     private static let lock = NSLock()
+    /// A few recently used databases, kept for the next SVG with the same fonts.
     nonisolated(unsafe) private static var entries: [String: SVGRenderOptions] = [:]
     nonisolated(unsafe) private static var order: [String] = []
+    /// Every database a parsed tree or the cache still holds, by the same key. Weak, so this
+    /// never extends a database's life or its reservation.
+    nonisolated(unsafe) private static var live: [String: Live] = [:]
+    private struct Live { weak var options: SVGRenderOptions? }
+    private static let cachedDatabases = 4
 
     static func get(fonts: [SVGFontData], text: Bool) -> SVGRenderOptions? {
         var digest = SHA256()
@@ -71,7 +77,15 @@ private final class SVGRenderOptions: @unchecked Sendable {
         let key = (text ? "text:" : "shapes:") + digest.finalize().map { String(format: "%02x", $0) }.joined()
         lock.lock(); defer { lock.unlock() }
         if let known = entries[key] { return known }
-        while entries.count >= 4 { entries.removeValue(forKey: order.removeFirst()) }
+        // The cache forgets a database long before its trees do: a book's built sections hold
+        // theirs while a relayout builds the same figures again. That database is the same
+        // immutable bytes, already reserved. Share it; a second copy would be counted twice
+        // and refused once the copies of what is still on screen fill the budget.
+        if let shared = live[key]?.options {
+            remember(shared, for: key)
+            return shared
+        }
+        while entries.count >= cachedDatabases { entries.removeValue(forKey: order.removeFirst()) }
         var created = SVGRenderOptions(fonts: fonts, text: text)
         // Evict unused cached databases to make room. Databases held by live SVG trees
         // keep their reservation, so many family combinations cannot evade the budget.
@@ -79,9 +93,17 @@ private final class SVGRenderOptions: @unchecked Sendable {
             entries.removeValue(forKey: order.removeFirst())
             created = SVGRenderOptions(fonts: fonts, text: text)
         }
+        live = live.filter { $0.value.options != nil }
         guard let options = created else { return nil }
-        entries[key] = options; order.append(key)
+        live[key] = Live(options: options)
+        remember(options, for: key)
         return options
+    }
+
+    /// Caches `options` as the most recent database. Called with the lock held.
+    private static func remember(_ options: SVGRenderOptions, for key: String) {
+        while entries.count >= cachedDatabases { entries.removeValue(forKey: order.removeFirst()) }
+        entries[key] = options; order.append(key)
     }
 
     private init?(fonts: [SVGFontData], text: Bool) {
