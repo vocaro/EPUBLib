@@ -20,7 +20,9 @@ COMMANDS = {
     "in": (125, True), "out": (126, True), "right": (124, False), "left": (123, False),
     "line": (37, False), "nextline": (125, False), "previousline": (126, False),
     "word": (13, False), "firstword": (115, False), "lastword": (119, False),
-    "textstart": (115, True), "textend": (119, True), "readall": (0, False), "activate": (49, False)}
+    "textstart": (115, True), "textend": (119, True), "readall": (0, False), "activate": (49, False),
+    "linecount": (99, False)}
+TWICE = {"linecount"}  # Control-Option-F3 twice reads the total and visible line counts.
 READER_KEYS = {"pagedown": 121, "pageup": 116}
 
 
@@ -34,9 +36,9 @@ def enabled():
     return value == "1"
 
 
-def keystroke(code, modifiers):
+def keystroke(code, modifiers, times=1):
     subprocess.run(
-        ["osascript", "-e", f'tell application "System Events" to key code {code} using {{{modifiers}}}'],
+        ["osascript"] + ["-e", f'tell application "System Events" to key code {code} using {{{modifiers}}}'] * times,
         check=True, timeout=5)
 
 
@@ -167,7 +169,8 @@ def main():
                             keystroke(READER_KEYS[name], "")
                         else:
                             code, shift = COMMANDS[name]
-                            keystroke(code, "control down, option down" + (", shift down" if shift else ""))
+                            keystroke(code, "control down, option down" + (", shift down" if shift else ""),
+                                      2 if name in TWICE else 1)
                         time.sleep(args.pause)
                 finished.touch()
                 return process.wait(timeout=max(1, deadline - time.monotonic()))
