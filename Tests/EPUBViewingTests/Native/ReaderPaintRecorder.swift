@@ -26,8 +26,10 @@ import UIKit
 ///
 /// The view classes are found in the hierarchy at run time; none is named. Their `draw(_:)`
 /// stays wrapped for the life of the test process and only calls through when no recorder
-/// is recording. On UIKit a render-server snapshot (`drawHierarchy(in:afterScreenUpdates:)`)
-/// would read the same surfaces directly, but the simulator's test host has none to read.
+/// is recording. A draw a test forces (`cacheDisplay(in:to:)` and the like) is recorded like
+/// the system's, though it changes no surface, so a test that records does not force one.
+/// On UIKit a render-server snapshot (`drawHierarchy(in:afterScreenUpdates:)`) would read the
+/// same surfaces directly, but the simulator's test host has none to read.
 @MainActor final class ReaderPaintRecorder {
     private final class Surface {
         weak var view: PlatformView?

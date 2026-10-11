@@ -191,12 +191,17 @@ import XCTest
         XCTAssertEqual(reader.placement, shown, "\(label): Clear Search repaints in place, without a reflow")
     }
 
-    func testClearSearchRepaintsAPaginatedPage() async throws {
+    /// A portrait page of one column on any device, whatever its simulator's orientation.
+    private var onePage: CGSize {
         #if os(macOS)
-        try await exerciseToolbarSearch(flow: .paginated, size: CGSize(width: 600, height: 700), columns: 1)
+        CGSize(width: 600, height: 700)
         #else
-        try await exerciseToolbarSearch(flow: .paginated, size: CGSize(width: 390, height: 844), columns: 1)
+        CGSize(width: 390, height: 844)
         #endif
+    }
+
+    func testClearSearchRepaintsAPaginatedPage() async throws {
+        try await exerciseToolbarSearch(flow: .paginated, size: onePage, columns: 1)
     }
 
     func testClearSearchRepaintsBothColumnsOfASpread() async throws {
@@ -208,7 +213,7 @@ import XCTest
     }
 
     func testClearSearchRepaintsInDarkAppearance() async throws {
-        try await exerciseToolbarSearch(flow: .paginated, columns: 1, dark: true)
+        try await exerciseToolbarSearch(flow: .paginated, size: onePage, columns: 1, dark: true)
     }
 
     // MARK: Highlights added and removed in place
