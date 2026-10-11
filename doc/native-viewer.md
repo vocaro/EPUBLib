@@ -66,11 +66,21 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   publication ID and is rejected before that) produces a `.notice`.
 - **Fixed layout.** Out of scope at first: neither StudyWright catalog (50 shipped EPUBs, 87
   PDFReflowLib conversions) contains a pre-paginated book. Fixed-layout spine items render as
-  reflowable text with a `.disclosure`; capabilities are not reduced. Faithful rendering is
-  tracked in [#5](https://github.com/vocaro/EPUBLib/issues/5).
-- **Vertical writing.** TextKit 2 on iOS has no vertical layout. `writing-mode: vertical-*`
-  renders horizontally, with a `.disclosure`. Ruby and right-to-left text are native. Faithful
-  vertical rendering is tracked in [#7](https://github.com/vocaro/EPUBLib/issues/7).
+  reflowable text with a `.disclosure`; capabilities are not reduced. Owner decision
+  (2026-10-10): no WebKit path for fixed-layout pages for now, open to review later.
+  [#5](https://github.com/vocaro/EPUBLib/issues/5) is narrowed to native rendering of pages
+  that are one image or one SVG, at their declared size and in spreads, and is unscheduled.
+  In nine of the ten fixed-layout titles in the W3C/IDPF EPUB 3 samples, every fixed-layout
+  page is one. Pages that position HTML text keep reflowing with the disclosure.
+- **Vertical writing.** `writing-mode: vertical-*` renders horizontally, with a `.disclosure`.
+  Ruby and right-to-left text are native. Owner decision (2026-10-11): no WebKit path for now,
+  open to review later, and no CoreText page renderer.
+  [#7](https://github.com/vocaro/EPUBLib/issues/7) is narrowed to `vertical-rl` in paginated
+  flow, drawn by the reader's own text views in vertical orientation, and is unscheduled:
+  multi-language support is not a current priority. UIKit has no vertical layout API, but a
+  spike found that TextKit 2 on iOS lays text out vertically when a text container subclass
+  reports vertical orientation, and that `NSTextView` stays on TextKit 2 in vertical
+  orientation on macOS. `vertical-lr` and continuous scroll are outside that route.
 - **MathML.** A native layout engine, the [MathMLLayout](https://github.com/vocaro/MathMLLayout)
   package (CoreText and the OpenType MATH table), draws each `<math>` as an attachment,
   baseline-aligned inline and centred for `display="block"`. The corpus uses `mi`, `mn`, `mo`,
