@@ -31,6 +31,10 @@ struct ReaderPage: Equatable {
     var tableFragments: [ReaderTableFragment] = []
     /// The full section's visual top, independent of source order and repeated table offsets.
     var layoutTop: CGFloat = 0
+    /// The spacing the section's layout itself has above the page's first line: its paragraph's
+    /// spacing before, which TextKit lays out everywhere but at the section's start. The page's
+    /// box geometry begins that far above `layoutTop`; `topSpacing` is where the column goes.
+    var layoutSpacing: CGFloat = 0
     /// A long paragraph's tail can use a different CoreText algorithm in the page slice.
     /// These exceptional pages keep their measured source line lengths, independent of the
     /// released section layout. Ordinary pages need no additional line metadata.
@@ -84,6 +88,8 @@ struct ReaderTableFragment: Equatable {
         var isJustified: Bool
         var tableFragment: ReaderTableFragment? = nil
         var requiresPageMeasurement = false
+        /// Space flex or grid alignment put above the paragraph (`.readerAlignmentLead`).
+        var alignmentLead: CGFloat = 0
     }
 
     /// The measuring layout, released once pagination completes.
@@ -119,6 +125,8 @@ struct ReaderTableFragment: Equatable {
         container.lineFragmentPadding = 0
         container.viewportSize = size
         container.configureBoxes(in: text)
+        // Pages carry an aligned box's lead as their top spacing, measured from the first line.
+        container.alignmentLead = 0
         layoutManager.textContainer = container
         layoutManager.configureGeometry()
         storage.attributedString = text
@@ -186,9 +194,12 @@ struct ReaderTableFragment: Equatable {
         // when the displayed text view receives this page.
         slice.removeAttribute(.readerFlowBox, range: NSRange(location: 0, length: slice.length))
         slice.removeAttribute(.readerParagraphSizing, range: NSRange(location: 0, length: slice.length))
+        // Alignment is resolved too, and a page's own top spacing carries an aligned box's lead.
+        slice.removeAttribute(.readerAlignment, range: NSRange(location: 0, length: slice.length))
+        slice.removeAttribute(.readerAlignmentLead, range: NSRange(location: 0, length: slice.length))
         if let geometry = boxGeometry, slice.length > 0 {
             slice.addAttribute(.readerBoxPage, value: ReaderBoxPage(geometry: geometry,
-                offset: page.range.location, origin: page.layoutTop - page.topSpacing,
+                offset: page.range.location, origin: page.layoutTop - page.layoutSpacing,
                 beginsTableContinuation: page.tableFragments.first.map { entry in
                     guard entry.offset == page.range.location, let fragment = entry.attachment.fragment else { return false }
                     let layout = entry.attachment.layout(width: size.width, viewportHeight: size.height)
@@ -239,7 +250,10 @@ struct ReaderTableFragment: Equatable {
         let firstIndex = nextLine
         let first = lines[firstIndex]
         let keepsSpacing = first.startsParagraph && (firstIndex == 0 || first.breaksBefore)
-        let topSpacing = keepsSpacing ? min(max(0, first.spacingBefore), size.height / 2) : 0
+        // An aligned box's lead is its own content area, not a margin: it is kept in full, and
+        // at an unforced break too, where the margins above the box are truncated.
+        let lead = first.startsParagraph ? min(first.alignmentLead, size.height) : 0
+        let topSpacing = keepsSpacing ? min(max(0, first.spacingBefore - lead), size.height / 2) + lead : lead
         let available = size.height - topSpacing
         var end = firstIndex
         var pageTop = first.top, pageBottom = first.bottom
@@ -298,7 +312,8 @@ struct ReaderTableFragment: Equatable {
             range: NSRange(location: first.range.location, length: last.range.upperBound - first.range.location),
             layoutEnd: layoutEnd, topSpacing: topSpacing, height: pageBottom - pageTop,
             continuesParagraph: !first.startsParagraph,
-            tableFragments: lines[firstIndex..<end].compactMap(\.tableFragment), layoutTop: pageTop)
+            tableFragments: lines[firstIndex..<end].compactMap(\.tableFragment), layoutTop: pageTop,
+            layoutSpacing: first.startsParagraph && first.range.location > 0 ? max(0, first.spacingBefore) : 0)
         if first.requiresPageMeasurement || (first.isJustified && !first.startsParagraph &&
            first.paragraph.length > Self.wholeParagraphJustification &&
            first.paragraph.upperBound - first.range.location <= Self.wholeParagraphJustification) {
@@ -502,7 +517,8 @@ struct ReaderTableFragment: Equatable {
                                   breaksBefore: index == 0 && attributes[.readerPageBreakBefore] as? Bool == true,
                                   keepsWithNext: attributes[.readerKeepWithNext] as? Bool == true,
                                   spacingBefore: style?.paragraphSpacingBefore ?? 0,
-                                  paragraph: paragraph, isJustified: style?.alignment == .justified))
+                                  paragraph: paragraph, isJustified: style?.alignment == .justified,
+                                  alignmentLead: index == 0 ? ReaderAlignmentLayout.lead(in: text, at: start) : 0))
             }
         }
     }
