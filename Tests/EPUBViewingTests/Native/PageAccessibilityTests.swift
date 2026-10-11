@@ -36,7 +36,6 @@ import UIKit
         XCTAssertNil(view.accessibilityRTF(for: NSRange(location: length, length: 1)))
         XCTAssertEqual(view.accessibilityRange(for: length).location, NSNotFound)
         XCTAssertEqual(view.accessibilityStyleRange(for: length).location, NSNotFound)
-        XCTAssertEqual(view.accessibilityLine(for: length), NSNotFound)
         var line = 0, ranges: [NSRange] = []
         while line < 100 {
             let range = view.accessibilityRange(forLine: line)
@@ -48,6 +47,14 @@ import UIKit
         XCTAssertFalse(ranges.isEmpty)
         XCTAssertEqual(NSMaxRange(try XCTUnwrap(ranges.last)), length)
         XCTAssertEqual(ranges.map { view.accessibilityString(for: $0) ?? "" }.joined(), view.visibleText)
+        // VoiceOver counts visible lines from the page's end insertion point, and re-enters a
+        // column at an offset it kept from a longer previous page. Both stay on the last line.
+        XCTAssertEqual(view.accessibilityLine(for: length), ranges.count - 1)
+        XCTAssertEqual(view.accessibilityLine(for: view.textLength), ranges.count - 1)
+        XCTAssertEqual(view.accessibilityLine(for: -1), NSNotFound)
+        view.setAccessibilitySelectedTextRange(NSRange(location: view.textLength, length: 0))
+        XCTAssertEqual(view.accessibilitySelectedTextRange(), NSRange(location: length, length: 0))
+        XCTAssertEqual(view.accessibilityInsertionPointLineNumber(), ranges.count - 1)
     }
     #endif
 }
