@@ -60,6 +60,50 @@ import EPUBViewing
             try press(search)
             try await wait("Search field") { self.element("Search in book") != nil }
             print("SEARCH OPEN")
+            if CommandLine.arguments.contains("--results-keyboard") {
+                controls.searchText = "paragraph"
+                controls.submitSearch()
+                try await wait("matching results") { (self.controls.searchResults?.count ?? 0) > 2 }
+                let before = controls.searchResults?.currentIndex
+                print("RESULT KEYBOARD READY pid=\(getpid()), current=\(String(describing: before)), count=\(controls.searchResults!.count)")
+                fflush(stdout)
+                guard NSApp.isFullKeyboardAccessEnabled else { throw Failure(message: "Keyboard Navigation must be enabled before launch") }
+                func key(_ text: String, code: UInt16) async throws {
+                    guard NSApp.isActive, let keyWindow = NSApp.keyWindow else {
+                        throw Failure(message: "Native key window unavailable: active=\(NSApp.isActive), front=\(NSWorkspace.shared.frontmostApplication?.bundleURL?.lastPathComponent ?? "none"), keyWindow=\(NSApp.keyWindow != nil)")
+                    }
+                    let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: keyWindow.windowNumber,
+                        context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: code)!
+                    NSApp.sendEvent(event)
+                    try await Task.sleep(for: .milliseconds(100))
+                    print("KEY \(code), responder=\(keyWindow.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"), current=\(String(describing: controls.searchResults?.currentIndex))")
+                }
+                for _ in 0..<6 { try await key("\t", code: 48) }
+                guard NSApp.keyWindow?.firstResponder.map({ String(describing: type(of: $0)) })?.contains("SwiftUIOutlineListView") == true else {
+                    throw Failure(message: "Native Tab did not focus the results list")
+                }
+                try await key("\u{F701}", code: 125)
+                try await key("\u{F701}", code: 125)
+                try await key("\r", code: 36)
+                try await key(" ", code: 49)
+                guard controls.searchResults?.currentIndex == 1, controls.searchResults?.currentIndex != before else {
+                    throw Failure(message: "Focused results list ignored Down/Return/Space")
+                }
+                print("PASS: native Down selects the second match")
+                try await key("\u{F700}", code: 126)
+                try await wait("Up selects first match") { self.controls.searchResults?.currentIndex == 0 }
+                print("PASS: native Up selects the first match")
+                guard let third = controls.searchResults?.results.first(where: { $0.index == 2 }) else {
+                    throw Failure(message: "Third result missing")
+                }
+                try press(find(controls.searchResultAccessibilityLabel(for: third)))
+                try await wait("AX row activation") { self.controls.searchResults?.currentIndex == 2 }
+                print("PASS: AX row activation selects the third match")
+                try await key("\u{F700}", code: 126)
+                try await wait("Up after AX row activation") { self.controls.searchResults?.currentIndex == 1 }
+                print("PASS: native selection follows programmatic result updates")
+            }
             if CommandLine.arguments.contains("--escape") {
                 let popup = NSApp.keyWindow!
                 let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,

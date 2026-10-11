@@ -475,34 +475,50 @@ enum SVGContent {
 
     /// The intrinsic size of an SVG box in points: absolute `width`/`height` attributes, with
     /// the authored viewport preserved; else the viewBox; else `fallback`. The renderer
-    /// applies the viewBox's preserveAspectRatio inside this viewport.
+    /// applies the viewBox's preserveAspectRatio inside this viewport. A viewBox so thin that
+    /// the dimension its ratio gives overflows sizes nothing: `fallback` stands in.
     static func intrinsicSize(_ svg: ContentNode, fontSize: CGFloat, fallback: CGSize) -> CGSize {
         func absolute(_ name: String) -> CGFloat? {
             if case .points(let value)? = ImageSizing.length(svg.attribute(name), fontSize: fontSize), value > 0 { value } else { nil }
         }
         let box = viewBox(svg)
         let aspect = box.map { $0.width / $0.height } ?? (fallback.height > 0 ? fallback.width / fallback.height : 1)
-        switch (absolute("width"), absolute("height")) {
-        case let (w?, h?): return CGSize(width: w, height: h)
-        case let (w?, nil): return CGSize(width: w, height: w / aspect)
-        case let (nil, h?): return CGSize(width: h * aspect, height: h)
-        case (nil, nil): return box?.size ?? fallback
+        let size: CGSize = switch (absolute("width"), absolute("height")) {
+        case let (w?, h?): CGSize(width: w, height: h)
+        case let (w?, nil): CGSize(width: w, height: w / aspect)
+        case let (nil, h?): CGSize(width: h * aspect, height: h)
+        case (nil, nil): box?.size ?? fallback
         }
+        return size.width.isFinite && size.height.isFinite ? size : fallback
     }
 
+    /// The furthest an edge of a wrapped `<image>` may lie from its SVG's box, in boxes: the
+    /// largest number `ImageSizing.length` takes from an attribute.
+    static let maximumPlacement: CGFloat = 100_000
+
     /// Where a wrapped `<image>` sits in its SVG, as fractions of the SVG's box; nil when it
-    /// fills it.
-    static func placement(of image: ContentNode, in svg: ContentNode, imageSize: CGSize, fontSize: CGFloat) -> CGRect? {
+    /// fills it. A viewBox far smaller than the image or far from it gives a rectangle with no
+    /// bound, so a placement is kept only while it leaves a pixel or more of the image in the
+    /// box and lies within `maximumPlacement` of it: nil otherwise too, and the image fills
+    /// the box.
+    static func placement(of image: ContentNode, in svg: ContentNode, source: ReaderImageSource, fontSize: CGFloat) -> CGRect? {
         func number(_ name: String) -> CGFloat? {
             if case .points(let value)? = ImageSizing.length(image.attribute(name), fontSize: fontSize) { value } else { nil }
         }
+        let imageSize = source.pixelSize
         let box = viewBox(svg) ?? CGRect(origin: .zero, size: intrinsicSize(svg, fontSize: fontSize, fallback: imageSize))
         let width = number("width").flatMap { $0 > 0 ? $0 : nil } ?? (viewBox(svg) == nil ? box.width : imageSize.width)
         let height = number("height").flatMap { $0 > 0 ? $0 : nil } ?? (viewBox(svg) == nil ? box.height : imageSize.height)
         let rect = CGRect(x: ((number("x") ?? 0) - box.minX) / box.width, y: ((number("y") ?? 0) - box.minY) / box.height,
                           width: width / box.width, height: height / box.height)
         let filled = abs(rect.minX) < 0.001 && abs(rect.minY) < 0.001 && abs(rect.width - 1) < 0.001 && abs(rect.height - 1) < 0.001
-        return filled || !rect.width.isFinite || !rect.height.isFinite ? nil : rect
+        // The most pixels a decode has across the image: its own, or those an SVG is rasterized at.
+        let ceiling = CGFloat(ReaderImageSource.maximumSVGDimension)
+        let pixels = source.format == .svg ? CGSize(width: ceiling, height: ceiling) : imageSize
+        // Each comparison is false for a number that is infinite or not a number.
+        let kept = rect.width <= pixels.width && rect.height <= pixels.height
+            && [rect.minX, rect.minY, rect.maxX, rect.maxY].allSatisfy { abs($0) <= maximumPlacement }
+        return filled || !kept ? nil : rect
     }
 
     /// The SVG subtree as a standalone, sanitized document. `resolve` maps a reference to an

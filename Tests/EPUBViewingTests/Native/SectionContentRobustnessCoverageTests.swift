@@ -186,6 +186,20 @@ final class SectionContentRobustnessCoverageTests: XCTestCase {
 
     // MARK: Hostile markup
 
+    /// An unescaped `<` in prose with an apostrophe after it once withheld the whole section.
+    /// It is not well-formed, so the HTML parser reads it and the section says so.
+    func testAStrayLessThanSignBeforeAnApostropheIsShownAndReported() throws {
+        let data = try Fixture.epub(overrides: ["OPS/one.xhtml": "<html xmlns='http://www.w3.org/1999/xhtml'><head><title>T</title></head><body><p>if x < y then it's done</p><p>next</p></body></html>"])
+        let book = try EPUBPublication.open(data: data)
+        let text = SectionBuilder.build(SectionBuildRequest(publication: book, spineIndex: 0, typography: NativeTypography(),
+                                                            fonts: FontRegistry(publication: book), rich: PlaceholderRichContent()))
+        XCTAssertFalse(text.report.withheld)
+        XCTAssertTrue(text.report.recoveredAsHTML)
+        XCTAssertTrue(text.string.string.hasPrefix("if x"), text.string.string.debugDescription)
+        XCTAssertTrue(text.string.string.hasSuffix("next"), text.string.string.debugDescription)
+        XCTAssertEqual(text.map.length, text.string.length)
+    }
+
     func testHostileRubyListAndTableMarkupDoesNotTrap() throws {
         let bodies = [
             "<rt>stray</rt><rp>x</rp><ruby><ruby><rt>a</rt></ruby><rt>b</rt></ruby><ruby/>",
@@ -203,6 +217,40 @@ final class SectionContentRobustnessCoverageTests: XCTestCase {
                 let text = try H.build(body, rich: rich)
                 XCTAssertEqual(S.mapViolations(text) + S.rangeViolations(text) + S.locationViolations(text) + S.stringViolations(text), [], body)
             }
+        }
+    }
+
+    func testElementsNamedOnlyWithColonsBuildAsUnknownInlineElementsInBothParsers() throws {
+        // XML 1.0's Name admits a name made only of colons, and libxml2's XML and HTML parsers both
+        // hand it on. The document keeps the parser's name whole, so nothing splits it at the colon.
+        let css = #"* { color: red } \: { font-style: italic } p > :first-child { font-weight: bold } [\:] { color: green }"#
+        let prose: [(body: String, text: String, recovered: Bool)] = [
+            ("<p>a<: id='q' class='k' style='color: blue' :='v'>b</:>c<:/>d<::>e</::></p>", "abcde", false),
+            ("<p>a</p><:>b</:><p>c</p>", "a\nb\nc", false),
+            ("<p>a</b><: id='q'>b</:>c<::>d</::></p>", "abcd", true),
+        ]
+        for (body, expected, recovered) in prose {
+            let text = try S.styled(body, css: css)
+            XCTAssertEqual(text.string.string, expected, body)
+            XCTAssertEqual(text.document.recoveredAsHTML, recovered, body)
+            XCTAssertTrue(text.document.nodes.contains { $0.isElement && $0.name == ":" }, body)
+            // The escaped type selector names the element. (HTML recovery reads the helper's
+            // CDATA-wrapped style sheet as one malformed rule, so nothing is styled there.)
+            XCTAssertEqual(S.traits("b", in: text).contains(.traitItalic), !recovered, body)
+            XCTAssertFalse(S.traits("a", in: text).contains(.traitItalic), body)
+            XCTAssertEqual(S.mapViolations(text) + S.rangeViolations(text) + S.locationViolations(text) + S.stringViolations(text), [], body)
+        }
+        // The native tables, formulas and drawings meet the same name among their own elements.
+        let rich = [
+            "<table><:><tr><td>a</td></tr></:><tr><:>b</:></tr></table><ul><:>a</:><li>b</li></ul>",
+            "<p>a<math xmlns='http://www.w3.org/1998/Math/MathML'><mrow><:/><: id='m'><mi>x</mi></:></mrow></math>b</p>",
+            "<p>a<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><: id='s'><rect width='5' height='5'/></:><text>t</text></svg>b</p>",
+            "<p>a</b><math><:>x</:></math>c</p>",
+        ]
+        for body in rich {
+            let text = try S.styled(body, css: css)
+            XCTAssertTrue(text.document.nodes.contains { $0.isElement && $0.name == ":" }, body)
+            XCTAssertEqual(S.mapViolations(text) + S.stringViolations(text), [], body)
         }
     }
 

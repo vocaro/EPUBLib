@@ -62,6 +62,8 @@ public struct EPUBPublication: Sendable {
         let archive: Archive
         do { archive = try Archive(data: data, accessMode: .read) }
         catch { throw EPUBPublicationError.invalidArchive(String(describing: error)) }
+        // The bytes this archive reads, whatever it was made from.
+        try ArchiveBounds.check(archive.data ?? data)
         var contents: [String: Data] = [:]
         var paths = Set<String>()
         var total = 0
@@ -104,8 +106,12 @@ public struct EPUBPublication: Sendable {
             return try XMLTree.parse(bytes, path: path)
         }
         let container = try xml("META-INF/container.xml")
-        guard let opfPath = container.descendants("rootfile").first?.attribute("full-path"),
-              ResourceReference.isSafePath(opfPath) else { throw EPUBPublicationError.invalidXML("container rootfile") }
+        // `full-path` is read as a URL and, failing that, as the archive path it is written as
+        // (`rootfilePath`). The one path it yields is the document read and the base of its hrefs.
+        guard let fullPath = container.descendants("rootfile").first?.attribute("full-path"),
+              let opfPath = ResourceReference.rootfilePath(fullPath, isEntry: { contents[$0] != nil }) else {
+            throw EPUBPublicationError.invalidXML("container rootfile")
+        }
         let opf = try xml(opfPath)
         guard opf.name == "package", let manifest = opf.children.first(where: { $0.name == "manifest" }),
               let spineNode = opf.children.first(where: { $0.name == "spine" }) else {

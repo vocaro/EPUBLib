@@ -36,22 +36,50 @@ final class ExtractionAdversarialCoverageTests: XCTestCase {
 
     // MARK: Traps
 
-    // CRASHES THE TEST PROCESS, so it is disabled by name (remove `disabled_` to reproduce):
-    //   EPUBText/TextExtraction.swift:340: Fatal error: Unexpectedly found nil while unwrapping an Optional value
     // XML 1.0's Name production admits ":" alone. libxml2 reports the element with only a
-    // recoverable namespace error, so the strict reader hands the name ":" to `start`, where
-    // `name.split(separator: ":")` is empty and `parts.last!` traps. The input is otherwise
+    // recoverable namespace error, so the strict reader hands the name ":" to `start`, where a
+    // split at the colon leaves no piece to be the local name. The input is otherwise
     // well-formed XHTML; any section of an untrusted book can carry it.
-    // https://github.com/vocaro/EPUBLib/issues/88
-    func disabled_testAnElementNamedWithALoneColonIsReadOrRefusedWithoutTrapping() throws {
+    func testAnElementNamedWithALoneColonIsReadOrRefusedWithoutTrapping() throws {
         try assertReturnsOrIsMalformed(Data(page("<p>a<:/>b</p>").utf8), recovering: false, "strict")
     }
 
-    // CRASHES THE TEST PROCESS at the same line through the recovery path: libxml2's HTML parser
-    // also accepts ":" as a tag name. Disabled by name (remove `disabled_` to reproduce).
-    // https://github.com/vocaro/EPUBLib/issues/88
-    func disabled_testARecoveredElementNamedWithALoneColonIsReadOrRefusedWithoutTrapping() throws {
+    // The same name through the recovery path: libxml2's HTML parser also accepts ":" as a tag name.
+    func testARecoveredElementNamedWithALoneColonIsReadOrRefusedWithoutTrapping() throws {
         try assertReturnsOrIsMalformed(Data(page("<p>a</b><:>b</p>").utf8), recovering: true, "recovery")
+    }
+
+    // Read, not refused: both parsers report a name made only of colons whole and unprefixed, so
+    // it is an unknown inline element of the enclosing namespace that keeps its text and its ID.
+    func testNamesMadeOnlyOfColonsAreUnknownInlineElementsInBothParsers() throws {
+        for name in [":", "::", ":::"] {
+            let strict = try book(page("<p>a<\(name) id='q'>b</\(name)>c<\(name)/></p>",
+                                       head: "<title>T<\(name)>U</\(name)></title>")).textSection(at: 0)
+            XCTAssertEqual(strict.text, "abc", name)
+            XCTAssertEqual(strict.title, "TU", name)
+            XCTAssertEqual(strict.anchors, ["q": EPUBTextMark(offset: 1, separator: 0)], name)
+            XCTAssertFalse(strict.recoveredAsHTML, name)
+            let recovered = try book(page("<p>a</b><\(name) id='q'>b</\(name)>c</p>")).textSection(at: 0, recoversMalformedMarkup: true)
+            XCTAssertEqual(recovered.text, "abc", name)
+            XCTAssertEqual(recovered.anchors, ["q": EPUBTextMark(offset: 1, separator: 0)], name)
+            XCTAssertTrue(recovered.recoveredAsHTML, name)
+        }
+    }
+
+    // Such a name is never the XHTML root, keeps its tag in structural MathML notation, and is
+    // ignored as an attribute name, where the same split looks for EPUB-namespace types.
+    func testANameMadeOnlyOfColonsIsNoRootKeepsItsTagInMathNotationAndIsNoSemanticType() throws {
+        let rooted = "<: xmlns='http://www.w3.org/1999/xhtml'><head><title>T</title></head><body><p>a</p></body></:>"
+        XCTAssertThrowsError(try book(rooted).textSection(at: 0)) {
+            XCTAssertEqual($0 as? EPUBTextExtractionError, .malformedContent(path))
+        }
+        let math = try book(page("<p>a<math xmlns='http://www.w3.org/1998/Math/MathML'><: id='m'><mi>x</mi></:></math>b</p>")).textSection(at: 0)
+        XCTAssertEqual(math.text, #"amath(:("x"))b"#)
+        XCTAssertEqual(math.anchors, ["m": EPUBTextMark(offset: 6, separator: 0)])
+        let attributes = try book(page("<p xmlns:e='http://www.idpf.org/2007/ops' :='v' ::='w' e:type='x' id='i'>a</p>")).textSection(at: 0)
+        XCTAssertEqual(attributes.text, "a")
+        XCTAssertEqual(attributes.semanticTypes, ["x"])
+        XCTAssertEqual(attributes.anchors, ["i": EPUBTextMark(offset: 0, separator: 0)])
     }
 
     // Names that merely contain or end in a colon take the same code and must stay harmless.
@@ -143,8 +171,7 @@ final class ExtractionAdversarialCoverageTests: XCTestCase {
     // index around every delimiter; put each delimiter at positions throughout a document.
     func testDelimiterMutationsOfADocumentNeverTrap() throws {
         let bytes = Array(sample.utf8)
-        // ":" is left out: next to "<" it is the trap recorded above, which would end the test process.
-        for replacement in Array("<>&\"'=/![]-;?#".utf8) + [0x00, 0x20, 0x80, 0xFF] {
+        for replacement in Array("<>&\"'=/![]-;?#:".utf8) + [0x00, 0x20, 0x80, 0xFF] {
             for index in stride(from: Int(replacement) % 3, to: bytes.count, by: 3) {
                 var mutated = bytes
                 mutated[index] = replacement

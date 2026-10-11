@@ -130,7 +130,6 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
     }
 
     func testANoteThatOpensAnotherNoteDoesNotTakeItsId() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/126")
         // A note's first child's id names the note too (a reference may point at its first paragraph), but not
         // when that child is a note itself: "each is a note of its own" (`SectionBuildState.captureNote`).
         let text = try H.build("""
@@ -139,6 +138,20 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
             """)
         XCTAssertEqual(text.notes["inner"]?.string, "The inner note.")
         XCTAssertEqual(text.notes["outer"]?.string, "Outer text.")
+    }
+
+    func testANotesLeadingIdsStopAtTheFirstNoteNestedInIt() throws {
+        // The ids before a nested note still name the outer note, which may have none of its own; the nested
+        // note's ids, and those of its own leading descendants, name it alone.
+        let text = try H.build("""
+            <p>Text</p><aside epub:type="footnote" id="o1"><div id="d1"><aside epub:type="footnote" id="i1"><p id="ip">Inner.</p></aside>\
+            </div><p>Outer.</p></aside>\
+            <ol><li epub:type="endnote"><aside epub:type="footnote" id="i2">Second inner.</aside> Unnamed outer.</li></ol>
+            """)
+        XCTAssertEqual(text.notes.mapValues(\.string), [
+            "o1": "Outer.", "d1": "Outer.", "i1": "Inner.", "ip": "Inner.", "i2": "Second inner.",
+        ])
+        XCTAssertEqual(S.paragraphs(text), ["Text", "1.\tUnnamed outer."])
     }
 
     func testANotesFirstParagraphIdNamesTheWholeNote() throws {
@@ -177,7 +190,6 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
     }
 
     func testAFootnoteWhoseIdIsOnItsParagraphIsNotLost() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/126")
         // `epub:type="footnote"` on an `aside` without an id of its own, the reference naming the paragraph inside.
         // The aside is taken out of the flow, so the note must be there to show from its reference.
         let text = try H.build("""
@@ -186,6 +198,36 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
         XCTAssertEqual(S.link("1", in: text), .note(href: "OPS/one.xhtml#fn1"))
         XCTAssertTrue(text.notes["fn1"]?.string == "The note text." || text.string.string.contains("The note text."),
                       "the note is neither in the flow nor captured for its reference: notes \(text.notes.keys.sorted())")
+    }
+
+    func testANoteWithoutAnIdIsCapturedUnderItsLeadingDescendantsIds() throws {
+        // The reference may name the note's first paragraph, or the number that opens it, whatever kind of
+        // note it is and however deep its first element lies.
+        let text = try H.build("""
+            <p id="r1">Claim<a epub:type="noteref" href="#p1">1</a>, again<a epub:type="noteref" href="#a2">2</a>.</p>\
+            <aside epub:type="footnote"><div id="d1"><p id="p1"><a href="#p1">1.</a> First.</p><p id="p2">Second.</p></div></aside>\
+            <aside role="doc-footnote"><p><a id="a2" href="#r1">2.</a> Numbered.</p></aside>\
+            <section epub:type="endnotes"><ol><li epub:type="endnote"><p id="e3">In the flow.</p></li></ol></section>
+            """)
+        XCTAssertEqual(text.notes.mapValues(\.string), [
+            "d1": "1. First.\nSecond.", "p1": "1. First.\nSecond.", "a2": "2. Numbered.", "e3": "In the flow.",
+        ])
+        // Footnotes leave the flow and endnotes stay in it, as they do with an id of their own.
+        XCTAssertEqual(S.paragraphs(text), ["Claim1, again2.", "1.\tIn the flow."])
+        XCTAssertEqual(text.anchors["p1"], H.location(of: "1.\tIn the flow.", in: text))
+        // A link to an id the note is captured under is the note's own number; its backlink stays a link.
+        XCTAssertNil(text.notes["p1"]?.attribute(.link, at: 0, effectiveRange: nil))
+        let back = text.notes["a2"]?.attribute(.link, at: 0, effectiveRange: nil) as? URL
+        XCTAssertEqual(back.flatMap(ReaderLink.init(url:)), .internal(href: "OPS/one.xhtml#r1"))
+        S.assertTextMapContracts(text)
+    }
+
+    func testANoteWhoseOwnIdIsTakenIsCapturedUnderItsFirstParagraphsId() throws {
+        let text = try H.build("""
+            <p>Text<a epub:type="noteref" href="#p2">2</a></p><aside epub:type="footnote" id="n"><p id="p1">First.</p></aside>\
+            <aside epub:type="footnote" id="n"><p id="p2">Second.</p></aside>
+            """)
+        XCTAssertEqual(text.notes.mapValues(\.string), ["n": "First.", "p1": "First.", "p2": "Second."])
     }
 
     // MARK: Anchors

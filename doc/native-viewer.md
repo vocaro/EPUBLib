@@ -158,7 +158,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   whole table still resolve to that table; new cell ranges identify the selected characters.
   Interaction surfaces are mounted only for visible cells. Cell TextKit
   layouts and glyph metadata are retained for drawing in the table's bounded layout cache.
-- **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
+- **Footnotes.** EPUB 3 `noteref` links show their note in a popover, whether they name the
+  note or an element that opens it, such as its first paragraph. Footnote `aside`s are
   hidden from the flow; endnotes stay in place and also show in popovers.
 - **Flex and grid.** TextKit lays a section out as one column of paragraphs, so the reader
   aligns the flex and grid layouts that keep that column: a column flex container, a one-column
