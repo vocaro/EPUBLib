@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Repaint the text on screen whenever search or host highlights change. Clear Search now removes the painted matches at once in paging and continuous scroll, and a highlight-only search or a host highlight on the page shown appears without waiting for a page turn or reflow ([#51](https://github.com/vocaro/EPUBLib/issues/51)).
+- Name the Mac reading-mode segments Continuous Scroll and Paging for assistive technology, in place of their symbols' descriptions. Keep the supplied text-size steps within the 12–36 points the reader draws at distinct sizes, disabled at either end ([#51](https://github.com/vocaro/EPUBLib/issues/51)).
 - Resolve ordinary paragraph percentage margins, padding and indents at the live containing width, retaining source positions across resizing. Use the resolved font's x-height for `ex` lengths and preserve author caption alignment ([#21](https://github.com/vocaro/EPUBLib/issues/21)).
 - Preserve locale-tailored base-strength search distinctions, including Turkish I, Swedish letters, Spanish ñ and Cyrillic й, for passage location and search highlighting ([#26](https://github.com/vocaro/EPUBLib/issues/26)).
 - Describe enabled keyboard and gesture inputs in page-button help, with host customization and flow-aware labels ([#50](https://github.com/vocaro/EPUBLib/issues/50)).

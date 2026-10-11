@@ -46,7 +46,8 @@ as shown above to keep them outside overflow, even when other controls do not fi
 Reading mode uses joined Continuous Scroll/Paging buttons with the active mode selected.
 It sizes to its icons, is available when the session supports both modes, and is separate from appearance.
 The mode picker has high visibility priority, below the page arrows, because segmented
-pickers have no automatic overflow-menu representation on iOS.
+pickers have no automatic overflow-menu representation on iOS. On Mac each segment is a radio
+button named Continuous Scroll or Paging, with the current mode selected.
 
 For an embedded reader use `EPUBReaderControlStrip(controls: controls) { /* host views */ }`.
 It lays out horizontally when it fits and stacks groups and custom views vertically at narrow
@@ -91,7 +92,8 @@ There is no result browser, count, or next/previous-match command. Those remain 
 
 Commands submitted through one controls model execute in FIFO order. Style edits read the latest
 style when they execute, preserving fields changed by earlier queued edits or host commands.
-Appearance controls change font size (10–36 points) and choose System, Light or Dark. System
+Appearance controls change font size two points at a time within 12–36 points, the sizes the
+bundled reader draws distinctly, and are disabled at either end; they choose System, Light or Dark. System
 is the default and follows the mounted view's color scheme, including OS theme changes and
 host color-scheme overrides. Explicit Light/Dark remain fixed until changed. Use
 `controls.changeStyle { $0.appearance = .system }` (or `.light` / `.dark`) in host controls.

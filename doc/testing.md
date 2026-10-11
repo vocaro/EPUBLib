@@ -67,6 +67,13 @@ text views; it redraws them about a second after their text is set, which could 
 stale surface before it was read. Set `EPUBLIB_PAINT_DIR` to a directory to keep each step's
 picture and counts.
 
+Control view tests read the platform controls SwiftUI builds for the supplied controls: the
+Mac reading-mode segments' accessible names, values and actions, the picker's selection and
+disabled state on both platforms, the search field's editing, submission and survival of its
+pane beside a real reader, and that the field stands outside the reader's page keys. SwiftUI
+draws the supplied buttons and menus itself and exposes them to no in-process test; their
+names, capabilities and disabled states are checked in the model they read.
+
 These are deterministic regression fixtures, not an EPUB conformance certification, a comprehensive
 typographic review, an accessibility audit or a memory budget measurement. They do not establish
 VoiceOver speech or focus order, keyboard-only traversal, native toolbar overflow or iPhone Duo
