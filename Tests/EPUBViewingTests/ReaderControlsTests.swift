@@ -7,11 +7,14 @@ import XCTest
 
 @MainActor final class ReaderControlsTests: XCTestCase {
     private final class Session: EPUBReaderSession {
-        let capabilities: Set<EPUBReaderCapability> = [.pagination, .scrolling, .typography, .searchHighlight, .navigateHref]
+        let capabilities: Set<EPUBReaderCapability>
         let readerState: EPUBReaderState?
         var received: [EPUBReaderCommand] = []
         var failure: EPUBReaderError?
-        init() {
+        init(navigatesSearch: Bool = true) {
+            var capabilities: Set<EPUBReaderCapability> = [.pagination, .scrolling, .typography, .searchHighlight, .navigateHref]
+            if navigatesSearch { capabilities.insert(.search) }
+            self.capabilities = capabilities
             let state = EPUBReaderState(status: .init(capabilities: capabilities))
             state.modify { $0.lifecycle = .ready }
             readerState = state
@@ -27,6 +30,17 @@ import XCTest
     }
     private func controls(_ session: Session) throws -> EPUBReaderControls {
         EPUBReaderControls(publication: try EPUBPublication.open(data: Fixture.epub()), session: session)
+    }
+    func testAppearanceDefaultsAndExplicitBooleanCompatibility() {
+        XCTAssertEqual(EPUBReaderStyle().appearance, .system)
+        XCTAssertEqual(EPUBReaderStyle(isDark: true).appearance, .dark)
+        XCTAssertEqual(EPUBReaderStyle(isDark: false).appearance, .light)
+        var style = EPUBReaderStyle(fontSize: 23, flow: .scrolled)
+        style.isDark = true
+        XCTAssertEqual(style, .init(fontSize: 23, appearance: .dark, flow: .scrolled))
+        style.appearance = .system
+        XCTAssertEqual(style.fontSize, 23)
+        XCTAssertEqual(style.flow, .scrolled)
     }
     func testFIFOAndRapidStyleEditsPreserveOtherFields() async throws {
         let session = Session(), model = try controls(session)
@@ -51,7 +65,7 @@ import XCTest
         model.searchText = " \n "
         model.submitSearch()
         await model.waitForCommands()
-        XCTAssertEqual(session.received, [.searchHighlight(text: "chapter"), .clearSearch, .clearSearch])
+        XCTAssertEqual(session.received, [.search(text: "chapter"), .clearSearch, .clearSearch])
         session.failure = .invalidCommand("rejected")
         model.send(.nextPage)
         await model.waitForCommands()
@@ -59,6 +73,13 @@ import XCTest
         XCTAssertFalse(model.isBusy)
         model.dismissError()
         XCTAssertNil(model.commandError)
+    }
+    func testSearchFallsBackForHighlightOnlyEngines() async throws {
+        let session = Session(navigatesSearch: false), model = try controls(session)
+        model.searchText = "chapter"
+        model.submitSearch()
+        await model.waitForCommands()
+        XCTAssertEqual(session.received, [.searchHighlight(text: "chapter")])
     }
     func testClosedFailedAndCanceledQueuesDoNotSubmit() async throws {
         let session = Session(), model = try controls(session)

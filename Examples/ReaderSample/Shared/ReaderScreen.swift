@@ -9,25 +9,6 @@ struct ReaderScreen: View {
     @State private var importing = false
     @State private var useToolbar = false
     @State private var style = EPUBReaderStyle()
-    @State private var pageInput = 0
-
-    private var pageControls: EPUBPageControls {
-        switch pageInput {
-        case 1: .hostOnly
-        case 2: PageControlsExample.customControls
-        default: .init()
-        }
-    }
-
-    private var pageInputMenu: some View {
-        Menu("Page Input", systemImage: "keyboard") {
-            Picker("Page Input", selection: $pageInput) {
-                Text("Default").tag(0)
-                Text("Host Only").tag(1)
-                Text("Custom: ⇧⌘N / ⇧⌘P").tag(2)
-            }
-        }
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,15 +25,12 @@ struct ReaderScreen: View {
                 Button(useToolbar ? "Embed Controls" : "Use Toolbar") { useToolbar.toggle() }.padding(6)
                 if !useToolbar, let controls = reader.controls {
                     EPUBReaderControlStrip(controls: controls) {
-                        pageInputMenu
                         if session.capabilities.contains(.bookmarks) {
-                            Button("Save Position") { reader.savePosition() }
-                            Button("Restore Position") { reader.restorePosition() }
+                            bookmarkMenu
                         }
                     }.padding(.horizontal).id(reader.sessionID)
                 }
                 EPUBReaderView(session: session)
-                    .epubReaderPageControls(pageControls)
                     .id(reader.sessionID)
                 Text(book.metadata.title).font(.caption).padding(6)
             } else {
@@ -65,12 +43,18 @@ struct ReaderScreen: View {
         }
         .toolbar {
             if useToolbar, let controls = reader.controls {
-                EPUBReaderToolbar(controls: controls)
-                ToolbarItem { pageInputMenu.labelStyle(.iconOnly) }
-                ToolbarItem {
-                    Button("Save Position", systemImage: "bookmark") { reader.savePosition() }
-                        .disabled(!reader.ready)
+                EPUBReaderToolbar(controls: controls, groups: [.search, .contents, .appearance, .readingMode])
+                if controls.supports(.bookmarks) {
+                    ToolbarItem {
+                        bookmarkMenu.labelStyle(.iconOnly)
+                    }
                 }
+                #if os(iOS)
+                EPUBReaderToolbar(controls: controls, groups: [.pages], placement: .topBarPinnedTrailing)
+                #else
+                ToolbarSpacer(.fixed)
+                EPUBReaderToolbar(controls: controls, groups: [.pages])
+                #endif
             }
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [UTType(filenameExtension: "epub") ?? .data]) { result in
@@ -86,6 +70,20 @@ struct ReaderScreen: View {
         .frame(minWidth: 320, minHeight: 400)
     }
 
+    private var bookmarkMenu: some View {
+        Menu("Bookmark", systemImage: reader.savedPosition == nil ? "bookmark" : "bookmark.fill") {
+            Button("Save Bookmark", systemImage: "bookmark") { reader.savePosition() }
+                .disabled(!reader.ready || reader.location == nil)
+            Button("Return to Bookmark", systemImage: "arrow.uturn.backward") { reader.restorePosition() }
+                .disabled(!reader.ready || reader.savedPosition == nil)
+            Button("Clear Bookmark", systemImage: "bookmark.slash", role: .destructive) { reader.clearPosition() }
+                .disabled(reader.savedPosition == nil)
+        }
+        .disabled(!reader.ready)
+        .help("Save, return to, or clear this book's bookmark")
+        .accessibilityValue(reader.savedPosition == nil ? "No bookmark saved" : "Bookmark saved")
+    }
+
     /// `-SampleBook <path>` opens a book at launch, for automated and visual checks;
     /// `-SampleFlow scrolled`, `-SampleDark YES` and `-SampleFontSize <points>` set its style.
     private func openFromLaunchArguments() {
@@ -97,7 +95,7 @@ struct ReaderScreen: View {
         let defaults = UserDefaults.standard
         guard defaults.string(forKey: "SampleBook") != nil else { return }
         if defaults.string(forKey: "SampleFlow") == "scrolled" { style.flow = .scrolled }
-        if defaults.bool(forKey: "SampleDark") { style.isDark = true }
+        if defaults.bool(forKey: "SampleDark") { style.appearance = .dark }
         if defaults.double(forKey: "SampleFontSize") > 0 { style.fontSize = defaults.double(forKey: "SampleFontSize") }
         reader.send(.style(style))
     }

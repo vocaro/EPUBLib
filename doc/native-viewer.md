@@ -263,7 +263,8 @@ The following are the defaults. Host commands and accessibility actions stay ena
 | `restore(location)` | Same publication, engine ID and `epublib-cfi-v1` format or `incompatibleLocation`; validates/resolves every bookmark segment and shows the first segment's start. Does not select text or add a highlight. |
 | `locate(text, highlight)` | First match in reading order with foliate's matcher. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A miss emits `.notice("the cited passage could not be found in this book")`. Clears search highlights. |
 | `searchHighlight` / `clearSearch` | Draws every match across the book / removes them. |
-| `style` | Font size 12–96, dark, flow. Size or appearance rebuilds the text; the position is kept across rebuilds and flow switches. |
+| `search` | Draws matches and opens the first rendered match in spine order; no matches preserve the position. |
+| `style` | Font size 12–96, System/Light/Dark appearance, flow. System is the default and tracks the host color scheme live; explicit modes stay fixed. Size or resolved appearance rebuilds the text; the position is kept across rebuilds and flow switches. |
 | `setHighlights` | Replaces drawn host highlights. |
 
 `.ready` is emitted once, when the opening section is on screen in a mounted view, and the first

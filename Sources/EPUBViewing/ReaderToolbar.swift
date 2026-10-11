@@ -2,7 +2,7 @@ import EPUBCore
 import SwiftUI
 
 public enum EPUBReaderControlGroup: String, CaseIterable, Hashable, Sendable {
-    case pages, search, contents, appearance
+    case pages, search, contents, appearance, readingMode
 }
 
 /// Order and omit groups using `groups`; placement applies to each group's toolbar item.
@@ -19,20 +19,34 @@ public struct EPUBReaderToolbar: ToolbarContent {
         ForEach(groups, id: \.self) { group in
             if group == .pages {
                 if controls.supports(.pagination) || controls.supports(.scrolling) {
-                    ToolbarItem(placement: placement) {
+                    #if os(macOS)
+                    ToolbarItemGroup(placement: placement) {
                         EPUBPageButton(controls: controls, forward: controls.isRightToLeft)
-                    }
-                    ToolbarItem(placement: placement) {
                         EPUBPageButton(controls: controls, forward: !controls.isRightToLeft)
                     }
+                    .visibilityPriority(.init(higherThan: .high))
+                    #else
+                    ToolbarItem(placement: placement) {
+                        // A pinned placement accepts one item. Keep both arrows in it so
+                        // neither replaces the other or overflows separately.
+                        EPUBReaderControl(controls: controls, group: .pages)
+                    }
+                    .visibilityPriority(.init(higherThan: .high))
+                    #endif
                 }
             } else {
                 ToolbarItem(placement: placement) {
                     EPUBReaderControl(controls: controls, group: group).labelStyle(.iconOnly)
                 }
+                // A segmented picker has no automatic overflow-menu representation.
+                .visibilityPriority(group == .readingMode ? .high : .automatic)
             }
         }
-        ToolbarItem(placement: placement) { EPUBReaderCommandFeedback(controls: controls) }
+        // Keep command progress in the controls themselves. Inserting a transient toolbar
+        // item shifts the buttons and their anchored popovers on every submission.
+        if controls.commandError != nil {
+            ToolbarItem(placement: placement) { EPUBReaderCommandFeedback(controls: controls) }
+        }
     }
 }
 
@@ -88,17 +102,21 @@ public struct EPUBReaderControl: View {
             case .pages:
                 if controls.supports(.pagination) || controls.supports(.scrolling) { pages }
             case .search:
-                if controls.supports(.searchHighlight) {
+                if controls.supports(.search) || controls.supports(.searchHighlight) {
                     if inlineSearch { EPUBSearchField(controls: controls) }
                     else {
                         Button("Search", systemImage: "magnifyingglass") { showingSearch = true }
-                            .popover(isPresented: $showingSearch) { EPUBSearchField(controls: controls).padding() }
+                            .popover(isPresented: $showingSearch) {
+                                EPUBSearchField(controls: controls, onDismiss: { showingSearch = false }).padding()
+                            }
                     }
                 }
             case .contents:
                 if controls.supports(.navigateHref) { contents }
             case .appearance:
-                if controls.supports(.typography) || (controls.supports(.pagination) && controls.supports(.scrolling)) { appearance }
+                if controls.supports(.typography) { appearance }
+            case .readingMode:
+                if controls.supports(.pagination) && controls.supports(.scrolling) { readingMode }
             }
         }
         .disabled(!controls.isReady)
@@ -127,18 +145,35 @@ public struct EPUBReaderControl: View {
                 Button("Larger Text", systemImage: "textformat.size.larger") {
                     controls.changeStyle { $0.fontSize = min(36, $0.fontSize + 2) }
                 }
-                Button(controls.status?.style.isDark == true ? "Light Appearance" : "Dark Appearance") {
-                    controls.changeStyle { $0.isDark.toggle() }
-                }
-            }
-            if controls.supports(.pagination) && controls.supports(.scrolling) {
-                Button(controls.status?.style.flow == .scrolled ? "Paginated Flow" : "Scrolled Flow") {
-                    controls.changeStyle { $0.flow = $0.flow == .scrolled ? .paginated : .scrolled }
+                Picker("Appearance", selection: Binding(
+                    get: { controls.status?.style.appearance ?? .system },
+                    set: { appearance in controls.changeStyle { $0.appearance = appearance } }
+                )) {
+                    Text("System").tag(EPUBReaderAppearance.system)
+                    Text("Light").tag(EPUBReaderAppearance.light)
+                    Text("Dark").tag(EPUBReaderAppearance.dark)
                 }
             }
             if controls.isBusy { Text("Applying commands…") }
             if let error = controls.commandError { Text(error) }
         }
+    }
+    private var readingMode: some View {
+        Picker("Reading Mode", selection: Binding(
+            get: { controls.status?.style.flow ?? .paginated },
+            set: { mode in controls.changeStyle { $0.flow = mode } }
+        )) {
+            Label("Continuous Scroll", systemImage: "scroll")
+                .tag(EPUBReadingFlow.scrolled)
+                .help("Continuous Scroll")
+            Label("Paging", systemImage: "doc.text")
+                .tag(EPUBReadingFlow.paginated)
+                .help("Paging")
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .labelStyle(.iconOnly)
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 
@@ -185,6 +220,7 @@ private struct EPUBContentsItems: View {
 
 private struct EPUBSearchField: View {
     @Bindable var controls: EPUBReaderControls
+    var onDismiss: (() -> Void)? = nil
     @FocusState private var focused: Bool
     var body: some View {
         VStack(alignment: .leading) {
@@ -206,8 +242,19 @@ private struct EPUBSearchField: View {
                     .frame(minWidth: 140, idealWidth: 220)
                 Button("Search", systemImage: "magnifyingglass") { controls.submitSearch(); focused = true }
                     .labelStyle(.iconOnly).help("Search")
-                Button("Clear Search", systemImage: "xmark.circle") { controls.clearSearch(); focused = true }
-                    .labelStyle(.iconOnly).help("Clear Search")
+                if let onDismiss {
+                    Button("Close Search", systemImage: "xmark") {
+                        focused = false
+                        onDismiss()
+                    }
+                    .labelStyle(.iconOnly).help("Close Search")
+                } else {
+                    Button("Clear Search", systemImage: "xmark.circle") { controls.clearSearch(); focused = true }
+                        .labelStyle(.iconOnly).help("Clear Search")
+                }
+            }
+            if onDismiss != nil {
+                Button("Clear Search") { controls.clearSearch(); focused = true }
             }
             feedback.font(.callout)
             if let error = controls.commandError { Text(error).foregroundStyle(.red).font(.callout) }
@@ -219,7 +266,8 @@ private struct EPUBSearchField: View {
         case .idle:
             if controls.pendingCommands > 0 { Text("Search queued…") }
         case .searching: HStack { ProgressView().controlSize(.small); Text("Searching…") }
-        case .completed(_, let found): Text(found ? "Matches highlighted" : "No matches")
+        case .completed(_, let found):
+            if !found { Text("No matches") }
         case .failed(_, let error): Text(error.message).foregroundStyle(.red)
         }
     }
@@ -233,8 +281,6 @@ private struct EPUBReaderCommandFeedback: View {
                 Text(error)
                 Button("Dismiss error") { controls.dismissError() }
             }.labelStyle(.iconOnly).accessibilityValue(error)
-        } else if controls.isBusy {
-            ProgressView().controlSize(.small).accessibilityLabel("Applying reader commands")
         }
     }
 }

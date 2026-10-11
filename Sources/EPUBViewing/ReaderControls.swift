@@ -45,10 +45,12 @@ import Foundation
         }
     }
     /// Submit-only search. Typing never sends a command. Whitespace-only input clears;
-    /// the native engine validates its normalized query and 512-character limit.
+    /// the native engine validates its normalized query and 512-character limit. Engines
+    /// advertising `.search` also open the first match; highlight-only engines retain their position.
     public func submitSearch() {
         let query = searchText
-        send(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .clearSearch : .searchHighlight(text: query))
+        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { send(.clearSearch) }
+        else { send(supports(.search) ? .search(text: query) : .searchHighlight(text: query)) }
     }
     public func clearSearch() { searchText = ""; send(.clearSearch) }
 
