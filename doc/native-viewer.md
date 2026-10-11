@@ -378,9 +378,16 @@ Go: the native viewer is the bundled engine.
 - Foliate CFI compatibility for HTML fallback is deliberately limited to qualified XML-shaped
   markup. HTML tree repairs outside that subset cannot issue or resolve saved CFIs; migration
   by href or an explicitly requested text search remains a host decision.
-- Paginated accessibility bounds and actions have native API regression coverage. Actual
-  VoiceOver line navigation on Mac and physical iPhone/iPad remains unverified: the Mac
-  verification attempt could not select the reader through UI automation, and no VoiceOver
-  setting was changed. Simulator/API checks do not substitute for those sessions.
+- Paginated accessibility bounds and actions have native API regression coverage. Live
+  VoiceOver checks on 2026-10-10 captured Mac headings, link/image labels, right-column
+  entry at its first visible word, and end-of-text at column boundaries. Native accessible
+  Next/Previous controls also preserved numbered-word continuity in a single-column,
+  larger-font layout. That layout's first-word speech capture remains inconclusive: it
+  captured the second visible word after entering the column. XCTest also returned stale
+  page values; live AX observation confirmed missing value-change notifications, now
+  posted after paginated content installation, but the notification fix has not received
+  a live retest. Physical iPhone speech reached numbered content; iPad initial
+  focus and keyboard presentation prevented a clean reading-order check. The complete device/layout/typography verification matrix
+  remains open; simulator/API checks do not substitute for those sessions.
 - Flexbox and grid lay out as blocks: content a book centres vertically with `min-height` and
   flex alignment (Standard Ebooks epigraphs) starts at the top of the page.

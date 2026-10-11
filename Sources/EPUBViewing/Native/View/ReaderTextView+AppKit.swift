@@ -228,6 +228,16 @@ final class ReaderTextView: NSTextView {
 
     func exposeTextualAttachments() {
         attachmentElements.removeAll()
+        // Replacing NSTextStorage moves its native caret to the new storage's end, which
+        // can be hidden paragraph context. VoiceOver uses that caret's line when entering
+        // a column. Start newly installed pages at their first line; the canvas reapplies
+        // any intentional carried selection after all columns have been installed.
+        if isPageColumn {
+            selectedRange = NSRange(location: 0, length: 0)
+            // The page exposes a custom bounded AXValue. TextKit's storage replacement
+            // posts selection/layout changes, but does not post a value change for it.
+            NSAccessibility.post(element: self, notification: .valueChanged)
+        }
     }
 
     private func validPageAccessibilityRange(_ range: NSRange) -> Bool {

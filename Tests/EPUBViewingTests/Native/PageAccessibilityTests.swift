@@ -167,6 +167,76 @@ extension PageAccessibilityTests {
     #endif
 
     #if os(macOS)
+    func testNewAndReusedColumnsStartAccessibilityAtFirstLineAndResolveScreenPoints() throws {
+        let text = CanvasText.body((0..<900).map { String(format: "word%04d", $0) }.joined(separator: " "))
+        // Keep the window unordered so this test does not interrupt a user's live
+        // VoiceOver session. A window association suffices for native screen conversions.
+        let canvas = ReaderCanvasView(frame: .zero)
+        let source = FakeCanvasSource([text])
+        let recorder = CanvasRecorder()
+        canvas.dataSource = source
+        canvas.delegate = recorder
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1100, height: 500),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = canvas
+        defer { window.contentView = nil; window.close() }
+        canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        window.contentView?.layoutSubtreeIfNeeded()
+        XCTAssertFalse(window.isVisible)
+        XCTAssertEqual(canvas.textViews.count, 2)
+        for spread in 0..<3 {
+            for (column, view) in canvas.textViews.enumerated() where !view.isHidden {
+                let lines = view.pageAccessibilityLines
+                XCTAssertGreaterThan(lines.count, 3)
+                XCTAssertEqual(view.selectedRange, NSRange(location: 0, length: 0),
+                    "installing a page must not leave the native caret in hidden continuation storage")
+                XCTAssertEqual(view.accessibilitySelectedTextRange(), NSRange(location: 0, length: 0))
+                XCTAssertEqual(view.accessibilityValue(), view.visibleText,
+                    "the value announced after installation must reflect the new visible page")
+                XCTAssertEqual(view.accessibilityInsertionPointLineNumber(), 0,
+                    "VoiceOver should enter a newly installed page at its first line")
+                for index in [0, lines.count / 2, lines.count - 1] {
+                    let line = lines[index]
+                    let local = CGRect(x: line.frame.minX + view.containerOrigin.x + 2,
+                        y: line.frame.midY + view.containerOrigin.y, width: 1, height: 1)
+                    let screen = NSAccessibility.screenRect(fromView: view, rect: local)
+                    let range = view.accessibilityRange(for: CGPoint(x: screen.midX, y: screen.midY))
+                    XCTAssertTrue(NSLocationInRange(range.location, line.range),
+                        "screen point must resolve in its own visible line, column \(column), line \(index)")
+                    XCTAssertEqual(view.accessibilityLine(for: range.location), index)
+                }
+                let middle = lines[lines.count / 2].range.location
+                view.setAccessibilitySelectedTextRange(NSRange(location: middle, length: 0))
+                XCTAssertEqual(view.accessibilityInsertionPointLineNumber(), lines.count / 2,
+                    "an intentional visible caret must remain where the user put it")
+                view.setAccessibilitySelectedTextRange(NSRange(location: 0, length: 0))
+                XCTAssertEqual(view.accessibilityInsertionPointLineNumber(), 0)
+                XCTAssertEqual(view.accessibilitySelectedTextRange(), NSRange(location: 0, length: 0))
+                XCTAssertFalse(window.isVisible)
+            }
+            XCTAssertEqual(canvas.turnPage(forward: true), .turned)
+        }
+        // Installing replacement page storage resets its incidental native caret, then the
+        // canvas must reinstate an intentional passage selection in source coordinates.
+        let view = try XCTUnwrap(canvas.textViews.last)
+        let local = NSRange(location: view.pageAccessibilityLines[2].range.location, length: 12)
+        let position = ReaderTextPosition(section: 0, offset: view.placement.offset + local.location)
+        let passage = ReaderTextRange(section: 0, position.offset..<(position.offset + local.length))
+        canvas.show(position, selecting: passage)
+        XCTAssertEqual(canvas.currentSelection?.range, passage)
+        canvas.reloadContent(keeping: position)
+        XCTAssertEqual(canvas.currentSelection?.range, passage)
+        let selectedView = try XCTUnwrap(canvas.textViews.first { $0.selectedRange.length > 0 })
+        let nativeRange = NSRange(location: selectedView.pageAccessibilityLines[4].range.location, length: 10)
+        selectedView.selectedRange = nativeRange
+        canvas.textViewSelectionDidChange(selectedView)
+        let nativePassage = try XCTUnwrap(canvas.currentSelection?.range)
+        canvas.reloadContent(keeping: nativePassage.start)
+        XCTAssertEqual(canvas.currentSelection?.range, nativePassage)
+        XCTAssertFalse(window.isVisible)
+    }
+
     func testPageAccessibilitySelectionCannotReachContinuationAndComposedCharactersStayWhole() throws {
         let host = host(CanvasText.body(String(repeating: "Hello 👨‍👩‍👧‍👦 e\u{301} world. ", count: 150)))
         let view = try XCTUnwrap(host.canvas.textViews.first)
