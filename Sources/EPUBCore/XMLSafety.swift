@@ -35,6 +35,10 @@ package enum XMLSafety {
     }
 }
 
+/// Follows XML's lexical rules, which every well-formed document obeys. Where a document breaks
+/// them, a `<` no markup can follow and, in an element's tag, a quote no attribute value can open
+/// are characters, as HTML reads them: an XML parser stops at either one whatever this scan says,
+/// and taking it for markup would only hide what follows from the scan.
 private struct DeclarationScanner {
     let bytes: [UInt8]
     var index = 0
@@ -42,6 +46,9 @@ private struct DeclarationScanner {
     mutating func scan() -> Bool {
         while index < bytes.count {
             guard bytes[index] == 0x3C else { index += 1; continue } // <
+            // A stray sign in prose (`x < y`) or a style sheet (`content: "<"`) is a character,
+            // not a tag whose quotes and `>` would be sought through the text after it.
+            guard opensMarkup else { index += 1; continue }
             if consume("<!--") {
                 guard skip(until: "-->") else { return false }
             } else if consume("<![CDATA[") {
@@ -52,12 +59,26 @@ private struct DeclarationScanner {
                 return false
             } else if consume("<!DOCTYPE") {
                 guard endTag(rejectSubset: true) else { return false }
+                // libxml2 reads a `[` directly after the closing `>` as the internal subset too.
+                if index < bytes.count, bytes[index] == 0x5B { return false }
+            } else if consume("<!") {
+                guard endTag(rejectSubset: false) else { return false }
             } else {
                 index += 1
-                guard endTag(rejectSubset: false) else { return false }
+                guard endElementTag() else { return false }
             }
         }
         return true
+    }
+
+    /// Whether the `<` at `index` can open markup: a name start (any non-ASCII byte may be one),
+    /// `/`, `!` or `?` follows. At the end of input it is markup left open.
+    private var opensMarkup: Bool {
+        guard index + 1 < bytes.count else { return true }
+        let next = bytes[index + 1]
+        let letter = next | 0x20
+        return (letter >= 0x61 && letter <= 0x7A) || next >= 0x80
+            || next == 0x2F || next == 0x21 || next == 0x3F || next == 0x3A || next == 0x5F // / ! ? : _
     }
 
     private mutating func consume(_ token: StaticString) -> Bool {
@@ -76,6 +97,8 @@ private struct DeclarationScanner {
         return false
     }
 
+    /// Scans through the `>` that ends a declaration, whose literals are quoted wherever they
+    /// stand (`<!ATTLIST x a CDATA "=">`).
     private mutating func endTag(rejectSubset: Bool) -> Bool {
         var quote: UInt8?
         while index < bytes.count {
@@ -89,6 +112,30 @@ private struct DeclarationScanner {
                 return true
             } else if rejectSubset && byte == 0x5B { // [
                 return false
+            }
+        }
+        return false
+    }
+
+    /// Scans through the `>` that ends an element's tag. A quote there delimits only an attribute
+    /// value, after `=`: anywhere else (`<y then it's`) it is a character and hides nothing.
+    private mutating func endElementTag() -> Bool {
+        var quote: UInt8?
+        var valueFollows = false
+        while index < bytes.count {
+            let byte = bytes[index]
+            index += 1
+            if let delimiter = quote {
+                if byte == delimiter { quote = nil }
+            } else if valueFollows && (byte == 0x22 || byte == 0x27) { // double or single quote
+                quote = byte
+                valueFollows = false
+            } else if byte == 0x3E { // >
+                return true
+            } else if byte == 0x3D { // =
+                valueFollows = true
+            } else if byte != 0x20 && byte != 0x09 && byte != 0x0A && byte != 0x0D { // not XML white space
+                valueFollows = false
             }
         }
         return false

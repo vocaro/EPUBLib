@@ -169,4 +169,34 @@ final class XMLParsingRegressionTests: XCTestCase {
                      "a plain type is not epub:type")
     }
 
+    func testNamesMadeOfALoneColonAreSkippedInContainerPackageAndNavigationDocuments() throws {
+        // XML 1.0's Name admits ":" alone, and the parser hands such a name on. These documents
+        // take local names by splitting at colons, so the name must survive having no pieces.
+        func book(_ file: String, _ target: String, _ replacement: String, epub2: Bool = false) throws -> EPUBPublication {
+            let source = String(decoding: try XCTUnwrap(Fixture.files(epub2: epub2)[file]), as: UTF8.self)
+            XCTAssertTrue(source.contains(target), "\(file) has no \(target)")
+            return try EPUBPublication.open(data: Fixture.epub(
+                overrides: [file: source.replacingOccurrences(of: target, with: replacement)], epub2: epub2))
+        }
+        let books = [
+            try book("META-INF/container.xml", "<rootfiles>", "<:/><rootfiles><:>x</:>"),
+            try book("OPS/book.opf", "<dc:creator>", "<:>x</:><dc:creator>"),
+            try book("OPS/book.opf", "<manifest>", "<manifest><: id='z' href='z.xhtml' media-type='application/xhtml+xml'/>"),
+            try book("OPS/book.opf", "<itemref idref=\"one\"/>", "<: idref='two'/><itemref :='q' idref=\"one\"/>"),
+        ]
+        for (index, book) in books.enumerated() {
+            XCTAssertEqual(book.metadata.title, "A Test Book", "\(index)")
+            XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"], "\(index)")
+            XCTAssertEqual(book.tableOfContents.map(\.title), ["First Chapter"], "\(index)")
+        }
+        XCTAssertThrowsError(try book("OPS/book.opf", "package", ":"), "a package document whose root is not a package")
+        // Each label is reworded, so its document and not the other one is known to have been read.
+        let nav = try book("OPS/nav.xhtml", "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml#start\">First <em>Chapter</em></a>",
+            "<: epub:type=\"toc\"/><nav epub:type=\"toc\"><:/><ol><:>x</:><li><a href=\"one.xhtml#start\">Opening <:>Part</:></a>")
+        XCTAssertEqual(nav.tableOfContents.map(\.title), ["Opening Part"])
+        let ncx = try book("OPS/toc.ncx", "<navMap><navPoint id=\"one\" playOrder=\"1\"><navLabel><text>First Chapter</text>",
+            "<navMap><:/><navPoint id=\"one\" playOrder=\"1\"><navLabel><:/><text>Opening <:>Part</:></text>", epub2: true)
+        XCTAssertEqual(ncx.tableOfContents.map(\.title), ["Opening Part"])
+    }
+
 }
