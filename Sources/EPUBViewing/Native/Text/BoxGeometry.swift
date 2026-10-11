@@ -364,9 +364,7 @@ enum ReaderBoxLayout {
                             : plan.regions + anticipated.filter { candidate in
                                 !plan.regions.contains(where: { $0.range == candidate.range })
                             }
-                        while let collision = obstacles.first(where: { $0.frame.intersects(frame) }) {
-                            frame.origin.y = collision.frame.maxY
-                        }
+                        frame = settled(frame, below: obstacles.map { $0.frame })
                         // Negative top margins move glyphs but TextKit clamps their flow advance
                         // to zero. Keep that displacement on every paragraph, and cancel only the
                         // measured height plus any positive displacement on the last fragment.
@@ -493,6 +491,21 @@ enum ReaderBoxLayout {
         }
         text.addAttribute(.readerBoxPage, value: ReaderBoxPage(geometry: plan), range: NSRange(location: 0, length: text.length))
         return Result(text: text, geometry: plan)
+    }
+
+    /// `frame` moved down until it is clear of every obstacle. Each drop goes to the bottom of
+    /// an obstacle the frame touches, which never passes the highest free place at or below the
+    /// start (an obstacle reaching further down would touch the frame there too), so the drops
+    /// end at that place in whatever order they are taken. Taking the first collision in list
+    /// order and scanning again from the start costs a scan per drop: the cube of the count for
+    /// a run of boxes that each land under all the earlier ones. In order of bottom edge one
+    /// pass is enough, as a drop leaves the frame at or below every obstacle already passed.
+    static func settled(_ frame: CGRect, below obstacles: [CGRect]) -> CGRect {
+        var frame = frame
+        for obstacle in obstacles.sorted(by: { $0.maxY < $1.maxY }) where obstacle.intersects(frame) {
+            frame.origin.y = obstacle.maxY
+        }
+        return frame
     }
 
     private static func disabledBoxRanges(_ text: NSAttributedString, disabled: Set<UUID>) -> [NSRange] {

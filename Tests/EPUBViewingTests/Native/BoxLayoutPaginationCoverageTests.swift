@@ -440,9 +440,9 @@ import UIKit
 
     /// Books are untrusted, and a contents page or a gallery made of floats has hundreds of them
     /// with nothing between. Four times as many floats must not cost sixty-four times as long:
-    /// on the machine these tests were written on, 1,000 took 12 seconds and 3,000 over 4 minutes.
+    /// while each collision rescanned the earlier boxes from the first, 1,000 took 12 seconds
+    /// and 3,000 over 4 minutes on the machine these tests were written on.
     func testResolvingConsecutiveFloatsDoesNotGrowCubically() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/155", options: .nonStrict())
         func seconds(_ count: Int) throws -> TimeInterval {
             let section = try build((0..<count).map { "<figure>F\($0).</figure>" }.joined() + "<p>End.</p>", css: "figure { float:left; width:60px }")
             return (0..<2).map { _ in
@@ -454,5 +454,128 @@ import UIKit
         let small = try seconds(150), large = try seconds(600)
         // Linear work is 4 times as long, quadratic 16, cubic 64.
         XCTAssertLessThan(large, 30 * max(small, 0.001), "150 floats took \(small) s and 600 took \(large) s")
+    }
+
+    /// CPU seconds of this thread: unlike a wall clock, unaffected by other work on the machine.
+    private func threadSeconds() -> Double { Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1e9 }
+
+    /// The earlier boxes are met in source order only when they were placed top first, and that
+    /// is the book's choice: a positioned box sits wherever its insets say. Here a column of them
+    /// is written bottom first, so each float that drops down it meets the last-written one
+    /// first. Rescanning from the first box after every drop took 0.4 s of CPU for 150 of each
+    /// and over 20 s for 600.
+    func testResolvingFloatsBelowBoxesWrittenBottomFirstDoesNotGrowCubically() throws {
+        func seconds(_ count: Int) throws -> Double {
+            let section = try build((0..<count).map { "<aside style='top:\((count - 1 - $0) * 25)px'>A\($0).</aside>" }.joined()
+                                    + (0..<count).map { "<figure>F\($0).</figure>" }.joined() + "<p>End.</p>",
+                                    css: "aside { position:absolute; left:0; width:60px; height:25px } figure { float:left; width:60px }")
+            return (0..<2).map { _ in
+                let start = threadSeconds()
+                XCTAssertEqual(ReaderBoxLayout.resolve(section.string, viewport: size).text.string, section.string.string)
+                return threadSeconds() - start
+            }.min() ?? 0
+        }
+        let small = try seconds(150), large = try seconds(600)
+        // Linear work is 4 times as long, quadratic 16, cubic 64.
+        XCTAssertLessThan(large, 30 * small, "150 of each took \(small) s of CPU and 600 took \(large) s")
+    }
+
+    // MARK: Collisions
+
+    /// Where a box comes to rest is defined by the scan the layout began with: drop below the
+    /// first obstacle in the list that the box touches, look again from the start of the list,
+    /// and stop when it touches none. One pass over the sorted list has to leave every box in
+    /// that same place, whatever the obstacles' order, overlaps and shared edges, at whole
+    /// coordinates and at ones whose sums round.
+    func testABoxSettlesWhereDroppingBelowEachCollisionInTurnLeavesIt() {
+        func rescanned(_ frame: CGRect, below obstacles: [CGRect]) -> (frame: CGRect, drops: Int) {
+            var frame = frame, drops = 0
+            while let collision = obstacles.first(where: { $0.intersects(frame) }) { frame.origin.y = collision.maxY; drops += 1 }
+            return (frame, drops)
+        }
+        var random = SectionContentRandom(state: 0x155_C011_1DE5)
+        var moved = 0, chains = 0, failures: [String] = []
+        for round in 0..<4_000 {
+            // Whole units make edges that meet exactly; the line height of 16-point text makes sums that round.
+            let unit: CGFloat = round % 2 == 0 ? 5 : 22.29001636661211 / 2
+            var obstacles: [CGRect] = []
+            if round % 4 < 2 {
+                // Scattered boxes: overlapping, nested, abutting and apart.
+                for _ in 0..<random.next(40) {
+                    obstacles.append(CGRect(x: CGFloat(random.next(8)) * 50, y: CGFloat(random.next(30)) * unit,
+                                            width: CGFloat(1 + random.next(4)) * 50, height: CGFloat(1 + random.next(6)) * unit))
+                }
+            } else {
+                // Columns of boxes each directly below the one before, as a run of floats lands, with the odd gap.
+                for column in 0..<(1 + random.next(3)) {
+                    var top = CGFloat(random.next(3)) * unit
+                    for _ in 0..<random.next(25) {
+                        let height = CGFloat(1 + random.next(4)) * unit
+                        obstacles.append(CGRect(x: CGFloat(column) * 130, y: top, width: CGFloat(60 + random.next(3) * 60), height: height))
+                        top += height + (random.chance(6) ? CGFloat(1 + random.next(4)) * unit : 0)
+                    }
+                }
+            }
+            // Source order is top first for floats in flow and any order at all for positioned boxes.
+            if round % 3 != 0 {
+                for index in obstacles.indices.dropFirst().reversed() { obstacles.swapAt(index, random.next(index + 1)) }
+            }
+            let frame = CGRect(x: CGFloat(random.next(8)) * 50, y: CGFloat(random.next(12)) * unit,
+                               width: CGFloat(1 + random.next(4)) * 50, height: CGFloat(1 + random.next(8)) * unit)
+            let expected = rescanned(frame, below: obstacles)
+            let settled = ReaderBoxLayout.settled(frame, below: obstacles)
+            if settled != expected.frame {
+                failures.append("round \(round): \(frame) below \(obstacles) rests at \(settled.minY), not \(expected.frame.minY)")
+            }
+            if expected.drops > 0 { moved += 1 }
+            if expected.drops >= 5 { chains += 1 }
+        }
+        XCTAssertTrue(failures.isEmpty, "\(failures.count) of 4,000 boxes rest somewhere else: \(failures.prefix(2).joined(separator: "; "))")
+        XCTAssertGreaterThan(moved, 2_000, "most rounds move the box")
+        XCTAssertGreaterThan(chains, 400, "and many take it past obstacle after obstacle")
+        // Nothing to avoid, and nothing in the way.
+        let alone = CGRect(x: 10, y: 30, width: 60, height: 20)
+        XCTAssertEqual(ReaderBoxLayout.settled(alone, below: []), alone)
+        XCTAssertEqual(ReaderBoxLayout.settled(alone, below: [CGRect(x: 70, y: 0, width: 60, height: 100), CGRect(x: 10, y: 50, width: 60, height: 20),
+                                                              CGRect(x: 10, y: 0, width: 60, height: 30)]), alone, "boxes that only share an edge with it")
+    }
+
+    /// One box under a column of obstacles drops past every one of them. Looking again from the
+    /// start of the list after each drop is half the square of the column's length in
+    /// comparisons for that one box when the list is not top first; sorting it is not. Sixteen
+    /// times the column is some twenty times the sorting and 256 times the rescanning.
+    func testSettlingABoxBelowAColumnOfObstaclesInAnyOrderIsNotQuadratic() {
+        func seconds(_ count: Int) -> Double {
+            var random = SectionContentRandom(state: 0x155_0C01)
+            var obstacles = (0..<count).map { CGRect(x: 0, y: CGFloat($0) * 20, width: 60, height: 20) }
+            for index in obstacles.indices.dropFirst().reversed() { obstacles.swapAt(index, random.next(index + 1)) }
+            return (0..<3).map { _ in
+                let start = threadSeconds()
+                let settled = ReaderBoxLayout.settled(CGRect(x: 0, y: 0, width: 60, height: 20), below: obstacles)
+                let elapsed = threadSeconds() - start
+                XCTAssertEqual(settled, CGRect(x: 0, y: CGFloat(count) * 20, width: 60, height: 20), "below the whole column of \(count)")
+                return elapsed
+            }.min() ?? 0
+        }
+        let small = seconds(1_000), large = seconds(16_000)
+        XCTAssertLessThan(large, 64 * small, "1,000 obstacles took \(small) s of CPU and 16,000 took \(large) s")
+    }
+
+    /// End to end: every float in a run that cannot sit side by side comes to rest clear of all
+    /// the boxes placed before it, on either side and at any height.
+    func testFloatsInARunOfMixedSidesAndHeightsNeverOverlap() throws {
+        let count = 14
+        let section = try build((0..<count).map { "<figure class='\($0 % 3 == 0 ? "r" : "l")' style='height:\(20 + $0 * 7 % 25)px'>F\($0).</figure>" }.joined()
+                                + "<p>End. \(H.prose)</p>", css: "figure { width:230px } .l { float:left } .r { float:right }")
+        let plan = try XCTUnwrap(ReaderBoxLayout.resolve(section.string, viewport: size).geometry)
+        let floats = plan.regions.filter { $0.side != .none }
+        XCTAssertEqual(floats.count, count, "the run fits a page, so every float keeps its box")
+        for (index, float) in floats.enumerated() {
+            XCTAssertGreaterThanOrEqual(float.frame.minY, 0)
+            for earlier in floats[..<index] {
+                XCTAssertFalse(float.frame.intersects(earlier.frame), "float \(index) at \(float.frame) overlaps an earlier one at \(earlier.frame)")
+            }
+        }
+        XCTAssertGreaterThan(Set(floats.map(\.frame.minY)).count, count / 2, "the floats were pushed down past one another")
     }
 }
