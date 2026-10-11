@@ -74,8 +74,32 @@ bindings, canvas and child focus, selection chords, live iOS recognizer disablin
 pass-through and reset, zero/invalid/asymmetric/overlapping zones, RTL, resizing, fold exclusion,
 both reading flows, host commands and iOS VoiceOver page turns with direct input disabled.
 
+Highlight paint tests read the pixels the mounted reader's views last drew: none in the
+highlight's color before a search, the matches after it, and none again after Clear Search,
+with no reflow between. They cover both flows, one- and two-column spreads, dark appearance,
+table cells, a highlight-only search and host highlights added and removed in place.
+`ReaderPaintRecorder` copies each `draw(_:)` the system makes of a view under the canvas into a
+bitmap kept for that view and composes those as the views are arranged. Rendering the view
+does not serve: on Mac `cacheDisplay(in:to:)` and `CALayer.render(in:)` draw afresh, showing
+what the reader would paint now and never a surface nothing invalidated, which is what stays
+on screen; they counted no highlight pixels while the cleared matches were still painted.
+`drawHierarchy(in:afterScreenUpdates:)`, which reads what UIKit composed, has no render server
+in the simulator's test host. On Mac the tests turn off AppKit's text checking in the reader's
+text views; it redraws them about a second after their text is set, which could repaint a
+stale surface before it was read. Set `EPUBLIB_PAINT_DIR` to a directory to keep each step's
+picture and counts.
+
+Control view tests read the platform controls SwiftUI builds for the supplied controls: the
+Mac reading-mode segments' accessible names, values and actions, the picker's selection and
+disabled state on both platforms, the search field's editing, submission and survival of its
+pane beside a real reader, and that the field stands outside the reader's page keys. SwiftUI
+draws the supplied buttons and menus itself and exposes them to no in-process test; their
+names, capabilities and disabled states are checked in the model they read.
+
 These are deterministic regression fixtures, not an EPUB conformance certification, a comprehensive
-typographic review, an accessibility audit or a memory budget measurement.
+typographic review, an accessibility audit or a memory budget measurement. They do not establish
+VoiceOver speech or focus order, keyboard-only traversal, native toolbar overflow or iPhone Duo
+layouts ([#51](https://github.com/vocaro/EPUBLib/issues/51)), which need live sessions.
 The suite runs on OS 27; older platforms are outside the package's deployment targets. Simulator
 coverage does not substitute for hardware performance and accessibility testing.
 
