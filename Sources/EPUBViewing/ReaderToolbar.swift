@@ -271,7 +271,12 @@ private struct EPUBSearchField: View {
                     .labelStyle(.iconOnly).help("Search")
                 if let onDismiss {
                     Button("Close Search", systemImage: "xmark") {
+                        #if !os(macOS)
                         focused = false
+                        #endif
+                        // AppKit restores the popover's opening responder on dismissal.
+                        // Clearing FocusState first discards that restoration and can also
+                        // clear an intentional destination in the owner window.
                         onDismiss()
                     }
                     .labelStyle(.iconOnly).help("Close Search")
