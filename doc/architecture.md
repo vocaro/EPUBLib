@@ -27,7 +27,12 @@ remains byte-for-byte unchanged.
 
 Opening copies the archive into a bounded snapshot and checks every archive entry before returning.
 Archive paths are decoded ZIP paths; the container's rootfile path and manifest/navigation hrefs
-are URL references. The parser resolves the rootfile path from the container root and other
+are URL references. An entry's name is read as UTF-8 when its bytes are well-formed UTF-8, with or
+without the ZIP language-encoding flag (general-purpose bit 11), which `zip` and `ditto` on a Mac
+leave clear; any other name is read as code page 437, or refused when the flag calls it UTF-8.
+Paths are compared as Swift strings, so a name's precomposed and decomposed forms are one path:
+either finds the entry, and two entries so named are duplicates.
+The parser resolves the rootfile path from the container root and other
 references relative to the containing OPF/navigation document. A rootfile path that is refused as
 a URL or names no entry that way (a name's own `%`, `#` or `?` left unescaped, as older validators
 required) is read as the archive path it is written as when that is a safe path naming an entry;

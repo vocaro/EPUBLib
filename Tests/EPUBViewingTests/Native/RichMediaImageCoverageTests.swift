@@ -118,6 +118,20 @@ final class RichMediaImageCoverageTests: XCTestCase {
         XCTAssertEqual(text.report.unreadableResources, 1)
     }
 
+    func testAnImageArchivedUnderAUTF8NameWithoutTheLanguageEncodingFlagIsFetched() throws {
+        // zip and ditto on a Mac write the file system's UTF-8 name, here a decomposed one, and
+        // leave general-purpose bit 11 clear; the document names the picture precomposed.
+        var files = try Fixture.files()
+        files["OPS/one.xhtml"] = Data(RichMediaBook.xhtml("<p><img src='images/caf%C3%A9.png' alt='x'/></p>").utf8)
+        files["OPS/images/cafe\u{301}.png"] = RichMediaImages.solid(width: 40, height: 20)
+        let publication = try EPUBPublication.open(data: Fixture.storedArchive(Fixture.storedEntries(files, flags: 0)))
+        let text = SectionBuilder.build(.init(publication: publication, spineIndex: 0, typography: NativeTypography(fontSize: 16, isDark: false),
+                                              fonts: FontRegistry(publication: publication),
+                                              rich: NativeRichContent(images: ReaderImageCache(budget: 64 << 20))))
+        XCTAssertEqual(text.richMediaImages.first?.path, "OPS/images/caf\u{E9}.png")
+        XCTAssertEqual(text.report.unreadableResources, 0)
+    }
+
     func testRemoteAndOutOfArchiveReferencesAreRefusedAndCountedNotFetched() throws {
         for src in ["https://example.com/a.png", "//example.com/a.png", "file:///etc/hosts", "/OPS/pic.png", "../../top.png", "pic.png?v=2"] {
             let (image, text) = try firstImage("<p><img src='\(src)' alt='Remote'/></p>", files: ["pic.png": RichMediaImages.solid(width: 10, height: 10)])
