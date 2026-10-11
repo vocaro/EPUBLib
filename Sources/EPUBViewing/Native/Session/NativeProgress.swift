@@ -112,6 +112,10 @@ enum NativeDisclosure {
               many: "# parts of this document, such as videos or forms, cannot be shown by this reader.")
         count(report.unreadableResources, one: "One image could not be shown.", many: "# images could not be shown.")
         count(report.mathFallbacks, one: "One formula is shown as plain text.", many: "# formulas are shown as plain text.")
+        count(report.mathApproximations, one: "One formula is shown in a simplified layout.",
+              many: "# formulas are shown in a simplified layout.")
+        count(report.mathReductions, one: "One wide formula is reduced in size on narrow pages.",
+              many: "# wide formulas are reduced in size on narrow pages.")
         if report.withheld { sentences.append("Some sections of this book could not be shown.") }
         if report.cfiUnavailable {
             sentences.append("Saved positions and passage highlights are unavailable in some repaired sections because their original text positions cannot be matched safely.")

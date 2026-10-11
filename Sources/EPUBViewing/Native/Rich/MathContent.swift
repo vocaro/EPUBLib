@@ -13,10 +13,11 @@ import AppKit
 /// Layout happens here, during the section build, off the main thread; drawing waits until
 /// the text view asks for the attachment's image. `display="block"` formulas lay out in
 /// display style; the stylesheet and builder make them their own centred paragraph.
+///
+/// Three things the engine does not do are handled around it, each disclosed in the report:
+/// an `mglyph` shows its `alt` (`MathConversion`), elementary math becomes a table
+/// (`MathElementary`), and a formula too wide for its line breaks into rows (`MathFormula`).
 enum MathContent {
-    private static let tokens: Set<String> = ["mi", "mn", "mo", "mtext", "ms"]
-    private static let colorAttributes: Set<String> = ["mathcolor", "mathbackground", "color", "background"]
-
     static func make(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
         let dark = context.typography.isDark
         let alt = collapsed(element.attribute("alttext") ?? "")
@@ -24,12 +25,18 @@ enum MathContent {
         let color = textColor.cgColor
         do {
             // Book colors apply in light appearance only, as for text.
-            let node = try convert(element, keepsColors: !dark, depth: 0)
+            var conversion = MathConversion(keepsColors: !dark)
+            let source = try conversion.convert(element, depth: 0)
+            var isApproximated = conversion.replacedGlyphs > 0
+            let node = MathElementary.rewrite(source, isApproximated: &isApproximated)
             let display = element.attribute("display") == "block" || element.attribute("mode") == "display"
-            let layout = try MathLayout(node, style: MathStyle(fontSize: style.fontSize, color: color, isDisplay: display))
+            let formula = try MathFormula(node, style: MathStyle(fontSize: style.fontSize, color: color, isDisplay: display))
+            if isApproximated { context.report.report.mathApproximations += 1 }
+            if formula.isReduced(in: MathFormula.narrowColumn) { context.report.report.mathReductions += 1 }
             let font = context.fonts.font(for: style)
-            let attachment = MathAttachment(layout: layout, label: alt.isEmpty ? node.accessibilityDescription : alt,
-                                            clearance: MathAttachment.clearance(for: layout, font: font, style: style))
+            let language = MathSpeech.contentLanguage(of: element, publication: context.publication)
+            let reading = MathSpeech.reading(alttext: alt, formula: source, contentLanguage: language)
+            let attachment = MathAttachment(formula: formula, reading: reading, font: font, style: style)
             let result = NSMutableAttributedString(attachment: attachment)
             result.addAttributes([.font: font], range: NSRange(location: 0, length: result.length))
             return result
@@ -44,24 +51,11 @@ enum MathContent {
         }
     }
 
-    /// The MathML subtree as the engine's tree. Elements in another namespace keep a prefixed
-    /// name, which the engine reports as unsupported. Annotations are dropped unread.
+    /// The MathML subtree as the engine's tree, for callers that need no account of what was
+    /// replaced on the way.
     static func convert(_ element: ContentNode, keepsColors: Bool, depth: Int) throws -> MathMLNode {
-        guard depth < 200 else { throw MathLayoutError.limitExceeded }
-        let isMathML = element.namespace == ContentNamespace.mathML || element.namespace.isEmpty
-        let name = isMathML ? element.name : "foreign:\(element.name)"
-        var attributes: [String: String] = [:]
-        for attribute in element.attributes where attribute.namespace.isEmpty {
-            if !keepsColors, colorAttributes.contains(attribute.name) { continue }
-            attributes[attribute.name] = attribute.value
-        }
-        if isMathML, tokens.contains(name) {
-            return MathMLNode(name: name, attributes: attributes, children: element.elementChildren.map { MathMLNode(name: $0.name) },
-                              text: element.textContent)
-        }
-        if isMathML, name == "annotation" || name == "annotation-xml" { return MathMLNode(name: name, attributes: attributes) }
-        return MathMLNode(name: name, attributes: attributes,
-                          children: try element.elementChildren.map { try convert($0, keepsColors: keepsColors, depth: depth + 1) })
+        var conversion = MathConversion(keepsColors: keepsColors)
+        return try conversion.convert(element, depth: depth)
     }
 
     private static func platformColor(_ color: ComputedStyle.Color) -> PlatformColor {
@@ -72,60 +66,180 @@ enum MathContent {
         #endif
     }
 
-    private static func collapsed(_ text: String) -> String {
+    fileprivate static func collapsed(_ text: String) -> String {
         text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }
 
-/// A laid-out formula in the text. Its bounds put the formula's baseline on the line's, and it
-/// shrinks to fit a line narrower, or a page shorter, than itself. It draws once per size and
-/// screen scale, when the text view first asks for its image.
+/// The MathML subtree as the engine's tree. Elements in another namespace keep a prefixed
+/// name, which the engine reports as unsupported. Annotations are dropped unread.
+///
+/// The engine draws no images, so an `mglyph` is replaced where it stands by its `alt`, the
+/// name MathML gives a glyph for when its image cannot be shown, or by a box when it has none.
+struct MathConversion {
+    private static let tokens: Set<String> = ["mi", "mn", "mo", "mtext", "ms"]
+    private static let colorAttributes: Set<String> = ["mathcolor", "mathbackground", "color", "background"]
+    /// What stands for an `mglyph` without an `alt`: a white vertical rectangle.
+    static let missingGlyph = "\u{25AF}"
+
+    let keepsColors: Bool
+    /// `mglyph` elements shown as text.
+    private(set) var replacedGlyphs = 0
+
+    init(keepsColors: Bool) { self.keepsColors = keepsColors }
+
+    mutating func convert(_ element: ContentNode, depth: Int) throws -> MathMLNode {
+        guard depth < 200 else { throw MathLayoutError.limitExceeded }
+        let isMathML = Self.isMathML(element)
+        let name = isMathML ? element.name : "foreign:\(element.name)"
+        var attributes: [String: String] = [:]
+        for attribute in element.attributes where attribute.namespace.isEmpty {
+            if !keepsColors, Self.colorAttributes.contains(attribute.name) { continue }
+            attributes[attribute.name] = attribute.value
+        }
+        if isMathML, Self.tokens.contains(name) {
+            var text = ""
+            var children: [MathMLNode] = []
+            for child in element.children {
+                if child.isText {
+                    text += child.text
+                } else if Self.isMathML(child), child.name == "mglyph" {
+                    text += glyphText(child)
+                } else if child.isElement {
+                    children.append(MathMLNode(name: child.name))
+                    text += child.textContent
+                }
+            }
+            return MathMLNode(name: name, attributes: attributes, children: children, text: text)
+        }
+        // A glyph outside a token, as MathML 2 allowed.
+        if isMathML, name == "mglyph" { return MathMLNode(name: "mtext", text: glyphText(element)) }
+        if isMathML, name == "annotation" || name == "annotation-xml" { return MathMLNode(name: name, attributes: attributes) }
+        var children: [MathMLNode] = []
+        for child in element.elementChildren { children.append(try convert(child, depth: depth + 1)) }
+        return MathMLNode(name: name, attributes: attributes, children: children)
+    }
+
+    private static func isMathML(_ node: ContentNode) -> Bool {
+        node.isElement && (node.namespace == ContentNamespace.mathML || node.namespace.isEmpty)
+    }
+
+    private mutating func glyphText(_ glyph: ContentNode) -> String {
+        replacedGlyphs += 1
+        let alt = MathContent.collapsed(glyph.attribute("alt") ?? "")
+        return alt.isEmpty ? Self.missingGlyph : alt
+    }
+}
+
+/// How a formula's arrangements are padded and drawn. Sendable, so the image AppKit draws
+/// from can hold it.
 ///
 /// A formula's box is its ink, and TextKit makes a line exactly tall enough for it, so a tall
 /// formula would touch the lines around it: a denominator meets the numerator of a fraction on
-/// the next line. The bounds therefore add clear space on a side where the formula comes close
+/// the next line. Its bounds therefore add clear space on a side where the formula comes close
 /// to the neighbouring lines' content, as TeX's `\lineskip` does; formulas that stay within
 /// the text's own line leave the line spacing alone.
+struct MathRendering: Sendable {
+    let formula: MathFormula
+    /// The surrounding text's ascent, descent and leading, and the clear space a side gets.
+    let ascent: CGFloat, descent: CGFloat, leading: CGFloat, space: CGFloat
+
+    /// For a formula set in `font` on lines `style.lineHeight` apart. TextKit puts a line's
+    /// extra height above its text, so the previous line's descenders end at the top of the
+    /// line and the next line's text starts below that line's leading.
+    init(formula: MathFormula, font: PlatformFont, style: ComputedStyle) {
+        self.formula = formula
+        ascent = CTFontGetAscent(font as CTFont)
+        descent = CTFontGetDescent(font as CTFont)
+        let natural = InlineStyling.naturalLineHeight(font)
+        leading = max(style.lineHeightPoints ?? natural, natural) - ascent - descent
+        space = style.fontSize * 0.15
+    }
+
+    /// Clear space above and below `arrangement`, in its unscaled points: 0.15 em on a side
+    /// where it would come closer than that to the neighbouring line's content.
+    func clearance(of arrangement: MathArrangement) -> (top: CGFloat, bottom: CGFloat) {
+        (arrangement.ascent + space > ascent + leading ? space : 0,
+         arrangement.descent + space > descent + leading ? space : 0)
+    }
+
+    /// The arrangement with its clearance, scaled uniformly to fit `lineWidth` and `height` (a
+    /// zero leaves that dimension unbounded); the origin is the bottom edge's offset below the
+    /// baseline.
+    func bounds(lineWidth: CGFloat, height: CGFloat) -> CGRect {
+        let arrangement = formula.arrangement(fitting: lineWidth)
+        let clearance = clearance(of: arrangement)
+        let padded = arrangement.height + clearance.top + clearance.bottom
+        var scale = MathFormula.scale(of: arrangement, in: lineWidth)
+        if height > 0, padded * scale > height { scale = height / padded }
+        return CGRect(x: 0, y: -(arrangement.descent + clearance.bottom) * scale, width: arrangement.width * scale,
+                      height: padded * scale)
+    }
+
+    /// Draws the formula filling `size`, y up. Of the arrangements made so far it draws the one
+    /// whose bounds have the proportions of `shape`, the size it is shown at: bounds are asked
+    /// for at layout and the image later, and each arrangement's are shaped differently.
+    func draw(in context: CGContext, size: CGSize, shape: CGSize) {
+        guard shape.width > 0, shape.height > 0 else { return }
+        let wanted = log(shape.width / shape.height)
+        var best: (arrangement: MathArrangement, padded: CGFloat, bottom: CGFloat, distance: CGFloat)?
+        for arrangement in formula.arrangements where arrangement.width > 0 {
+            let clearance = clearance(of: arrangement)
+            let padded = arrangement.height + clearance.top + clearance.bottom
+            guard padded > 0 else { continue }
+            let distance = abs(log(arrangement.width / padded) - wanted)
+            if best.map({ distance < $0.distance }) ?? true { best = (arrangement, padded, clearance.bottom, distance) }
+        }
+        guard let best else { return }
+        context.scaleBy(x: size.width / best.arrangement.width, y: size.height / best.padded)
+        best.arrangement.draw(in: context, origin: CGPoint(x: 0, y: best.bottom))
+    }
+}
+
+/// A laid-out formula in the text. Its bounds put the formula's baseline on the line's, and it
+/// shrinks, then breaks into rows, to fit a line narrower than itself (`MathFormula`), and
+/// shrinks to fit a page shorter than itself. It draws once per size and screen scale, when the
+/// text view first asks for its image.
 final class MathAttachment: NSTextAttachment {
-    let layout: MathLayout
+    let formula: MathFormula
+    /// The whole formula on one row.
+    var layout: MathLayout { formula.layout }
     /// What assistive technologies read: the `alttext`, else a spoken reading of the markup.
     let label: String
-    /// Clear space above and below the formula, in the formula's unscaled points.
+    /// The BCP 47 language `label` is in: the content's for an `alttext`, the generator's for
+    /// a generated reading. nil when the content declares none.
+    let language: String?
+    /// Whether `label` is the author's `alttext`.
+    let isLabelAuthored: Bool
+    /// Clear space above and below the formula with room to spare, in its unscaled points.
     let clearance: (top: CGFloat, bottom: CGFloat)
+    private let rendering: MathRendering
     private let lock = NSLock()
     private var cached: (size: CGSize, scale: CGFloat, image: PlatformImage)?
 
-    /// The formula's height with its clearance, unscaled.
-    private var paddedHeight: CGFloat { layout.ascent + layout.descent + clearance.top + clearance.bottom }
-
-    /// Clearance for a formula set in `font` on lines `style.lineHeight` apart. TextKit puts a
-    /// line's extra height above its text, so the previous line's descenders end at the top of
-    /// the line and the next line's text starts below that line's leading. A side gets 0.15 em
-    /// when the formula would come closer than that to such content.
-    static func clearance(for layout: MathLayout, font: PlatformFont, style: ComputedStyle) -> (top: CGFloat, bottom: CGFloat) {
-        let ascent = CTFontGetAscent(font as CTFont), descent = CTFontGetDescent(font as CTFont)
-        let natural = InlineStyling.naturalLineHeight(font)
-        let lineHeight = max(style.lineHeightPoints ?? natural, natural)
-        let leading = lineHeight - ascent - descent
-        let space = style.fontSize * 0.15
-        return (layout.ascent + space > ascent + leading ? space : 0,
-                layout.descent + space > descent + leading ? space : 0)
-    }
-
-    init(layout: MathLayout, label: String, clearance: (top: CGFloat, bottom: CGFloat) = (0, 0)) {
-        self.layout = layout
-        self.label = label
-        self.clearance = clearance
+    init(formula: MathFormula, reading: MathSpeech.Reading, font: PlatformFont, style: ComputedStyle) {
+        self.formula = formula
+        label = reading.text
+        language = reading.language
+        isLabelAuthored = reading.isAuthored
+        let rendering = MathRendering(formula: formula, font: font, style: style)
+        self.rendering = rendering
+        clearance = rendering.clearance(of: formula.natural)
         super.init(data: nil, ofType: nil)
         // What string drawing and the attachment cell use when they do not ask for bounds.
-        bounds = bounds(lineWidth: 0, height: 0)
+        bounds = rendering.bounds(lineWidth: 0, height: 0)
         #if os(macOS)
         // AppKit's TextKit 2 text view draws this image, at each destination's resolution. It
         // never asks for `image(for:…)` unless `viewProvider(for:)` is overridden, which would
-        // stop it drawing the image; string drawing (table cells) uses the image too.
-        let image = NSImage(size: bounds.size, flipped: false) { [clearance] rect in
+        // stop it drawing the image; string drawing (table cells) uses the image too. The
+        // handler's rectangle is the image's own size whatever the bounds it is drawn into, so
+        // the context's transform tells it the proportions of those bounds.
+        let image = NSImage(size: bounds.size, flipped: false) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            Self.draw(layout, clearance: clearance, in: context, size: rect.size)
+            let transform = context.ctm
+            let across = hypot(transform.a, transform.b), up = hypot(transform.c, transform.d)
+            let shape = across > 0 && up > 0 ? CGSize(width: rect.width * across, height: rect.height * up) : rect.size
+            rendering.draw(in: context, size: rect.size, shape: shape)
             return true
         }
         image.accessibilityDescription = label
@@ -142,6 +256,12 @@ final class MathAttachment: NSTextAttachment {
         get { label }
         set {}
     }
+
+    /// The voice for the label: the book's language for an `alttext`, the generator's otherwise.
+    override var accessibilityLanguage: String? {
+        get { language }
+        set {}
+    }
     #endif
 
     #if os(iOS)
@@ -150,15 +270,11 @@ final class MathAttachment: NSTextAttachment {
                                textContainer: NSTextContainer?) -> NSTextAttachmentViewProvider? { nil }
     #endif
 
-    /// The formula and its clearance, scaled uniformly to fit `lineWidth` and `height` (a
-    /// zero leaves that dimension unbounded); the origin is the bottom edge's offset below the
+    /// The formula and its clearance for a line `lineWidth` wide, scaled to fit it and `height`
+    /// (a zero leaves that dimension unbounded); the origin is the bottom edge's offset below the
     /// baseline.
     func bounds(lineWidth: CGFloat, height: CGFloat) -> CGRect {
-        var scale: CGFloat = 1
-        if lineWidth > 0, layout.width > lineWidth { scale = lineWidth / layout.width }
-        if height > 0, paddedHeight * scale > height { scale = height / paddedHeight }
-        return CGRect(x: 0, y: -(layout.descent + clearance.bottom) * scale, width: layout.width * scale,
-                      height: paddedHeight * scale)
+        rendering.bounds(lineWidth: lineWidth, height: height)
     }
 
     private func bounds(container: NSTextContainer?, lineWidth: CGFloat) -> CGRect {
@@ -194,17 +310,9 @@ final class MathAttachment: NSTextAttachment {
         let scale = Self.displayScale
         lock.lock(); defer { lock.unlock() }
         if let cached, cached.size == size, cached.scale == scale { return cached.image }
-        let image = Self.render(layout, clearance: clearance, size: size, scale: scale)
+        let image = Self.render(rendering, size: size, scale: scale)
         cached = (size, scale, image)
         return image
-    }
-
-    /// Draws the formula filling `size`, which has the bounds' proportions, y up.
-    private static func draw(_ layout: MathLayout, clearance: (top: CGFloat, bottom: CGFloat), in context: CGContext,
-                             size: CGSize) {
-        let factor = size.width / layout.width
-        context.scaleBy(x: factor, y: factor)
-        layout.draw(in: context, baselineOrigin: CGPoint(x: 0, y: clearance.bottom + layout.descent))
     }
 
     #if os(iOS)
@@ -213,8 +321,7 @@ final class MathAttachment: NSTextAttachment {
         return scale > 0 ? scale : 3
     }
 
-    private static func render(_ layout: MathLayout, clearance: (top: CGFloat, bottom: CGFloat), size: CGSize,
-                               scale: CGFloat) -> PlatformImage {
+    private static func render(_ rendering: MathRendering, size: CGSize, scale: CGFloat) -> PlatformImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = scale
         format.opaque = false
@@ -222,18 +329,17 @@ final class MathAttachment: NSTextAttachment {
             let context = renderer.cgContext
             context.translateBy(x: 0, y: size.height)
             context.scaleBy(x: 1, y: -1)
-            draw(layout, clearance: clearance, in: context, size: size)
+            rendering.draw(in: context, size: size, shape: size)
         }
     }
     #elseif os(macOS)
     /// AppKit draws a drawing-handler image at each destination's own resolution.
     private static var displayScale: CGFloat { 1 }
 
-    private static func render(_ layout: MathLayout, clearance: (top: CGFloat, bottom: CGFloat), size: CGSize,
-                               scale: CGFloat) -> PlatformImage {
+    private static func render(_ rendering: MathRendering, size: CGSize, scale: CGFloat) -> PlatformImage {
         NSImage(size: size, flipped: false) { _ in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            draw(layout, clearance: clearance, in: context, size: size)
+            rendering.draw(in: context, size: size, shape: size)
             return true
         }
     }
@@ -242,4 +348,5 @@ final class MathAttachment: NSTextAttachment {
 
 extension MathAttachment: ReaderTextualAttachment {
     var textEquivalent: String { label }
+    var textLanguage: String? { language }
 }

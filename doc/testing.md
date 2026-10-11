@@ -34,7 +34,9 @@ tests check the XOR prefix and the untouched suffix against independently specif
 
 Viewer component tests cover content-document parsing, the CSS cascade and fonts, attributed-text
 building and its text map, images, tables, MathML attachments, CFIs and text search, pagination
-geometry and the TextKit 2 views. CFI and search tests replay vectors recorded from foliate-js's own
+geometry and the TextKit 2 views. MathML fixtures cover wide display and inline formulas at 17
+and 28 points in a 320-point column, their rows as laid out and drawn in both flows, `mglyph`,
+elementary math, and readings in French and German content with and without `alttext`. CFI and search tests replay vectors recorded from foliate-js's own
 `epubcfi.js` and `search.js` in WebKit before they were removed, so CFIs the WebKit reader
 recorded keep naming the same positions. Live session tests mount a reader in a window, open at
 the text start (a `bodymatter` landmark, a guide `text` reference or the first linear section),

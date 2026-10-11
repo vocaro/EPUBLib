@@ -79,9 +79,11 @@ final class MathContentTests: XCTestCase {
         XCTAssertNotNil(result?.attribute(.font, at: 0, effectiveRange: nil), "the line keeps the text's font metrics")
     }
 
-    func testWideFormulaScalesToTheLine() throws {
-        let terms = (1...30).map { "<msup><mi>x</mi><mn>\($0)</mn></msup><mo>+</mo>" }.joined() + "<mn>1</mn>"
-        let attachment = try attachment(try make(terms).0)
+    /// A formula with nowhere to break (one wide fraction) shrinks to its line, whole.
+    func testWideFormulaWithoutBreaksScalesToTheLine() throws {
+        let terms = (1...30).map { "<msup><mi>x</mi><mn>\($0)</mn></msup>" }.joined(separator: "<mo>+</mo>")
+        let (result, report) = try make("<mfrac><mrow>\(terms)</mrow><mn>2</mn></mfrac>")
+        let attachment = try attachment(result)
         let layout = attachment.layout
         XCTAssertGreaterThan(layout.width, 300)
         let bounds = attachment.bounds(lineWidth: 300, height: 0)
@@ -90,6 +92,8 @@ final class MathContentTests: XCTestCase {
         let clearance = attachment.clearance
         XCTAssertEqual(bounds.height, (layout.ascent + layout.descent + clearance.top + clearance.bottom) * scale, accuracy: 0.001)
         XCTAssertEqual(bounds.minY, -(layout.descent + clearance.bottom) * scale, accuracy: 0.001)
+        XCTAssertEqual(report.mathReductions, 1, "below the readable size in a narrow column, and said so")
+        XCTAssertEqual(report.mathFallbacks, 0)
         // Before layout knows the line, the reader container's viewport bounds it.
         let container = ReaderTextContainer(size: CGSize(width: 250, height: 400))
         container.viewportSize = CGSize(width: 250, height: 400)
@@ -98,6 +102,40 @@ final class MathContentTests: XCTestCase {
         let fitted = attachment.attachmentBounds(for: [:], location: content.documentRange.location, textContainer: container,
                                                  proposedLineFragment: .zero, position: .zero)
         XCTAssertEqual(fitted.width, 250, accuracy: 0.001)
+    }
+
+    /// A sum of terms breaks into rows at full size instead of shrinking to a third.
+    func testWideFormulaBreaksIntoRowsWithinTheLine() throws {
+        let terms = (1...30).map { "<msup><mi>x</mi><mn>\($0)</mn></msup><mo>+</mo>" }.joined() + "<mn>1</mn>"
+        let (result, report) = try make(terms)
+        let attachment = try attachment(result)
+        let layout = attachment.layout
+        XCTAssertLessThan(300 / layout.width, 0.5, "one row would be shown at under half size")
+        let natural = attachment.bounds(lineWidth: 0, height: 0)
+        XCTAssertEqual(natural.width, layout.width, accuracy: 0.001, "with room to spare it is one row")
+        XCTAssertEqual(attachment.bounds(lineWidth: layout.width + 10, height: 0), natural)
+        let bounds = attachment.bounds(lineWidth: 300, height: 0)
+        let rows = attachment.formula.arrangement(fitting: 300)
+        XCTAssertGreaterThan(rows.rows.count, 2)
+        XCTAssertLessThanOrEqual(bounds.width, 300)
+        XCTAssertEqual(bounds.width, rows.width, accuracy: 0.001, "rows are full size")
+        XCTAssertGreaterThan(bounds.height, natural.height * 2)
+        XCTAssertEqual(bounds.height, rows.height + 2 * 17 * 0.15, accuracy: 0.001, "clear space above and below the stack")
+        XCTAssertEqual(bounds.minY, -(rows.descent + 17 * 0.15), accuracy: 0.001)
+        XCTAssertEqual(report.mathReductions, 0)
+        // The reader container's line and page still bound it: a page too short for the rows scales them.
+        let container = ReaderTextContainer(size: CGSize(width: 300, height: 0))
+        container.viewportSize = CGSize(width: 300, height: bounds.height / 2)
+        let content = NSTextContentStorage()
+        content.attributedString = NSAttributedString(attachment: attachment)
+        let fitted = attachment.attachmentBounds(for: [:], location: content.documentRange.location, textContainer: container,
+                                                 proposedLineFragment: CGRect(x: 0, y: 0, width: 300, height: 20), position: .zero)
+        XCTAssertEqual(fitted.height, bounds.height / 2, accuracy: 0.001)
+        XCTAssertEqual(fitted.width, bounds.width / 2, accuracy: 0.001)
+        // Each arrangement draws at its own proportions: the rows' image is not the single row squeezed.
+        let image = try XCTUnwrap(attachment.image(size: bounds.size))
+        XCTAssertEqual(image.size.width, bounds.width, accuracy: 0.5)
+        XCTAssertEqual(image.size.height, bounds.height, accuracy: 0.5)
     }
 
     func testTallFormulaScalesToThePage() throws {
@@ -189,6 +227,7 @@ final class MathContentTests: XCTestCase {
     }
 
     func testUnsupportedMarkupFallsBackToAlttext() throws {
+        // A long division without its dividend is not one the reader can set as a table.
         let (result, report) = try make("<mlongdiv><mn>3</mn><mn>12</mn></mlongdiv>", attributes: "alttext=\"12 ÷ 3\"")
         XCTAssertEqual(result?.string, "12 ÷ 3")
         XCTAssertNil(result?.attribute(.attachment, at: 0, effectiveRange: nil))
@@ -199,9 +238,14 @@ final class MathContentTests: XCTestCase {
         XCTAssertTrue(font.fontDescriptor.symbolicTraits.contains(.italic))
         #endif
         XCTAssertEqual(report.mathFallbacks, 1)
-        let (text, textReport) = try make("<mstack><mn>12</mn></mstack>")
-        XCTAssertEqual(text?.string, "12", "without alttext the text content stands in")
-        XCTAssertEqual(textReport.mathFallbacks, 1)
+        XCTAssertEqual(report.mathApproximations, 0)
+        // An element MathML does not have, and a fraction with one part.
+        for body in ["<mwidget><mn>12</mn></mwidget>", "<mfrac><mn>12</mn></mfrac>", "<msrow><mn>12</mn></msrow>"] {
+            let (text, textReport) = try make(body)
+            XCTAssertEqual(text?.string, "12", "without alttext the text content stands in: \(body)")
+            XCTAssertNil(text?.attribute(.attachment, at: 0, effectiveRange: nil))
+            XCTAssertEqual(textReport.mathFallbacks, 1, body)
+        }
         let (empty, _) = try make("<mstack/>")
         XCTAssertNil(empty)
         // Markup from another namespace inside math is not MathML the engine knows.
