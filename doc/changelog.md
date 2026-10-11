@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Break MathML formulas wider than their line into full-size rows at relations, operators and authored `linebreak`s instead of shrinking them below three quarters of the text's size; disclose the ones no row can keep readable. Show `mglyph` alternatives in place and set `mstack` and `mlongdiv` as digit-column tables, each disclosed. Read `alttext` in the content's language and tag generated English readings as English ([#25](https://github.com/vocaro/EPUBLib/issues/25)).
 - Resolve ordinary paragraph percentage margins, padding and indents at the live containing width, retaining source positions across resizing. Use the resolved font's x-height for `ex` lengths and preserve author caption alignment ([#21](https://github.com/vocaro/EPUBLib/issues/21)).
 - Preserve locale-tailored base-strength search distinctions, including Turkish I, Swedish letters, Spanish ñ and Cyrillic й, for passage location and search highlighting ([#26](https://github.com/vocaro/EPUBLib/issues/26)).
 - Describe enabled keyboard and gesture inputs in page-button help, with host customization and flow-aware labels ([#50](https://github.com/vocaro/EPUBLib/issues/50)).

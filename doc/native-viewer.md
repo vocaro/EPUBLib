@@ -75,8 +75,34 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   package (CoreText and the OpenType MATH table), draws each `<math>` as an attachment,
   baseline-aligned inline and centred for `display="block"`. The corpus uses `mi`, `mn`, `mo`,
   `mrow`, `mfrac`, `msup`, `msub`, `msqrt` and `mstyle` (1,798 formulas, all with `alttext`);
-  the engine also covers the common remainder. Anything it cannot lay out shows its `alttext`
-  and is disclosed. No WebKit.
+  the engine also lays out every other MathML 3 presentation element except `mglyph` and
+  elementary math. The reader covers those two around it, each disclosed as a simplified
+  layout: an `mglyph` shows its `alt` where it stands (a box when it has none), and `mstack`
+  and `mlongdiv` are set as a table with a column for each digit, carries small above their
+  digits, crossed-out digits struck through, a rule under the rows it follows, and a division's
+  divisor and result around its working. Anything else the engine cannot lay out shows its
+  `alttext` and is disclosed. No WebKit.
+- **Wide formulas.** A formula wider than its line shrinks to fit, to no less than three
+  quarters of the text's size. Past that it breaks into rows at full size: before a relation
+  or a binary operator, after a separator, and where the author's `linebreak` attribute says
+  (`newline` at any width; `nobreak`, `goodbreak`, `badbreak` and `linebreakstyle="after"`
+  honoured). Rows end at relations in preference to the operator after one, and continuation
+  rows line up on the first relation, or indent two ems when it is not near the left edge.
+  Breaks outside brackets come first: rows shrink, again to no less than three quarters, before
+  a break is taken inside brackets. Fractions, roots, scripts, tables and enclosures never break.
+  A formula that is one such unit shrinks to the line whole, never clipped, and is disclosed
+  when a 320-point column would show it below three quarters. The rows are one attachment, so a
+  section's characters, positions and CFIs do not depend on the column: a display formula's rows
+  are centred as a block, and an inline formula wider than a whole line takes rows of its own.
+  On the 22 wide-formula fixtures in a 320-point column (macOS 27), one row scaled to the line
+  left 13 below three quarters of 17-point text (the smallest at 44%) and 17 at 28 points
+  (27%); rows leave 2 and 4, each a single fraction, table or bracketed power.
+- **Spoken math.** Assistive technologies read a formula's `alttext` verbatim, in the content's
+  language: the nearest `xml:lang` or `lang` on the `math` element or an ancestor, else the
+  publication's. Without `alttext` the reading is generated from the markup, and elementary
+  math is read row by row. MathMLLayout 0.1.0 generates English only, so a generated reading is
+  tagged English whatever the book's language, for an English voice to read, rather than
+  handed to the book's voice as if it were its language.
 - **SVG.** Inline and archive SVG illustrations render through the bundled resvg static
   renderer, including paths, text, gradients, transforms, clipping, local definitions and
   `viewBox`/`preserveAspectRatio`. A plain single-image wrapper retains the raster-image fast
@@ -374,8 +400,50 @@ Go: the native viewer is the bundled engine.
 - Whole-table bookmarks and visible row ranges retain attachment granularity. A resize or
   flow change without a precise cell endpoint returns a continued row to its source position
   rather than preserving its particular visual fragment.
-- MathML has no line breaking (wide formulas scale down), no `mglyph` or elementary-math
-  elements, and English-only spoken readings when `alttext` is absent.
+- MathML is laid out by MathMLLayout 0.1.0, which has no line breaking, `mglyph`, elementary
+  math or localized speech; the reader works around each as far as the engine's API allows
+  ([#25](https://github.com/vocaro/EPUBLib/issues/25)):
+  - A formula breaks only along its own rows (`math`, `mrow`, `mstyle`, `semantics`). A
+    fraction, root, script, table, `mfenced` or enclosure wider than the line shrinks instead,
+    below three quarters of the text's size when it must, with a disclosure. An inline formula
+    breaks as a block of rows on a line of its own, not across the paragraph's lines. The
+    reader's own lists decide what is a relation, a binary operator or a bracket; `indentalign`,
+    `indentshift`, `lineleading` and `linebreakmultchar` are not read, table cells and long
+    `mtext` do not wrap, and brackets split across rows stretch to their own row.
+  - `mglyph` images are not drawn: the `alt` stands in, in the token's own style.
+  - Elementary math is an approximation in the engine's tables: an `msline` spans the whole
+    stack whatever its `length`, `position` and overhangs; carries are a row above their digits
+    whatever their `location`; `charalign`, `charspacing` and `mslinethickness` are not read;
+    `longdivstyle` is `lefttop`, `left/\right`, `left)(right` or `:right=right`, and the other
+    six styles are drawn as `lefttop`.
+  - Generated readings are English, tagged as English. Body text and `alttext` rely on the
+    platform to choose a voice for their language: AppKit reports each run's language, while the
+    UIKit page elements name one only for formulas.
+  - One engine defect shows in these fixtures: an operator whose row has only `mtext` operands
+    (`future value = principal`) is drawn without its spaces.
+
+  Closing them needs these MathMLLayout changes:
+  1. Line breaking: a layout bounded by a line width (`MathLayout(_:style:maximumWidth:)` with
+     its rows' boxes and baselines exposed), following MathML 3 section 3.1.7 with the engine's
+     own operator dictionary, breaking inside nested rows with matched bracket sizes and the
+     `indent*`, `lineleading` and `linebreakmultchar` attributes; and, for inline formulas,
+     the same rows as separately drawable fragments a host can place on consecutive text lines.
+     Wrapping for `mtext` and table cells. The font's axis height on `MathLayout`.
+  2. `mglyph`: attributes kept on a token's element children in `MathMLNode`, a box from
+     `width`, `height` and `valign`, and an image provider on `MathStyle` (`src` to `CGImage`),
+     with `alt` drawn and read when it returns none.
+  3. Elementary math: `mstack`, `mlongdiv`, `msgroup`, `msrow`, `mscarries`, `mscarry` and
+     `msline` as in MathML 3 section 3.6, including line lengths and overhangs, carry
+     locations, character alignment and spacing, every `longdivstyle`, and spoken readings.
+  4. Speech: `accessibilityDescription(locale:)` returning the reading and the language it is
+     written in, English when the locale has no vocabulary.
+  5. Operator spacing for a row that is an embellished operator only because its other
+     children are space-like.
+
+  The real-book corpus, whose formulas use neither `mglyph` nor elementary math, was not
+  rebuilt for this change, so how many of them now break into rows is not measured. Neither
+  real VoiceOver speech nor iPhone, iPad and Mac screens were observed: the evidence is the
+  fixtures' layout, drawn pixels and accessibility attributes on macOS and the iOS simulators.
 - SVG is static: filter effects are omitted with a disclosure, preserving the remaining diagram;
   pattern fills, animation and foreign content are unsupported. The unchanged networking
   publisher corpus renders all 33 SVG resources, including six containing shadow filters
