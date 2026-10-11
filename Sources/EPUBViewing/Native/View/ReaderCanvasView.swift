@@ -465,6 +465,15 @@ import AppKit
             column.ensureFullLayout()
         }
         isApplyingSelection = false
+        #if os(macOS)
+        // VoiceOver keeps a column's previous text and its own cursor in it across a value
+        // change it did not witness from inside that column. Naming the columns as changed
+        // elements makes it read the new page, from its first line.
+        if let window {
+            NSAccessibility.post(element: window, notification: .layoutChanged,
+                                 userInfo: [.uiElements: columns.filter { !$0.isHidden }])
+        }
+        #endif
         trimPaginators()
         applyHighlights()
         updateVisibleRange(force: true)
