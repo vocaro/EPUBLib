@@ -60,7 +60,7 @@ public struct EPUBPublication: Sendable {
               limits.resourceBytes > 0, limits.expandedBytes > 0, limits.entryCount > 0,
               limits.xmlBytes > 0 else { throw EPUBPublicationError.limitExceeded("import limits") }
         let archive: Archive
-        do { archive = try Archive(data: data, accessMode: .read) }
+        do { archive = try Archive(data: ZIP64ZeroValues.inlined(in: data), accessMode: .read) }
         catch { throw EPUBPublicationError.invalidArchive(String(describing: error)) }
         var contents: [String: Data] = [:]
         var paths = Set<String>()
