@@ -62,6 +62,8 @@ public struct EPUBPublication: Sendable {
         let archive: Archive
         do { archive = try Archive(data: data, accessMode: .read) }
         catch { throw EPUBPublicationError.invalidArchive(String(describing: error)) }
+        // The bytes this archive reads, whatever it was made from.
+        try ArchiveBounds.check(archive.data ?? data)
         var contents: [String: Data] = [:]
         var paths = Set<String>()
         var total = 0

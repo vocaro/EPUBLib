@@ -45,30 +45,6 @@ final class EPUBCheckOCFCoverageTests: XCTestCase {
             for index in 0..<4 { data[offset + index] = UInt8(truncatingIfNeeded: value >> (8 * UInt32(index))) }
         }
 
-        /// Whether the end record, a directory record or a data descriptor flag sends a reader
-        /// past the end of the archive.
-        static func namesAnOffsetPastTheEnd(_ data: Data) -> Bool {
-            let bytes = [UInt8](data)
-            func u16(_ offset: Int) -> Int { Int(bytes[offset]) | Int(bytes[offset + 1]) << 8 }
-            func u32(_ offset: Int) -> Int { u16(offset) | u16(offset + 2) << 16 }
-            guard bytes.count >= 22, let end = stride(from: bytes.count - 22, through: 0, by: -1)
-                .first(where: { u32($0) == 0x0605_4B50 }) else { return false }
-            var record = u32(end + 16)
-            if record > bytes.count { return true }
-            for _ in 0..<u16(end + 10) {
-                guard record + 46 <= bytes.count, u32(record) == 0x0201_4B50 else { return false }
-                let local = u32(record + 42)
-                if local > bytes.count { return true }
-                if local + 30 <= bytes.count {
-                    let payload = local + 30 + u16(local + 26) + u16(local + 28)
-                    // Bit 3 of either flags field: the descriptor is read after the compressed bytes.
-                    if (u16(record + 8) | u16(local + 6)) & 0x0008 != 0, payload + u32(record + 20) > bytes.count { return true }
-                }
-                record += 46 + u16(record + 28) + u16(record + 30) + u16(record + 32)
-            }
-            return false
-        }
-
         static func archive(_ entries: [Entry], comment: [UInt8] = []) -> Data {
             var data = Data(), directory = Data()
             func u16(_ value: UInt16, _ data: inout Data) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
@@ -316,30 +292,27 @@ final class EPUBCheckOCFCoverageTests: XCTestCase {
         }
     }
 
-    // Disabled: each of these three traps the process instead of throwing. ZIPFoundation's
-    // in-memory file (Archive+MemoryFile.swift, `readData`) forms the range
+    // Each of these three trapped the process instead of throwing. ZIPFoundation's in-memory file
+    // (Archive+MemoryFile.swift, `readData`) forms the range
     // `offset..<offset + min(count, data.count - offset)`, whose upper bound is below its lower
     // bound once the archive has sought past its end, and `EPUBPublication.open(data:)` (which
-    // `open(at:)` also calls) reaches it for any offset an archive's own directory names:
-    // "Fatal error: Range requires lowerBound <= upperBound". Rename to `test…` to reproduce.
+    // `open(at:)` also calls) reached it for any offset an archive's own directory names:
+    // "Fatal error: Range requires lowerBound <= upperBound".
 
-    // https://github.com/vocaro/EPUBLib/issues/71
-    func disabled_testALocalHeaderOffsetPastTheEndOfTheArchiveIsATypedRefusal() throws {
+    func testALocalHeaderOffsetPastTheEndOfTheArchiveIsATypedRefusal() throws {
         var bytes = try RawZIP.archive(entries(files: smallBook()))
         let record = try XCTUnwrap(bytes.range(of: Data([0x50, 0x4B, 0x01, 0x02]))).lowerBound
         RawZIP.set(UInt32(bytes.count + 1), at: record + 42, in: &bytes)
         XCTAssertThrowsError(try EPUBPublication.open(data: bytes)) { XCTAssertTrue($0 is EPUBPublicationError, "\(type(of: $0)) \($0)") }
     }
 
-    // https://github.com/vocaro/EPUBLib/issues/71
-    func disabled_testACentralDirectoryOffsetPastTheEndOfTheArchiveIsATypedRefusal() throws {
+    func testACentralDirectoryOffsetPastTheEndOfTheArchiveIsATypedRefusal() throws {
         var bytes = try RawZIP.archive(entries(files: smallBook()))
         RawZIP.set(UInt32(bytes.count + 1), at: bytes.count - 22 + 16, in: &bytes)
         XCTAssertThrowsError(try EPUBPublication.open(data: bytes)) { XCTAssertTrue($0 is EPUBPublicationError, "\(type(of: $0)) \($0)") }
     }
 
-    // https://github.com/vocaro/EPUBLib/issues/71
-    func disabled_testADataDescriptorPastTheEndOfTheArchiveIsATypedRefusal() throws {
+    func testADataDescriptorPastTheEndOfTheArchiveIsATypedRefusal() throws {
         var bytes = try RawZIP.archive(entries(deflated: true, dataDescriptor: true, files: smallBook()))
         // The second record's compressed size: its data descriptor is sought after that many bytes.
         let first = try XCTUnwrap(bytes.range(of: Data([0x50, 0x4B, 0x01, 0x02]))).lowerBound
@@ -348,19 +321,17 @@ final class EPUBCheckOCFCoverageTests: XCTestCase {
         XCTAssertThrowsError(try EPUBPublication.open(data: bytes)) { XCTAssertTrue($0 is EPUBPublicationError, "\(type(of: $0)) \($0)") }
     }
 
-    /// Damages every byte of `range` three ways. An archive whose directory then names an offset
-    /// past its end is left out: those trap (the disabled tests above) and would end the run.
+    /// Damages every byte of `range` three ways, which also sends offsets and sizes past the end
+    /// of the archive.
     private func sweep(_ bytes: Data, _ range: Range<Int>, _ part: String, file: StaticString = #filePath, line: UInt = #line) {
-        var skipped = 0
         for index in range {
             for mask: UInt8 in [0xFF, 0x01, 0x80] {
                 var damaged = bytes
                 damaged[index] ^= mask
-                if RawZIP.namesAnOffsetPastTheEnd(damaged) { skipped += 1; continue }
                 assertTyped(damaged, "byte \(index - range.lowerBound) of \(part), mask \(mask)", file: file, line: line)
             }
         }
-        print("EPUBCheck OCF sweep of \(part): \(range.count * 3 - skipped) damaged archives opened or refused, \(skipped) left out as trapping")
+        print("EPUBCheck OCF sweep of \(part): \(range.count * 3) damaged archives opened or refused")
     }
 
     func testEveryDamagedByteOfTheArchiveDirectoryIsOpenedOrRefusedWithATypedError() throws {
