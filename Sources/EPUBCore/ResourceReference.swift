@@ -35,4 +35,30 @@ package enum ResourceReference {
             withAllowedCharacters: .urlFragmentAllowed.subtracting(CharacterSet(charactersIn: "#%")))! : ""
         return encoded + fragment
     }
+
+    /// The archive path of the package document a container rootfile's `full-path` names, nil when
+    /// it names none; `isEntry` says whether the archive holds a path.
+    ///
+    /// The value has two readings. It is a URL from the container root (EPUB 3.3 §4.2.6.3.1.3),
+    /// so it is first resolved as a manifest href is, from a file in that root, and judged as an
+    /// archive path only once percent-decoded. It names a file, so that reading refuses a query, a
+    /// fragment, and a path that is a folder's or no archive name: an empty segment (a doubled or
+    /// closing slash) or a closing dot segment. But older validators looked the value up as
+    /// written and refused the escaped form, so books carry a name's own "%", "#" or "?"
+    /// unescaped: where the URL reading is refused or names no entry, the value as written is
+    /// taken if it is a safe path that names one. It is a key into the archive read into memory,
+    /// and no other entry's. Failing both, the URL reading's path is returned for the caller to
+    /// report as missing.
+    package static func rootfilePath(_ fullPath: String, isEntry: (String) -> Bool) -> String? {
+        var url: String?
+        // An empty value would resolve to the base itself.
+        if !fullPath.isEmpty, let reference = try? resolve(fullPath, relativeTo: "mimetype"), !reference.contains("#"),
+           let written = fullPath.removingPercentEncoding?.split(separator: "/", omittingEmptySubsequences: false),
+           !written.contains(""), written.last != ".", written.last != ".." {
+            url = reference.removingPercentEncoding
+        }
+        if let url, isEntry(url) { return url }
+        if isSafePath(fullPath), isEntry(fullPath) { return fullPath }
+        return url
+    }
 }

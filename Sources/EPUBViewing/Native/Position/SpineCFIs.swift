@@ -40,7 +40,8 @@ struct SpineCFIs: Sendable {
     static func fakeBase(_ index: Int) -> String { "epubcfi(/6/\((index + 1) * 2))" }
 
     /// foliate `EPUB.init`: the first `rootfile` in the container namespace whose media type is
-    /// the package's, parsed as XML.
+    /// the package's, parsed as XML. Its `full-path` names the file it names to the publication
+    /// (`ResourceReference.rootfilePath`), so the bases are of the package the spine was read from.
     private static func packageDocument(of publication: EPUBPublication) -> ContentDocument? {
         let containerPath = "META-INF/container.xml"
         guard let data = try? publication.data(at: containerPath),
@@ -49,7 +50,10 @@ struct SpineCFIs: Sendable {
                   $0.isElement && $0.name == "rootfile" && $0.namespace == containerNamespace
                       && $0.attribute("media-type") == "application/oebps-package+xml"
               }),
-              let path = rootfile.attribute("full-path"), let opf = try? publication.data(at: path),
+              let path = rootfile.attribute("full-path").flatMap({ fullPath in
+                  ResourceReference.rootfilePath(fullPath, isEntry: { (try? publication.data(at: $0)) != nil })
+              }),
+              let opf = try? publication.data(at: path),
               let document = try? ContentDocument.parse(opf, path: path, asContent: false), !document.recoveredAsHTML
         else { return nil }
         return document
