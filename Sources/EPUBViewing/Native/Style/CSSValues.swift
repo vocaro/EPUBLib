@@ -19,6 +19,9 @@ enum CSSProperty: Int, CaseIterable, Sendable {
     case direction, writingMode, listStyleType, listStylePosition, hyphens, visibility
     case borderCollapse, borderSpacing, captionSide
     case filter
+    // Flex, grid and box alignment (`BoxAlignmentStyle.swift`).
+    case boxSizing, flexDirection, flexWrap, justifyContent, alignContent, alignItems, justifyItems
+    case alignSelf, justifySelf, order, flexGrow, rowGap, gridColumns, gridAreas, gridAutoFlow, gridPlacement
 
     static let count = allCases.count
 
@@ -124,8 +127,8 @@ enum CSSValue: Equatable, Sendable {
     case length(CSSLength)
     /// `auto` for lengths, `none` for `max-width`/`max-height`.
     case auto
-    /// `blockifies`: a flex or grid container.
-    case display(ComputedStyle.Display, blockifies: Bool)
+    /// `blockifies`: a flex or grid container; `grid`: a grid one.
+    case display(ComputedStyle.Display, blockifies: Bool, grid: Bool = false)
     case float(ComputedStyle.Float)
     case clear(ComputedStyle.Clear)
     case position(ComputedStyle.Position)
@@ -150,6 +153,13 @@ enum CSSValue: Equatable, Sendable {
     case listStylePosition(ComputedStyle.ListStylePosition)
     case hyphens(ComputedStyle.Hyphens)
     case spacing(CSSLength, CSSLength)
+    case flexDirection(ComputedStyle.FlexDirection)
+    case contentAlignment(ComputedStyle.ContentAlignment)
+    case itemAlignment(ComputedStyle.ItemAlignment)
+    /// `order` and grid track counts.
+    case integer(Int)
+    /// `flex-grow`.
+    case number(Double)
 
     var isGlobal: Bool {
         switch self {
@@ -241,6 +251,7 @@ enum CSSPropertyParser {
     /// The longhands a property name sets, for global keywords and `@supports`.
     static func longhands(of name: String) -> [CSSProperty]? {
         if let single = longhand(name) { return [single] }
+        if let alignment = alignmentShorthandLonghands(name) { return alignment }
         switch name {
         case "inset": return CSSProperty.insets
         case "margin": return CSSProperty.margins
@@ -323,7 +334,7 @@ enum CSSPropertyParser {
         case "border-spacing": .borderSpacing
         case "caption-side": .captionSide
         case "filter", "-webkit-filter": .filter
-        default: nil
+        default: alignmentLonghand(name)
         }
     }
 
@@ -348,6 +359,7 @@ enum CSSPropertyParser {
             }
             return value.map { [(property, $0)] }
         }
+        if let alignment = alignmentShorthand(name, c) { return alignment }
         switch name {
         case "inset":
             return boxSides(c, CSSProperty.insets) { length($0, percent: true, negative: true, auto: true) }
@@ -416,7 +428,8 @@ enum CSSPropertyParser {
         case .display:
             guard let value = display(c) else { return nil }
             let keywords = Set(c.compactMap(\.ident))
-            return .display(value, blockifies: !keywords.isDisjoint(with: Self.flexAndGrid))
+            return .display(value, blockifies: !keywords.isDisjoint(with: Self.flexAndGrid),
+                            grid: !keywords.isDisjoint(with: Self.grid))
         case .float:
             switch keyword {
             case "none": return .float(.none)
@@ -584,6 +597,9 @@ enum CSSPropertyParser {
             }
             guard values.count == c.count else { return nil }
             return .spacing(values[0], values[values.count - 1])
+        case .boxSizing, .flexDirection, .flexWrap, .justifyContent, .alignContent, .alignItems, .justifyItems,
+             .alignSelf, .justifySelf, .order, .flexGrow, .rowGap, .gridColumns, .gridAreas, .gridAutoFlow, .gridPlacement:
+            return alignmentValue(property, c)
         }
     }
 
@@ -1066,6 +1082,7 @@ enum CSSPropertyParser {
     private static let flexAndGrid: Set<String> = ["flex", "grid", "inline-flex", "inline-grid", "-webkit-box", "-webkit-flex",
                                                    "-ms-flexbox", "-moz-box", "-ms-grid", "-webkit-inline-box",
                                                    "-webkit-inline-flex", "-ms-inline-flexbox", "-moz-inline-box", "masonry"]
+    private static let grid: Set<String> = ["grid", "inline-grid", "-ms-grid", "masonry"]
 
     private static func display(_ c: [CSSComponent]) -> ComputedStyle.Display? {
         let keywords = c.compactMap(\.ident)

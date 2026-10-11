@@ -188,7 +188,7 @@ final class CSSParserTests: XCTestCase {
         XCTAssertEqual(values("font-variant", "small-caps oldstyle-nums")?[.fontVariantCaps], .flag(true))
         XCTAssertEqual(values("font-variant", "oldstyle-nums")?[.fontVariantCaps], .flag(false))
         XCTAssertEqual(values("display", "flex")?[.display], .display(.block, blockifies: true))
-        XCTAssertEqual(values("display", "inline-grid")?[.display], .display(.inlineBlock, blockifies: true))
+        XCTAssertEqual(values("display", "inline-grid")?[.display], .display(.inlineBlock, blockifies: true, grid: true))
         XCTAssertEqual(values("display", "inline flow-root")?[.display], .display(.inlineBlock, blockifies: false))
         XCTAssertEqual(values("border-top", "1px solid")?[.borderTopColor], .color(.currentColor))
         XCTAssertEqual(values("all", "initial")?.count, CSSProperty.count - 1)

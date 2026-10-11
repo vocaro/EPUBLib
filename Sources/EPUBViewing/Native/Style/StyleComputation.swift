@@ -121,6 +121,19 @@ extension StyleResolver {
         }
     }
 
+    /// A length's exact sum when it mixes units, which `computed` can only approximate; nil
+    /// when one unit alone says it all.
+    func mixed(_ length: CSSLength, _ context: LengthContext) -> ComputedStyle.MixedLength? {
+        let value = linear(length, context)
+        let symbolic = [value.percent, value.vw, value.vh].filter { $0 != 0 }.count
+        guard symbolic > 1 || (symbolic == 1 && value.points != 0),
+              [value.points, value.percent, value.vw, value.vh].allSatisfy(\.isFinite) else { return nil }
+        func bounded(_ x: Double, _ limit: CGFloat) -> CGFloat { min(max(CGFloat(x), -limit), limit) }
+        return ComputedStyle.MixedLength(points: bounded(value.points, StyleLimits.extent.upperBound),
+                                         percent: bounded(value.percent, 1_000), viewportWidth: bounded(value.vw, 1_000),
+                                         viewportHeight: bounded(value.vh, 1_000))
+    }
+
     /// A stable author-side decision: only absolute units can hide conventional off-screen
     /// labels. Evaluating computed em/rem lengths here would make the section's text depend on
     /// reader typography, invalidating cached ranges and changing a saved CFI's rendered offset.
@@ -242,7 +255,9 @@ extension StyleResolver {
         case .fontVariantCaps: style.isSmallCaps = source.isSmallCaps
         case .lineHeight: style.lineHeight = source.lineHeight
         case .color: style.color = source.color
-        case .display: style.display = source.display; style.blockifiesChildren = source.blockifiesChildren
+        case .display:
+            style.display = source.display; style.blockifiesChildren = source.blockifiesChildren
+            style.boxAlignment.isGrid = source.boxAlignment.isGrid
         case .float: style.float = source.float
         case .clear: style.clear = source.clear
         case .position: style.position = source.position
@@ -275,11 +290,11 @@ extension StyleResolver {
             let side = Side(property)
             style[border: side].color = source[border: side].color
         case .width: style.width = source.width
-        case .height: style.height = source.height
+        case .height: style.height = source.height; style.boxAlignment.copy(property, from: source.boxAlignment)
         case .minWidth: style.minWidth = source.minWidth
-        case .minHeight: style.minHeight = source.minHeight
+        case .minHeight: style.minHeight = source.minHeight; style.boxAlignment.copy(property, from: source.boxAlignment)
         case .maxWidth: style.maxWidth = source.maxWidth
-        case .maxHeight: style.maxHeight = source.maxHeight
+        case .maxHeight: style.maxHeight = source.maxHeight; style.boxAlignment.copy(property, from: source.boxAlignment)
         case .backgroundColor: style.backgroundColor = source.backgroundColor
         case .verticalAlign: style.verticalAlign = source.verticalAlign
         case .breakBefore: style.breakBefore = source.breakBefore
@@ -302,6 +317,9 @@ extension StyleResolver {
         case .borderSpacing: style.borderSpacing = source.borderSpacing
         case .captionSide: style.captionSide = source.captionSide
         case .filter: style.invertsColors = source.invertsColors
+        case .boxSizing, .flexDirection, .flexWrap, .justifyContent, .alignContent, .alignItems, .justifyItems,
+             .alignSelf, .justifySelf, .order, .flexGrow, .rowGap, .gridColumns, .gridAreas, .gridAutoFlow, .gridPlacement:
+            style.boxAlignment.copy(property, from: source.boxAlignment)
         }
     }
 
@@ -335,8 +353,8 @@ extension StyleResolver {
             }
         case (.color, .color(let specified)):
             style.color = color(specified, current: parent.color)
-        case (.display, .display(let display, let blockifies)):
-            style.display = display; style.blockifiesChildren = blockifies
+        case (.display, .display(let display, let blockifies, let grid)):
+            style.display = display; style.blockifiesChildren = blockifies; style.boxAlignment.isGrid = grid
         case (.float, .float(let float)): style.float = float
         case (.clear, .clear(let clear)): style.clear = clear
         case (.position, .position(let position)): style.position = position
@@ -376,6 +394,7 @@ extension StyleResolver {
             style[border: Side(property)].color = c == .currentColor ? nil : color(c, current: style.color)
         case (.width, _), (.height, _), (.minWidth, _), (.minHeight, _), (.maxWidth, _), (.maxHeight, _):
             let length: ComputedStyle.Length = if case .length(let l) = value { computed(l, own, points: StyleLimits.extent) } else { .auto }
+            if case .length(let l) = value { style.boxAlignment.setMixed(property, mixed(l, own)) } else { style.boxAlignment.setMixed(property, nil) }
             switch property {
             case .width: style.width = length
             case .height: style.height = length
@@ -413,6 +432,11 @@ extension StyleResolver {
         case (.borderSpacing, .spacing(let h, let v)):
             func clamp(_ x: CGFloat) -> CGFloat { min(max(x, StyleLimits.borderSpacing.lowerBound), StyleLimits.borderSpacing.upperBound) }
             style.borderSpacing = CGSize(width: clamp(points(h, own)), height: clamp(points(v, own)))
+        case (.boxSizing, _), (.flexDirection, _), (.flexWrap, _), (.justifyContent, _), (.alignContent, _),
+             (.alignItems, _), (.justifyItems, _), (.alignSelf, _), (.justifySelf, _), (.order, _), (.flexGrow, _),
+             (.rowGap, _), (.gridColumns, _), (.gridAreas, _), (.gridAutoFlow, _), (.gridPlacement, _):
+            let context = own
+            style.boxAlignment.apply(property, value) { computed($0, context, points: StyleLimits.extent) }
         default:
             break
         }
