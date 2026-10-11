@@ -11,12 +11,10 @@ import Synchronization
 /// format-category characters are dropped, whitespace runs compare as one space, and graphemes
 /// compare with `Intl.Collator` base sensitivity (case- and diacritic-insensitive).
 ///
-/// The comparison is Foundation's localized case-, diacritic- and width-insensitive one, retried
-/// without nuktas and kana voicing marks. On every character class the golden vectors record
-/// from WebKit's root collator it agrees, except that it also folds the breve of Cyrillic `й`;
-/// and since it folds decomposable diacritics before a language's tailoring, a Turkish `ö` or
-/// Swedish `å` also matches its base letter, a superset of what WebKit found. A prefilter on
-/// coarse per-grapheme keys keeps the comparison to the few windows that can match.
+/// Comparison uses the primary level of Foundation's localized collation, preserving letters
+/// a language distinguishes even when their spelling contains a combining mark. A coarse
+/// prefilter accelerates locales covered by the recorded reference classes; other collations
+/// compare every window so an unverified prefilter cannot suppress a match.
 enum TextSearch {
     struct Match: Equatable, Sendable {
         let start: DOMPosition
@@ -47,11 +45,13 @@ enum TextSearch {
     /// before it is one; and every window of as many units as the query has graphemes that
     /// compares equal is a match, overlapping ones included. A match starts at its first unit and
     /// ends after its last (a space unit is one UTF-16 unit long).
-    static func matches(of query: String, in document: ContentDocument, locale: String?, limit: Int = .max) -> [Match] {
+    static func matches(of query: String, in document: ContentDocument, locale: String?, limit: Int = .max,
+                        usePrefilter: Bool = true) -> [Match] {
         let queryGraphemes = Array(query)
         let length = queryGraphemes.count
         guard length > 0, limit > 0 else { return [] }
-        var keys = KeyTable()
+        let collator = Collator(query: query, locale: locale)
+        var keys = KeyTable(locale: collator.locale)
         var queryKey: [UInt8] = []
         for grapheme in queryGraphemes {
             if grapheme.unicodeScalars.allSatisfy({ $0.properties.generalCategory == .format }) { continue }
@@ -60,11 +60,14 @@ enum TextSearch {
         }
         let corpus = Corpus(document: document, collapsesWhitespace: length > 1, keys: &keys)
         guard corpus.count >= length else { return [] }
-        let collator = Collator(query: query, locale: locale)
         var matches: [Match] = []
         func consider(_ first: Int) -> Bool {
             if collator.matches(corpus.window(first, length)) { matches.append(corpus.match(first, length)) }
             return matches.count < limit
+        }
+        guard usePrefilter && keys.isVerified else {
+            for first in 0...(corpus.count - length) { guard consider(first) else { break } }
+            return matches
         }
         let keyLength = queryKey.count
         if keyLength == 0 {
@@ -95,8 +98,8 @@ enum TextSearch {
 
     /// The prefilter key of a grapheme that is neither white space nor only format characters.
     /// Graphemes that compare equal must share it; `matches` relies on that.
-    static func prefilterKey(of grapheme: Character) -> [UInt8] {
-        var table = KeyTable(), key: [UInt8] = []
+    static func prefilterKey(of grapheme: Character, locale: String = "en") -> [UInt8] {
+        var table = KeyTable(locale: Locale(identifier: locale)), key: [UInt8] = []
         table.append(grapheme, to: &key)
         return key
     }
@@ -224,12 +227,17 @@ enum TextSearch {
         /// The query lowercased when it is ASCII and the locale has no dotted-i tailoring, so an
         /// all-ASCII window compares without the localized comparison.
         let asciiQuery: [UInt8]?
-        private let bareQuery: String
+        private let low: String
+        private let high: String
+        private let lowerQuery: String
+        private let upperQuery: String
 
         init(query: String, locale identifier: String?) {
             self.query = query
-            bareQuery = Self.withoutCombiningMarks(query)
             locale = identifier.map(Locale.init(identifier:)) ?? .current
+            (low, high) = Self.sentinels(excluding: query)
+            lowerQuery = query + low
+            upperQuery = query + high
             let language = locale.language.languageCode?.identifier
             asciiQuery = query.utf8.allSatisfy({ $0 < 0x80 }) && language != "tr" && language != "az"
                 ? query.utf8.map(Self.lowercased) : nil
@@ -237,27 +245,44 @@ enum TextSearch {
 
         func matches(_ window: String) -> Bool {
             if let asciiQuery, window.utf8.allSatisfy({ $0 < 0x80 }) {
-                return window.utf8.count == asciiQuery.count && zip(window.utf8, asciiQuery).allSatisfy { Self.lowercased($0) == $1 }
+                if window.utf8.count == asciiQuery.count && zip(window.utf8, asciiQuery).allSatisfy({ Self.lowercased($0) == $1 }) {
+                    return true
+                }
             }
-            if equal(query, window) { return true }
-            // Foundation keeps marks that are secondary to ICU but that it does not count as
-            // diacritics, such as kana voicing marks and the Devanagari nukta.
-            let bareWindow = Self.withoutCombiningMarks(window)
-            return (bareQuery != query || bareWindow != window) && equal(bareQuery, bareWindow)
+            if window.contains(low) || window.contains(high) {
+                let (low, high) = Self.sentinels(excluding: query + window)
+                return primaryEqual(query + low, query + high, window, low, high)
+            }
+            return primaryEqual(lowerQuery, upperQuery, window, low, high)
         }
 
-        private func equal(_ a: String, _ b: String) -> Bool {
-            a.compare(b, options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], range: nil, locale: locale)
-                == .orderedSame
+        /// Collation compares all primary weights before secondary and tertiary weights. Two
+        /// adjacent private-use characters have distinct, consecutive primary weights, no
+        /// decompositions or locale contractions. Appending them in opposite orders reverses
+        /// the comparison exactly when the original primary sequences are equal. Neither
+        /// sentinel occurs in the originals, so a proper primary prefix cannot straddle them.
+        /// This exposes primary equality through the public comparison API without stripping
+        /// diacritics before a locale can assign them a primary weight (Spanish ñ, Swedish å).
+        private func primaryEqual(_ lowerQuery: String, _ upperQuery: String, _ window: String,
+                                  _ low: String, _ high: String) -> Bool {
+            // Primary equality already ignores case and width. Supplying folding options
+            // would alter the input before collation (and break ß expansions or a fullwidth
+            // letter with a language-tailored combining mark).
+            return lowerQuery.compare(window + high, locale: locale) == .orderedAscending
+                && upperQuery.compare(window + low, locale: locale) == .orderedDescending
         }
 
-        /// Canonically decomposed, without nuktas and kana voicing marks.
-        private static func withoutCombiningMarks(_ string: String) -> String {
-            let kept = string.decomposedStringWithCanonicalMapping.unicodeScalars.filter {
-                let combining = $0.properties.canonicalCombiningClass
-                return combining != .nukta && combining != .kanaVoicing
+        private static func sentinels(excluding string: String) -> (String, String) {
+            let scalars = Set(string.unicodeScalars.map(\.value))
+            // A public command's query has at most 512 graphemes, so the BMP range normally
+            // suffices. Supplementary private use also accommodates larger internal queries.
+            for range in [UInt32(0xE000)...0xF8FF, 0xF0000...0xFFFFD, 0x100000...0x10FFFD] {
+                for value in stride(from: range.lowerBound, to: range.upperBound, by: 2)
+                    where !scalars.contains(value) && !scalars.contains(value + 1) {
+                    return (String(Unicode.Scalar(value)!), String(Unicode.Scalar(value + 1)!))
+                }
             }
-            return String(String.UnicodeScalarView(kept))
+            preconditionFailure("A search query cannot contain every private-use character")
         }
 
         private static func lowercased(_ byte: UInt8) -> UInt8 { (0x41...0x5A).contains(byte) ? byte | 0x20 : byte }
@@ -268,6 +293,14 @@ enum TextSearch {
     /// compatibility forms (and strokes, ligatures and kana), digits become ASCII, marks and
     /// format and control characters vanish, and all other characters share one key.
     private struct KeyTable {
+        let language: String
+        let isVerified: Bool
+        private var tailoredCache: [Character: [UInt8]] = [:]
+
+        init(locale: Locale) {
+            language = locale.language.languageCode?.identifier ?? "en"
+            isVerified = locale.collation == .standard && ["en", "sv", "tr", "es", "da", "de", "ja"].contains(language)
+        }
         static let ascii: [[UInt8]] = (0..<128).map { key(of: Unicode.Scalar(UInt8($0))) }
         /// `ascii` as single bytes, 0 for an empty key: every ASCII key is one byte or none.
         static let asciiKeys: [UInt8] = ascii.map { $0.first ?? 0 }
@@ -276,18 +309,46 @@ enum TextSearch {
         private var cache: [UInt32: [UInt8]] = [:]
 
         mutating func append(_ grapheme: Character, to keys: inout [UInt8]) {
-            for scalar in grapheme.unicodeScalars {
-                if scalar.value < 0x80 { keys.append(contentsOf: Self.ascii[Int(scalar.value)]); continue }
-                if let key = cache[scalar.value] { keys.append(contentsOf: key); continue }
-                let key = Self.shared.withLock { shared in
-                    if let key = shared[scalar.value] { return key }
-                    let key = Self.key(of: scalar)
-                    if shared.count < 65_536 { shared[scalar.value] = key }
-                    return key
+            // These locales merge letters from different root classes. Keep the prefilter
+            // deliberately coarse, but apply those merges to composed and decomposed spelling.
+            if language == "sv" || language == "da" {
+                if let key = tailoredCache[grapheme] { keys.append(contentsOf: key); return }
+                var key: [UInt8] = []
+                let parts = Array(String(grapheme).folding(options: [.caseInsensitive, .widthInsensitive], locale: nil)
+                    .decomposedStringWithCanonicalMapping.unicodeScalars)
+                for (index, scalar) in parts.enumerated() {
+                    let marks = parts.dropFirst(index + 1).prefix { Self.isIgnorable($0) }
+                    // A preceding mark of the same combining class blocks the locale's
+                    // contraction: ü + macron belongs with y, but ū + diaeresis stays with u.
+                    func primaryMark(_ mark: Unicode.Scalar) -> Bool {
+                        marks.first { $0.properties.canonicalCombiningClass.rawValue >= mark.properties.canonicalCombiningClass.rawValue } == mark
+                    }
+                    if scalar == "u", primaryMark("\u{308}") || primaryMark("\u{30B}") { key.append(0x79) }
+                    else if language == "sv", scalar == "æ" || (scalar == "e" && primaryMark("\u{328}")) { key.append(0x61) }
+                    else if language == "sv", scalar == "œ" { key.append(0x6F) }
+                    else if language == "da", scalar == "a", primaryMark("\u{308}") { key.append(contentsOf: [0x61, 0x65]) }
+                    else { append(scalar, to: &key) }
                 }
-                cache[scalar.value] = key
+                tailoredCache[grapheme] = key
                 keys.append(contentsOf: key)
+                return
             }
+            for scalar in grapheme.unicodeScalars {
+                append(scalar, to: &keys)
+            }
+        }
+
+        private mutating func append(_ scalar: Unicode.Scalar, to keys: inout [UInt8]) {
+            if scalar.value < 0x80 { keys.append(contentsOf: Self.ascii[Int(scalar.value)]); return }
+            if let key = cache[scalar.value] { keys.append(contentsOf: key); return }
+            let key = Self.shared.withLock { shared in
+                if let key = shared[scalar.value] { return key }
+                let key = Self.key(of: scalar)
+                if shared.count < 65_536 { shared[scalar.value] = key }
+                return key
+            }
+            cache[scalar.value] = key
+            keys.append(contentsOf: key)
         }
 
         private static func isIgnorable(_ scalar: Unicode.Scalar) -> Bool {

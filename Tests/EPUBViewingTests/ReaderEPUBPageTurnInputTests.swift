@@ -2,6 +2,56 @@ import XCTest
 @testable import EPUBViewing
 
 final class ReaderEPUBPageTurnInputTests: XCTestCase {
+    func testPageHelpDescribesPlatformFlowAndPhysicalDirection() {
+        let controls = EPUBPageControls()
+        for rtl in [false, true] {
+            for action: EPUBPageAction in [.next, .previous] {
+                let right = (action == .next) != rtl
+                let mouse = controls.helpHints(for: action, paginated: true, isRightToLeft: rtl, platform: .mouse)
+                XCTAssertTrue(mouse.contains("Click the \(right ? "right" : "left") edge"))
+                XCTAssertTrue(mouse.contains("Scroll \(action == .next ? "down" : "up") or \(right ? "right" : "left") using a wheel or trackpad"))
+                XCTAssertFalse(mouse.contains { $0.contains("Swipe") })
+                let touch = controls.helpHints(for: action, paginated: true, isRightToLeft: rtl, platform: .touch)
+                XCTAssertTrue(touch.contains("Tap the \(right ? "right" : "left") edge"))
+                XCTAssertTrue(touch.contains("Swipe \(right ? "left" : "right")"))
+                XCTAssertFalse(touch.contains { $0.contains("trackpad") })
+                for platform: EPUBPageHelpPlatform in [.mouse, .touch] {
+                    let scroll = controls.helpHints(for: action, paginated: false, isRightToLeft: rtl, platform: platform)
+                    XCTAssertEqual(scroll.count, 1, "continuous flow advertises only its configured keyboard input")
+                    XCTAssertTrue(scroll[0].hasPrefix("With reader focus:"))
+                    XCTAssertTrue(EPUBPageControls.hostOnly.helpHints(for: action, paginated: true,
+                                                                    isRightToLeft: rtl, platform: platform).isEmpty)
+                }
+            }
+        }
+    }
+
+    func testHelpOmitsDisabledEdgesInvalidAndOverriddenBindings() {
+        var controls = EPUBPageControls(touchSwipesEnabled: false, wheelEnabled: false,
+                                        leftTapWidth: 0, rightTapWidth: .infinity, keyboardBindings: [
+            .init(.character("N"), modifiers: [.command, .shift], action: .previous),
+            .init(.character("n"), modifiers: [.command, .shift], action: .next),
+            .init(.space, modifiers: .init(rawValue: 128), action: .next),
+            .init(.character("!"), action: .next),
+            .init(.downArrow, modifiers: .option, action: .next),
+        ])
+        XCTAssertEqual(controls.helpHints(for: .next, paginated: true, isRightToLeft: false, platform: .mouse),
+                       ["With reader focus: Option-Down Arrow"])
+        XCTAssertEqual(controls.helpHints(for: .previous, paginated: true, isRightToLeft: false, platform: .touch),
+                       ["With reader focus: Command-Shift-N"])
+        controls.keyboardBindings = []
+        controls.rightTapWidth = 40
+        XCTAssertEqual(controls.helpHints(for: .next, paginated: true, isRightToLeft: false, platform: .mouse),
+                       ["Click the right edge"])
+        controls.edgeTapsEnabled = false
+        XCTAssertTrue(controls.helpHints(for: .next, paginated: true, isRightToLeft: false, platform: .mouse).isEmpty)
+        controls.edgeTapsEnabled = true
+        controls.rightTapWidth = -1
+        XCTAssertTrue(controls.helpHints(for: .next, paginated: true, isRightToLeft: false, platform: .mouse).isEmpty)
+        controls.rightTapWidth = .nan
+        XCTAssertTrue(controls.helpHints(for: .next, paginated: true, isRightToLeft: false, platform: .mouse).isEmpty)
+    }
+
     func testDefaultsAndHostOnly() {
         let controls = EPUBPageControls()
         XCTAssertTrue(controls.edgeTapsEnabled)

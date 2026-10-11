@@ -9,6 +9,10 @@ import Foundation
     public let publication: EPUBPublication
     public let session: any EPUBReaderSession
     public var searchText = ""
+    /// Customize the built-in page buttons' help without adding keyboard shortcuts.
+    /// Return the supplied default plus host hints to supplement it, or replace it entirely.
+    /// Labels remain concise and independent of this longer help text.
+    public var customizePageButtonHelp: (@MainActor (EPUBPageAction, String) -> String)?
     public private(set) var pendingCommands = 0
     public private(set) var commandError: String?
     @ObservationIgnored private var commands: Task<Void, Never>?
@@ -33,6 +37,22 @@ import Foundation
         status?.capabilities.contains(capability) == true
     }
     public func dismissError() { commandError = nil }
+
+    public func pageButtonLabel(for action: EPUBPageAction) -> String {
+        if status?.style.flow == .scrolled { return action == .next ? "Scroll Forward" : "Scroll Backward" }
+        return action == .next ? "Next Page" : "Previous Page"
+    }
+
+    /// Describes the bundled native reader's active input settings. Built-in buttons pass
+    /// their `epubReaderPageControls` environment value; custom controls can pass the same
+    /// settings explicitly. Keyboard bindings are logical, even in an RTL publication.
+    public func pageButtonHelp(for action: EPUBPageAction, pageControls: EPUBPageControls = .init()) -> String {
+        let label = pageButtonLabel(for: action)
+        let hints = pageControls.helpHints(for: action, paginated: status?.style.flow != .scrolled,
+                                          isRightToLeft: isRightToLeft, platform: .current)
+        let defaultHelp = ([label] + hints).joined(separator: ". ") + "."
+        return customizePageButtonHelp?(action, defaultHelp) ?? defaultHelp
+    }
 
     public func send(_ command: EPUBReaderCommand) { enqueue { command } }
     /// Edits the latest style when this command executes, preserving changes queued before it

@@ -84,6 +84,33 @@ final class TextSearchTests: XCTestCase {
         XCTAssertEqual(TextSearch.matches(of: "ISTANBUL", in: document, locale: "tr").map(\.start.offset), [0])
     }
 
+    func testTailoredMatchesAndMissesAgreeWithHistoricalFoliate() throws {
+        struct Vectors: Decodable {
+            struct Fixture: Decodable {
+                let locale: String
+                let query: String
+                let matches: [[Int]]
+            }
+            let fixtures: [Fixture]
+        }
+        let vectors = try JSONDecoder().decode(Vectors.self, from: Data(SearchCollationGoldenVectors.json.utf8))
+        XCTAssertEqual(vectors.fixtures.count, SearchCollationFixtures.fixtures.count)
+        XCTAssertTrue(vectors.fixtures.contains { $0.matches.isEmpty }, "record nonmatches as well as matches")
+        for (fixture, vector) in zip(SearchCollationFixtures.fixtures, vectors.fixtures) {
+            XCTAssertEqual(vector.locale, fixture.locale)
+            XCTAssertEqual(vector.query, fixture.query)
+            let document = try ContentDocument.parse(Data(fixture.markup.utf8), path: "tailored.xhtml")
+            func ranges(_ matches: [TextSearch.Match]) -> [[Int]] {
+                matches.map { [$0.start.node.order, $0.start.offset, $0.end.node.order, $0.end.offset] }
+            }
+            let filtered = TextSearch.matches(of: fixture.query, in: document, locale: TextSearch.locale(of: document))
+            let complete = TextSearch.matches(of: fixture.query, in: document, locale: TextSearch.locale(of: document), usePrefilter: false)
+            let label = "\(fixture.locale): \(fixture.query) in \(fixture.body)"
+            XCTAssertEqual(ranges(complete), vector.matches, label)
+            XCTAssertEqual(filtered, complete, "The prefilter suppressed or added a match: \(label)")
+        }
+    }
+
     func testAOneMegabyteSectionSearchesQuickly() throws {
         let paragraph = "<p>It was the best of times, it was the worst of times, it was the age of wisdom, "
             + "it was the age of <em>foolishness</em>, it was the epoch of belief — “café” naïve résumé.</p>\n"
@@ -113,5 +140,19 @@ final class TextSearchTests: XCTestCase {
         XCTAssertLessThan(unique, bound)
         XCTAssertLessThan(common, bound)
         XCTAssertLessThan(accented, bound)
+    }
+
+    /// Unverified collations use the complete window scan. Record its cost without a fragile
+    /// wall-clock assertion; correctness must not depend on a locale having a fast key table.
+    func testOneMegabyteFrenchSearchRecordsFallbackCost() throws {
+        let paragraph = "<p>Un paragraphe de texte français ordinaire, avec un café et quelques accents.</p>"
+        let count = 1_048_576 / paragraph.utf8.count + 1
+        let document = try document(String(repeating: paragraph, count: count) + "<p>La phrase finale unique.</p>", lang: "fr")
+        var matches: [TextSearch.Match] = []
+        let time = ContinuousClock().measure {
+            matches = TextSearch.matches(of: "la PHRASE finale unique.", in: document, locale: "fr")
+        }
+        XCTAssertEqual(matches.count, 1)
+        print("1 MB French unfiltered search: \(time)")
     }
 }

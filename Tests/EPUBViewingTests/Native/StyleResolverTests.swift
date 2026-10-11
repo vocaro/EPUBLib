@@ -1,4 +1,5 @@
 import EPUBReading
+import CoreText
 @testable import EPUBViewing
 import Synchronization
 import XCTest
@@ -220,7 +221,9 @@ final class StyleResolverTests: XCTestCase {
         XCTAssertEqual(points(units.margin.right), 96, accuracy: 0.0001)
         XCTAssertEqual(points(units.margin.top), 96 / 2.54, accuracy: 0.0001)
         XCTAssertEqual(points(units.margin.bottom), 96 / 2.54, accuracy: 0.0001)
-        XCTAssertEqual(units.textIndent, .points(outer))
+        let unitFont = FontRegistry.systemFont(families: units.fontFamilies, size: units.fontSize,
+                                              weight: units.fontWeight, italic: units.isItalic)
+        XCTAssertEqual(points(units.textIndent), 2 * CTFontGetXHeight(unitFont as CTFont), accuracy: 0.001)
         XCTAssertEqual(result.style("lh").lineHeight, .points(48), "Absolute line heights keep their ratio to the font")
         XCTAssertEqual(result.style("lh-em").lineHeight, .points(outer * 1.5))
     }

@@ -80,6 +80,8 @@ public extension View {
     /// Configures built-in direct page input for the native reader, including live updates.
     /// Visual controls mirror in RTL books; left/right widths still name physical edges.
     /// Host commands and VoiceOver page actions remain available with `.hostOnly`.
+    /// Apply to a common ancestor of the reader and built-in page buttons so their help
+    /// describes the same configuration, or pass the same value to both view scopes.
     func epubReaderPageControls(_ controls: EPUBPageControls) -> some View {
         environment(\.epubReaderPageControls, controls)
     }
@@ -90,6 +92,28 @@ extension EnvironmentValues {
 }
 
 extension EPUBPageControls {
+    /// Uses the same normalized, deduplicated bindings as native key handlers. Gesture
+    /// hints describe only inputs supported by the current platform and reading flow.
+    func helpHints(for action: EPUBPageAction, paginated: Bool, isRightToLeft: Bool,
+                   platform: EPUBPageHelpPlatform) -> [String] {
+        var hints: [String] = []
+        let keys = effectiveBindings.filter { $0.action == action }.map(\.helpLabel)
+        if !keys.isEmpty { hints.append("With reader focus: " + keys.joined(separator: ", ")) }
+        guard paginated else { return hints }
+        let right = (action == .next) != isRightToLeft
+        let edgeWidth = right ? rightTapWidth : leftTapWidth
+        if edgeTapsEnabled && edgeWidth.isFinite && edgeWidth > 0 {
+            hints.append("\(platform == .mouse ? "Click" : "Tap") the \(right ? "right" : "left") edge")
+        }
+        if platform == .touch && touchSwipesEnabled {
+            hints.append("Swipe \(right ? "left" : "right")")
+        }
+        if platform == .mouse && wheelEnabled {
+            hints.append("Scroll \(action == .next ? "down" : "up") or \(right ? "right" : "left") using a wheel or trackpad")
+        }
+        return hints
+    }
+
     var effectiveBindings: [EPUBPageKeyBinding] {
         var seen: [EPUBPageKey: Set<EPUBPageKeyModifiers>] = [:]
         return keyboardBindings.compactMap { binding in
@@ -104,5 +128,41 @@ extension EPUBPageControls {
         guard let key = key.normalized,
               let binding = effectiveBindings.first(where: { $0.key == key && $0.modifiers == modifiers }) else { return nil }
         return binding.action == .next
+    }
+}
+
+enum EPUBPageHelpPlatform {
+    case mouse, touch
+    static var current: Self {
+        #if os(macOS)
+        .mouse
+        #else
+        .touch
+        #endif
+    }
+}
+
+private extension EPUBPageKeyBinding {
+    var helpLabel: String {
+        var parts: [String] = []
+        if modifiers.contains(.control) { parts.append("Control") }
+        if modifiers.contains(.option) { parts.append("Option") }
+        if modifiers.contains(.command) { parts.append("Command") }
+        if modifiers.contains(.shift) { parts.append("Shift") }
+        let keyName: String
+        switch key {
+        case .leftArrow: keyName = "Left Arrow"
+        case .rightArrow: keyName = "Right Arrow"
+        case .upArrow: keyName = "Up Arrow"
+        case .downArrow: keyName = "Down Arrow"
+        case .pageUp: keyName = "Page Up"
+        case .pageDown: keyName = "Page Down"
+        case .home: keyName = "Home"
+        case .end: keyName = "End"
+        case .space: keyName = "Space"
+        case .character(let character): keyName = String(character).uppercased()
+        }
+        parts.append(keyName)
+        return parts.joined(separator: "-")
     }
 }

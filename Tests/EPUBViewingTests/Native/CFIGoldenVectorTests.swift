@@ -215,34 +215,27 @@ final class CFIGoldenVectorTests: XCTestCase {
     }
 
     /// The search prefilter may only separate what base-strength collation separates, or a
-    /// quote foliate located would be skipped before the comparison runs. Root collation's
-    /// equivalences all hold; a language's own merges (Swedish `ü` with `y`) are not found.
+    /// quote foliate located would be skipped before the comparison runs, including a locale's
+    /// merges between different root classes (Swedish `ü` with `y`).
     func testPrefilterKeysNeverSeparateCharactersTheCollatorEquates() throws {
         func searchable(_ scalar: UInt32) -> Character? {
             guard let scalar = Unicode.Scalar(scalar), scalar.properties.generalCategory != .format,
                   !EPUBCFI.isJSWhitespace(scalar) else { return nil }
             return Character(scalar)
         }
-        let root = try XCTUnwrap(Self.vectors.collation["en"])
-        var rootClass: [UInt32: Int] = [:]
-        for (index, members) in root.classes.enumerated() { for member in members { rootClass[member] = index } }
-        var tailored = 0
         for (locale, collation) in Self.vectors.collation {
             for members in collation.classes {
                 guard let first = members.first, let character = searchable(first) else { continue }
                 for member in members.dropFirst() {
                     guard let other = searchable(member) else { continue }
-                    guard rootClass[member] == rootClass[first] else { tailored += 1; continue }
-                    XCTAssertEqual(TextSearch.prefilterKey(of: other), TextSearch.prefilterKey(of: character),
+                    XCTAssertEqual(TextSearch.prefilterKey(of: other, locale: locale), TextSearch.prefilterKey(of: character, locale: locale),
                                    "\(locale): \(character) and \(other) compare equal but have different keys")
                 }
             }
         }
-        XCTAssertLessThan(tailored, 100, "the other locales' data should mostly agree with root")
     }
 
-    /// A one-character quote finds exactly the characters WebKit's root collator equates with it,
-    /// except that Cyrillic `й` also matches `и`.
+    /// A one-character quote finds exactly the characters WebKit's root collator equates with it.
     func testSingleCharactersMatchTheirCollationClass() throws {
         let root = try XCTUnwrap(Self.vectors.collation["en"])
         let characters = root.classes.joined().compactMap(Unicode.Scalar.init).filter {
@@ -269,9 +262,7 @@ final class CFIGoldenVectorTests: XCTestCase {
             extra += found.subtracting(expected).map { "\(query)=\($0)" }
         }
         XCTAssertEqual(missing, [], "quotes foliate located would not be found")
-        // Foundation folds the breve of Cyrillic short i, which root collation keeps as a letter.
-        XCTAssertEqual(Set(extra.flatMap { $0.unicodeScalars.prefix(1) + $0.unicodeScalars.suffix(1) })
-            .subtracting("ЙйИиЍѝӢӣӤӥ".unicodeScalars), [], "extra matches: \(extra)")
+        XCTAssertEqual(extra, [], "characters foliate distinguished must remain distinct")
     }
 
     // MARK: - Decoding

@@ -180,15 +180,17 @@ public struct EPUBReaderControl: View {
 private struct EPUBPageButton: View {
     let controls: EPUBReaderControls
     let forward: Bool
+    @Environment(\.epubReaderPageControls) private var pageControls
+    private var action: EPUBPageAction { forward ? .next : .previous }
     var body: some View {
-        Button(forward ? "Next Page" : "Previous Page",
+        Button(controls.pageButtonLabel(for: action),
                systemImage: (forward != controls.isRightToLeft) ? "chevron.right" : "chevron.left") {
             controls.send(forward ? .nextPage : .previousPage)
         }
         .labelStyle(.iconOnly)
         .disabled(forward ? !controls.canGoNext : !controls.canGoPrevious)
-        .accessibilityLabel(forward ? "Next Page" : "Previous Page")
-        .help(forward ? "Next Page" : "Previous Page")
+        .accessibilityLabel(controls.pageButtonLabel(for: action))
+        .help(controls.pageButtonHelp(for: action, pageControls: pageControls))
     }
 }
 

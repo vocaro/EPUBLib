@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreText
 import Foundation
 
 /// Bounds that keep a hostile book from breaking layout.
@@ -19,6 +20,11 @@ enum StyleLimits {
 }
 
 extension StyleResolver {
+    private static let computationOrder: [CSSProperty] = {
+        let fonts: [CSSProperty] = [.fontFamily, .fontWeight, .fontStyle, .fontVariantCaps, .fontSize]
+        return fonts + CSSProperty.allCases.filter { !fonts.contains($0) }
+    }()
+
     /// Resolves lengths: `em` against `em`, `rem` against the root's size, absolute units scaled
     /// by `scale`, and percentages against `percentBase` when given (else kept symbolic).
     struct LengthContext {
@@ -28,6 +34,8 @@ extension StyleResolver {
         var percentBase: CGFloat?
         /// Font sizes resolve viewport units to points.
         var resolvesViewport = false
+        var ex: CGFloat?
+        var fontStyle: ComputedStyle?
     }
 
     private struct Linear {
@@ -63,7 +71,10 @@ extension StyleResolver {
         switch unit {
         case .number: result.points = value
         case .em, .ic: result.points = value * em
-        case .ex, .ch: result.points = value * em / 2
+        case .ex:
+            let metric = context.ex ?? context.fontStyle.map { xHeight($0) } ?? context.em / 2
+            result.points = value * Double(metric)
+        case .ch: result.points = value * em / 2
         case .cap: result.points = value * em * 0.7
         case .lh: result.points = value * em * 1.2
         case .rem: result.points = value * rem
@@ -160,7 +171,9 @@ extension StyleResolver {
         var ownDecoration: ComputedStyle.Decoration = []
         var decorationColor: CSSColor?
 
-        for property in CSSProperty.allCases {
+        // Font-relative lengths use the element's resolved face, irrespective of declaration
+        // order. font-size itself uses its parent's face and size.
+        for property in Self.computationOrder {
             guard var value = winners[property.rawValue] else { continue }
             if value == .revert { value = userAgent[property.rawValue] ?? .unset }
             if value == .revert || value == .unset { value = property.isInherited ? .inherit : .initial }
@@ -294,10 +307,10 @@ extension StyleResolver {
 
     private func apply(_ property: CSSProperty, _ value: CSSValue, to style: inout ComputedStyle,
                        parent: ComputedStyle, rem: CGFloat) {
-        let own = LengthContext(em: style.fontSize, rem: rem)
+        var own: LengthContext { lengthContext(style, rem: rem) }
         switch (property, value) {
         case (.fontSize, .fontSize(let size)):
-            style.fontSize = fontSize(size, parent: parent.fontSize, rem: rem)
+            style.fontSize = fontSize(size, parent: parent, rem: rem)
         case (.fontFamily, .families(let families)):
             style.fontFamilies = families
         case (.fontWeight, .fontWeight(let weight)):
@@ -316,7 +329,7 @@ extension StyleResolver {
             case .length(let length):
                 // Absolute line heights scale with the reader's size, like font sizes, so lines never overlap.
                 let context = LengthContext(em: style.fontSize, rem: rem, scale: typography.fontSize / 16,
-                                            percentBase: style.fontSize, resolvesViewport: true)
+                                            percentBase: style.fontSize, resolvesViewport: true, fontStyle: style)
                 let maximum = style.fontSize * StyleLimits.lineHeightMultiple.upperBound
                 style.lineHeight = .points(min(max(points(length, context), 0), maximum))
             }
@@ -375,7 +388,7 @@ extension StyleResolver {
         case (.verticalAlign, .verticalAlign(let align)): style.verticalAlign = align
         case (.verticalAlign, .length(let l)):
             let lineHeight = style.lineHeightPoints ?? style.fontSize * 1.2
-            let context = LengthContext(em: style.fontSize, rem: rem, percentBase: lineHeight, resolvesViewport: true)
+            let context = LengthContext(em: style.fontSize, rem: rem, percentBase: lineHeight, resolvesViewport: true, fontStyle: style)
             style.verticalAlign = .offset(min(max(points(l, context), StyleLimits.offset.lowerBound), StyleLimits.offset.upperBound))
         case (.breakBefore, .breakValue(let b)): style.breakBefore = b
         case (.breakAfter, .breakValue(let b)): style.breakAfter = b
@@ -406,13 +419,25 @@ extension StyleResolver {
     }
 
     /// Absolute sizes and keywords scale by `typography.fontSize / 16`; relative sizes follow the parent.
-    private func fontSize(_ size: CSSFontSize, parent: CGFloat, rem: CGFloat) -> CGFloat {
+    private func lengthContext(_ style: ComputedStyle, rem: CGFloat) -> LengthContext {
+        LengthContext(em: style.fontSize, rem: rem, fontStyle: style)
+    }
+
+    private func xHeight(_ style: ComputedStyle) -> CGFloat {
+        let font = fonts?.font(for: style) ?? FontRegistry.systemFont(families: style.fontFamilies,
+            size: style.fontSize, weight: style.fontWeight, italic: style.isItalic)
+        let height = CTFontGetXHeight(font as CTFont)
+        return height.isFinite && height > 0 ? height : style.fontSize / 2
+    }
+
+    private func fontSize(_ size: CSSFontSize, parent: ComputedStyle, rem: CGFloat) -> CGFloat {
         let value: CGFloat = switch size {
         case .keyword(let factor): typography.fontSize * CGFloat(factor)
-        case .smaller: parent / 1.2
-        case .larger: parent * 1.2
+        case .smaller: parent.fontSize / 1.2
+        case .larger: parent.fontSize * 1.2
         case .length(let length):
-            points(length, LengthContext(em: parent, rem: rem, scale: typography.fontSize / 16, percentBase: parent, resolvesViewport: true))
+            points(length, LengthContext(em: parent.fontSize, rem: rem, scale: typography.fontSize / 16,
+                                        percentBase: parent.fontSize, resolvesViewport: true, fontStyle: parent))
         }
         return min(max(value, StyleLimits.fontSize.lowerBound), StyleLimits.fontSize.upperBound)
     }

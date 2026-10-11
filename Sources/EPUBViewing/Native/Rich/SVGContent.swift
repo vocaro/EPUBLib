@@ -100,8 +100,8 @@ enum SVGContent {
             if dropped.contains(node.name) { result.insert("svg:" + node.name); return }
             if node.name == "pattern" { result.insert("svg:pattern") }
             if node.name == "filter" || node.attribute("filter") != nil ||
-                node.attribute("style")?.range(of: "(?i)filter\\s*:", options: .regularExpression) != nil ||
-                (node.name == "style" && node.textContent.range(of: "(?i)filter\\s*:", options: .regularExpression) != nil) {
+                node.attribute("style").map({ omittingFilterDeclarations($0).omitted }) == true ||
+                (node.name == "style" && omittingFilterDeclarations(node.textContent).omitted) {
                 result.insert("svg:filter")
             }
             for child in node.elementChildren { visit(child) }
@@ -112,7 +112,7 @@ enum SVGContent {
 
     /// Refuse expansion bombs before handing them to the renderer, including references in
     /// definitions. Cost follows `<use>` targets and is memoized without expanding a tree.
-    static func isWithinRenderingLimits(_ svg: ContentNode) -> Bool {
+    static func isWithinRenderingLimits(_ svg: ContentNode, omittingFilters: Bool = false) -> Bool {
         var nodes: [ContentNode] = []
         var ids: [String: ContentNode] = [:]
         var valid = true
@@ -123,7 +123,8 @@ enum SVGContent {
             for child in node.children { collect(child, depth: depth + 1) }
         }
         collect(svg, depth: 0)
-        guard valid, unsupportedConstructs(svg).isDisjoint(with: ["svg:filter", "svg:pattern"]) else { return false }
+        let refused: Set<String> = omittingFilters ? ["svg:pattern"] : ["svg:filter", "svg:pattern"]
+        guard valid, unsupportedConstructs(svg).isDisjoint(with: refused) else { return false }
         var costs: [ObjectIdentifier: Int] = [:]
         var active = Set<ObjectIdentifier>()
         func cost(_ node: ContentNode, depth: Int) -> Int? {
@@ -255,7 +256,10 @@ enum SVGContent {
     /// archive path; nil for anything that cannot be used.
     static func serialize(_ svg: ContentNode, resolve: (String) -> String?, publication: EPUBPublication,
                           fontAliases: [String: String] = [:], report: SectionReportBox? = nil) -> Data? {
-        guard isWithinRenderingLimits(svg) else { return nil }
+        // Filters remain refused by the direct renderer. The archive path can preserve the
+        // drawing by omitting effects before handing it to that same strict entry point.
+        // Count the original tree first, so omitted definitions cannot evade input bounds.
+        guard isWithinRenderingLimits(svg, omittingFilters: true) else { return nil }
         var output = ""
         var inlined = 0
         var imagePixels = 0
@@ -273,7 +277,7 @@ enum SVGContent {
             for match in expression.matches(in: value, range: NSRange(location: 0, length: string.length)).reversed() {
                 if let range = Range(match.range(at: 2), in: result) { result.replaceSubrange(range, with: family(string.substring(with: match.range(at: 2)))) }
             }
-            return result
+            return omittingFilterDeclarations(result).css
         }
         func escape(_ value: String, attribute: Bool) -> String {
             var result = ""
@@ -296,8 +300,8 @@ enum SVGContent {
         }
         func emit(_ node: ContentNode, isRoot: Bool) {
             guard !overflow else { return }
-            if node.isText { write(escape(node.parent?.name == "style" ? css(node.text) : node.text, attribute: false)); return }
-            guard isSVG(node, root: svg), !dropped.contains(node.name) else { return }
+            if node.isText { write(escape(node.text, attribute: false)); return }
+            guard isSVG(node, root: svg), !dropped.contains(node.name), node.name != "filter" else { return }
             if node.name == "style", unsafeCSS(node.textContent) || node.textContent.lowercased().contains("@import") {
                 report?.report.unsupportedElements["svg:style", default: 0] += 1
                 return
@@ -317,7 +321,7 @@ enum SVGContent {
                 default: continue
                 }
                 let local = attribute.name.lowercased()
-                guard name != "xmlns", !name.hasPrefix("xmlns:"), !local.hasPrefix("on"), local != "base" else { continue }
+                guard name != "xmlns", !name.hasPrefix("xmlns:"), !local.hasPrefix("on"), local != "base", local != "filter" else { continue }
                 var value = attribute.value
                 if local == "href" || local == "src" {
                     let reference = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -341,6 +345,10 @@ enum SVGContent {
                 if local == "style" { value = css(value) }
                 write(" \(name)=\"\(escape(value, attribute: true))\"")
             }
+            if node.name == "style" {
+                write(">" + escape(css(node.textContent), attribute: false) + "</style>")
+                return
+            }
             if node.children.isEmpty { write("/>"); return }
             write(">")
             for child in node.children { emit(child, isRoot: false) }
@@ -360,6 +368,60 @@ enum SVGContent {
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination), output.length <= maximumInlinedImageBytes else { return nil }
         return (output as Data, image.width * image.height)
+    }
+
+    /// Remove only filter declarations, retaining neighboring geometry, paint and font CSS.
+    /// Boundaries inside strings, comments and functions are not declaration boundaries.
+    /// Tokenizing each declaration recognizes comments and escaped property names as well.
+    private static func omittingFilterDeclarations(_ value: String) -> (css: String, omitted: Bool) {
+        var output = ""
+        var start = value.startIndex
+        var index = start
+        var quote: Character?
+        var comment = false
+        var nesting = 0
+        var omitted = false
+        func append(until end: String.Index, declaration: Bool) -> Bool {
+            let text = String(value[start..<end])
+            var truncated = false
+            let components = declaration ? CSSParser.components(text, truncated: &truncated).significant : []
+            if components.count >= 2, components[0].ident == "filter", components[1] == .token(.colon) {
+                omitted = true
+                return true
+            } else {
+                output += text
+                return false
+            }
+        }
+        while index < value.endIndex {
+            let character = value[index]
+            let next = value.index(after: index)
+            if comment {
+                if character == "*", next < value.endIndex, value[next] == "/" {
+                    comment = false; index = value.index(after: next); continue
+                }
+            } else if let ending = quote {
+                if character == "\\", next < value.endIndex {
+                    index = value.index(after: next); continue
+                }
+                if character == ending { quote = nil }
+            } else if character == "/", next < value.endIndex, value[next] == "*" {
+                comment = true; index = value.index(after: next); continue
+            } else if character == "\"" || character == "'" {
+                quote = character
+            } else if character == "(" || character == "[" {
+                nesting += 1
+            } else if character == ")" || character == "]" {
+                nesting = max(0, nesting - 1)
+            } else if nesting == 0, character == ";" || character == "{" || character == "}" {
+                let removed = append(until: index, declaration: character != "{")
+                if character != ";" || !removed { output.append(character) }
+                start = next
+            }
+            index = next
+        }
+        _ = append(until: value.endIndex, declaration: true)
+        return (output, omitted)
     }
 
     /// Whether CSS in `value` might reach outside the document: a `url()` to anything but a

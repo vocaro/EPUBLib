@@ -82,7 +82,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   `viewBox`/`preserveAspectRatio`. A plain single-image wrapper retains the raster-image fast
   path. Archive raster references are resolved and bounded before rendering; scripts,
   animation, foreign content and external resources are omitted with a disclosure. SVG
-  filters, pattern fills and illustrations exceeding the rendering limits show their title, description or
+  filter effects are omitted with a disclosure while preserving the drawing's shapes and labels.
+  Pattern fills and illustrations exceeding the rendering limits show their title, description or
   drawing text instead. Title and description provide the image's accessible label. No WebKit.
   The renderer ships as an Apple XCFramework; consumers do not need Rust. Its source pins,
   rebuild script and redistribution notices are in [Vendor/Resvg](../Vendor/Resvg/README.md).
@@ -331,7 +332,13 @@ archives and are refused by the parser, as before).
   conversions needed the forgiving HTML parser; 84 remote resource references in catalog
   books were refused. Computed styles were compared with WebKit's on 68,817 elements across
   the catalogs; after the reader's deliberate defaults, the remaining differences were centred
-  figure captions and `ex` units.
+  figure captions and `ex` units. Subsequent focused sizing coverage resolves `ex` against
+  CoreText's x-height for the actual system or embedded face. Centered captions at 0.9em
+  are deliberate reader defaults; explicit author alignment wins. Percentage paragraph
+  edges, gaps and indents are checked at 300, 600 and 900 points and 16/25-point text,
+  including source-preserving scrolled relayout and paginated continuation formatting.
+  See the [sizing qualification](issue-21-css-sizing.md). The original catalog-wide WebKit
+  comparison has not been repeated for these changes.
 - **CFI compatibility.** CFIs and search are checked against vectors recorded from foliate-js
   itself in WebKit: about 2,800 range-to-CFI conversions, 3,300 resolutions, spine bases,
   parse/print round trips and quote matches.
@@ -359,22 +366,29 @@ Go: the native viewer is the bundled engine.
   labels hidden with zero-area `clip: rect(...)`, `clip-path: inset(50%)`, visibility or large negative
   top/left offsets in absolute units stay omitted; font-relative or mixed-unit offsets remain
   visible unless explicitly hidden or clipped. General clipping and arbitrary offscreen
-  geometry are unsupported. Unsized inline-blocks remain inline. Percentages in ordinary margins and
-  indents still resolve against a nominal 600-pt column.
+  geometry are unsupported. Unsized inline-blocks remain inline. Ordinary percentage margins,
+  padding and text indents resolve against the live containing content width, including
+  constrained flow-box ancestors, and recalculate at resize. Mixed-unit CSS calculations
+  and `min`/`max`/`clamp` branch selection still use the nominal media-query viewport;
+  viewport-relative font sizes and media queries remain based on that nominal viewport.
 - Whole-table bookmarks and visible row ranges retain attachment granularity. A resize or
   flow change without a precise cell endpoint returns a continued row to its source position
   rather than preserving its particular visual fragment.
 - MathML has no line breaking (wide formulas scale down), no `mglyph` or elementary-math
   elements, and English-only spoken readings when `alttext` is absent.
-- SVG is static: filters, pattern fills, animation and foreign content are unsupported. Rendering limits
+- SVG is static: filter effects are omitted with a disclosure, preserving the remaining diagram;
+  pattern fills, animation and foreign content are unsupported. The unchanged networking
+  publisher corpus renders all 33 SVG resources, including six containing shadow filters
+  ([verification](issue-53-svg-diagrams.md)). Rendering limits
   include 4 MiB of SVG, 10,000 nodes, depth 64 and 8 MiB of expanded local references.
   Embedded raster images are capped at 4 megapixels each and 16 megapixels in total.
   Output is capped at 4,096 pixels on its long side and 16 megapixels, reduced further for
   isolated layers to fit the raster working-memory budget. SVG text uses outline fonts;
   embedded color-glyph tables are omitted and disclosed. Retained renderer font databases
   share a 64 MiB budget.
-- Search in languages with tailored collation (Turkish, Swedish, Spanish…) finds a superset
-  of foliate's matches.
+- Search uses locale-tailored primary collation for passage location and highlights.
+  Locales without qualified prefilter coverage compare candidate windows directly, which
+  can cost more on large sections. See the [collation qualification](issue-26-search-collation.md).
 - Foliate CFI compatibility for HTML fallback is deliberately limited to qualified XML-shaped
   markup. HTML tree repairs outside that subset cannot issue or resolve saved CFIs; migration
   by href or an explicitly requested text search remains a host decision.

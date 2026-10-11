@@ -20,10 +20,9 @@ import AppKit
 ///   The section's leading gap is its first paragraph's `paragraphSpacingBefore`.
 /// - Ancestors' horizontal margins, borders and padding accumulate into the head and tail indents
 ///   (by direction), and `text-indent` indents a block's first line.
-/// - Lengths a CSS percentage or viewport unit gives resolve against a nominal 600-pt column
-///   (and an 800-pt viewport height), because a section's attributes cannot depend on the
-///   column it is laid out in. Total horizontal indentation is capped at a third of that column
-///   so deep nesting cannot squeeze a phone column to nothing.
+/// - Percentage/viewport paragraph lengths retain authored dimensions for resolution at live
+///   layout size. Total horizontal indentation is capped at a third of the column so deep
+///   nesting cannot squeeze a phone column to nothing.
 /// - Whitespace follows CSS Text 3 per `white-space`: collapsible runs collapse across inline
 ///   boundaries, a run at a line's start or end is removed, and a segment break between two East
 ///   Asian wide characters disappears. A single trailing forced break in a block makes no line.
@@ -73,6 +72,7 @@ final class SectionWriter {
     // Block state.
     private var frames: [BlockFrame] = []
     private var gap = MarginGap()
+    private var sizingGap = ReaderParagraphGap()
     private var pendingPageBreak = false
     private var pendingMarker: Marker?
     private var lists: [ListCounter] = []
@@ -488,6 +488,9 @@ final class SectionWriter {
             gap.add(resolve(style.margin.top))
             let inset = resolve(style.padding.top) + Self.width(style.border.top)
             if inset > 0 { gap.seal(inset) }
+            let containing = frames.last?.format.edges
+            sizingGap.add(style.margin.top, containing: containing)
+            sizingGap.seal(style.padding.top, border: Self.width(style.border.top), containing: containing)
         }
         if isSection {
             if style.breakBefore == .page || style.breakBefore == .column { pendingPageBreak = true }
@@ -514,6 +517,8 @@ final class SectionWriter {
             let inset = resolve(frame.style.padding.bottom) + Self.width(frame.style.border.bottom)
             if inset > 0 { gap.seal(inset) }
             gap.add(resolve(frame.style.margin.bottom))
+            sizingGap.seal(frame.style.padding.bottom, border: Self.width(frame.style.border.bottom), containing: frame.format.edges.parent)
+            sizingGap.add(frame.style.margin.bottom, containing: frame.format.edges.parent)
         }
         if isSection, frame.style.breakAfter == .page || frame.style.breakAfter == .column { pendingPageBreak = true }
     }
@@ -574,6 +579,7 @@ final class SectionWriter {
             boxes.append(ReaderFlowBoxConstraint(style: style, containing: containing, replaced: replaced))
         }
         return BlockFormat(boxes: boxes, flow: ReaderParagraphFlow(style: style, scope: scope), scope: scope,
+                           edges: ReaderParagraphEdges(style: style, parent: parent?.format.edges),
                            alignment: alignment, endAligned: endAligned, float: style.float, direction: direction,
                            left: left, right: right, textIndent: resolve(style.textIndent),
                            lineHeightMultiple: multiple, lineHeight: cssLineHeight, hyphenate: style.hyphens == .auto,
@@ -607,6 +613,8 @@ final class SectionWriter {
         let frame = frames[frames.count - 1]
         let gapValue = min(gap.value, Self.maximumGap)
         gap = MarginGap()
+        let dynamicGap = sizingGap
+        sizingGap = ReaderParagraphGap()
         var paragraph = Paragraph(start: buffer.count, format: frame.format,
                                   indentsFirstLine: paragraphs.count == frame.firstParagraph,
                                   separatorAttributes: frameAttributes())
@@ -614,10 +622,16 @@ final class SectionWriter {
             buffer.append(CollectionOfOne(0x0A), attributes: paragraphs[previous].separatorAttributes)
             paragraph.start = buffer.count
             if isNote { paragraphs[previous].spacingAfter = 0.4 * state.bodyStyle.fontSize }
-            else if pendingPageBreak && isSection { paragraph.spacingBefore = gapValue; paragraph.pageBreakBefore = true }
-            else { paragraphs[previous].spacingAfter = gapValue }
+            else if pendingPageBreak && isSection {
+                paragraph.spacingBefore = gapValue; paragraph.pageBreakBefore = true
+                paragraph.sizingBefore = dynamicGap
+            } else {
+                paragraphs[previous].spacingAfter = gapValue
+                paragraphs[previous].sizingAfter = dynamicGap
+            }
         } else if !isNote {
             paragraph.spacingBefore = gapValue
+            paragraph.sizingBefore = dynamicGap
         }
         pendingPageBreak = false
         if isSection {
@@ -649,7 +663,10 @@ final class SectionWriter {
 
     private func finish() -> Output {
         closeParagraph()
-        if !isNote, let last = paragraphs.indices.last { paragraphs[last].spacingAfter = min(gap.value, Self.maximumGap) }
+        if !isNote, let last = paragraphs.indices.last {
+            paragraphs[last].spacingAfter = min(gap.value, Self.maximumGap)
+            paragraphs[last].sizingAfter = sizingGap
+        }
         // A trailing empty paragraph (a lone `<br>`) cannot exist without a trailing break.
         while let last = paragraphs.last, last.start == buffer.count {
             paragraphs.removeLast()
@@ -667,6 +684,18 @@ final class SectionWriter {
         }
         let string = buffer.makeAttributedString(dictionaries: styling.dictionaries, paragraphs: styles)
         string.beginEditing()
+        for index in paragraphs.indices where !isNote {
+            let paragraph = paragraphs[index], start = paragraph.start
+            let end = index + 1 < paragraphs.count ? paragraphs[index + 1].start : length
+            guard end > start, paragraph.format.edges.isDynamic || paragraph.sizingBefore?.isDynamic == true
+                || paragraph.sizingAfter?.isDynamic == true else { continue }
+            let base = string.attribute(.paragraphStyle, at: start, effectiveRange: nil) as? NSParagraphStyle ?? .default
+            string.addAttribute(.readerParagraphSizing, value: ReaderParagraphSizing(base: base,
+                edges: paragraph.format.edges, firstLine: paragraph.indentsFirstLine, markerWidth: paragraph.markerWidth,
+                before: paragraph.sizingBefore, after: paragraph.sizingAfter,
+                nominalLeft: paragraph.format.left, nominalRight: paragraph.format.right,
+                nominalIndent: paragraph.format.textIndent), range: NSRange(location: start, length: end - start))
+        }
         for paragraph in paragraphs where paragraph.start < length && (paragraph.pageBreakBefore || paragraph.keepWithNext) {
             let first = NSRange(location: paragraph.start, length: 1)
             if paragraph.pageBreakBefore { string.addAttribute(.readerPageBreakBefore, value: true, range: first) }
@@ -1153,6 +1182,7 @@ final class SectionWriter {
             var next = paragraphs[last]
             next.start = location + offset + 1
             next.indentsFirstLine = false; next.spacingBefore = 0; next.spacingAfter = 0
+            next.sizingBefore = nil; next.sizingAfter = nil
             next.pageBreakBefore = false; next.markerWidth = nil; next.hasNext = false; next.continuation = true
             next.soleAttachment = false; next.factoryStyle = nil; next.hasText = false
             paragraphs.append(next)
@@ -1240,6 +1270,7 @@ private struct BlockFormat {
     var boxes: [ReaderFlowBoxConstraint]
     var flow: ReaderParagraphFlow
     var scope: ReaderBoxScope
+    var edges: ReaderParagraphEdges
     var alignment: NSTextAlignment
     var endAligned: Bool
     var float: ComputedStyle.Float
@@ -1283,6 +1314,8 @@ private struct Paragraph {
     var separatorAttributes: Int
     var spacingBefore: CGFloat = 0
     var spacingAfter: CGFloat = 0
+    var sizingBefore: ReaderParagraphGap?
+    var sizingAfter: ReaderParagraphGap?
     var pageBreakBefore = false
     var keepWithNext = false
     /// Kept with the next for its own sake (a heading), not only by an enclosing `break-inside: avoid`.
