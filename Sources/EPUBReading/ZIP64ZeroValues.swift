@@ -87,12 +87,12 @@ enum ZIP64ZeroValues {
         /// ZIP64 end record's when that is where `start` and `count` come from.
         let end: Int, limit: Int
 
-        /// The end record is the last one in the archive. A ZIP64 end record and its locator,
-        /// when they sit right before it, give the directory's place and length instead.
+        /// The end record is the last one in the archive, as far back as `ArchiveEndRecord`
+        /// looks: ZIPFoundation is given no archive whose record is further back. A ZIP64 end
+        /// record and its locator, when they sit right before it, give the directory's place
+        /// and length instead.
         init?(in bytes: UnsafeRawBufferPointer) {
-            var end = bytes.count - 22
-            while end >= 0, bytes.read(end, as: UInt32.self) != 0x0605_4b50 { end -= 1 }
-            guard end >= 0, let count = bytes.read(end + 10, as: UInt16.self),
+            guard let end = ArchiveEndRecord.offset(in: bytes), let count = bytes.read(end + 10, as: UInt16.self),
                   let start = bytes.read(end + 16, as: UInt32.self) else { return nil }
             self.end = end
             if end > 76, bytes.read(end - 20, as: UInt32.self) == 0x0706_4b50,
