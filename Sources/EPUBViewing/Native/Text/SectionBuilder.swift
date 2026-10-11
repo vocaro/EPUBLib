@@ -158,28 +158,32 @@ final class SectionBuildState {
     }
 
     /// Captures a note element's content once, under its `id` and the ids of its leading
-    /// descendants (a noteref may name the note's first paragraph rather than the note).
+    /// descendants (a noteref may name the note's first paragraph rather than the note, which
+    /// then needs no id of its own). A leading descendant that is a note itself is not followed:
+    /// its ids name that note.
     ///
     /// Only the section's own walk captures notes, and it reaches every element once. A note's
     /// content leaves out the notes nested in it, which are captured on their own, so notes never
     /// repeat each other's text however deeply they nest; the note budget bounds the rest.
     func captureNote(_ element: ContentNode) {
-        guard let id = element.id, notes[id] == nil, noteBudget > 0, nesting < Self.maximumNesting else { return }
-        notes[id] = NSAttributedString() // Claims the id, so a note cannot capture itself again.
+        guard noteBudget > 0, nesting < Self.maximumNesting else { return }
+        var ids: [String] = []
+        var leading: ContentNode? = element
+        while let node = leading, node === element || noteKind(node) == nil {
+            // Claims the id, so a note cannot capture itself again.
+            if let id = node.id, notes[id] == nil { notes[id] = NSAttributedString(); ids.append(id) }
+            leading = node.elementChildren.first
+        }
+        guard !ids.isEmpty else { return }
         nesting += 1
         defer { nesting -= 1 }
-        var content = SectionWriter(state: self, mode: .note(id: id)).renderNote(element)
+        var content = SectionWriter(state: self, mode: .note(ids: Set(ids))).renderNote(element)
         if content.length > noteBudget {
             let end = (content.string as NSString).rangeOfComposedCharacterSequence(at: noteBudget).location
             content = content.attributedSubstring(from: NSRange(location: 0, length: end))
         }
         noteBudget -= content.length
-        notes[id] = content
-        var leading = element.elementChildren.first
-        while let node = leading {
-            if let alias = node.id, notes[alias] == nil { notes[alias] = content }
-            leading = node.elementChildren.first
-        }
+        for id in ids { notes[id] = content }
     }
 
     /// `RichContentContext.resolve`: the decoded archive path of a local reference. Remote and
