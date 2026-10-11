@@ -187,12 +187,10 @@ final class ContainerArchiveCoverageTests: XCTestCase {
 
     // MARK: Damage
 
-    // DISABLED: TRAPS THE TEST PROCESS ("Fatal error: Range requires lowerBound <= upperBound" in
-    // ZIPFoundation's Archive.MemoryFile.readData, reached from EPUBPublication.open(data:) as it
-    // iterates the archive). Rename to `test…` to reproduce; either input alone traps. A book is
-    // untrusted input, and four changed bytes take the host down instead of failing to open.
-    // https://github.com/vocaro/EPUBLib/issues/71
-    func disabled_testAnOffsetBeyondTheEndOfTheArchiveIsRefusedWithoutTrapping() throws {
+    // A book is untrusted input. ZIPFoundation's in-memory file traps when it is read after a seek
+    // past its end ("Fatal error: Range requires lowerBound <= upperBound"), so these inputs took
+    // the host down instead of failing to open.
+    func testAnOffsetBeyondTheEndOfTheArchiveIsRefusedWithoutTrapping() throws {
         // An entry whose local header the directory places one byte past the end of the archive.
         var entry = try Fixture.epub()
         let record = try XCTUnwrap(Fixture.directoryOffset(of: "OPS/one.xhtml", in: entry))
@@ -205,6 +203,62 @@ final class ContainerArchiveCoverageTests: XCTestCase {
             XCTAssertThrowsError(try EPUBPublication.open(data: data), name) {
                 guard case .invalidArchive = $0 as? EPUBPublicationError else { return XCTFail("\(name): \($0)") }
             }
+        }
+    }
+
+    /// `archive` with one 32-bit size of `name`'s directory record (at 20 the compressed size, at
+    /// 24 the uncompressed) set to all ones and `value` in a ZIP64 extra field, where a ZIP64
+    /// writer puts a size too large for the field.
+    private func archive(_ archive: Data, givingSize field: Int, of name: String, as value: UInt64) throws -> Data {
+        var data = archive
+        let record = try XCTUnwrap(Fixture.directoryOffset(of: name, in: data))
+        XCTAssertEqual([data[record + 30], data[record + 31]], [0, 0], "the record has no extra field yet")
+        data.replaceSubrange((record + field)..<(record + field + 4), with: [0xFF, 0xFF, 0xFF, 0xFF])
+        data[record + 30] = 12
+        data.insert(contentsOf: [1, 0, 8, 0] + withUnsafeBytes(of: value.littleEndian) { Array($0) }, at: record + 46 + name.utf8.count)
+        return data
+    }
+
+    func testAZIP64OffsetOrSizeBeyondTheEndOfTheArchiveIsRefusedWithoutTrapping() throws {
+        func assertRefused(_ data: Data, _ name: String, line: UInt = #line) {
+            XCTAssertThrowsError(try EPUBPublication.open(data: data), name, line: line) {
+                guard case .invalidArchive = $0 as? EPUBPublicationError else { return XCTFail("\(name): \($0)", line: line) }
+            }
+        }
+        // Every size and header offset in a ZIP64 field, behind a ZIP64 end record. The first
+        // entry's offset is zero, which ZIPFoundation reads only from the record itself, so it is
+        // stated there and that record's ZIP64 field keeps its two sizes.
+        var wide = Fixture.storedArchive(Fixture.storedEntries(try Fixture.files()), zip64: .everything)
+        let first = try XCTUnwrap(Fixture.directoryOffset(of: "mimetype", in: wide))
+        wide.replaceSubrange((first + 42)..<(first + 46), with: [0, 0, 0, 0])
+        wide[first + 46 + "mimetype".utf8.count + 2] = 16
+        XCTAssertEqual(try EPUBPublication.open(data: wide).spine.count, 2, "offsets inside the archive are followed")
+        // An entry's header offset comes after the two sizes in its record's ZIP64 field; the
+        // directory's offset ends the ZIP64 end record, 28 bytes before the end record.
+        let record = try XCTUnwrap(Fixture.directoryOffset(of: "OPS/one.xhtml", in: wide))
+        for (name, field) in [("header", record + 46 + "OPS/one.xhtml".utf8.count + 20), ("directory", wide.count - 22 - 28)] {
+            for offset in [UInt64(wide.count) + 1, 1 << 32, 1 << 63, .max] {
+                var data = wide
+                data.replaceSubrange(field..<(field + 8), with: withUnsafeBytes(of: offset.littleEndian) { Array($0) })
+                assertRefused(data, "a \(name) offset of \(offset)")
+            }
+        }
+
+        // A data descriptor sought after a ZIP64 size, which may also wrap around.
+        let described = Fixture.storedArchive(Fixture.storedEntries(try Fixture.files(), flags: 0x0808))
+        XCTAssertEqual(try EPUBPublication.open(data: described).spine.count, 2)
+        for size in [UInt64(described.count), 1 << 63, .max] {
+            assertRefused(try archive(described, givingSize: 24, of: "OPS/one.xhtml", as: size), "a described size of \(size)")
+        }
+
+        // A deflated entry's ZIP64 size: read by when it is the entry's own, and refused at 2^63
+        // bytes or more, which the signed size ZIPFoundation reads by cannot hold.
+        let deflated = try Fixture.epub()
+        let field = try XCTUnwrap(Fixture.directoryOffset(of: "OPS/one.xhtml", in: deflated)) + 20
+        let compressed = (0..<4).reduce(UInt64(0)) { $0 | UInt64(deflated[field + $1]) << (8 * UInt64($1)) }
+        XCTAssertEqual(try EPUBPublication.open(data: archive(deflated, givingSize: 20, of: "OPS/one.xhtml", as: compressed)).spine.count, 2)
+        for size in [UInt64(1) << 63, .max] {
+            assertRefused(try archive(deflated, givingSize: 20, of: "OPS/one.xhtml", as: size), "a compressed size of \(size)")
         }
     }
 
