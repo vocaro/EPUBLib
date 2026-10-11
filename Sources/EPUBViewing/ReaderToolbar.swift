@@ -260,6 +260,7 @@ private struct EPUBSearchField: View {
             }
             feedback.font(.callout)
             if let error = controls.commandError { Text(error).foregroundStyle(.red).font(.callout) }
+            EPUBSearchResultPane(controls: controls, onDismiss: onDismiss)
         }
         .task { focused = true }
     }
