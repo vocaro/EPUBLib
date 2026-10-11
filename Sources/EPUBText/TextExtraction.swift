@@ -85,8 +85,8 @@ extension EPUBPublication {
                 reader = try XHTMLTextReader.recover(data, path: item.resource.path, limits: limits)
             }
         } else {
-            // XMLSafety follows XML lexical rules, so malformed HTML (a stray quote in an
-            // unquoted attribute value) can defeat it. Such bytes never reach the XML parser.
+            // XMLSafety follows XML lexical rules, so malformed HTML (an attribute value whose
+            // closing quote is missing) can defeat it. Such bytes never reach the XML parser.
             // Recovery applies its own stricter declaration check to the bytes it parses.
             guard recoversMalformedMarkup else { throw EPUBTextExtractionError.malformedContent(item.resource.path) }
             reader = try XHTMLTextReader.recover(data, path: item.resource.path, limits: limits)

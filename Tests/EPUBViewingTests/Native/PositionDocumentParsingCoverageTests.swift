@@ -401,9 +401,47 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     /// HTML, where "<" before anything but a tag name is text (HTML Standard, tokenization, Tag
     /// open state: "Emit a U+003C LESS-THAN SIGN character token").
     func testAStrayLessThanSignDoesNotWithholdTheSection() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/87")
         let markup = "<html \(Self.xhtml)>\(Self.head)<body><p>if x < y then it's done</p><p>next</p></body></html>"
         XCTAssertNoThrow(try parse(markup), "a quotation mark after the stray sign makes the whole section unreadable")
+    }
+
+    /// The other shapes of that defect, each read by the HTML parser, and what the screen
+    /// still refuses beside a stray sign or quotation mark: neither hides a declaration.
+    func testStraySignsAndQuotationMarksFallBackAndHideNoDeclaration() throws {
+        let cases = [
+            ("a sign before a space", "<p>if x < y then it's done</p><p>next</p>"),
+            ("a sign before a letter", "<p>if x <y then it's done</p><p>next</p>"),
+            ("a sign before a no-break space", "<p>if x <\u{A0}y then it's done</p><p>next</p>"),
+            ("an apostrophe in an unquoted value", "<p title=it's>if x</p><p>next</p>"),
+            ("a quotation mark after a quoted value", "<p title=\"5\" tall\">if x</p><p>it's</p><p>next</p>"),
+        ]
+        for (label, body) in cases {
+            let document = try page(body)
+            XCTAssertTrue(document.recoveredAsHTML, label)
+            XCTAssertTrue(bodyText(document).hasPrefix("if x"), "\(label): \(bodyText(document).debugDescription)")
+            XCTAssertTrue(bodyText(document).contains("next"), "\(label): \(bodyText(document).debugDescription)")
+        }
+        let styled = try parse("<html \(Self.xhtml)><head><title>T</title><style>a::after { content: \"<\" }</style></head><body><p>it's</p><p>next</p></body></html>")
+        XCTAssertTrue(styled.recoveredAsHTML)
+        XCTAssertEqual(styled.nodes.filter { $0.isHTML("p") }.map(\.textContent), ["it's", "next"])
+
+        let refused = [
+            "<p>x < y's <!ENTITY e \"hidden\"> &e;</p>", "<p>x < \"<!DOCTYPE html [<!ENTITY e 'hidden'>]>\" > &e;</p>",
+            "<p>x <y it's> <!DOCTYPE html [<!ENTITY e \"hidden\">]> &e;</p>", "<p a'> <!ENTITY e \"hidden\"> '>&e;</p>",
+        ]
+        for body in refused {
+            XCTAssertThrowsError(try page(body), body) { XCTAssertEqual($0 as? ContentDocumentError, .unsafeMarkup("parsing.xhtml"), body) }
+        }
+        XCTAssertThrowsError(try page("<p>x < y's &e;</p>", prolog: "<!DOCTYPE html [<!ENTITY e \"hidden\">]>")) { error in
+            XCTAssertEqual(error as? ContentDocumentError, .unsafeMarkup("parsing.xhtml"))
+        }
+        // An internal subset to libxml2, which reads on from the `[` although the DOCTYPE has
+        // closed, with or without a stray sign in the text.
+        for body in ["<p>One</p>", "<p>x < y's</p>"] {
+            XCTAssertThrowsError(try page(body, prolog: "<!DOCTYPE html>[<!ATTLIST p title CDATA \"hidden\">]>"), body) { error in
+                XCTAssertEqual(error as? ContentDocumentError, .unsafeMarkup("parsing.xhtml"), body)
+            }
+        }
     }
 
     func testTextAfterAStrayLessThanSignSurvivesTheFallback() throws {

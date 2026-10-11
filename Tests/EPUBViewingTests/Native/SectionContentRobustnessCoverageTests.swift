@@ -186,6 +186,20 @@ final class SectionContentRobustnessCoverageTests: XCTestCase {
 
     // MARK: Hostile markup
 
+    /// An unescaped `<` in prose with an apostrophe after it once withheld the whole section.
+    /// It is not well-formed, so the HTML parser reads it and the section says so.
+    func testAStrayLessThanSignBeforeAnApostropheIsShownAndReported() throws {
+        let data = try Fixture.epub(overrides: ["OPS/one.xhtml": "<html xmlns='http://www.w3.org/1999/xhtml'><head><title>T</title></head><body><p>if x < y then it's done</p><p>next</p></body></html>"])
+        let book = try EPUBPublication.open(data: data)
+        let text = SectionBuilder.build(SectionBuildRequest(publication: book, spineIndex: 0, typography: NativeTypography(),
+                                                            fonts: FontRegistry(publication: book), rich: PlaceholderRichContent()))
+        XCTAssertFalse(text.report.withheld)
+        XCTAssertTrue(text.report.recoveredAsHTML)
+        XCTAssertTrue(text.string.string.hasPrefix("if x"), text.string.string.debugDescription)
+        XCTAssertTrue(text.string.string.hasSuffix("next"), text.string.string.debugDescription)
+        XCTAssertEqual(text.map.length, text.string.length)
+    }
+
     func testHostileRubyListAndTableMarkupDoesNotTrap() throws {
         let bodies = [
             "<rt>stray</rt><rp>x</rp><ruby><ruby><rt>a</rt></ruby><rt>b</rt></ruby><ruby/>",
