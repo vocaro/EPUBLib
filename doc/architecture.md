@@ -48,7 +48,10 @@ A host granting security-scoped file access must keep access active until openin
 
 Inputs need an EPUB mimetype, a container rootfile and a nonempty resolvable spine. Remote manifest
 resources, unsupported encryption, archive traversal, duplicate paths, symlinks, entity declarations,
-malformed metadata/navigation XML and one manifest id naming two resources fail explicitly. Three
+malformed metadata/navigation XML and one manifest id naming two resources fail explicitly. So do
+bytes with no ZIP end record in their last 65,557, as far back as one with the longest comment
+begins: they are refused as no archive without the rest being searched, an archive followed by
+more than 65,535 other bytes among them. Three
 faults real converters write are read past instead: a manifest item repeated verbatim counts once,
 an item whose file the archive lacks is left out of `resources` unless the spine names it, and a
 C0 control character XML forbids, copied from PDF text into a title, reads as a space in an
