@@ -1,0 +1,248 @@
+import EPUBCore
+import EPUBReading
+import EPUBTestSupport
+import Foundation
+import XCTest
+
+/// The EPUB 3 navigation document: the `toc` nav's labels, nesting and hrefs, and XML bounds.
+final class NavigationDocumentCoverageTests: XCTestCase {
+    private typealias Item = EPUBNavigationItem
+
+    /// The plain book with its navigation document replaced by one holding `body`.
+    private func book(nav body: String, adding: [String: Data?] = [:]) throws -> EPUBPublication {
+        try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in Fixture.navigationDocument(body) }, adding: adding))
+    }
+
+    private func contents(_ list: String) throws -> [EPUBNavigationItem] {
+        try book(nav: "<nav epub:type=\"toc\">\(list)</nav>").tableOfContents
+    }
+
+    // MARK: Labels
+
+    func testWhiteSpaceInAContentsLabelIsCollapsed() throws {
+        // EPUB 3.3 §7.3 defines a label as the "concatenation of all child content and application
+        // of whitespace normalization rules"; HTML renders the same link with single spaces.
+        let entries = try contents("""
+            <ol>
+              <li>
+                <a href="one.xhtml">
+                  Chapter   One:
+                  <span class="subtitle">The  Beginning</span>
+                </a>
+              </li>
+              <li><a href="two.xhtml">Chapter\tTwo</a></li>
+            </ol>
+            """)
+        XCTAssertEqual(entries.map(\.title), ["Chapter One: The Beginning", "Chapter Two"])
+    }
+
+    func testALabelIsTheTextOfEverythingInsideItsLink() throws {
+        let entries = try contents("<ol><li><a href=\"one.xhtml\"><span class=\"n\">1.</span> The <em>very <strong>first</strong></em> "
+            + "chapter<sup>*</sup> &amp; <![CDATA[<more>]]><!-- aside --> x<sub>2</sub></a></li>"
+            + "<li><a href=\"two.xhtml\" title=\"A tooltip\"><ruby>\u{6F22}<rt>kan</rt></ruby> H\u{2082}O \u{1F600}</a></li></ol>")
+        XCTAssertEqual(entries.map(\.title), ["1. The very first chapter* & <more> x2", "\u{6F22}kan H\u{2082}O \u{1F600}"])
+        XCTAssertEqual(entries.map(\.href), ["OPS/one.xhtml", "OPS/two.xhtml"])
+    }
+
+    func testAnImageLabelReadsAsItsAlternativeText() throws {
+        // EPUB Reading Systems 3.3 §7: outside HTML a reader should "replace unsupported non-text
+        // elements in headings and labels with their alternative text" (W3C test nav-non-text_img).
+        let entries = try contents("<ol><li><a href=\"one.xhtml\"><img src=\"one.png\" alt=\"The First Chapter\"/></a></li>"
+            + "<li><a href=\"two.xhtml\">Part <img src=\"two.png\" alt=\"Two\"/></a></li></ol>")
+        XCTAssertEqual(entries.map(\.href), ["OPS/one.xhtml", "OPS/two.xhtml"])
+        XCTAssertEqual(entries.map(\.title), ["The First Chapter", "Part Two"])
+    }
+
+    func testNamedCharacterReferencesUnderAnXHTMLDoctypeDoNotVanishFromALabel() throws {
+        // With an external DOCTYPE the XML parser cannot call an undeclared reference an error, and
+        // it reports no text for it. Browsers know XHTML's set by this public identifier, as this
+        // library's content-document parser does; the DTD itself is never read. The label must
+        // come out whole, or the document be refused: not lose its characters silently.
+        let doctype = "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\">"
+        let document = doctype + Fixture.navigationDocument("<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">Caf&eacute;&nbsp;&mdash; 1</a></li></ol></nav>")
+        let title: String?
+        do { title = try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in document })).tableOfContents.first?.title } catch { return }
+        XCTAssertEqual(title, "Caf\u{E9}\u{A0}\u{2014} 1")
+    }
+
+    // MARK: Structure
+
+    func testHeadingsWithoutLinksKeepTheEntriesNestedUnderThem() throws {
+        let entries = try contents("""
+            <h1>Contents</h1>
+            <ol>
+              <li><span>Part I</span>
+                <ol>
+                  <li><a href="one.xhtml">Chapter 1</a>
+                    <ol hidden="">
+                      <li><a href="one.xhtml#a">Section A</a></li>
+                      <li><span>Unlinked group</span><ol><li><a href="one.xhtml#b">Section B</a></li></ol></li>
+                    </ol>
+                  </li>
+                </ol>
+              </li>
+              <li><a href="two.xhtml">Part II</a></li>
+            </ol>
+            """)
+        XCTAssertEqual(entries, [
+            Item(title: "Part I", children: [
+                Item(title: "Chapter 1", href: "OPS/one.xhtml", children: [
+                    Item(title: "Section A", href: "OPS/one.xhtml#a"),
+                    Item(title: "Unlinked group", children: [Item(title: "Section B", href: "OPS/one.xhtml#b")]),
+                ]),
+            ]),
+            Item(title: "Part II", href: "OPS/two.xhtml"),
+        ])
+    }
+
+    func testTheContentsNavIsFoundAmongOtherNavsAndInsideOtherElements() throws {
+        let book = try book(nav: """
+            <header><nav><ol><li><a href="two.xhtml">An untyped list</a></li></ol></nav></header>
+            <nav epub:type="lot"><h2>Tables</h2><ol><li><a href="two.xhtml#t1">Table 1</a></li></ol></nav>
+            <main><section><div>
+              <nav epub:type="toc" id="toc" role="doc-toc" hidden="hidden" aria-labelledby="h">
+                <h2 id="h">Contents</h2>
+                <ol><li><a href="one.xhtml">Chapter 1</a></li></ol>
+              </nav>
+            </div></section></main>
+            <nav epub:type="toc"><ol><li><a href="two.xhtml">A second contents list</a></li></ol></nav>
+            """)
+        XCTAssertEqual(book.tableOfContents, [Item(title: "Chapter 1", href: "OPS/one.xhtml")], "the first toc nav, hidden or not")
+        XCTAssertTrue(book.landmarks.isEmpty)
+        XCTAssertNil(book.pageList)
+    }
+
+    func testXHTMLElementsUnderANamespacePrefixAreRead() throws {
+        let nav = "<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:e=\"http://www.idpf.org/2007/ops\"><h:head><h:title>Contents</h:title></h:head>"
+            + "<h:body><h:nav e:type=\"toc\"><h:ol><h:li><h:a href=\"one.xhtml\">Chapter <h:em>1</h:em></h:a><h:ol><h:li><h:span>Group</h:span>"
+            + "<h:ol><h:li><h:a href=\"two.xhtml\">Chapter 2</h:a></h:li></h:ol></h:li></h:ol></h:li></h:ol></h:nav>"
+            + "<h:nav e:type=\"landmarks\"><h:ol><h:li><h:a e:type=\"bodymatter\" href=\"one.xhtml\">Start</h:a></h:li></h:ol></h:nav></h:body></h:html>"
+        let book = try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in nav }))
+        XCTAssertEqual(book.tableOfContents, [Item(title: "Chapter 1", href: "OPS/one.xhtml", children: [
+            Item(title: "Group", children: [Item(title: "Chapter 2", href: "OPS/two.xhtml")]),
+        ])])
+        XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["bodymatter"], title: "Start", href: "OPS/one.xhtml")])
+    }
+
+    func testAnEPUB3BookWhoseNavigationFileIsAbsentReadsItsNCX() throws {
+        let ncx = try EPUBPublication.open(data: Fixture.epub(epub2: true)).tableOfContents
+        let book = try EPUBPublication.open(data: Fixture.packageVariant(adding: ["OPS/nav.xhtml": nil]))
+        XCTAssertEqual(book.tableOfContents, ncx)
+        XCTAssertFalse(book.resources.contains { $0.properties.contains("nav") })
+    }
+
+    // MARK: Hrefs
+
+    func testEntryHrefsResolveFromTheNavigationDocumentsFolder() throws {
+        let list = "<nav epub:type=\"toc\"><ol><li><a href=\"\">This list</a></li><li><a href=\"#further\">Further down</a></li>"
+            + "<li><a href=\"../one.xhtml#start\">Up a folder</a></li><li><a href=\"./../text/../two.xhtml\">Round about</a></li>"
+            + "<li><a href=\"appendix.xhtml\">Beside it</a></li></ol></nav>"
+        let book = try EPUBPublication.open(data: Fixture.packageVariant(
+            opf: { $0.replacingOccurrences(of: "href=\"nav.xhtml\"", with: "href=\"front/nav.xhtml\"") },
+            adding: ["OPS/nav.xhtml": nil, "OPS/front/nav.xhtml": Data(Fixture.navigationDocument(list).utf8)]))
+        XCTAssertEqual(book.tableOfContents.map(\.href), ["OPS/front/nav.xhtml", "OPS/front/nav.xhtml#further", "OPS/one.xhtml#start",
+                                                         "OPS/two.xhtml", "OPS/front/appendix.xhtml"])
+    }
+
+    func testAnEntryHrefIsEncodedLikeTheHrefOfTheResourceItNames() throws {
+        // However the navigation document spells it, the entry's href starts with the resource's.
+        let spellings = ["chapter%20%231%20caf%C3%A9.xhtml", "chapter%20%231%20caf%c3%a9.xhtml", "chapter %231 caf\u{E9}.xhtml",
+                         "./chapter%20%231%20cafe%CC%81.xhtml", "x/../chapter%20%231%20caf%C3%A9.xhtml"]
+        let list = spellings.map { "<li><a href=\"\($0)#sec%201\">Chapter</a></li>" }.joined()
+        let book = try EPUBPublication.open(data: Fixture.packageVariant(
+            opf: { $0.replacingOccurrences(of: "href=\"one.xhtml\"", with: "href=\"chapter%20%231%20caf%C3%A9.xhtml\"") },
+            nav: { _ in Fixture.navigationDocument("<nav epub:type=\"toc\"><ol>\(list)</ol></nav>") },
+            adding: ["OPS/chapter #1 caf\u{E9}.xhtml": Data("<html/>".utf8)]))
+        let resource = try XCTUnwrap(book.spine.first?.resource)
+        XCTAssertEqual(resource.path, "OPS/chapter #1 caf\u{E9}.xhtml")
+        XCTAssertEqual(resource.href, "OPS/chapter%20%231%20caf%C3%A9.xhtml")
+        for (spelling, entry) in zip(spellings, book.tableOfContents) {
+            let parts = try XCTUnwrap(entry.href).split(separator: "#", omittingEmptySubsequences: false).map(String.init)
+            XCTAssertEqual(parts.count, 2, spelling)
+            XCTAssertEqual(parts.first?.removingPercentEncoding, resource.path, spelling)
+            XCTAssertEqual(parts.last, "sec%201", spelling)
+            if !spelling.contains("%CC%81") { XCTAssertEqual(parts.first, resource.href, spelling) }
+        }
+    }
+
+    func testAnEntryHrefSurroundedBySpacesNamesItsTarget() throws {
+        // An HTML href is a URL "potentially surrounded by spaces", stripped before parsing. EPUBCheck
+        // passes content-model-a-with-leading-trailing-spaces-valid.xhtml, written this way.
+        let entries = try contents("<ol><li><a href=\" one.xhtml\">Chapter 1</a></li><li><a href=\"two.xhtml#start \">Chapter 2</a></li>"
+            + "<li><a href=\"\n      one.xhtml#start\n    \">Chapter 1 again</a></li></ol>")
+        XCTAssertEqual(entries.map(\.href), ["OPS/one.xhtml", "OPS/two.xhtml#start", "OPS/one.xhtml#start"])
+    }
+
+    func testAnEPUBCFIFragmentSurvivesInAnEntryHref() throws {
+        // As EPUBCheck's nav-cfi-valid links into the package document.
+        let entries = try contents("<ol><li><a href=\"book.opf#epubcfi(/6/2!/4/2/1:1)\">By position</a></li>"
+            + "<li><a href=\"two.xhtml#epubcfi(/4/2[start],/1:0,/1:5)\">A range</a></li></ol>")
+        XCTAssertEqual(entries.map { $0.href?.removingPercentEncoding }, ["OPS/book.opf#epubcfi(/6/2!/4/2/1:1)", "OPS/two.xhtml#epubcfi(/4/2[start],/1:0,/1:5)"])
+        XCTAssertEqual(entries.first?.href, "OPS/book.opf#epubcfi(/6/2!/4/2/1:1)")
+    }
+
+    // MARK: Landmarks
+
+    func testLandmarksAreReadFromLinksAlone() throws {
+        let book = try book(nav: "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">Chapter 1</a></li></ol></nav>"
+            + "<nav epub:type=\"landmarks\" hidden=\"\"><h2>Guide</h2><ol><li><a epub:type=\"toc\" href=\"#toc\">Contents</a></li>"
+            + "<li><span epub:type=\"cover\">No link</span></li><li><a epub:type=\"bodymatter\">No href</a></li>"
+            + "<li><a epub:type=\"backmatter  index\" href=\"two.xhtml\"> Index </a></li></ol></nav>")
+        XCTAssertEqual(book.landmarks, [
+            EPUBLandmark(types: ["toc"], title: "Contents", href: "OPS/nav.xhtml#toc"),
+            EPUBLandmark(types: ["backmatter", "index"], title: "Index", href: "OPS/two.xhtml"),
+        ])
+    }
+
+    // MARK: XML bounds
+
+    /// A navigation document whose deepest element, the contents link, is `depth` elements deep.
+    private func nested(depth: Int) -> String {
+        // html, body, nav, ol, li and a are six levels.
+        let wrappers = depth - 6
+        return "<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\"><body>"
+            + String(repeating: "<div>", count: wrappers) + "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">Deep</a></li></ol></nav>"
+            + String(repeating: "</div>", count: wrappers) + "</body></html>"
+    }
+
+    func testANavigationDocumentAtTheDepthLimitIsReadAndOneLevelDeeperRefused() throws {
+        let book = try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in self.nested(depth: 64) }))
+        XCTAssertEqual(book.tableOfContents, [Item(title: "Deep", href: "OPS/one.xhtml")])
+        XCTAssertThrowsError(try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in self.nested(depth: 65) }))) {
+            XCTAssertEqual($0 as? EPUBPublicationError, .invalidXML("OPS/nav.xhtml"))
+        }
+    }
+
+    func testANavigationDocumentAtTheElementLimitIsReadAndOneMoreRefused() throws {
+        // html, head, title, body, nav, ol, li and a are eight elements.
+        func document(elements: Int) -> String {
+            Fixture.navigationDocument("<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">Wide</a></li></ol></nav>"
+                + String(repeating: "<i/>", count: elements - 8))
+        }
+        let book = try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in document(elements: 100_000) }))
+        XCTAssertEqual(book.tableOfContents, [Item(title: "Wide", href: "OPS/one.xhtml")])
+        XCTAssertThrowsError(try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in document(elements: 100_001) }))) {
+            XCTAssertEqual($0 as? EPUBPublicationError, .invalidXML("OPS/nav.xhtml"))
+        }
+    }
+
+    func testAContentsListOfManyEntriesIsReadWhole() throws {
+        let list = (1...20_000).map { "<li><a href=\"one.xhtml#s\($0)\">Section \($0)</a></li>" }.joined()
+        let entries = try contents("<ol>\(list)</ol>")
+        XCTAssertEqual(entries.count, 20_000)
+        XCTAssertEqual(entries.last, Item(title: "Section 20000", href: "OPS/one.xhtml#s20000"))
+    }
+
+    func testAnEntityDeclarationInAnEncodingTheScreenDoesNotDecodeIsStillRefused() throws {
+        // doc/architecture.md: "entity declarations ... fail explicitly". In UTF-7 the declaration
+        // below has no `<!` byte sequence, yet the XML parser honours the declared encoding and
+        // reads `+ADw-` as `<`: a DOCTYPE with an internal subset declaring an entity.
+        let declaration = "<?xml version=\"1.0\" encoding=\"UTF-7\"?>"
+        let html = "<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\"><body><nav epub:type=\"toc\"><ol>"
+            + "<li><a href=\"one.xhtml\">Chapter &amp; verse</a></li></ol></nav></body></html>"
+        let utf8 = "<!DOCTYPE html [<!ENTITY e \"expanded\">]>" + html
+        XCTAssertThrowsError(try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in utf8 })), "the control: the same document in UTF-8")
+        let utf7 = declaration + "+ADw-!DOCTYPE html [+ADw-!ENTITY e \"expanded\">]>" + html
+        XCTAssertThrowsError(try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in utf7 })), "in UTF-7")
+    }
+}
