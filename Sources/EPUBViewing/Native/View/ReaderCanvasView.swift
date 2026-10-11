@@ -370,10 +370,27 @@ import AppKit
 
     private func tearDownPages() {
         cancelPendingSpread()
-        for column in columns { column.removeFromSuperview() }
+        for column in columns {
+            discard(column)
+            column.removeFromSuperview()
+        }
         columns.removeAll()
         spread = nil
         shownPage = nil
+    }
+
+    /// A text view the canvas is done with. The platform frees views in its own time, so the
+    /// text goes now, and with it every image, SVG renderer and font reservation it holds.
+    private func discard(_ view: ReaderTextView) {
+        view.canvas = nil
+        view.delegate = nil
+        empty(view)
+    }
+
+    /// Removes a text view's text and the viewport's hold on what it was showing.
+    private func empty(_ view: ReaderTextView) {
+        view.setContent(NSAttributedString())
+        view.readerLayoutManager.textViewportLayoutController.layoutViewport()
     }
 
     /// A section's pagination at a column size (the spread's by default), cached by both.
@@ -419,6 +436,16 @@ import AppKit
     func trimCaches() {
         let kept = shownPaginatorKey
         for key in paginatorUse where key != kept { removePaginator(key) }
+    }
+
+    /// The reader is closed or this view is going away: nothing here is shown again, so the
+    /// text and its paginations go now rather than with the views.
+    func releaseContent() {
+        cancelPendingSpread()
+        for view in columns + [scrollTextView].compactMap({ $0 }) { empty(view) }
+        scrollBook = nil
+        paginators.removeAll()
+        paginatorUse.removeAll()
     }
 
     var cachedPaginatorCount: Int { paginators.count }
@@ -557,9 +584,11 @@ import AppKit
     }
 
     private func tearDownScroll() {
+        let textView = scrollTextView
+        scrollTextView = nil
+        if let textView { discard(textView) }
         scrollContainer?.removeFromSuperview()
         scrollContainer = nil
-        scrollTextView = nil
         scrollBook = nil
         scrollGeometry = nil
     }

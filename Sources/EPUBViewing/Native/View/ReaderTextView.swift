@@ -69,6 +69,10 @@ extension ReaderTextView {
             if value is TableRowAttachment { containsTableRows = true; stop.pointee = true }
         }
         flowSourceText = text
+        // After a resize TextKit 2 keeps layout fragments of text it has not laid out again, and
+        // replacing the characters leaves them behind with the attachments they measured. Drop
+        // the outgoing layout first, so a rebuilt book's old images are released with its text.
+        readerLayoutManager.invalidateLayout(for: readerLayoutManager.documentRange)
         contentStorage.textStorage?.setAttributedString(text)
         refreshFlowBoxLayout()
         exposeTextualAttachments()

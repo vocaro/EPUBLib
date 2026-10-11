@@ -97,6 +97,7 @@ import SwiftUI
         book.close()
         canvas?.delegate = nil
         canvas?.dataSource = nil
+        canvas?.releaseContent()
         canvas = nil
     }
 
@@ -123,6 +124,7 @@ import SwiftUI
         guard self.canvas === canvas else { return }
         canvas.delegate = nil
         canvas.dataSource = nil
+        canvas.releaseContent()
         self.canvas = nil
         if !closed { readerState?.modify { $0.lifecycle = .loading } }
     }
