@@ -245,6 +245,10 @@ final class SectionWriter {
         if style.requiresFlowBox, !node.isHTML("html"), !node.isHTML("body") {
             state.report.report.flowBoxesReflowed = true
         }
+        // An inline flex or grid container has no box of its own here: its items follow one another.
+        if style.blockifiesChildren, !style.display.isBlockLevel, node.elementChildren.count > 1 {
+            state.report.report.flexGridSimplified = true
+        }
         var context = parent.context
         if let language = node.language { context.language = language.isEmpty ? nil : language }
 
@@ -508,6 +512,7 @@ final class SectionWriter {
         closeParagraph()
         guard frames.count > 1 else { return }
         let frame = frames.removeLast()
+        if frame.format.itemAlignment.close() { state.report.report.flexGridSimplified = true }
         // `break-inside: avoid` keeps a box's paragraphs with each other, not its last with what follows.
         if frame.keepTogether, let last = paragraphs.indices.last, last >= frame.firstParagraph,
            paragraphs[last].keptTogetherBy == frames.count {
@@ -578,8 +583,9 @@ final class SectionWriter {
         if style.requiresFlowBox && boxes.count < 8 {
             boxes.append(ReaderFlowBoxConstraint(style: style, containing: containing, replaced: replaced))
         }
+        let itemAlignment = parent.map { ReaderAlignmentFrame(style: style, parent: $0.format.itemAlignment) } ?? (isSection ? .root : .none)
         return BlockFormat(boxes: boxes, flow: ReaderParagraphFlow(style: style, scope: scope), scope: scope,
-                           edges: ReaderParagraphEdges(style: style, parent: parent?.format.edges),
+                           itemAlignment: itemAlignment, edges: ReaderParagraphEdges(style: style, parent: parent?.format.edges),
                            alignment: alignment, endAligned: endAligned, float: style.float, direction: direction,
                            left: left, right: right, textIndent: resolve(style.textIndent),
                            lineHeightMultiple: multiple, lineHeight: cssLineHeight, hyphenate: style.hyphens == .auto,
@@ -618,6 +624,7 @@ final class SectionWriter {
         var paragraph = Paragraph(start: buffer.count, format: frame.format,
                                   indentsFirstLine: paragraphs.count == frame.firstParagraph,
                                   separatorAttributes: frameAttributes())
+        paragraph.alignmentItem = frame.format.itemAlignment.paragraphItem()
         if let previous = paragraphs.indices.last {
             buffer.append(CollectionOfOne(0x0A), attributes: paragraphs[previous].separatorAttributes)
             paragraph.start = buffer.count
@@ -716,6 +723,7 @@ final class SectionWriter {
             if end > start { string.addAttribute(.readerParagraphFlow, value: paragraphs[index].format.flow,
                                                 range: NSRange(location: start, length: end - start)) }
         }
+        if isSection { ReaderAlignmentLayout.tag(string, paragraphs: paragraphs.map { ($0.start, $0.alignmentItem) }) }
         for attribute in postAttributes where NSMaxRange(attribute.range) <= length {
             string.addAttribute(attribute.key, value: attribute.value, range: attribute.range)
         }
@@ -1270,6 +1278,8 @@ private struct BlockFormat {
     var boxes: [ReaderFlowBoxConstraint]
     var flow: ReaderParagraphFlow
     var scope: ReaderBoxScope
+    /// The box's place among flex and grid containers (`BoxAlignment.swift`).
+    var itemAlignment: ReaderAlignmentFrame
     var edges: ReaderParagraphEdges
     var alignment: NSTextAlignment
     var endAligned: Bool
@@ -1333,6 +1343,8 @@ private struct Paragraph {
     var hasNext = false
     /// An outside list marker's width, which hangs before the content.
     var markerWidth: CGFloat?
+    /// The flex or grid item holding the paragraph.
+    var alignmentItem: ReaderAlignmentItem?
 
     init(start: Int, format: BlockFormat, indentsFirstLine: Bool, separatorAttributes: Int) {
         self.start = start; self.format = format; self.indentsFirstLine = indentsFirstLine

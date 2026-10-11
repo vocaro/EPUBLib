@@ -91,6 +91,7 @@ import XCTest
             "scriptsRefused": report.scriptsRefused, "remoteResourcesRefused": report.remoteResourcesRefused,
             "unsupportedElements": report.unsupportedElements.values.reduce(0, +),
             "unreadableResources": report.unreadableResources, "mathFallbacks": report.mathFallbacks,
+            "mathApproximations": report.mathApproximations, "mathReductions": report.mathReductions,
             "recoveredAsHTML": report.recoveredAsHTML ? 1 : 0, "stylesTruncated": report.stylesTruncated ? 1 : 0,
             "verticalWritingFlattened": report.verticalWritingFlattened ? 1 : 0,
         ]

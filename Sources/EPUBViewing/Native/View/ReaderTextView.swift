@@ -69,6 +69,10 @@ extension ReaderTextView {
             if value is TableRowAttachment { containsTableRows = true; stop.pointee = true }
         }
         flowSourceText = text
+        // After a resize TextKit 2 keeps layout fragments of text it has not laid out again, and
+        // replacing the characters leaves them behind with the attachments they measured. Drop
+        // the outgoing layout first, so a rebuilt book's old images are released with its text.
+        readerLayoutManager.invalidateLayout(for: readerLayoutManager.documentRange)
         contentStorage.textStorage?.setAttributedString(text)
         refreshFlowBoxLayout()
         exposeTextualAttachments()
@@ -162,6 +166,10 @@ extension ReaderTextView {
             guard let range = textRange(for: highlight.range) else { continue }
             layoutManager.addRenderingAttribute(.backgroundColor, value: highlight.color, for: range)
         }
+        // A rendering attribute changes what a fragment draws, not its layout, and TextKit 2
+        // repaints a laid-out fragment only for the latter: without this a cleared highlight
+        // stays on the page, and one added in place is missing, until the text next reflows.
+        setRenderedTextNeedsDisplay()
     }
 
     /// Native TextKit insertion offset nearest a point, without invoking TextKit 1.

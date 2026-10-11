@@ -10,6 +10,13 @@ import AppKit
 /// cells. An empty equivalent (a rule) contributes nothing.
 protocol ReaderTextualAttachment: AnyObject {
     var textEquivalent: String { get }
+    /// The BCP 47 language `textEquivalent` is spoken in, when it is known and may differ from
+    /// the text around it: a formula's generated reading is not in the book's language.
+    var textLanguage: String? { get }
+}
+
+extension ReaderTextualAttachment {
+    var textLanguage: String? { nil }
 }
 
 extension NSAttributedString {

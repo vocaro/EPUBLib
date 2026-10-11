@@ -142,6 +142,8 @@ struct ComputedStyle: Equatable, Sendable {
     }
     /// A flex or grid container, which renders as a block; its in-flow children are blockified.
     var blockifiesChildren = false
+    /// The flex and grid values the native layout aligns items by (`ReaderAlignmentLayout`).
+    var boxAlignment = BoxAlignment()
     var margin = Edges<Length>(.zero)
     var padding = Edges<Length>(.zero)
     var border = Edges<Border>(Border())

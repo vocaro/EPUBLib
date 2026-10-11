@@ -51,7 +51,8 @@ C0 control character XML forbids, copied from PDF text into a title, reads as a 
 ASCII-compatible document. The package does not otherwise repair malformed EPUBs, validate the full
 EPUB specification, synthesize page numbers or provide DRM support. Standard IDPF
 and Adobe font obfuscation are decoded for resource access, including the viewer's embedded fonts. Media overlays,
-TTS, annotation persistence and full-text search result enumeration are outside the initial API.
+TTS and annotation persistence are outside the initial API. The headless publication model enumerates no
+search results; a reader session lists them as rendered (`EPUBSearchResults`, see [reader controls](reader-controls.md#search-results)).
 
 ## Engine contract
 

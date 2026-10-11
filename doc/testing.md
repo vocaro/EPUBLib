@@ -34,7 +34,9 @@ tests check the XOR prefix and the untouched suffix against independently specif
 
 Viewer component tests cover content-document parsing, the CSS cascade and fonts, attributed-text
 building and its text map, images, tables, MathML attachments, CFIs and text search, pagination
-geometry and the TextKit 2 views. CFI and search tests replay vectors recorded from foliate-js's own
+geometry and the TextKit 2 views. MathML fixtures cover wide display and inline formulas at 17
+and 28 points in a 320-point column, their rows as laid out and drawn in both flows, `mglyph`,
+elementary math, and readings in French and German content with and without `alttext`. CFI and search tests replay vectors recorded from foliate-js's own
 `epubcfi.js` and `search.js` in WebKit before they were removed, so CFIs the WebKit reader
 recorded keep naming the same positions. Live session tests mount a reader in a window, open at
 the text start (a `bodymatter` landmark, a guide `text` reference or the first linear section),
@@ -43,17 +45,61 @@ navigate between sections, exercise styles and flows, update page controls witho
 restore on `.ready` replacing the text start), report the page-list entries on screen in both
 flows after page turns, scrolling, navigation to markers, a restore and a resize, and for a
 selection, and close the session. Separate fixtures exercise
-encoded filenames and fragments, fixed layout, RTL and vertical writing. The illustrated fixture
+encoded filenames and fragments, fixed layout, RTL, vertical writing, and flex and grid alignment
+(a centred title page, a Standard Ebooks style epigraph, a grid dedication and layouts left in
+block flow, with their expected native geometry). The illustrated fixture
 has 40 sections and eight incompressible 1024×1024 images; its test enforces an archive size over
-20 MiB and verifies that later sections remain navigable.
+20 MiB and verifies that later sections remain navigable. Relayout tests take one mounted
+session of a book of labelled SVG figures from wide and light to narrow, large and dark, and
+require the images mounted in its text view to be those of a second session opened at that
+size and style. They also require replaced and closed text to release its images.
+
+Search-result tests cover a query across three spine documents (counts, spine and document
+order, hidden content, section titles, page labels, paragraph and table-cell context, CFIs that
+restore and highlight the occurrence), stepping, wrapping and selecting in both flows and in an
+RTL book, the current match across page turns, navigation, typography, flow and a remount,
+invalidation by clear, a replaced, rejected, superseded or cancelled query, `.locate` and
+close, the bounded list, and ten thousand results in one flat section. Control tests cover the
+indicator, button and result wording for every state, engines that only highlight, the FIFO
+match commands beside page turns, and mount the supplied views in each state: on their own, at
+a large accessibility text size and in a navigation toolbar. They do not establish toolbar
+overflow, popover or VoiceOver behaviour on a device: SwiftUI builds no accessibility tree for
+an in-process query. Set `EPUB_SNAPSHOT_DIR` for `swift test`, or
+`TEST_RUNNER_EPUB_SNAPSHOT_DIR` for `scripts/test-ios.sh`, to keep a PNG of each mounted state.
+These are layer renders from a test host, not screen captures, so system bar materials and
+presentations are absent from them.
 
 Page-input tests cover default and replaced/cleared shortcuts, exact modifiers, duplicate/invalid
 bindings, canvas and child focus, selection chords, live iOS recognizer disabling, Mac wheel
 pass-through and reset, zero/invalid/asymmetric/overlapping zones, RTL, resizing, fold exclusion,
 both reading flows, host commands and iOS VoiceOver page turns with direct input disabled.
 
+Highlight paint tests read the pixels the mounted reader's views last drew: none in the
+highlight's color before a search, the matches after it, and none again after Clear Search,
+with no reflow between. They cover both flows, one- and two-column spreads, dark appearance,
+table cells, a highlight-only search and host highlights added and removed in place.
+`ReaderPaintRecorder` copies each `draw(_:)` the system makes of a view under the canvas into a
+bitmap kept for that view and composes those as the views are arranged. Rendering the view
+does not serve: on Mac `cacheDisplay(in:to:)` and `CALayer.render(in:)` draw afresh, showing
+what the reader would paint now and never a surface nothing invalidated, which is what stays
+on screen; they counted no highlight pixels while the cleared matches were still painted.
+`drawHierarchy(in:afterScreenUpdates:)`, which reads what UIKit composed, has no render server
+in the simulator's test host. On Mac the tests turn off AppKit's text checking in the reader's
+text views; it redraws them about a second after their text is set, which could repaint a
+stale surface before it was read. Set `EPUBLIB_PAINT_DIR` to a directory to keep each step's
+picture and counts.
+
+Control view tests read the platform controls SwiftUI builds for the supplied controls: the
+Mac reading-mode segments' accessible names, values and actions, the picker's selection and
+disabled state on both platforms, the search field's editing, submission and survival of its
+pane beside a real reader, and that the field stands outside the reader's page keys. SwiftUI
+draws the supplied buttons and menus itself and exposes them to no in-process test; their
+names, capabilities and disabled states are checked in the model they read.
+
 These are deterministic regression fixtures, not an EPUB conformance certification, a comprehensive
-typographic review, an accessibility audit or a memory budget measurement.
+typographic review, an accessibility audit or a memory budget measurement. They do not establish
+VoiceOver speech or focus order, keyboard-only traversal, native toolbar overflow or iPhone Duo
+layouts ([#51](https://github.com/vocaro/EPUBLib/issues/51)), which need live sessions.
 The suite runs on OS 27; older platforms are outside the package's deployment targets. Simulator
 coverage does not substitute for hardware performance and accessibility testing.
 
@@ -78,11 +124,19 @@ The verifier checks:
 - Href navigation changes sections and bookmark restoration returns to the saved section.
 - Locations carry the publication identity and a valid engine-tagged bookmark when supported.
 - Foreign publication, engine and bookmark format identities are rejected.
+- An engine with `.searchResults` lists the phrase's results before reporting completion, with
+  indices in order and the publication's identity; steps, wraps and selects as
+  `EPUBSearchResults.steppedIndex(forward:)` says; mirrors the list in `readerState` when it has
+  one; refuses an unlisted result; and withdraws the list on clear, after which a kept result is
+  refused and no step has any effect. An engine without it refuses the three result commands
+  with `.unsupported(.searchResults)` and publishes no results.
 - Close is idempotent; closed commands fail and later callbacks are suppressed.
 
-A minimal SwiftUI test engine runs the same checks with no renderer at all. Deliberately broken
-engines demonstrate that missing/duplicate readiness, ignored cancellation, incompatible restoration
-and late callbacks fail the verifier. Adapter-specific tests must additionally check actual rendering,
+A minimal SwiftUI test engine runs the same checks with no renderer at all, as an engine with no
+search, one that only highlights and one that lists results. Deliberately broken
+engines demonstrate that missing/duplicate readiness, ignored cancellation, incompatible restoration,
+late callbacks, results published after completion, steps that do not wrap, stale results that
+still navigate and results kept after a clear fail the verifier. Adapter-specific tests must additionally check actual rendering,
 selection gestures, precise bookmark semantics and resource release. A bounded quiet period after
 close detects queued callbacks; it cannot prove that an engine will never emit a much later event.
 

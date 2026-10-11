@@ -85,8 +85,34 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   package (CoreText and the OpenType MATH table), draws each `<math>` as an attachment,
   baseline-aligned inline and centred for `display="block"`. The corpus uses `mi`, `mn`, `mo`,
   `mrow`, `mfrac`, `msup`, `msub`, `msqrt` and `mstyle` (1,798 formulas, all with `alttext`);
-  the engine also covers the common remainder. Anything it cannot lay out shows its `alttext`
-  and is disclosed. No WebKit.
+  the engine also lays out every other MathML 3 presentation element except `mglyph` and
+  elementary math. The reader covers those two around it, each disclosed as a simplified
+  layout: an `mglyph` shows its `alt` where it stands (a box when it has none), and `mstack`
+  and `mlongdiv` are set as a table with a column for each digit, carries small above their
+  digits, crossed-out digits struck through, a rule under the rows it follows, and a division's
+  divisor and result around its working. Anything else the engine cannot lay out shows its
+  `alttext` and is disclosed. No WebKit.
+- **Wide formulas.** A formula wider than its line shrinks to fit, to no less than three
+  quarters of the text's size. Past that it breaks into rows at full size: before a relation
+  or a binary operator, after a separator, and where the author's `linebreak` attribute says
+  (`newline` at any width; `nobreak`, `goodbreak`, `badbreak` and `linebreakstyle="after"`
+  honoured). Rows end at relations in preference to the operator after one, and continuation
+  rows line up on the first relation, or indent two ems when it is not near the left edge.
+  Breaks outside brackets come first: rows shrink, again to no less than three quarters, before
+  a break is taken inside brackets. Fractions, roots, scripts, tables and enclosures never break.
+  A formula that is one such unit shrinks to the line whole, never clipped, and is disclosed
+  when a 320-point column would show it below three quarters. The rows are one attachment, so a
+  section's characters, positions and CFIs do not depend on the column: a display formula's rows
+  are centred as a block, and an inline formula wider than a whole line takes rows of its own.
+  On the 22 wide-formula fixtures in a 320-point column (macOS 27), one row scaled to the line
+  left 13 below three quarters of 17-point text (the smallest at 44%) and 17 at 28 points
+  (27%); rows leave 2 and 4, each a single fraction, table or bracketed power.
+- **Spoken math.** Assistive technologies read a formula's `alttext` verbatim, in the content's
+  language: the nearest `xml:lang` or `lang` on the `math` element or an ancestor, else the
+  publication's. Without `alttext` the reading is generated from the markup, and elementary
+  math is read row by row. MathMLLayout 0.1.0 generates English only, so a generated reading is
+  tagged English whatever the book's language, for an English voice to read, rather than
+  handed to the book's voice as if it were its language.
 - **SVG.** Inline and archive SVG illustrations render through the bundled resvg static
   renderer, including paths, text, gradients, transforms, clipping, local definitions and
   `viewBox`/`preserveAspectRatio`. A plain single-image wrapper retains the raster-image fast
@@ -134,6 +160,17 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   layouts and glyph metadata are retained for drawing in the table's bounded layout cache.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow; endnotes stay in place and also show in popovers.
+- **Flex and grid.** TextKit lays a section out as one column of paragraphs, so the reader
+  aligns the flex and grid layouts that keep that column: a column flex container, a one-column
+  grid and a row flex container with a single item
+  ([Flex and grid alignment](#flex-and-grid-alignment)). That covers the patterns reflowable
+  books use to centre a page: Standard Ebooks' full-page epigraphs and dedications, a title
+  page centred by its `body`, a `place-items: center` grid. Items meant to sit side by side,
+  wrap, reverse or be reordered stay blocks in reading order, with a `.disclosure`. Alignment is
+  paragraph spacing and indents resolved at the live column size and never changes a section's
+  characters, so CFIs, search, selection and highlights do not depend on it. The subset follows
+  a survey of published stylesheets and this repository's fixtures, not a book corpus
+  ([qualification](issue-20-flex-grid-alignment.md)).
 - **Continuous scroll** is whole-book: one `UITextView`/`NSTextView` over every linear
   section, so nothing resets at a section boundary and the system scroll edge effects apply.
   Until every section is built it shows the current section, then swaps to the whole book in
@@ -143,10 +180,21 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   the session emits `.ready` once it is on screen; the rest build in the background in
   parallel. Images decode lazily, downsampled to their displayed size, under a shared cache
   budget.
+- **Release.** A typography change keeps each built section on screen until its rebuild
+  arrives. A rebuilt SVG shares the font database its replaced build still holds, so a
+  relayout needs no more of the font budget than the book already has. The text view drops
+  replaced text's layout with the text, so its images go with it, also after a resize.
+  `close()` releases the session's sections and paginations and empties its text views at
+  once, as does a dismantled view. Neither waits for the platform to free the views
+  ([investigation](issue-54-svg-relayout.md)).
 - **Highlights.** New public `EPUBReaderCommand.setHighlights([EPUBHighlight])` and capability
   `.highlights` draw host highlights from their range CFIs, including every `rangeBookmarks`
   segment of a multi-document annotation (StudyWright #85). Search and
-  highlights are TextKit 2 rendering attributes; they never change the text.
+  highlights are TextKit 2 rendering attributes; they never change the text. The current
+  search result is drawn again over its match in a darker, differently hued highlight.
+  TextKit 2 redraws a laid-out fragment when its layout changes, not when a rendering
+  attribute does, so each change asks for the fragments on screen to be drawn again
+  ([#51](https://github.com/vocaro/EPUBLib/issues/51)).
 - **Pages.** Locations report `EPUBPublication.pageList` entries: `page`, the last entry at or
   before the range's first character, and `pages`, that one followed by every entry whose
   marker falls inside the range. foliate-js reported only `pageItem`, the last page begun by
@@ -259,6 +307,60 @@ arbitrary offscreen geometry and transforms are outside this subset.
 Fixed-layout publications still reflow and report their existing fixed-layout disclosure; this
 subset does not implement fixed-page geometry.
 
+### Flex and grid alignment
+
+A flex or grid container renders as a block and its items as blocks in source order. Three
+shapes keep the reader's single column, and the native layout aligns their items: a flex
+container with `flex-direction: column`, a grid with one column, and a row flex container with
+one item. A container's free space becomes paragraph spacing around and between its items; an
+item narrower than its container is indented from both sides. Nothing else about the text
+changes.
+
+- **Heights.** A container has free space when its `height` or `min-height` is definite: points,
+  `vh`/`vw`, a percentage of an ancestor chain of definite heights that starts at the viewport
+  (`html, body { height: 100% }`), or a sum of those (`calc(98vh - 3em)`, exactly).
+  `max-height` caps a definite `height`, `box-sizing: border-box` takes the vertical padding
+  and border out of it, and content taller than the box is never clipped: it flows as blocks.
+  The height used is at most one viewport, so a box that opens a page stays on that page.
+- **Down the page.** In a column flex container the free space goes first to items with
+  `flex-grow` (a grown item keeps its content at its top), then to `auto` top and bottom margins,
+  then by `justify-content`: `flex-start`, `center`, `flex-end`, `space-between`, `space-around`
+  and `space-evenly`. A one-column grid packs its rows by `align-content` the same way; with
+  the default `normal`/`stretch` the rows share the space equally and `align-items`/`align-self`
+  place each item in its row. A row container's only item is placed by `align-items`/`align-self`.
+  `row-gap` and `gap` separate stacked items, with or without a definite height.
+- **Across the line.** `align-items`/`align-self` (flex), `justify-items`/`justify-self` (grid),
+  `justify-content` (a row's only item) and `auto` left and right margins centre an item or put
+  it at the end edge. The item shrinks to its widest unwrapped paragraph, within its `width`,
+  `min-width` and `max-width`, and its paragraphs keep their own `text-align` inside it: a
+  centred quotation keeps its left edge and its right-aligned attribution. Start alignment and
+  the default `stretch` leave the item across the line, as block flow has it.
+- **Nesting.** A stretched or grown item that is itself a supported container aligns within its
+  new height, up to four containers deep.
+- **Paginated flow.** The viewport is one column's page, in one- and two-column spreads alike:
+  `100vh` is the page's text height and `100vw` one column's width. A section never shares a
+  spread with another, so a one-page epigraph leaves the second column empty. The space above
+  a box's first line is the box's own: unlike a margin it is kept in full when the box starts
+  a page, at a section's start, a forced break or an unforced one. A box that starts part-way
+  down a page begins there, as in a browser, with its content centred in the box rather than
+  on the page.
+- **Continuous scroll.** The viewport is the visible reading area, as for images sized in
+  `vh`: a `min-height: 98vh` section takes about one screen and its content sits in the middle
+  of it. Heights follow the visible area when it changes. A position that starts an aligned
+  box (a navigation to its section, a restored location) rests the box's top edge at the top
+  of the visible area, not its first line, so the box is shown as composed. A box that opens
+  the scrolled text has its space restored as its first fragment's top margin, since TextKit
+  drops the spacing before a document's first paragraph.
+
+Everything else stays in block flow in reading order and sets a `.disclosure`: a row with
+several items (side by side in a browser), `flex-wrap` rows, reversed directions with several
+items, grids with more than one column (`grid-template-columns`, `grid-template-areas`,
+`grid-auto-flow: column`) or explicitly placed items, inline flex and grid containers with
+several children, and containers nested more than four deep. `order` never reorders: items
+keep reading order and the container is disclosed. A wrapping column of definite height stays
+one column and is disclosed. A container holding a float or positioned box is not aligned:
+the box keeps the layout described above, and the alignment given up is disclosed.
+
 ## Input and accessibility
 
 `View.epubReaderPageControls(_:)` configures direct page input live; see
@@ -288,10 +390,17 @@ The following are the defaults. Host commands and accessibility actions stay ena
 | `navigate(href:)` | An encoded spine or resource href with optional fragment; unknown or non-local hrefs throw `invalidCommand`. |
 | `restore(location)` | Same publication, engine ID and `epublib-cfi-v1` format or `incompatibleLocation`; validates/resolves every bookmark segment and shows the first segment's start. Does not select text or add a highlight. |
 | `locate(text, highlight)` | First match in reading order with foliate's matcher. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A miss emits `.notice("the cited passage could not be found in this book")`. Clears search highlights. |
-| `searchHighlight` / `clearSearch` | Draws every match across the book / removes them. |
-| `search` | Draws matches and opens the first rendered match in spine order; no matches preserve the position. |
+| `searchHighlight` / `clearSearch` | Draws every match across the book and lists the rendered ones as `EPUBSearchResults` with no current match / removes and withdraws them. |
+| `search` | Draws and lists matches, opens the first rendered match in spine order and makes it the current match; no matches preserve the position. |
+| `nextSearchResult` / `previousSearchResult` | Shows the result after or before the current match, wrapping at the ends; the first or last when none is current. No effect without results. |
+| `showSearchResult(result)` | Shows a listed result and makes it current; a result of a replaced or cleared search throws `invalidCommand`. |
 | `style` | Font size 12–96, System/Light/Dark appearance, flow. System is the default and tracks the host color scheme live; explicit modes stay fixed. Size or resolved appearance rebuilds the text; the position is kept across rebuilds and flow switches. |
 | `setHighlights` | Replaces drawn host highlights. |
+
+`.searchResultsChanged` reports the result list before `.searchChanged(.completed)`, then each
+change of the current match, and nil when a clear, another query, a failure, a cancellation or
+`.locate` withdraws the list. Results are in spine order, then document order
+(see [search results](reader-controls.md#search-results)).
 
 `.ready` is emitted once, when the opening section is on screen in a mounted view, and the first
 `.relocated` reports the opening position (the text start, see Decisions). `.relocated`
@@ -388,8 +497,50 @@ Go: the native viewer is the bundled engine.
 - Whole-table bookmarks and visible row ranges retain attachment granularity. A resize or
   flow change without a precise cell endpoint returns a continued row to its source position
   rather than preserving its particular visual fragment.
-- MathML has no line breaking (wide formulas scale down), no `mglyph` or elementary-math
-  elements, and English-only spoken readings when `alttext` is absent.
+- MathML is laid out by MathMLLayout 0.1.0, which has no line breaking, `mglyph`, elementary
+  math or localized speech; the reader works around each as far as the engine's API allows
+  ([#25](https://github.com/vocaro/EPUBLib/issues/25)):
+  - A formula breaks only along its own rows (`math`, `mrow`, `mstyle`, `semantics`). A
+    fraction, root, script, table, `mfenced` or enclosure wider than the line shrinks instead,
+    below three quarters of the text's size when it must, with a disclosure. An inline formula
+    breaks as a block of rows on a line of its own, not across the paragraph's lines. The
+    reader's own lists decide what is a relation, a binary operator or a bracket; `indentalign`,
+    `indentshift`, `lineleading` and `linebreakmultchar` are not read, table cells and long
+    `mtext` do not wrap, and brackets split across rows stretch to their own row.
+  - `mglyph` images are not drawn: the `alt` stands in, in the token's own style.
+  - Elementary math is an approximation in the engine's tables: an `msline` spans the whole
+    stack whatever its `length`, `position` and overhangs; carries are a row above their digits
+    whatever their `location`; `charalign`, `charspacing` and `mslinethickness` are not read;
+    `longdivstyle` is `lefttop`, `left/\right`, `left)(right` or `:right=right`, and the other
+    six styles are drawn as `lefttop`.
+  - Generated readings are English, tagged as English. Body text and `alttext` rely on the
+    platform to choose a voice for their language: AppKit reports each run's language, while the
+    UIKit page elements name one only for formulas.
+  - One engine defect shows in these fixtures: an operator whose row has only `mtext` operands
+    (`future value = principal`) is drawn without its spaces.
+
+  Closing them needs these MathMLLayout changes:
+  1. Line breaking: a layout bounded by a line width (`MathLayout(_:style:maximumWidth:)` with
+     its rows' boxes and baselines exposed), following MathML 3 section 3.1.7 with the engine's
+     own operator dictionary, breaking inside nested rows with matched bracket sizes and the
+     `indent*`, `lineleading` and `linebreakmultchar` attributes; and, for inline formulas,
+     the same rows as separately drawable fragments a host can place on consecutive text lines.
+     Wrapping for `mtext` and table cells. The font's axis height on `MathLayout`.
+  2. `mglyph`: attributes kept on a token's element children in `MathMLNode`, a box from
+     `width`, `height` and `valign`, and an image provider on `MathStyle` (`src` to `CGImage`),
+     with `alt` drawn and read when it returns none.
+  3. Elementary math: `mstack`, `mlongdiv`, `msgroup`, `msrow`, `mscarries`, `mscarry` and
+     `msline` as in MathML 3 section 3.6, including line lengths and overhangs, carry
+     locations, character alignment and spacing, every `longdivstyle`, and spoken readings.
+  4. Speech: `accessibilityDescription(locale:)` returning the reading and the language it is
+     written in, English when the locale has no vocabulary.
+  5. Operator spacing for a row that is an embellished operator only because its other
+     children are space-like.
+
+  The real-book corpus, whose formulas use neither `mglyph` nor elementary math, was not
+  rebuilt for this change, so how many of them now break into rows is not measured. Neither
+  real VoiceOver speech nor iPhone, iPad and Mac screens were observed: the evidence is the
+  fixtures' layout, drawn pixels and accessibility attributes on macOS and the iOS simulators.
 - SVG is static: filter effects are omitted with a disclosure, preserving the remaining diagram;
   pattern fills, animation and foreign content are unsupported. The unchanged networking
   publisher corpus renders all 33 SVG resources, including six containing shadow filters
@@ -399,10 +550,18 @@ Go: the native viewer is the bundled engine.
   Output is capped at 4,096 pixels on its long side and 16 megapixels, reduced further for
   isolated layers to fit the raster working-memory budget. SVG text uses outline fonts;
   embedded color-glyph tables are omitted and disclosed. Retained renderer font databases
-  share a 64 MiB budget.
+  share a 64 MiB budget across the process. Each distinct set of fonts an SVG names is one
+  database, with its own copy of the fallback faces, shared by every drawing that names
+  those fonts. An SVG refused a database shows its fallback text. The networking book
+  needs five databases, 58 MB on macOS 27 ([investigation](issue-54-svg-relayout.md)).
 - Search uses locale-tailored primary collation for passage location and highlights.
   Locales without qualified prefilter coverage compare candidate windows directly, which
   can cost more on large sections. See the [collation qualification](issue-26-search-collation.md).
+- A search completes once every section holding a match has been built, because results are
+  the occurrences as rendered. On a book still building, completion waits for those sections.
+  One search lists at most 10,000 results and reads at most 10,000 matches per section; past
+  either bound the results say `isTruncated`. Result order, wrapping and the current match
+  are described under [search results](reader-controls.md#search-results).
 - Foliate CFI compatibility for HTML fallback is deliberately limited to qualified XML-shaped
   markup. HTML tree repairs outside that subset cannot issue or resolve saved CFIs; migration
   by href or an explicitly requested text search remains a host decision.
@@ -419,5 +578,14 @@ Go: the native viewer is the bundled engine.
   clean reading-order check. The iPhone and iPad sessions of the verification matrix remain
   open ([#28](https://github.com/vocaro/EPUBLib/issues/28)); simulator/API checks do not
   substitute for those sessions.
-- Flexbox and grid lay out as blocks: content a book centres vertically with `min-height` and
-  flex alignment (Standard Ebooks epigraphs) starts at the top of the page.
+- Flex and grid alignment covers the single-column subset described above. Side-by-side row
+  items, wrapping and reversed flex, multi-column and explicitly placed grids, `order` and
+  inline flex or grid containers render as blocks in reading order with a disclosure. Within
+  the subset: margins between items still collapse as block margins do; `flex-shrink`,
+  `flex-basis`, `align-content` in flex, `column-gap`, percentage gaps, baseline alignment and
+  `aspect-ratio` are not laid out; `box-sizing` applies to heights only; start-aligned items
+  and items holding images, tables or formulas keep their block-flow width and placement; a
+  box taller than one viewport is treated as one viewport tall; and a container holding a float
+  or positioned box is left in block flow. `min()`, `max()` and `clamp()` heights choose their
+  branch against the nominal viewport, as other lengths do
+  ([qualification](issue-20-flex-grid-alignment.md)).

@@ -22,14 +22,22 @@ final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDele
     required init?(coder: NSCoder) { super.init(coder: coder) }
 
     func configureGeometry() {
-        delegate = (textContainer as? ReaderTextContainer)?.boxPage != nil ? self : nil
+        let container = textContainer as? ReaderTextContainer
+        delegate = container?.boxPage != nil || (container?.alignmentLead ?? 0) > 0 ? self : nil
     }
 
     func textLayoutManager(_ manager: NSTextLayoutManager, textLayoutFragmentFor location: any NSTextLocation,
                            in element: NSTextElement) -> NSTextLayoutFragment {
-        guard let container = textContainer as? ReaderTextContainer, let page = container.boxPage,
+        guard let container = textContainer as? ReaderTextContainer,
               let content = textContentManager else { return NSTextLayoutFragment(textElement: element, range: nil) }
         let offset = content.offset(from: content.documentRange.location, to: location)
+        guard let page = container.boxPage else {
+            // An aligned box opening the text: its lead above the first line.
+            guard offset == 0, container.alignmentLead > 0 else { return NSTextLayoutFragment(textElement: element, range: nil) }
+            let fragment = ReaderBoxLayoutFragment(textElement: element, range: nil)
+            fragment.topAdjustment = container.alignmentLead
+            return fragment
+        }
         guard let paragraph = page.geometry.paragraph(at: offset + page.offset) else {
             return NSTextLayoutFragment(textElement: element, range: nil)
         }

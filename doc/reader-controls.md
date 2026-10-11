@@ -46,7 +46,8 @@ as shown above to keep them outside overflow, even when other controls do not fi
 Reading mode uses joined Continuous Scroll/Paging buttons with the active mode selected.
 It sizes to its icons, is available when the session supports both modes, and is separate from appearance.
 The mode picker has high visibility priority, below the page arrows, because segmented
-pickers have no automatic overflow-menu representation on iOS.
+pickers have no automatic overflow-menu representation on iOS. On Mac each segment is a radio
+button named Continuous Scroll or Paging, with the current mode selected.
 
 For an embedded reader use `EPUBReaderControlStrip(controls: controls) { /* host views */ }`.
 It lays out horizontally when it fits and stacks groups and custom views vertically at narrow
@@ -84,14 +85,145 @@ ends pending search feedback and close suppresses all subsequent callbacks. Host
 `EPUBReaderEvent` must add the new `.searchChanged` case.
 
 The field shows pending/queued, no matches or an error. The search pane's X closes it without
-clearing the query or highlights; its separate Clear Search button clears both and retains
-field focus. Successful searches leave only the field and action buttons. Feedback describes the submitted query; editing text does not
-replace the active highlight query.
-There is no result browser, count, or next/previous-match command. Those remain follow-up APIs.
+clearing the query, highlights, results or current match; its separate Clear Search button
+clears them all and retains field focus. A successful search by an engine that only highlights
+leaves only the field and action buttons; with `.searchResults` the pane adds the match
+navigator and result list described below. Feedback describes the submitted query; editing
+text does not replace the active highlight query. `hasMatches` reports occurrences the reader
+can show: a query found only in content that renders nothing completes with no matches.
+
+## Search results
+
+An engine advertising `.searchResults` (the bundled reader does) publishes the completed
+search's occurrences as `EPUBSearchResults` in `readerState.status.searchResults` and through
+`.searchResultsChanged`, before `.searchChanged(.completed)`. `controls.searchResults` reads
+the same value. It holds the submitted `query`, the `results`, their `count`, the
+`currentIndex` / `current` match and `isTruncated`. Each `EPUBSearchResult` has its `index`,
+its section's `spineIndex` and `sectionTitle` (the contents entry in effect, else the
+document's own title), the `matchedText` as the book spells it, `contextBefore` /
+`contextAfter` from the same paragraph or table cell (about a line, cut at whole words;
+`snippet` joins the three), and a `location` with the section `href`, overall `progression`,
+contents `title`, `quote`, page-list `page` and, in the bundled reader, a `bookmark` naming
+exactly the occurrence. Pass that location to `.restore` or keep it as an `EPUBHighlight`.
+
+Results exist only while `status.search` is `.completed`. Another query, Clear Search, a
+rejected or cancelled search, `.locate` and close withdraw them: the value becomes nil,
+reported by `.searchResultsChanged(nil)` except after close. No matches is a completed search
+with an empty list. `.search` and `.searchHighlight` both list results; only `.search` opens
+the first one and makes it current.
+
+Three commands navigate, each requiring `.searchResults`:
+
+| Command | Effect |
+| --- | --- |
+| `.nextSearchResult` / `.previousSearchResult` | Shows the neighbouring result and makes it current. Accepted without effect while there are no results. |
+| `.showSearchResult(result)` | Shows that result and makes it current. Throws `invalidCommand` for a result that is not in the current list, such as one kept from a replaced or cleared search. |
+
+`controls.showNextSearchResult()`, `showPreviousSearchResult()` and `showSearchResult(_:)`
+submit them through the controls' FIFO queue; `canShowSearchResults` says whether there is
+anything to step through. A shown result is brought into view in both flows (its page when
+paging, the top of the view in continuous scroll) and drawn in a stronger highlight than the
+other matches. Nothing is selected.
+
+The bundled reader and the supplied controls settle these questions as follows:
+
+- **Order.** Spine order across every spine document, nonlinear ones included, then document
+  order within each. Overlapping occurrences each count, as each is highlighted. Occurrences
+  in content that renders nothing (`display: none`, a hidden note) are not results.
+- **Ends.** Stepping wraps, as the system find panels do: next from the last result shows the
+  first, previous from the first shows the last. `isAtFirst` / `isAtLast` and the indicator
+  say where the current match is. With one result a step shows it again.
+  `EPUBSearchResults.steppedIndex(forward:)` is the one rule the commands follow.
+- **Page navigation.** The current match is the result last shown. Page turns, scrolling,
+  contents navigation, `.restore`, typography and flow changes leave it and the results
+  alone, so the next step continues from that match, not from the visible page. After
+  `.searchHighlight`, or when newer navigation kept a pending `.search` from moving the
+  reader, there is no current match: next then shows the first result and previous the last.
+- **Bounds.** One search lists at most 10,000 results and reads at most 10,000 matches from
+  one section. Beyond that `isTruncated` is true, `count` is a lower bound shown as
+  “10,000+”, and stepping stays within the listed results, each of which remains accurate.
+
+Match navigation is separate from page turns throughout: its own commands, its own labels
+(“Previous Match” / “Next Match”) and up/down chevrons in a fixed logical order that an RTL
+book never mirrors. No keyboard shortcut is installed and Return still submits the query; a
+host wanting Find Next on Command-G binds it to `controls.showNextSearchResult()`.
+
+Once a search has results, the search pane shows the navigator under the field: `3 of 27`,
+or `27 matches` before one has been shown. As a popover or sheet the pane lists the results
+beneath it. The inline field in `EPUBReaderControlStrip` has a Search Results button that
+presents the list in a popover instead. Choosing a result shows it; in a compact width, where
+the pane covers the reader, it also closes the pane, leaving the query and results in place.
+Both views are public for other placements:
+
+<!-- snippet:searchResults -->
+```swift
+/// Keeps the match count and stepping at hand while the search pane is closed, and lists the
+/// results in a sheet the host owns. The built-in search pane already contains both.
+struct SearchResultsExample: View {
+    let controls: EPUBReaderControls // Retained alongside the existing session by the host.
+    @State private var browsing = false
+
+    var body: some View {
+        EPUBReaderView(session: controls.session)
+            .toolbar {
+                EPUBReaderToolbar(controls: controls, groups: [.search, .contents])
+                ToolbarItemGroup(placement: Self.placement) {
+                    EPUBSearchResultNavigator(controls: controls, showsResultBrowser: false)
+                    Button("Search Results", systemImage: "list.bullet.rectangle") { browsing = true }
+                        .disabled(!controls.canShowSearchResults)
+                }
+            }
+            .sheet(isPresented: $browsing) {
+                EPUBSearchResultList(controls: controls) { _ in browsing = false }
+            }
+    }
+
+    #if os(iOS)
+    private static let placement = ToolbarItemPlacement.bottomBar
+    #else
+    private static let placement = ToolbarItemPlacement.automatic
+    #endif
+}
+```
+<!-- /snippet -->
+
+`EPUBSearchResultNavigator(controls:showsResultBrowser:)` is the indicator with the two match
+buttons and, by default, a button presenting the browser. Unlike the pane's own copy it also
+states pending, empty and failed searches. It lays out in one row, or the indicator above its
+buttons at narrow widths and large text sizes. `EPUBSearchResultList(controls:onSelect:)` is
+the browser: results grouped under their section, the occurrence in bold within its context,
+the page label when the book has a page list, a checkmark on the current match, and the
+pending, empty or failed statement in place of an empty list. Both show nothing for an engine
+without `.searchResults`.
+
+For custom controls, `controls.searchResultSummary` is the indicator's text and
+`searchResultAccessibilityValue` its spoken form (“Match 27 of 27, last match, Second
+Chapter”), which the supplied match buttons also carry as their value.
+`searchResultButtonLabel(forward:)` and `searchResultButtonHelp(forward:)` give the buttons'
+label and help; the help states a wrap or the first step. `searchResultAccessibilityLabel(for:)`
+names a result by its place, section and page, then the text from the occurrence onward and
+what precedes it, so two occurrences in one paragraph still read differently.
+
+The query, results and current match live in the session and the controls model, not in a
+view. They survive closing the pane, toolbar adaptation, a fold or resize and remounting the
+reader for the same session.
+
+Migration: hosts with exhaustive switches add `.searchResults` (`EPUBReaderCapability`),
+`.nextSearchResult`, `.previousSearchResult` and `.showSearchResult` (`EPUBReaderCommand`) and
+`.searchResultsChanged` (`EPUBReaderEvent`). `EPUBSearchState`, `submitSearch()`,
+`clearSearch()` and the control groups are unchanged. A third-party engine that only
+highlights needs nothing beyond those cases: it omits the capability, answers the three
+commands with `.unsupported(.searchResults)`, and the supplied controls keep their earlier
+search pane. An engine adopting the capability publishes the list before completion, mirrors
+it in `readerState` when it has one, steps as `steppedIndex(forward:)` says and withdraws
+results as above; `EPUBEngineContract.verify` checks each of these.
+
+## Commands, appearance and state
 
 Commands submitted through one controls model execute in FIFO order. Style edits read the latest
 style when they execute, preserving fields changed by earlier queued edits or host commands.
-Appearance controls change font size (10–36 points) and choose System, Light or Dark. System
+Appearance controls change font size two points at a time within 12–36 points, the sizes the
+bundled reader draws distinctly, and are disabled at either end; they choose System, Light or Dark. System
 is the default and follows the mounted view's color scheme, including OS theme changes and
 host color-scheme overrides. Explicit Light/Dark remain fixed until changed. Use
 `controls.changeStyle { $0.appearance = .system }` (or `.light` / `.dark`) in host controls.

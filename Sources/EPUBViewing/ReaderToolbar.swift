@@ -136,15 +136,25 @@ public struct EPUBReaderControl: View {
             else { EPUBContentsItems(controls: controls, items: controls.publication.tableOfContents) }
         }
     }
+    /// The supplied text sizes: what the bundled reader draws at distinct sizes, up to 36 points.
+    /// It draws nothing smaller than 12, so a step below that changed the style and not the page.
+    static let textSizes: ClosedRange<Double> = 12...36
+    static func textSize(_ size: Double, steppedBy points: Double) -> Double {
+        let drawn = min(max(size, textSizes.lowerBound), textSizes.upperBound)
+        return min(max(drawn + points, textSizes.lowerBound), textSizes.upperBound)
+    }
     private var appearance: some View {
         Menu("Appearance", systemImage: "textformat.size") {
             if controls.supports(.typography) {
+                let size = controls.status?.style.fontSize ?? EPUBReaderStyle().fontSize
                 Button("Smaller Text", systemImage: "textformat.size.smaller") {
-                    controls.changeStyle { $0.fontSize = max(10, $0.fontSize - 2) }
+                    controls.changeStyle { $0.fontSize = Self.textSize($0.fontSize, steppedBy: -2) }
                 }
+                .disabled(size <= Self.textSizes.lowerBound)
                 Button("Larger Text", systemImage: "textformat.size.larger") {
-                    controls.changeStyle { $0.fontSize = min(36, $0.fontSize + 2) }
+                    controls.changeStyle { $0.fontSize = Self.textSize($0.fontSize, steppedBy: 2) }
                 }
+                .disabled(size >= Self.textSizes.upperBound)
                 Picker("Appearance", selection: Binding(
                     get: { controls.status?.style.appearance ?? .system },
                     set: { appearance in controls.changeStyle { $0.appearance = appearance } }
@@ -163,10 +173,10 @@ public struct EPUBReaderControl: View {
             get: { controls.status?.style.flow ?? .paginated },
             set: { mode in controls.changeStyle { $0.flow = mode } }
         )) {
-            Label("Continuous Scroll", systemImage: "scroll")
+            modeLabel("Continuous Scroll", systemImage: "scroll")
                 .tag(EPUBReadingFlow.scrolled)
                 .help("Continuous Scroll")
-            Label("Paging", systemImage: "doc.text")
+            modeLabel("Paging", systemImage: "doc.text")
                 .tag(EPUBReadingFlow.paginated)
                 .help("Paging")
         }
@@ -174,6 +184,21 @@ public struct EPUBReaderControl: View {
         .labelsHidden()
         .labelStyle(.iconOnly)
         .fixedSize(horizontal: true, vertical: false)
+    }
+    /// An icon-only segment is named after its image: on Mac the symbol's own description
+    /// ("Text document"), whatever SwiftUI label the segment has. The image carries the mode's name.
+    private func modeLabel(_ title: String, systemImage: String) -> some View {
+        Label {
+            Text(title)
+        } icon: {
+            #if os(macOS)
+            if let image = NSImage(systemSymbolName: systemImage, accessibilityDescription: title) {
+                Image(nsImage: image)
+            } else { Image(systemName: systemImage) }
+            #else
+            Image(systemName: systemImage)
+            #endif
+        }
     }
 }
 
@@ -260,6 +285,7 @@ private struct EPUBSearchField: View {
             }
             feedback.font(.callout)
             if let error = controls.commandError { Text(error).foregroundStyle(.red).font(.callout) }
+            EPUBSearchResultPane(controls: controls, onDismiss: onDismiss)
         }
         .task { focused = true }
     }

@@ -41,6 +41,12 @@ struct SectionReport: Equatable, Sendable {
     var unreadableResources = 0
     /// MathML expressions shown as their `alttext` because they used unsupported elements.
     var mathFallbacks = 0
+    /// MathML expressions laid out with a part the engine lacks approximated: an `mglyph` shown
+    /// as its alternative text, or elementary math (`mstack`, `mlongdiv`) set as a table.
+    var mathApproximations = 0
+    /// MathML expressions that no row breaking keeps at a readable size in a narrow column
+    /// (`MathFormula.narrowColumn`): they shrink to the line rather than lose content.
+    var mathReductions = 0
     /// The section's markup was refused (entity declarations) or unreadable; a notice replaced it.
     var withheld = false
     /// The markup was not well-formed XML and was read with the forgiving HTML parser.
@@ -53,6 +59,9 @@ struct SectionReport: Equatable, Sendable {
     var fixedLayoutReflowed = false
     /// Floats, positioned callouts or sized inline-blocks rendered as ordinary flow boxes.
     var flowBoxesReflowed = false
+    /// Flex or grid containers shown as blocks in reading order: side-by-side, wrapped,
+    /// reversed, reordered or explicitly placed items, or nesting past the supported depth.
+    var flexGridSimplified = false
     /// CSS rules or declarations dropped by the parser's bounds.
     var stylesTruncated = false
 
@@ -62,6 +71,8 @@ struct SectionReport: Equatable, Sendable {
         unsupportedElements.merge(other.unsupportedElements, uniquingKeysWith: +)
         unreadableResources += other.unreadableResources
         mathFallbacks += other.mathFallbacks
+        mathApproximations += other.mathApproximations
+        mathReductions += other.mathReductions
         withheld = withheld || other.withheld
         recoveredAsHTML = recoveredAsHTML || other.recoveredAsHTML
         cfiUnavailable = cfiUnavailable || other.cfiUnavailable
@@ -69,6 +80,7 @@ struct SectionReport: Equatable, Sendable {
         fixedLayoutReflowed = fixedLayoutReflowed || other.fixedLayoutReflowed
         stylesTruncated = stylesTruncated || other.stylesTruncated
         flowBoxesReflowed = flowBoxesReflowed || other.flowBoxesReflowed
+        flexGridSimplified = flexGridSimplified || other.flexGridSimplified
     }
 }
 

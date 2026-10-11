@@ -20,6 +20,10 @@ final class ReaderTextContainer: NSTextContainer {
     var boxColumn: CGRect?
     var boxScope: UUID?
     var paragraphText: NSAttributedString?
+    /// The space an aligned flex or grid box keeps above the text's first line
+    /// (`.readerAlignmentLead`). TextKit drops the spacing before a document's first paragraph,
+    /// so the layout manager restores this much as that fragment's top margin.
+    var alignmentLead: CGFloat = 0
     var hasNonlinearGeometry: Bool { boxPage != nil || !boxRegions.isEmpty }
 
     // The default becomes false merely because lineFragmentRect is overridden. Ordinary
@@ -35,6 +39,7 @@ final class ReaderTextContainer: NSTextContainer {
         boxRegions = boxPage?.geometry.regions ?? []
         boxOrigin = boxPage?.origin ?? 0
         boxSourceOffset = boxPage?.offset ?? 0
+        alignmentLead = ReaderAlignmentLayout.lead(in: text, at: 0)
     }
 
     override func lineFragmentRect(forProposedRect proposed: CGRect, at index: Int,

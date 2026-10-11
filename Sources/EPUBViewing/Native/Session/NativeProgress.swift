@@ -96,6 +96,49 @@ struct NativeProgress {
     }
 }
 
+extension NativeProgress {
+    /// The contents titles and page-list entries of one built section, for naming many
+    /// positions in it (search results) without walking the whole book for each.
+    struct SectionMarks: Sendable {
+        fileprivate var inheritedTitle: String?
+        /// In navigation order, as `title(at:anchor:)` reads them.
+        fileprivate var titles: [(offset: Int, title: String)] = []
+        fileprivate var inheritedPage: EPUBPageListEntry?
+        fileprivate var pages: [(offset: Int, entry: EPUBPageListEntry)] = []
+
+        /// What `title(at:anchor:)` answers for an offset in the section.
+        func title(at offset: Int) -> String? {
+            titles.last { $0.offset <= offset }?.title ?? inheritedTitle
+        }
+
+        /// What `pages(in:isShown:anchor:)` answers as `page` for a range starting at an offset.
+        func page(at offset: Int) -> EPUBPageListEntry? {
+            var best: (offset: Int, entry: EPUBPageListEntry)?
+            for page in pages where page.offset <= offset {
+                if best.map({ $0.offset <= page.offset }) ?? true { best = page }
+            }
+            return best?.entry ?? inheritedPage
+        }
+    }
+
+    /// `anchors` are the built section's (`SectionText.anchors`); an entry whose fragment they do
+    /// not hold sits at the section's start, as it does for `title(at:anchor:)` and `pages`.
+    func marks(inSection section: Int, anchors: [String: Int]) -> SectionMarks {
+        var marks = SectionMarks()
+        for entry in entries {
+            if entry.section > section { break }
+            if entry.section < section { marks.inheritedTitle = entry.title }
+            else { marks.titles.append((entry.fragment.flatMap { anchors[$0] } ?? 0, entry.title)) }
+        }
+        for page in pages {
+            if page.section > section { break }
+            if page.section < section { marks.inheritedPage = page.entry }
+            else { marks.pages.append((page.fragment.flatMap { anchors[$0] } ?? 0, page.entry)) }
+        }
+        return marks
+    }
+}
+
 /// The `.disclosure` text for what a book's sections withheld or simplified.
 enum NativeDisclosure {
     static func text(for report: SectionReport) -> String? {
@@ -112,6 +155,10 @@ enum NativeDisclosure {
               many: "# parts of this document, such as videos or forms, cannot be shown by this reader.")
         count(report.unreadableResources, one: "One image could not be shown.", many: "# images could not be shown.")
         count(report.mathFallbacks, one: "One formula is shown as plain text.", many: "# formulas are shown as plain text.")
+        count(report.mathApproximations, one: "One formula is shown in a simplified layout.",
+              many: "# formulas are shown in a simplified layout.")
+        count(report.mathReductions, one: "One wide formula is reduced in size on narrow pages.",
+              many: "# wide formulas are reduced in size on narrow pages.")
         if report.withheld { sentences.append("Some sections of this book could not be shown.") }
         if report.cfiUnavailable {
             sentences.append("Saved positions and passage highlights are unavailable in some repaired sections because their original text positions cannot be matched safely.")
@@ -120,6 +167,9 @@ enum NativeDisclosure {
         if report.verticalWritingFlattened { sentences.append("Vertical text is shown horizontally.") }
         if report.flowBoxesReflowed {
             sentences.append("Some floating, positioned or inline box layouts may be simplified to keep their content readable in reading order. Fixed boxes appear once rather than staying pinned to each page.")
+        }
+        if report.flexGridSimplified {
+            sentences.append("Some flexible box or grid layouts are shown as blocks in reading order: items meant to sit side by side, wrap or be reordered follow one another.")
         }
         if report.stylesTruncated { sentences.append("Some of this book's styling was too large to apply.") }
         return sentences.isEmpty ? nil : sentences.joined(separator: " ")

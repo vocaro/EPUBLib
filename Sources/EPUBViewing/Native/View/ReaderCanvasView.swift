@@ -370,10 +370,27 @@ import AppKit
 
     private func tearDownPages() {
         cancelPendingSpread()
-        for column in columns { column.removeFromSuperview() }
+        for column in columns {
+            discard(column)
+            column.removeFromSuperview()
+        }
         columns.removeAll()
         spread = nil
         shownPage = nil
+    }
+
+    /// A text view the canvas is done with. The platform frees views in its own time, so the
+    /// text goes now, and with it every image, SVG renderer and font reservation it holds.
+    private func discard(_ view: ReaderTextView) {
+        view.canvas = nil
+        view.delegate = nil
+        empty(view)
+    }
+
+    /// Removes a text view's text and the viewport's hold on what it was showing.
+    private func empty(_ view: ReaderTextView) {
+        view.setContent(NSAttributedString())
+        view.readerLayoutManager.textViewportLayoutController.layoutViewport()
     }
 
     /// A section's pagination at a column size (the spread's by default), cached by both.
@@ -419,6 +436,16 @@ import AppKit
     func trimCaches() {
         let kept = shownPaginatorKey
         for key in paginatorUse where key != kept { removePaginator(key) }
+    }
+
+    /// The reader is closed or this view is going away: nothing here is shown again, so the
+    /// text and its paginations go now rather than with the views.
+    func releaseContent() {
+        cancelPendingSpread()
+        for view in columns + [scrollTextView].compactMap({ $0 }) { empty(view) }
+        scrollBook = nil
+        paginators.removeAll()
+        paginatorUse.removeAll()
     }
 
     var cachedPaginatorCount: Int { paginators.count }
@@ -566,9 +593,11 @@ import AppKit
     }
 
     private func tearDownScroll() {
+        let textView = scrollTextView
+        scrollTextView = nil
+        if let textView { discard(textView) }
         scrollContainer?.removeFromSuperview()
         scrollContainer = nil
-        scrollTextView = nil
         scrollBook = nil
         scrollGeometry = nil
     }
@@ -675,7 +704,8 @@ import AppKit
             return anchorFrameIsVisible(cell)
         }
         guard let line = textView.lineFrame(containing: location) else { return true }
-        return textView.fragment(atContainerY: line.midY, holds: location) && anchorFrameIsVisible(line)
+        return textView.fragment(atContainerY: line.midY, holds: location)
+            && anchorFrameIsVisible(textView.anchorFrame(of: line, at: location))
     }
 
     /// A coherent offscreen fragment is insufficient: estimates can move its line during the
@@ -698,30 +728,32 @@ import AppKit
     /// is still past.
     private func scrollLineToTop(containing location: Int, in textView: ReaderTextView) {
         guard var line = textView.line(containing: location) else { return }
+        // The top of an aligned flex or grid box is above its first line (`anchorFrame`).
+        func frame() -> CGRect { textView.anchorFrame(of: line.frame, at: location) }
         if textView.readerContainer.hasNonlinearGeometry {
             // Layout can refine its estimate after the viewport moves. Correct against the
             // target's own visual line; source offsets are not monotonic in Y around floats.
             for _ in 0..<32 {
-                scrollToContainerY(line.frame.minY)
+                scrollToContainerY(frame().minY)
                 guard let updated = textView.line(containing: location) else { break }
                 line = updated
-                if anchorFrameIsVisible(line.frame) { break }
+                if anchorFrameIsVisible(frame()) { break }
             }
             return
         }
-        scrollToContainerY(line.frame.minY)
+        scrollToContainerY(frame().minY)
         var climb: CGFloat = 0
         for _ in 0..<32 {
             let visible = scrollVisibleContainerRect
             let shown = textView.lineBoundary(atContainerY: visible.minY, lineEnd: false)
             if let updated = textView.line(containing: location) { line = updated }
-            if shown == line.range.location && anchorFrameIsVisible(line.frame) { break }
-            if shown <= location && isScrolledToEnd && anchorFrameIsVisible(line.frame) { break }
+            if shown == line.range.location && anchorFrameIsVisible(frame()) { break }
+            if shown <= location && isScrolledToEnd && anchorFrameIsVisible(frame()) { break }
             if shown <= location {
                 textView.ensureLayout(from: shown, through: location)
                 guard let laidOut = textView.line(containing: location) else { break }
                 line = laidOut
-                scrollToContainerY(line.frame.minY)
+                scrollToContainerY(frame().minY)
                 climb = 0
             } else { // First the characters past the line at the shown text's density, and a screen.
                 let end = textView.lineBoundary(atContainerY: visible.maxY, lineEnd: true)
@@ -741,7 +773,7 @@ import AppKit
 
     /// The platform scroll view moved; reports the visible range at most every 150 ms.
     func scrollPositionDidChange() {
-        let ordered = highlights.filter { $0.kind == .annotation } + highlights.filter { $0.kind == .search }
+        let ordered = ReaderHighlight.drawingOrder(highlights)
         scrollTextView?.setTableHighlights(ordered)
         if let range = currentSelection?.range, range.start.tableCell != nil || range.end.tableCell != nil {
             _ = scrollTextView?.selectTableRange(range, reporting: false)
@@ -1065,14 +1097,13 @@ import AppKit
 
     private func applyHighlights() {
         let dark = configuration.isDark
-        // Search matches draw over host highlights.
-        let ordered = highlights.filter { $0.kind == .annotation } + highlights.filter { $0.kind == .search }
+        // Search matches draw over host highlights, the current match over both.
+        let ordered = ReaderHighlight.drawingOrder(highlights)
         for view in textViews {
             view.setTableHighlights(ordered)
             view.setHighlights(ordered.compactMap { highlight in
                 guard let range = localRange(of: highlight.range, in: view) else { return nil }
-                let color = highlight.kind == .search ? ReaderPalette.searchHighlight(dark: dark)
-                    : ReaderPalette.annotationHighlight(dark: dark)
+                let color = ReaderPalette.highlight(highlight.kind, dark: dark)
                 return (range, color)
             })
         }

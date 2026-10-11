@@ -22,10 +22,12 @@ import SwiftUI
     static let passageNotFound = "the cited passage could not be found in this book"
     static let maximumQuoteLength = 4_096
     static let maximumSearchLength = 512
+    /// Matches read from one section. A section holding more draws and lists only these.
+    nonisolated static let maximumSectionMatches = 10_000
 
     let capabilities: Set<EPUBReaderCapability> = [
         .navigateHref, .pagination, .scrolling, .typography, .selection, .bookmarks, .locateText,
-        .search, .searchHighlight, .highlights,
+        .search, .searchHighlight, .searchResults, .highlights,
     ]
     let publication: EPUBPublication
     let readerState: EPUBReaderState?
@@ -60,6 +62,12 @@ import SwiftUI
     /// Rendered ranges never change with typography, so each is computed once, when its
     /// section first exists: search matches by section, host highlights by id.
     @ObservationIgnored private var searchRanges: [Int: [ReaderTextRange]] = [:]
+    /// The completed search's public results, as last published, and where each is shown:
+    /// `searchResultRanges[i]` belongs to `results[i]`. nil while no search is complete.
+    @ObservationIgnored private(set) var searchResults: EPUBSearchResults?
+    @ObservationIgnored private(set) var searchResultRanges: [ReaderTextRange] = []
+    /// The most results one search lists; a query with more reports `isTruncated`.
+    @ObservationIgnored var maximumSearchResults = 10_000
     @ObservationIgnored private var highlightTargets: [String: [(spineIndex: Int, localPath: String)]] = [:]
     @ObservationIgnored private var highlightRanges: [String: [ReaderTextRange]] = [:]
     @ObservationIgnored private var publishedDisclosure: String?
@@ -90,13 +98,16 @@ import SwiftUI
     func close() {
         guard !closed else { return }
         closed = true
-        readerState?.modify { $0.lifecycle = .closed; $0.search = .idle }
+        readerState?.modify { $0.lifecycle = .closed; $0.search = .idle; $0.searchResults = nil }
+        searchResults = nil
+        searchResultRanges = []
         onEvent = nil
         for task in tasks { task.cancel() }
         tasks.removeAll()
         book.close()
         canvas?.delegate = nil
         canvas?.dataSource = nil
+        canvas?.releaseContent()
         canvas = nil
     }
 
@@ -123,6 +134,7 @@ import SwiftUI
         guard self.canvas === canvas else { return }
         canvas.delegate = nil
         canvas.dataSource = nil
+        canvas.releaseContent()
         self.canvas = nil
         if !closed { readerState?.modify { $0.lifecycle = .loading } }
     }
@@ -188,6 +200,8 @@ import SwiftUI
             do { try await search(text, navigateToMatch: navigateToMatch) }
             catch let error as EPUBReaderError {
                 searchGeneration += 1
+                // The earlier query's matches stay drawn; its results and current match do not.
+                if withdrawSearchResults() { drawCurrentSearchResult() }
                 emit(.searchChanged(.failed(query: text, error: error)))
                 throw error
             }
@@ -195,8 +209,12 @@ import SwiftUI
             searchGeneration += 1
             searchMatches = [:]
             searchRanges = [:]
+            withdrawSearchResults()
             refreshHighlights()
             emit(.searchChanged(.idle))
+        case .nextSearchResult: stepSearchResult(forward: true)
+        case .previousSearchResult: stepSearchResult(forward: false)
+        case .showSearchResult(let result): try showSearchResult(result)
         case .style(let newStyle): try applyStyle(newStyle)
         case .setHighlights(let list): setHighlights(list)
         }
@@ -299,16 +317,9 @@ import SwiftUI
         return range(from: dom.start, to: dom.end, in: text)
     }
 
-    /// A search match's rendered range. The match may come from a fresh parse of the section that
-    /// is already gone (nodes keep only weak parents), so it is read in the built section's own
-    /// document, node for node: both parses read the same bytes.
+    /// A search match's rendered range, the one its result is listed and shown at.
     private func range(of match: TextSearch.Match, in text: SectionText) -> ReaderTextRange {
-        func rebased(_ position: DOMPosition) -> DOMPosition {
-            let nodes = text.document.nodes
-            guard nodes.indices.contains(position.node.order) else { return position }
-            return DOMPosition(nodes[position.node.order], position.offset)
-        }
-        return range(from: rebased(match.start), to: rebased(match.end), in: text)
+        SearchResultBuilder.renderedRange(of: match, in: text)
     }
 
     private func range(from start: DOMPosition, to end: DOMPosition, in text: SectionText) -> ReaderTextRange {
@@ -324,6 +335,7 @@ import SwiftUI
         searchGeneration += 1
         searchMatches = [:]
         searchRanges = [:]
+        withdrawSearchResults()
         refreshHighlights()
         emit(.searchChanged(.idle))
         // A match inside content that renders nothing of its own (a hidden footnote) is a place
@@ -369,6 +381,7 @@ import SwiftUI
             throw EPUBReaderError.invalidCommand("The search text is empty or too long")
         }
         let navigationTicket = navigateToMatch ? beginNavigation() : nil
+        withdrawSearchResults()
         emit(.searchChanged(.searching(query: text)))
         searchMatches = [:]
         searchRanges = [:]
@@ -385,39 +398,121 @@ import SwiftUI
             guard let document = await book.document(index) else { continue }
             let locale = language(of: document)
             let matches = await Task.detached(priority: .userInitiated) {
-                TextSearch.matches(of: query, in: document, locale: locale, limit: 10_000)
+                TextSearch.matches(of: query, in: document, locale: locale, limit: Self.maximumSectionMatches)
             }.value
             if !matches.isEmpty { found[index] = matches }
         }
         guard !closed, ticket == searchGeneration else { return }
         try Task.checkCancellation()
-        var firstPosition: ReaderTextPosition?
-        if let navigationTicket, isCurrent(navigationTicket) {
-            // Rebase a matched DOM range onto the rendered section, just as `.locate` does.
-            // Building can suspend; a newer search, clear, or navigation must win.
-            for index in found.keys.sorted() {
-                guard let matches = found[index] else { continue }
-                let section = await book.build(index)
-                try Task.checkCancellation()
-                guard !closed, ticket == searchGeneration else { return }
-                guard isCurrent(navigationTicket) else { break }
-                if let first = matches.lazy.map({ self.range(of: $0, in: section) }).first(where: { !$0.isEmpty }) {
-                    firstPosition = first.start
-                    break
-                }
-            }
-        }
+        // Every section holding a match is read as rendered, just as `.locate` reads one.
+        // Building can suspend; a newer search, clear, or close must win.
+        guard let resolved = try await searchResults(for: found, ticket: ticket) else { return }
         guard !closed, ticket == searchGeneration else { return }
         try Task.checkCancellation()
         searchMatches = found
         searchRanges = [:]
+        var results = EPUBSearchResults(query: text, results: resolved.results, isTruncated: resolved.isTruncated)
+        // Newer navigation keeps its place: the results then have no current match.
+        let first = navigationTicket.flatMap { isCurrent($0) ? resolved.ranges.first : nil }
+        if first != nil { results.currentIndex = 0 }
+        searchResults = results
+        searchResultRanges = resolved.ranges
         refreshHighlights()
-        if let firstPosition, let navigationTicket, isCurrent(navigationTicket) {
+        // Published state holds results only for a completed search, so both change together;
+        // the events then follow in order: the results, the relocation, the completion.
+        let completion = EPUBSearchState.completed(query: text, hasMatches: !results.isEmpty)
+        readerState?.modify { $0.searchResults = results; $0.search = completion }
+        emit(.searchResultsChanged(results))
+        if let first {
             canvas?.clearSelection()
-            canvas?.show(firstPosition, selecting: nil)
+            canvas?.show(first.start, selecting: nil)
         }
         guard !closed, ticket == searchGeneration else { return }
-        emit(.searchChanged(.completed(query: text, hasMatches: !found.isEmpty)))
+        emit(.searchChanged(completion))
+    }
+
+    /// The rendered occurrences of `found` in spine order, then document order, each with its
+    /// rendered range. nil when a newer search, clear or close superseded this one.
+    private func searchResults(for found: [Int: [TextSearch.Match]], ticket: Int) async throws
+        -> (results: [EPUBSearchResult], ranges: [ReaderTextRange], isTruncated: Bool)? {
+        var results: [EPUBSearchResult] = [], ranges: [ReaderTextRange] = [], isTruncated = false
+        for index in found.keys.sorted() {
+            guard let matches = found[index] else { continue }
+            if matches.count >= Self.maximumSectionMatches { isTruncated = true }
+            guard results.count < maximumSearchResults else { isTruncated = true; break }
+            // A section's characters never depend on typography, so any build of it serves.
+            let text: SectionText
+            if let built = book.section(index) { text = built } else { text = await book.build(index) }
+            try Task.checkCancellation()
+            guard !closed, ticket == searchGeneration else { return nil }
+            let section = SearchResultBuilder.Section(
+                text: text, publicationID: publication.id, engineID: NativeEngine.identifier,
+                bookmarkFormat: NativeEngine.bookmarkFormat, spine: spine, progress: progress)
+            let firstIndex = results.count, limit = maximumSearchResults - results.count
+            let batch = await Task.detached(priority: .userInitiated) {
+                SearchResultBuilder.results(for: matches, in: section, firstIndex: firstIndex, limit: limit)
+            }.value
+            try Task.checkCancellation()
+            guard !closed, ticket == searchGeneration else { return nil }
+            results += batch.results
+            ranges += batch.ranges
+            if batch.hasMore { isTruncated = true }
+        }
+        return (results, ranges, isTruncated)
+    }
+
+    /// Ends the current result list, as a clear, a new query, a failure and `.locate` do.
+    /// Returns whether a current match was drawn, so its emphasis needs removing.
+    @discardableResult private func withdrawSearchResults() -> Bool {
+        searchResultRanges = []
+        guard let results = searchResults else { return false }
+        searchResults = nil
+        emit(.searchResultsChanged(nil))
+        return results.currentIndex != nil
+    }
+
+    /// A logical step through the results. Nothing to step through is not an error: a step
+    /// submitted before a clear or a new query simply finds no results.
+    private func stepSearchResult(forward: Bool) {
+        guard let index = searchResults?.steppedIndex(forward: forward) else { return }
+        showSearchResult(at: index)
+    }
+
+    private func showSearchResult(_ result: EPUBSearchResult) throws {
+        guard let results = searchResults, results.results.indices.contains(result.index),
+              results.results[result.index] == result else {
+            throw EPUBReaderError.invalidCommand("That search result is no longer available")
+        }
+        showSearchResult(at: result.index)
+    }
+
+    /// Makes a result the current match and brings it into view: its page in paginated flow,
+    /// the top of the view in continuous scroll. Its section is built, or it would not be listed.
+    private func showSearchResult(at index: Int) {
+        guard var results = searchResults, searchResultRanges.indices.contains(index) else { return }
+        navigation += 1
+        results.currentIndex = index
+        searchResults = results
+        drawCurrentSearchResult()
+        emit(.searchResultsChanged(results))
+        canvas?.clearSelection()
+        canvas?.show(searchResultRanges[index].start, selecting: nil)
+    }
+
+    /// Moves the current match's emphasis, always the last highlight drawn, and leaves every
+    /// other highlight as it is: a step through a long result list redraws one range.
+    private func drawCurrentSearchResult() {
+        guard let canvas else { return }
+        var drawn = drawnHighlights
+        if drawn.last?.kind == .currentSearch { drawn.removeLast() }
+        if let current = currentSearchHighlight { drawn.append(current) }
+        drawnHighlights = drawn
+        canvas.setHighlights(drawn)
+    }
+
+    private var currentSearchHighlight: ReaderHighlight? {
+        guard let index = searchResults?.currentIndex, searchResultRanges.indices.contains(index) else { return nil }
+        return ReaderHighlight(id: "search-current", range: searchResultRanges[index], kind: .currentSearch)
     }
 
     private func applyStyle(_ newStyle: EPUBReaderStyle) throws {
@@ -479,7 +574,7 @@ import SwiftUI
         var drawn: [ReaderHighlight] = []
         for (index, matches) in searchMatches {
             if searchRanges[index] == nil, let section = book.section(index) {
-                searchRanges[index] = matches.map { range(of: $0, in: section) }.filter { !$0.isEmpty }
+                searchRanges[index] = matches.map { range(of: $0, in: section) }.filter(SearchResultBuilder.isRendered)
             }
             for (number, range) in (searchRanges[index] ?? []).enumerated() {
                 drawn.append(ReaderHighlight(id: "search-\(index)-\(number)", range: range, kind: .search))
@@ -505,6 +600,8 @@ import SwiftUI
                 drawn.append(ReaderHighlight(id: highlight.id, range: range, kind: .annotation))
             }
         }
+        // The current match is drawn again, last, over its ordinary search highlight.
+        if let current = currentSearchHighlight { drawn.append(current) }
         drawnHighlights = drawn
         canvas.setHighlights(drawn)
     }
@@ -551,6 +648,7 @@ import SwiftUI
             case .ready: $0.lifecycle = .ready
             case .relocated(let location): $0.location = location
             case .searchChanged(let search): $0.search = search
+            case .searchResultsChanged(let results): $0.searchResults = results
             case .failed(let error): $0.lifecycle = .failed(error)
             default: break
             }

@@ -68,11 +68,13 @@ struct SpineCFIs: Sendable {
         return itemrefs.isEmpty ? nil : itemrefs
     }
 
-    /// A full CFI for a range in spine item `index` (foliate `getCFI`).
-    func cfi(spineIndex: Int, start: DOMPosition, end: DOMPosition, in document: ContentDocument) -> String {
+    /// A full CFI for a range in spine item `index` (foliate `getCFI`). `indices` is for writing
+    /// many CFIs into one document (`EPUBCFI.ChildIndexCache`).
+    func cfi(spineIndex: Int, start: DOMPosition, end: DOMPosition, in document: ContentDocument,
+             indices: EPUBCFI.ChildIndexCache? = nil) -> String {
         guard document.canResolveCFIs else { return "" }
         let base = bases.indices.contains(spineIndex) ? bases[spineIndex] : Self.fakeBase(spineIndex)
-        return EPUBCFI.joinIndirections(base, EPUBCFI.wrap(EPUBCFI.localPath(from: start, to: end, in: document)))
+        return EPUBCFI.joinIndirections(base, EPUBCFI.wrap(EPUBCFI.localPath(from: start, to: end, in: document, indices: indices)))
     }
 
     /// The spine index and local path a full CFI names (foliate `resolveCFI`), retrying without

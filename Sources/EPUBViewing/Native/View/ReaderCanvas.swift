@@ -72,11 +72,20 @@ struct ReaderSelection: Equatable, Sendable {
 }
 
 struct ReaderHighlight: Hashable, Sendable {
-    enum Kind: Hashable, Sendable { case search, annotation }
+    /// `currentSearch` is the search result last shown, drawn over its own `search` highlight.
+    enum Kind: Hashable, Sendable { case search, annotation, currentSearch }
     var id: String
     /// Within one section.
     var range: ReaderTextRange
     var kind: Kind
+}
+
+extension ReaderHighlight {
+    /// Drawing order: host highlights, search matches over them, the current match on top.
+    static func drawingOrder(_ highlights: [ReaderHighlight]) -> [ReaderHighlight] {
+        highlights.filter { $0.kind == .annotation } + highlights.filter { $0.kind == .search }
+            + highlights.filter { $0.kind == .currentSearch }
+    }
 }
 
 struct ReaderCanvasConfiguration: Equatable, Sendable {
