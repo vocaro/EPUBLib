@@ -1,15 +1,19 @@
 import EPUBCore
 import Foundation
 
-/// Refuses an archive whose own records would send ZIPFoundation past its end.
+/// Refuses an archive whose own records would send ZIPFoundation past its end, or claim an entry
+/// larger than the archive could hold.
 ///
 /// ZIPFoundation 0.9.20 reads an in-memory archive through a file that traps when it is read
 /// after a seek past its end, and it seeks wherever the end record, a directory record or a data
-/// descriptor's place says without comparing that with the archive's length. It also converts
-/// the size it reads an entry by to `Int64` unchecked. A book is untrusted input, so `check`
-/// walks the directory first, as ZIPFoundation's iterator will and with the values it will use,
-/// and throws where that would trap. A record ZIPFoundation merely stops at (one cut short, or
-/// with another signature) is left to it.
+/// descriptor's place says without comparing that with the archive's length. It also takes the
+/// size it reads an entry by from the directory unchecked: one of 2^63 bytes or more traps as it
+/// becomes an `Int64`, and a stored entry is read in chunks until the whole size has been asked
+/// for, so opening takes as long as that size says however few bytes the archive has. A book is
+/// untrusted input, so `check` walks the directory first, as ZIPFoundation's iterator will and
+/// with the values it will use, and throws where that would trap or where an entry's sizes are
+/// more than the archive has bytes for. A record ZIPFoundation merely stops at (one cut short,
+/// or with another signature) is left to it.
 enum ArchiveBounds {
     /// `data` is what ZIPFoundation reads: the bytes its `Archive` was made from.
     static func check(_ data: Data) throws {
@@ -79,8 +83,19 @@ enum ArchiveBounds {
             }
             // ZIPFoundation's iterator ends at an encrypted entry.
             guard flags & 0x0001 == 0 else { return }
-            // The size an entry is read by, which the local header's method chooses, becomes an Int64.
-            guard (u16(local + 8) == 0 ? uncompressed : compressed) <= UInt64(Int64.max) else { throw pastTheEnd("Entry data") }
+            // The size an entry is read by, which the local header's method chooses. A stored
+            // entry is read a chunk at a time until that many bytes have been asked for, whether
+            // or not the archive has any left to give.
+            let method = u16(local + 8)
+            guard (method == 0 ? uncompressed : compressed) <= UInt64(count - dataStart) else { throw pastTheEnd("Entry data") }
+            // Deflate's shortest code for its longest copy turns two bits into 258 bytes, so no
+            // stream inflates to more than 1,032 times its own length.
+            if method == 8 {
+                let (most, overflow) = compressed.multipliedReportingOverflow(by: 1032)
+                guard overflow || uncompressed <= most else {
+                    throw EPUBPublicationError.invalidArchive("Entry larger than its compressed data can hold")
+                }
+            }
 
             position = UInt64(record + length)
             index += 1
