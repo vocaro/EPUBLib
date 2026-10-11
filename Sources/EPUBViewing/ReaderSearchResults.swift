@@ -248,17 +248,7 @@ struct EPUBSearchResultRows: View, Equatable {
 
     var body: some View {
         ScrollViewReader { proxy in
-            List {
-                ForEach(Self.groups(results.results)) { group in
-                    Section(group.title) {
-                        ForEach(results.results[group.range]) { row($0) }
-                    }
-                }
-                if results.isTruncated {
-                    Text("Only the first \(results.count.formatted()) matches are listed.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-            }
+            resultList
             .scrollDismissesKeyboard(.immediately)
             .onAppear { if let index = results.currentIndex { proxy.scrollTo(index, anchor: .center) } }
             .onChange(of: results.currentIndex) { _, index in
@@ -267,7 +257,41 @@ struct EPUBSearchResultRows: View, Equatable {
         }
     }
 
-    private func row(_ result: EPUBSearchResult) -> some View {
+    @ViewBuilder private var resultList: some View {
+        #if os(macOS)
+        // Native Mac list traversal needs a selection binding and tagged rows.
+        // Keep keyboard, button and accessibility choices on the same result command.
+        List(selection: Binding<Int?>(get: { results.currentIndex }, set: { index in
+            guard let index, index != results.currentIndex,
+                  let result = results.results.first(where: { $0.index == index }) else { return }
+            select(result)
+        })) { listContent }
+        #else
+        List { listContent }
+        #endif
+    }
+
+    @ViewBuilder private var listContent: some View {
+        ForEach(Self.groups(results.results)) { group in
+            Section(group.title) {
+                ForEach(results.results[group.range]) { row($0) }
+            }
+        }
+        if results.isTruncated {
+            Text("Only the first \(results.count.formatted()) matches are listed.")
+                .font(.callout).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder private func row(_ result: EPUBSearchResult) -> some View {
+        #if os(macOS)
+        rowButton(result).tag(result.index)
+        #else
+        rowButton(result)
+        #endif
+    }
+
+    private func rowButton(_ result: EPUBSearchResult) -> some View {
         let isCurrent = result.index == results.currentIndex
         return Button { select(result) } label: {
             HStack(alignment: .firstTextBaseline) {
