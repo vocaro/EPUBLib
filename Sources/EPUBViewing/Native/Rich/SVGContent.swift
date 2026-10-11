@@ -75,7 +75,10 @@ enum SVGContent {
     }
 
     static func href(_ element: ContentNode) -> String? {
-        (element.attribute("href", namespace: ContentNamespace.xlink) ?? element.attribute("href"))?
+        // SVG 2: an unprefixed `href` takes precedence over `xlink:href`, as the renderer resolves
+        // it. Following the wrong one would let a `<use href='#big' xlink:href='#small'>` hide the
+        // expanded target from the byte and marker counts.
+        (element.attribute("href") ?? element.attribute("href", namespace: ContentNamespace.xlink))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -614,21 +617,28 @@ enum SVGContent {
         data.contains("a") || data.contains("A")
     }
 
-    /// The instances one drawn copy of a marker drawable costs, in the bound's units. A simple
-    /// node is one instance; a point-heavy one (a long path or polyline, a large-radius curve, or
-    /// a long text run) costs in proportion to its stored points, so a marker whose single node
-    /// holds thousands of points is charged for them. The divisor is the points whose storage
-    /// equals one instance's fixed overhead, keeping the 45 MB-per-100,000 calibration across node
-    /// sizes; `maximumTextRunCharacters` already bounds a single text run.
+    /// The instances one drawn copy of a marker drawable costs, in the bound's units, since the
+    /// renderer re-stores a marker's content at every vertex. A simple shape is one instance; a
+    /// point-heavy one (a long path or polyline, or a large-radius curve) costs in proportion to
+    /// its stored points, the divisor being the points whose storage equals one instance's fixed
+    /// overhead. A `<text>` costs one per character, because each glyph is laid out and outlined
+    /// afresh per instance (`maximumTextRunCharacters` bounds one run, but not its repetition). An
+    /// `<image>` is re-decoded and re-rastered per instance and escapes the total-pixel cap, so a
+    /// marker that draws one is refused — vector markers are the norm and this is not a diagram
+    /// construct we need to render.
     private static func markerDrawCost(_ node: ContentNode) -> Int {
-        guard drawableShapes.contains(node.name) else { return 0 }
-        let points: Int
         switch node.name {
-        case "image": points = 1
-        case "text": points = node.textContent.unicodeScalars.count
-        default: points = vertexCount(node)
+        case "image": return maximumMarkerInstances + 1
+        case "text": return containsTref(node) ? maximumMarkerInstances + 1 : max(1, node.textContent.unicodeScalars.count)
+        case let name where markerableShapes.contains(name): return clampToUnbounded(1 + vertexCount(node) / 32)
+        default: return 0
         }
-        return clampToUnbounded(1 + points / 32)
+    }
+
+    /// Whether a subtree contains a `<tref>`, whose rendered text the renderer resolves from a
+    /// referenced element at parse time and so is absent from this tree.
+    private static func containsTref(_ node: ContentNode) -> Bool {
+        node.name == "tref" || node.elementChildren.contains(where: containsTref)
     }
 
     /// The count of numeric tokens in SVG coordinate data, over-counting rather than under.

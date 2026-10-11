@@ -136,6 +136,12 @@ final class RichMediaSVGBoundsCoverageTests: XCTestCase {
             + String(repeating: "<use xlink:href='#g'/>", count: 5) + "</g></defs>"
             + String(repeating: "<use xlink:href='#outer'/>", count: 5) + "</svg>"
         XCTAssertFalse(renders(nested), "5 x 5 nested uses (~2,000,000 instances) are refused")
+        // The renderer (SVG 2) resolves the unprefixed `href`, so a `<use>` that hides the
+        // marker-bearing target behind `href` while pointing `xlink:href` at an empty group must
+        // be counted against the real target, not the decoy.
+        let decoy = "<svg \(ns) width='200' height='50'><defs>\(marker)\(group)<g id='tiny'/></defs>"
+            + String(repeating: "<use href='#g' xlink:href='#tiny'/>", count: 2) + "</svg>"
+        XCTAssertFalse(renders(decoy), "a dual-href use is counted against its unprefixed target")
     }
 
     // MARK: Markers applied through CSS the renderer honours (evasion: CSS whitespace)
@@ -311,5 +317,30 @@ final class RichMediaSVGBoundsCoverageTests: XCTestCase {
         let small = "<marker id='m' markerUnits='userSpaceOnUse' markerWidth='2' markerHeight='2'><rect width='1' height='1'/></marker>"
         XCTAssertTrue(renders("<svg \(ns) width='200' height='50'><defs>\(small)</defs><path d='\(hostHigh)' marker-mid='url(#m)'/></svg>"),
                       "a small marker on the high-vertex host renders")
+    }
+
+    // MARK: Text and image marker content (new channels: glyph volume and per-instance raster)
+
+    /// A marker's `<text>` is laid out and outlined once per vertex, so it costs one instance per
+    /// character; a short label on a long host stays within the bound, a longer repetition does
+    /// not. An `<image>` is re-decoded and re-rastered per instance and escapes the total-pixel
+    /// cap, so a marker that draws one is refused. Both are checked through the pre-render verdict,
+    /// not the renderer, which would need a loaded font and would rasterize the bomb.
+    func testTextAndImageMarkerContentIsBounded() throws {
+        let ns = Self.ns
+        func host(_ lineTos: Int) -> String { "M0 0" + String(repeating: " L1 1", count: lineTos) }
+        let label = "<marker id='m' markerUnits='userSpaceOnUse' markerWidth='40' markerHeight='9'><text y='8'>0123456789</text></marker>" // 10 chars
+        XCTAssertTrue(markerCheck("<svg \(ns) width='200' height='50'><defs>\(label)</defs><path d='\(host(2_000))' marker-mid='url(#m)'/></svg>").withinLimits,
+                      "a 10-character label on a short host is within the bound")
+        XCTAssertFalse(markerCheck("<svg \(ns) width='200' height='50'><defs>\(label)</defs><path d='\(host(6_000))' marker-mid='url(#m)'/></svg>").withinLimits,
+                       "the same label repeated over a long host exceeds the bound")
+        let icon = "<marker id='m' markerUnits='userSpaceOnUse' markerWidth='9' markerHeight='9'><image width='9' height='9' xlink:href='data:image/png;base64,AAAA'/></marker>"
+        XCTAssertFalse(markerCheck("<svg \(ns) width='200' height='50'><defs>\(icon)</defs><path d='M0 0 L1 1 L2 2' marker-mid='url(#m)'/></svg>").withinLimits,
+                       "a marker that draws an image is refused even on a short host")
+        // A `<tref>` in marker text renders the referenced element's text, which this tree does not
+        // hold, so its length cannot be counted; the marker is refused.
+        let tref = "<marker id='m' markerUnits='userSpaceOnUse' markerWidth='40' markerHeight='9'><text y='8'><tref xlink:href='#big'/></text></marker>"
+        XCTAssertFalse(markerCheck("<svg \(ns) width='200' height='50'><defs><text id='big'>\(String(repeating: "a", count: 100))</text>\(tref)</defs><path d='\(host(2_000))' marker-mid='url(#m)'/></svg>").withinLimits,
+                       "a marker whose text is a <tref> is refused")
     }
 }
