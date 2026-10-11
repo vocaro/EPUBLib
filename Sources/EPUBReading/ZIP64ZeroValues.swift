@@ -11,38 +11,37 @@ import Foundation
 enum ZIP64ZeroValues {
     /// `archive`, or a copy that states each such zero where ZIPFoundation reads it: in the
     /// record's 32-bit field, and no longer in the extra field, which lists only the values its
-    /// record defers to it. The copy describes the same entries. The directory is found the way
-    /// ZIPFoundation finds it and anything that is not such a record is left as it was, so a
-    /// damaged archive stays as damaged as it came.
+    /// record defers to it.
+    ///
+    /// Whatever the bytes, the copy has the archive's length and differs from it only inside
+    /// directory records that end at or before the end record (the ZIP64 end record, where
+    /// ZIPFoundation uses one), and in those only in the 32-bit sizes and offset and the ZIP64
+    /// field. The end records are thus the same bytes in the same place, and the copy is checked
+    /// not to have gained a ZIP64 end record and locator ahead of them, so ZIPFoundation finds
+    /// the directory it would find in the archive, record for record: a restated record gives
+    /// the values its ZIP64 field gave, and any other is as it was. Where that check fails, as
+    /// where there is nothing to restate, the archive is returned as it came. A record that runs
+    /// into the end records is not restated, nor is any after it. Nothing outside the directory
+    /// changes, so an entry reads differently only if the archive lays that entry's own header
+    /// or data over one of its directory records.
     static func inlined(in archive: Data) -> Data {
         var result = archive
-        archive.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
-            func read<T: FixedWidthInteger>(_ offset: Int, as type: T.Type = T.self) -> T? {
-                guard offset >= 0, offset <= bytes.count - MemoryLayout<T>.size else { return nil }
-                return T(littleEndian: bytes.loadUnaligned(fromByteOffset: offset, as: T.self))
-            }
+        var changed = false
+        let directory = archive.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) -> Directory? in
+            func read<T: FixedWidthInteger>(_ offset: Int, as type: T.Type = T.self) -> T? { bytes.read(offset, as: type) }
             func write(_ replacement: [UInt8], at offset: Int) {
                 let start = result.startIndex + offset
                 result.replaceSubrange(start..<(start + replacement.count), with: replacement)
+                changed = true
             }
-            // The end record is the last one in the archive. A ZIP64 end record and its locator,
-            // when they sit right before it, give the directory's place and length instead.
-            var end = bytes.count - 22
-            while end >= 0, read(end, as: UInt32.self) != 0x0605_4b50 { end -= 1 }
-            guard end >= 0, var remaining = read(end + 10, as: UInt16.self).map(UInt64.init),
-                  var start = read(end + 16, as: UInt32.self).map(UInt64.init) else { return }
-            if end > 76, read(end - 20, as: UInt32.self) == 0x0706_4b50,
-               read(end - 76, as: UInt32.self) == 0x0606_4b50,
-               let version = read(end - 62, as: UInt16.self), version >= 45,
-               let count = read(end - 44, as: UInt64.self), let offset = read(end - 28, as: UInt64.self) {
-                (remaining, start) = (count, offset)
-            }
-            guard var record = Int(exactly: start) else { return }
-            while remaining > 0, record <= bytes.count - 46, read(record, as: UInt32.self) == 0x0201_4b50,
+            guard let directory = Directory(in: bytes), var record = Int(exactly: directory.start) else { return nil }
+            var remaining = directory.count
+            // A record that runs into the end records is left alone, and so are those after it.
+            while remaining > 0, record <= directory.limit - 46, read(record, as: UInt32.self) == 0x0201_4b50,
                   let nameLength = read(record + 28, as: UInt16.self).map(Int.init),
                   let extraLength = read(record + 30, as: UInt16.self).map(Int.init),
                   let commentLength = read(record + 32, as: UInt16.self).map(Int.init),
-                  nameLength + extraLength + commentLength <= bytes.count - 46 - record {
+                  nameLength + extraLength + commentLength <= directory.limit - 46 - record {
                 let extraEnd = record + 46 + nameLength + extraLength
                 // The fields a ZIP64 value stands in for, in the order the extra field lists
                 // their values: uncompressed size, compressed size, local header offset. A disk
@@ -71,7 +70,47 @@ enum ZIP64ZeroValues {
                 record = extraEnd + commentLength
                 remaining -= 1
             }
+            return directory
         }
+        // Every byte from `limit` on is as it was, so the end records ZIPFoundation used are. What
+        // moved before them can still have made a ZIP64 end record and locator where there were
+        // none, and with them another directory: the copy must lead where the archive does.
+        guard changed, result.withUnsafeBytes({ Directory(in: $0) }) == directory else { return archive }
         return result
+    }
+
+    /// Where ZIPFoundation finds an archive's directory.
+    private struct Directory: Equatable {
+        /// The first record's offset and the number of records.
+        let start: UInt64, count: UInt64
+        /// The end record's offset, and the offset the end records begin at: the same, or the
+        /// ZIP64 end record's when that is where `start` and `count` come from.
+        let end: Int, limit: Int
+
+        /// The end record is the last one in the archive. A ZIP64 end record and its locator,
+        /// when they sit right before it, give the directory's place and length instead.
+        init?(in bytes: UnsafeRawBufferPointer) {
+            var end = bytes.count - 22
+            while end >= 0, bytes.read(end, as: UInt32.self) != 0x0605_4b50 { end -= 1 }
+            guard end >= 0, let count = bytes.read(end + 10, as: UInt16.self),
+                  let start = bytes.read(end + 16, as: UInt32.self) else { return nil }
+            self.end = end
+            if end > 76, bytes.read(end - 20, as: UInt32.self) == 0x0706_4b50,
+               bytes.read(end - 76, as: UInt32.self) == 0x0606_4b50,
+               let version = bytes.read(end - 62, as: UInt16.self), version >= 45,
+               let count = bytes.read(end - 44, as: UInt64.self), let start = bytes.read(end - 28, as: UInt64.self) {
+                (self.start, self.count, limit) = (start, count, end - 76)
+            } else {
+                (self.start, self.count, limit) = (UInt64(start), UInt64(count), end)
+            }
+        }
+    }
+}
+
+private extension UnsafeRawBufferPointer {
+    /// The little-endian integer at `offset`, or nil when it does not lie within the bytes.
+    func read<T: FixedWidthInteger>(_ offset: Int, as type: T.Type = T.self) -> T? {
+        guard offset >= 0, offset <= count - MemoryLayout<T>.size else { return nil }
+        return T(littleEndian: loadUnaligned(fromByteOffset: offset, as: T.self))
     }
 }

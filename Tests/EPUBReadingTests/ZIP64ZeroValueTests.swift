@@ -4,6 +4,7 @@ import EPUBCore
 import EPUBTestSupport
 import Foundation
 import XCTest
+import ZIPFoundation
 
 /// ZIP64 extra fields holding a zero: the first entry's header offset and an empty entry's sizes.
 /// ZIPFoundation reads a zero there as no value at all, so opening restates it first.
@@ -13,6 +14,8 @@ final class ZIP64ZeroValueTests: XCTestCase {
         files["OPS/empty.css"] = Data()
         return files
     }
+
+    private func le<T: FixedWidthInteger>(_ value: T) -> Data { withUnsafeBytes(of: value.littleEndian) { Data($0) } }
 
     private func assertOpens(_ data: Data, as files: [String: Data], _ message: String = "",
                              file: StaticString = #filePath, line: UInt = #line) throws {
@@ -88,6 +91,32 @@ final class ZIP64ZeroValueTests: XCTestCase {
         XCTAssertEqual(ZIP64ZeroValues.inlined(in: slice), ZIP64ZeroValues.inlined(in: archive))
     }
 
+    func testAZIP64FieldAmongOtherExtraFieldsOfADescribedEntryIsRead() throws {
+        // What a writer that cannot seek back and always uses ZIP64 produces: each entry's checksum
+        // and sizes follow its data in a descriptor of 8-byte sizes, and its directory record
+        // defers both sizes and the offset to a ZIP64 field, here between a timestamp and Unix IDs.
+        let files = try filesWithAnEmptyOne()
+        let timestamp = le(UInt16(0x5455)) + le(UInt16(5)) + Data([1, 0x10, 0x20, 0x30, 0x40])
+        let owner = le(UInt16(0x7875)) + le(UInt16(11)) + Data([1, 4, 0xF5, 1, 0, 0, 4, 0x14, 0, 0, 0])
+        var data = Data(), directory = Data()
+        for entry in Fixture.storedEntries(files) {
+            let checksum = le(entry.data.crc32(checksum: 0)), size = le(UInt64(entry.data.count)), offset = le(UInt64(data.count))
+            // Version needed, flags (a UTF-8 name, a data descriptor), stored, time and date.
+            let common = le(UInt16(45)) + le(UInt16(0x0808)) + le(UInt16(0)) + le(UInt16(0)) + le(UInt16(0x21))
+            let extra = timestamp + le(UInt16(1)) + le(UInt16(24)) + size + size + offset + owner
+            data += le(UInt32(0x0403_4b50)) + common + le(UInt32(0)) + le(UInt32.max) + le(UInt32.max)
+            data += le(UInt16(entry.name.count)) + le(UInt16(20)) + entry.name + le(UInt16(1)) + le(UInt16(16)) + Data(count: 16)
+            data += entry.data + le(UInt32(0x0807_4b50)) + checksum + size + size
+            directory += le(UInt32(0x0201_4b50)) + le(UInt16(45)) + common + checksum + le(UInt32.max) + le(UInt32.max)
+            directory += le(UInt16(entry.name.count)) + le(UInt16(extra.count)) + Data(count: 10) + le(UInt32.max) + entry.name + extra
+        }
+        let start = data.count
+        data += directory + le(UInt32(0x0605_4b50)) + le(UInt32(0)) + le(UInt16(files.count)) + le(UInt16(files.count))
+        data += le(UInt32(directory.count)) + le(UInt32(start)) + le(UInt16(0))
+        XCTAssertNotEqual(ZIP64ZeroValues.inlined(in: data), data)
+        try assertOpens(data, as: files)
+    }
+
     // MARK: Restating
 
     func testOnlyDirectoryRecordsHoldingAZeroAreRestated() throws {
@@ -156,5 +185,78 @@ final class ZIP64ZeroValueTests: XCTestCase {
         }
         XCTAssertEqual(ZIP64ZeroValues.inlined(in: damaging(data, at: end - 44, with: most)),
                        damaging(ZIP64ZeroValues.inlined(in: data), at: end - 44, with: most), "the records there are, and no further")
+    }
+
+    // MARK: Archives made to be restated into something else
+
+    // Taking a zero out of a ZIP64 field moves the values after it eight bytes back. In each
+    // archive below that would join or part the bytes of a signature, so that ZIPFoundation would
+    // find other end records in the copy than the archive has, and through them another directory.
+
+    func testARecordHoldingTheEndRecordIsNotRestated() throws {
+        // The last record's ZIP64 field ends in the end record's first four bytes, as its disk
+        // number, after a zero; the rest is the record's comment. The zero is a stored entry's
+        // compressed size, which nothing reads, so the book opens as it is. Restated, the end
+        // record would sit eight bytes back and count no entries, or (two bytes on) come apart.
+        let files = try filesWithAnEmptyOne()
+        let entries = Fixture.storedEntries(files)
+        let plain = Fixture.storedArchive(entries.filter { !$0.data.isEmpty } + entries.filter { $0.data.isEmpty })
+        let record = try XCTUnwrap(Fixture.directoryOffset(of: "OPS/empty.css", in: plain)), end = plain.count - 22
+        for lead in [0, 2] {
+            var data = plain.prefix(end)
+            data.replaceSubrange((record + 20)..<(record + 24), with: le(UInt32.max)) // The compressed size, deferred.
+            // An extra field of 16 bytes, a comment of the end record's other bytes and a deferred disk number.
+            data.replaceSubrange((record + 30)..<(record + 36), with: le(UInt16(16)) + le(UInt16(18 + lead)) + le(UInt16.max))
+            data += le(UInt16(1)) + le(UInt16(12)) + Data(count: 8 + lead) + plain.suffix(22)
+            XCTAssertEqual(ZIP64ZeroValues.inlined(in: data), data, "\(lead) bytes on")
+            try assertOpens(data, as: files, "\(lead) bytes on")
+        }
+    }
+
+    func testADirectoryAfterTheEndRecordIsNotRestated() throws {
+        // The end record names a directory after itself, in the archive's comment: the book's
+        // records, then one whose ZIP64 field holds a zero between a value ending 50 4B and one
+        // starting 05 06, the file's last 22 bytes from there on. Restated, those would be an
+        // end record after the archive's own, and the ZIP64 end record and locator in the
+        // record's name would send ZIPFoundation to a directory of one hidden file.
+        let files = try Fixture.files()
+        let whole = Fixture.storedArchive([Fixture.StoredEntry("hidden.txt", "read only from a copy")] + Fixture.storedEntries(files))
+        let hidden = Int(whole.suffix(6).prefix(4).reversed().reduce(0) { $0 << 8 | UInt32($1) })
+        let book = try XCTUnwrap(Fixture.directoryOffset(of: "mimetype", in: whole))
+        var name = Data("x".utf8) + le(UInt32(0x0606_4b50)) + le(UInt64(44)) + le(UInt16(45)) + le(UInt16(45)) + Data(count: 8)
+        name += le(UInt64(1)) + le(UInt64(1)) + le(UInt64(book - hidden)) + le(UInt64(hidden)) + le(UInt32(0x0706_4b50)) + Data(count: 6)
+        let extra = le(UInt16(1)) + le(UInt16(24)) + Data([1, 0, 0, 0, 0, 0, 0x50, 0x4B]) + Data(count: 8) + Data([0x05, 0x06]) + Data(count: 10)
+        var comment = Data(whole[book..<(whole.count - 22)])
+        comment += le(UInt32(0x0201_4b50)) + le(UInt16(20)) + le(UInt16(45)) + le(UInt16(0x0800)) + Data(count: 10)
+        comment += le(UInt32.max) + le(UInt32.max) + le(UInt16(name.count)) + le(UInt16(extra.count)) + Data(count: 10)
+        comment += le(UInt32.max) + name + extra
+        var data = whole.prefix(book)
+        data += le(UInt32(0x0605_4b50)) + le(UInt32(0)) + le(UInt16(files.count + 1)) + le(UInt16(files.count + 1))
+        data += le(UInt32(comment.count)) + le(UInt32(book + 22)) + le(UInt16(comment.count)) + comment
+        XCTAssertEqual(ZIP64ZeroValues.inlined(in: data), data)
+        try assertOpens(data, as: files)
+    }
+
+    func testACopyThatWouldGainAZIP64EndRecordIsNotReturned() throws {
+        // Every record ends before the end record. The last one's name is the start of a ZIP64 end
+        // record, 76 bytes before the end record, and its ZIP64 field holds a zero between a value
+        // ending 50 4B and one starting 06 07: restated, a locator's signature 20 bytes before the
+        // end record. ZIPFoundation would then take the directory from the ZIP64 end record.
+        let files = try Fixture.files()
+        let plain = Fixture.storedArchive(Fixture.storedEntries(files))
+        let name = le(UInt32(0x0606_4b50)) + le(UInt64(44)) + le(UInt16(45)) + le(UInt16(45)) + Data(count: 8) + le(UInt64(1)) + le(UInt64(1)) + Data(count: 6)
+        let extra = le(UInt16(1)) + le(UInt16(24)) + Data(count: 6) + Data([0x50, 0x4B]) + Data(count: 8) + Data([0x06, 0x07]) + Data(count: 6)
+        var data = plain.prefix(plain.count - 22)
+        let record = data.count
+        data += le(UInt32(0x0201_4b50)) + le(UInt16(20)) + le(UInt16(45)) + le(UInt16(0x0800)) + Data(count: 10)
+        data += le(UInt32.max) + le(UInt32.max) + le(UInt16(name.count)) + le(UInt16(extra.count)) + le(UInt16(2)) + Data(count: 8)
+        data += le(UInt32.max) + name + extra + Data(count: 2)
+        data += le(UInt32(0x0605_4b50)) + le(UInt32(0)) + le(UInt16(files.count + 1)) + le(UInt16(files.count + 1)) + plain.suffix(10)
+        XCTAssertEqual(ZIP64ZeroValues.inlined(in: data), data)
+        try assertOpens(data, as: files)
+        // With no ZIP64 end record in its name the same record is restated, as any other is.
+        var plainlyNamed = data
+        plainlyNamed[record + 46] = 0x51
+        XCTAssertNotEqual(ZIP64ZeroValues.inlined(in: plainlyNamed), plainlyNamed)
     }
 }
