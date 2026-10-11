@@ -10,61 +10,28 @@ final class CFIGoldenVectorTests: XCTestCase {
         catch { fatalError("CFIGoldenVectors.json does not decode: \(error)") }
     }()
 
-    /// A fixture as the port parsed it, aligned with foliate's DOM. foliate re-read a document
-    /// WebKit's XML parser refused (a named entity without an XHTML 1.x DOCTYPE, or no
-    /// namespace) as HTML, whose tree construction drops white space before `head` and appends
-    /// what follows `body` to it; `ContentDocument` reads it as XML. Everything else lines up.
+    /// Compare the native DOM directly with the recorded WebKit DOM. No whitespace
+    /// alignment, namespace suppression, or omitted HTML positions may hide a mismatch.
     private struct Subject {
         let vectors: DocumentVectors
         let document: ContentDocument
-        /// The port's model as foliate's DOM has it.
         let model: [[String]]
-        let nodes: [Int: ContentNode]
-        let orders: [ObjectIdentifier: Int]
         var isHTML: Bool { vectors.parser == "html" }
 
         init(_ vectors: DocumentVectors) throws {
             self.vectors = vectors
             let fixture = try XCTUnwrap(CFIFixtures.documents.first { $0.name == vectors.name })
             document = try ContentDocument.parse(Data(fixture.xhtml.utf8), path: "\(vectors.name).xhtml")
-            var model: [[String]] = [], nodes: [Int: ContentNode] = [:]
-            let root = document.root
-            let head = root.children.first { $0.isElement && $0.name == "head" }
-            let body = root.children.first { $0.isElement && $0.name == "body" }
-            func movedByHTML(_ node: ContentNode) -> Bool {
-                guard vectors.parser == "html", node.isText, node.parent === root, let head, let body else { return false }
-                return node.indexInParent < head.indexInParent || node.indexInParent > body.indexInParent
-            }
-            let trailing = vectors.parser == "html" && body != nil
-                ? root.children.filter { movedByHTML($0) && $0.indexInParent > body!.indexInParent }.map(\.text).joined() : ""
-            for node in document.nodes where !movedByHTML(node) {
-                nodes[model.count] = node
-                if node.isElement {
-                    model.append(["E", node.name, node.namespace])
-                } else {
-                    model.append(["T", node.text + (node === body?.children.last ? trailing : "")])
-                }
-            }
-            if !trailing.isEmpty, body?.children.last?.isText != true { model.append(["T", trailing]) }
-            self.model = model
-            self.nodes = nodes
-            orders = Dictionary(uniqueKeysWithValues: nodes.map { (ObjectIdentifier($1), $0) })
+            model = document.nodes.map { $0.isElement ? ["E", $0.name, $0.namespace] : ["T", $0.text] }
         }
 
         func position(_ order: Int, _ offset: Int) -> DOMPosition? {
-            guard let node = nodes[order], offset <= node.utf16Length else { return nil }
-            return DOMPosition(node, offset)
+            guard document.nodes.indices.contains(order), offset <= document.nodes[order].utf16Length else { return nil }
+            return DOMPosition(document.nodes[order], offset)
         }
 
         func flattened(_ start: DOMPosition, _ end: DOMPosition) -> [Int]? {
-            guard let startOrder = orders[ObjectIdentifier(start.node)], let endOrder = orders[ObjectIdentifier(end.node)]
-            else { return nil }
-            return [startOrder, start.offset, endOrder, end.offset]
-        }
-
-        /// Positions foliate's HTML tree has but the port's XML tree does not, or vice versa.
-        func isAligned(_ numbers: [Int]) -> Bool {
-            !isHTML || (position(numbers[0], numbers[1]) != nil && position(numbers[2], numbers[3]) != nil)
+            [start.node.order, start.offset, end.node.order, end.offset]
         }
     }
 
@@ -89,9 +56,7 @@ final class CFIGoldenVectorTests: XCTestCase {
             XCTAssertTrue(vectors.serializationStable, "\(vectors.name): foliate's serialize-and-reload changes the DOM")
             XCTAssertEqual(subject.model.count, vectors.model.count, "\(vectors.name): node count")
             for (order, (node, expected)) in zip(subject.model, vectors.model).enumerated() {
-                // HTML-parsed elements are all in the XHTML namespace; the port's XML reading has none.
-                let comparable = subject.isHTML && node[0] == "E" ? Array(node.prefix(2)) : node
-                XCTAssertEqual(comparable, subject.isHTML && expected[0] == "E" ? Array(expected.prefix(2)) : expected,
+                XCTAssertEqual(node, expected,
                                "\(vectors.name) node \(order)")
             }
         }
@@ -101,7 +66,7 @@ final class CFIGoldenVectorTests: XCTestCase {
         var checked = 0
         for subject in Self.subjects {
             for vector in subject.vectors.fromRange {
-                guard let cfi = vector[4].string, let numbers = vector[0..<4].ints, subject.isAligned(numbers),
+                guard let cfi = vector[4].string, let numbers = vector[0..<4].ints,
                       let start = subject.position(numbers[0], numbers[1]), let end = subject.position(numbers[2], numbers[3])
                 else { continue }
                 let path = EPUBCFI.localPath(from: start, to: end, in: subject.document)
@@ -122,15 +87,11 @@ final class CFIGoldenVectorTests: XCTestCase {
             for node in document.nodes { before.append(total); total += node.utf16Length }
             func reading(_ position: DOMPosition) -> Int { before[position.node.order] + (position.node.isText ? position.offset : 0) }
             for vector in vectors.toRange {
-                // A root-level text chunk (`/1`, `/5`) is where HTML moved white space.
-                if subject.isHTML, let first = try? EPUBCFI.parse(vector.cfi), (EPUBCFI.collapse(first).first?.first?.index ?? 0) % 2 == 1
-                    || (EPUBCFI.collapse(first, toEnd: true).first?.first?.index ?? 0) % 2 == 1 { continue }
-                if let expected = vector.expected, !subject.isAligned(expected) { continue }
                 let resolved = EPUBCFI.resolve(localPath: vector.cfi, in: document)
                 XCTAssertEqual(resolved.flatMap { subject.flattened($0.start, $0.end) }, vector.expected,
                                "\(vectors.name) \(vector.cfi) \(vector.flags)")
                 checked += 1
-                if let resolved, vector.flags.isEmpty, !subject.isHTML, let foliate = vector.reading {
+                if let resolved, vector.flags.isEmpty, let foliate = vector.reading {
                     XCTAssertEqual([reading(resolved.start), reading(resolved.end)], foliate,
                                    "\(vectors.name) \(vector.cfi): text offsets differ from foliate's range")
                     compared += 1
@@ -196,7 +157,7 @@ final class CFIGoldenVectorTests: XCTestCase {
     func testSpineBasesAndResolutionMatchFoliate() throws {
         for vectors in Self.vectors.packages {
             let fixture = try XCTUnwrap(CFIFixtures.packages.first { $0.name == vectors.name })
-            let package = try ContentDocument.parse(Data(fixture.opf.utf8), path: "package.opf")
+            let package = try ContentDocument.parse(Data(fixture.opf.utf8), path: "package.opf", asContent: false)
             guard let bases = vectors.bases else {
                 XCTFail("\(vectors.name): foliate could not read the spine: \(vectors.error ?? "")")
                 continue

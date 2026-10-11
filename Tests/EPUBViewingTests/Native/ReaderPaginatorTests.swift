@@ -122,11 +122,12 @@ import UIKit
                 XCTAssertEqual(style?.firstLineHeadIndent, style?.headIndent, file: file, line: line)
             }
             let expected = section.filter { NSLocationInRange($0.range.location, page.range) }
-            // A last line may also hold the start of the unseen filler after it.
             let actual = lines(of: pageText, width: size.width).filter { $0.range.location < page.range.length }
-            XCTAssertEqual(actual.map { min(NSMaxRange($0.range), page.range.length) - $0.range.location },
-                           expected.map(\.range.length), "page at \(page.range.location)", file: file, line: line)
-            if let top = expected.first?.top {
+            XCTAssertEqual(actual.map(\.range.length),
+                           page.measuredLineLengths ?? expected.map(\.range.length), "page at \(page.range.location)", file: file, line: line)
+            if page.measuredLineLengths != nil {
+                XCTAssertEqual(actual.last?.bottom ?? 0, page.height, accuracy: 0.5, file: file, line: line)
+            } else if let top = expected.first?.top {
                 XCTAssertEqual(actual.last?.bottom ?? 0, (expected.last?.bottom ?? 0) - top, accuracy: 0.5, file: file, line: line)
             }
         }
@@ -165,7 +166,7 @@ import UIKit
         text.append(CanvasText.body("\nA short paragraph after it.", style: style))
         let pages = assertPagesLayOutLikeTheSection(text, size: size)
         XCTAssertGreaterThan(pages.count, 10)
-        XCTAssertTrue(pages.contains { $0.filler > 0 }, "the paragraph's last page is padded to stay long")
+        XCTAssertTrue(pages.contains { $0.measuredLineLengths != nil }, "the paragraph's short tail is measured in its exact display context")
         XCTAssertTrue(pages.allSatisfy { $0.layoutEnd - NSMaxRange($0.range) <= ReaderPaginator.wholeParagraphJustification + 1 })
     }
 

@@ -47,7 +47,7 @@ struct NativeRichContent: RichContentFactory {
         if Self.isSVG(data, path: path, context: context) {
             guard let (svg, root) = svgDocument(data, path: path, key: key, context: context) else {
                 context.report.report.unsupportedElements["svg", default: 0] += 1
-                if alt.isEmpty, let document = try? ContentDocument.parse(data, path: path) { alt = SVGContent.fallbackText(document.root) }
+                if alt.isEmpty, let document = try? ContentDocument.parse(data, path: path, asContent: false) { alt = SVGContent.fallbackText(document.root) }
                 return fallback()
             }
             if alt.isEmpty { alt = SVGContent.accessibleLabel(root) ?? "" }
@@ -134,7 +134,7 @@ struct NativeRichContent: RichContentFactory {
     /// An SVG resource as a sanitized document the static renderer can draw, and its root.
     private func svgDocument(_ data: Data, path: String, key: String,
                              context: RichContentContext) -> (ReaderImageSource, ContentNode)? {
-        guard let document = try? ContentDocument.parse(data, path: path),
+        guard let document = try? ContentDocument.parse(data, path: path, asContent: false),
               SVGContent.isSVG(document.root, root: document.root), document.root.name == "svg" else { return nil }
         discloseSVG(document.root, context: context)
         let resolve: (String) -> String? = { reference in

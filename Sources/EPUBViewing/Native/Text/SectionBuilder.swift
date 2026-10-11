@@ -56,6 +56,7 @@ enum SectionBuilder {
                                       initialStyle: initialStyle ?? ComputedStyle(fontSize: request.typography.fontSize))
         state.report.report = report
         state.report.report.recoveredAsHTML = report.recoveredAsHTML || document.recoveredAsHTML
+        state.report.report.cfiUnavailable = report.cfiUnavailable || !document.canResolveCFIs
         if item.layout == .prePaginated { state.report.report.fixedLayoutReflowed = true }
         state.report.report.scriptsRefused += document.nodes.reduce(0) { count, node in
             count + (node.isElement && node.name == "script"

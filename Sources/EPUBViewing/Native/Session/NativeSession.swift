@@ -292,6 +292,7 @@ import SwiftUI
     }
 
     private func range(of localPath: String, in text: SectionText) -> ReaderTextRange? {
+        guard text.document.canResolveCFIs else { return nil }
         // A bare spine-item CFI, which a section with no mapped text produces, names its start.
         if localPath.isEmpty { return ReaderTextRange(section: text.spineIndex, 0..<0) }
         guard let dom = EPUBCFI.resolve(localPath: localPath, in: text.document) else { return nil }
@@ -566,7 +567,9 @@ import SwiftUI
 
     /// The engine bookmark for a rendered range within one section (foliate `getCFI`).
     private func cfi(for range: ReaderTextRange) -> String? {
-        guard let section = book.section(range.start.section) else { return nil }
+        // A failed multi-section bookmark set must never fall back to its first segment.
+        guard range.start.section == range.end.section,
+              let section = book.section(range.start.section), section.document.canResolveCFIs else { return nil }
         let endOffset = range.end.section == range.start.section ? range.end.offset : section.string.length
         guard let start = section.domPosition(range.start),
               let end = range.end.tableCell != nil || endOffset > range.start.offset
@@ -581,7 +584,7 @@ import SwiftUI
         var bookmarks: [EPUBEngineBookmark] = []
         for index in range.start.section...max(range.start.section, range.end.section) {
             if range.start.section != range.end.section, book.isOmitted(index) { continue }
-            guard let section = book.section(index) else { return [] }
+            guard let section = book.section(index), section.document.canResolveCFIs else { return [] }
             let lower = index == range.start.section ? range.start.offset : 0
             let upper = index == range.end.section ? range.end.offset : section.string.length
             if range.start.section != range.end.section,

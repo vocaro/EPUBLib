@@ -16,11 +16,9 @@ struct ReaderPage: Equatable {
     /// a lone last word down), so the page's last lines break as in the section only with what
     /// follows them: a few lines, or up to a line break. Justified text needs more, because
     /// CoreText justifies a paragraph of up to 8,192 characters as a whole and a longer one line
-    /// by line: a short paragraph's whole rest, or enough of a long one to stay long.
+    /// by line: a short paragraph's whole rest, or enough of a long one to stay long. A short
+    /// continuation tail is measured independently in this exact display context.
     var layoutEnd: Int
-    /// Characters of filler the page's view lays out after `layoutEnd` (never shown), so a long
-    /// justified paragraph's tail is still justified as long.
-    var filler = 0
     /// Space kept above the first line: its paragraph's spacing before, at the section's start
     /// or a forced break (CSS truncates margins only at unforced breaks).
     var topSpacing: CGFloat
@@ -33,6 +31,10 @@ struct ReaderPage: Equatable {
     var tableFragments: [ReaderTableFragment] = []
     /// The full section's visual top, independent of source order and repeated table offsets.
     var layoutTop: CGFloat = 0
+    /// A long paragraph's tail can use a different CoreText algorithm in the page slice.
+    /// These exceptional pages keep their measured source line lengths, independent of the
+    /// released section layout. Ordinary pages need no additional line metadata.
+    var measuredLineLengths: [Int]? = nil
 }
 
 struct ReaderTableFragment: Equatable {
@@ -81,6 +83,7 @@ struct ReaderTableFragment: Equatable {
         var paragraph: NSRange
         var isJustified: Bool
         var tableFragment: ReaderTableFragment? = nil
+        var requiresPageMeasurement = false
     }
 
     /// The measuring layout, released once pagination completes.
@@ -195,15 +198,7 @@ struct ReaderTableFragment: Equatable {
             slice.addAttribute(.attachment, value: entry.attachment,
                                range: NSRange(location: entry.offset - page.range.location, length: 1))
         }
-        guard (page.continuesParagraph || page.filler > 0), range.length > 0 else { return slice }
-        if page.filler > 0 {
-            // Inside the paragraph, before any terminator: a line break and unseen characters.
-            let end = slice.string.utf16.last == 0x0A ? slice.length - 1 : slice.length
-            let attributes = slice.attributes(at: max(0, end - 1), effectiveRange: nil)
-            slice.insert(NSAttributedString(string: "\u{2028}" + String(repeating: "x ", count: page.filler / 2 + 1),
-                                            attributes: attributes), at: end)
-        }
-        guard page.continuesParagraph else { return slice }
+        guard page.continuesParagraph, range.length > 0 else { return slice }
         let paragraph = (slice.string as NSString).paragraphRange(for: NSRange(location: 0, length: 0))
         let original = slice.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle ?? .default
         let style = original.mutableCopy() as! NSMutableParagraphStyle
@@ -297,32 +292,121 @@ struct ReaderTableFragment: Equatable {
                 if !bounds.isNull { pageTop = min(pageTop, bounds.minY); pageBottom = max(pageBottom, bounds.maxY) }
             }
         }
-        let (layoutEnd, filler) = context(after: last, at: end - 1, pageStart: first.range.location)
-        pages.append(ReaderPage(
+        let layoutEnd = context(after: last, at: end - 1, pageStart: first.range.location)
+        var page = ReaderPage(
             range: NSRange(location: first.range.location, length: last.range.upperBound - first.range.location),
-            layoutEnd: layoutEnd, filler: filler, topSpacing: topSpacing, height: pageBottom - pageTop,
+            layoutEnd: layoutEnd, topSpacing: topSpacing, height: pageBottom - pageTop,
             continuesParagraph: !first.startsParagraph,
-            tableFragments: lines[firstIndex..<end].compactMap(\.tableFragment), layoutTop: pageTop))
+            tableFragments: lines[firstIndex..<end].compactMap(\.tableFragment), layoutTop: pageTop)
+        if first.requiresPageMeasurement || (first.isJustified && !first.startsParagraph &&
+           first.paragraph.length > Self.wholeParagraphJustification &&
+           first.paragraph.upperBound - first.range.location <= Self.wholeParagraphJustification) {
+            // A long paragraph's short tail uses CoreText's whole-paragraph algorithm when
+            // this page also includes a following block. Measure exactly the same bounded
+            // slice the column receives, rather than trusting the full section's algorithm.
+            // Keep layoutEnd fixed: changing the context after this measurement
+            // would itself change those last line breaks.
+            // Exact measurement makes unseen synthetic padding unnecessary: the short tail
+            // can use its own algorithm without changing any visible source characters.
+            let originalEnd = page.range.upperBound
+            page = measuredTailPage(page)
+            while end > firstIndex, lines[end - 1].range.upperBound > page.range.upperBound { end -= 1 }
+            while layOutLines(through: end), lines[end].range.location >= originalEnd,
+                  lines[end].range.upperBound <= page.range.upperBound { end += 1 }
+            if layOutLines(through: end), lines[end].range.location < page.range.upperBound {
+                // The next column starts at the displayed layout's line boundary, which can
+                // lie inside a line of the section layout. Never repeat that line's prefix.
+                lines[end].range.length = lines[end].range.upperBound - page.range.upperBound
+                lines[end].range.location = page.range.upperBound
+                lines[end].startsParagraph = false
+                lines[end].requiresPageMeasurement = true
+            }
+        }
+        pages.append(page)
         nextLine = end
         if !layOutLines(through: end) { finish() }
         return true
     }
 
-    /// The layout context after a page's last line (`ReaderPage.layoutEnd`, `filler`).
-    private func context(after last: Line, at index: Int, pageStart: Int) -> (end: Int, filler: Int) {
+    /// Only the final <=8,192 source characters of a continued long justified paragraph need
+    /// this second layout. Its storage is precisely the bounded display slice, including the
+    /// existing lookahead; no preceding paragraph text is copied or laid out per page.
+    private func measuredTailPage(_ page: ReaderPage) -> ReaderPage {
+        let storage = NSTextContentStorage()
+        let manager = ReaderBoxLayoutManager()
+        storage.addTextLayoutManager(manager)
+        let container = ReaderTextContainer(size: CGSize(width: size.width, height: 0))
+        container.lineFragmentPadding = 0
+        container.viewportSize = size
+        let pageText = text(for: page)
+        container.configureBoxes(in: pageText)
+        manager.textContainer = container
+        manager.configureGeometry()
+        storage.attributedString = pageText
+        var visibleEnd = 0
+        var visibleBottom: CGFloat = 0
+        var lineLengths: [Int] = []
+        var lineBottoms: [CGFloat] = []
+        manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [.ensuresLayout]) { fragment in
+            let start = storage.offset(from: storage.documentRange.location, to: fragment.rangeInElement.location)
+            for line in fragment.textLineFragments where line.characterRange.length > 0 {
+                let range = NSRange(location: start + line.characterRange.location, length: line.characterRange.length)
+                guard range.location < page.range.length else { return false }
+                let bottom = fragment.layoutFragmentFrame.minY + line.typographicBounds.maxY
+                if visibleEnd > 0, bottom > size.height - page.topSpacing + 0.5 { return false }
+                visibleEnd = range.upperBound
+                lineLengths.append(visibleEnd - range.location)
+                visibleBottom = bottom
+                lineBottoms.append(bottom)
+                if visibleEnd >= page.range.length { return false }
+            }
+            return true
+        }
+        guard visibleEnd > 0 else { return page }
+        // A tail's changed line count must not strand a heading or cut a visual box group
+        // that the section paginator already kept together.
+        var boundary = page.range.location + visibleEnd
+        if let group = boxGeometry?.group(containing: max(page.range.location, boundary - 1)),
+           boundary < group.upperBound, group.location > page.range.location {
+            while lineLengths.count > 1, page.range.location + visibleEnd > group.location {
+                visibleEnd -= lineLengths.removeLast()
+                lineBottoms.removeLast()
+            }
+            boundary = page.range.location + visibleEnd
+        }
+        while boundary < page.range.upperBound, boundary > page.range.location {
+            let paragraph = characters.paragraphRange(for: NSRange(location: boundary - 1, length: 0))
+            guard paragraph.upperBound == boundary, paragraph.location > page.range.location,
+                  text.attribute(.readerKeepWithNext, at: paragraph.location, effectiveRange: nil) as? Bool == true else { break }
+            while lineLengths.count > 1, page.range.location + visibleEnd > paragraph.location {
+                visibleEnd -= lineLengths.removeLast()
+                lineBottoms.removeLast()
+            }
+            boundary = page.range.location + visibleEnd
+        }
+        visibleBottom = lineBottoms.last ?? visibleBottom
+        var measured = page
+        measured.range.length = visibleEnd
+        measured.height = visibleBottom
+        measured.measuredLineLengths = lineLengths
+        measured.tableFragments = page.tableFragments.filter { NSLocationInRange($0.offset, measured.range) }
+        return measured
+    }
+
+    /// The layout context after a page's last line (`ReaderPage.layoutEnd`).
+    private func context(after last: Line, at index: Int, pageStart: Int) -> Int {
         let paragraph = last.paragraph
         let limit = Self.wholeParagraphJustification
         if last.isJustified, paragraph.length > limit {
-            // The page's part of a long paragraph stays longer than the limit, as the whole is.
+            // Keep a long paragraph's algorithm while enough source follows. Its short
+            // continuation tail instead receives an exact, bounded page measurement.
             let start = max(paragraph.location, pageStart)
-            let end = last.endsParagraph ? last.range.upperBound
+            return last.endsParagraph ? last.range.upperBound
                 : min(NSMaxRange(paragraph), max(start + limit + 1, lineEnd(after: index, lines: Self.contextLines)))
-            let laidOut = last.endsParagraph || end == NSMaxRange(paragraph) ? NSMaxRange(paragraph) - start : end - start
-            return (end, max(0, limit + 1 - laidOut))
         }
-        guard !last.endsParagraph else { return (last.range.upperBound, 0) }
+        guard !last.endsParagraph else { return last.range.upperBound }
         // A short justified paragraph is justified as a whole: its whole rest.
-        if last.isJustified { return (NSMaxRange(paragraph), 0) }
+        if last.isJustified { return NSMaxRange(paragraph) }
         var end = last.range.upperBound
         var context = index
         while !lines[context].endsParagraph, !endsWithLineBreak(lines[context]),
@@ -330,7 +414,7 @@ struct ReaderTableFragment: Equatable {
             context += 1
             end = lines[context].range.upperBound
         }
-        return (end, 0)
+        return end
     }
 
     /// The end of the line `count` lines after line `index`, within its paragraph.

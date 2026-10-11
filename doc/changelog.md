@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Bound paginated Mac accessibility text and line queries to the visible source range. Expose visible UIKit accessibility runs with link, image, table and page actions while preserving hidden TextKit context for layout ([#28](https://github.com/vocaro/EPUBLib/issues/28)).
+- Preserve Foliate CFIs for qualified XML-shaped HTML, including whitespace around the head/body. Refuse saved positions and highlights for unqualified HTML tree repairs, omit unsafe bookmarks and disclose the limitation while retaining readable content ([#27](https://github.com/vocaro/EPUBLib/issues/27)).
+- Measure long justified continuation tails with the exact bounded displayed slice. Keep complete source lines within the intended page area across columns, resizing and RTL; remove synthetic padding and the column-growth workaround ([#30](https://github.com/vocaro/EPUBLib/issues/30)).
 - Keep continuous-scroll section jumps on the requested passage after distant diagram visits. Correct refined TextKit estimates until the target is visibly aligned, retaining bounded work and fresh-layout recovery ([#41](https://github.com/vocaro/EPUBLib/issues/41)).
 - Wrap continuous-scroll Mac prose within the actual native scroll viewport, including space occupied by legacy scrollbars. Preserve the passage through resize, recalculate wrapping after scrollbar changes, and reserve fractional native float bounds without changing the authored content width ([#47](https://github.com/vocaro/EPUBLib/issues/47)).
 - Preserve authored MathML alternatives in headless extraction, or serialize fractions, powers, indices, roots and fences with explicit structure. Preserve UTF-8 anchors, headings and existing extraction limits without executing math scripts or loading resources ([#44](https://github.com/vocaro/EPUBLib/issues/44)).
