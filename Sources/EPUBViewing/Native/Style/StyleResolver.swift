@@ -8,6 +8,7 @@ import Foundation
 final class StyleResolver: @unchecked Sendable {
     let typography: NativeTypography
     let document: ContentDocument
+    let fonts: FontRegistry?
     /// A `style` attribute was longer than `maximumInlineStyleBytes` and was cut. The builder
     /// folds this into `SectionReport.stylesTruncated`.
     let stylesTruncated: Bool
@@ -20,8 +21,8 @@ final class StyleResolver: @unchecked Sendable {
     private var rootFontSize: CGFloat
     let initialValues: ComputedStyle
 
-    init(document: ContentDocument, stylesheets: [CSSStyleSheet], typography: NativeTypography) {
-        self.document = document; self.typography = typography
+    init(document: ContentDocument, stylesheets: [CSSStyleSheet], typography: NativeTypography, fonts: FontRegistry? = nil) {
+        self.document = document; self.typography = typography; self.fonts = fonts
         author = CSSRuleIndex(sheets: stylesheets, dark: typography.isDark)
         facts = ElementFacts(document)
         var initial = ComputedStyle()

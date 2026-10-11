@@ -182,7 +182,8 @@ enum ReaderBoxLayout {
     struct Result { let text: NSAttributedString; let geometry: ReaderBoxGeometry? }
 
     static func resolve(_ source: NSAttributedString, viewport: CGSize) -> Result {
-        resolve(source, viewport: viewport, disabled: [], pass: 0, anticipated: [])
+        resolve(ReaderParagraphSizingLayout.applying(to: source, viewport: viewport), viewport: viewport,
+                disabled: [], pass: 0, anticipated: [])
     }
 
     private static func resolve(_ source: NSAttributedString, viewport: CGSize, disabled: Set<UUID>, pass: Int,

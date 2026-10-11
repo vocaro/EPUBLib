@@ -60,7 +60,8 @@ For custom labels, icons or overflow menus compose your own buttons using `contr
 Do not put an inline text field inside a `Menu`; use the built-in search popover there.
 
 Previous/next always submit logical commands. RTL books reverse the physical order and arrow
-icons, independently of the app's language. Scrolled flow retains viewport-step behavior.
+icons, independently of the app's language. Scrolled flow retains viewport-step behavior and
+labels the buttons “Scroll Backward”/“Scroll Forward”.
 Known book boundaries disable turns; nil means unknown and lets the engine decide. The current
 contents entry receives a checkmark when its encoded section href and, for fragments, its
 current title match. Fragment precision is limited by the existing location API; duplicate
@@ -120,3 +121,50 @@ or provide custom `EPUBPageControls` keyboard bindings in the host's integration
 The sample reader uses the default input settings. Native reader key handlers
 remain on the sibling reading surface, so focus in search uses normal editing keys. Hosts retain
 ownership of persistence, library/import management, selection actions and app-specific shortcuts.
+
+Page-button help describes the configured native inputs. On Mac, default Next Page help
+lists Right Arrow, Page Down and Space, the right edge click, and wheel/trackpad directions;
+Previous Page lists Left Arrow, Page Up and Shift-Space with the opposite gestures. Keyboard
+hints say “With reader focus”: they do not apply while the search field or another host field
+has focus. On iPhone/iPad the help describes edge taps and horizontal touch swipes instead
+of mouse gestures, alongside any configured hardware keys. SwiftUI presents help on platforms
+that support it; the accessible button label stays short.
+
+The buttons read the same `epubReaderPageControls` environment as the reading surface.
+Apply that modifier to a common ancestor of the reader and toolbar/strip, or apply the same
+value to both when they have separate scopes. For example:
+
+```swift
+VStack {
+    EPUBReaderView(session: controls.session)
+    EPUBReaderControlStrip(controls: controls)
+}
+.epubReaderPageControls(pageInputs)
+```
+
+For a toolbar, apply the modifier after `.toolbar { EPUBReaderToolbar(controls: controls) }`
+on the containing reader view. Updating `pageInputs` updates both direct input and help
+without reopening the book. A modifier applied only inside a child reading surface does
+not reach sibling controls. Removed/remapped bindings, disabled gestures, invalid or zero
+edge widths, and `.hostOnly` are reflected in help. Duplicate key chords use their first
+effective binding, matching the reader. In continuous scroll, only keyboard page-step hints
+remain; edge clicks/taps, touch page swipes and wheel page turns are available only in paging.
+RTL reverses physical gesture directions; keyboard bindings retain their configured logical
+actions (the default Right Arrow still means next).
+
+Hosts can supplement or replace help without registering toolbar shortcuts:
+
+```swift
+controls.customizePageButtonHelp = { action, defaultHelp in
+    defaultHelp + (action == .next ? " You can also use the host's Next command." : "")
+}
+// Or replace it entirely, for example when integrating another reader engine:
+controls.customizePageButtonHelp = { action, _ in
+    action == .next ? "Continue reading using the host controls." : "Return using the host controls."
+}
+```
+
+Assign `nil` to restore the defaults. Custom host buttons can reuse
+`controls.pageButtonLabel(for:)` and `controls.pageButtonHelp(for:pageControls:)`, passing
+the same input settings as their reading surface. This help API describes the bundled native
+engine; hosts integrating third-party input behavior should customize its text accordingly.

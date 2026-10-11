@@ -4,6 +4,9 @@ import EPUBTestSupport
 import SwiftUI
 import XCTest
 @testable import EPUBViewing
+#if os(macOS)
+import AppKit
+#endif
 
 @MainActor final class ReaderControlsTests: XCTestCase {
     private final class Session: EPUBReaderSession {
@@ -42,6 +45,91 @@ import XCTest
         XCTAssertEqual(style.fontSize, 23)
         XCTAssertEqual(style.flow, .scrolled)
     }
+    func testPageButtonHelpFollowsCurrentFlowSettingsAndHostCustomization() throws {
+        let session = Session(), model = try controls(session)
+        XCTAssertEqual(model.pageButtonLabel(for: .next), "Next Page")
+        XCTAssertTrue(model.pageButtonHelp(for: .next).contains("With reader focus: Right Arrow, Page Down, Space"))
+        XCTAssertTrue(model.pageButtonHelp(for: .previous).contains("Left Arrow, Page Up, Shift-Space"))
+        XCTAssertEqual(model.pageButtonHelp(for: .next, pageControls: .hostOnly), "Next Page.")
+
+        session.readerState?.modify { $0.style.flow = .scrolled }
+        XCTAssertEqual(model.pageButtonLabel(for: .next), "Scroll Forward")
+        XCTAssertEqual(model.pageButtonLabel(for: .previous), "Scroll Backward")
+        XCTAssertEqual(model.pageButtonHelp(for: .next), "Scroll Forward. With reader focus: Right Arrow, Page Down, Space.")
+        let remapped = EPUBPageControls(keyboardBindings: [.init(.character("n"), modifiers: .command, action: .next)])
+        XCTAssertEqual(model.pageButtonHelp(for: .next, pageControls: remapped), "Scroll Forward. With reader focus: Command-N.")
+        XCTAssertEqual(model.pageButtonHelp(for: .previous, pageControls: remapped), "Scroll Backward.")
+
+        model.customizePageButtonHelp = { action, defaultHelp in
+            defaultHelp + (action == .next ? " Host hint." : " Previous host hint.")
+        }
+        XCTAssertEqual(model.pageButtonHelp(for: .next, pageControls: .hostOnly), "Scroll Forward. Host hint.")
+        XCTAssertEqual(model.pageButtonLabel(for: .next), "Scroll Forward", "long help does not change the accessible label")
+        model.customizePageButtonHelp = { _, _ in "Host handles navigation." }
+        XCTAssertEqual(model.pageButtonHelp(for: .previous), "Host handles navigation.")
+        model.customizePageButtonHelp = nil
+        session.readerState?.modify { $0.style.flow = .paginated }
+        XCTAssertEqual(model.pageButtonHelp(for: .previous, pageControls: .hostOnly), "Previous Page.")
+        XCTAssertTrue(session.received.isEmpty, "help and customization never submit commands")
+    }
+
+    func testRTLPageHelpKeepsLogicalKeyboardBindings() throws {
+        let session = Session()
+        let model = EPUBReaderControls(publication: try EPUBPublication.open(data: Fixture.rendering(.rightToLeft)), session: session)
+        XCTAssertTrue(model.isRightToLeft)
+        XCTAssertEqual(model.pageButtonLabel(for: .next), "Next Page")
+        XCTAssertTrue(model.pageButtonHelp(for: .next).contains("Right Arrow, Page Down, Space"))
+        XCTAssertTrue(model.pageButtonHelp(for: .next).contains("the left edge"))
+        XCTAssertTrue(model.pageButtonHelp(for: .previous).contains("the right edge"))
+    }
+    #if os(macOS)
+    func testPageHelpDoesNotInstallShortcutsWhileBuiltInSearchFieldHasFocus() async throws {
+        func textField(in view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField, field.isEditable { return field }
+            return view.subviews.compactMap { textField(in: $0) }.first
+        }
+        for flow: EPUBReadingFlow in [.paginated, .scrolled] {
+            let session = Session(), model = try controls(session)
+            session.readerState?.modify { $0.style.flow = flow }
+            var configuration = ReaderCanvasConfiguration()
+            configuration.flow = flow
+            let host = CanvasHost(FakeCanvasSource([CanvasText.section(0, paragraphs: 30)]), configuration: configuration)
+            defer { host.close() }
+            let canvas = host.canvas
+            let container = NSView(frame: canvas.frame)
+            canvas.removeFromSuperview()
+            host.window.contentView = container
+            container.addSubview(canvas)
+            let strip = NSHostingView(rootView: EPUBReaderControlStrip(controls: model, groups: [.pages, .search]))
+            strip.frame = CGRect(x: 0, y: 0, width: 600, height: 70)
+            container.addSubview(strip)
+            canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+            host.layOut()
+            for _ in 0..<50 where textField(in: strip) == nil { try await Task.sleep(for: .milliseconds(20)) }
+            let field = try XCTUnwrap(textField(in: strip), "the built-in search field is mounted")
+            XCTAssertTrue(host.window.makeFirstResponder(field))
+            let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+            editor.string = "findword"
+            editor.selectedRange = NSRange(location: 4, length: 0)
+            XCTAssertFalse(canvas.hasKeyboardFocus)
+            let before = try XCTUnwrap(canvas.visibleRange)
+            let editingKeys: [(UInt16, String, NSEvent.ModifierFlags)] = [
+                (49, " ", []), (49, " ", .shift), (124, "\u{F703}", []), (123, "\u{F702}", []),
+            ]
+            for (code, characters, flags) in editingKeys {
+                let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
+                    timestamp: 0, windowNumber: host.window.windowNumber, context: nil, characters: characters,
+                    charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
+                XCTAssertFalse(canvas.handlePageKeyEquivalent(event), "search editing keys do not turn pages")
+                XCTAssertFalse(strip.performKeyEquivalent(with: event), "page-button help installs no shortcuts")
+                editor.keyDown(with: event)
+                XCTAssertEqual(canvas.visibleRange, before)
+            }
+            XCTAssertEqual(editor.string, "find  word", "Space and Shift-Space edit the search field")
+            XCTAssertTrue(session.received.isEmpty)
+        }
+    }
+    #endif
     func testFIFOAndRapidStyleEditsPreserveOtherFields() async throws {
         let session = Session(), model = try controls(session)
         session.readerState?.modify { $0.style = .init(fontSize: 20, isDark: true, flow: .scrolled) }

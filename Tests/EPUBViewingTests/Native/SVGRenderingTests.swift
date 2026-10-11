@@ -7,6 +7,11 @@ import Foundation
 import ImageIO
 import XCTest
 @testable import EPUBViewing
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 final class SVGRenderingTests: XCTestCase {
     private let drawing = """
@@ -80,18 +85,131 @@ final class SVGRenderingTests: XCTestCase {
         XCTAssertNil(ReaderImageSource.svg(Data("<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><image href='data:image/svg+xml;base64,\(nested)' width='10' height='10'/></svg>".utf8), path: "", key: "nested"))
     }
 
-    func testCyclicUseAndFiltersHaveAuthoredDisclosedFallback() throws {
+    func testCyclicUseFallsBackAndOmittedFiltersPreserveDisclosedDrawing() throws {
         let fixture = try RichFixture("""
         <svg xmlns='http://www.w3.org/2000/svg' id='cycle' width='20' height='20'><title>Recursive diagram</title><defs><g id='a'><use href='#b'/></g><g id='b'><use href='#a'/></g></defs><use href='#a'/></svg>
         <svg xmlns='http://www.w3.org/2000/svg' id='filter' width='20' height='20'><desc>Blurred diagram</desc><filter id='f'><feGaussianBlur stdDeviation='2'/></filter><rect width='20' height='20' filter='url(#f)'/></svg>
         """)
         XCTAssertEqual(fixture.svg("cycle")?.string, "Recursive diagram")
-        XCTAssertEqual(fixture.svg("filter")?.string, "Blurred diagram")
-        XCTAssertEqual(fixture.report.report.unsupportedElements["svg"], 2)
+        let filtered = try XCTUnwrap(RichFixture.attachments(in: fixture.svg("filter")).first as? ReaderImageAttachment)
+        XCTAssertEqual(filtered.alt, "Blurred diagram")
+        XCTAssertEqual(pixel(try XCTUnwrap(filtered.source.decode(maxPixelSize: 20)), 10, 10), [0, 0, 0, 255])
+        XCTAssertEqual(fixture.report.report.unsupportedElements["svg"], 1)
         XCTAssertEqual(fixture.report.report.unsupportedElements["svg:filter"], 1)
         let pattern = try RichFixture("<svg xmlns='http://www.w3.org/2000/svg' id='s' width='10' height='10'><title>Pattern sample</title><defs><pattern id='p' patternUnits='userSpaceOnUse' width='1e9' height='1e9'><rect width='1e9' height='1e9'/></pattern></defs><rect width='10' height='10' fill='url(#p)'/></svg>")
         XCTAssertEqual(pattern.svg("s")?.string, "Pattern sample")
         XCTAssertEqual(pattern.report.report.unsupportedElements["svg:pattern"], 1)
+    }
+
+    func testFilterCSSOmissionPreservesPaintFontsAndLocalClipping() throws {
+        let svg = """
+        <svg xmlns='http://www.w3.org/2000/svg' id='s' width='120' height='80'>
+        <defs><filter id='shadow'><feGaussianBlur stdDeviation='1e9'/></filter>
+        <clipPath id='clip'><rect width='60' height='80'/></clipPath></defs>
+        <style>.box { filter /* comment */ : url('#shadow'); fill: red; }
+        .label {font-size: 14px; filter: url(#shadow); fill: blue; font-family: Arial;}</style>
+        <rect class='box' width='120' height='80' style='clip-path: url(#clip); FILTER: url("#shadow"); stroke: blue;'/>
+        <text class='label' x='2' y='30'>Labels survive</text></svg>
+        """
+        let fixture = try RichFixture(svg)
+        let data = try XCTUnwrap(SVGContent.serialize(fixture.element("s"), resolve: { _ in nil }, publication: fixture.publication))
+        let prepared = try ContentDocument.parse(data, path: "prepared.svg")
+        XCTAssertFalse(SVGContent.unsupportedConstructs(prepared.root).contains("svg:filter"))
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("font-family: Arial"))
+        let attachment = try XCTUnwrap(RichFixture.attachments(in: fixture.svg("s")).first as? ReaderImageAttachment)
+        let image = try XCTUnwrap(attachment.source.decode(maxPixelSize: 120))
+        XCTAssertEqual(pixel(image, 30, 50), [255, 0, 0, 255])
+        XCTAssertEqual(pixel(image, 90, 50)[3], 0)
+        XCTAssertEqual(fixture.report.report.unsupportedElements["svg:filter"], 1)
+        XCTAssertNil(ReaderImageSource.svg(Data(svg.utf8), path: "", key: "raw-filter"), "Only the sanitizer may omit filters")
+        for declaration in ["filter /* comment */ : blur(2px)", #"fi\6cter: blur(2px)"#] {
+            let raw = "<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><rect width='20' height='20' style='\(declaration)'/></svg>"
+            XCTAssertNil(ReaderImageSource.svg(Data(raw.utf8), path: "", key: "raw-css-filter"))
+        }
+    }
+
+    func testOmittedFiltersStillRespectExpansionDepthAndArchiveReferenceLimits() throws {
+        let fixture = try RichFixture("<svg xmlns='http://www.w3.org/2000/svg' id='s' width='20' height='10'><filter id='f'><feImage href='file:///tmp/private.png'/></filter><image href='https://example.com/private.png' width='10' height='10'/><rect x='10' width='10' height='10' fill='blue' filter='url(#f)'/></svg>")
+        let attachment = try XCTUnwrap(RichFixture.attachments(in: fixture.svg("s")).first as? ReaderImageAttachment)
+        let image = try XCTUnwrap(attachment.source.decode(maxPixelSize: 20))
+        XCTAssertEqual(pixel(image, 5, 5)[3], 0)
+        XCTAssertEqual(pixel(image, 15, 5), [0, 0, 255, 255])
+        XCTAssertEqual(fixture.report.report.unsupportedElements["svg:image"], 1)
+        let cyclic = try RichFixture("<svg xmlns='http://www.w3.org/2000/svg' id='s'><filter id='f'/><g id='a' filter='url(#f)'><use href='#a'/></g></svg>")
+        XCTAssertNil(SVGContent.serialize(cyclic.element("s"), resolve: { _ in nil }, publication: cyclic.publication))
+        let deep = try RichFixture("<svg xmlns='http://www.w3.org/2000/svg' id='s'><filter>" + String(repeating: "<g>", count: 65) + String(repeating: "</g>", count: 65) + "</filter><rect width='20' height='10'/></svg>")
+        XCTAssertNil(SVGContent.serialize(deep.element("s"), resolve: { _ in nil }, publication: deep.publication), "Original input bounds apply even to omitted subtrees")
+        let path = String(repeating: "L1 1 ", count: 120_000)
+        let uses = String(repeating: "<use href='#a'/>", count: 20)
+        let expanded = try RichFixture("<svg xmlns='http://www.w3.org/2000/svg' id='s'><filter id='f'/><defs><path id='a' d='M0 0 \(path)'/></defs><g filter='url(#f)'>\(uses)</g></svg>")
+        XCTAssertNil(SVGContent.serialize(expanded.element("s"), resolve: { _ in nil }, publication: expanded.publication))
+    }
+
+    func testFourLayerDiagramKeepsAttachmentsAndInspectionInBothAppearancesAtNarrowWidths() throws {
+        let boxes = ["Application", "Transport", "Internetwork", "Link"].enumerated().map { row, label in
+            "<g filter='url(#Shadow)'><rect x='10' y='\(row * 40 + 10)' width='120' height='40' fill='white' stroke='black'/><text x='20' y='\(row * 40 + 35)' fill='black' font-family='Arial' font-size='14'>\(label)</text></g>"
+        }.joined()
+        let svg = "<svg xmlns='http://www.w3.org/2000/svg' id='inline' width='140' height='180'><title>Four TCP/IP layers</title><defs><filter id='Shadow'><feGaussianBlur in='SourceAlpha' stdDeviation='1.308'/><feOffset dx='2' dy='2'/><feFlood flood-opacity='.5'/><feComposite operator='in'/></filter></defs>\(boxes)</svg>"
+        for dark in [false, true] {
+            let fixture = try RichFixture(svg + "<img id='archive' src='layers.svg' alt='Four TCP/IP layers'/>", files: ["layers.svg": Data(svg.utf8)], typography: .init(isDark: dark))
+            let inline = try XCTUnwrap(RichFixture.attachments(in: fixture.svg("inline")).first as? ReaderImageAttachment)
+            let archive = try XCTUnwrap(RichFixture.attachments(in: fixture.image("archive")).first as? ReaderImageAttachment)
+            for attachment in [inline, archive] {
+                XCTAssertEqual(attachment.isDark, dark)
+                XCTAssertEqual(attachment.alt, "Four TCP/IP layers")
+                let bounds = attachment.layoutBounds(line(90, viewport: CGSize(width: 90, height: 300)))
+                XCTAssertLessThanOrEqual(bounds.width, 90)
+                XCTAssertGreaterThan(bounds.height, 100)
+                XCTAssertNotNil(attachment.bitmap(for: bounds, scale: 2))
+                let inspected = try XCTUnwrap(ReaderImageInspection.bitmap(for: attachment))
+                XCTAssertGreaterThan(inspected.height, Int(bounds.height))
+                for row in 0..<4 {
+                    var ink = 0
+                    for y in (row * 40 + 22)..<(row * 40 + 37) {
+                        for x in 19..<121 {
+                            let p = pixel(inspected, Int(CGFloat(x) * CGFloat(inspected.width) / 140), Int(CGFloat(y) * CGFloat(inspected.height) / 180))
+                            if p[0] < 100 && p[1] < 100 && p[2] < 100 && p[3] > 200 { ink += 1 }
+                        }
+                    }
+                    XCTAssertGreaterThan(ink, 40, "Each layer label must paint in the inspection bitmap")
+                }
+            }
+            XCTAssertEqual(fixture.report.report.unsupportedElements["svg:filter"], 2)
+            XCTAssertNil(fixture.report.report.unsupportedElements["svg"])
+        }
+    }
+
+    @MainActor func testFilteredDiagramOpensZoomsAndClosesInNarrowNativeReaders() async throws {
+        for dark in [false, true] {
+            let fixture = try RichFixture("<svg xmlns='http://www.w3.org/2000/svg' id='s' width='180' height='240'><title>TCP/IP layers</title><filter id='f'><feGaussianBlur stdDeviation='2'/></filter><g filter='url(#f)'><rect width='180' height='240' fill='white' stroke='black'/><text x='10' y='30' font-size='14'>Application Transport</text><text x='10' y='60' font-size='14'>Internetwork Link</text></g></svg>", typography: .init(isDark: dark))
+            let rendered = try XCTUnwrap(fixture.svg("s"))
+            let attachment = try XCTUnwrap(RichFixture.attachments(in: rendered).first as? ReaderImageAttachment)
+            for flow in [EPUBReadingFlow.paginated, .scrolled] {
+                var configuration = ReaderCanvasConfiguration(); configuration.flow = flow; configuration.isDark = dark
+                let source = FakeCanvasSource([rendered]); source.book = CanvasText.book([rendered])
+                let host = CanvasHost(source, size: CGSize(width: 320, height: 700), configuration: configuration)
+                defer { host.close() }
+                host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+                host.layOut(); try await host.settle(100)
+                let anchor = host.canvas.anchor
+                host.canvas.inspectImage(attachment)
+                let inspector = try XCTUnwrap(host.canvas.imageInspector)
+                #if os(macOS)
+                let fitted = inspector.scrollView.magnification
+                #else
+                let fitted = inspector.scrollView.zoomScale
+                #endif
+                inspector.zoomIn(); inspector.zoomIn()
+                #if os(macOS)
+                XCTAssertGreaterThan(inspector.scrollView.magnification, fitted)
+                #else
+                XCTAssertGreaterThan(inspector.scrollView.zoomScale, fitted)
+                #endif
+                inspector.close()
+                XCTAssertNil(host.canvas.imageInspector)
+                XCTAssertEqual(host.canvas.anchor, anchor)
+            }
+        }
     }
 
     func testCoreTextSFNTExportAndEmbeddedFontAlias() throws {
@@ -193,24 +311,50 @@ final class SVGRenderingTests: XCTestCase {
         for resource in publication.resources where resource.path.hasSuffix(".svg") {
             let data = try publication.data(at: resource.path)
             let document = try ContentDocument.parse(data, path: resource.path)
-            if SVGContent.unsupportedConstructs(document.root).contains("svg:filter") { filtered += 1; continue }
+            if SVGContent.unsupportedConstructs(document.root).contains("svg:filter") { filtered += 1 }
             let snapshot = fonts.svgFonts(families: SVGContent.fontFamilies(document.root))
             let serialized = try XCTUnwrap(SVGContent.serialize(document.root, resolve: { _ in nil }, publication: publication, fontAliases: snapshot.aliases), resource.path)
             let source = try XCTUnwrap(ReaderImageSource.svg(serialized, path: resource.path, key: resource.path, fonts: snapshot.fonts), resource.path)
             let image = try XCTUnwrap(source.decode(maxPixelSize: 1024), resource.path)
             XCTAssertGreaterThan(image.width, 10)
+            if resource.path == "media/file5.svg" {
+                // Coordinates from the unchanged publisher viewBox (10 6 135 186).
+                // These regions contain the four labels, without the surrounding borders.
+                for row in 0..<4 {
+                    var ink = 0
+                    let top = Int(CGFloat(25 + row * 39) / 186 * CGFloat(image.height))
+                    let bottom = Int(CGFloat(40 + row * 39) / 186 * CGFloat(image.height))
+                    for y in top..<bottom {
+                        for x in Int(CGFloat(image.width) * 25 / 135)..<Int(CGFloat(image.width) * 110 / 135) {
+                            let p = pixel(image, x, y)
+                            if p[0] < 100 && p[1] < 100 && p[2] < 100 && p[3] > 200 { ink += 1 }
+                        }
+                    }
+                    XCTAssertGreaterThan(ink, 200, "Original TCP/IP layer \(row) has painted text")
+                }
+                for dark in [false, true] {
+                    let fixture = try RichFixture("<img id='layers' src='layers.svg' alt='Four TCP/IP layers'/>", files: ["layers.svg": data], typography: .init(isDark: dark))
+                    let attachment = try XCTUnwrap(RichFixture.attachments(in: fixture.image("layers")).first as? ReaderImageAttachment)
+                    let bounds = attachment.layoutBounds(line(90, viewport: CGSize(width: 90, height: 300)))
+                    XCTAssertLessThanOrEqual(bounds.width, 90)
+                    XCTAssertNotNil(attachment.bitmap(for: bounds, scale: 2))
+                    XCTAssertNotNil(ReaderImageInspection.bitmap(for: attachment))
+                    XCTAssertEqual(fixture.report.report.unsupportedElements["svg:filter"], 1)
+                }
+            }
             rendered += 1
             dimensions.append(["path": resource.path, "width": image.width, "height": image.height])
-            if (resource.path == "media/file29.svg" || resource.path == "media/file32.svg"), let outputPath = ProcessInfo.processInfo.environment["EPUBLIB_SVG_CORPUS_VISUAL_OUTPUT"] {
+            if (resource.path == "media/file29.svg" || resource.path == "media/file32.svg" || resource.path == "media/file5.svg"), let outputPath = ProcessInfo.processInfo.environment["EPUBLIB_SVG_CORPUS_VISUAL_OUTPUT"] {
                 let output = NSMutableData()
                 let destination = CGImageDestinationCreateWithData(output, "public.png" as CFString, 1, nil)!
                 CGImageDestinationAddImage(destination, image, nil)
                 XCTAssertTrue(CGImageDestinationFinalize(destination))
-                try (output as Data).write(to: URL(fileURLWithPath: resource.path == "media/file29.svg" ? outputPath : outputPath + ".paths.png"))
+                let suffix = resource.path == "media/file29.svg" ? "" : resource.path == "media/file5.svg" ? ".layers.png" : ".paths.png"
+                try (output as Data).write(to: URL(fileURLWithPath: outputPath + suffix))
             }
         }
-        XCTAssertEqual(rendered, 27)
-        XCTAssertEqual(filtered, 6, "Unsupported shadows have explicit authored fallback")
+        XCTAssertEqual(rendered, 33)
+        XCTAssertEqual(filtered, 6, "Shadows are omitted while essential drawings render")
         if let outputPath = ProcessInfo.processInfo.environment["EPUBLIB_SVG_CORPUS_VISUAL_OUTPUT"] {
             try JSONSerialization.data(withJSONObject: dimensions, options: .prettyPrinted).write(to: URL(fileURLWithPath: outputPath + ".dimensions.json"))
         }

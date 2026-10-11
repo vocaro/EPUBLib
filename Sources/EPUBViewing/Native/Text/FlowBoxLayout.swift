@@ -83,7 +83,9 @@ enum ReaderFlowBoxLayout {
         var changes: [(NSRange, NSParagraphStyle)] = []
         text.enumerateAttribute(.readerFlowBox, in: NSRange(location: 0, length: text.length)) { value, range, _ in
             guard let box = value as? ReaderFlowBoxParagraph else { return }
-            let style = box.base.mutableCopy() as! NSMutableParagraphStyle
+            let base = (text.attribute(.readerParagraphSizing, at: range.location, effectiveRange: nil) as? ReaderParagraphSizing)
+                .map { $0.resolve(viewport: viewport) } ?? box.base
+            let style = base.mutableCopy() as! NSMutableParagraphStyle
             let rtl = style.baseWritingDirection == .rightToLeft
             var left = max(0, rtl ? -style.tailIndent : style.headIndent)
             var right = max(0, rtl ? style.headIndent : -style.tailIndent)

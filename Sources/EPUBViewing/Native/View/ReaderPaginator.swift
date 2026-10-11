@@ -185,6 +185,7 @@ struct ReaderTableFragment: Equatable {
         // Widths are already resolved by the measuring layout; do not reset continuation styles
         // when the displayed text view receives this page.
         slice.removeAttribute(.readerFlowBox, range: NSRange(location: 0, length: slice.length))
+        slice.removeAttribute(.readerParagraphSizing, range: NSRange(location: 0, length: slice.length))
         if let geometry = boxGeometry, slice.length > 0 {
             slice.addAttribute(.readerBoxPage, value: ReaderBoxPage(geometry: geometry,
                 offset: page.range.location, origin: page.layoutTop - page.topSpacing,
