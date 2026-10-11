@@ -5,6 +5,7 @@ Build and normally launch the verification reader first; see doc/voiceover-testi
 Steps are VoiceOver commands sent while the probe records speech, or `ax:STEP` for a
 step of scripts/voiceover-ax-observer.swift such as `ax:focus` or `ax:next`.
 `activate=LABEL` presses the item in the VoiceOver cursor only if VoiceOver just named it.
+The steps, speech and observer events are merged by time into one transcript.
 This script never changes the VoiceOver AppleScript setting or the clipboard.
 """
 import argparse
@@ -15,7 +16,7 @@ import signal
 import subprocess
 import time
 
-# VoiceOver commands as (key code, with Shift), all with Control-Option; the reader's own keys have neither.
+# VoiceOver commands as (key code, with Shift), all with Control-Option.
 COMMANDS = {
     "in": (125, True), "out": (126, True), "right": (124, False), "left": (123, False),
     "line": (37, False), "nextline": (125, False), "previousline": (126, False),
@@ -23,7 +24,7 @@ COMMANDS = {
     "textstart": (115, True), "textend": (119, True), "readall": (0, False), "activate": (49, False),
     "linecount": (99, False)}
 TWICE = {"linecount"}  # Control-Option-F3 twice reads the total and visible line counts.
-READER_KEYS = {"pagedown": 121, "pageup": 116}
+READER_KEYS = {"pagedown": 121, "pageup": 116}  # The reader's own keys, without modifiers.
 
 
 def enabled():
@@ -180,8 +181,11 @@ def main():
                 finished.touch()
                 return process.wait(timeout=max(1, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:
-                print("Probe deadline reached; stopping this test process group.")
+                print("The probe ended early or its deadline was reached; stopping this session.")
                 return 124
+            except RuntimeError as error:
+                print(error)
+                return 125
     finally:
         try:
             for child in (process, watcher):

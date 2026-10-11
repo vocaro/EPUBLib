@@ -2,9 +2,9 @@
 
 Use real VoiceOver speech to verify the paginated reader on a Mac, physical iPhone and
 physical iPad. Native accessibility API tests and simulator runs support this work but do
-not establish what VoiceOver reads. The remaining Mac checks are tracked by
-[#55](https://github.com/vocaro/EPUBLib/issues/55); the complete acceptance matrix is in
-[#28](https://github.com/vocaro/EPUBLib/issues/28).
+not establish what VoiceOver reads. The Mac sessions are recorded in the
+[Mac verification](issue-55-voiceover-mac.md); the complete acceptance matrix, with its
+iPhone and iPad sessions, is in [#28](https://github.com/vocaro/EPUBLib/issues/28).
 
 ## Isolated reader and fixture
 
@@ -36,21 +36,22 @@ build products, logs and result bundles are ignored by Git. Keep configuration c
 
 ## Mac speech capture
 
-Reserve a short interval with exclusive control of the reader. Use one automation controller;
-do not run competing agents or manual VoiceOver commands during a probe. Normally launch a
-fresh reader before attaching XCTest; close previous verification instances first.
-The initial Mac XCTest relaunch returned an empty
-accessibility tree; attaching to a normally launched reader worked.
+Reserve an interval with exclusive control of the Mac's keyboard focus. Use one automation
+controller: no competing agents, other `swift test` or simulator UI runs, or manual VoiceOver
+commands during a session. VoiceOver announces their windows and menus too, and any window or
+system dialog that takes keyboard focus ends the session. Normally launch a fresh reader
+before each case; close previous verification instances first.
 
 ```sh
 open -na "$PWD/.build/voiceover/mac/Build/Products/Debug/VoiceOverVerificationMac.app" \
-  --args -SampleFlow paginated -SampleFontSize 17
-python3 scripts/run-voiceover-mac.py --timeout 150
+  --args -SampleFlow paginated -SampleFontSize 23
+python3 scripts/run-voiceover-mac.py --timeout 240 ax:next ax:lines ax:focus \
+  in line right left left lastword line nextline
 ```
 
 The outer Python runner reads the original VoiceOver state, temporarily toggles it through
 the approved System Events shortcut if needed, and restores that state in `finally`. It
-stops only its own XCTest process group when the deadline expires. It never edits system
+stops only its own process groups when the deadline expires. It never edits system
 preferences or enables VoiceOver's AppleScript-control setting. Native `enable()` timed out
 on the Mac in the initial session, so the outer runner owns the Mac toggle. Ordinary process
 cleanup cannot recover from forcibly killing the runner itself; verify restoration independently:
@@ -64,47 +65,81 @@ than always disabling VoiceOver. Close only the isolated test reader when finish
 Accessibility, Automation or device-authentication permission is needed, use the normal OS
 approval flow; do not edit TCC databases or enable broad developer permissions as a workaround.
 
-The probe records `XCUIVoiceOverService.Output.utterance` in a JSON test attachment and prints
-`VOICEOVER_EVENT` lines. On Mac it focuses a column away from page-turn edges, enters it once,
-reads the **current** line before advancing, then records the final line and attempted movement
-beyond the column. The committed current-line step improves the earlier diagnostic sequence;
-its live results still need the #55 retest. A successful diagnostic test is not an acceptance
-result. Read and compare the transcript with the visible text.
+The probe only records. It polls `XCUIVoiceOverService.currentSpeech()` and prints each new
+phrase as a timestamped `VOICEOVER_EVENT`, while the runner sends its steps in order and
+waits `--pause` seconds after each VoiceOver command:
 
-Use a narrow window, approximately 600 points, and `-SampleFontSize 23` for the larger-text
-single-column case; use approximately 1100 points and 17-point text for two columns. Confirm the
-actual number of columns in `MAC_COLUMN_COUNT`, because wrapping and viewport height change
-the numbered boundaries. Restart the isolated reader between cases. For a continuation page,
-turn Next before attaching the probe and record the resulting visible range independently.
+- `in`, `out`: start or stop interacting with the item in the VoiceOver cursor.
+- `right`, `left`: the next or previous item; inside text, the next or previous word.
+- `line`, `nextline`, `previousline`: read the current line, or move a line and read it.
+- `word`, `firstword`, `lastword`: read the word, or move to the first or last visible word.
+- `textstart`, `textend`: move to the beginning or end of the text (Control-Option-Shift-Home
+  or End).
+- `linecount`: Control-Option-F3 twice, the total and visible line counts.
+- `readall`: read from the cursor onward.
+- `activate=LABEL`: Control-Option-Space, sent only if one of VoiceOver's last two phrases
+  contains LABEL, as in `"activate=Next Page"`.
+- `pagedown`, `pageup`: the reader's own page keys, without VoiceOver modifiers.
+- `ax:STEP`: a step of the observer described below, through the accessibility API.
+
+Before every key the runner checks that the reader is frontmost and that no password dialog
+holds secure keyboard input, and stops the session otherwise. Leave several seconds between
+sessions: VoiceOver ignores the shortcut while it is still quitting. Each run writes
+`mac-STAMP.transcript.txt` beside its log, observer events and result bundle in
+`.build/voiceover/results/`: the steps, heard phrases, value and layout events and fresh
+column states merged by time. A session that completes is not an acceptance result. Read the
+transcript against the visible text, starting with its first phrases and any `OTHER_TESTS`
+lines, which name unit-test hosts of other sessions.
+
+VoiceOver enters a column at its insertion point, and a page turn resets that to the first
+line. Start a case with a turn and `ax:focus`, never a click. Eight `left` steps from the
+left column, nine from the right, reach **Next Page** in the sample's control strip; eight
+`right` steps return from it to the left column.
+
+Use a 600-point window for one column and 1100 points for two (`ax:width=600`),
+`-SampleFontSize 17` and `23`, and `ax:larger` or `ax:smaller` for a change while the reader is
+open. Take the column count and visible ranges from the `STATE` and `LINE` lines, because
+wrapping and viewport height change the numbered boundaries.
 
 ## Page actions and value notifications
 
-Observe the real application's accessibility transport with the read-only Mac observer:
+Observe the real application's accessibility transport with the Mac observer, alone or as
+the runner's `ax:` steps:
 
 ```sh
-VOICEOVER_READER_PID=$(osascript -e \
-  'tell application "System Events" to tell process "VoiceOverVerificationMac" to return unix id')
-xcrun swift scripts/voiceover-ax-observer.swift "$VOICEOVER_READER_PID" 30 \
+VOICEOVER_READER_PID=$(pgrep -x VoiceOverVerificationMac)
+xcrun swift scripts/voiceover-ax-observer.swift "$VOICEOVER_READER_PID" 60 \
+  lines next lines previous larger smaller width=600 width=1100 \
   > .build/voiceover/ax-events.log
 ```
 
 The observer accepts only the verification reader's bundle identifier and runs for a bounded
-duration. After `READY`, exercise Next, Previous, Next. Check successful registration status
-and `AXValueChanged` events with the new bounded text, in addition to selection/layout events.
-Subscribe before the first turn. Repeat after resizing and a text-size change. A final changed
-value alone does not prove that the notification was delivered.
+duration. It registers for value, selection and layout notifications on every column and on
+the application, then performs its steps and prints each event with its time, the column's
+selection and the numbered-word span of its value:
 
-For an independent action check, inspect the reader's current button hierarchy and invoke its
-native `AXPress` action through System Events. Identify Next/Previous by their `AXHelp` values;
-button indexes can change and must not be reused blindly. Then read the text areas' current
-values. This verifies the native action, not that VoiceOver's own action selection works: verify
-VoiceOver Next/Previous actions separately for acceptance.
+- `next`, `previous`: press the page buttons, found by label or help rather than index.
+- `larger`, `smaller`: choose the Appearance menu's text-size items.
+- `width=POINTS`: resize the window.
+- `focus`, `focus=COLUMN`, `focus=search`: give the last column, a numbered column or the
+  search field keyboard focus, without a click.
+- `lines`: print every accessibility line of each column.
+- `wait=SECONDS`: only observe. Without steps the observer only observes; a single step of
+  `-` reads steps from standard input.
 
-XCTest returned stale first-page values after actual page turns in the initial session, while
-fresh System Events reads and the observer showed the correct page. Compare these independent
-reads before diagnosing a reader failure. Three observed value transitions emitted selection
-and layout events but no value-change event. The fix now posts `NSAccessibility.valueChanged`
-after paginated storage installation; whether it resolves XCTest caching remains unverified.
+After each step, `STATE` lines give fresh external reads of every column: width, character
+and line counts, selection and word span. Check for `AXValueChanged` with the new bounded text
+after every page turn, resize and text-size change; a final changed value alone does not prove
+that the notification was delivered. These native presses verify the reader's actions and
+notifications, not VoiceOver's own activation: for that, move the VoiceOver cursor to the
+button and use `activate` in a runner session.
+
+`--xctest-values` adds XCTest's own snapshot of each column to the transcript whenever it
+changes. Use it with `ax:` steps only: once the probe queries the application, XCTest's
+**Automation Running** banner takes the VoiceOver cursor about every thirty seconds while the
+runner types. Snapshots re-queried for each read matched the observer after every native page
+turn, text-size change and resize, with and without the reader's notifications. Read an
+element again rather than reuse a value, and treat neither XCTest nor the observer as speech.
 
 ## Physical iPhone and iPad
 
@@ -158,28 +193,41 @@ xcrun xcresulttool export attachments --path PATH_TO_SESSION.xcresult \
 Do not confuse a fresh AX label with actual spoken evidence. Capture screenshots only of the
 isolated reader after checking the target bounds: the initial Mac XCTest app frame was invalid
 and its screenshot included the desktop. The committed diagnostic probe takes no screenshots.
+The Mac runner's transcript is plain text and needs no export.
 
 ## Harness pitfalls and current results
 
 - Control–Option–Shift–Down enters text; repeating it does not read successive lines.
   Control–Option–L reads the current line and Control–Option–Down moves to the next line.
-  Reading the current line first matters when that line contains only one numbered word.
-  See [Apple's text commands](https://support.apple.com/en-ca/guide/voiceover/cpvokys06/mac).
-- Mac synthesized keystrokes took about 10–15 seconds. Delayed help hints sometimes replaced
-  the initial phrase in `currentSpeech()`, and long phrases were incomplete in the capture.
-  Treat missing speech as inconclusive until timing/navigation is resolved.
-- Focus clicks near the left edge turned back a page. Stay outside the default 56-point edge
-  zones; do not reuse stale geometry after a resize.
-- System Events navigation/clipboard copying and VoiceOver's `last phrase` AppleScript property
-  produced no usable speech in the initial probes, even with the scripting setting temporarily
-  changed. They are not a verified replacement for native speech capture. If exploring that
-  route, record and restore the setting and clipboard, and reject an unchanged clipboard sentinel.
-- On 2026-10-10, the Mac captured headings, link/image labels, right-column entry at `word0086`,
-  the last visible `word0223`, and `end of text` at column boundaries. At 23-point text in one
-  column, native AX actions moved `0001–0010` to `0011–0075` and back, but speech after advancing
-  began at `word0012`; the first word remains inconclusive. The new value notification needs a
-  live retest. Physical iPhone speech reached `0001–0036`; iPad focus/keyboard interfered with
-  the ordering check. These observations do not complete #28's acceptance matrix.
+  The first Control–Option–Down after entering reads the rest of the current line from the
+  insertion point instead. See [Apple's text commands](https://support.apple.com/en-ca/guide/voiceover/cpvokys06/mac).
+- XCTest returns from a synthesized VoiceOver key about ten seconds later, because VoiceOver
+  consumes the key. VoiceOver speaks a hint about two seconds after a move, such as "You are
+  currently in a text area", and `currentSpeech()` then returns the hint. The runner sends
+  keys through System Events and the probe polls, so each phrase is recorded as it is spoken.
+- `currentSpeech()` returns at most 64 characters of a phrase. A phrase identical to the one
+  before it is recorded once: Control–Option–Left after Control–Option–Right repeats the word.
+  `ERROR 3` records that VoiceOver had nothing to say.
+- A focus click moves the insertion point, and VoiceOver enters and reads from there: the
+  original `word0012…` capture was the rest of the first line after such a click. Clicks near
+  the left edge also turned back a page. Use `ax:focus`.
+- The native `moveIn()` returned the previous phrase without entering when called right after
+  VoiceOver started, and `testmanagerd` crashed once after five native moves while another
+  session's tests were running. Neither was isolated; the probe uses `currentSpeech()` only.
+- VoiceOver's `last phrase` AppleScript property and clipboard copying produced no usable
+  speech in the initial probes, even with the scripting setting temporarily changed. They are
+  not a verified replacement for native speech capture. If exploring that route, record and
+  restore the setting and clipboard, and reject an unchanged clipboard sentinel.
+- VoiceOver keeps its own text cursor for a column it rests on. If the page changes while it
+  is not interacting, it re-enters at its previous character offset, or on the last line of a
+  shorter page; `firstword` returns to the first visible word. A window resize moved a
+  resting cursor to the window's first control. Neither is a page-boundary failure.
+- On 2026-10-11 the Mac sessions verified first and last lines, word order, end of text,
+  line counts and page-turn continuity in one and two columns at 17 and 23 points, with value
+  notifications for page turns, text-size changes and resizes. See the
+  [Mac verification](issue-55-voiceover-mac.md). Physical iPhone speech reached `0001–0036` on
+  2026-10-10; iPad focus/keyboard interfered with the ordering check. Those device sessions
+  keep #28's acceptance matrix open.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).

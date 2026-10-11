@@ -10,9 +10,12 @@ import XCUIAutomation
         // The outer runner owns the Mac toggle and restoration, including timeouts.
         guard wasEnabled else { throw XCTSkip("Run with scripts/run-voiceover-mac.py") }
         let environment = ProcessInfo.processInfo.environment
-        // Attach to a fresh, normally launched reader; do not relaunch it.
+        // Attach to a fresh, normally launched reader; do not relaunch it. Unless asked for its
+        // snapshots, never query it: XCTest's Automation Running banner would then take the
+        // VoiceOver cursor whenever the runner types.
         let app = XCUIApplication(bundleIdentifier: "org.epubreaderlib.voiceoververify.mac")
         let snapshots = environment["VOICEOVER_SNAPSHOTS"] != nil
+        if snapshots { app.activate() }
         #else
         defer {
             if !wasEnabled && voiceOver.isEnabled {
@@ -24,21 +27,12 @@ import XCUIAutomation
         let app = XCUIApplication(bundleIdentifier: "org.epubreaderlib.voiceoververify")
         app.launchArguments = ["-SampleFlow", "paginated"]
         app.launch()
+        let snapshots = true
         #endif
-        #if os(macOS)
-        if snapshots {
-            app.activate()
-            guard app.buttons["Close"].waitForExistence(timeout: 20) else {
-                XCTFail("The bundled synthetic EPUB must be open")
-                return
-            }
-        }
-        #else
-        guard app.buttons["Close"].waitForExistence(timeout: 20) else {
+        guard !snapshots || app.buttons["Close"].waitForExistence(timeout: 20) else {
             XCTFail("The bundled synthetic EPUB must be open")
             return
         }
-        #endif
         var events: [[String: String]] = []
         let clock = ISO8601DateFormatter()
         clock.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -69,10 +63,10 @@ import XCUIAutomation
                 }.joined(separator: " | ")
                 if values != shown {
                     shown = values
-                    print("MAC_COLUMN_COUNT=\(columns.count)")
                     note("xctestValues", values)
                 }
             }
+            // No speech is evidence too: `ERROR 3` is `XCUIVoiceOverService.Error.noSpeech`.
             let speech: String
             do { speech = try voiceOver.currentSpeech().utterance } catch { speech = "ERROR \((error as NSError).code)" }
             if speech != heard {

@@ -6,6 +6,7 @@
 - Preserve locale-tailored base-strength search distinctions, including Turkish I, Swedish letters, Spanish ñ and Cyrillic й, for passage location and search highlighting ([#26](https://github.com/vocaro/EPUBLib/issues/26)).
 - Describe enabled keyboard and gesture inputs in page-button help, with host customization and flow-aware labels ([#50](https://github.com/vocaro/EPUBLib/issues/50)).
 - Preserve SVG diagram shapes and labels when unsupported filter effects are omitted with a disclosure, including the networking book's TCP/IP layers ([#53](https://github.com/vocaro/EPUBLib/issues/53)).
+- Tell Mac VoiceOver which columns changed when a page is installed, so it reads the new page from its first line instead of repeating the previous page. Keep its end-of-page and remembered text offsets on the page's last line, correcting a nonsensical visible-line count and a silent column after the page became shorter ([#55](https://github.com/vocaro/EPUBLib/issues/55)).
 
 - Bound paginated Mac accessibility text and line queries to the visible source range. Expose visible UIKit accessibility runs with link, image, table and page actions while preserving hidden TextKit context for layout ([#28](https://github.com/vocaro/EPUBLib/issues/28)).
 - Preserve Foliate CFIs for qualified XML-shaped HTML, including whitespace around the head/body. Refuse saved positions and highlights for unqualified HTML tree repairs, omit unsafe bookmarks and disclose the limitation while retaining readable content ([#27](https://github.com/vocaro/EPUBLib/issues/27)).
