@@ -22,6 +22,25 @@ final class ContainerDocumentCoverageTests: XCTestCase {
         return try Fixture.archive(files)
     }
 
+    /// The plain book's package document and content with `OPS/` renamed `folder` ("" for the
+    /// container root) and the title `title`.
+    private func rendition(in folder: String, title: String) throws -> [String: Data] {
+        var files: [String: Data] = [:]
+        for (path, data) in try Fixture.files() where path.hasPrefix("OPS/") {
+            files[folder + String(path.dropFirst(4))] = path == "OPS/book.opf"
+                ? Data(String(decoding: data, as: UTF8.self).replacingOccurrences(of: "A Test Book", with: title).utf8) : data
+        }
+        return files
+    }
+
+    /// An archive of `files` under a container whose rootfile is `fullPath`.
+    private func archive(_ files: [String: Data], fullPath: String) throws -> Data {
+        var files = files
+        files["mimetype"] = Data("application/epub+zip".utf8)
+        files["META-INF/container.xml"] = Data(container("<rootfiles><rootfile full-path=\"\(fullPath)\"/></rootfiles>")("").utf8)
+        return try Fixture.archive(files)
+    }
+
     private func container(_ rootfiles: String) -> (String) -> String {
         { _ in "<?xml version=\"1.0\"?><container xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\" version=\"1.0\">\(rootfiles)</container>" }
     }
@@ -85,18 +104,31 @@ final class ContainerDocumentCoverageTests: XCTestCase {
         }
     }
 
-    func testARootfilePathResolvesWithinTheContainerAsAManifestHrefDoes() throws {
-        // Dot segments, written out or escaped, and an escaped separator.
+    func testARootfilePathResolvesItsDotSegmentsWithinTheContainer() throws {
+        // Written out or escaped, and around an escaped separator, as in a manifest href.
         for fullPath in ["./OPS/book.opf", "OPS/./book.opf", "OPS/text/../book.opf", "OPS/%2E/book.opf", "OPS/text/%2e%2e/book.opf",
-                         "OPS%2Fbook.opf", "OPS%2ftext%2F..%2Fbook.opf"] {
+                         "OPS%2Fbook.opf", "OPS%2ftext%2F..%2Fbook.opf", "OPS/book.opf/../book.opf"] {
             let book = try EPUBPublication.open(data: Fixture.packageVariant(container: container("<rootfiles><rootfile full-path=\"\(fullPath)\"/></rootfiles>")))
             XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"], fullPath)
             XCTAssertEqual(book.tableOfContents.first?.href, "OPS/one.xhtml#start", fullPath)
         }
     }
 
+    func testARootfilePathHasToEndInAFilesName() throws {
+        // A URL path that closes with a slash, written or left by a closing dot segment (URL
+        // Standard, path state), is a folder's, and an empty segment is part of no archive name.
+        // Reading either as the package document beside it would be a repair, which a manifest
+        // href gets and a rootfile, refused in these forms before, does not.
+        for fullPath in ["OPS/book.opf/", "OPS/book.opf%2F", "OPS/book.opf/x/..", "OPS/book.opf/x/%2e%2e", "OPS/book.opf/.", "OPS/book.opf/%2E",
+                         "OPS//book.opf", "OPS%2F%2Fbook.opf", ".//OPS/book.opf", "OPS/", "OPS/text/.."] {
+            assertOpening(try Fixture.packageVariant(container: container("<rootfiles><rootfile full-path=\"\(fullPath)\"/></rootfiles>")),
+                          throws: .invalidXML("container rootfile"), fullPath.debugDescription)
+        }
+    }
+
     func testARootfilePathIsJudgedOnlyOnceDecoded() throws {
         // The path is an untrusted archive's word, so what its escapes spell is what is checked.
+        // None of these is the name of an entry as written, which is the other reading (below).
         let refused = [
             // A dot segment that leaves the container, or leaves no name.
             "%2e%2e/OPS/book.opf", "%2E%2E/%2E%2E/escape", ".%2E/OPS/book.opf", "%2e./OPS/book.opf", "OPS/%2e%2e/%2e%2e/OPS/book.opf", "%2E", "OPS/%2e%2e",
@@ -105,29 +137,98 @@ final class ContainerDocumentCoverageTests: XCTestCase {
             "OPS%5Cbook.opf", "OPS%5cbook.opf", "..%5Cescape", "%5C%5Cexample.invalid%5Cbook.opf", "C%3A/book.opf", "OPS/a%3Ab.opf",
             // A NUL.
             "%00", "OPS/book.opf%00", "OPS/book%00.opf", "OPS%00/book.opf",
-            // No escape at all, or none of UTF-8.
+            // No escape at all, or none of UTF-8: a lone byte, an overlong "..", "." or "/", half a surrogate pair.
             "%", "OPS/book.opf%", "OPS/book.opf%4", "OPS/%zz/book.opf", "OPS/book%.opf", "OPS/%E9.opf", "OPS/%C3", "OPS/%C3%28.opf",
-            // As before, the same written out and another origin.
+            "%C0%AE%C0%AE/OPS/book.opf", "%E0%80%AE%E0%80%AE/OPS/book.opf", "%C0%AFOPS/book.opf", "OPS%C0%AFbook.opf", "%ED%A0%80/book.opf",
+            // As before, the same written out and another origin, whose scheme an escape does not hide.
             "../OPS/book.opf", "OPS/../../escape", "/OPS/book.opf", "//example.invalid/book.opf", "OPS\\book.opf", "C:/book.opf", ".", "OPS/..",
-            "file:///OPS/book.opf", "https://example.invalid/book.opf",
-            // More than a file's path: a query or a fragment.
-            "OPS/book.opf?v=2", "OPS/book.opf#package", "OPS/book.opf#", "#package",
+            "file:///OPS/book.opf", "https://example.invalid/book.opf", "%66ile:///OPS/book.opf", "%68ttps://example.invalid/book.opf",
+            // More than a file's path: a query or a fragment, empty or not.
+            "OPS/book.opf?v=2", "OPS/book.opf?", "?", "OPS/book.opf#package", "OPS/book.opf#", "#package",
         ]
         for fullPath in refused {
             assertOpening(try Fixture.packageVariant(container: container("<rootfiles><rootfile full-path=\"\(fullPath)\"/></rootfiles>")),
                           throws: .invalidXML("container rootfile"), fullPath.debugDescription)
         }
-        // Refused though the archive holds a package document of that very name: the name is
-        // safe as written and is not after decoding, or cannot be decoded.
-        assertOpening(try relocated(to: "%2e%2e/", fullPath: "%2e%2e/book.opf"), throws: .invalidXML("container rootfile"), "a folder named %2e%2e")
-        assertOpening(try relocated(to: "a%2F..%2F..%2Fb/", fullPath: "a%2F..%2F..%2Fb/book.opf"), throws: .invalidXML("container rootfile"),
-                      "a folder named with %2F")
-        assertOpening(try relocated(to: "OPS/", package: "a%5Cb.opf", fullPath: "OPS/a%5Cb.opf"), throws: .invalidXML("container rootfile"),
-                      "a file named with %5C")
-        assertOpening(try relocated(to: "OPS/", package: "100%.opf", fullPath: "OPS/100%.opf"), throws: .invalidXML("container rootfile"),
-                      "a file named with a lone %")
-        XCTAssertEqual(try EPUBPublication.open(data: relocated(to: "OPS/", package: "100%.opf", fullPath: "OPS/100%25.opf")).metadata.title,
-                       "A Test Book", "the same file, its % escaped")
+        // A control character other than NUL separates nothing and is no worse in a name than in
+        // an entry's own: the name it spells is looked up, and is not there.
+        for (fullPath, path) in [("OPS/book.opf%0A", "OPS/book.opf\n"), ("OPS/book.opf%0D%0A", "OPS/book.opf\r\n"), ("%09OPS/book.opf", "\tOPS/book.opf"),
+                                 ("OPS/book%7F.opf", "OPS/book\u{7F}.opf"), ("OPS/%1Fbook.opf", "OPS/\u{1F}book.opf")] {
+            assertOpening(try Fixture.packageVariant(container: container("<rootfiles><rootfile full-path=\"\(fullPath)\"/></rootfiles>")),
+                          throws: .missingResource(path), fullPath.debugDescription)
+        }
+    }
+
+    func testARootfilePathThatIsNoURLOfAnEntryNamesTheEntryWrittenThatWay() throws {
+        // Validators long looked full-path up as written, so books carry a name's own "%", "#"
+        // and "?" unescaped. Read as a URL such a value is refused or names nothing; the entry of
+        // that very name is then the package document, and the base of its references.
+        let cases: [(folder: String, package: String)] = [
+            // No escape, or none of UTF-8.
+            ("OPS/", "100%.opf"), ("50% off/", "book.opf"), ("caf%E9/", "book.opf"),
+            // A fragment or a query, were it a URL.
+            ("Book #1/", "book.opf"), ("OPS/", "vol#2.opf"), ("What?/", "book.opf"),
+            // An escape of a name the archive lacks.
+            ("a%20b/", "book.opf"), ("x%41/", "book.opf"), ("OPS/", "100%25.opf"),
+            // An escape of what no name may hold: a dot segment out of the container, a separator, a NUL.
+            ("%2e%2e/", "book.opf"), ("a%2F..%2F..%2Fb/", "book.opf"), ("OPS/", "a%5Cb.opf"), ("OPS/", "a%00b.opf"),
+        ]
+        for (folder, package) in cases {
+            let book = try EPUBPublication.open(data: relocated(to: folder, package: package, fullPath: folder + package))
+            XCTAssertEqual(book.metadata.title, "A Test Book", folder + package)
+            XCTAssertEqual(book.spine.map(\.resource.path), [folder + "one.xhtml", folder + "two.xhtml"], folder + package)
+            XCTAssertEqual(book.tableOfContents.first?.href.flatMap(\.removingPercentEncoding), folder + "one.xhtml#start", folder + package)
+        }
+        // The value as written is an archive path or nothing: it is not resolved.
+        for fullPath in ["./50% off/book.opf", "50% off//book.opf", "50% off/x/../book.opf", "50% off/book.opf#package", "50% off/book.opf/"] {
+            assertOpening(try relocated(to: "50% off/", fullPath: fullPath), throws: .invalidXML("container rootfile"), fullPath)
+        }
+    }
+
+    func testTheURLReadingOfARootfilePathComesBeforeThePathAsWritten() throws {
+        // An archive holding a book under each spelling.
+        let both = try rendition(in: "a b/", title: "Decoded").merging(rendition(in: "a%20b/", title: "Written")) { $1 }
+        let first = try EPUBPublication.open(data: archive(both, fullPath: "a%20b/book.opf"))
+        XCTAssertEqual(first.metadata.title, "Decoded")
+        XCTAssertEqual(first.spine.map(\.resource.path), ["a b/one.xhtml", "a b/two.xhtml"])
+        XCTAssertEqual(first.tableOfContents.first?.href, "a%20b/one.xhtml#start")
+        // The other is reached by its own URL.
+        let second = try EPUBPublication.open(data: archive(both, fullPath: "a%2520b/book.opf"))
+        XCTAssertEqual(second.metadata.title, "Written")
+        XCTAssertEqual(second.spine.map(\.resource.path), ["a%20b/one.xhtml", "a%20b/two.xhtml"])
+        // Whichever reading finds the package document, the path it was read at is the base of
+        // its references: content under the other spelling is no part of the book.
+        let onlyWritten = try EPUBPublication.open(data: archive(both.filter { $0.key != "a b/book.opf" }, fullPath: "a%20b/book.opf"))
+        XCTAssertEqual(onlyWritten.metadata.title, "Written")
+        XCTAssertEqual(onlyWritten.spine.map(\.resource.path), ["a%20b/one.xhtml", "a%20b/two.xhtml"])
+        XCTAssertEqual(onlyWritten.tableOfContents.first?.href, "a%2520b/one.xhtml#start")
+        XCTAssertEqual(onlyWritten.resources.map(\.path).filter { $0.hasPrefix("a b/") }, [])
+        let onlyDecoded = try EPUBPublication.open(data: archive(both.filter { $0.key != "a%20b/book.opf" }, fullPath: "a%20b/book.opf"))
+        XCTAssertEqual(onlyDecoded.metadata.title, "Decoded")
+        XCTAssertEqual(onlyDecoded.spine.map(\.resource.path), ["a b/one.xhtml", "a b/two.xhtml"])
+        XCTAssertEqual(onlyDecoded.resources.map(\.path).filter { $0.hasPrefix("a%20b/") }, [])
+    }
+
+    func testARootfilePathThatLeavesTheContainerNamesNoEntryButOneWrittenThatWay() throws {
+        // A book in the container root and one under OPS/, either of which these would name were
+        // ".." stopped at the root or dropped.
+        var files = try rendition(in: "", title: "Root").merging(rendition(in: "OPS/", title: "OPS")) { $1 }
+        let leaving = ["../book.opf", "%2e%2e/book.opf", "%2E%2E%2Fbook.opf", "x/%2e%2e/%2e%2e/book.opf", "OPS/%2e%2e/%2e%2e/book.opf", "%2e%2e%5Cbook.opf",
+                       "%2e%2e/OPS/book.opf", "..%2FOPS%2Fbook.opf", "OPS/%2e%2e/%2e%2e/OPS/book.opf", "OPS/../../OPS/book.opf"]
+        for fullPath in leaving {
+            assertOpening(try archive(files, fullPath: fullPath), throws: .invalidXML("container rootfile"), fullPath.debugDescription)
+        }
+        XCTAssertEqual(try EPUBPublication.open(data: archive(files, fullPath: "OPS/%2e%2e/book.opf")).metadata.title, "Root", "within the container")
+        // With a third book in a folder named "%2e%2e", the one value that is its package
+        // document's name as written names it, and nothing else does.
+        files.merge(try rendition(in: "%2e%2e/", title: "Written")) { $1 }
+        for fullPath in leaving where fullPath != "%2e%2e/book.opf" {
+            assertOpening(try archive(files, fullPath: fullPath), throws: .invalidXML("container rootfile"), fullPath.debugDescription)
+        }
+        let book = try EPUBPublication.open(data: archive(files, fullPath: "%2e%2e/book.opf"))
+        XCTAssertEqual(book.metadata.title, "Written")
+        XCTAssertEqual(book.spine.map(\.resource.path), ["%2e%2e/one.xhtml", "%2e%2e/two.xhtml"])
+        XCTAssertEqual(book.tableOfContents.first?.href, "%252e%252e/one.xhtml#start")
     }
 
     func testTheFirstRootfileNamesThePackageDocument() throws {

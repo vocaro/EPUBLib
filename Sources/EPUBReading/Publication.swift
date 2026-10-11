@@ -104,12 +104,10 @@ public struct EPUBPublication: Sendable {
             return try XMLTree.parse(bytes, path: path)
         }
         let container = try xml("META-INF/container.xml")
-        // `full-path` is a URL from the container root (EPUB 3.3 §4.2.6.3.1.3): it is resolved, as a
-        // manifest href is, from a file in that root, and so judged as an archive path only once
-        // percent-decoded. It names a file, so an empty one or one with a fragment is refused.
-        guard let fullPath = container.descendants("rootfile").first?.attribute("full-path"), !fullPath.isEmpty,
-              let reference = try? ResourceReference.resolve(fullPath, relativeTo: "mimetype"),
-              !reference.contains("#"), let opfPath = reference.removingPercentEncoding else {
+        // `full-path` is read as a URL and, failing that, as the archive path it is written as
+        // (`rootfilePath`). The one path it yields is the document read and the base of its hrefs.
+        guard let fullPath = container.descendants("rootfile").first?.attribute("full-path"),
+              let opfPath = ResourceReference.rootfilePath(fullPath, isEntry: { contents[$0] != nil }) else {
             throw EPUBPublicationError.invalidXML("container rootfile")
         }
         let opf = try xml(opfPath)
