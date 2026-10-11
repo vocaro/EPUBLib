@@ -24,6 +24,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
    A qualified subset of XML-shaped HTML uses Foliate's HTML whitespace and namespace rules.
    Unqualified HTML repairs remain readable but cannot issue or resolve CFIs: the reader
    discloses that saved positions and highlights are unavailable for those sections.
+   For that parser a `<` that opens no markup (`x < y`, `p <.05`) is kept as text, as HTML
+   reads it; libxml2 alone discards what follows it.
    `XMLSafety` refuses entity declarations first. No DTD or network access, depth and node limits.
 2. **Style** (`StyleResolver`, `CSSStyleSheet`, `FontRegistry`). A bounded CSS parser and
    cascade over a user-agent stylesheet, the book's archive-local stylesheets and `style`
