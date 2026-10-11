@@ -257,6 +257,135 @@ final class ContainerArchiveCoverageTests: XCTestCase {
         }
     }
 
+    // MARK: Sizes the archive cannot hold
+
+    /// `archive` with a 32-bit field of `name`'s directory record set to `value`: at 16 its
+    /// checksum, at 20 its compressed size and at 24 its uncompressed size.
+    private func archive(_ archive: Data, stating value: Int, at field: Int, of name: String) throws -> Data {
+        var data = archive
+        let record = try XCTUnwrap(Fixture.directoryOffset(of: name, in: data))
+        data.replaceSubrange((record + field)..<(record + field + 4), with: withUnsafeBytes(of: UInt32(value).littleEndian) { Array($0) })
+        return data
+    }
+
+    /// Asserts that `data` is refused as an invalid archive before any of its entries is read.
+    private func assertRefusedUnread(_ data: Data, _ name: String, line: UInt = #line) {
+        // Progress is reported on the opening thread, after each chunk an entry gives.
+        final class Chunks: @unchecked Sendable { var count = 0 }
+        let chunks = Chunks()
+        XCTAssertThrowsError(try EPUBPublication.open(data: data, onProgress: { _ in chunks.count += 1 }), name, line: line) {
+            guard case .invalidArchive = $0 as? EPUBPublicationError else { return XCTFail("\(name): \($0)", line: line) }
+        }
+        XCTAssertEqual(chunks.count, 0, "\(name): chunks read before the refusal", line: line)
+    }
+
+    // ZIPFoundation reads a stored entry a chunk at a time until it has asked for the size the
+    // directory gives, with or without bytes to answer, so opening took as long as that size
+    // said: seconds for a terabyte, and no end for the largest a ZIP64 field holds. The sizes
+    // here are small ones, which the archive cannot hold either.
+    func testAStoredEntryDeclaredLargerThanTheArchiveIsRefusedBeforeAnyEntryIsRead() throws {
+        let name = "OPS/one.xhtml"
+        let plain = Fixture.storedArchive(Fixture.storedEntries(try Fixture.files()))
+        // Every byte from the entry's first to the archive's last, the most the entry could hold.
+        let room = try plain.count - XCTUnwrap(Fixture.dataOffset(of: name, in: plain))
+        assertOpening(try archive(plain, stating: room, at: 24, of: name), throws: .invalidArchive("CRC: \(name)"),
+                      "a size the archive has the bytes for is read, and fails its checksum")
+        // A ZIP64 field's own 12 bytes come after the entry, and are that much more room.
+        for excess in [1, 1 << 20] {
+            assertRefusedUnread(try archive(plain, stating: room + excess, at: 24, of: name), "\(excess) more than the archive holds")
+            assertRefusedUnread(try archive(plain, givingSize: 24, of: name, as: UInt64(room + 12 + excess)), "\(excess) more, in a ZIP64 field")
+        }
+
+        // The same entry behind a data descriptor, which gives the size its limits are checked
+        // by. With Deflate as the directory's method the descriptor is sought after the
+        // compressed size, where it is, and the entry is still read as its header says: stored,
+        // by the directory's uncompressed size.
+        var described = Fixture.storedArchive(Fixture.storedEntries(try Fixture.files(), flags: 0x0808))
+        let record = try XCTUnwrap(Fixture.directoryOffset(of: name, in: described))
+        described.replaceSubrange((record + 10)..<(record + 12), with: [8, 0])
+        XCTAssertEqual(try EPUBPublication.open(data: described).spine.count, 2, "with its own size it is read")
+        let space = try described.count - XCTUnwrap(Fixture.dataOffset(of: name, in: described))
+        assertOpening(try archive(described, stating: space, at: 24, of: name), throws: .invalidArchive("CRC: \(name)"))
+        for excess in [1, 1 << 20] {
+            assertRefusedUnread(try archive(described, stating: space + excess, at: 24, of: name), "described, \(excess) more than the archive holds")
+            assertRefusedUnread(try archive(described, givingSize: 24, of: name, as: UInt64(space + 12 + excess)), "described, \(excess) more, in a ZIP64 field")
+        }
+    }
+
+    func testADeflatedEntryDeclaredLargerThanItsDataCouldInflateToIsRefused() throws {
+        // Deflate's longest copy is 258 bytes and its shortest code for one is two bits (a bit for
+        // the length, a bit for the distance), so no stream inflates to more than 1,032 times its
+        // own length.
+        let name = "OPS/one.xhtml"
+        let book = try Fixture.epub(), chapter = try XCTUnwrap(Fixture.files()[name])
+        let record = try XCTUnwrap(Fixture.directoryOffset(of: name, in: book))
+        let compressed = (0..<4).reduce(0) { $0 | Int(book[record + 20 + $1]) << (8 * $1) }
+        // The size is not what the entry is read by, so one the data could hold changes nothing.
+        XCTAssertEqual(try EPUBPublication.open(data: archive(book, stating: 1032 * compressed, at: 24, of: name)).data(at: name), chapter)
+        assertRefusedUnread(try archive(book, stating: 1032 * compressed + 1, at: 24, of: name), "one byte more than the data could hold")
+        assertRefusedUnread(try archive(book, givingSize: 24, of: name, as: 1 << 40), "a terabyte")
+
+        // The compressed size is what the entry is read by, as far as the stream goes.
+        let room = try book.count - XCTUnwrap(Fixture.dataOffset(of: name, in: book))
+        XCTAssertEqual(try EPUBPublication.open(data: archive(book, stating: room, at: 20, of: name)).data(at: name), chapter)
+        assertRefusedUnread(try archive(book, stating: room + 1, at: 20, of: name), "a compressed size one byte past the end")
+        assertRefusedUnread(try archive(book, givingSize: 20, of: name, as: 1 << 40), "a compressed terabyte")
+        assertRefusedUnread(try archive(book, stating: 0, at: 20, of: name), "an entry of no compressed bytes")
+    }
+
+    func testEntriesThatCompressAsFarAsDeflateAllowsAreRead() throws {
+        // A megabyte of zeros, as ZIPFoundation's own writer deflates it.
+        let megabyte = String(repeating: "\0", count: 1 << 20)
+        XCTAssertEqual(try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/zeros.bin": megabyte])).data(at: "OPS/zeros.bin"), Data(count: 1 << 20))
+
+        // The most any stream can hold: one block whose codes are a zero and the block's end at
+        // two bits each, a copy of 258 bytes at one bit and a distance of one at one bit. After
+        // the 108 bits that say so and a first zero, every two zero bits are 258 more zeros.
+        let copies = 2 + 4 * 30_000
+        let stream = Data([0xED, 0xC0, 0x01, 0x09, 0x00, 0x00, 0x00, 0x80, 0xA0, 0xFE, 0xAF, 0xEE, 0x88, 0x06]) + Data(count: 30_000) + Data([0x03])
+        let zeros = Data(count: 1 + 258 * copies)
+        XCTAssertGreaterThan(zeros.count, 1031 * stream.count)
+        var entries = Fixture.storedEntries(try Fixture.files())
+        entries.append(Fixture.StoredEntry("OPS/zeros.bin", stream, method: 8))
+        // storedArchive describes the stream as the entry's own bytes; the directory, which is
+        // what is read, gets the checksum and size of what it inflates to.
+        var data = try archive(Fixture.storedArchive(entries), stating: Int(zeros.crc32(checksum: 0)), at: 16, of: "OPS/zeros.bin")
+        data = try archive(data, stating: zeros.count, at: 24, of: "OPS/zeros.bin")
+        XCTAssertEqual(try EPUBPublication.open(data: data).data(at: "OPS/zeros.bin"), zeros)
+        assertRefusedUnread(try archive(data, stating: 1032 * stream.count + 1, at: 24, of: "OPS/zeros.bin"), "more than any stream holds")
+    }
+
+    func testEntriesTheArchiveHoldsInFullAreReadWhateverTheirLayout() throws {
+        var files = try Fixture.files()
+        files["OPS/empty.css"] = Data()
+        func assertRead(_ data: Data, _ name: String, line: UInt = #line) throws {
+            let book = try EPUBPublication.open(data: data)
+            for (path, bytes) in files { XCTAssertEqual(try book.data(at: path), bytes, "\(name): \(path)", line: line) }
+        }
+        // An empty stored entry has no bytes to be short of, even as the last entry before the
+        // directory, and neither has an empty deflated one of two bytes.
+        let entries = Fixture.storedEntries(files)
+        try assertRead(Fixture.storedArchive(entries), "an empty entry")
+        try assertRead(Fixture.storedArchive(entries.filter { !$0.data.isEmpty } + entries.filter { $0.data.isEmpty }), "an empty last entry")
+        var deflated = entries.filter { !$0.data.isEmpty }
+        deflated.append(Fixture.StoredEntry("OPS/empty.css", Data([0x03, 0x00]), method: 8))
+        var data = try archive(Fixture.storedArchive(deflated), stating: 0, at: 16, of: "OPS/empty.css")
+        data = try archive(data, stating: 0, at: 24, of: "OPS/empty.css")
+        try assertRead(data, "an empty deflated entry")
+
+        // Sizes that follow the data, with the descriptor's optional signature and without it.
+        let described = Fixture.storedArchive(Fixture.storedEntries(files, flags: 0x0808))
+        try assertRead(described, "data descriptors")
+        var unsigned = described
+        for (path, bytes) in files {
+            let descriptor = try XCTUnwrap(Fixture.dataOffset(of: path, in: described)) + bytes.count
+            XCTAssertEqual(Array(described[descriptor..<(descriptor + 4)]), [0x50, 0x4B, 0x07, 0x08], path)
+            // The checksum and sizes move up over the signature; four spare bytes follow them.
+            unsigned.replaceSubrange(descriptor..<(descriptor + 16), with: described[(descriptor + 4)..<(descriptor + 16)] + Data(count: 4))
+        }
+        try assertRead(unsigned, "data descriptors without their signature")
+    }
+
     func testADamagedOrUnreadableEntryFailsAsAnInvalidArchive() throws {
         XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/74")
         // A stored entry's damage is typed (CRC). Deflated data that does not inflate, or a method
