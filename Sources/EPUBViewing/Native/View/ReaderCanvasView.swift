@@ -695,7 +695,8 @@ import AppKit
             return anchorFrameIsVisible(cell)
         }
         guard let line = textView.lineFrame(containing: location) else { return true }
-        return textView.fragment(atContainerY: line.midY, holds: location) && anchorFrameIsVisible(line)
+        return textView.fragment(atContainerY: line.midY, holds: location)
+            && anchorFrameIsVisible(textView.anchorFrame(of: line, at: location))
     }
 
     /// A coherent offscreen fragment is insufficient: estimates can move its line during the
@@ -718,30 +719,32 @@ import AppKit
     /// is still past.
     private func scrollLineToTop(containing location: Int, in textView: ReaderTextView) {
         guard var line = textView.line(containing: location) else { return }
+        // The top of an aligned flex or grid box is above its first line (`anchorFrame`).
+        func frame() -> CGRect { textView.anchorFrame(of: line.frame, at: location) }
         if textView.readerContainer.hasNonlinearGeometry {
             // Layout can refine its estimate after the viewport moves. Correct against the
             // target's own visual line; source offsets are not monotonic in Y around floats.
             for _ in 0..<32 {
-                scrollToContainerY(line.frame.minY)
+                scrollToContainerY(frame().minY)
                 guard let updated = textView.line(containing: location) else { break }
                 line = updated
-                if anchorFrameIsVisible(line.frame) { break }
+                if anchorFrameIsVisible(frame()) { break }
             }
             return
         }
-        scrollToContainerY(line.frame.minY)
+        scrollToContainerY(frame().minY)
         var climb: CGFloat = 0
         for _ in 0..<32 {
             let visible = scrollVisibleContainerRect
             let shown = textView.lineBoundary(atContainerY: visible.minY, lineEnd: false)
             if let updated = textView.line(containing: location) { line = updated }
-            if shown == line.range.location && anchorFrameIsVisible(line.frame) { break }
-            if shown <= location && isScrolledToEnd && anchorFrameIsVisible(line.frame) { break }
+            if shown == line.range.location && anchorFrameIsVisible(frame()) { break }
+            if shown <= location && isScrolledToEnd && anchorFrameIsVisible(frame()) { break }
             if shown <= location {
                 textView.ensureLayout(from: shown, through: location)
                 guard let laidOut = textView.line(containing: location) else { break }
                 line = laidOut
-                scrollToContainerY(line.frame.minY)
+                scrollToContainerY(frame().minY)
                 climb = 0
             } else { // First the characters past the line at the shown text's density, and a screen.
                 let end = textView.lineBoundary(atContainerY: visible.maxY, lineEnd: true)

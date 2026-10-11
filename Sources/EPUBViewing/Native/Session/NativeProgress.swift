@@ -125,6 +125,9 @@ enum NativeDisclosure {
         if report.flowBoxesReflowed {
             sentences.append("Some floating, positioned or inline box layouts may be simplified to keep their content readable in reading order. Fixed boxes appear once rather than staying pinned to each page.")
         }
+        if report.flexGridSimplified {
+            sentences.append("Some flexible box or grid layouts are shown as blocks in reading order: items meant to sit side by side, wrap or be reordered follow one another.")
+        }
         if report.stylesTruncated { sentences.append("Some of this book's styling was too large to apply.") }
         return sentences.isEmpty ? nil : sentences.joined(separator: " ")
     }

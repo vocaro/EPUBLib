@@ -59,6 +59,9 @@ struct SectionReport: Equatable, Sendable {
     var fixedLayoutReflowed = false
     /// Floats, positioned callouts or sized inline-blocks rendered as ordinary flow boxes.
     var flowBoxesReflowed = false
+    /// Flex or grid containers shown as blocks in reading order: side-by-side, wrapped,
+    /// reversed, reordered or explicitly placed items, or nesting past the supported depth.
+    var flexGridSimplified = false
     /// CSS rules or declarations dropped by the parser's bounds.
     var stylesTruncated = false
 
@@ -77,6 +80,7 @@ struct SectionReport: Equatable, Sendable {
         fixedLayoutReflowed = fixedLayoutReflowed || other.fixedLayoutReflowed
         stylesTruncated = stylesTruncated || other.stylesTruncated
         flowBoxesReflowed = flowBoxesReflowed || other.flowBoxesReflowed
+        flexGridSimplified = flexGridSimplified || other.flexGridSimplified
     }
 }
 

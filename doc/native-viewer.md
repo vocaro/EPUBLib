@@ -150,6 +150,17 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   layouts and glyph metadata are retained for drawing in the table's bounded layout cache.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow; endnotes stay in place and also show in popovers.
+- **Flex and grid.** TextKit lays a section out as one column of paragraphs, so the reader
+  aligns the flex and grid layouts that keep that column: a column flex container, a one-column
+  grid and a row flex container with a single item
+  ([Flex and grid alignment](#flex-and-grid-alignment)). That covers the patterns reflowable
+  books use to centre a page: Standard Ebooks' full-page epigraphs and dedications, a title
+  page centred by its `body`, a `place-items: center` grid. Items meant to sit side by side,
+  wrap, reverse or be reordered stay blocks in reading order, with a `.disclosure`. Alignment is
+  paragraph spacing and indents resolved at the live column size and never changes a section's
+  characters, so CFIs, search, selection and highlights do not depend on it. The subset follows
+  a survey of published stylesheets and this repository's fixtures, not a book corpus
+  ([qualification](issue-20-flex-grid-alignment.md)).
 - **Continuous scroll** is whole-book: one `UITextView`/`NSTextView` over every linear
   section, so nothing resets at a section boundary and the system scroll edge effects apply.
   Until every section is built it shows the current section, then swaps to the whole book in
@@ -277,6 +288,60 @@ text and saved range offsets identical across reader font-size changes. General 
 arbitrary offscreen geometry and transforms are outside this subset.
 Fixed-layout publications still reflow and report their existing fixed-layout disclosure; this
 subset does not implement fixed-page geometry.
+
+### Flex and grid alignment
+
+A flex or grid container renders as a block and its items as blocks in source order. Three
+shapes keep the reader's single column, and the native layout aligns their items: a flex
+container with `flex-direction: column`, a grid with one column, and a row flex container with
+one item. A container's free space becomes paragraph spacing around and between its items; an
+item narrower than its container is indented from both sides. Nothing else about the text
+changes.
+
+- **Heights.** A container has free space when its `height` or `min-height` is definite: points,
+  `vh`/`vw`, a percentage of an ancestor chain of definite heights that starts at the viewport
+  (`html, body { height: 100% }`), or a sum of those (`calc(98vh - 3em)`, exactly).
+  `max-height` caps a definite `height`, `box-sizing: border-box` takes the vertical padding
+  and border out of it, and content taller than the box is never clipped: it flows as blocks.
+  The height used is at most one viewport, so a box that opens a page stays on that page.
+- **Down the page.** In a column flex container the free space goes first to items with
+  `flex-grow` (a grown item keeps its content at its top), then to `auto` top and bottom margins,
+  then by `justify-content`: `flex-start`, `center`, `flex-end`, `space-between`, `space-around`
+  and `space-evenly`. A one-column grid packs its rows by `align-content` the same way; with
+  the default `normal`/`stretch` the rows share the space equally and `align-items`/`align-self`
+  place each item in its row. A row container's only item is placed by `align-items`/`align-self`.
+  `row-gap` and `gap` separate stacked items, with or without a definite height.
+- **Across the line.** `align-items`/`align-self` (flex), `justify-items`/`justify-self` (grid),
+  `justify-content` (a row's only item) and `auto` left and right margins centre an item or put
+  it at the end edge. The item shrinks to its widest unwrapped paragraph, within its `width`,
+  `min-width` and `max-width`, and its paragraphs keep their own `text-align` inside it: a
+  centred quotation keeps its left edge and its right-aligned attribution. Start alignment and
+  the default `stretch` leave the item across the line, as block flow has it.
+- **Nesting.** A stretched or grown item that is itself a supported container aligns within its
+  new height, up to four containers deep.
+- **Paginated flow.** The viewport is one column's page, in one- and two-column spreads alike:
+  `100vh` is the page's text height and `100vw` one column's width. A section never shares a
+  spread with another, so a one-page epigraph leaves the second column empty. The space above
+  a box's first line is the box's own: unlike a margin it is kept in full when the box starts
+  a page, at a section's start, a forced break or an unforced one. A box that starts part-way
+  down a page begins there, as in a browser, with its content centred in the box rather than
+  on the page.
+- **Continuous scroll.** The viewport is the visible reading area, as for images sized in
+  `vh`: a `min-height: 98vh` section takes about one screen and its content sits in the middle
+  of it. Heights follow the visible area when it changes. A position that starts an aligned
+  box (a navigation to its section, a restored location) rests the box's top edge at the top
+  of the visible area, not its first line, so the box is shown as composed. A box that opens
+  the scrolled text has its space restored as its first fragment's top margin, since TextKit
+  drops the spacing before a document's first paragraph.
+
+Everything else stays in block flow in reading order and sets a `.disclosure`: a row with
+several items (side by side in a browser), `flex-wrap` rows, reversed directions with several
+items, grids with more than one column (`grid-template-columns`, `grid-template-areas`,
+`grid-auto-flow: column`) or explicitly placed items, inline flex and grid containers with
+several children, and containers nested more than four deep. `order` never reorders: items
+keep reading order and the container is disclosed. A wrapping column of definite height stays
+one column and is disclosed. A container holding a float or positioned box is not aligned:
+the box keeps the layout described above, and the alignment given up is disclosed.
 
 ## Input and accessibility
 
@@ -482,5 +547,14 @@ Go: the native viewer is the bundled engine.
   a live retest. Physical iPhone speech reached numbered content; iPad initial
   focus and keyboard presentation prevented a clean reading-order check. The complete
   device/layout/typography verification matrix remains open; simulator/API checks do not substitute for those sessions.
-- Flexbox and grid lay out as blocks: content a book centres vertically with `min-height` and
-  flex alignment (Standard Ebooks epigraphs) starts at the top of the page.
+- Flex and grid alignment covers the single-column subset described above. Side-by-side row
+  items, wrapping and reversed flex, multi-column and explicitly placed grids, `order` and
+  inline flex or grid containers render as blocks in reading order with a disclosure. Within
+  the subset: margins between items still collapse as block margins do; `flex-shrink`,
+  `flex-basis`, `align-content` in flex, `column-gap`, percentage gaps, baseline alignment and
+  `aspect-ratio` are not laid out; `box-sizing` applies to heights only; start-aligned items
+  and items holding images, tables or formulas keep their block-flow width and placement; a
+  box taller than one viewport is treated as one viewport tall; and a container holding a float
+  or positioned box is left in block flow. `min()`, `max()` and `clamp()` heights choose their
+  branch against the nominal viewport, as other lengths do
+  ([qualification](issue-20-flex-grid-alignment.md)).
