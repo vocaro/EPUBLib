@@ -118,19 +118,31 @@ import XCUIAutomation
                     let ordered = lines.filter { ($0.frame.minX / 100).rounded() == x }.sorted { $0.frame.minY < $1.frame.minY }
                     note("visible", "column \(column): \(ordered.count) lines, first \(ordered.first?.label ?? ""), last \(ordered.last?.label ?? "")")
                 }
-            case "touch", "activate":
+            case "touch", "activate", "doubletap":
                 // A touch moves VoiceOver to the item under it; a double tap then activates that item.
                 let label = parts.last ?? ""
                 let button = app.buttons[label].firstMatch
                 let element = button.exists ? button
                     : app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).firstMatch
                 guard element.waitForExistence(timeout: 5) else { note(step, "MISSING"); continue }
-                element.tap()
-                heard(step)
-                guard parts[0] == "activate" else { continue }
+                // `doubletap` keeps the rotor's selection: the item must already hold the cursor.
+                if parts[0] != "doubletap" {
+                    element.tap()
+                    heard(step)
+                }
+                guard parts[0] != "touch" else { continue }
                 element.doubleTap()
                 RunLoop.current.run(until: Date().addingTimeInterval(2))
                 heard("activated")
+            case "flick":
+                // One finger up or down steps through VoiceOver's rotor: for a line, its actions.
+                switch parts.last {
+                case "up": app.swipeUp(velocity: .fast)
+                case "down": app.swipeDown(velocity: .fast)
+                case "left": app.swipeLeft(velocity: .fast)
+                default: app.swipeRight(velocity: .fast)
+                }
+                heard(step)
             case "wait":
                 RunLoop.current.run(until: Date().addingTimeInterval(Double(parts.last ?? "") ?? 1))
             case "screenshot":

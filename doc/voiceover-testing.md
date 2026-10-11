@@ -171,6 +171,9 @@ phrase after each. Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from t
 - `touch=LABEL`: touch the first item whose label begins with LABEL. Under VoiceOver a touch
   moves its cursor there; `touch=word` is the first numbered line.
 - `activate=LABEL`: touch the item, then double-tap, which is VoiceOver's activation.
+- `flick=down`, `flick=up`: one finger steps through the rotor. With the cursor on a line it
+  offers the line's actions, Next Page first; `doubletap=LABEL` on that same line then
+  performs the chosen one without moving the cursor.
 - `rotate=landscape`, `rotate=portrait`: an iPad shows two columns in landscape and one in
   portrait. End a session in the orientation it started in.
 - `wait=SECONDS`, and `screenshot`, attached to the result bundle: what is on the glass,
@@ -182,9 +185,9 @@ from one of the reader's own. The probe stops when the reader is no longer in th
 Another session's tests on the same device bring their own app forward or switch VoiceOver
 off; discard such a run.
 
-XCTest cannot perform VoiceOver's three-finger scroll or choose its Next Page and Previous Page
-actions, and its synthesized hardware keys (Control-Option-Space, Option with an arrow) did
-not reach VoiceOver on an iPad. The probe turns pages by activating the page buttons. Ensure
+XCTest cannot perform VoiceOver's three-finger scroll, and its synthesized hardware keys
+(Control-Option-Space, Option with an arrow) did not reach VoiceOver on an iPad. The probe
+turns pages by activating the page buttons or a line's Next Page action. Ensure
 the search field is not editing and the software keyboard is dismissed before evaluating
 reading order. Use physical-device sessions for acceptance.
 

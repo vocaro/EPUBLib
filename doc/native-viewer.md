@@ -577,10 +577,11 @@ Go: the native viewer is the bundled engine.
   rests on without interacting: after a page change it re-enters at its previous character
   offset, or on the last line of a shorter page, until Control-Option-Home. Sessions on a
   physical iPad the same day verified reading order, the page boundary, link and image
-  labels, the link's activation, and continuity across page turns activated by VoiceOver in
-  portrait and landscape at 17 and 23 points, through rotation and a text-size change
-  ([record](issue-28-voiceover-ipad.md)). VoiceOver's three-finger scroll and its Next Page
-  and Previous Page actions have API coverage only: XCTest cannot perform them. Physical
+  labels, the link's activation, and continuity across page turns made with the page buttons
+  and with VoiceOver's Next Page and Previous Page actions, in portrait and landscape at 17
+  and 23 points, through rotation and a text-size change
+  ([record](issue-28-voiceover-ipad.md)). VoiceOver's three-finger scroll has API coverage
+  only: XCTest cannot perform it. Physical
   iPhone speech reached numbered content on 2026-10-10; its layouts, text sizes and page
   turns remain open ([#28](https://github.com/vocaro/EPUBLib/issues/28)). Simulator and API
   checks do not substitute for those sessions.

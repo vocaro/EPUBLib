@@ -5,7 +5,7 @@ iPadOS 27.2, from macOS 27.0 `26A428` and Xcode 27.0 `27A266a`, following the
 [VoiceOver testing process](voiceover-testing.md). The reader was `8896d61` with the two
 fixes described here. They cover reading order, the page boundary, page turns activated by
 VoiceOver, both orientations, two text sizes and changes while the reader is open. The
-iPhone sessions, and the VoiceOver gestures XCTest cannot perform, remain with #28.
+iPhone sessions, and VoiceOver's three-finger scroll, remain with #28.
 
 ## Defects found and fixed
 
@@ -32,7 +32,7 @@ source order, which also keeps a right-to-left spread in reading order.
 VoiceOver was moved to the heading or the first numbered line by touch, then forward until
 it left the reader. In every case it spoke each visible numbered line once, in order, and the
 next item was the book title below the reader. XCTest's own view of the columns agreed.
-Next Page and Previous Page were activated by VoiceOver's double tap.
+Next Page and Previous Page were activated by VoiceOver's double tap on the page buttons.
 
 | Layout | First page or spread | After Next |
 | --- | --- | --- |
@@ -46,20 +46,26 @@ Previous Page returned to the first, where VoiceOver says "Previous Page dimmed"
 numbered words VoiceOver read "Page boundary verification", the two lines of the paragraph,
 "Verification link Link", ". Image:", "Blue verification square Image" and ".".
 
+VoiceOver's own page actions work too. With its cursor on a numbered line, a one-finger
+flick down offers "Next Page", then "Previous Page", from the rotor; a double tap on the line
+performs the one chosen. In portrait and in landscape Next Page showed the following page or
+spread, read in order from its first word, and Previous Page returned.
+
 Activating the link through VoiceOver showed the last page, `word1013–word1200`, where it
 read "Link target reached" and "This is the end of the numbered paragraph."; Previous Page
 then showed `word0655–word1012`.
 
 Changes while the reader was open: rotating to landscape and back kept the position, each
 orientation reading its own columns as above. Larger Text, chosen in the Appearance menu
-through VoiceOver, showed `word0001–word0227` in 30 lines at 19 points, read in order;
-Smaller Text restored the 35 lines.
+through VoiceOver, showed `word0001–word0227` in 30 lines at 19 points in portrait, and
+`word0001–word0108` beside `word0109–word0264` in landscape, each read in order; Smaller Text
+restored the 17-point pages.
 
 ## Not covered
 
-- VoiceOver's three-finger scroll and its Next Page and Previous Page actions. XCTest cannot
-  perform them, and its synthesized Control-Option-Space and Option-arrow keys did not reach
-  VoiceOver. They keep their API regression coverage.
+- VoiceOver's three-finger scroll. XCTest cannot perform it, and its synthesized
+  Control-Option-Space and Option-arrow keys did not reach VoiceOver. The scroll keeps its API
+  regression coverage.
 - A word hyphenated across lines is spoken as two fragments, "must re" and "sume at the next
   numbered word." at 19 points, since each line is its own item.
 - The iPhone was not connected.
@@ -68,7 +74,8 @@ Smaller Text restored the 35 lines.
 
 The session logs and result bundles are under `.build/voiceover/results/` of the verifying
 checkout, with named summaries in `.build/voiceover/evidence/`; they are not committed.
-Another session was using the same iPad: its app came to the foreground during one run and
-VoiceOver was switched off during another. Both runs were discarded and repeated, and the
-probe now stops when the reader leaves the foreground. VoiceOver was left off and the iPad in
+Another session was using the same iPad at first: its app came to the foreground during one
+run and VoiceOver was switched off during another. Both runs were discarded, and the probe
+now stops when the reader leaves the foreground. Every layout above was then run again with
+the iPad otherwise idle, with the same results. VoiceOver was left off and the iPad in
 portrait.
