@@ -336,8 +336,10 @@ private final class XHTMLTextReader {
             if key == "xmlns" { namespaces[""] = value }
             else if key.hasPrefix("xmlns:") { namespaces[String(key.dropFirst(6))] = value }
         }
+        // XML 1.0's Name (and libxml2's HTML parser) admit names made only of colons, which have
+        // no piece to split off. Like libxml2, read such a name whole, as an unprefixed element.
         let parts = name.split(separator: ":", maxSplits: 1)
-        let local = String(parts.last!)
+        let local = parts.last.map(String.init) ?? name
         var uri = namespaces[parts.count == 2 ? String(parts[0]) : ""] ?? ""
         if recovered, parts.count == 1, uri.isEmpty || uri == "http://www.w3.org/1999/xhtml", local == "math", stack.last?.math == nil {
             // HTML places an undeclared <math> subtree in the MathML namespace.
