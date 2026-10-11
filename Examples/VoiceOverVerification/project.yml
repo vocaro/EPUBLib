@@ -1,0 +1,95 @@
+name: VoiceOverVerification
+options:
+  deploymentTarget:
+    iOS: "27.0"
+    macOS: "27.0"
+packages:
+  EPUBLib:
+    path: ../..
+settings:
+  base:
+    SWIFT_VERSION: "6.2"
+    GENERATE_INFOPLIST_FILE: YES
+    MARKETING_VERSION: "0.2.5"
+    CURRENT_PROJECT_VERSION: 1
+    CODE_SIGN_STYLE: Automatic
+targets:
+  VoiceOverVerification:
+    type: application
+    platform: iOS
+    sources:
+      - ../ReaderSample/Shared
+      - VerificationApp.swift
+      - Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.epubreaderlib.voiceoververify
+        INFOPLIST_KEY_CFBundleDisplayName: VoiceOver Verification
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+    dependencies:
+      - package: EPUBLib
+        product: EPUBCore
+      - package: EPUBLib
+        product: EPUBText
+      - package: EPUBLib
+        product: EPUBReading
+      - package: EPUBLib
+        product: EPUBViewing
+
+  VoiceOverVerificationMac:
+    type: application
+    platform: macOS
+    sources:
+      - ../ReaderSample/Shared
+      - VerificationApp.swift
+      - Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.epubreaderlib.voiceoververify.mac
+        INFOPLIST_KEY_CFBundleDisplayName: VoiceOver Verification
+        ENABLE_APP_SANDBOX: YES
+        ENABLE_USER_SELECTED_FILES: readonly
+    dependencies:
+      - package: EPUBLib
+        product: EPUBCore
+      - package: EPUBLib
+        product: EPUBText
+      - package: EPUBLib
+        product: EPUBReading
+      - package: EPUBLib
+        product: EPUBViewing
+  VoiceOverProbeMac:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [UITests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.epubreaderlib.voiceoverprobe.mac
+    dependencies:
+      - target: VoiceOverVerificationMac
+  VoiceOverProbeIOS:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.epubreaderlib.voiceoverprobe
+    dependencies:
+      - target: VoiceOverVerification
+schemes:
+  VoiceOverProbeMac:
+    build:
+      targets:
+        VoiceOverVerificationMac: all
+        VoiceOverProbeMac: [test]
+    test:
+      targets: [VoiceOverProbeMac]
+  VoiceOverProbeIOS:
+    build:
+      targets:
+        VoiceOverVerification: all
+        VoiceOverProbeIOS: [test]
+    test:
+      targets: [VoiceOverProbeIOS]

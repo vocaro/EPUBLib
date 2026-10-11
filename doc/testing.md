@@ -57,6 +57,10 @@ typographic review, an accessibility audit or a memory budget measurement.
 The suite runs on OS 27; older platforms are outside the package's deployment targets. Simulator
 coverage does not substitute for hardware performance and accessibility testing.
 
+For real VoiceOver sessions, use the [VoiceOver testing process](voiceover-testing.md) and
+the isolated `Examples/VoiceOverVerification` reader. Its diagnostic speech probe is outside
+the local gate because it takes control of the user interface and changes VoiceOver state.
+
 ## Adapter contract tests
 
 The internal **EPUBViewingTestSupport** target exercises adapter contracts with

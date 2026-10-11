@@ -379,6 +379,7 @@ Go: the native viewer is the bundled engine.
   markup. HTML tree repairs outside that subset cannot issue or resolve saved CFIs; migration
   by href or an explicitly requested text search remains a host decision.
 - Paginated accessibility bounds and actions have native API regression coverage. Live
+  verification uses the [VoiceOver testing process](voiceover-testing.md) and isolated reader.
   VoiceOver checks on 2026-10-10 captured Mac headings, link/image labels, right-column
   entry at its first visible word, and end-of-text at column boundaries. Native accessible
   Next/Previous controls also preserved numbered-word continuity in a single-column,
@@ -387,7 +388,7 @@ Go: the native viewer is the bundled engine.
   page values; live AX observation confirmed missing value-change notifications, now
   posted after paginated content installation, but the notification fix has not received
   a live retest. Physical iPhone speech reached numbered content; iPad initial
-  focus and keyboard presentation prevented a clean reading-order check. The complete device/layout/typography verification matrix
-  remains open; simulator/API checks do not substitute for those sessions.
+  focus and keyboard presentation prevented a clean reading-order check. The complete
+  device/layout/typography verification matrix remains open; simulator/API checks do not substitute for those sessions.
 - Flexbox and grid lay out as blocks: content a book centres vertically with `min-height` and
   flex alignment (Standard Ebooks epigraphs) starts at the top of the page.
