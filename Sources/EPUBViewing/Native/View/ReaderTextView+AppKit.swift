@@ -321,7 +321,12 @@ final class ReaderTextView: NSTextView {
 
     override func accessibilityLine(for index: Int) -> Int {
         guard isPageColumn else { return super.accessibilityLine(for: index) }
-        return pageAccessibilityLines.firstIndex { NSLocationInRange(index, $0.range) } ?? NSNotFound
+        // The insertion point after the page's last character is on its last line, and so is
+        // an offset VoiceOver kept from a longer previous page. Without a line there, it
+        // announces 9,223,372,036,854,775,808 visible lines or reads nothing on entering.
+        let lines = pageAccessibilityLines
+        guard index >= 0, !lines.isEmpty else { return NSNotFound }
+        return lines.firstIndex { NSLocationInRange(index, $0.range) } ?? lines.count - 1
     }
 
     override func accessibilitySelectedTextRange() -> NSRange {
@@ -337,8 +342,14 @@ final class ReaderTextView: NSTextView {
     }
 
     override func setAccessibilitySelectedTextRange(_ range: NSRange) {
-        guard !isPageColumn || validPageAccessibilityRange(range) else { return }
-        super.setAccessibilitySelectedTextRange(range)
+        guard isPageColumn else { return super.setAccessibilitySelectedTextRange(range) }
+        // VoiceOver restores its own text cursor on entering a column, even from a longer
+        // previous page: keep that caret on this page. A selection of hidden text is refused.
+        if range.length == 0, range.location != NSNotFound {
+            super.setAccessibilitySelectedTextRange(boundedPageAccessibilityRange(range))
+        } else if validPageAccessibilityRange(range) {
+            super.setAccessibilitySelectedTextRange(range)
+        }
     }
 
     override func setAccessibilitySelectedTextRanges(_ ranges: [NSValue]?) {

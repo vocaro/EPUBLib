@@ -237,6 +237,10 @@ as they did.
   only its page's text. Native selections are coordinated across the spread's columns using
   one complete source range; Copy and host actions consume that whole range. On Mac, indexed
   accessibility text, line, style, frame and selection queries are bounded to the visible page.
+  Installing a spread posts a value change for each column and a layout change naming the
+  visible columns, without which VoiceOver can keep reading a column's previous page. The
+  insertion point after a page's last character, and an offset an assistive client kept from
+  a longer page, are on its last line.
   UIKit exposes visible line/run accessibility children with links, attachment labels and
   page actions, keeping hidden paragraph context out of its native text accessibility traversal.
   A paragraph that continues onto the next page is laid out a few lines further (or to
@@ -553,16 +557,17 @@ Go: the native viewer is the bundled engine.
   by href or an explicitly requested text search remains a host decision.
 - Paginated accessibility bounds and actions have native API regression coverage. Live
   verification uses the [VoiceOver testing process](voiceover-testing.md) and isolated reader.
-  VoiceOver checks on 2026-10-10 captured Mac headings, link/image labels, right-column
-  entry at its first visible word, and end-of-text at column boundaries. Native accessible
-  Next/Previous controls also preserved numbered-word continuity in a single-column,
-  larger-font layout. That layout's first-word speech capture remains inconclusive: it
-  captured the second visible word after entering the column. XCTest also returned stale
-  page values; live AX observation confirmed missing value-change notifications, now
-  posted after paginated content installation, but the notification fix has not received
-  a live retest. Physical iPhone speech reached numbered content; iPad initial
-  focus and keyboard presentation prevented a clean reading-order check. The complete
-  device/layout/typography verification matrix remains open; simulator/API checks do not substitute for those sessions.
+  Mac VoiceOver sessions on 2026-10-11 verified first and last lines, word order, end of
+  text at the page boundary, line counts, the heading, link and image labels, and numbered-word
+  continuity across page turns in one and two columns at 17 and 23 points, through text-size
+  and window-size changes, with a value-change notification for each
+  ([record](issue-55-voiceover-mac.md)). VoiceOver keeps its own text cursor for a column it
+  rests on without interacting: after a page change it re-enters at its previous character
+  offset, or on the last line of a shorter page, until Control-Option-Home. Physical iPhone
+  speech reached numbered content; iPad initial focus and keyboard presentation prevented a
+  clean reading-order check. The iPhone and iPad sessions of the verification matrix remain
+  open ([#28](https://github.com/vocaro/EPUBLib/issues/28)); simulator/API checks do not
+  substitute for those sessions.
 - Flex and grid alignment covers the single-column subset described above. Side-by-side row
   items, wrapping and reversed flex, multi-column and explicitly placed grids, `order` and
   inline flex or grid containers render as blocks in reading order with a disclosure. Within
