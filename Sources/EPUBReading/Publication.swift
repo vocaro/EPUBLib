@@ -69,7 +69,7 @@ public struct EPUBPublication: Sendable {
         var total = 0
         for entry in archive {
             try Task.checkCancellation()
-            let path = entry.path
+            let path = EntryName.path(of: entry)
             guard ResourceReference.isSafePath(path, directory: entry.type == .directory), entry.type != .symlink else {
                 throw EPUBPublicationError.unsafePath(path)
             }
