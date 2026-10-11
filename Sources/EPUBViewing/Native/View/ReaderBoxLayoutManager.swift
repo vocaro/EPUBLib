@@ -12,6 +12,21 @@ final class ReaderBoxLayoutFragment: NSTextLayoutFragment {
     var bottomAdjustment: CGFloat = 0
     override var topMargin: CGFloat { super.topMargin + topAdjustment }
     override var bottomMargin: CGFloat { super.bottomMargin + bottomAdjustment }
+
+    /// TextKit starts the next fragment where this frame ends, and cannot lay out a fragment
+    /// that starts above the top of a container with boxes in it: every line after its first
+    /// goes to the container's top, one over another. A box ends where it starts because its
+    /// bottom margin takes back its lines' height, but TextKit reads the margins before it
+    /// lays the lines out and adds them to the height in the container's coordinates, so the
+    /// sum comes to nothing only within rounding: a box that opens a page or a section could
+    /// end a few 1e-14 above the top. And a page's first box that stands below the point the
+    /// page's text flows from ends above the top by that distance, which its top margin gave
+    /// up. Nothing can follow from up there, so the frame ends at the top.
+    override var layoutFragmentFrame: CGRect {
+        var frame = super.layoutFragmentFrame
+        if frame.origin.y + frame.size.height < 0 { frame.size.height = -frame.origin.y }
+        return frame
+    }
 }
 
 final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDelegate {
@@ -58,8 +73,26 @@ final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDele
             // and even a rounding residual below zero moves every line of the page up with it.
             let shift = paragraph.flowStart - page.origin
             fragment.topAdjustment = max(0, fragment.topAdjustment + shift)
+        } else if paragraph.flowStart < page.origin, onlyBoxesPrecede(paragraph, on: page),
+                  (page.geometry.paragraph(at: page.offset)?.topAdjustment ?? 0) > 0 {
+            // Boxes advance nothing, so the ones that open a page, and the paragraph after
+            // them, all start about where the first does. Where the first was pushed down from
+            // there and everything on the page stands lower, that point is above the page's
+            // top: each of them is held at the top as the first is, and has its lines that
+            // much nearer to it.
+            fragment.topAdjustment = max(0, fragment.topAdjustment + (paragraph.flowStart - page.origin))
         }
         return fragment
+    }
+
+    /// Whether nothing but boxes comes before `paragraph` on `page`.
+    private func onlyBoxesPrecede(_ paragraph: ReaderBoxGeometry.Paragraph, on page: ReaderBoxPage) -> Bool {
+        var start = paragraph.range.location
+        while start > page.offset {
+            guard let before = page.geometry.paragraph(at: start - 1), before.isBox, before.range.location < start else { return false }
+            start = before.range.location
+        }
+        return true
     }
 
     override func textLayoutFragment(for position: CGPoint) -> NSTextLayoutFragment? {
