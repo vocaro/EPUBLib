@@ -24,18 +24,20 @@ enum SVGContent {
     /// descendants). Text layout is super-linear in the length of one run, so the document
     /// byte limit alone lets a single run cost minutes; a real label is far shorter.
     static let maximumTextRunCharacters = 20_000
-    /// Marker instances the renderer may build: summed over marker-bearing shapes, each shape's
-    /// vertex count times the graphic nodes in the markers it references. Markers are cloned per
-    /// vertex inside the renderer and are counted by neither the node nor the expansion limit.
+    /// Marker instances the renderer may build: summed over the vertices of every marker-bearing
+    /// shape (each `<use>` and `<marker>` clone included), times the graphic nodes the markers
+    /// draw. Markers are cloned per vertex inside the renderer and are counted by neither the
+    /// node nor the expansion limit.
     static let maximumMarkerInstances = 100_000
 
     /// Shapes whose vertices can carry a marker, and whose geometry the renderer builds.
     private static let markerableShapes: Set<String> = ["path", "line", "polyline", "polygon", "rect", "circle", "ellipse"]
     /// Local names of the marker properties (`marker` is the shorthand for all three).
     private static let markerProperties: Set<String> = ["marker", "marker-start", "marker-mid", "marker-end"]
-    /// Graphic nodes a marker clones at each vertex.
-    private static let markerContent: Set<String> = ["path", "line", "polyline", "polygon", "rect", "circle", "ellipse",
-                                                      "text", "image", "use"]
+    /// Graphic nodes that are one draw operation each when a marker instantiates them (`use` is
+    /// followed to its target instead of counted here).
+    private static let drawableShapes: Set<String> = ["path", "line", "polyline", "polygon", "rect", "circle", "ellipse",
+                                                       "text", "image"]
 
     private static let graphics: Set<String> = ["rect", "circle", "ellipse", "line", "polyline", "polygon", "path",
                                                 "text", "use", "image", "foreignObject", "switch"]
@@ -141,7 +143,7 @@ enum SVGContent {
         collect(svg, depth: 0)
         let refused: Set<String> = omittingFilters ? ["svg:pattern"] : ["svg:filter", "svg:pattern"]
         guard valid, unsupportedConstructs(svg).isDisjoint(with: refused) else { return false }
-        guard textRunsAreBounded(nodes), markerInstancesAreBounded(nodes, ids: ids) else { return false }
+        guard textRunsAreBounded(nodes) else { return false }
         var costs: [ObjectIdentifier: Int] = [:]
         var active = Set<ObjectIdentifier>()
         func cost(_ node: ContentNode, depth: Int) -> Int? {
@@ -163,7 +165,10 @@ enum SVGContent {
             costs[key] = total
             return total
         }
-        return cost(svg, depth: 0) != nil
+        // Marker accounting runs after the byte cost passes, so `<use>` expansion is already
+        // bounded (every instantiated node cost at least a few bytes), which bounds this walk.
+        guard cost(svg, depth: 0) != nil, markerInstancesAreBounded(svg, ids: ids) else { return false }
+        return true
     }
 
     /// Whether every `<text>` element's run is within the per-run character bound. A run is the
@@ -186,78 +191,179 @@ enum SVGContent {
     }
 
     /// Whether the markers the drawing instantiates stay within the instance bound. The renderer
-    /// clones a marker's content at every vertex of each shape that references it, which neither
-    /// the node nor the expansion limit counts, so a small shape and marker can amplify into
-    /// hundreds of megabytes. Resolution is an upper bound: a shape is charged the vertices it
-    /// has times the graphic nodes in the markers reachable from it, its ancestors (markers are
-    /// inherited) or, when a stylesheet declares one, any marker in the document.
-    private static func markerInstancesAreBounded(_ nodes: [ContentNode], ids: [String: ContentNode]) -> Bool {
-        let markers = nodes.filter { $0.name == "marker" }
-        guard !markers.isEmpty else { return true }
-        var graphicCount: [ObjectIdentifier: Int] = [:]
-        func count(_ marker: ContentNode) -> Int {
-            let key = ObjectIdentifier(marker)
-            if let cached = graphicCount[key] { return cached }
-            var total = 0
-            func visit(_ node: ContentNode) {
-                for child in node.elementChildren {
-                    if markerContent.contains(child.name) { total += 1 }
-                    visit(child)
-                }
+    /// clones a marker's content at every vertex of each shape that references it; the clone is
+    /// counted by neither the node nor the expansion limit, so a small shape and marker, a shape
+    /// multiplied by `<use>`, nested markers, or a stylesheet rule can amplify into hundreds of
+    /// megabytes. This walks the rendered tree once, following `<use>` so a marker-bearing shape
+    /// reached through N uses is charged N times, and multiplies nested markers. It is an upper
+    /// bound: a shape is charged its vertex count times the drawing load of every marker reached
+    /// from it or its ancestors (markers are inherited), start and end markers once each; a
+    /// stylesheet marker rule, whose selector this does not evaluate, charges every shape the
+    /// largest referenced marker. Cost (the byte limit) has already bounded `<use>` expansion,
+    /// so this walk terminates; it also saturates at the bound and stops early.
+    private static func markerInstancesAreBounded(_ svg: ContentNode, ids: [String: ContentNode]) -> Bool {
+        var markersByID: [String: [ContentNode]] = [:]
+        func collectMarkers(_ node: ContentNode) {
+            if node.name == "marker", let id = node.id { markersByID[id, default: []].append(node) }
+            for child in node.elementChildren { collectMarkers(child) }
+        }
+        collectMarkers(svg)
+        guard !markersByID.isEmpty else { return true }
+
+        let ceiling = maximumMarkerInstances + 1
+        func clamp(_ value: Int) -> Int { value > ceiling ? ceiling : value }
+        var ambientMid = 0
+        var loadCache: [ObjectIdentifier: Int] = [:]
+        var active = Set<ObjectIdentifier>()
+        var uncacheable = 0
+
+        func loadForID(_ id: String, _ depth: Int) -> Int {
+            (markersByID[id] ?? []).reduce(0) { max($0, markerLoad($1, depth)) }
+        }
+
+        // Marker url ids a node declares, split into mid-like (mid + the `marker` shorthand) and
+        // endpoint (start, end), from its attributes (any namespace) and its `style`.
+        func ownReferences(_ node: ContentNode) -> (mid: [String], end: [String]) {
+            var mid: [String] = [], end: [String] = []
+            for attribute in node.attributes where markerProperties.contains(attribute.name) {
+                guard let id = urlFragment(attribute.value) else { continue }
+                if attribute.name == "marker-start" || attribute.name == "marker-end" { end.append(id) } else { mid.append(id) }
             }
-            visit(marker)
-            graphicCount[key] = total
+            if let style = node.attribute("style") {
+                let references = markerCSSReferences(style)
+                mid += references.mid; end += references.end
+            }
+            return (mid, end)
+        }
+
+        // Draw operations a subtree produces when instantiated once, under the marker loads
+        // inherited from its ancestors. `countDrawables` is true inside a marker, where each
+        // drawable is one instance per vertex of the referencing shape; false in the page tree,
+        // where a drawable is simply drawn and only its markers amplify.
+        func load(_ node: ContentNode, inMid: Int, inEnd: Int, countDrawables: Bool, depth: Int) -> Int {
+            guard depth <= maximumDepth else { uncacheable += 1; return ceiling }
+            let own = ownReferences(node)
+            let mid = clamp(inMid + own.mid.reduce(0) { $0 + loadForID($1, depth) })
+            let end = clamp(inEnd + own.end.reduce(0) { $0 + loadForID($1, depth) })
+            var total = countDrawables && drawableShapes.contains(node.name) ? 1 : 0
+            if markerableShapes.contains(node.name), mid + end > 0 {
+                total = clamp(total + clamp(vertexCount(node) * mid) + end)
+            }
+            if total >= ceiling { return ceiling }
+            if node.name == "use", let href = href(node), href.hasPrefix("#"), let target = ids[String(href.dropFirst())],
+               active.insert(ObjectIdentifier(target)).inserted {
+                total = clamp(total + load(target, inMid: mid, inEnd: end, countDrawables: countDrawables, depth: depth + 1))
+                active.remove(ObjectIdentifier(target))
+            }
+            for child in node.children where !unrendered.contains(child.name) {
+                total = clamp(total + load(child, inMid: mid, inEnd: end, countDrawables: countDrawables, depth: depth + 1))
+                if total >= ceiling { break }
+            }
             return total
         }
-        // A stylesheet can attach a marker to shapes this scan does not follow, so when one
-        // names a marker property every shape is charged the largest marker in the document.
-        let stylesheetMarkers = nodes.contains { node in
-            node.name == "style" && markerProperties.contains { node.textContent.lowercased().contains($0 + ":") || node.textContent.lowercased().contains($0 + " :") }
-        }
-        let maximumMarker = stylesheetMarkers ? markers.map(count).max() ?? 0 : 0
-        func markerShapes(for shape: ContentNode) -> Int {
-            var shapes = maximumMarker
-            var node: ContentNode? = shape
-            var seen = Set<String>()
-            while let current = node {
-                for property in markerProperties {
-                    for reference in markerReferences(current, property: property) where seen.insert(reference).inserted {
-                        if let target = ids[reference], target.name == "marker" { shapes += count(target) }
-                    }
-                }
-                node = current.parent
+
+        // Draw operations one instantiation of a marker produces, including nested markers.
+        func markerLoad(_ marker: ContentNode, _ depth: Int) -> Int {
+            let key = ObjectIdentifier(marker)
+            if let cached = loadCache[key] { return cached }
+            if active.contains(key) { uncacheable += 1; return 0 } // recursive marker: the renderer skips it
+            guard depth <= maximumDepth else { uncacheable += 1; return ceiling }
+            active.insert(key)
+            let before = uncacheable
+            var total = 0
+            for child in marker.children where !unrendered.contains(child.name) {
+                total = clamp(total + load(child, inMid: ambientMid, inEnd: 0, countDrawables: true, depth: depth + 1))
+                if total >= ceiling { break }
             }
-            return shapes
+            active.remove(key)
+            if uncacheable == before { loadCache[key] = total } // a value reached through a cycle is context-dependent
+            return total
         }
-        var instances = 0
-        for shape in nodes where markerableShapes.contains(shape.name) {
-            let shapes = markerShapes(for: shape)
-            guard shapes > 0 else { continue }
-            instances += vertexCount(shape) * shapes
-            guard instances <= maximumMarkerInstances else { return false }
+
+        // A stylesheet marker rule can attach a marker to shapes this walk does not match by
+        // selector, so when one is present every shape is charged the largest marker it could
+        // name (the referenced markers, or any marker in the document when the url is opaque).
+        var stylesheetIDs: [String] = []
+        var stylesheetNeedsLargest = false
+        func collectStylesheets(_ node: ContentNode) {
+            if node.name == "style" {
+                let references = markerCSSReferences(node.textContent)
+                if references.present {
+                    stylesheetIDs += references.mid + references.end
+                    if references.mid.isEmpty && references.end.isEmpty { stylesheetNeedsLargest = true }
+                }
+            }
+            for child in node.elementChildren { collectStylesheets(child) }
         }
-        return true
+        collectStylesheets(svg)
+        if !stylesheetIDs.isEmpty || stylesheetNeedsLargest {
+            // Base loads (no stylesheet charge yet) size the charge; `ambientMid` stays 0 here.
+            var charge = 0
+            for id in stylesheetIDs { charge = max(charge, loadForID(id, 0)) }
+            if stylesheetNeedsLargest {
+                for markers in markersByID.values { for marker in markers { charge = max(charge, markerLoad(marker, 0)) } }
+            }
+            ambientMid = charge
+            loadCache.removeAll() // recompute marker loads with the ambient stylesheet charge applied
+            uncacheable = 0
+        }
+        return load(svg, inMid: ambientMid, inEnd: 0, countDrawables: false, depth: 0) <= maximumMarkerInstances
     }
 
-    /// The fragment ids a node's marker `property` points at, from the attribute (any namespace)
-    /// or its `style`. A `none` or missing value contributes nothing.
-    private static func markerReferences(_ node: ContentNode, property: String) -> [String] {
-        var values: [String] = []
-        for attribute in node.attributes where attribute.name == property { values.append(attribute.value) }
-        if let style = node.attribute("style") {
-            var search = style[...]
-            while let range = style.range(of: property + ":", options: .caseInsensitive, range: search.startIndex..<style.endIndex)
-                ?? style.range(of: property + " :", options: .caseInsensitive, range: search.startIndex..<style.endIndex) {
-                values.append(String(style[range.upperBound...].prefix { $0 != ";" }))
-                search = style[range.upperBound...]
+    /// The marker url ids a block of CSS declarations attaches, split into mid-like (mid and the
+    /// `marker` shorthand) and endpoint (start, end), and whether any marker property is present
+    /// at all. Robust to the whitespace and comments the renderer accepts between the property
+    /// name and its colon; case-insensitive and ignoring escapes, both of which the renderer
+    /// does not honour, so this stays a superset of what it draws. Selectors are not evaluated.
+    private static func markerCSSReferences(_ css: String) -> (mid: [String], end: [String], present: Bool) {
+        let characters = Array(stripCSSComments(css))
+        func isIdentifier(_ character: Character) -> Bool { character.isLetter || character.isNumber || character == "-" || character == "_" }
+        var mid: [String] = [], end: [String] = [], present = false
+        var index = 0
+        while index < characters.count {
+            guard isIdentifier(characters[index]), index == 0 || !isIdentifier(characters[index - 1]) else { index += 1; continue }
+            var nameEnd = index
+            while nameEnd < characters.count, isIdentifier(characters[nameEnd]) { nameEnd += 1 }
+            let name = String(characters[index..<nameEnd]).lowercased()
+            var cursor = nameEnd
+            while cursor < characters.count, characters[cursor].isWhitespace { cursor += 1 }
+            guard cursor < characters.count, characters[cursor] == ":", markerProperties.contains(name) else { index = nameEnd; continue }
+            present = true
+            var valueEnd = cursor + 1
+            while valueEnd < characters.count, characters[valueEnd] != ";", characters[valueEnd] != "}", characters[valueEnd] != "{" { valueEnd += 1 }
+            if let id = urlFragment(String(characters[(cursor + 1)..<valueEnd])) {
+                if name == "marker-start" || name == "marker-end" { end.append(id) } else { mid.append(id) }
+            }
+            index = valueEnd
+        }
+        return (mid, end, present)
+    }
+
+    /// CSS with every `/* … */` comment replaced by a space, so a comment cannot hide a boundary.
+    private static func stripCSSComments(_ css: String) -> String {
+        guard css.contains("/*") else { return css }
+        var output = ""
+        var characters = Substring(css)
+        while let open = characters.range(of: "/*") {
+            output += characters[..<open.lowerBound]
+            output += " "
+            if let close = characters.range(of: "*/", range: open.upperBound..<characters.endIndex) {
+                characters = characters[close.upperBound...]
+            } else {
+                return output
             }
         }
-        return values.compactMap { value in
-            guard let start = value.range(of: "url(", options: .caseInsensitive) else { return nil }
-            let inside = value[start.upperBound...].drop { $0 == " " || $0 == "\"" || $0 == "'" }
-            guard inside.hasPrefix("#") else { return nil }
-            return String(inside.dropFirst().prefix { $0 != ")" && $0 != " " && $0 != "\"" && $0 != "'" })
-        }
+        return output + characters
+    }
+
+    /// The fragment id of the first `url(#…)` in a CSS value; nil for `none`, an external url or
+    /// anything else. Case-insensitive on `url(`; the id itself is kept verbatim.
+    private static func urlFragment(_ value: String) -> String? {
+        guard let start = value.range(of: "url(", options: .caseInsensitive) else { return nil }
+        let inside = value[start.upperBound...].drop { $0 == " " || $0 == "\t" || $0 == "\n" || $0 == "\"" || $0 == "'" }
+        guard inside.hasPrefix("#") else { return nil }
+        let id = inside.dropFirst().prefix { $0 != ")" && $0 != " " && $0 != "\t" && $0 != "\n" && $0 != "\"" && $0 != "'" }
+        return id.isEmpty ? nil : String(id)
     }
 
     /// An upper bound on a shape's marker vertices: numeric tokens in a `path` `d` or a

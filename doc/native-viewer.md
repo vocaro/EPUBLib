@@ -550,8 +550,9 @@ Go: the native viewer is the bundled engine.
   include 4 MiB of SVG, 10,000 nodes, depth 64 and 8 MiB of expanded local references.
   Two amplifications the byte and node limits do not catch are bounded too: one `<text>`
   run, whose layout is super-linear in its length, is held to 20,000 characters, and the
-  marker instances the renderer clones per path vertex (a shape's vertices times the graphic
-  nodes of the markers it references) to 100,000. An SVG past either shows its fallback text
+  marker instances the renderer clones per path vertex — a shape's vertices times the graphic
+  nodes the markers draw, counting each `<use>` and nested-marker clone and markers set by a
+  `style` attribute or stylesheet — to 100,000. An SVG past either shows its fallback text
   with the `svg` disclosure, as one past the node, depth or byte limits does.
   Embedded raster images are capped at 4 megapixels each and 16 megapixels in total.
   Output is capped at 4,096 pixels on its long side and 16 megapixels, reduced further for
