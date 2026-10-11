@@ -72,7 +72,7 @@ final class BookReader {
                 case .disclosure(let value): disclosure = value
                 case .notice(let value): notice = value
                 case .failed(let value): error = String(describing: value); ready = false
-                case .selectionChanged, .searchChanged: break
+                case .selectionChanged, .searchChanged, .searchResultsChanged: break
                 }
             })
         if let session { controls = EPUBReaderControls(publication: book, session: session) }

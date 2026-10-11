@@ -77,6 +77,11 @@ public enum EPUBReaderCapability: String, Hashable, Sendable {
     case pagination, scrolling, typography, selection, bookmarks, locateText, navigateHref, searchHighlight, highlights
     /// Whole-book highlighting with navigation to the first rendered match.
     case search
+    /// A navigable result list for the completed search: `EPUBSearchResults` with a count and
+    /// current match, `.searchResultsChanged`, and the `.nextSearchResult`,
+    /// `.previousSearchResult` and `.showSearchResult` commands. Requires `.search` or
+    /// `.searchHighlight`. Engines that only highlight omit it and refuse those commands.
+    case searchResults
 }
 
 /// A host-owned highlight drawn while reading. `location.bookmark` names a passage in one
@@ -98,6 +103,16 @@ public enum EPUBReaderCommand: Equatable, Sendable {
     /// Highlights matches without changing the reading position.
     case searchHighlight(text: String)
     case clearSearch
+    /// Shows the result after the current match and makes it current. After the last result
+    /// it returns to the first; with no current match it shows the first. Nothing happens
+    /// while there are no results. A logical step in result order, never a page turn.
+    case nextSearchResult
+    /// Shows the result before the current match and makes it current. Before the first result
+    /// it returns to the last; with no current match it shows the last.
+    case previousSearchResult
+    /// Shows one of the current `EPUBSearchResults.results` and makes it the current match.
+    /// A result of a search that has since been replaced or cleared is refused.
+    case showSearchResult(EPUBSearchResult)
     case style(EPUBReaderStyle)
     /// Replaces every drawn highlight. An empty array removes them.
     case setHighlights([EPUBHighlight])
@@ -124,8 +139,9 @@ public extension EPUBReaderError {
     }
 }
 
-/// Highlight search feedback, independent of relocation. Completion means the whole book
-/// has been searched. Navigation depends on the command; no result browser is exposed.
+/// Search feedback, independent of relocation. Completion means the whole book has been
+/// searched. Navigation depends on the command. An engine with `.searchResults` publishes
+/// the matches themselves as `EPUBSearchResults`, which exist only while this is `.completed`.
 public enum EPUBSearchState: Equatable, Sendable {
     case idle
     case searching(query: String)
@@ -139,6 +155,10 @@ public enum EPUBReaderEvent: Equatable, Sendable {
     case relocated(EPUBLocation)
     case selectionChanged(EPUBSelection?)
     case searchChanged(EPUBSearchState)
+    /// The result list or its current match changed. Results arrive before the search's
+    /// `.searchChanged(.completed)`; nil withdraws them when the search is cleared, replaced,
+    /// failed or cancelled. Only engines with `.searchResults` emit it.
+    case searchResultsChanged(EPUBSearchResults?)
     /// Display these to disclose content the engine withheld or could not render faithfully.
     case disclosure(String)
     case notice(String)

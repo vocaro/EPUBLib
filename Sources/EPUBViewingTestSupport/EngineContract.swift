@@ -52,6 +52,79 @@ import Foundation
                 if case .relocated(let location) = $0 { return location }; return nil
             }
         }
+        /// An engine advertising `.searchResults` lists `text`'s occurrences before it reports the
+        /// search complete, steps and selects as `EPUBSearchResults.steppedIndex` says, mirrors the
+        /// results in `readerState` when it has one, and withdraws them when the search is cleared,
+        /// after which a kept result is refused and no step moves the reader.
+        func verifySearchResults(unlisted: EPUBSearchResult) async throws {
+            func published(since index: Int) -> [EPUBSearchResults?] {
+                events.dropFirst(index).compactMap { if case .searchResultsChanged(let results) = $0 { return .some(results) }; return nil }
+            }
+            func isCompletion(_ event: EPUBReaderEvent) -> Bool {
+                if case .searchChanged(.completed) = event { return true }; return false
+            }
+            func refused(_ command: EPUBReaderCommand, _ message: String) async throws {
+                do { try await session.send(command) }
+                catch EPUBReaderError.invalidCommand { return }
+                throw Failure(description: message)
+            }
+            let navigates = session.capabilities.contains(.search)
+            try require(navigates || session.capabilities.contains(.searchHighlight), "Search results need a search command")
+            try await refused(.showSearchResult(unlisted), "Accepted a search result with no search")
+
+            let start = events.count
+            try await session.send(navigates ? .search(text: text) : .searchHighlight(text: text))
+            try await wait("search completion") { events.dropFirst(start).contains(where: isCompletion) }
+            let completion = events.dropFirst(start).firstIndex(where: isCompletion)!
+            guard let listed = published(since: start).compactMap({ $0 }).last else {
+                throw Failure(description: "Search completed without publishing results")
+            }
+            let firstPublished = events.dropFirst(start).firstIndex {
+                if case .searchResultsChanged(.some) = $0 { return true }; return false
+            }
+            try require(firstPublished.map { $0 < completion } ?? false, "Results must be published before search completion")
+            try require(!listed.isEmpty, "The supplied text must have at least one search result")
+            try require(listed.query == text, "Results name another query")
+            try require(listed.results.map(\.index) == Array(listed.results.indices), "Result indices must match their order")
+            try require(listed.results.allSatisfy { $0.location.publicationID == publication.id }, "Result belongs to another publication")
+            try require(listed.currentIndex.map(listed.results.indices.contains) ?? true, "Current match is not a listed result")
+            func current() -> Int? { published(since: start).last.flatMap { $0 }?.currentIndex }
+
+            var expected = listed.steppedIndex(forward: true)
+            try await session.send(.nextSearchResult)
+            try await wait("next search result") { current() == expected }
+            try await session.send(.showSearchResult(listed.results[0]))
+            try await wait("selected search result") { current() == 0 }
+            var selected = listed
+            selected.currentIndex = 0
+            expected = selected.steppedIndex(forward: false)
+            try await session.send(.previousSearchResult)
+            try await wait("previous search result") { current() == expected }
+            var stale = listed.results[0]
+            stale.index = listed.count
+            try await refused(.showSearchResult(stale), "Accepted a search result that is not listed")
+            if let state = session.readerState {
+                try require(state.status.searchResults == published(since: start).last.flatMap { $0 },
+                            "Reader state does not mirror the published search results")
+            }
+
+            guard session.capabilities.contains(.searchHighlight) else { return }
+            // Let the last step's relocation arrive before judging what a stale command does.
+            try await Task.sleep(for: .milliseconds(150))
+            let cleared = events.count
+            try await session.send(.clearSearch)
+            try await wait("withdrawn search results") { published(since: cleared).last == .some(nil) }
+            if let state = session.readerState {
+                try require(state.status.searchResults == nil, "Reader state kept cleared search results")
+            }
+            try await Task.sleep(for: .milliseconds(150))
+            let quiet = events.count
+            try await session.send(.nextSearchResult)
+            try await session.send(.previousSearchResult)
+            try await refused(.showSearchResult(listed.results[0]), "Accepted a result of a cleared search")
+            try await Task.sleep(for: .milliseconds(150))
+            try require(events.count == quiet, "A step or result of a cleared search still had an effect")
+        }
         let cancelled = Task { try await session.send(.nextPage) }
         cancelled.cancel()
         do { try await cancelled.value; throw Failure(description: "Pre-cancelled command was accepted") }
@@ -99,11 +172,21 @@ import Foundation
             (.locateText, .locate(text: text, highlight: false)),
             (.search, .search(text: text)),
             (.searchHighlight, .searchHighlight(text: text)), (.searchHighlight, .clearSearch),
+            // With the search cleared there is nothing to step through: accepted, without effect.
+            (.searchResults, .nextSearchResult), (.searchResults, .previousSearchResult),
             (.highlights, .setHighlights([])),
         ]
         for (capability, command) in commands {
             if session.capabilities.contains(capability) { try await session.send(command) }
             else { try await expect(command, error: .unsupported(capability)) }
+        }
+        let unlisted = EPUBSearchResult(index: 0, location: .init(publicationID: publication.id), spineIndex: 0, matchedText: text)
+        if session.capabilities.contains(.searchResults) {
+            try await verifySearchResults(unlisted: unlisted)
+        } else {
+            try await expect(.showSearchResult(unlisted), error: .unsupported(.searchResults))
+            try require(!events.contains { if case .searchResultsChanged = $0 { return true }; return false },
+                        "Search results published without the capability")
         }
         if session.capabilities.contains(.typography) {
             try await session.send(.style(.init(fontSize: 21)))

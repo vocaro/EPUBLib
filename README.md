@@ -87,7 +87,8 @@ Use `epubReaderPageControls(_:)` for live gesture toggles, custom tap zones and 
 bindings, or `.hostOnly` to turn pages through your own controls
 ([example](doc/integration.md#configuring-page-controls)).
 
-Optional [reader controls](doc/reader-controls.md) add previous/next, submit-only search, nested
+Optional [reader controls](doc/reader-controls.md) add previous/next, submit-only search with a match
+count, match stepping and a result browser, nested
 contents, appearance and reading mode controls to a window/navigation toolbar or an embedded strip. Retain
 `EPUBReaderControls(publication:session:)` alongside your existing session; no new session is created.
 

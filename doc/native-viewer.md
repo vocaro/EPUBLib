@@ -180,7 +180,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
 - **Highlights.** New public `EPUBReaderCommand.setHighlights([EPUBHighlight])` and capability
   `.highlights` draw host highlights from their range CFIs, including every `rangeBookmarks`
   segment of a multi-document annotation (StudyWright #85). Search and
-  highlights are TextKit 2 rendering attributes; they never change the text.
+  highlights are TextKit 2 rendering attributes; they never change the text. The current
+  search result is drawn again over its match in a darker, differently hued highlight.
 - **Pages.** Locations report `EPUBPublication.pageList` entries: `page`, the last entry at or
   before the range's first character, and `pages`, that one followed by every entry whose
   marker falls inside the range. foliate-js reported only `pageItem`, the last page begun by
@@ -372,10 +373,17 @@ The following are the defaults. Host commands and accessibility actions stay ena
 | `navigate(href:)` | An encoded spine or resource href with optional fragment; unknown or non-local hrefs throw `invalidCommand`. |
 | `restore(location)` | Same publication, engine ID and `epublib-cfi-v1` format or `incompatibleLocation`; validates/resolves every bookmark segment and shows the first segment's start. Does not select text or add a highlight. |
 | `locate(text, highlight)` | First match in reading order with foliate's matcher. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A miss emits `.notice("the cited passage could not be found in this book")`. Clears search highlights. |
-| `searchHighlight` / `clearSearch` | Draws every match across the book / removes them. |
-| `search` | Draws matches and opens the first rendered match in spine order; no matches preserve the position. |
+| `searchHighlight` / `clearSearch` | Draws every match across the book and lists the rendered ones as `EPUBSearchResults` with no current match / removes and withdraws them. |
+| `search` | Draws and lists matches, opens the first rendered match in spine order and makes it the current match; no matches preserve the position. |
+| `nextSearchResult` / `previousSearchResult` | Shows the result after or before the current match, wrapping at the ends; the first or last when none is current. No effect without results. |
+| `showSearchResult(result)` | Shows a listed result and makes it current; a result of a replaced or cleared search throws `invalidCommand`. |
 | `style` | Font size 12–96, System/Light/Dark appearance, flow. System is the default and tracks the host color scheme live; explicit modes stay fixed. Size or resolved appearance rebuilds the text; the position is kept across rebuilds and flow switches. |
 | `setHighlights` | Replaces drawn host highlights. |
+
+`.searchResultsChanged` reports the result list before `.searchChanged(.completed)`, then each
+change of the current match, and nil when a clear, another query, a failure, a cancellation or
+`.locate` withdraws the list. Results are in spine order, then document order
+(see [search results](reader-controls.md#search-results)).
 
 `.ready` is emitted once, when the opening section is on screen in a mounted view, and the first
 `.relocated` reports the opening position (the text start, see Decisions). `.relocated`
@@ -532,6 +540,11 @@ Go: the native viewer is the bundled engine.
 - Search uses locale-tailored primary collation for passage location and highlights.
   Locales without qualified prefilter coverage compare candidate windows directly, which
   can cost more on large sections. See the [collation qualification](issue-26-search-collation.md).
+- A search completes once every section holding a match has been built, because results are
+  the occurrences as rendered. On a book still building, completion waits for those sections.
+  One search lists at most 10,000 results and reads at most 10,000 matches per section; past
+  either bound the results say `isTruncated`. Result order, wrapping and the current match
+  are described under [search results](reader-controls.md#search-results).
 - Foliate CFI compatibility for HTML fallback is deliberately limited to qualified XML-shaped
   markup. HTML tree repairs outside that subset cannot issue or resolve saved CFIs; migration
   by href or an explicitly requested text search remains a host decision.

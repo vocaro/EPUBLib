@@ -54,6 +54,21 @@ session of a book of labelled SVG figures from wide and light to narrow, large a
 require the images mounted in its text view to be those of a second session opened at that
 size and style. They also require replaced and closed text to release its images.
 
+Search-result tests cover a query across three spine documents (counts, spine and document
+order, hidden content, section titles, page labels, paragraph and table-cell context, CFIs that
+restore and highlight the occurrence), stepping, wrapping and selecting in both flows and in an
+RTL book, the current match across page turns, navigation, typography, flow and a remount,
+invalidation by clear, a replaced, rejected, superseded or cancelled query, `.locate` and
+close, the bounded list, and ten thousand results in one flat section. Control tests cover the
+indicator, button and result wording for every state, engines that only highlight, the FIFO
+match commands beside page turns, and mount the supplied views in each state: on their own, at
+a large accessibility text size and in a navigation toolbar. They do not establish toolbar
+overflow, popover or VoiceOver behaviour on a device: SwiftUI builds no accessibility tree for
+an in-process query. Set `EPUB_SNAPSHOT_DIR` for `swift test`, or
+`TEST_RUNNER_EPUB_SNAPSHOT_DIR` for `scripts/test-ios.sh`, to keep a PNG of each mounted state.
+These are layer renders from a test host, not screen captures, so system bar materials and
+presentations are absent from them.
+
 Page-input tests cover default and replaced/cleared shortcuts, exact modifiers, duplicate/invalid
 bindings, canvas and child focus, selection chords, live iOS recognizer disabling, Mac wheel
 pass-through and reset, zero/invalid/asymmetric/overlapping zones, RTL, resizing, fold exclusion,
@@ -85,11 +100,19 @@ The verifier checks:
 - Href navigation changes sections and bookmark restoration returns to the saved section.
 - Locations carry the publication identity and a valid engine-tagged bookmark when supported.
 - Foreign publication, engine and bookmark format identities are rejected.
+- An engine with `.searchResults` lists the phrase's results before reporting completion, with
+  indices in order and the publication's identity; steps, wraps and selects as
+  `EPUBSearchResults.steppedIndex(forward:)` says; mirrors the list in `readerState` when it has
+  one; refuses an unlisted result; and withdraws the list on clear, after which a kept result is
+  refused and no step has any effect. An engine without it refuses the three result commands
+  with `.unsupported(.searchResults)` and publishes no results.
 - Close is idempotent; closed commands fail and later callbacks are suppressed.
 
-A minimal SwiftUI test engine runs the same checks with no renderer at all. Deliberately broken
-engines demonstrate that missing/duplicate readiness, ignored cancellation, incompatible restoration
-and late callbacks fail the verifier. Adapter-specific tests must additionally check actual rendering,
+A minimal SwiftUI test engine runs the same checks with no renderer at all, as an engine with no
+search, one that only highlights and one that lists results. Deliberately broken
+engines demonstrate that missing/duplicate readiness, ignored cancellation, incompatible restoration,
+late callbacks, results published after completion, steps that do not wrap, stale results that
+still navigate and results kept after a clear fail the verifier. Adapter-specific tests must additionally check actual rendering,
 selection gestures, precise bookmark semantics and resource release. A bounded quiet period after
 close detects queued callbacks; it cannot prove that an engine will never emit a much later event.
 

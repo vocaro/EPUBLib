@@ -382,6 +382,31 @@ enum EPUBCFI {
         return slots
     }
 
+    /// Every child's `cfiIndex` under parents with many children, for writing many CFIs into one
+    /// document: `cfiIndex` walks the siblings before a child, which is quadratic over a flat
+    /// section's paragraphs. One cache serves one document on one thread.
+    final class ChildIndexCache {
+        /// By the parent's `order`: `cfiIndex` of each child.
+        private var indices: [Int: [Int32]] = [:]
+        static let minimumChildren = 32
+
+        fileprivate func index(of child: ContentNode, in parent: ContentNode) -> Int {
+            let children = parent.children
+            guard children.count >= Self.minimumChildren else { return EPUBCFI.cfiIndex(of: child, in: parent) }
+            if let known = indices[parent.order] { return Int(known[child.indexInParent]) }
+            var all: [Int32] = []
+            all.reserveCapacity(children.count)
+            var index: Int32 = children[0].isElement ? 2 : 1
+            all.append(index)
+            for position in 1..<children.count {
+                index += children[position].isElement && children[position - 1].isElement ? 2 : 1
+                all.append(index)
+            }
+            indices[parent.order] = all
+            return Int(all[child.indexInParent])
+        }
+    }
+
     /// A child's index in `slots(of: parent)`, without building them.
     private static func cfiIndex(of child: ContentNode, in parent: ContentNode) -> Int {
         let children = parent.children
@@ -408,11 +433,12 @@ enum EPUBCFI {
     }
 
     /// foliate `nodeToParts`: the steps from the root element down to `node`.
-    private static func steps(to node: ContentNode, offset: Int?) -> [Expression.Step] {
+    private static func steps(to node: ContentNode, offset: Int?, indices: ChildIndexCache? = nil) -> [Expression.Step] {
         var steps: [Expression.Step] = []
         var current = node, currentOffset = offset
         while let parent = current.parent {
-            steps.append(Expression.Step(index: cfiIndex(of: current, in: parent), id: elementID(current),
+            let index = indices?.index(of: current, in: parent) ?? cfiIndex(of: current, in: parent)
+            steps.append(Expression.Step(index: index, id: elementID(current),
                                          offset: currentOffset))
             currentOffset = nil
             guard parent.parent != nil else { break }
@@ -423,24 +449,27 @@ enum EPUBCFI {
 
     /// A position's steps. foliate threw for the root element itself, which has no step; its
     /// start is its first child's start here.
-    private static func steps(for position: DOMPosition) -> [Expression.Step] {
+    private static func steps(for position: DOMPosition, indices: ChildIndexCache? = nil) -> [Expression.Step] {
         var node = position.node, offset = position.offset
         if node.parent == nil {
             guard let first = node.children.first else { return [] }
             node = first; offset = 0
         }
         if node.isText { offset = min(max(offset, 0), node.utf16Length) }
-        return steps(to: node, offset: offset)
+        return steps(to: node, offset: offset, indices: indices)
     }
 
     /// foliate `fromRange` within one content document: a local path (no `epubcfi(` wrapper, no
     /// package step), a position when `start == end`, else a range. Reversed ends are swapped.
-    static func localPath(from start: DOMPosition, to end: DOMPosition, in document: ContentDocument) -> String {
+    /// `indices` speeds up writing many paths into `document`; the path is the same without it.
+    static func localPath(from start: DOMPosition, to end: DOMPosition, in document: ContentDocument,
+                          indices: ChildIndexCache? = nil) -> String {
         guard document.canResolveCFIs else { return "" }
         let (start, end) = end < start ? (end, start) : (start, end)
-        let startSteps = steps(for: start)
+        let startSteps = steps(for: start, indices: indices)
         if start == end { return pathString([startSteps]) }
-        return innerString(buildRange(from: Expression(path: [startSteps]), to: Expression(path: [steps(for: end)])))
+        return innerString(buildRange(from: Expression(path: [startSteps]),
+                                      to: Expression(path: [steps(for: end, indices: indices)])))
     }
 
     /// foliate `toRange` for a local path. nil when it names nothing in `document`.

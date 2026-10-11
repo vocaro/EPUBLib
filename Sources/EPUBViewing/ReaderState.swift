@@ -17,6 +17,9 @@ public struct EPUBReaderStatus: Equatable, Sendable {
     public var canGoPrevious: Bool?
     public var canGoNext: Bool?
     public var search: EPUBSearchState = .idle
+    /// The completed search's result list and current match, from an engine with
+    /// `.searchResults`. nil unless `search` is `.completed`.
+    public var searchResults: EPUBSearchResults?
     public var activeCommands = 0
     public init(capabilities: Set<EPUBReaderCapability>) { self.capabilities = capabilities }
 }

@@ -54,4 +54,16 @@ enum ReaderPalette {
     static func annotationHighlight(dark: Bool) -> PlatformColor {
         dark ? PlatformColor(red: 0.9, green: 0.75, blue: 0.1, alpha: 0.35) : PlatformColor(red: 1, green: 0.9, blue: 0.3, alpha: 0.55)
     }
+    /// The search result last shown: darker than the other matches as well as a different
+    /// hue, so it stands apart without relying on color alone.
+    static func currentSearchHighlight(dark: Bool) -> PlatformColor {
+        dark ? PlatformColor(red: 0.85, green: 0.35, blue: 0, alpha: 0.7) : PlatformColor(red: 1, green: 0.58, blue: 0.1, alpha: 0.7)
+    }
+    static func highlight(_ kind: ReaderHighlight.Kind, dark: Bool) -> PlatformColor {
+        switch kind {
+        case .search: searchHighlight(dark: dark)
+        case .annotation: annotationHighlight(dark: dark)
+        case .currentSearch: currentSearchHighlight(dark: dark)
+        }
+    }
 }

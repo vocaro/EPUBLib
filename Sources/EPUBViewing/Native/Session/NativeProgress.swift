@@ -96,6 +96,49 @@ struct NativeProgress {
     }
 }
 
+extension NativeProgress {
+    /// The contents titles and page-list entries of one built section, for naming many
+    /// positions in it (search results) without walking the whole book for each.
+    struct SectionMarks: Sendable {
+        fileprivate var inheritedTitle: String?
+        /// In navigation order, as `title(at:anchor:)` reads them.
+        fileprivate var titles: [(offset: Int, title: String)] = []
+        fileprivate var inheritedPage: EPUBPageListEntry?
+        fileprivate var pages: [(offset: Int, entry: EPUBPageListEntry)] = []
+
+        /// What `title(at:anchor:)` answers for an offset in the section.
+        func title(at offset: Int) -> String? {
+            titles.last { $0.offset <= offset }?.title ?? inheritedTitle
+        }
+
+        /// What `pages(in:isShown:anchor:)` answers as `page` for a range starting at an offset.
+        func page(at offset: Int) -> EPUBPageListEntry? {
+            var best: (offset: Int, entry: EPUBPageListEntry)?
+            for page in pages where page.offset <= offset {
+                if best.map({ $0.offset <= page.offset }) ?? true { best = page }
+            }
+            return best?.entry ?? inheritedPage
+        }
+    }
+
+    /// `anchors` are the built section's (`SectionText.anchors`); an entry whose fragment they do
+    /// not hold sits at the section's start, as it does for `title(at:anchor:)` and `pages`.
+    func marks(inSection section: Int, anchors: [String: Int]) -> SectionMarks {
+        var marks = SectionMarks()
+        for entry in entries {
+            if entry.section > section { break }
+            if entry.section < section { marks.inheritedTitle = entry.title }
+            else { marks.titles.append((entry.fragment.flatMap { anchors[$0] } ?? 0, entry.title)) }
+        }
+        for page in pages {
+            if page.section > section { break }
+            if page.section < section { marks.inheritedPage = page.entry }
+            else { marks.pages.append((page.fragment.flatMap { anchors[$0] } ?? 0, page.entry)) }
+        }
+        return marks
+    }
+}
+
 /// The `.disclosure` text for what a book's sections withheld or simplified.
 enum NativeDisclosure {
     static func text(for report: SectionReport) -> String? {
