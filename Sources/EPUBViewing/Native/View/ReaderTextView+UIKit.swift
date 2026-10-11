@@ -14,6 +14,7 @@ final class ReaderTextView: UITextView {
     var tableInteraction: ReaderTableInteraction?
     var containsTableRows = false
     weak var canvas: ReaderCanvasView?
+    private var pageAccessibilityCache: [ReaderPageAccessibilityElement]?
     private var imageGestureDelegate: ReaderImageGestureDelegate?
     private var selectionGestureDelegate: ReaderSpreadSelectionGestureDelegate?
 
@@ -127,6 +128,73 @@ final class ReaderTextView: UITextView {
         set { super.accessibilityCustomActions = newValue }
     }
 
+    // UIKit's native text accessibility can traverse TextKit's hidden paragraph context even
+    // with a shortened accessibilityValue. Expose only measured visible lines, splitting links
+    // and attachments into independently actionable elements. Visual text and selection retain
+    // the original TextKit 2 storage and all of its paragraph layout context.
+    override var isAccessibilityElement: Bool {
+        get { isPageColumn ? false : super.isAccessibilityElement }
+        set { super.isAccessibilityElement = newValue }
+    }
+
+    override var accessibilityElements: [Any]? {
+        get { isPageColumn ? pageAccessibilityElements : super.accessibilityElements }
+        set { super.accessibilityElements = newValue }
+    }
+
+    override func accessibilityElementCount() -> Int {
+        isPageColumn ? pageAccessibilityElements.count : super.accessibilityElementCount()
+    }
+
+    override func accessibilityElement(at index: Int) -> Any? {
+        guard isPageColumn else { return super.accessibilityElement(at: index) }
+        let elements = pageAccessibilityElements
+        return elements.indices.contains(index) ? elements[index] : nil
+    }
+
+    override func index(ofAccessibilityElement element: Any) -> Int {
+        guard isPageColumn else { return super.index(ofAccessibilityElement: element) }
+        return pageAccessibilityElements.firstIndex { $0 === element as AnyObject } ?? NSNotFound
+    }
+
+    private var pageAccessibilityElements: [ReaderPageAccessibilityElement] {
+        if let pageAccessibilityCache { return pageAccessibilityCache }
+        guard let storage = contentStorage.textStorage else { return [] }
+        var elements: [ReaderPageAccessibilityElement] = []
+        for line in pageAccessibilityLines {
+            // Layout flags (often stored on a paragraph's first UTF-16 unit), colors and
+            // fonts do not define AX reading units. Keep each actual line intact except
+            // where a link or attachment needs its own label and activation behavior.
+            var runs: [(range: NSRange, url: URL?, attachment: NSTextAttachment?)] = []
+            storage.enumerateAttributes(in: line.range) { attributes, range, _ in
+                let url = attributes[.link] as? URL ?? (attributes[.link] as? String).flatMap(URL.init(string:))
+                let attachment = attributes[.attachment] as? NSTextAttachment
+                if let previous = runs.last, NSMaxRange(previous.range) == range.location,
+                   previous.url == url, previous.attachment === attachment {
+                    runs[runs.count - 1].range.length += range.length
+                } else { runs.append((range, url, attachment)) }
+            }
+            for (range, url, attachment) in runs {
+                let element = ReaderPageAccessibilityElement(view: self, range: range, url: url)
+                element.accessibilityLabel = plainText(in: range)
+                var traits: UIAccessibilityTraits = url == nil ? .staticText : .link
+                if attachment != nil {
+                    traits.insert(.image)
+                    if let image = attachment as? ReaderImageAttachment {
+                        element.accessibilityLabel = image.alt.isEmpty ? "Book image" : image.alt
+                    }
+                }
+                element.accessibilityTraits = traits
+                let frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
+                element.accessibilityFrameInContainerSpace = (frame.isNull ? line.frame : frame)
+                    .offsetBy(dx: containerOrigin.x, dy: containerOrigin.y).intersection(bounds)
+                elements.append(element)
+            }
+        }
+        pageAccessibilityCache = elements
+        return elements
+    }
+
     // VoiceOver reads the page, not the clipped context after it, with attachments as their text.
     override var accessibilityValue: String? {
         get { isPageColumn ? visibleText : super.accessibilityValue }
@@ -136,9 +204,64 @@ final class ReaderTextView: UITextView {
     /// UIKit reads an attachment in text by its accessibility label: give each one that stands
     /// for text its text equivalent, unless it labels itself.
     func exposeTextualAttachments() {
+        pageAccessibilityCache = nil
         for (attachment, text, _) in textualAttachments() where attachment.accessibilityLabel == nil {
             attachment.accessibilityLabel = text
         }
+    }
+}
+
+/// A bounded slice of one visible line. VoiceOver's word/character navigation operates on
+/// this label rather than the native text view's longer paragraph storage.
+@MainActor private final class ReaderPageAccessibilityElement: UIAccessibilityElement {
+    weak var view: ReaderTextView?
+    let range: NSRange
+    let url: URL?
+
+    init(view: ReaderTextView, range: NSRange, url: URL?) {
+        self.view = view
+        self.range = range
+        self.url = url
+        super.init(accessibilityContainer: view)
+        isAccessibilityElement = true
+    }
+
+    override func accessibilityActivate() -> Bool {
+        guard let view, let canvas = view.canvas else { return false }
+        if let url { canvas.activateLink(url, range: range, in: view); return true }
+        if let image = view.imageAttachments(in: range).first?.image { canvas.inspectImage(image); return true }
+        return false
+    }
+
+    override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
+        view?.accessibilityScroll(direction) ?? false
+    }
+
+    override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
+        get {
+            guard let view else { return nil }
+            var actions = [true, false].map { forward in
+                UIAccessibilityCustomAction(name: forward ? "Next Page" : "Previous Page") { [weak view] _ in
+                    guard let canvas = view?.canvas else { return false }
+                    canvas.turnPageFromInput(forward: forward)
+                    return true
+                }
+            }
+            actions += view.imageAttachments(in: range).map { image, _ in
+                UIAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") { [weak view] _ in
+                    guard let canvas = view?.canvas else { return false }
+                    canvas.inspectImage(image)
+                    return true
+                }
+            }
+            if view.contentStorage.textStorage?.attribute(.attachment, at: range.location, effectiveRange: nil) is TableRowAttachment {
+                actions += (view.tableInteraction?.accessibilityActions() ?? []).map { action in
+                    UIAccessibilityCustomAction(name: action.name) { _ in action.perform() }
+                }
+            }
+            return actions
+        }
+        set { super.accessibilityCustomActions = newValue }
     }
 }
 

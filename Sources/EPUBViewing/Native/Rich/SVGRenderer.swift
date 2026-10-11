@@ -13,7 +13,7 @@ final class SVGRenderer: @unchecked Sendable {
 
     init?(_ data: Data, fonts: [SVGFontData] = []) {
         guard !data.isEmpty, data.count <= SVGContent.maximumBytes,
-              let document = try? ContentDocument.parse(data, path: "svg", limits: .init(bytes: SVGContent.maximumBytes, depth: SVGContent.maximumDepth, nodes: SVGContent.maximumNodes)),
+              let document = try? ContentDocument.parse(data, path: "svg", limits: .init(bytes: SVGContent.maximumBytes, depth: SVGContent.maximumDepth, nodes: SVGContent.maximumNodes), asContent: false),
               SVGContent.isWithinRenderingLimits(document.root),
               SVGContent.preparedImagesAreBounded(document.root) else { return nil }
         let hasText = document.nodes.contains { $0.name == "text" }

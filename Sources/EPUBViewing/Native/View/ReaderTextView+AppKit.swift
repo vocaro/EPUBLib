@@ -168,7 +168,8 @@ final class ReaderTextView: NSTextView {
     /// that stands for text gets an image element labelled with its text equivalent, through
     /// the attachment attribute VoiceOver reads in text.
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
-        guard let base = super.accessibilityAttributedString(for: range) else { return nil }
+        guard !isPageColumn || validPageAccessibilityRange(range),
+              let base = super.accessibilityAttributedString(for: range) else { return nil }
         let attachments = textualAttachments(in: range)
         let images = imageAttachments(in: range)
         guard !attachments.isEmpty || !images.isEmpty else { return base }
@@ -227,6 +228,104 @@ final class ReaderTextView: NSTextView {
 
     func exposeTextualAttachments() {
         attachmentElements.removeAll()
+    }
+
+    private func validPageAccessibilityRange(_ range: NSRange) -> Bool {
+        range.location != NSNotFound && range.location >= 0 && range.length >= 0
+            && range.location <= shownCharacters.length
+            && range.length <= shownCharacters.length - range.location
+    }
+
+    private func boundedPageAccessibilityRange(_ range: NSRange) -> NSRange {
+        guard range.location != NSNotFound else { return range }
+        let lower = min(max(0, range.location), shownCharacters.length)
+        let upper = min(max(lower, NSMaxRange(range)), shownCharacters.length)
+        return NSRange(location: lower, length: upper - lower)
+    }
+
+    override func accessibilityVisibleCharacterRange() -> NSRange {
+        isPageColumn ? shownCharacters : super.accessibilityVisibleCharacterRange()
+    }
+
+    override func accessibilityString(for range: NSRange) -> String? {
+        guard isPageColumn else { return super.accessibilityString(for: range) }
+        return validPageAccessibilityRange(range) ? plainCharacters(in: range) : nil
+    }
+
+    override func accessibilityRTF(for range: NSRange) -> Data? {
+        guard !isPageColumn || validPageAccessibilityRange(range) else { return nil }
+        return super.accessibilityRTF(for: range)
+    }
+
+    override func accessibilityFrame(for range: NSRange) -> NSRect {
+        guard !isPageColumn || validPageAccessibilityRange(range) else { return .zero }
+        return super.accessibilityFrame(for: range)
+    }
+
+    override func accessibilityRange(for index: Int) -> NSRange {
+        guard isPageColumn else { return super.accessibilityRange(for: index) }
+        guard index >= 0, index < shownCharacters.length,
+              let text = contentStorage.textStorage?.string as NSString? else {
+            return NSRange(location: NSNotFound, length: 0)
+        }
+        return boundedPageAccessibilityRange(text.rangeOfComposedCharacterSequence(at: index))
+    }
+
+    override func accessibilityRange(for point: NSPoint) -> NSRange {
+        guard isPageColumn else { return super.accessibilityRange(for: point) }
+        guard let window else { return NSRange(location: NSNotFound, length: 0) }
+        let local = convert(window.convertPoint(fromScreen: point), from: nil)
+        guard bounds.contains(local) else { return NSRange(location: NSNotFound, length: 0) }
+        return accessibilityRange(for: characterOffset(at: local))
+    }
+
+    override func accessibilityStyleRange(for index: Int) -> NSRange {
+        guard isPageColumn else { return super.accessibilityStyleRange(for: index) }
+        guard index >= 0, index < shownCharacters.length, let storage = contentStorage.textStorage else {
+            return NSRange(location: NSNotFound, length: 0)
+        }
+        var range = NSRange()
+        _ = storage.attributes(at: index, effectiveRange: &range)
+        return boundedPageAccessibilityRange(range)
+    }
+
+    override func accessibilityRange(forLine line: Int) -> NSRange {
+        guard isPageColumn else { return super.accessibilityRange(forLine: line) }
+        let lines = pageAccessibilityLines
+        return lines.indices.contains(line) ? lines[line].range : NSRange(location: NSNotFound, length: 0)
+    }
+
+    override func accessibilityLine(for index: Int) -> Int {
+        guard isPageColumn else { return super.accessibilityLine(for: index) }
+        return pageAccessibilityLines.firstIndex { NSLocationInRange(index, $0.range) } ?? NSNotFound
+    }
+
+    override func accessibilitySelectedTextRange() -> NSRange {
+        isPageColumn ? boundedPageAccessibilityRange(selectedRange) : super.accessibilitySelectedTextRange()
+    }
+
+    override func accessibilitySelectedTextRanges() -> [NSValue]? {
+        isPageColumn ? [NSValue(range: accessibilitySelectedTextRange())] : super.accessibilitySelectedTextRanges()
+    }
+
+    override func accessibilitySelectedText() -> String? {
+        isPageColumn ? plainCharacters(in: accessibilitySelectedTextRange()) : super.accessibilitySelectedText()
+    }
+
+    override func setAccessibilitySelectedTextRange(_ range: NSRange) {
+        guard !isPageColumn || validPageAccessibilityRange(range) else { return }
+        super.setAccessibilitySelectedTextRange(range)
+    }
+
+    override func setAccessibilitySelectedTextRanges(_ ranges: [NSValue]?) {
+        guard !isPageColumn || (ranges ?? []).allSatisfy({ validPageAccessibilityRange($0.rangeValue) }) else { return }
+        super.setAccessibilitySelectedTextRanges(ranges)
+    }
+
+    override func accessibilityInsertionPointLineNumber() -> Int {
+        guard isPageColumn else { return super.accessibilityInsertionPointLineNumber() }
+        let index = min(accessibilitySelectedTextRange().location, max(0, shownCharacters.length - 1))
+        return accessibilityLine(for: index)
     }
 
     override func accessibilityNumberOfCharacters() -> Int {

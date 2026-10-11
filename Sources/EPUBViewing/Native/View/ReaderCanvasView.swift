@@ -453,7 +453,7 @@ import AppKit
             let frame = spread.columns[slot]
             let top = frame.minY + page.topSpacing
             // A page with layout context is clipped right after its last line.
-            let clips = page.layoutEnd > page.range.upperBound || page.filler > 0
+            let clips = page.layoutEnd > page.range.upperBound
             column.isHidden = false
             column.frame = CGRect(x: frame.minX, y: top, width: frame.width,
                                   height: clips ? page.height : max(page.height, frame.maxY - top))
@@ -463,12 +463,6 @@ import AppKit
                                                    visibleLength: page.range.length)
             column.setContent(paginator.text(for: page))
             column.ensureFullLayout()
-            // Should the page's own layout run longer than the section's (a long justified
-            // paragraph's tail mid-page), show all of it rather than clip a line.
-            if clips, page.range.length > 0, let last = column.lineFrame(containing: page.range.length - 1),
-               last.maxY > column.frame.height + 0.5 {
-                column.frame.size.height = min(last.maxY, frame.maxY - top)
-            }
         }
         isApplyingSelection = false
         trimPaginators()

@@ -113,6 +113,9 @@ enum NativeDisclosure {
         count(report.unreadableResources, one: "One image could not be shown.", many: "# images could not be shown.")
         count(report.mathFallbacks, one: "One formula is shown as plain text.", many: "# formulas are shown as plain text.")
         if report.withheld { sentences.append("Some sections of this book could not be shown.") }
+        if report.cfiUnavailable {
+            sentences.append("Saved positions and passage highlights are unavailable in some repaired sections because their original text positions cannot be matched safely.")
+        }
         if report.fixedLayoutReflowed { sentences.append("This book's fixed page layout is shown as reflowable text.") }
         if report.verticalWritingFlattened { sentences.append("Vertical text is shown horizontally.") }
         if report.flowBoxesReflowed {

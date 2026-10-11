@@ -44,13 +44,13 @@ struct SpineCFIs: Sendable {
     private static func packageDocument(of publication: EPUBPublication) -> ContentDocument? {
         let containerPath = "META-INF/container.xml"
         guard let data = try? publication.data(at: containerPath),
-              let container = try? ContentDocument.parse(data, path: containerPath), !container.recoveredAsHTML,
+              let container = try? ContentDocument.parse(data, path: containerPath, asContent: false), !container.recoveredAsHTML,
               let rootfile = container.nodes.first(where: {
                   $0.isElement && $0.name == "rootfile" && $0.namespace == containerNamespace
                       && $0.attribute("media-type") == "application/oebps-package+xml"
               }),
               let path = rootfile.attribute("full-path"), let opf = try? publication.data(at: path),
-              let document = try? ContentDocument.parse(opf, path: path), !document.recoveredAsHTML
+              let document = try? ContentDocument.parse(opf, path: path, asContent: false), !document.recoveredAsHTML
         else { return nil }
         return document
     }
@@ -70,6 +70,7 @@ struct SpineCFIs: Sendable {
 
     /// A full CFI for a range in spine item `index` (foliate `getCFI`).
     func cfi(spineIndex: Int, start: DOMPosition, end: DOMPosition, in document: ContentDocument) -> String {
+        guard document.canResolveCFIs else { return "" }
         let base = bases.indices.contains(spineIndex) ? bases[spineIndex] : Self.fakeBase(spineIndex)
         return EPUBCFI.joinIndirections(base, EPUBCFI.wrap(EPUBCFI.localPath(from: start, to: end, in: document)))
     }

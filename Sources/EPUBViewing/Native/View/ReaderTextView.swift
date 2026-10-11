@@ -138,6 +138,22 @@ extension ReaderTextView {
     /// The text the reader sees, attachments read as their text equivalents.
     var visibleText: String { plainText(in: shownCharacters) }
 
+    /// The measured lines belonging to this page. Paragraph continuation context remains in
+    /// TextKit storage, but every exposed character range ends at the page boundary.
+    var pageAccessibilityLines: [ReaderVisualLine] {
+        var result: [ReaderVisualLine] = []
+        var cursor = 0
+        while cursor < shownCharacters.length {
+            guard let line = line(containing: cursor) else { break }
+            let upper = min(shownCharacters.length, NSMaxRange(line.range))
+            guard upper > cursor else { break }
+            result.append(ReaderVisualLine(frame: line.frame,
+                range: NSRange(location: cursor, length: upper - cursor)))
+            cursor = upper
+        }
+        return result
+    }
+
     /// Replaces the drawn highlights. Rendering attributes only: the text is never changed.
     func setHighlights(_ highlights: [(range: NSRange, color: PlatformColor)]) {
         let layoutManager = readerLayoutManager

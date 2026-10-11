@@ -21,6 +21,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
    that matches what an EPUB CFI sees: comments and processing instructions dropped, adjacent
    text and CDATA merged. Named HTML entities become numeric references before an XML parse;
    markup that is not well-formed falls back to libxml2's HTML parser and is reported.
+   A qualified subset of XML-shaped HTML uses Foliate's HTML whitespace and namespace rules.
+   Unqualified HTML repairs remain readable but cannot issue or resolve CFIs: the reader
+   discloses that saved positions and highlights are unavailable for those sections.
    `XMLSafety` refuses entity declarations first. No DTD or network access, depth and node limits.
 2. **Style** (`StyleResolver`, `CSSStyleSheet`, `FontRegistry`). A bounded CSS parser and
    cascade over a user-agent stylesheet, the book's archive-local stylesheets and `style`
@@ -183,11 +186,19 @@ as they did.
   past the page's first line, and only when both fit on the next page). An attachment taller than a page gets a page of its own. A
   spread shows consecutive slices. Each column is a non-scrolling TextKit 2 text view holding
   only its page's text. Native selections are coordinated across the spread's columns using
-  one complete source range; Copy and host actions consume that whole range. VoiceOver and
-  links retain native page interaction. A paragraph that continues onto the next page is laid out a few lines further (or to
+  one complete source range; Copy and host actions consume that whole range. On Mac, indexed
+  accessibility text, line, style, frame and selection queries are bounded to the visible page.
+  UIKit exposes visible line/run accessibility children with links, attachment labels and
+  page actions, keeping hidden paragraph context out of its native text accessibility traversal.
+  A paragraph that continues onto the next page is laid out a few lines further (or to
   a line break) and clipped, so its lines break exactly as in the measuring layout; justified
   text takes more, because CoreText justifies a paragraph of up to 8,192 characters as a whole
-  and a longer one line by line. Paginations are cached per section and column size; a resize,
+  and a longer one line by line. A long justified paragraph's short continuation tail receives
+  a bounded second measurement of exactly the displayed source slice and its lookahead.
+  These exceptional pages use that measurement's complete line boundaries and height, and
+  the next page starts at the corrected source boundary. No synthetic tail padding or column
+  growth is needed; authored justification, hyphenation, indentation and RTL are retained.
+  Paginations are cached per section and column size; a resize,
   rotation or bar change repaginates once it ends, in steps when far into a section, with the
   old spread on screen until the new one is ready. A finished pagination keeps only its pages.
 - **Right to left.** `page-progression-direction="rtl"` mirrors spreads, swipes and tap zones.
@@ -281,6 +292,20 @@ An empty collection, a contradictory first bookmark, a foreign identity/format o
 is incompatible; unordered/duplicate document targets, nonlinear multi-document targets or
 unresolved CFIs emit one `.notice` per rejected highlight. `restore` similarly refuses an
 incompatible location or emits a notice for an unresolved collection without navigating.
+Sections requiring unqualified HTML tree repair do not emit bookmarks. Existing CFIs into
+those sections are refused with a notice instead of restoring or highlighting a potentially
+different passage. Href navigation, readable content, selection text and text search remain
+available. A selection spanning an unsupported section emits its text and quote without a
+partial bookmark collection. This restriction is independent of the opt-in headless
+text-extraction recovery.
+Strict namespaced XHTML retains its XML DOM and existing CFIs. For documents Foliate would
+retry as HTML, compatibility requires UTF-8 XML-shaped markup with explicit head/body,
+ordinary flow/inline elements and lists, and valid HTML nesting. Pre-head whitespace is
+dropped, between-head/body whitespace retained, and trailing root whitespace merged into the
+body. Self-closing nonvoids, closing void tags, table tree construction, CDATA, raw-text or
+foreign elements, literal attribute tabs/line endings, and HTML numeric-reference remapping
+are outside this subset. These cases require source correction or a host's explicit quote
+search for migration; changing an engine/format tag alone cannot repair their positions.
 `.disclosure` text summarises the books' `SectionReport`s and is re-emitted when it changes. `.notice` reports
 refused external links, unresolved CFIs and quotes, and highlights that could not be drawn.
 
@@ -349,12 +374,13 @@ Go: the native viewer is the bundled engine.
   embedded color-glyph tables are omitted and disclosed. Retained renderer font databases
   share a 64 MiB budget.
 - Search in languages with tailored collation (Turkish, Swedish, Spanish…) finds a superset
-  of foliate's matches. Documents WebKit would have re-read as HTML can yield CFIs that differ
-  from foliate's in whitespace outside the body or where HTML tree construction reshapes markup.
-- VoiceOver's line-by-line navigation inside a column may reach the clipped lines of a
-  paragraph that continues on the next page.
-- The last lines of a justified paragraph over 8,192 characters may break differently from the
-  measured page when the page starts inside the paragraph and also shows what follows it; the
-  column then grows to show them rather than clip.
+  of foliate's matches.
+- Foliate CFI compatibility for HTML fallback is deliberately limited to qualified XML-shaped
+  markup. HTML tree repairs outside that subset cannot issue or resolve saved CFIs; migration
+  by href or an explicitly requested text search remains a host decision.
+- Paginated accessibility bounds and actions have native API regression coverage. Actual
+  VoiceOver line navigation on Mac and physical iPhone/iPad remains unverified: the Mac
+  verification attempt could not select the reader through UI automation, and no VoiceOver
+  setting was changed. Simulator/API checks do not substitute for those sessions.
 - Flexbox and grid lay out as blocks: content a book centres vertically with `min-height` and
   flex alignment (Standard Ebooks epigraphs) starts at the top of the page.

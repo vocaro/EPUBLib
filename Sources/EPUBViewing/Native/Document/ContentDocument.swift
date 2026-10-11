@@ -52,10 +52,10 @@ final class ContentNode: @unchecked Sendable {
     /// `id`, or `xml:id`.
     var id: String? { attribute("id") ?? attribute("id", namespace: ContentNamespace.xml) }
     /// `xml:lang`, else `lang`.
-    var language: String? { attribute("lang", namespace: ContentNamespace.xml) ?? attribute("lang") }
+    var language: String? { attribute("lang", namespace: ContentNamespace.xml) ?? attribute("xml:lang") ?? attribute("lang") }
     /// Whitespace-separated `epub:type` tokens.
     var epubTypes: [String] {
-        (attribute("type", namespace: ContentNamespace.ops) ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+        (attribute("type", namespace: ContentNamespace.ops) ?? attribute("epub:type") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
     }
     var classNames: [String] { (attribute("class") ?? "").split(whereSeparator: \.isWhitespace).map(String.init) }
     var elementChildren: [ContentNode] { children.filter(\.isElement) }
@@ -114,17 +114,22 @@ enum ContentDocumentError: Error, Equatable, Sendable {
 /// A parsed XML or XHTML document. XHTML is parsed as XML first, with HTML's named character
 /// entities (as WebKit knows them for XHTML DOCTYPEs) translated to numeric references. Markup
 /// that is not well-formed falls back to libxml2's forgiving HTML parser, and `recoveredAsHTML`
-/// records that; CFIs into such a document may differ from a browser's XML DOM.
+/// records that. XML-shaped HTML in the qualified subset is rebuilt with Foliate's HTML
+/// whitespace and namespace rules. Other repairs remain readable, but cannot issue or resolve
+/// CFIs: libxml2's HTML 4 tree is not a safe substitute for WebKit's HTML 5 tree.
 final class ContentDocument: @unchecked Sendable {
     let path: String
     let root: ContentNode
     /// Every node in preorder; `nodes[n.order] === n`.
     let nodes: [ContentNode]
     let recoveredAsHTML: Bool
+    let canResolveCFIs: Bool
     private let ids: [String: ContentNode]
 
-    private init(path: String, root: ContentNode, nodes: [ContentNode], recovered: Bool) {
+    private init(path: String, root: ContentNode, nodes: [ContentNode], recovered: Bool,
+                 canResolveCFIs: Bool = true) {
         self.path = path; self.root = root; self.nodes = nodes; recoveredAsHTML = recovered
+        self.canResolveCFIs = canResolveCFIs
         var ids: [String: ContentNode] = [:]
         for node in nodes where node.isElement { if let id = node.id, ids[id] == nil { ids[id] = node } }
         self.ids = ids
@@ -142,11 +147,24 @@ final class ContentDocument: @unchecked Sendable {
         nodes[node.order...].first(where: \.isText)
     }
 
-    static func parse(_ data: Data, path: String, limits: ContentLimits = .init()) throws -> ContentDocument {
+    static func parse(_ data: Data, path: String, limits: ContentLimits = .init(),
+                      asContent: Bool = true) throws -> ContentDocument {
         guard data.count <= limits.bytes, data.count <= Int(Int32.max) else { throw ContentDocumentError.limitExceeded("bytes") }
         guard XMLSafety.hasSafeDeclarations(data) else { throw ContentDocumentError.unsafeMarkup(path) }
         let source = HTMLEntities.numericReferences(in: data)
-        if let document = try parseXML(source, path: path, limits: limits) { return document }
+        if let document = try parseXML(source, path: path, limits: limits) {
+            // Foliate's loadDocument retries a namespace-free content root as HTML. WebKit
+            // also rejects named references without an XHTML 1.x public DOCTYPE. OPF and
+            // other XML documents retain their existing XML behavior.
+            if asContent && (document.root.namespace.isEmpty ||
+                (source != data && !HTMLCFICompatibility.hasXHTMLDTD(data))) {
+                if HTMLCFICompatibility.accepts(data, document: document) {
+                    return htmlShaped(document)
+                }
+                return try parseHTML(source, path: path, limits: limits)
+            }
+            return document
+        }
         return try parseHTML(source, path: path, limits: limits)
     }
 
@@ -242,7 +260,48 @@ final class ContentDocument: @unchecked Sendable {
             return node
         }
         let root = try build(rootElement, depth: 0)
-        return ContentDocument(path: path, root: root, nodes: nodes, recovered: recovered)
+        return ContentDocument(path: path, root: root, nodes: nodes, recovered: recovered,
+                               canResolveCFIs: !recovered)
+    }
+
+    /// Rebuild only the qualified XML-shaped HTML subset. HTML discards whitespace before
+    /// head, keeps it between head and body, and puts trailing root whitespace in body.
+    private static func htmlShaped(_ document: ContentDocument) -> ContentDocument {
+        let head = document.head!, body = document.body!
+        let trailing = document.root.children.filter { $0.isText && $0.indexInParent > body.indexInParent }
+            .map(\.text).joined()
+        var nodes: [ContentNode] = []
+        func clone(_ source: ContentNode, extraText: String = "") -> ContentNode {
+            let node: ContentNode
+            if source.isText { node = ContentNode(text: source.text + extraText) }
+            else {
+                let attributes = source.attributes.map { attribute in
+                    let prefix = attribute.namespace == ContentNamespace.xml ? "xml:"
+                        : attribute.namespace == ContentNamespace.ops ? "epub:" : ""
+                    return ContentAttribute(name: prefix + attribute.name.lowercased(), namespace: "", value: attribute.value)
+                }
+                node = ContentNode(element: source.name.lowercased(), namespace: ContentNamespace.xhtml, attributes: attributes)
+            }
+            node.order = nodes.count; nodes.append(node)
+            var children = source.children
+            if source === document.root {
+                children = children.filter { !($0.isText && ($0.indexInParent < head.indexInParent || $0.indexInParent > body.indexInParent)) }
+            }
+            for child in children {
+                let copy = clone(child, extraText: source === body && child === children.last && child.isText ? trailing : "")
+                copy.parent = node; copy.indexInParent = node.children.count; node.children.append(copy)
+            }
+            if source === body, !trailing.isEmpty, children.last?.isText != true {
+                let text = ContentNode(text: trailing)
+                text.parent = node; text.indexInParent = node.children.count
+                text.order = nodes.count; text.subtreeEnd = text.order
+                nodes.append(text); node.children.append(text)
+            }
+            node.subtreeEnd = nodes.count - 1
+            return node
+        }
+        let root = clone(document.root)
+        return ContentDocument(path: document.path, root: root, nodes: nodes, recovered: true)
     }
 }
 

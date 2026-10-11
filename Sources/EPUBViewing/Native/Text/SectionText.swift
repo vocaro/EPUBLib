@@ -45,6 +45,8 @@ struct SectionReport: Equatable, Sendable {
     var withheld = false
     /// The markup was not well-formed XML and was read with the forgiving HTML parser.
     var recoveredAsHTML = false
+    /// HTML tree repair was not qualified against Foliate; CFIs are withheld rather than guessed.
+    var cfiUnavailable = false
     /// The section asked for vertical writing, which is rendered horizontally.
     var verticalWritingFlattened = false
     /// A fixed-layout spine item, rendered as reflowable text.
@@ -62,6 +64,7 @@ struct SectionReport: Equatable, Sendable {
         mathFallbacks += other.mathFallbacks
         withheld = withheld || other.withheld
         recoveredAsHTML = recoveredAsHTML || other.recoveredAsHTML
+        cfiUnavailable = cfiUnavailable || other.cfiUnavailable
         verticalWritingFlattened = verticalWritingFlattened || other.verticalWritingFlattened
         fixedLayoutReflowed = fixedLayoutReflowed || other.fixedLayoutReflowed
         stylesTruncated = stylesTruncated || other.stylesTruncated
