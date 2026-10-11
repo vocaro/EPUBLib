@@ -53,6 +53,19 @@ final class ReaderTextView: UITextView {
     /// The text container's origin in this view's coordinates.
     var containerOrigin: CGPoint { CGPoint(x: textContainerInset.left, y: textContainerInset.top) }
 
+    /// Asks for the text already on screen to be drawn again. The text view draws each laid-out
+    /// fragment in a view of its own beneath it, which its own `setNeedsDisplay()` does not
+    /// reach. Only views that draw themselves are asked: `setNeedsDisplay()` is for those.
+    func setRenderedTextNeedsDisplay() {
+        let selector = #selector(UIView.draw(_:))
+        let inherited = UIView.instanceMethod(for: selector)
+        func invalidate(_ view: UIView) {
+            if view.method(for: selector) != inherited { view.setNeedsDisplay() }
+            view.subviews.forEach(invalidate)
+        }
+        subviews.forEach(invalidate)
+    }
+
     // A page column shows its slice from the top, always: UIKit's selection autoscroll must not
     // reveal the clipped context line.
     override var contentOffset: CGPoint {

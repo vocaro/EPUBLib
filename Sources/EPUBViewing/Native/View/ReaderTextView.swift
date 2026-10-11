@@ -162,6 +162,10 @@ extension ReaderTextView {
             guard let range = textRange(for: highlight.range) else { continue }
             layoutManager.addRenderingAttribute(.backgroundColor, value: highlight.color, for: range)
         }
+        // A rendering attribute changes what a fragment draws, not its layout, and TextKit 2
+        // repaints a laid-out fragment only for the latter: without this a cleared highlight
+        // stays on the page, and one added in place is missing, until the text next reflows.
+        setRenderedTextNeedsDisplay()
     }
 
     /// Native TextKit insertion offset nearest a point, without invoking TextKit 1.

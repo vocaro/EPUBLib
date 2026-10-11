@@ -136,7 +136,10 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
 - **Highlights.** New public `EPUBReaderCommand.setHighlights([EPUBHighlight])` and capability
   `.highlights` draw host highlights from their range CFIs, including every `rangeBookmarks`
   segment of a multi-document annotation (StudyWright #85). Search and
-  highlights are TextKit 2 rendering attributes; they never change the text.
+  highlights are TextKit 2 rendering attributes; they never change the text. TextKit 2
+  redraws a laid-out fragment when its layout changes, not when a rendering attribute does,
+  so each change asks for the fragments on screen to be drawn again
+  ([#51](https://github.com/vocaro/EPUBLib/issues/51)).
 - **Pages.** Locations report `EPUBPublication.pageList` entries: `page`, the last entry at or
   before the range's first character, and `pages`, that one followed by every entry whose
   marker falls inside the range. foliate-js reported only `pageItem`, the last page begun by

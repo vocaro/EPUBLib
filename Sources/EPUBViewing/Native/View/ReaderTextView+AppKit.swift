@@ -61,6 +61,16 @@ final class ReaderTextView: NSTextView {
     /// The text container's origin in this view's coordinates.
     var containerOrigin: CGPoint { textContainerOrigin }
 
+    /// Asks for the text already on screen to be drawn again. The text view draws each laid-out
+    /// fragment in a view of its own beneath it, which its own `needsDisplay` does not reach.
+    func setRenderedTextNeedsDisplay() {
+        func invalidate(_ view: NSView) {
+            view.needsDisplay = true
+            view.subviews.forEach(invalidate)
+        }
+        subviews.forEach(invalidate)
+    }
+
     // Copy (and services) carry the reader's text: attachments as their alt text, never U+FFFC.
     override var writablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string] }
 
