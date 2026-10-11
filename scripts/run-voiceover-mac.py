@@ -73,7 +73,11 @@ def now():
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def frontmost():
+def keyboard_owner():
+    """The frontmost application, or a password dialog holding secure keyboard input over it."""
+    registry = subprocess.run(["ioreg", "-l", "-w", "0", "-d", "1"], capture_output=True, text=True, timeout=5).stdout
+    if "kCGSSessionSecureInputPID" in registry:
+        return "a secure text field"
     return subprocess.run(
         ["osascript", "-e", 'tell application "System Events" to return bundle identifier of '
          'first application process whose frontmost is true'],
@@ -159,8 +163,9 @@ def main():
                             time.sleep(0.1)
                     else:
                         # Another controller may have taken the keyboard; never send it VoiceOver commands.
-                        if frontmost() != "org.epubreaderlib.voiceoververify.mac":
-                            raise RuntimeError(f"The reader lost keyboard focus before {step}; session stopped")
+                        owner = keyboard_owner()
+                        if owner != "org.epubreaderlib.voiceoververify.mac":
+                            raise RuntimeError(f"Keyboard focus went to {owner} before {step}; session stopped")
                         name, _, label = step.partition("=")
                         heard = [line for line in log_path.read_text(errors="replace").splitlines() if " heard: " in line]
                         if label and not any(label in line for line in heard[-2:]):
