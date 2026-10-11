@@ -34,10 +34,7 @@ public struct EPUBResource: Equatable, Sendable, Identifiable {
     /// Decoded archive path, relative to the archive root.
     public let path: String
     /// URL-encoded archive-relative reference for reader navigation. `path` is for byte access.
-    public var href: String {
-        path.addingPercentEncoding(withAllowedCharacters:
-            .urlPathAllowed.subtracting(CharacterSet(charactersIn: "#%?")))!
-    }
+    public var href: String { ResourceReference.encoded(path: path) }
     public let mediaType: String
     public let properties: Set<String>
     public init(id: String, path: String, mediaType: String, properties: Set<String> = []) {
@@ -61,7 +58,8 @@ public struct EPUBSpineItem: Equatable, Sendable {
 
 public struct EPUBNavigationItem: Equatable, Sendable {
     public let title: String
-    /// Archive-relative URL reference; may include a fragment.
+    /// Archive-relative URL reference; may include a fragment. nil for a heading, and for a
+    /// link that is remote or cannot name an archive entry.
     public let href: String?
     public let children: [EPUBNavigationItem]
     public init(title: String, href: String? = nil, children: [EPUBNavigationItem] = []) {

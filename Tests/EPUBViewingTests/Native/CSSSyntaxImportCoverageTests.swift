@@ -62,14 +62,22 @@ final class CSSSyntaxImportCoverageTests: XCTestCase {
             @import "../css/../css/./e.css";
             """), ["OPS/fonts/f.css", "OPS/css/x.css", "OPS/css/sub/y.css", "OPS/css/my sheet.css", "OPS/css/café.css", "OPS/css/a.css",
                    "OPS/css/b.css", "OPS/css/c.css", "OPS/css/d.css", "root.css", "OPS/css/e.css"])
-        // Nothing may name a path outside the archive, whatever its spelling.
-        let hostile = ["../../../etc/passwd", "..%2F..%2F..%2Fetc%2Fpasswd", "%2e%2e/%2e%2e/%2e%2e/x.css", "a/../../../../x.css", "%", "%zz",
-                       "%00", "a%00.css", "#", "?", "#frag", "?query", "sub\\\\z.css", "..\\\\..\\\\x.css", ":", " ", "%C3"]
+        // Nothing may name a path outside the archive, whatever its spelling: `..` stops at the
+        // container root and a leading `/` names it (EPUB Reading Systems 3.3 §4.1.1).
+        let climbing = ["../../../etc/passwd": "etc/passwd", "..%2F..%2F..%2Fetc%2Fpasswd": "etc/passwd", "%2e%2e/%2e%2e/%2e%2e/x.css": "x.css",
+                        "a/../../../../x.css": "x.css", "/etc/passwd": "etc/passwd", "/../../x.css": "x.css"]
+        for (target, path) in climbing {
+            XCTAssertEqual(imports("@import \"\(target)\";"), [path], target)
+        }
+        // What does not decode to a path an entry can have names nothing.
+        let hostile = ["%", "%zz", "%00", "a%00.css", "#", "?", "#frag", "?query", "sub\\\\z.css", "..\\\\..\\\\x.css", " ", "%C3", "/", "../../..",
+                       "//example.invalid/x.css"]
         for target in hostile {
             let sheet = sheet("@import \"\(target)\"; p { clear: both }")
             XCTAssertEqual(sheet.imports, [], target)
             XCTAssertEqual(CSSSyntaxSupport.subjects(sheet), ["p"], target)
         }
+        XCTAssertEqual(imports("@import \":\";"), ["OPS/css/:"], "a colon alone is a file name, if an unlikely one")
     }
 
     func testRemoteAndOtherNonArchiveImportsAreCountedAndNeverBecomeArchivePaths() {

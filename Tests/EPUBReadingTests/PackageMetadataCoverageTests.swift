@@ -234,6 +234,22 @@ final class PackageMetadataCoverageTests: XCTestCase {
         XCTAssertEqual(book.tableOfContents, plain.tableOfContents)
     }
 
+    func testNamedCharacterReferencesUnderAnOEBOrNCXDoctypeDoNotVanish() throws {
+        // As EPUB 2 era tools wrote them. The XML parser reports no text and no error for a name
+        // it has no declaration for once an external subset is named, and neither DTD is read.
+        let book = try EPUBPublication.open(data: Fixture.packageVariant(epub2: true, opf: {
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE package PUBLIC \"+//ISBN 0-9673008-1-9//DTD OEB 1.2 Package//EN\"\n"
+                + "  \"http://openebook.org/dtds/oeb-1.2/oebpkg12.dtd\">\n"
+                + $0.replacingOccurrences(of: "A Test Book", with: "Les Mis&eacute;rables").replacingOccurrences(of: "Test Author", with: "Fran&ccedil;ois&nbsp;P.")
+        }, ncx: {
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE ncx PUBLIC \"-//NISO//DTD ncx 2005-1//EN\"\n"
+                + "  \"http://www.daisy.org/z3986/2005/ncx-2005-1.dtd\">\n" + $0.replacingOccurrences(of: "First Chapter", with: "Don&rsquo;t&nbsp;Panic")
+        }))
+        XCTAssertEqual(book.metadata.title, "Les Mis\u{E9}rables")
+        XCTAssertEqual(book.metadata.authors, ["Fran\u{E7}ois\u{A0}P."])
+        XCTAssertEqual(book.tableOfContents.first?.title, "Don\u{2019}t\u{A0}Panic")
+    }
+
     func testAControlCharacterInATitleOrAnNCXLabelReadsAsASpace() throws {
         // doc/architecture.md: a C0 control XML forbids "reads as a space in an ASCII-compatible document".
         let plain = try EPUBPublication.open(data: Fixture.epub(epub2: true))

@@ -149,12 +149,8 @@ final class EPUBCheckTextExtractionCoverageTests: XCTestCase {
                 <item id="r" href="https://example.invalid/remote.mp3" media-type="audio/mpeg"/>
               </manifest><spine><itemref idref="c1"/><itemref idref="s"/></spine></package>
             """
-        let wrapped = EPUBCheckCorpus.container(aroundPackageDocument: Data(opf.utf8))
-        XCTAssertThrowsError(try EPUBPublication.open(data: wrapped), "the remote item is refused, as documented") {
-            XCTAssertEqual($0 as? EPUBPublicationError, .unsafePath("https://example.invalid/remote.mp3"))
-        }
-        let local = opf.replacingOccurrences(of: "<item id=\"r\" href=\"https://example.invalid/remote.mp3\" media-type=\"audio/mpeg\"/>", with: "")
-        let book = try EPUBPublication.open(data: EPUBCheckCorpus.container(aroundPackageDocument: Data(local.utf8)))
+        // The remote item has no stub and is left out, as documented.
+        let book = try EPUBPublication.open(data: EPUBCheckCorpus.container(aroundPackageDocument: Data(opf.utf8)))
         XCTAssertEqual(book.metadata.title, "Wrapped")
         XCTAssertEqual(book.spine.map(\.resource.path), ["EPUB/text/chapter 1.xhtml", "EPUB/plate.svg"])
         XCTAssertEqual(book.resources.map(\.path).sorted(), ["EPUB/nav.xhtml", "EPUB/plate.svg", "EPUB/text/chapter 1.xhtml", "images/a&b.png"])
