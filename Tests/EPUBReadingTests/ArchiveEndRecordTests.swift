@@ -293,6 +293,28 @@ final class ArchiveEndRecordTests: XCTestCase {
         XCTAssertEqual(offset(slice.dropLast()), 89_000)
     }
 
+    func testACutShortRecordIsRefusedBeforeItsDirectoryIsReadOrCopied() throws {
+        // A megabyte of zeros with a ZIP64 end record and locator naming a directory at its
+        // first byte: one record, whose header offset of zero is in its ZIP64 field. Such a
+        // zero is restated in a copy of the archive, and ZIPFoundation is given the copy.
+        let count = 1 << 20, end = count - 22
+        let archive: [(bytes: [UInt8], offset: Int)] = [
+            ([0x50, 0x4B, 0x01, 0x02], 0), ([12, 0], 30), ([0xFF, 0xFF, 0xFF, 0xFF], 42), ([1, 0, 8, 0], 46),
+            ([0x50, 0x4B, 0x06, 0x06], end - 76), ([45, 0], end - 62), ([1], end - 44), ([0x50, 0x4B, 0x06, 0x07], end - 20), (signature, end),
+        ]
+        let whole = try UnreadZeros(count: count)
+        for write in archive { whole.write(write.bytes, at: write.offset) }
+        let restated = ZIP64ZeroValues.inlined(in: whole.data)
+        XCTAssertFalse(try whole.pagesUsed(outside: 0..<58, (end - 76)..<count).isEmpty, "a copy is made, which every page is read for")
+        XCTAssertNotEqual(restated, whole.data, "and the zero is restated in it")
+        // With its end record cut short there is no archive to make, and so no copy, which
+        // ZIPFoundation would have kept as it keeps whatever it refuses.
+        let short = try UnreadZeros(count: count)
+        for write in archive + [([1, 0], end + 20)] { short.write(write.bytes, at: write.offset) }
+        assertOpening(short.data, throws: noEndRecord)
+        XCTAssertEqual(try short.pagesUsed(outside: 0..<58, (end - 76)..<count), [], "pages read for a directory or a copy")
+    }
+
     // ZIPFoundation does not close the file it opens over bytes it then refuses, and that file
     // keeps them (`ArchiveInputReleaseTests`), so opening asks it for an archive only of bytes
     // it forecasts ZIPFoundation will make one of. The forecast is held here to what

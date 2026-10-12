@@ -73,7 +73,9 @@ final class ArchiveInputReleaseTests: XCTestCase {
     // MARK: Bytes ZIPFoundation would refuse
 
     // Each of these reached ZIPFoundation, which read the record at the signature, found the
-    // comment short, said there was no end record and kept the bytes.
+    // comment short, said there was no end record and kept the bytes. Of the ZIP64 book it kept
+    // the copy that restates its zeros, whose release nothing here sees: that no such copy is
+    // made any longer is seen in `ArchiveEndRecordTests`.
     func testBytesWhoseEndRecordIsCutShortAreReleased() throws {
         for (name, bytes) in try cutShort() { assertRefusedAndReleased(bytes, as: noEndRecord, name) }
     }
