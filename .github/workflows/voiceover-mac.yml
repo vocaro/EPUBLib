@@ -1,0 +1,197 @@
+name: Mac VoiceOver
+
+# Real VoiceOver speech sessions on a hosted runner, so that none takes over a workstation.
+# Started by hand only; see "Hosted Mac sessions" in doc/voiceover-testing.md.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: >-
+          Branch, tag or full commit SHA whose reader is built. Empty builds the branch the
+          run is started from.
+        type: string
+      steps:
+        description: >-
+          Steps of scripts/run-voiceover-mac.py, quoted as on a command line, with ; between
+          sessions. Empty runs the page-boundary session.
+        type: string
+      width:
+        description: Window width in points. 600 gives one column and 1100 two.
+        type: string
+        default: '1100'
+      text_size:
+        description: Text size in points at launch.
+        type: string
+        default: '23'
+      flow:
+        description: Reading flow at launch.
+        type: choice
+        options: [paginated, scrolled]
+        default: paginated
+      pause:
+        description: Seconds of speech to record after each key.
+        type: string
+        default: '5'
+      advance_after:
+        description: >-
+          Empty keeps the fixed pause. A number sends the next key that many seconds after a
+          key's first new phrase.
+        type: string
+
+run-name: Mac VoiceOver, ${{ inputs.ref || github.ref_name }}, ${{ inputs.width || '1100' }} wide at ${{ inputs.text_size || '23' }} points
+
+permissions:
+  contents: read
+
+# A newer run for the same ref, window, text size and flow replaces one still in progress.
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.ref || github.ref }}-${{ inputs.width }}-${{ inputs.text_size }}-${{ inputs.flow }}
+  cancel-in-progress: true
+
+jobs:
+  sessions:
+    name: Sessions
+    # The standard label only: a larger runner, such as xcode-27-xlarge, is billed even in a
+    # public repository.
+    runs-on: xcode-27
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      RESULTS: .build/voiceover/results
+      # Read by scripts/run-voiceover-sessions.py, where an empty input takes its default.
+      VOICEOVER_STEPS: ${{ inputs.steps }}
+      VOICEOVER_WIDTH: ${{ inputs.width }}
+      VOICEOVER_TEXT_SIZE: ${{ inputs.text_size }}
+      VOICEOVER_FLOW: ${{ inputs.flow }}
+      VOICEOVER_PAUSE: ${{ inputs.pause }}
+      VOICEOVER_ADVANCE_AFTER: ${{ inputs.advance_after }}
+    steps:
+      - name: Refuse a machine that is not GitHub's
+        run: |
+          # The steps below turn VoiceOver on and change settings of the logged-in user.
+          if [ "$RUNNER_ENVIRONMENT" != github-hosted ]; then
+            echo "::error::This workflow prepares a disposable hosted runner and must not run on $RUNNER_ENVIRONMENT"
+            exit 1
+          fi
+          echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Take the harness from this workflow's commit
+        if: inputs.ref != ''
+        run: |
+          # The reader and the probe are the ref's. The scripts that run a session are this
+          # workflow's, so a ref older than they are can be built and heard too.
+          git fetch --quiet --depth 1 origin "$GITHUB_SHA"
+          git checkout FETCH_HEAD -- scripts/run-voiceover-mac.py scripts/run-voiceover-sessions.py \
+            scripts/voiceover-ax-observer.swift
+
+      - name: Check the inputs and describe the runner
+        run: |
+          python3 scripts/run-voiceover-sessions.py --check
+          mkdir -p "$RESULTS"
+          {
+            echo "Commit: $(git rev-parse HEAD)"
+            echo "Harness: $GITHUB_SHA"
+            echo "Image: xcode-27 $RUNNER_ARCH (${ImageOS:-unknown}) ${ImageVersion:-unknown}"
+            echo "System: $(sw_vers -productName) $(sw_vers -productVersion) $(sw_vers -buildVersion)"
+            csrutil status 2>&1 | head -n 1
+            echo "Xcode: $(xcodebuild -version | tr '\n' ' ')"
+            echo "Processors: $(sysctl -n hw.ncpu), memory: $(($(sysctl -n hw.memsize) / 1073741824)) GB"
+          } | tee "$RESULTS/runner.txt"
+
+      - name: Prepare the runner for VoiceOver
+        run: |
+          # VoiceOver's welcome dialog on a Mac that has never run it.
+          defaults write com.apple.VoiceOverTraining doNotShowSplashScreen -bool true
+          # Each VoiceOver command presses Control, and the default shortcut offers Dictation
+          # for it: the prompt takes the VoiceOver cursor after a few commands.
+          defaults write com.apple.HIToolbox AppleDictationAutoEnable -int 0
+          # XCTest's Automation Running banner is killed and restarted about every ten seconds
+          # on this image, and VoiceOver moves to an instance that survives. Unload its launch
+          # agent; `launchctl disable` does not stop it. This works because the runner has
+          # System Integrity Protection disabled; with it engaged macOS refuses.
+          launchctl bootout "gui/$(id -u)/com.apple.dt.AutomationModeUI" || echo "bootout: exit $?"
+          if launchctl print "gui/$(id -u)/com.apple.dt.AutomationModeUI" > /dev/null 2>&1; then
+            echo "::error::The Automation Running banner's launch agent is still loaded"
+            exit 1
+          fi
+          # The screen is 1024 by 768, which holds the reader's window to 1024 by 674.
+          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install displayplacer xcodegen
+          screen=$(displayplacer list | awk '/^Persistent screen id:/ { print $4; exit }')
+          displayplacer "id:$screen res:1920x1080 hz:60 color_depth:7 enabled:true scaling:off origin:(0,0) degree:0" \
+            || echo "displayplacer: exit $?"
+          sleep 2
+          bounds=$(osascript -e 'tell application "Finder" to get bounds of window of desktop' 2>&1)
+          echo "Screen: $bounds" | tee -a "$RESULTS/runner.txt"
+          if [ "$bounds" != "0, 0, 1920, 1080" ]; then
+            echo "::error::The screen is not 1920 by 1080, so the documented windows may not fit"
+            exit 1
+          fi
+
+      - name: Generate the project
+        run: |
+          python3 scripts/make-voiceover-fixture.py
+          xcodegen generate --spec Examples/VoiceOverVerification/project.yml
+
+      - name: Build for testing, signed ad hoc without a team
+        run: |
+          if ! xcodebuild -project Examples/VoiceOverVerification/VoiceOverVerification.xcodeproj \
+              -scheme VoiceOverProbeMac -destination 'platform=macOS' \
+              -derivedDataPath .build/voiceover/mac \
+              CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= build-for-testing > "$RESULTS/build.log" 2>&1; then
+            grep -E "error:|Signing|requires a development team" "$RESULTS/build.log" | head -n 40
+            tail -n 40 "$RESULTS/build.log"
+            exit 1
+          fi
+          tail -n 2 "$RESULTS/build.log"
+          echo "Built $(($(date +%s) - JOB_START)) s after the job started"
+
+      - name: Run the sessions
+        # The last session ends three minutes before the job's limit, which leaves time to upload.
+        run: python3 scripts/run-voiceover-sessions.py --until $((JOB_START + 17 * 60))
+
+      - name: Collect the end state
+        if: always() && runner.environment == 'github-hosted'
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set +e
+          mkdir -p "$RESULTS"
+          screencapture -x "$RESULTS/screen-end.png"
+          echo "VoiceOver state: $(defaults read com.apple.universalaccess voiceOverOnOffKey 2>&1), process: $(pgrep -lx VoiceOver || echo none)"
+          if [ "$JOB_STATUS" != success ]; then
+            # The banner's starts and the kernel's kills of it, and anything from Dictation.
+            /usr/bin/log show --last 20m --style compact --info --predicate \
+              '(process == "AutomationModeUI" AND subsystem == "com.apple.dt.AutomationModeUI") OR ((process == "kernel" OR process == "launchd") AND eventMessage CONTAINS "AutomationModeUI") OR process == "DictationIM"' \
+              2>&1 | grep -v -E "tccd|static code" | cut -c 1-300 | tail -n 3000 > "$RESULTS/banner-and-dictation.log"
+            echo "Banner starts: $(grep -c 'Successfully spawned AutomationModeUI' "$RESULTS/banner-and-dictation.log"), kills: $(grep -c 'killing_specific_process.*AutomationModeUI' "$RESULTS/banner-and-dictation.log"), Dictation lines: $(grep -c DictationIM "$RESULTS/banner-and-dictation.log")"
+          fi
+          echo "Finished $(($(date +%s) - JOB_START)) s after the job started"
+
+      - name: Upload the transcripts, logs and last screenshot
+        if: always() && runner.environment == 'github-hosted'
+        uses: actions/upload-artifact@v7
+        with:
+          name: voiceover-mac-transcripts
+          path: |
+            .build/voiceover/results/*.txt
+            .build/voiceover/results/*.log
+            .build/voiceover/results/screen-end.png
+          include-hidden-files: true
+          retention-days: 5
+          if-no-files-found: warn
+
+      # Large: each session's bundle is mostly a system log archive.
+      - name: Upload the result bundles of a failed run
+        if: failure() && runner.environment == 'github-hosted'
+        uses: actions/upload-artifact@v7
+        with:
+          name: voiceover-mac-result-bundles
+          path: .build/voiceover/results/*.xcresult
+          include-hidden-files: true
+          retention-days: 5
+          if-no-files-found: warn
