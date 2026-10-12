@@ -147,10 +147,9 @@ final class ReaderTextView: UITextView {
                     return self?.canvas != nil
                 }
             }
-            let tableActions = (tableInteraction?.accessibilityActions() ?? []).map { action in
-                UIAccessibilityCustomAction(name: action.name) { _ in action.perform() }
-            }
-            return (super.accessibilityCustomActions ?? []) + actions + tableActions
+            // Nothing for a table here: VoiceOver offers a container's actions on every element
+            // in it, and a row offers its own cells'.
+            return (super.accessibilityCustomActions ?? []) + actions
         }
         set { super.accessibilityCustomActions = newValue }
     }
@@ -298,14 +297,23 @@ final class ReaderTextView: UITextView {
                 // The break after an attachment that ends its paragraph is a run of its own
                 // with nothing to say: no element, or VoiceOver stops on silence.
                 if attachment == nil, (storage.string as NSString).substring(with: range).allSatisfy(\.isWhitespace) { continue }
-                let element = existing.first { $0.range == range && $0.url == url }
-                    ?? ReaderPageAccessibilityElement(view: self, range: range, url: url)
-                element.accessibilityLabel = plainText(in: range)
+                var label = plainText(in: range)
                 var traits: UIAccessibilityTraits = url == nil ? .staticText : .link
                 // A hidden label is words the page does not show, not a picture.
                 let isSpoken = attachment is SpokenLabelAttachment
+                if attachment is TableRowAttachment {
+                    // A table row is its cells' words, read once where the row stands. A row of
+                    // pictures without words is a picture; one with neither says nothing.
+                    if label.allSatisfy(\.isWhitespace) {
+                        if imageAttachments(in: range).isEmpty { continue }
+                        label = "Book image"
+                        traits.insert(.image)
+                    }
+                } else if attachment != nil, !isSpoken { traits.insert(.image) }
+                let element = existing.first { $0.range == range && $0.url == url }
+                    ?? ReaderPageAccessibilityElement(view: self, range: range, url: url)
+                element.accessibilityLabel = label
                 if attachment != nil {
-                    if !isSpoken { traits.insert(.image) }
                     if let image = attachment as? ReaderImageAttachment {
                         element.accessibilityLabel = image.alt.isEmpty ? "Book image" : image.alt
                     }
@@ -407,7 +415,7 @@ private struct ScrollAccessibilityPlace: Equatable {
                 }
             }
             if view.contentStorage.textStorage?.attribute(.attachment, at: range.location, effectiveRange: nil) is TableRowAttachment {
-                actions += (view.tableInteraction?.accessibilityActions() ?? []).map { action in
+                actions += (view.tableInteraction?.accessibilityActions(at: range.location) ?? []).map { action in
                     UIAccessibilityCustomAction(name: action.name) { _ in action.perform() }
                 }
             }
