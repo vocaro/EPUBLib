@@ -371,14 +371,23 @@ struct EPUBSearchResultPane: View {
     /// Closes the pane when it is a popover or sheet. nil for the inline field.
     let onDismiss: (() -> Void)?
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     var body: some View {
         if controls.searchResults?.isEmpty == false {
             EPUBSearchResultNavigator(controls: controls, showsResultBrowser: onDismiss == nil, showsStatus: false)
             if let onDismiss {
                 EPUBSearchResultList(controls: controls) { _ in if sizeClass == .compact { onDismiss() } }
-                    .frame(minWidth: 260, idealWidth: 340, minHeight: 160, idealHeight: 320, maxHeight: 480)
+                    .frame(minWidth: 260, idealWidth: 340, minHeight: Self.minimumListHeight(verticalSizeClass),
+                           idealHeight: 320, maxHeight: 480)
             }
         }
+    }
+
+    /// An iPhone on its side leaves the pane's sheet about 225 points above the keyboard. With
+    /// 160 of them promised to the list, the pane was taller than its sheet, which cut the field
+    /// and Close Search off the top.
+    static func minimumListHeight(_ verticalSizeClass: UserInterfaceSizeClass?) -> CGFloat {
+        verticalSizeClass == .compact ? 44 : 160
     }
 }

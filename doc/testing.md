@@ -24,6 +24,13 @@ swift test --filter CFI
 bash scripts/test-ios.sh
 ```
 
+A window that mounts a reader for a test calls `keepLightAppearance()` (`ReaderTestWindow.swift`),
+so a reader whose style is System opens light on a Mac or simulator in dark appearance, and the
+suite gives one result by day and in the evening. A test that needs a dark host sets
+`ReaderTestWindow.pageControls.colorScheme`.
+`NativeSessionTests.testAMountedReaderIsLightOnADarkMachineUntilTheTestAsksForDark` holds the
+harness to that with a dark appearance for its own process.
+
 ## Coverage
 
 Parser tests cover EPUB 2/3 structure, navigation, landmarks and page lists, resource access, identity, limits,
@@ -80,6 +87,13 @@ Page-input tests cover default and replaced/cleared shortcuts, exact modifiers, 
 bindings, canvas and child focus, selection chords, live iOS recognizer disabling, Mac wheel
 pass-through and reset, zero/invalid/asymmetric/overlapping zones, RTL, resizing, fold exclusion,
 both reading flows, host commands and iOS VoiceOver page turns with direct input disabled.
+
+Scrolled-read tests hold continuous scroll to the text on screen after the whole book has been
+laid out behind the scroll view, as VoiceOver and a UI test's snapshot do when they ask where
+every paragraph is: scroll steps, a place scrolled to by hand, and the change back to pages.
+The read is a stand-in. A test host loads no text accessibility for an in-process query, so the
+tests ask for each paragraph's rectangle through `firstRect(for:)` on UIKit and
+`accessibilityFrame(for:)` on AppKit, and require that this laid the whole book out.
 
 Highlight paint tests read the pixels the mounted reader's views last drew: none in the
 highlight's color before a search, the matches after it, and none again after Clear Search,

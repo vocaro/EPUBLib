@@ -26,6 +26,19 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
    discloses that saved positions and highlights are unavailable for those sections.
    For that parser a `<` that opens no markup (`x < y`, `p <.05`) is kept as text, as HTML
    reads it; libxml2 alone discards what follows it.
+   That parser is given UTF-8, so an unclosed tag does not change a section's characters:
+   UTF-16 and UTF-32 are decoded first, told by the byte-order mark or NUL pattern the screen
+   tells them by, and any other encoding by the name in the XML declaration as the XML parser
+   reads it, with that parser's decoder. An HTML `<meta charset>` is not read, and a
+   declaration the XML parser rejects names nothing. A document that its declared encoding
+   cannot decode is read as UTF-8, with U+FFFD for what is not. Bytes that only a NUL tells
+   as UTF-16 or UTF-32, and that hold no markup once decoded, are not a document and are
+   withheld. What was decoded by a declared encoding is screened again, and what the parser
+   is given is held to the byte limit.
+   U+0000 does not end the section: it is left out of text and is U+FFFD in tags, comments
+   and the raw text of `script` and `style`, as HTML reads it.
+   A section whose file is cut off inside markup stays withheld, with its disclosure: the
+   screen refuses markup left open at the end of the input before either parser runs.
    `XMLSafety` refuses entity declarations first. No DTD or network access, depth and node limits.
 2. **Style** (`StyleResolver`, `CSSStyleSheet`, `FontRegistry`). A bounded CSS parser and
    cascade over a user-agent stylesheet, the book's archive-local stylesheets and `style`
@@ -185,7 +198,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   place. Nonlinear sections stay out of it, as page turns step over them; navigating to one
   shows it on its own. A book with no linear section keeps every section in both: it scrolls
   and pages through from end to end, where foliate-js stopped at the end of the first section
-  ([#159](https://github.com/vocaro/EPUBLib/issues/159)).
+  ([#159](https://github.com/vocaro/EPUBLib/issues/159)), and each then counts toward
+  progression by its size, where foliate-js weighed them all nothing
+  ([#232](https://github.com/vocaro/EPUBLib/issues/232)).
 - **Content language.** A narrow reading of EPUB Reading Systems 3.3 §3.7, which says a
   reading system "MUST NOT assume either the language or the base direction" of a content
   document from the package (owner decision, 2026-10-11,
@@ -283,6 +298,14 @@ as they did.
   document's end when scrolling is clamped. If estimates cannot align it, or TextKit 2 lays
   that line over other text, the text is loaded afresh and the position shown again
   ([#12](https://github.com/vocaro/EPUBLib/issues/12), [#41](https://github.com/vocaro/EPUBLib/issues/41)).
+  An assistive technology's read lays the whole text out behind the view: VoiceOver and a UI
+  test's snapshot ask where every paragraph is. That replaces the estimates the visible lines
+  were placed by. UIKit goes on drawing the viewport's paragraphs where they were, over the
+  place the finished layout gives other text, so the visible range is read from the paragraphs
+  the viewport laid out, once it has been laid out again where the view stands. AppKit would
+  draw the finished layout at the old offset, a chapter away, at the next scroll, so while the
+  view has not moved since it was last read, the reader first scrolls by as much as the first
+  visible line has moved.
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
@@ -452,7 +475,8 @@ change of the current match, and nil when a clear, another query, a failure, a c
 `.relocated` reports the opening position (the text start, see Decisions). `.relocated`
 carries the section href, overall progression (by section byte size, as foliate-js computed it),
 the table-of-contents title for the position, the page-list entries it shows (see Decisions)
-and the visible range's CFIs. A selection's `.selectionChanged` event and host selection action
+and the visible range's CFIs. A nonlinear section counts nothing toward progression unless no
+section is linear (see Decisions). A selection's `.selectionChanged` event and host selection action
 carry the same complete passage: `text` omits nonlinear sections, and `location.rangeBookmarks`
 preserves all included documents. Its `page` names the entry in effect at its start and `pages`
 includes the entries it spans, omitting nonlinear pages. Save the entire `EPUBLocation` and pass
