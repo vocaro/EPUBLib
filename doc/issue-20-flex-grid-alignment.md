@@ -274,15 +274,34 @@ scroll on both simulators (160 captures). No line leaves its column or page. In 
 all of *Tristram Shandy*'s asterisk rows, an asterisk and the prose after it overlap
 (finding 7); the title pages and the imprint have no overlap.
 
-### Choices awaiting the owner
+### The four choices
 
 Four decisions described under [Flows](#flows) and in the
-[native viewer](native-viewer.md#flex-and-grid-alignment) were made without review: the
-viewport height in continuous scroll is the live visible reading area; a position that starts
-an aligned box rests the box's top edge at the top; a box is at most one viewport, so
-`min-height: 150vh` behaves as `100vh`; and a one-page epigraph leaves the second column of a
-spread empty. Each was captured with a plain description for the owner to judge; they are
-unchanged until he has.
+[native viewer](native-viewer.md#flex-and-grid-alignment) were made without review. Each was
+captured on the iPhone and iPad simulators and on the Mac with a plain description of what is
+on screen. On 2026-10-12 the owner, shown them, called them minor cosmetic matters he had no
+strong feelings about and left the judgement to the agent that ran this check. All four are
+kept, for these reasons:
+
+- **The viewport height in continuous scroll is the visible reading area.** A full-page
+  dedication or epigraph then takes one visible screen with its text in the middle, which is
+  what the book asks for: where the engines break lines alike, the block's top and middle are
+  within 0.2 points of WebKit's on the simulators. It is also the viewport images already use.
+  The cost is that a box is resolved again when a host shows or hides a bar: the box grows by
+  the bar's 53 points and the text of a dedication on screen moves 26. A fixed height would
+  hold the text still but leave the box taller than the screen, and its text off centre,
+  whenever a bar shows.
+- **A position that starts an aligned box rests the box's top edge at the top.** The page is
+  then seen as it was composed, as in paging. Resting the first line there instead would put a
+  centred dedication at the top of the screen with all of its blank space below. The last lines
+  of the section before show in the top margin, as they do above any position.
+- **A box is at most one viewport, so `min-height: 150vh` behaves as `100vh`.** In paging the
+  cap keeps a box and its text on one page with no blank page after it. In continuous scroll
+  the box is half a screen shorter than WebKit makes it, all of it blank space. None of the ten
+  titles asks for more than one viewport.
+- **A one-page epigraph leaves the second column of a spread empty.** That is the paging rule
+  for every section (a section starts a spread), not something the alignment added. Changing
+  it would repaginate every book with a short section, which is outside this check.
 
 ### Environment
 
@@ -308,7 +327,6 @@ and the Mac run have no failure.
   with WebKit.
 - No VoiceOver session.
 - The larger qualification corpus (`EPUBLIB_CORPUS`), which is not configured on this Mac.
-- The four choices above, which are the owner's to judge.
 
 ## Remaining boundaries
 
