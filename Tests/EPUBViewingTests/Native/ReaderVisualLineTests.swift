@@ -97,6 +97,61 @@ final class ReaderVisualLineTests: XCTestCase {
         XCTAssertEqual(NSMaxRange(visible), section.string.length)
     }
 
+    /// A rest is accepted within a point of the top, and the line above ends where the rested
+    /// one starts: a sliver of a line at either edge is in the viewport and not on screen.
+    func testLinesShowingLessThanHalfAtAnEdgeAreNotMostlyInTheViewport() {
+        let lines = [line(0, 30, x: 0, y: 0), line(30, 30, x: 0, y: 20), line(60, 30, x: 0, y: 40), line(90, 30, x: 0, y: 60)]
+        func mostly(_ y: CGFloat, _ height: CGFloat) -> NSRange? {
+            ReaderVisualLine.sourceRange(mostlyWithin: CGRect(x: 0, y: y, width: 300, height: height), in: lines)
+        }
+        // Half a point of the first line and of the last.
+        XCTAssertEqual(ReaderVisualLine.sourceRange(intersecting: CGRect(x: 0, y: 19.5, width: 300, height: 41), in: lines),
+                       NSRange(location: 0, length: 120))
+        XCTAssertEqual(mostly(19.5, 41), NSRange(location: 30, length: 60))
+        // What arithmetic alone leaves of them.
+        XCTAssertEqual(mostly(20 - 1e-12, 40 + 2e-12), NSRange(location: 30, length: 60))
+        // A point cut off the first line on screen and the last.
+        XCTAssertEqual(mostly(21, 38), NSRange(location: 30, length: 60))
+        // Half a line counts, as a line whose middle is at the top does where TextKit places lines.
+        XCTAssertEqual(mostly(10, 60), NSRange(location: 0, length: 120))
+        XCTAssertEqual(mostly(10.5, 59), NSRange(location: 30, length: 60))
+        // The horizontal viewport still limits what is on screen.
+        XCTAssertNil(ReaderVisualLine.sourceRange(mostlyWithin: CGRect(x: 150, y: 20, width: 150, height: 40), in: lines))
+    }
+
+    func testAFloatCountsByItsOwnFrameAmongLinesMostlyInTheViewport() {
+        // An initial three lines tall at the left, earlier in the source than the prose beside it.
+        let lines = [line(0, 1, x: 0, y: 0, width: 40, height: 60), line(1, 40, x: 50, y: 0), line(41, 40, x: 50, y: 20),
+                     line(81, 40, x: 50, y: 40), line(121, 40, x: 0, y: 60)]
+        func mostly(_ y: CGFloat) -> NSRange? {
+            ReaderVisualLine.sourceRange(mostlyWithin: CGRect(x: 0, y: y, width: 300, height: 100 - y), in: lines)
+        }
+        XCTAssertEqual(mostly(20), NSRange(location: 0, length: 161), "the initial is mostly on screen beside the second line")
+        XCTAssertEqual(mostly(40), NSRange(location: 81, length: 80), "its last third is not")
+    }
+
+    func testALineTallerThanTheViewportIsOnScreenWhereItHoldsTheMiddle() {
+        // A table row three screens tall below a line of prose.
+        let lines = [line(0, 30, x: 0, y: 0), line(30, 1, x: 0, y: 20, width: 300, height: 900), line(31, 30, x: 0, y: 920)]
+        func mostly(_ y: CGFloat) -> NSRange? {
+            ReaderVisualLine.sourceRange(mostlyWithin: CGRect(x: 0, y: y, width: 300, height: 300), in: lines)
+        }
+        XCTAssertEqual(mostly(19.5), NSRange(location: 30, length: 1), "rested half a point low: not the line above")
+        XCTAssertEqual(mostly(400), NSRange(location: 30, length: 1))
+        XCTAssertEqual(mostly(700), NSRange(location: 30, length: 31), "the line after it is mostly on screen too")
+    }
+
+    func testEveryLineInTheViewportCountsWhenItMostlyShowsNone() {
+        // The space an aligned box keeps above its first line fills the viewport.
+        let lines = [line(0, 30, x: 0, y: 0), line(30, 30, x: 0, y: 400)]
+        XCTAssertEqual(ReaderVisualLine.sourceRange(mostlyWithin: CGRect(x: 0, y: 15, width: 300, height: 390), in: lines),
+                       NSRange(location: 0, length: 60))
+        XCTAssertEqual(ReaderVisualLine.sourceRange(mostlyWithin: CGRect(x: 0, y: 15, width: 300, height: 300), in: lines),
+                       NSRange(location: 0, length: 30))
+        XCTAssertNil(ReaderVisualLine.sourceRange(mostlyWithin: CGRect(x: 0, y: 30, width: 300, height: 300), in: lines))
+        XCTAssertNil(ReaderVisualLine.sourceRange(mostlyWithin: .zero, in: lines))
+    }
+
     func testEmptyViewportAndLinesOutsideItHaveNoVisibleSourceRange() {
         let lines = [line(20, 30, x: 0, y: 50), line(50, 0, x: 0, y: 0)]
         XCTAssertNil(ReaderVisualLine.sourceRange(intersecting: .zero, in: lines))
