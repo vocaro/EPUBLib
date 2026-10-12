@@ -6,6 +6,10 @@ session, mounts a view, or takes over `onEvent`. Controls may be attached after 
 Keep one model per session, even when reopening the same publication. Call
 `controls.cancelPendingCommands()` when discarding it and `session.close()` when leaving the book.
 
+The controls were operated live on iPhone, iPad and iPhone Duo simulators and in a Mac window;
+[issue-49-51-controls-qualification.md](issue-49-51-controls-qualification.md) records what was
+seen, what was fixed and what is still unverified.
+
 Add the toolbar inside the host's `NavigationStack` on iPhone/iPad or window on Mac. The sample
 contains this compiled integration example:
 

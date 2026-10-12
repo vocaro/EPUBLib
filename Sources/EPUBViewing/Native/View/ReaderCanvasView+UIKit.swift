@@ -118,6 +118,15 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         view.readerLayoutManager.textViewportLayoutController.layoutViewport()
     }
 
+    /// Stands the viewport's fragments where the scroll view draws them, before the screen is
+    /// read. A layout of the whole text behind the view, which VoiceOver's read of every
+    /// paragraph's frame makes, moves them to their exact places in the document, while UIKit
+    /// goes on drawing them where the estimates had put them, in content as tall as it was.
+    /// Laying the viewport out again moves them back under what is drawn and takes the height.
+    func settleScrollViewport() {
+        scrollTextView?.readerLayoutManager.textViewportLayoutController.layoutViewport()
+    }
+
     private var maximumScrollOffset: CGFloat {
         guard let view = scrollTextView else { return 0 }
         let insets = view.adjustedContentInset

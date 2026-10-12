@@ -168,7 +168,30 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   a line crossing a rowspan boundary is finished in its preceding row and never drawn twice.
   Continuous scroll retains full row heights. Tables too wide for the line shrink their text
   to 60%, then wrap by character. A single glyph line taller than a page is fitted as a whole.
-  One-column tables, which books use as callout boxes, flow as ordinary text. Visible cells have
+  One-column tables, which books use as callout boxes, flow as ordinary text: a table is a grid
+  when the cells written in its rows take more than one column. Nothing a table holds is
+  dropped. XHTML is parsed as XML, which repairs no tree, so content written outside a table's
+  rows and cells arrives where it was written, and a grid gives it the anonymous rows and cells
+  of CSS 2.2 §17.2.1: a row around what a table or a row group holds outside its rows (text,
+  other elements, cells without a row, a table, a caption in a row group), and a cell around
+  what a row holds outside its cells. A row written in a row, a row group written in a row or
+  a row group, and rows written in another element there (a `div`, a `form`) are such content
+  too: their cells show as stacked paragraphs in one anonymous cell. Anonymous rows and cells
+  have no padding or borders of their own, are located, selected and searched like any cell,
+  and exist only for content that shows: white space, comments, scripts and hidden elements
+  make none, and what is written in a `col` or a `colgroup` has no box. They take part in the
+  grid as CSS has it, so a `rowspan` from the row above can end on an anonymous row and a
+  column can widen to an anonymous cell's content. The forgiving HTML parser moves nothing out
+  of a table either, so recovered markup is shown the same way, in place rather than ahead of
+  the table. Every caption is shown, above or below the rows as its own `caption-side` says.
+  A grid holds 200 columns and 20,000 cells. A cell whose `colspan` runs past the 200th column
+  reaches the table's last column when it is the last cell of its row, and then takes one row
+  whatever its `rowspan`. A cell the grid has no slot for follows the table as a paragraph of
+  its own in reading order, and the `.disclosure` says so: a cell with such a span that is not
+  the last of its row (the cells written after it keep their slots) or that follows another
+  cell left out of that row, a cell starting past the 200th column, and every cell past the
+  20,000th.
+  Visible cells have
   native text interaction surfaces aligned to their drawn glyphs: select and Copy cell text,
   invoke the host's selection action, follow internal links and open notes. External links retain
   the reader's refusal notice. Cell selections, located passages and saved highlights use exact
@@ -298,6 +321,14 @@ as they did.
   document's end when scrolling is clamped. If estimates cannot align it, or TextKit 2 lays
   that line over other text, the text is loaded afresh and the position shown again
   ([#12](https://github.com/vocaro/EPUBLib/issues/12), [#41](https://github.com/vocaro/EPUBLib/issues/41)).
+  An assistive technology's read lays the whole text out behind the view: VoiceOver and a UI
+  test's snapshot ask where every paragraph is. That replaces the estimates the visible lines
+  were placed by. UIKit goes on drawing the viewport's paragraphs where they were, over the
+  place the finished layout gives other text, so the visible range is read from the paragraphs
+  the viewport laid out, once it has been laid out again where the view stands. AppKit would
+  draw the finished layout at the old offset, a chapter away, at the next scroll, so while the
+  view has not moved since it was last read, the reader first scrolls by as much as the first
+  visible line has moved.
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
@@ -558,7 +589,10 @@ Go: the native viewer is the bundled engine.
   viewport-relative font sizes and media queries remain based on that nominal viewport.
 - Whole-table bookmarks and visible row ranges retain attachment granularity. A resize or
   flow change without a precise cell endpoint returns a continued row to its source position
-  rather than preserving its particular visual fragment.
+  rather than preserving its particular visual fragment. A table's captions, and the cells
+  past its bounds that follow it, are located as the table, not by their characters. A table
+  that holds only cells written outside rows flows as text, a paragraph for each cell, rather
+  than as the one anonymous row CSS gives them.
 - MathML is laid out by MathMLLayout 0.1.1, which has no line breaking, `mglyph`, elementary
   math or localized speech; the reader works around each as far as the engine's API allows
   ([#25](https://github.com/vocaro/EPUBLib/issues/25)):
@@ -608,6 +642,36 @@ Go: the native viewer is the bundled engine.
   publisher corpus renders all 33 SVG resources, including six containing shadow filters
   ([verification](issue-53-svg-diagrams.md)). Rendering limits
   include 4 MiB of SVG, 10,000 nodes, depth 64 and 8 MiB of expanded local references.
+  Two amplifications the byte and node limits do not catch are bounded too, and an SVG past
+  either shows its fallback text with the `svg` disclosure, as one past the node, depth or
+  byte limits does. One `<text>` run, whose layout is super-linear in its length, is held to
+  20,000 characters, and an SVG that holds a `<tref>`, which SVG 2 removed and which draws
+  text from elsewhere in the document into a run, is refused. Markers, whose content the
+  renderer builds again at every vertex they are drawn at, are counted in the forms diagrams
+  use and refused in any other, rather than modelled.
+  - Supported: `marker-start`, `marker-mid` and `marker-end` as attributes, or those and
+    `marker` in a `style` attribute, on a shape or on a group around it, a `<use>` of it
+    included; and a `<marker>` that holds only `path`, `line`, `polyline`, `polygon`, `rect`,
+    `circle` and `ellipse`, with `<g>`, `<title>` and `<desc>`, painted with colors,
+    `currentColor`, `context-fill` or `context-stroke`. That is how Inkscape, Mermaid, D3 and
+    OmniGraffle write arrowheads and data points.
+  - Counted: each time a marker is drawn, one for each element in it, and one more for every
+    64 bytes of attributes an element has or inherits; a `marker-mid` is drawn at every
+    vertex, a vertex being a number in the path data or points. A dash array of 64 bytes or
+    more on the shape that bears the marker, and a stylesheet declaration as long, add to each.
+    A drawing tool's arrowhead counts ten to twenty with its attributes. An SVG may reach
+    100,000: some thousands of arrowheads, or of data points on a line.
+  - Refused: a `<style>` sheet that holds a `url(#…)` in an SVG that has a `<marker>`, so a
+    marker given by a class (`.edge { marker-end: url(#arrow) }`) is to be given by attribute
+    instead; a marker property, or a `fill` or `stroke` that names a gradient, on a
+    `<marker>` or on an element that contains one; a `url(…)`, an `href` or a `filter` inside
+    a `<marker>`, and any other element there, such as `<use>`, `<image>`, `<text>` or a
+    nested `<svg>`; a shape that bears a marker inside a `<mask>`; `marker-mid` on a path
+    with an elliptical arc, or on a `circle`, `ellipse` or rounded `rect` whose radius is not
+    a plain number, and either of those inside a `<marker>`; and a marker that uses
+    `context-fill` or `context-stroke` on a shape whose own fill or stroke is a gradient.
+
+  The renderer draws no marker on a shape inside a `<clipPath>`, so none is counted there.
   Embedded raster images are capped at 4 megapixels each and 16 megapixels in total.
   Output is capped at 4,096 pixels on its long side and 16 megapixels, reduced further for
   isolated layers to fit the raster working-memory budget. SVG text uses outline fonts;
