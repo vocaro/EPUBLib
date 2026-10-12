@@ -32,7 +32,8 @@ tables removed and disclosed as `svg:font-color`. No script or remote/file-resou
 installed. SVG filter effects are omitted before rendering with a disclosure; the remaining
 drawing is preserved. Pattern fills are refused with authored fallback text and a disclosure;
 the native pipeline bounds SVG bytes, depth, nodes, use expansion, single text-run
-length, marker instances, image bytes and pixels, and output/isolated-layer raster
+length, marker instances, the per-shape copies of gradient stops, dash arrays and long
+inherited paint values, image bytes and pixels, and output/isolated-layer raster
 memory before rendering. Font databases
 share immutable options and retain a process-wide 64 MiB byte reservation for
 their full lifetime, including SVG trees remaining after cache eviction. A database

@@ -672,6 +672,29 @@ Go: the native viewer is the bundled engine.
     `context-fill` or `context-stroke` on a shape whose own fill or stroke is a gradient.
 
   The renderer draws no marker on a shape inside a `<clipPath>`, so none is counted there.
+
+  The renderer also copies or re-reads some shared and inherited values once per painted shape,
+  which neither the byte nor the node limit catches, so a file of a few hundred kilobytes can make
+  it allocate hundreds of megabytes or parse for most of a minute. Each is charged per shape, up to
+  a ceiling of the expansion limit; each shape is charged the most that it or any ancestor, through
+  every `<use>` that draws it, could ask for, so the count never falls below what the renderer does.
+  - A gradient's stops are copied into a fresh paint server for every shape it paints by `fill` or
+    `stroke`, directly or inherited, in an attribute or a `style` declaration, through a gradient
+    `href` chain, and through each `<use>`; each shape is charged the stops its fill names and those
+    its stroke names. A stylesheet that paints with a gradient is taken to reach every shape.
+  - A stroke's dash array is stored for every stroked shape that has or inherits one; each shape is
+    charged its dash-array bytes, an upper bound on its entries.
+  - A long inherited `fill` or `stroke` is re-parsed for every shape that inherits it; each shape is
+    charged its bytes over 64. A value in a `style` attribute or a stylesheet is already tokenized,
+    so only a long attribute value counts, but a stylesheet's longest declaration, copied onto every
+    element a rule matches, is charged to each shape.
+  - A `<text>` run copies its fill, stroke, three text decorations and font family for every span,
+    and a run has at most one span per character, so a run is charged its characters times those
+    copies. A gradient with a handful of stops on thousands of shapes, dashed strokes on a large
+    chart, and long but ordinary values (a path's `d`, a `points` list, a `transform`, an embedded
+    `data:` image, a normal `font-family`) stay well within the ceiling. A mask's content is charged
+    once, not once per element that references the mask (#220 covers that multiplication).
+
   Embedded raster images are capped at 4 megapixels each and 16 megapixels in total.
   Output is capped at 4,096 pixels on its long side and 16 megapixels, reduced further for
   isolated layers to fit the raster working-memory budget. SVG text uses outline fonts;

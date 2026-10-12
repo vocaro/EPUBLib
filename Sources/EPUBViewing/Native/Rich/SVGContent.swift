@@ -33,6 +33,13 @@ enum SVGContent {
     /// `<use>` it follows, in what is drawn and again in each mask. An SVG within
     /// `maximumExpandedBytes`, at 32 bytes or more an element, cannot reach it.
     static let markerStepBudget = 4 * (maximumExpandedBytes / 32)
+    /// The copies of shared and inherited values the renderer makes per painted shape, which the
+    /// node and expansion limits do not count: a gradient's stops for each shape it paints, a
+    /// dash array for each stroked shape, and a long inherited `fill`/`stroke` re-parsed per shape.
+    /// A unit is roughly one stop copied or one byte re-read; this ceiling matches the expansion
+    /// limit, so at it the renderer spends memory and time on the order of what that limit allows.
+    /// `copyVerdict` holds what an SVG can reach.
+    static let maximumSharedCopies = maximumExpandedBytes
     /// Shapes whose vertices can carry a marker, and whose geometry the renderer builds.
     private static let markerableShapes: Set<String> = ["path", "line", "polyline", "polygon", "rect", "circle", "ellipse"]
     /// All that a `<marker>` may hold.
@@ -192,9 +199,11 @@ enum SVGContent {
             costs[key] = total
             return total
         }
-        // Markers are counted once the byte cost passes: `<use>` expansion is then bounded, every
-        // element it draws having cost 32 bytes or more, and that bounds the walk that counts them.
+        // Markers and per-shape copies are counted once the byte cost passes: `<use>` expansion is
+        // then bounded, every element it draws having cost 32 bytes or more, and that bounds the
+        // walks that count them.
         return cost(svg, depth: 0) != nil && markerVerdict(svg, nodes: nodes, ids: ids).withinLimits
+            && copyVerdict(svg, nodes: nodes, ids: ids).withinLimits
     }
 
     /// Whether every `<text>` element's run is within the per-run character bound. A run is the
@@ -430,6 +439,203 @@ enum SVGContent {
         }
         collect(svg)
         return markerVerdict(svg, nodes: nodes, ids: elementsByID(nodes), stepBudget: stepBudget)
+    }
+
+    // MARK: Per-shape copies
+
+    /// The verdict on what the renderer copies per painted shape, with the copies counted and the
+    /// steps the walk took, so a test can assert both instead of timing the check.
+    typealias CopyVerdict = (withinLimits: Bool, copies: Int, steps: Int)
+
+    /// What an element's `fill`, `stroke` and `stroke-dasharray` ask of the shapes below it, each of
+    /// which is inherited: the stops of the gradient its fill or stroke could name, the bytes of its
+    /// dash array, the bytes of a `fill`/`stroke` the renderer re-parses for every shape, and the
+    /// bytes of a `font-family` text copies per span. One element's declaration only ever raises
+    /// what another's set, never lowers it (the marker bound's rule), so a declaration the renderer
+    /// ignores cannot hide one it honours.
+    private struct Copied {
+        var fillStops = 0, strokeStops = 0
+        var dashBytes = 0
+        var fillBytes = 0, strokeBytes = 0
+        var familyBytes = 0
+
+        mutating func raise(to other: Copied) {
+            fillStops = max(fillStops, other.fillStops); strokeStops = max(strokeStops, other.strokeStops)
+            dashBytes = max(dashBytes, other.dashBytes)
+            fillBytes = max(fillBytes, other.fillBytes); strokeBytes = max(strokeBytes, other.strokeBytes)
+            familyBytes = max(familyBytes, other.familyBytes)
+        }
+    }
+
+    /// Whether what the renderer copies per painted shape stays within `maximumSharedCopies`. The
+    /// renderer is not modelled; each shape is charged the most that it or any ancestor, through
+    /// every `<use>` that draws it, could ask for, so the count never falls below what the renderer
+    /// does. For a shape the markers do not count here:
+    ///
+    ///  1. The renderer copies a gradient's stops into a fresh paint server for every shape it
+    ///     paints by `fill` or `stroke`, directly or inherited, in an attribute or a `style`
+    ///     declaration, through a gradient `href` chain, and through each `<use>`. Each shape is
+    ///     charged the stops of the gradient its fill names and those its stroke names.
+    ///  2. The renderer stores a stroke's dash array for every stroked shape that has or inherits
+    ///     one. Each shape is charged its dash-array bytes, an upper bound on its entries.
+    ///  3. The renderer re-reads and re-parses an inherited `fill`/`stroke` for every shape that
+    ///     inherits it, and a `style` attribute and stylesheet value it has already tokenized is
+    ///     cheaper, so only a long attribute value is charged, as bytes over 64.
+    ///  4. A stylesheet value is copied onto every element a rule matches, so each shape is charged
+    ///     the longest declaration of any `<style>`, and the largest gradient any stylesheet names,
+    ///     since the selectors are not evaluated.
+    ///  5. `<text>` copies its fill, stroke, three text decorations and font family for every span,
+    ///     and a run has at most one span per character, so a `<text>` is charged its characters
+    ///     times four fill-and-stroke stop copies, its dash and family bytes, and the re-parse.
+    ///
+    /// A mask's content is drawn once here, not once per element that references the mask (#220);
+    /// a gradient inherited from above a mask onto the mask's content is not charged.
+    static func copyVerdict(_ svg: ContentNode, nodes: [ContentNode], ids: [String: [ContentNode]],
+                            stepBudget: Int = markerStepBudget) -> CopyVerdict {
+        // The stops of each gradient, by every id it has, following an `href` chain to the first
+        // gradient that holds stops as the renderer does, and the largest, for a reference not
+        // resolved to one gradient. The chain is bounded by depth, so a loop (#229) terminates.
+        var gradientStops: [String: Int] = [:]
+        var largestGradient = 0
+        func stopCount(_ gradient: ContentNode, depth: Int) -> Int {
+            guard depth <= maximumDepth else { return 0 }
+            let direct = gradient.elementChildren.reduce(0) { $0 + ($1.name == "stop" ? 1 : 0) }
+            if direct > 0 { return direct }
+            guard let id = fragment(gradient) else { return 0 }
+            var best = 0
+            for target in ids[id] ?? [] where target.name == "linearGradient" || target.name == "radialGradient" {
+                best = max(best, stopCount(target, depth: depth + 1))
+            }
+            return best
+        }
+        for node in nodes where node.name == "linearGradient" || node.name == "radialGradient" {
+            let count = stopCount(node, depth: 0)
+            largestGradient = max(largestGradient, count)
+            for attribute in node.attributes where attribute.name == "id" {
+                gradientStops[attribute.value] = max(gradientStops[attribute.value] ?? 0, count)
+            }
+        }
+        func stops(_ reference: Reference) -> Int {
+            switch reference {
+            case .none: 0
+            case .id(let id): gradientStops[id] ?? 0
+            case .unknown: largestGradient
+            }
+        }
+
+        // Rule 4: a stylesheet's longest declaration, copied onto every matched element, and the
+        // largest gradient any stylesheet paints with, taken to reach every shape. The paint scan
+        // runs only when the SVG holds a gradient, the one case a stylesheet paint can amplify.
+        let sheets = nodes.filter { $0.name == "style" }.map(\.textContent)
+        let sheetBytes = sheets.map(longestDeclaration).max() ?? 0
+        var sheetStops = 0
+        if largestGradient > 0 {
+            for sheet in sheets {
+                declarations(in: sheet) { property, reference in
+                    if property.contains(.paint) { sheetStops = max(sheetStops, stops(reference)) }
+                }
+            }
+        }
+
+        // Rules 1 to 3: what one element's attributes and `style` declare. Each element is read
+        // once, however often a `<use>` draws it, and kept by its place in the SVG.
+        var elements = [Copied?](repeating: nil, count: svg.subtreeEnd - svg.order + 1)
+        func element(_ node: ContentNode) -> Copied {
+            if let known = elements[node.order - svg.order] { return known }
+            var copied = Copied()
+            for attribute in node.attributes {
+                switch attribute.name {
+                case "fill":
+                    copied.fillStops = max(copied.fillStops, stops(reference(Array(attribute.value.utf8), from: 0)))
+                    copied.fillBytes = max(copied.fillBytes, attribute.value.utf8.count)
+                case "stroke":
+                    copied.strokeStops = max(copied.strokeStops, stops(reference(Array(attribute.value.utf8), from: 0)))
+                    copied.strokeBytes = max(copied.strokeBytes, attribute.value.utf8.count)
+                case "stroke-dasharray": copied.dashBytes = max(copied.dashBytes, attribute.value.utf8.count)
+                case "font-family": copied.familyBytes = max(copied.familyBytes, attribute.value.utf8.count)
+                case "style":
+                    declarations(in: attribute.value) { property, reference in
+                        // A paint declaration names fill or stroke indistinguishably here; charged to
+                        // both, as a declaration never lowers the charge.
+                        if property.contains(.paint) {
+                            copied.fillStops = max(copied.fillStops, stops(reference))
+                            copied.strokeStops = max(copied.strokeStops, stops(reference))
+                        }
+                        if property.contains(.dash) { copied.dashBytes = max(copied.dashBytes, longestDeclaration(attribute.value)) }
+                    }
+                default: break
+                }
+            }
+            elements[node.order - svg.order] = copied
+            return copied
+        }
+
+        var copies = 0
+        var steps = 0
+        func step() -> Bool {
+            steps += 1
+            return steps <= stepBudget
+        }
+        /// Charges the shape or text at `node`, whose inherited values are `here`.
+        func charge(_ node: ContentNode, _ here: Copied) -> Bool {
+            let fillStops = max(here.fillStops, sheetStops), strokeStops = max(here.strokeStops, sheetStops)
+            let parseBytes = (here.fillBytes + here.strokeBytes) / 64
+            if markerableShapes.contains(node.name) {
+                copies += fillStops + strokeStops + here.dashBytes + sheetBytes + parseBytes
+            } else if node.name == "text" {
+                // A run has at most one span per character; each copies fill, stroke and three
+                // decorations (four fill-and-stroke pairs) and the family, and re-parses the rest.
+                let perSpan = 4 * (fillStops + strokeStops) + here.dashBytes + here.familyBytes + sheetBytes + parseBytes
+                copies += textCharacters(node) * perSpan
+            }
+            return copies <= maximumSharedCopies
+        }
+        func walk(_ node: ContentNode, above: Copied, depth: Int) -> Bool {
+            guard step(), depth <= maximumDepth else { return false }
+            var here = above
+            here.raise(to: element(node))
+            guard charge(node, here) else { return false }
+            if node.name == "text" { return true } // Its spans are charged; its children draw nothing.
+            let targets = node.name == "use" ? fragment(node).flatMap { ids[$0] } ?? [] : []
+            for target in targets {
+                guard step(), walk(target, above: here, depth: depth + 1) else { return false }
+            }
+            for child in node.children where child.isElement && !unrendered.contains(child.name) {
+                guard walk(child, above: here, depth: depth + 1) else { return false }
+            }
+            return true
+        }
+        guard walk(svg, above: Copied(), depth: 0) else { return (false, copies, steps) }
+        // A mask's content is drawn where the mask is used; charge it once, from no inherited paint.
+        for mask in nodes where mask.name == "mask" {
+            for child in mask.children where child.isElement && !unrendered.contains(child.name) {
+                guard walk(child, above: Copied(), depth: 1) else { return (false, copies, steps) }
+            }
+        }
+        return (true, copies, steps)
+    }
+
+    /// `copyVerdict` for an SVG on its own, for tests.
+    static func copyVerdict(_ svg: ContentNode, stepBudget: Int = markerStepBudget) -> CopyVerdict {
+        var nodes: [ContentNode] = []
+        func collect(_ node: ContentNode) {
+            nodes.append(node)
+            for child in node.elementChildren { collect(child) }
+        }
+        collect(svg)
+        return copyVerdict(svg, nodes: nodes, ids: elementsByID(nodes), stepBudget: stepBudget)
+    }
+
+    /// The characters in a `<text>` element's run, its own and its descendants', capped at the
+    /// per-run bound that `textRunsAreBounded` has already applied, so the count is linear.
+    private static func textCharacters(_ text: ContentNode) -> Int {
+        var characters = 0
+        func count(_ node: ContentNode) {
+            if node.isText { characters += node.text.unicodeScalars.count }
+            for child in node.children where characters <= maximumTextRunCharacters { count(child) }
+        }
+        count(text)
+        return min(characters, maximumTextRunCharacters)
     }
 
     /// The size of a marker — what one instance of it costs the renderer, which converts the
