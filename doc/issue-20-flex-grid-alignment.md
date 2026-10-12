@@ -508,8 +508,8 @@ and the Mac run have no failure.
   Gatsby* at 1,000 points wide the dedication was 98 points low after the height went from
   1,000 to 800, with a position in the imprint reported, and 98 points high after 800 to
   1,000, on some resizes and not others; a change of width shows the box whole again. This is
-  older than the change above. Before that change a box that had rested a fraction low sat
-  one line down after a resize instead, so a change of height now does this wherever it does
-  anything ([#313](https://github.com/vocaro/EPUBLib/issues/313)). The resize keeping the
-  visible start whether or not the person has scrolled is
+  older than the change above, and can now happen where a box that had rested a fraction low
+  used to sit one line down after a resize instead
+  ([#313](https://github.com/vocaro/EPUBLib/issues/313)). The resize keeping the visible start
+  whether or not the person has scrolled is
   [#164](https://github.com/vocaro/EPUBLib/issues/164).
