@@ -78,11 +78,42 @@ The keyboard leaves the sheet 177 points there, not the 225 or so this record fi
 again at `e47700f`: the keys begin at y = 222, their suggestions take the 45 points over them,
 the list ends at y = 161 and the sheet's padding at 177. The field, its buttons, the match
 navigator and the padding take 125 of the 177, so at the default text size the list has 8
-points more than its minimum. At larger sizes the content is taller than the sheet again. At
-the largest ordinary size (`extra-extra-extra-large`) the field is at y = 8. At the first
-accessibility size (`accessibility-medium`) it is at y = −2 and Close Search at y = 1, and at
-the largest (`accessibility-extra-extra-extra-large`) the field, 73 points tall, is at y = −58
-and Close Search, 66 tall, at y = −54. That was not changed here.
+points more than its minimum.
+
+**At larger text sizes the same sheet lost its field again**
+([#291](https://github.com/vocaro/EPUBLib/issues/291)). Clear Search and the match navigator
+grow with the text and only the list gave way, so from the second size above the default the
+content was taller than the 177 points. Seen at `2187f80`: the field was at y = 13 at
+`extra-extra-large`, y = 8 at `extra-extra-extra-large`, y = −2 at `accessibility-medium`, and
+at `accessibility-extra-extra-extra-large` the field, 73 points tall, was at y = −58 and Close
+Search, 66 tall, at y = −54. The list was at its 44 points throughout. Its frame in the tree
+reaches y = 401 at the accessibility sizes, but its scroll bar is 44 points tall: once the
+list's bottom edge passes the top of the keyboard, the system extends the scroll view under it.
+An iPhone SE on its side (667 × 375) has 168 points and was 2 short at the default size, with
+the field at y = 15, and at the largest size had the field at y = −63.
+
+In a compact height whatever does not fit under the field now scrolls there, and scrolling it
+puts the keyboard away. At `a81c544` on the iPhone 17 Pro the field is at y = 16 and Close
+Search at y = 20 to 22 at each size from `large` to `accessibility-medium`. At the largest size
+the field is at y = 18 and Close Search at y = 22, beside a Search button 78 points tall, and
+their row leaves 49 points above the keyboard in which Clear Search, the navigator and the list
+scroll. One drag there put the keyboard away; the pane then showed all three with the list 95
+points tall, and Next Match stepped to the second match. At each size the field kept its place
+when it took focus again and through a turn to portrait and back, and Close Search closed the
+pane. On the iPhone SE the field is at y = 16 at the default size, where the 2 points that do
+not fit scroll, and at y = 18 at the largest. An iPhone 17e on its side (844 × 390) has less
+again, 166 points, and was 4 short at the default size with the field at y = 14 (read at
+`aae45d2`); at `b2bbeac` its field is at y = 16 at the default size and y = 18 at the largest,
+and the same steps ran there.
+
+Nothing else moved at the default size. The iPhone 17 Pro on its side and upright, the iPhone
+17 Pro Max on its side, the iPhone SE upright and the iPad's popover in both orientations (372
+× 446, the list 340 × 320) have the frames they had before. The iPhone 17 Pro Max upright was
+not compared: the keyboard was not up when its frames were read before the change. The iPhone
+17 Pro and the iPad were read again at `31b0e7f`, built with Xcode 27.0 like the rest of this
+record and the iPhone 17e's frames; the iPhone SE, the iPhone 17 Pro Max and the other frames
+from before the change come from builds made with Xcode 27.1 `27A9269` on iOS 27.0, which gave
+the iPhone 17 Pro the same frames.
 
 **Continuous scroll lost its place after an accessibility read.** On iOS the scrolled reader is
 a text view whose accessibility lists every paragraph of the book, and reading that list (an

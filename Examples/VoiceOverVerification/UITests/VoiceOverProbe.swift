@@ -27,7 +27,8 @@ import XCUIAutomation
         // from one of the reader's own.
         if !wasEnabled, environment["VOICEOVER_OFF"] == nil { try voiceOver.enable() }
         let app = XCUIApplication(bundleIdentifier: "org.epubreaderlib.voiceoververify")
-        app.launchArguments = ["-SampleFlow", "paginated"]
+        // `VOICEOVER_FLOW=scrolled` opens the book in continuous scroll.
+        app.launchArguments = ["-SampleFlow", environment["VOICEOVER_FLOW"] ?? "paginated"]
         if let size = environment["VOICEOVER_FONT_SIZE"] { app.launchArguments += ["-SampleFontSize", size] }
         app.launch()
         let snapshots = true
