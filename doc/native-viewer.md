@@ -168,7 +168,30 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   a line crossing a rowspan boundary is finished in its preceding row and never drawn twice.
   Continuous scroll retains full row heights. Tables too wide for the line shrink their text
   to 60%, then wrap by character. A single glyph line taller than a page is fitted as a whole.
-  One-column tables, which books use as callout boxes, flow as ordinary text. Visible cells have
+  One-column tables, which books use as callout boxes, flow as ordinary text: a table is a grid
+  when the cells written in its rows take more than one column. Nothing a table holds is
+  dropped. XHTML is parsed as XML, which repairs no tree, so content written outside a table's
+  rows and cells arrives where it was written, and a grid gives it the anonymous rows and cells
+  of CSS 2.2 §17.2.1: a row around what a table or a row group holds outside its rows (text,
+  other elements, cells without a row, a table, a caption in a row group), and a cell around
+  what a row holds outside its cells. A row written in a row, a row group written in a row or
+  a row group, and rows written in another element there (a `div`, a `form`) are such content
+  too: their cells show as stacked paragraphs in one anonymous cell. Anonymous rows and cells
+  have no padding or borders of their own, are located, selected and searched like any cell,
+  and exist only for content that shows: white space, comments, scripts and hidden elements
+  make none, and what is written in a `col` or a `colgroup` has no box. They take part in the
+  grid as CSS has it, so a `rowspan` from the row above can end on an anonymous row and a
+  column can widen to an anonymous cell's content. The forgiving HTML parser moves nothing out
+  of a table either, so recovered markup is shown the same way, in place rather than ahead of
+  the table. Every caption is shown, above or below the rows as its own `caption-side` says.
+  A grid holds 200 columns and 20,000 cells. A cell whose `colspan` runs past the 200th column
+  reaches the table's last column when it is the last cell of its row, and then takes one row
+  whatever its `rowspan`. A cell the grid has no slot for follows the table as a paragraph of
+  its own in reading order, and the `.disclosure` says so: a cell with such a span that is not
+  the last of its row (the cells written after it keep their slots) or that follows another
+  cell left out of that row, a cell starting past the 200th column, and every cell past the
+  20,000th.
+  Visible cells have
   native text interaction surfaces aligned to their drawn glyphs: select and Copy cell text,
   invoke the host's selection action, follow internal links and open notes. External links retain
   the reader's refusal notice. Cell selections, located passages and saved highlights use exact
@@ -587,7 +610,10 @@ Go: the native viewer is the bundled engine.
   viewport-relative font sizes and media queries remain based on that nominal viewport.
 - Whole-table bookmarks and visible row ranges retain attachment granularity. A resize or
   flow change without a precise cell endpoint returns a continued row to its source position
-  rather than preserving its particular visual fragment.
+  rather than preserving its particular visual fragment. A table's captions, and the cells
+  past its bounds that follow it, are located as the table, not by their characters. A table
+  that holds only cells written outside rows flows as text, a paragraph for each cell, rather
+  than as the one anonymous row CSS gives them.
 - MathML is laid out by MathMLLayout 0.1.1, which has no line breaking, `mglyph`, elementary
   math or localized speech; the reader works around each as far as the engine's API allows
   ([#25](https://github.com/vocaro/EPUBLib/issues/25)):
