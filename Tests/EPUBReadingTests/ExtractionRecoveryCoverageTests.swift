@@ -279,6 +279,15 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
         }
     }
 
+    // libxml2 leaves a script or style at an end tag that directly follows its start tag, so one
+    // in the head that lacks its own end tag is closed by </head> and the body is read. The
+    // scan does nothing to stop that. Made to run to the next script's end tag, as HTML has it,
+    // the script would hold the body's start tag and the first paragraph would be gone.
+    func testAHeadScriptOrStyleWithNoEndTagStillLeavesTheBodyRead() throws {
+        XCTAssertEqual(try recovered(page("<p>One</b></p><script>var a;</script><p>Two</p>", head: "<title>T</title><script src='x.js'>")).text, "One\nTwo")
+        XCTAssertEqual(try recovered(page("<p>One</b></p><style>p{}</style><p>Two</p>", head: "<title>T</title><style>")).text, "One\nTwo")
+    }
+
     // The bytes of a body end tag reach the declaration check, as they did before the tag was
     // rewritten at all: a keyword inside one refuses the document.
     func testADeclarationKeywordInsideABodyEndTagIsRefused() throws {
