@@ -115,32 +115,25 @@ import XCUIAutomation
             }
             note("settled", String(format: changed == nil ? "nothing on screen changed in %.1f s" : "the screen was still changing after %.1f s", limit))
         }
-        // Switched on is not yet speaking. On a simulator VoiceOver's first start often says
-        // nothing, for as long as it stays on, and every step would then record silence;
-        // switching it off and on again starts it. `currentSpeech()` waits a second for a phrase.
-        var starts = 1
-        func speaks(within seconds: TimeInterval) -> Bool {
-            let deadline = Date().addingTimeInterval(seconds)
-            repeat {
-                if (try? voiceOver.currentSpeech()) != nil { return true }
-            } while Date() < deadline
-            return false
-        }
-        if !wasEnabled, voiceOver.isEnabled, !speaks(within: 5) {
-            repeat {
-                try voiceOver.disable()
-                RunLoop.current.run(until: Date().addingTimeInterval(2))
-                try voiceOver.enable()
-                starts += 1
-            } while !speaks(within: 30) && starts < 3
-            guard speaks(within: 1) else {
-                note("voiceOver", "STOPPED: on but silent after \(starts) starts")
-                XCTFail("VoiceOver is on but says nothing")
-                return
+        // Switched on is not yet running. On a newly booted simulator VoiceOver's first start
+        // took 40 to 50 seconds on a busy Mac, by its log waiting for the voice database, while
+        // `enable()` returned in a few. Until VoiceOver speaks, touches reach the reader as
+        // plain touches and every move fails. `currentSpeech()` waits a second itself.
+        var silence: TimeInterval = 0
+        if !wasEnabled, voiceOver.isEnabled {
+            let opened = Date()
+            while (try? voiceOver.currentSpeech()) == nil {
+                silence = Date().timeIntervalSince(opened)
+                guard silence < 180 else {
+                    note("voiceOver", "STOPPED: on but silent for \(Int(silence)) s")
+                    XCTFail("VoiceOver is on but says nothing")
+                    return
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.2))
             }
         }
         note("voiceOver", wasEnabled ? "was already on" : !voiceOver.isEnabled ? "left off"
-            : starts == 1 ? "turned on for this session" : "turned on for this session, silent until start \(starts)")
+            : silence < 2 ? "turned on for this session" : "turned on for this session, silent for its first \(Int(silence)) s")
         heard("initial")
         let steps = (environment["VOICEOVER_STEPS"] ?? "read").split(separator: ",").map(String.init)
         for step in steps {
@@ -172,7 +165,8 @@ import XCUIAutomation
                             note("read", "ended: VoiceOver had stayed on the last item")
                             break
                         }
-                        // A second item with the same label: read on from it.
+                        // A second item with the same label, or VoiceOver did not move back:
+                        // read on, and at the end three repeats follow.
                         if back.utterance == phrase.utterance { continue }
                     }
                     // Going back settled nothing: three repeats in a row, as before.

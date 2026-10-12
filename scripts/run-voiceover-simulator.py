@@ -59,8 +59,8 @@ def keep_muted(session):
         if volume != 0:
             state(session.udid, "audio", "--volume", "0")
             session.unmuted.append(f"{now()} UNMUTED the volume was {volume}; muted again")
-    except (RuntimeError, ValueError, KeyError) as error:
-        session.unmuted.append(f"{now()} UNMUTED? the volume could not be read: {error}")
+    except (RuntimeError, ValueError, KeyError):
+        session.unread.append(f"{now()} VOLUME gave no reading for this check")
 
 
 def simulator_app():
@@ -155,14 +155,15 @@ def report(session):
             status = max(status, 1)
         else:
             lines.append("VOICEOVER off after the run")
-        lines.append(f"VOLUME {state(session.udid, 'audio')['volume']} after the run")
+        unread = f", unread in {len(session.unread)} of its checks" if session.unread else ""
+        lines.append(f"VOLUME {state(session.udid, 'audio')['volume']} after the run{unread}")
     except (RuntimeError, ValueError, KeyError) as error:
         lines.append(f"VOICEOVER state unknown: {error}")
         status = max(status, 1)
     if session.started is not None:
         lines.append(f"XCODEBUILD ran for {(session.finished or time.monotonic()) - session.started:.0f} s")
     # Ordered by time alone: phrases of one instant keep the order they were spoken in.
-    transcript = sorted(session.transcript + heard + session.unmuted + [f"{now()} {line}" for line in lines],
+    transcript = sorted(session.transcript + heard + session.unmuted + session.unread + [f"{now()} {line}" for line in lines],
                         key=lambda line: line.split(" ", 1)[0])
     path = session.log.with_name(session.log.stem + ".transcript.txt")
     path.write_text("\n".join(transcript) + "\n")
@@ -213,7 +214,7 @@ def main():
             udid = run("xcrun", "simctl", "create", name, DEVICE_TYPE + kind, args.runtime).strip()
             sessions.append(SimpleNamespace(
                 kind=kind, name=name, udid=udid, process=None, started=None, ended=None, finished=None,
-                note=None, late=False, recovered=[], unmuted=[],
+                note=None, late=False, recovered=[], unmuted=[], unread=[],
                 log=args.results / f"simulator-{kind}-{stamp}.log", bundle=args.results / f"simulator-{kind}-{stamp}.xcresult",
                 transcript=[f"{now()} SIMULATOR {kind}, {args.runtime}, {udid}", f"{now()} BUILD {revision}, {xcode}"]))
         for session in sessions:
