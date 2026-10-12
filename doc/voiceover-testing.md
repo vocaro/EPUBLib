@@ -211,7 +211,8 @@ gh run download RUN_ID --name voiceover-mac-transcripts --dir .build/voiceover/h
   `"activate=Next Page"`. A `;` or a line break starts another session. Each session gets a
   fresh reader, and `ax:width` with the `width` input before its own steps. Left empty, one
   session checks a page boundary: the left column's entry line, a Next Page activated through
-  VoiceOver, and the new page's entry line and second line.
+  VoiceOver, and the new page's entry line and second line. It moves no line before the turn,
+  because VoiceOver can come back to a column at the character offset it had there.
 - `width` and `text_size`: the window width and the launch text size in points, 1100 and 23
   unless given.
 - `flow`: `paginated`, or `scrolled` for [continuous scroll](#continuous-scroll), which needs
@@ -220,10 +221,10 @@ gh run download RUN_ID --name voiceover-mac-transcripts --dir .build/voiceover/h
 - `advance_after`: the runner's `--advance-after`. Empty keeps the fixed pause.
 
 A job has twenty minutes and a session at most 300 seconds, the runner script's limit.
-Preparing the runner and building take about two minutes, a boundary session about three at
-the fixed pause, and the transcripts are uploaded three to five minutes after a one-session job
-starts. A session that could not end three minutes before the job's limit is reported as not
-run, and the job fails. A new run for the same ref, width, text size and flow cancels one still
+Preparing the runner and building take about two minutes and the boundary session about three
+at the fixed pause, so a run of that one session has uploaded its transcript about five minutes
+after it starts. A session that could not end three minutes before the job's limit is reported
+as not run, and the job fails. A new run for the same ref, width, text size and flow cancels one still
 in progress, so put step lists that share those into one run.
 
 With `advance_after` set to `0.5`, stepping took about a quarter of the time in four pairs of
@@ -415,6 +416,16 @@ The Mac runner's transcript is plain text and needs no export.
   layout change, entering went to the first visible character by AppKit's account, the
   numbered paragraph's first line. Not heard: that resting case with the layout change,
   scrolling by hand, contents navigation, a change from paging, a book of ordinary paragraphs.
+- On 2026-10-12 [hosted sessions](#hosted-mac-sessions) on `xcode-27` (macOS 27.0.1, windows
+  850 points high) heard the page boundary in both layouts. Two columns at 23 points: "In text
+  word0093 word0094 word0095 word0096", a right column ending at `word0228`, "2 updated items"
+  for a Next Page activated through VoiceOver, then "In text word0229 word0230 word0231
+  word0232" and "word0233 word0234 word0235 word0236". One column at 17 points, with
+  `advance_after` at 0.5: "In text word0055…", a last line "word0165…word0171" followed by "end
+  of text", then "In text word0172…" after the turn. Continuous scroll at 23 points in a
+  600-point window entered at "In text word0072 word0073 word0074 word0075 word0076" after two
+  Scroll Forward steps, as on the workstation. With the banner's launch agent left loaded on
+  purpose, one session of four heard "application Automation Running" and was stopped.
 - On an iPhone simulator, through XCTest's VoiceOver service and not by ear, moving forward
   from the controls into the text of continuous scroll went to the book's first paragraph and
   scrolled the reader back to it, three screens up
