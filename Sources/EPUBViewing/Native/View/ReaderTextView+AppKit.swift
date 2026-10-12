@@ -11,6 +11,9 @@ final class ReaderTextView: NSTextView {
     let isPageColumn: Bool
     var placement = ReaderTextPlacement()
     var flowSourceText: NSAttributedString?
+    /// The text shown has boxes resolved against the viewport (`refreshFlowBoxLayout`), so a
+    /// new viewport size lays all of it out anew.
+    var layoutFollowsViewport = false
     var tableInteraction: ReaderTableInteraction?
     var containsTableRows = false
     weak var canvas: ReaderCanvasView?
@@ -176,7 +179,7 @@ final class ReaderTextView: NSTextView {
 
     /// A TextKit 2 text view exposes nothing for an attachment drawn from its image, so each one
     /// that stands for text gets an image element labelled with its text equivalent, through
-    /// the attachment attribute VoiceOver reads in text.
+    /// the attachment attribute VoiceOver reads in text. A hidden label is text, not an image.
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard !isPageColumn || validPageAccessibilityRange(range),
               let base = super.accessibilityAttributedString(for: range) else { return nil }
@@ -187,7 +190,7 @@ final class ReaderTextView: NSTextView {
         for (attachment, text, run) in attachments {
             let local = NSRange(location: run.location - range.location, length: run.length)
             guard NSMaxRange(local) <= result.length else { continue }
-            let element = accessibilityElement(at: run, label: text)
+            let element = accessibilityElement(at: run, label: text, isText: attachment is SpokenLabelAttachment)
             if attachment is TableRowAttachment, let cells = tableInteraction?.accessibilityCells(at: run.location), !cells.isEmpty {
                 element.setAccessibilityRole(.group)
                 element.setAccessibilityLabel("Table row")
@@ -219,13 +222,18 @@ final class ReaderTextView: NSTextView {
         return result
     }
 
-    private func accessibilityElement(at range: NSRange, label: String) -> NSAccessibilityElement {
+    private func accessibilityElement(at range: NSRange, label: String, isText: Bool = false) -> NSAccessibilityElement {
         let element = attachmentElements[range.location] ?? NSAccessibilityElement()
         attachmentElements[range.location] = element
         if let cells = tableInteraction?.accessibilityCells(at: range.location), !cells.isEmpty {
             element.setAccessibilityRole(.group)
             element.setAccessibilityLabel("Table row")
             element.setAccessibilityChildren(cells)
+        } else if isText {
+            element.setAccessibilityRole(.staticText)
+            element.setAccessibilityValue(label)
+            element.setAccessibilityLabel(nil)
+            element.setAccessibilityChildren(nil)
         } else {
             element.setAccessibilityRole(.image)
             element.setAccessibilityLabel(label)

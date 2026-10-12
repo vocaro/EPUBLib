@@ -393,6 +393,26 @@ as they did.
   scroll the box off its rest by as much
   ([#313](https://github.com/vocaro/EPUBLib/issues/313)). A book with no box to resolve is
   not laid out again for a new height, and its place is held as before.
+  Every line below a box that follows the visible height moves with it, and its place is an
+  estimate until it is laid out again. So once the boxes are resolved for a new height the
+  reader rests the kept position again, as after a resize: the last one shown, or the visible
+  start, read from the layout the new height replaces, once the person has scrolled or AppKit
+  has moved the view by a point or more for a bar. A bar shown or hidden over a reader that
+  runs under it (a host's `ignoresSafeArea()`) changes the visible height and not the
+  reader's size. Without the rest an epigraph stood 81 points below the top on an iPhone
+  while the navigation bar was hidden, and on the Mac, after a toolbar was shown over a
+  full-size content view, the next layout drew another chapter, which the reader reported
+  ([#338](https://github.com/vocaro/EPUBLib/issues/338)). On iOS the rest puts the line being
+  read at the top of the taller area when a bar hides. UIKit reports the scrolling of an
+  inset change once the change is over, the reader's rest included. Where that report finds
+  the view as the rest left it, nobody has scrolled, and the position kept stays the one
+  rested: the visible start cannot be read then, because UIKit has moved the view for the
+  bar and the text under it is being laid out again. On an iPad a paragraph shown otherwise
+  ended 38.6 points below the top once the bar had hidden twice. A book with no box to
+  resolve is left as UIKit leaves it: when a bar hides, its text stays where it is on
+  screen. On the Mac nothing lays the reader out when a toolbar changes the insets
+  ([#162](https://github.com/vocaro/EPUBLib/issues/162)), so the boxes stay resolved for the
+  old height until something else does: a change of appearance, or a resize.
   On Mac, VoiceOver enters a text view at its insertion point, which a read-only view does not
   draw and replaced text leaves at its end: the end of the book. New text starts with it at
   its first line, and the scroll view's is kept on the first line on screen. A move the reader
@@ -437,6 +457,10 @@ as they did.
   accessibility text, line, style, frame and selection queries are bounded to the visible page.
   Installing a spread posts a value change for each column and a layout change naming the
   visible columns, without which VoiceOver can keep reading a column's previous page. The
+  layout change is posted by the element that holds the columns, the canvas's nearest
+  accessibility ancestor. Posted by the window, it left VoiceOver the text cursor it keeps in
+  a column it has left: after a page turn VoiceOver came back to the column at the offset it
+  had on the page before ([#337](https://github.com/vocaro/EPUBLib/issues/337)). The
   insertion point after a page's last character, and an offset an assistive client kept from
   a longer page, are on its last line.
   UIKit exposes visible line/run accessibility children with links, attachment labels and
@@ -524,15 +548,52 @@ exactly where a box ends is clear of it
 A `.disclosure` explains that box layouts may be simplified. Sticky positioning, negative
 relative vertical offsets, arbitrary overlap and `z-index`, and page-pinned or repeating fixed
 boxes are outside the supported subset. Conventional positioned, visually hidden accessibility
-labels remain omitted to avoid visible duplicate text. The offscreen heuristic recognizes only
-absolute-unit top/left offsets of -1,000 CSS pixels or less, including calculations containing
-only absolute units; it is evaluated from
-author values independently of reader typography. Font-relative, percentage, viewport and
-mixed-unit offsets remain visible unless explicitly clipped or hidden. This keeps rendered
-text and saved range offsets identical across reader font-size changes. General clipping,
+labels are not drawn, so that the page shows no duplicate text, and are kept for assistive
+technology as a browser keeps them (below). The offscreen heuristic recognizes
+top/left offsets of -1,000 CSS pixels or less as the book wrote them, an `em` or a `rem`
+counting as 16 pixels (`-62.5em`), including calculations in those units alone. That is the em
+media queries are given, not the element's font size or the reader's: `left: -999em`, where
+Standard Ebooks parks the heading of a title page beside an image of the same words, hides it
+at every text size, and `-62em` hides nothing at any, though it computes to more than 1,000
+points from 17 points up. Percentage and viewport offsets, offsets in a face's own metrics
+(`ex`, `ch`) and calculations holding one remain visible unless explicitly clipped or hidden:
+a percentage is of a containing block of any width, and the viewport offset stylesheets use,
+`-100vw`, is the edge of the screen and not beyond it. Reading the offset as written keeps
+rendered text and saved range offsets identical across reader font-size changes. General clipping,
 arbitrary offscreen geometry and transforms are outside this subset.
 Fixed-layout publications still reflow and report their existing fixed-layout disclosure; this
 subset does not implement fixed-page geometry.
+
+A label hidden in one of those ways (parked off screen, or clipped with a zero-area
+`clip: rect(...)` or `clip-path: inset(50%)`) is in the text as one character for each block
+of its words. The character takes no room and draws nothing. VoiceOver reads the words for
+it where the box stands in the document; a selection or a copy that spans it carries them,
+and an occurrence found in them is a search result at that place. It stands in a line that
+holds something, because a text view's own accessibility reads such lines: with UIKit's
+paragraph elements, which continuous scroll on iOS had then and a note's popover has still,
+VoiceOver skipped a label given a line of no height to itself. Inside a line
+it stands where the box does, and the line's white space collapses across it as across any
+box taken out of the flow. Between blocks it opens the line of the content that follows, in
+whatever block that is, so it is read just before that content and on its page; a block
+image it precedes is still set as alone on its line. Where the content that follows must
+open its own paragraph (a table's rows, a float, a positioned box) the label ends the
+paragraph before instead, and a label after a section's last content ends that. Only a
+section that opens with labels before such content, or holds nothing else, gives them a
+paragraph of their own: a line of no height against the paragraph after it, which is spaced
+and indented as the section's first. In continuous scroll that line is inside the visible
+area whenever the line after it is at the top, and it is never the first or last line on
+screen for the place the reader reports: a title page holding nothing else would be the
+place reported for the start of the section after it. VoiceOver still starts at such a line
+while it stands at the top, so the labels are heard before what they stand over: on the Mac
+the insertion point goes on it, and on iOS the scroll view lists it before the first line on
+screen, at a place inside the reading area. A reader sent to such a line rests it at the
+top with the line after it. The page is laid out exactly as it is without the
+label. What a label says is its text with white space collapsed and the alternative text of
+images and formulas in it, without the parts that `display: none`, `visibility: hidden` or
+`aria-hidden="true"` hide and without ruby annotations. It keeps the language it declares
+and, when it is a link, the link. An id on or inside it names the label, and a saved
+position inside it is the label. A box that `visibility: hidden` or `aria-hidden="true"`
+hides, and one with no words, is left out altogether, for assistive technology too.
 
 ### Flex and grid alignment
 
@@ -608,7 +669,9 @@ The following are the defaults. Host commands and accessibility actions stay ena
 - VoiceOver: page-turn actions via `accessibilityScrollAction` and the named "Next Page" and
   "Previous Page" actions; text reads in order from the text views. In continuous scroll it
   starts at the first line on screen: on Mac at the insertion point kept there, on iOS at the
-  first of the lines the scroll view lists (see "Continuous scroll" under Layout).
+  first of the lines the scroll view lists (see "Continuous scroll" under Layout). Text that
+  a book hides from the page and keeps for assistive technology is read where it stands, as
+  text ([hidden labels](#floats-and-positioned-boxes)).
 - Selection: native selection UI with the host's `EPUBSelectionAction` in the edit or context
   menu, no length cap. Dragging can extend a selection across a two-column spread in either
   reading direction. A located passage is selected in every visible column and remains
@@ -724,11 +787,13 @@ Go: the native viewer is the bundled engine.
   in reading order without clipping text. Sticky positioning, negative relative vertical
   offsets, arbitrary overlap/`z-index` and page-pinned or repeating fixed boxes are unsupported.
   A layout disclosure accompanies books using these box styles. Common positioned accessibility
-  labels hidden with zero-area `clip: rect(...)`, `clip-path: inset(50%)`, visibility or large negative
-  top/left offsets in absolute units stay omitted; font-relative or mixed-unit offsets remain
-  visible unless explicitly hidden or clipped. Standard Ebooks' title pages are such a case:
-  the heading and byline they park at `left: -999em` are shown above the title image that
-  repeats them ([#63](https://github.com/vocaro/EPUBLib/issues/63)). General clipping and arbitrary offscreen
+  labels hidden with zero-area `clip: rect(...)`, `clip-path: inset(50%)` or
+  top/left offsets of -1,000 CSS pixels or less (16 to the `em` or `rem`, so `-62.5em`) are
+  not drawn and are read by VoiceOver where they stand; percentage and viewport
+  offsets remain visible unless explicitly hidden or clipped. A box parked that far to the
+  left that reaches back on screen, with a `right` offset or a great width, is hidden with
+  the rest. A hidden heading is read as plain text, as a shown one is, and an image without
+  alternative text beside it is still announced as "Book image". General clipping and arbitrary offscreen
   geometry are unsupported. Unsized inline-blocks remain inline. Sized ones in a row are
   aligned by their tops and from their line's start edge, not by `vertical-align` or the
   block's `text-align`. Ordinary percentage margins,

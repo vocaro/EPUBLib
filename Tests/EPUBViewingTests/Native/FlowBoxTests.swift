@@ -70,7 +70,7 @@ import UIKit
                        "Reader typography changes formatting, never mapped characters")
     }
 
-    func testConventionalHiddenPositionedLabelsStayHidden() throws {
+    func testConventionalHiddenPositionedLabelsAreNotDrawn() throws {
         let body = """
             <p>Visible caption.</p>
             <span id="offscreen">Duplicate offscreen caption.</span>
@@ -98,11 +98,17 @@ import UIKit
         let publication = try StyleTestSupport.publication(section: StyleTestSupport.xhtml(body: body, css: css))
         let section = SectionBuilder.build(SectionBuildRequest(publication: publication, spineIndex: 0,
             typography: .init(fontSize: 16), fonts: FontRegistry(publication: publication), rich: NativeRichContent()))
-        XCTAssertEqual(section.string.string, "Visible caption.\nSlightly offset callout.\nUnclipped callout.\nRestored unclipped callout.\nInvalid clipping stays visible.\nNext paragraph.")
+        XCTAssertEqual(section.string.drawnString, "Visible caption.\nSlightly offset callout.\nUnclipped callout.\nRestored unclipped callout.\nInvalid clipping stays visible.\nNext paragraph.")
+        // What is parked or clipped away is kept for assistive technology, in the line of the
+        // content after it; `visibility: hidden` and `display: none` hide from that too.
+        XCTAssertEqual(section.string.spokenLabels, ["Duplicate offscreen caption.", "Duplicate clipped caption.", "Duplicate clipped path caption."])
         BuilderHarness.assertMapRoundTrips(section)
-        for id in ["offscreen", "rect", "inset", "hidden", "none"] {
-            XCTAssertEqual(section.anchors[id], section.anchors["visible"])
+        let labels = ("Visible caption.\n" as NSString).length
+        for (index, id) in ["offscreen", "rect", "inset"].enumerated() {
+            XCTAssertEqual(section.anchors[id], labels + index, "\(id) is its own label")
+            XCTAssertTrue(section.string.attribute(.attachment, at: labels + index, effectiveRange: nil) is SpokenLabelAttachment)
         }
+        for id in ["hidden", "none"] { XCTAssertEqual(section.anchors[id], section.anchors["visible"]) }
     }
 
     func testHiddenLabelClassificationNeverChangesMappedTextWithReaderTypography() throws {
@@ -118,22 +124,34 @@ import UIKit
             <div id="inheritedAbsolute"><span id="absoluteChild">Inherited absolute offscreen label.</span></div>
             <span id="initial">Reset offscreen label.</span>
             <span id="clippedRelative">Clipped font relative label.</span>
+            <span id="farEm">Far font relative label.</span>
+            <span id="farRem">Far root relative label.</span>
+            <span id="farCalc">Far font relative calculation label.</span>
+            <div id="inheritedFar"><span id="farChild">Inherited far font relative label.</span></div>
             <p id="end">After labels.</p>
             """
+        // An em or a rem counts as 16 pixels whatever the size: 62 of them are 992 pixels and stay
+        // visible at 96 points, where they compute to the 1,000-point limit; 63 are 1,008 and stay
+        // hidden at 12 points, where a quarter-size em makes them 189.
         let css = """
             span { position:absolute; }
-            #em { left:-64em; }
-            #rem { top:-64rem; }
-            #mixed { left:calc(-9999px + 2em); }
-            #relativeCalc { top:calc(-32em * 2); }
+            #em { left:-62em; }
+            #rem { top:-62rem; }
+            #mixed { left:calc(-9999px + 50%); }
+            #relativeCalc { top:calc(-31em * 2); }
             #absolute { left:-9999px; }
             #absoluteCalc { top:calc(-1200px + 100px); }
-            #inheritedRelative { left:-64em; font-size:2em; }
+            #inheritedRelative { left:-62em; font-size:2em; }
             #relativeChild { left:inherit; }
             #inheritedAbsolute { top:calc(-9999px + 100px); font-size:2em; }
             #absoluteChild { top:inherit; }
             #initial { left:-9999px; left:initial; }
-            #clippedRelative { left:-64em; clip:rect(0,0,0,0); }
+            #clippedRelative { left:-62em; clip:rect(0,0,0,0); }
+            #farEm { left:-999em; }
+            #farRem { top:-63rem; }
+            #farCalc { left:calc(-999em - 10px); }
+            #inheritedFar { left:-63em; font-size:0.25em; }
+            #farChild { left:inherit; }
             """
         let publication = try StyleTestSupport.publication(section: StyleTestSupport.xhtml(body: body, css: css))
         let spine = try SpineCFIs(publication: publication)
@@ -150,10 +168,11 @@ import UIKit
                            "Font relative calculation offset.", "Inherited font relative offset.", "Reset offscreen label."] {
                 XCTAssertTrue(section.string.string.contains(phrase), "Font size \(fontSize): \(phrase)")
             }
-            for phrase in ["Absolute offscreen label.", "Absolute calculation offscreen label.",
-                           "Inherited absolute offscreen label.", "Clipped font relative label."] {
-                XCTAssertFalse(section.string.string.contains(phrase), "Font size \(fontSize): \(phrase)")
-            }
+            let hidden = ["Absolute offscreen label.", "Absolute calculation offscreen label.",
+                          "Inherited absolute offscreen label.", "Clipped font relative label.", "Far font relative label.",
+                          "Far root relative label.", "Far font relative calculation label.", "Inherited far font relative label."]
+            for phrase in hidden { XCTAssertFalse(section.string.string.contains(phrase), "Font size \(fontSize): \(phrase)") }
+            XCTAssertEqual(section.string.spokenLabels.sorted(), hidden.sorted(), "each is kept for assistive technology at \(fontSize) points")
             let range = (section.string.string as NSString).range(of: "After labels.")
             let start = try XCTUnwrap(section.map.position(at: range.location, in: section.document))
             let end = try XCTUnwrap(section.map.endPosition(at: NSMaxRange(range), in: section.document))

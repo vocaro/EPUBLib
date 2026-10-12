@@ -74,6 +74,8 @@ class ReaderAttachment: NSTextAttachment, ReaderTextualAttachment {
     /// What selections and copies get in place of the attachment character, and what VoiceOver
     /// reads for it inside a table cell. Nothing by default (a rule).
     var textEquivalent: String { "" }
+    /// The language `textEquivalent` is spoken in, when it is known to differ from the text around it.
+    var textLanguage: String? { nil }
 
     override func attachmentBounds(for attributes: [NSAttributedString.Key: Any], location: any NSTextLocation,
                                    textContainer: NSTextContainer?, proposedLineFragment: CGRect,
