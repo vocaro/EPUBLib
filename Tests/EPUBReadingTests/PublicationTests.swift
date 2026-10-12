@@ -125,12 +125,24 @@ extension PublicationTests {
         }
     }
 
-    func testALandmarkOutsideTheArchiveIsLeftOutWithoutRefusingTheBook() throws {
-        for href in ["../../outside.xhtml", "https://example.invalid/chapter.xhtml", "/absolute.xhtml"] {
+    func testALandmarkThatDoesNotResolveIsLeftOutWithoutRefusingTheBook() throws {
+        for href in ["https://example.invalid/chapter.xhtml", "//example.invalid/chapter.xhtml", "100%.xhtml", "text\\chapter.xhtml"] {
             let book = try EPUBPublication.open(data: Fixture.frontMatter(bodymatter: href, text: href))
             XCTAssertEqual(book.landmarks.map(\.types), [["cover"], ["titlepage"]], href)
             let epub2 = try EPUBPublication.open(data: Fixture.frontMatter(bodymatter: nil, text: href, epub2: true))
             XCTAssertEqual(epub2.landmarks.map(\.types), [["cover"], ["title-page"]], href)
+        }
+    }
+
+    func testALandmarkPastTheContainerRootIsReadFromTheRoot() throws {
+        // EPUB Reading Systems 3.3 §4.1.1: a leading "/" names the container root and ".." stops there.
+        for (href, resolved) in ["../../outside.xhtml": "outside.xhtml", "/absolute.xhtml": "absolute.xhtml",
+                                 "/OPS/text/chapter-2.xhtml": "OPS/text/chapter-2.xhtml"] {
+            let book = try EPUBPublication.open(data: Fixture.frontMatter(bodymatter: href, text: href))
+            XCTAssertEqual(book.landmarks.last?.href, resolved, href)
+            XCTAssertEqual(book.landmarks.map(\.types), [["cover"], ["titlepage"], ["bodymatter", "z3998:fiction"]], href)
+            let epub2 = try EPUBPublication.open(data: Fixture.frontMatter(bodymatter: nil, text: href, epub2: true))
+            XCTAssertEqual(epub2.landmarks.last, EPUBLandmark(types: ["text"], title: "Text", href: resolved), href)
         }
     }
 
@@ -204,9 +216,11 @@ extension PublicationTests {
         XCTAssertNil(try pages("<ol><li><a href=\"https://example.invalid/one.xhtml\">1</a></li></ol>"))
         XCTAssertEqual(try pages("""
             <ol><li><a href="one.xhtml#p1"> 1 </a></li><li><span>No link</span></li>\
-            <li><a href="../../outside.xhtml">2</a></li><li><a href="two.xhtml">3</a><ol><li><a href="two.xhtml#p4">4</a></li></ol></li></ol>
+            <li><a href="100%.xhtml">2</a></li><li><a href="two.xhtml">3</a><ol><li><a href="two.xhtml#p4">4</a></li></ol></li>\
+            <li><a href="../../one.xhtml#p5">5</a></li></ol>
             """), [EPUBPageListEntry(label: "1", href: "OPS/one.xhtml#p1"), EPUBPageListEntry(label: "3", href: "OPS/two.xhtml"),
-                   EPUBPageListEntry(label: "4", href: "OPS/two.xhtml#p4")], "a nested list in document order")
+                   EPUBPageListEntry(label: "4", href: "OPS/two.xhtml#p4"), EPUBPageListEntry(label: "5", href: "one.xhtml#p5")],
+                       "a nested list in document order; a reference past the container root is read from the root")
     }
 
     func testTheNCXPageListFillsAPageListTheNavigationDocumentLacks() throws {
