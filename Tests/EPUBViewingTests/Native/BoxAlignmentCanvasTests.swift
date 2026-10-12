@@ -516,7 +516,9 @@ import UIKit
             #else
             view.contentOffset.y += 333
             #endif
-            try await host.settle()
+            // The canvas reads the screen 150 ms after a scroll, later on a busy machine.
+            let deadline = Date().addingTimeInterval(5)
+            while Date() < deadline, canvas.visibleRange?.start == paragraph { try await host.settle(50) }
             let scrolled = try XCTUnwrap(canvas.visibleRange?.start)
             XCTAssertGreaterThan(scrolled, paragraph, "\(name): scrolled by hand")
             var starts: [ReaderTextPosition] = []

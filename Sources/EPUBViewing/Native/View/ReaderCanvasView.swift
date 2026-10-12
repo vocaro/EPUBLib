@@ -98,6 +98,10 @@ import AppKit
     #if os(macOS)
     /// Where the reader last put the scroll view's insertion point (`placeScrollInsertionPoint`).
     private var placedScrollInsertionPoint: Int?
+    #else
+    /// The offset a rest for a new visible height left the scroll view at, until UIKit reports
+    /// the scrolling of that inset change (`scrollViewDidChangeAdjustedContentInset`).
+    var restedScrollOffset: CGFloat?
     #endif
 
     var wheelTurner = ReaderWheelPageTurner()
@@ -609,20 +613,21 @@ import AppKit
     /// line below such a box moves with it, and until it is laid out again its place is an
     /// estimate, so the kept position is then rested again as after a resize: a bar shown or
     /// hidden over the reader changes the visible height and not the canvas's size (#338).
-    /// `rest` is false where the caller rests the position itself.
-    func updateScrollViewport(rest: Bool = true) {
-        guard let textView = scrollTextView, let geometry = scrollGeometry else { return }
+    /// `rest` is false where the caller rests the position itself. True when it was rested.
+    @discardableResult func updateScrollViewport(rest: Bool = true) -> Bool {
+        guard let textView = scrollTextView, let geometry = scrollGeometry else { return false }
         let viewport = CGSize(width: geometry.width, height: max(0, scrollVisibleContainerRect.height))
-        guard textView.readerContainer.viewportSize != viewport else { return }
+        guard textView.readerContainer.viewportSize != viewport else { return false }
         // The visible start is read from the layout the new height is about to replace.
         let retainedStart = rest && anchorFollowsScroll && textView.layoutFollowsViewport ? scrollVisibleRange()?.start : nil
         textView.readerContainer.viewportSize = viewport
-        guard textView.refreshFlowBoxLayout() else { return }
+        guard textView.refreshFlowBoxLayout() else { return false }
         scrollPlace = nil
-        guard rest else { return }
+        guard rest else { return false }
         if let retainedStart { anchor = retainedStart }
         scrollToAnchor()
         updateVisibleRange(force: false)
+        return true
     }
 
     private func tearDownScroll() {
@@ -814,14 +819,15 @@ import AppKit
     }
 
     /// The platform scroll view moved; reports the visible range at most every 150 ms. A move
-    /// that leaves the view where it was last read is the platform's, and nobody scrolled.
-    func scrollPositionDidChange() {
+    /// that leaves the view where it was last read is the platform's, and nobody scrolled; nor
+    /// has anybody when the platform reports the reader's own scroll late (`byReader`).
+    func scrollPositionDidChange(byReader: Bool = false) {
         let ordered = ReaderHighlight.drawingOrder(highlights)
         scrollTextView?.setTableHighlights(ordered)
         if let range = currentSelection?.range, range.start.tableCell != nil || range.end.tableCell != nil {
             _ = scrollTextView?.selectTableRange(range, reporting: false)
         }
-        guard !isScrollingProgrammatically, !scrollViewStandsWhereRead else { return }
+        guard !byReader, !isScrollingProgrammatically, !scrollViewStandsWhereRead else { return }
         anchorFollowsScroll = true
         guard !scrollReportPending else { return }
         scrollReportPending = true

@@ -160,12 +160,21 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        if scrollView === scrollTextView { scrollPositionDidChange() }
+        guard scrollView === scrollTextView else { return }
+        let rested = restedScrollOffset.map { abs(scrollView.contentOffset.y - $0) < 1 } ?? false
+        restedScrollOffset = nil
+        scrollPositionDidChange(byReader: rested)
     }
 
-    /// The safe area changed under the scroll view (bars shown or hidden).
+    /// The safe area changed under the scroll view (bars shown or hidden). UIKit holds back its
+    /// report of the scrolling an inset change brings until this returns, so a rest made here
+    /// for the new height is reported as scrolling nobody asked for. Where that report finds
+    /// the view as the rest left it, the person has not scrolled, and the position kept stays
+    /// the one rested: the visible start is not to be read then, for UIKit has moved the view
+    /// for the bar and the text under it is laid out again (#338).
     func scrollViewDidChangeAdjustedContentInset(_ scrollView: UIScrollView) {
-        if scrollView === scrollTextView { updateScrollViewport() }
+        guard scrollView === scrollTextView else { return }
+        if updateScrollViewport() { restedScrollOffset = scrollView.contentOffset.y }
     }
 
     func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
