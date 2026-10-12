@@ -265,8 +265,8 @@ import UIKit
     }
 
     /// An iPhone 17 Pro on its side leaves the search sheet 177 points above the keyboard and its
-    /// suggestions, and an iPhone SE 168. The sheet with results must fit in that at every text
-    /// size, or its top is cut off, the field and Close Search with it.
+    /// suggestions, an iPhone SE 168 and an iPhone 17e 166. The sheet with results must fit in
+    /// that at every text size, or its top is cut off, the field and Close Search with it.
     func testSearchPaneWithResultsFitsACompactHeight() async throws {
         XCTAssertEqual(EPUBSearchResultPane.minimumListHeight(.regular), 160)
         XCTAssertEqual(EPUBSearchResultPane.minimumListHeight(nil), 160)
@@ -286,11 +286,12 @@ import UIKit
         try await Task.sleep(for: .milliseconds(60))
         XCTAssertGreaterThan(regular.minimumHeight(), 177, "160 points for the list are what did not fit")
 
-        // The iPhone 17 Pro's sheet, its 874 points less the 62 at each end, and the iPhone SE's.
-        let rooms = [CGSize(width: 750, height: 177), CGSize(width: 667, height: 168)]
+        // The iPhone 17 Pro's sheet, its 874 points less the 62 at each end, the iPhone SE's and
+        // the iPhone 17e's.
+        let rooms = [CGSize(width: 750, height: 177), CGSize(width: 667, height: 168), CGSize(width: 750, height: 166)]
         for room in rooms {
             for textSize in DynamicTypeSize.allCases {
-                let name = "\(textSize) in \(Int(room.height)) points"
+                let name = "\(textSize) in \(Int(room.width)) by \(Int(room.height)) points"
                 let compact = MountedView(sheet(.compact, textSize), size: room)
                 defer { compact.close() }
                 try await Task.sleep(for: .milliseconds(60))

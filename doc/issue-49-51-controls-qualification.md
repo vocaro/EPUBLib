@@ -101,15 +101,19 @@ scroll. One drag there put the keyboard away; the pane then showed all three wit
 points tall, and Next Match stepped to the second match. At each size the field kept its place
 when it took focus again and through a turn to portrait and back, and Close Search closed the
 pane. On the iPhone SE the field is at y = 16 at the default size, where the 2 points that do
-not fit scroll, and at y = 18 at the largest.
+not fit scroll, and at y = 18 at the largest. An iPhone 17e on its side (844 × 390) has less
+again, 166 points, and was 4 short at the default size with the field at y = 14 (read at
+`aae45d2`); at `b2bbeac` its field is at y = 16 at the default size and y = 18 at the largest,
+and the same steps ran there.
 
 Nothing else moved at the default size. The iPhone 17 Pro on its side and upright, the iPhone
 17 Pro Max on its side, the iPhone SE upright and the iPad's popover in both orientations (372
 × 446, the list 340 × 320) have the frames they had before. The iPhone 17 Pro Max upright was
 not compared: the keyboard was not up when its frames were read before the change. The iPhone
 17 Pro and the iPad were read again at `31b0e7f`, built with Xcode 27.0 like the rest of this
-record; the iPhone SE, the iPhone 17 Pro Max and every frame from before the change come from
-builds made with Xcode 27.1 `27A9269` on iOS 27.0, which gave the iPhone 17 Pro the same frames.
+record and the iPhone 17e's frames; the iPhone SE, the iPhone 17 Pro Max and the other frames
+from before the change come from builds made with Xcode 27.1 `27A9269` on iOS 27.0, which gave
+the iPhone 17 Pro the same frames.
 
 **Continuous scroll lost its place after an accessibility read.** On iOS the scrolled reader is
 a text view whose accessibility lists every paragraph of the book, and reading that list (an
