@@ -46,7 +46,10 @@ conflicting, absent, remote and differently cased manifest items, references tha
 the container root or carry a query, padded mimetypes, containers that list another rendition first,
 entry names with a colon, archives that other bytes follow, deflated entries whose directory
 misstates their sizes, contents entries that do not resolve, named character references and
-lower-case doctypes in navigation, control characters in navigation,
+lower-case doctypes in navigation, control characters in navigation, white space in metadata
+values and navigation labels (ASCII whitespace stripped and collapsed however it is written,
+white space outside ASCII kept beside other content and a mark after a space kept, a value of
+nothing but white space of any kind empty),
 cancellation after expansion starts, and exact IDPF/Adobe font deobfuscation vectors. The font
 tests check the XOR prefix and the untouched suffix against independently specified keys.
 
