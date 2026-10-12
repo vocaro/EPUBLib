@@ -134,6 +134,69 @@ final class NavigationNCXCoverageTests: XCTestCase {
                                                          "OPS/my%20chapter%20%C3%A9.xhtml"])
     }
 
+    // By `Character` a "/", "\", ":", "#" or "." takes a mark, selector or joiner after it into
+    // itself and is not found (https://github.com/vocaro/EPUBLib/issues/181).
+    func testNCXAndGuideTargetsAreResolvedWhateverMarkFollowsTheirSeparatorsAndDots() throws {
+        func page(_ label: String, _ src: String) -> String {
+            "<pageTarget><navLabel><text>\(label)</text></navLabel><content src=\"\(src)\"/></pageTarget>"
+        }
+        for m in Fixture.clusteringMarks {
+            let e = Fixture.escapingNonASCII(m)
+            // Read as the same target is without the mark. One that climbs past the container
+            // root or opens with a slash starts at the root (https://github.com/vocaro/EPUBLib/issues/84)
+            // and a colon is a character of the name (https://github.com/vocaro/EPUBLib/issues/171).
+            // One with a backslash does not resolve.
+            let others: [(src: String, resolved: String?)] = [("../../\(m)x.xhtml", "\(e)x.xhtml"), ("/\(m)x.xhtml", "\(e)x.xhtml"),
+                                                              ("./a:\(m)x.xhtml", "OPS/a%3A\(e)x.xhtml"), ("a\\\(m)x.xhtml", nil)]
+            let document = ncx("<navMap>" + point("a", "Up", "../\(m)x.xhtml") + point("b", "Beside", "./\(m)x.xhtml#\(m)s") + "</navMap>"
+                + "<pageList>" + others.map { page("out", $0.src) }.joined() + page("1", "a/../\(m)x.xhtml") + page("2", "one.xhtml#\(m)p") + "</pageList>")
+            let guide = "<guide>" + others.map { "<reference type=\"text\" title=\"out\" href=\"\($0.src)\"/>" }.joined()
+                + "<reference type=\"cover\" title=\"in\" href=\"../\(m)x.xhtml\"/></guide>"
+            let book = try EPUBPublication.open(data: Fixture.packageVariant(
+                epub2: true, opf: { $0.replacingOccurrences(of: "</package>", with: guide + "</package>") }, ncx: { _ in document }))
+            XCTAssertEqual(book.tableOfContents.map(\.href), ["\(e)x.xhtml", "OPS/\(e)x.xhtml#\(e)s"], m.debugDescription)
+            // A page or a guide reference that does not resolve is left out.
+            let outside = others.compactMap(\.resolved)
+            XCTAssertEqual(book.pageList, outside.map { EPUBPageListEntry(label: "out", href: $0) }
+                + [EPUBPageListEntry(label: "1", href: "OPS/\(e)x.xhtml"), EPUBPageListEntry(label: "2", href: "OPS/one.xhtml#\(e)p")], m.debugDescription)
+            XCTAssertEqual(book.landmarks, outside.map { EPUBLandmark(types: ["text"], title: "out", href: $0) }
+                + [EPUBLandmark(types: ["cover"], title: "in", href: "\(e)x.xhtml")], m.debugDescription)
+            // A point that does not resolve stays, without a target.
+            for (src, resolved) in others {
+                XCTAssertEqual(try self.book(ncx: ncx("<navMap>" + point("a", "Out", src) + "</navMap>")).tableOfContents,
+                               [Item(title: "Out", href: resolved)], src.debugDescription)
+            }
+        }
+    }
+
+    func testNamedCharacterReferencesInNCXLabelsAreDecodedWithOrWithoutTheDoctype() throws {
+        // EPUB 2 era tools wrote XHTML's names into labels. The DAISY DTD is never read, and under
+        // its DOCTYPE the XML parser reports no text for a name it has no declaration for, so
+        // XHTML's names are decoded from a built-in table.
+        let doctype = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n"
+            + "<!DOCTYPE ncx PUBLIC \"-//NISO//DTD ncx 2005-1//EN\" \"http://www.daisy.org/z3986/2005/ncx-2005-1.dtd\">\n"
+        let document = ncx("<navMap>\(point("a", "Don&rsquo;t&nbsp;Panic", "one.xhtml"))</navMap><pageList><pageTarget id=\"p1\" type=\"normal\" value=\"1\">"
+            + "<navLabel><text>&sect;&nbsp;1</text></navLabel><content src=\"one.xhtml#p1\"/></pageTarget></pageList>")
+        for prolog in [doctype, ""] {
+            let book = try book(ncx: prolog + document)
+            XCTAssertEqual(book.tableOfContents, [Item(title: "Don\u{2019}t\u{A0}Panic", href: "OPS/one.xhtml")], prolog)
+            XCTAssertEqual(book.pageList, [EPUBPageListEntry(label: "\u{A7}\u{A0}1", href: "OPS/one.xhtml#p1")], prolog)
+        }
+    }
+
+    func testNamedCharacterReferencesInAnNCXLabelAreDecodedBesideALabelWithATildeAndBrace() throws {
+        // `~{` opens a two-byte run in the HZ encoding. This document is UTF-8, as one with no
+        // encoding declared or with that one is, so a label that holds a template expression is
+        // plain text and the references in the label before it are references.
+        let doctype = "<!DOCTYPE ncx PUBLIC \"-//NISO//DTD ncx 2005-1//EN\" \"http://www.daisy.org/z3986/2005/ncx-2005-1.dtd\">\n"
+        let document = ncx("<navMap>\(point("a", "Caf&eacute;&nbsp;&mdash; 1", "one.xhtml"))\(point("b", "Using ~{...} fragments", "two.xhtml", order: 2))</navMap>")
+        for prolog in [doctype, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + doctype, ""] {
+            XCTAssertEqual(try book(ncx: prolog + document).tableOfContents, [
+                Item(title: "Caf\u{E9}\u{A0}\u{2014} 1", href: "OPS/one.xhtml"), Item(title: "Using ~{...} fragments", href: "OPS/two.xhtml"),
+            ], prolog)
+        }
+    }
+
     func testWhiteSpaceInAnNCXLabelIsCollapsed() throws {
         XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/75")
         // As in the navigation document: a label wrapped by a pretty-printer is one line of text.

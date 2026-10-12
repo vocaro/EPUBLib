@@ -742,7 +742,10 @@ extension NativeSession: ReaderCanvasDataSource {
     var sectionCount: Int { book.count }
     func text(forSection index: Int) -> NSAttributedString? { book.section(index)?.string }
     func selectionText(in range: ReaderTextRange) -> String? { passageText(range) }
-    func isLinear(section index: Int) -> Bool { publication.spine[index].isLinear }
+    /// Page turns keep to the sections continuous scroll shows (`NativeBook.isOmitted`): every
+    /// one when no spine item is linear. foliate-js stops such a book at the end of its first
+    /// section; this departs from it on purpose, so the book reads through in either flow.
+    func isLinear(section index: Int) -> Bool { !book.isOmitted(index) }
     var bookText: ReaderBookText? { book.bookText }
 }
 
