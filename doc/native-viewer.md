@@ -370,9 +370,14 @@ as they did.
   while the navigation bar was hidden, and on the Mac, after a toolbar was shown over a
   full-size content view, the next layout drew another chapter, which the reader reported
   ([#338](https://github.com/vocaro/EPUBLib/issues/338)). On iOS the rest puts the line being
-  read at the top of the taller area when a bar hides. A book with no box to resolve is left
-  as UIKit leaves it: when a bar hides, its text stays where it is on screen. On the Mac
-  nothing lays the reader out when a toolbar changes the insets
+  read at the top of the taller area when a bar hides. UIKit reports the scrolling of an
+  inset change once the change is over, the reader's rest included. Where that report finds
+  the view as the rest left it, nobody has scrolled, and the position kept stays the one
+  rested: the visible start cannot be read then, because UIKit has moved the view for the
+  bar and the text under it is being laid out again. On an iPad a paragraph shown otherwise
+  ended 38.6 points below the top once the bar had hidden twice. A book with no box to
+  resolve is left as UIKit leaves it: when a bar hides, its text stays where it is on
+  screen. On the Mac nothing lays the reader out when a toolbar changes the insets
   ([#162](https://github.com/vocaro/EPUBLib/issues/162)), so the boxes stay resolved for the
   old height until something else does: a change of appearance, or a resize.
   On Mac, VoiceOver enters a text view at its insertion point, which a read-only view does not

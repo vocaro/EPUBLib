@@ -584,7 +584,12 @@ and the Mac run have no failure.
   kept position again whenever a new visible height has resolved the boxes
   ([Layout](native-viewer.md#layout), [#338](https://github.com/vocaro/EPUBLib/issues/338)):
   the epigraph stays within a point of the top and is the place reported through four
-  changes of the bar on both, and so does a place in the chapter. Measured in test hosts on
+  changes of the bar on both, and so does a place in the chapter. UIKit reports the
+  scrolling of an inset change only once the change is over, so the rest made during it was
+  taken for the person's scroll, and the next bar change kept the visible start as read after
+  UIKit had moved the view for the bar: on an iPad Air simulator a paragraph shown was 38.6
+  points below the top after the bar had hidden twice. A report that finds the view where
+  the rest left it is now the reader's own. Measured in test hosts on
   2026-10-12 and not looked at on a screen or a device. Two things follow. On iOS the line
   being read in a book with such boxes moves to the top of the taller area when a bar hides,
   where it stayed where it was on screen before, as it still does in a book with none. And
