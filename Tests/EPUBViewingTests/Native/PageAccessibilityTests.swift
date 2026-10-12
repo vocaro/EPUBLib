@@ -168,7 +168,7 @@ extension PageAccessibilityTests {
             XCTAssertFalse(host.canvas.isAccessibilityElement)
             host.canvas.configuration.flow = .scrolled
             host.layOut()
-            XCTAssertNil(host.canvas.accessibilityElements, "continuous scroll keeps UIKit's own traversal")
+            XCTAssertNil(host.canvas.accessibilityElements, "in continuous scroll the one text view lists its own lines")
         }
     }
 

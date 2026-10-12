@@ -15,6 +15,12 @@ final class ReaderTextView: UITextView {
     var containsTableRows = false
     weak var canvas: ReaderCanvasView?
     private var pageAccessibilityCache: [ReaderPageAccessibilityElement]?
+    /// The scroll view's listed lines, and where the view stood when they were measured.
+    private var scrollAccessibilityCache: (place: ScrollAccessibilityPlace, elements: [ReaderPageAccessibilityElement])?
+    /// The line of the scroll view an assistive technology's cursor is on: from the moment the
+    /// line is told so until UIKit's focus notification names something that is not one of this
+    /// view's lines.
+    private var accessibilityCursor: ReaderPageAccessibilityElement?
     private var imageGestureDelegate: ReaderImageGestureDelegate?
     private var selectionGestureDelegate: ReaderSpreadSelectionGestureDelegate?
 
@@ -36,6 +42,11 @@ final class ReaderTextView: UITextView {
         if pageColumn { selectionGestureDelegate = ReaderSpreadSelectionGestureDelegate.install(on: self) }
         textContainerInset = .zero
         textDragInteraction?.isEnabled = false
+        if !pageColumn {
+            for name in [UIAccessibility.elementFocusedNotification, UIAccessibility.voiceOverStatusDidChangeNotification] {
+                NotificationCenter.default.addObserver(self, selector: #selector(accessibilityFocusChanged(_:)), name: name, object: nil)
+            }
+        }
         if pageColumn {
             isScrollEnabled = false
             readerContainer.widthTracksTextView = false
@@ -145,36 +156,126 @@ final class ReaderTextView: UITextView {
     // with a shortened accessibilityValue. Expose only measured visible lines, splitting links
     // and attachments into independently actionable elements. Visual text and selection retain
     // the original TextKit 2 storage and all of its paragraph layout context.
+    //
+    // The canvas's scroll view lists its lines too. UIKit's own elements are every paragraph of
+    // the book, and VoiceOver moving into the text takes the first: the book's first paragraph,
+    // which it scrolls the reader back to, wherever the reader was.
     override var isAccessibilityElement: Bool {
-        get { isPageColumn ? false : super.isAccessibilityElement }
+        get { listsLines ? false : super.isAccessibilityElement }
         set { super.isAccessibilityElement = newValue }
     }
 
     override var accessibilityElements: [Any]? {
-        get { isPageColumn ? pageAccessibilityElements : super.accessibilityElements }
+        get { listsLines ? lineAccessibilityElements : super.accessibilityElements }
         set { super.accessibilityElements = newValue }
     }
 
     override func accessibilityElementCount() -> Int {
-        isPageColumn ? pageAccessibilityElements.count : super.accessibilityElementCount()
+        listsLines ? lineAccessibilityElements.count : super.accessibilityElementCount()
     }
 
     override func accessibilityElement(at index: Int) -> Any? {
-        guard isPageColumn else { return super.accessibilityElement(at: index) }
-        let elements = pageAccessibilityElements
+        guard listsLines else { return super.accessibilityElement(at: index) }
+        let elements = lineAccessibilityElements
         return elements.indices.contains(index) ? elements[index] : nil
     }
 
     override func index(ofAccessibilityElement element: Any) -> Int {
-        guard isPageColumn else { return super.index(ofAccessibilityElement: element) }
-        return pageAccessibilityElements.firstIndex { $0 === element as AnyObject } ?? NSNotFound
+        guard listsLines else { return super.index(ofAccessibilityElement: element) }
+        let elements = lineAccessibilityElements
+        if let index = elements.firstIndex(where: { $0 === element as AnyObject }) { return index }
+        // An element kept from before the list moved away and back stands for its line.
+        guard let kept = element as? ReaderPageAccessibilityElement, kept.view === self else { return NSNotFound }
+        return elements.firstIndex { $0.range == kept.range && $0.url == kept.url } ?? NSNotFound
+    }
+
+    /// A page column and the canvas's scroll view list their lines; a note keeps UIKit's elements.
+    private var listsLines: Bool { isPageColumn || isCanvasScrollView }
+
+    private var isCanvasScrollView: Bool { !isPageColumn && canvas?.scrollTextView === self }
+
+    private var lineAccessibilityElements: [ReaderPageAccessibilityElement] {
+        isPageColumn ? pageAccessibilityElements : scrollAccessibilityElements
     }
 
     private var pageAccessibilityElements: [ReaderPageAccessibilityElement] {
         if let pageAccessibilityCache { return pageAccessibilityCache }
+        let elements = accessibilityElements(for: pageAccessibilityLines, reusing: [])
+        pageAccessibilityCache = elements
+        return elements
+    }
+
+    /// The lines on screen in continuous scroll, so VoiceOver moving into the text from a
+    /// control meets the first of them. While its cursor is on a line, two lines before the
+    /// screen and two after it are listed as well, and two each side of the cursor's own line:
+    /// it moves on to them, UIKit scrolls the one it lands on into view, and so it reads on
+    /// through the book in either direction. Two, so that it never takes the first or last line
+    /// listed: from a line that was first when it took it, it went back to the control before
+    /// the text, though lines had been listed before that one since. A line keeps its element
+    /// while it is listed or under the cursor.
+    private var scrollAccessibilityElements: [ReaderPageAccessibilityElement] {
+        guard let canvas else { return [] }
+        let place = ScrollAccessibilityPlace(offset: contentOffset, size: bounds.size, content: contentSize,
+                                             insets: adjustedContentInset, cursor: accessibilityCursor.map(ObjectIdentifier.init))
+        if let cache = scrollAccessibilityCache, cache.place == place { return cache.elements }
+        guard let shown = canvas.scrollVisibleCharacters() else { return [] }
+        var listed = [shown]
+        if let cursor = accessibilityCursor, let line = line(containing: cursor.range.location) {
+            let screen = withLinesAround(shown), around = withLinesAround(line.range)
+            // The cursor can rest on a line the person has since scrolled away from.
+            if NSMaxRange(around) < screen.location { listed = [around, screen] }
+            else if NSMaxRange(screen) < around.location { listed = [screen, around] }
+            else { listed = [screen.union(around)] }
+        }
+        let elements = accessibilityElements(for: listed.flatMap(measuredLines(in:)),
+                                             reusing: (scrollAccessibilityCache?.elements ?? []) + [accessibilityCursor].compactMap { $0 })
+        // UIKit scrolls the line the cursor comes to until the area the insets leave holds its
+        // frame, and then 40 points further. A first line on screen that the top inset cuts
+        // would move the reader as VoiceOver came in, so a line on screen is listed by the
+        // part of it in that area.
+        let area = canvas.scrollVisibleContainerRect.offsetBy(dx: containerOrigin.x, dy: containerOrigin.y)
+        for element in elements where NSIntersectionRange(element.range, shown).length > 0 {
+            let frame = element.accessibilityFrameInContainerSpace.intersection(area)
+            if !frame.isEmpty { element.accessibilityFrameInContainerSpace = frame }
+        }
+        scrollAccessibilityCache = (place, elements)
+        return elements
+    }
+
+    /// `range` with the two lines before it and the two after it.
+    private func withLinesAround(_ range: NSRange) -> NSRange {
+        var result = range
+        for _ in 0..<2 {
+            if result.location > 0, let before = line(containing: result.location - 1) { result.formUnion(before.range) }
+            if NSMaxRange(result) < textLength, let after = line(containing: NSMaxRange(result)) { result.formUnion(after.range) }
+        }
+        return result
+    }
+
+    /// An assistive technology's cursor came to `element`, a line of the scroll view.
+    fileprivate func accessibilityCursorMoved(to element: ReaderPageAccessibilityElement) {
+        if isCanvasScrollView { accessibilityCursor = element }
+    }
+
+    /// The cursor went to something that is not one of this view's lines, or VoiceOver was
+    /// switched. Each move posts two focus notifications, the first naming only the element
+    /// left, and a line left is told so before the next is told it has the cursor: taking
+    /// either for the cursor leaving the text shrank the list to the screen for a moment, and
+    /// VoiceOver then stopped at a line it had reached above the screen.
+    @objc private func accessibilityFocusChanged(_ notification: Notification) {
+        if notification.name == UIAccessibility.elementFocusedNotification {
+            guard let focused = notification.userInfo?[UIAccessibility.focusedElementUserInfoKey],
+                  (focused as? ReaderPageAccessibilityElement)?.view !== self else { return }
+        }
+        accessibilityCursor = nil
+    }
+
+    /// One element for each line, except where a link or attachment needs its own.
+    private func accessibilityElements(for lines: [ReaderVisualLine],
+                                       reusing existing: [ReaderPageAccessibilityElement]) -> [ReaderPageAccessibilityElement] {
         guard let storage = contentStorage.textStorage else { return [] }
         var elements: [ReaderPageAccessibilityElement] = []
-        for line in pageAccessibilityLines {
+        for line in lines {
             // Layout flags (often stored on a paragraph's first UTF-16 unit), colors and
             // fonts do not define AX reading units. Keep each actual line intact except
             // where a link or attachment needs its own label and activation behavior.
@@ -188,7 +289,8 @@ final class ReaderTextView: UITextView {
                 } else { runs.append((range, url, attachment)) }
             }
             for (range, url, attachment) in runs {
-                let element = ReaderPageAccessibilityElement(view: self, range: range, url: url)
+                let element = existing.first { $0.range == range && $0.url == url }
+                    ?? ReaderPageAccessibilityElement(view: self, range: range, url: url)
                 element.accessibilityLabel = plainText(in: range)
                 var traits: UIAccessibilityTraits = url == nil ? .staticText : .link
                 if attachment != nil {
@@ -202,13 +304,14 @@ final class ReaderTextView: UITextView {
                     }
                 }
                 element.accessibilityTraits = traits
-                let frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
-                element.accessibilityFrameInContainerSpace = (frame.isNull ? line.frame : frame)
-                    .offsetBy(dx: containerOrigin.x, dy: containerOrigin.y).intersection(bounds)
+                // A scroll view's bounds move with its content, and a line listed past the
+                // screen is outside them.
+                let frame = (segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) })
+                let placed = (frame.isNull ? line.frame : frame).offsetBy(dx: containerOrigin.x, dy: containerOrigin.y)
+                element.accessibilityFrameInContainerSpace = isPageColumn ? placed.intersection(bounds) : placed
                 elements.append(element)
             }
         }
-        pageAccessibilityCache = elements
         return elements
     }
 
@@ -222,10 +325,22 @@ final class ReaderTextView: UITextView {
     /// for text its text equivalent, unless it labels itself.
     func exposeTextualAttachments() {
         pageAccessibilityCache = nil
+        scrollAccessibilityCache = nil
+        accessibilityCursor = nil
         for (attachment, text, _) in textualAttachments() where attachment.accessibilityLabel == nil {
             attachment.accessibilityLabel = text
         }
     }
+}
+
+/// Where a scroll view stood, and the line under an assistive technology's cursor, when its
+/// lines were listed.
+private struct ScrollAccessibilityPlace: Equatable {
+    var offset: CGPoint
+    var size: CGSize
+    var content: CGSize
+    var insets: UIEdgeInsets
+    var cursor: ObjectIdentifier?
 }
 
 /// A bounded slice of one visible line. VoiceOver's word/character navigation operates on
@@ -254,16 +369,22 @@ final class ReaderTextView: UITextView {
         view?.accessibilityScroll(direction) ?? false
     }
 
+    override func accessibilityElementDidBecomeFocused() {
+        super.accessibilityElementDidBecomeFocused()
+        view?.accessibilityCursorMoved(to: self)
+    }
+
     override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
         get {
             guard let view else { return nil }
-            var actions = [true, false].map { forward in
+            // Continuous scroll scrolls natively, by VoiceOver's own gesture.
+            var actions = view.isPageColumn ? [true, false].map { forward in
                 UIAccessibilityCustomAction(name: forward ? "Next Page" : "Previous Page") { [weak view] _ in
                     guard let canvas = view?.canvas else { return false }
                     canvas.turnPageFromInput(forward: forward)
                     return true
                 }
-            }
+            } : []
             actions += view.imageAttachments(in: range).map { image, _ in
                 UIAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") { [weak view] _ in
                     guard let canvas = view?.canvas else { return false }
