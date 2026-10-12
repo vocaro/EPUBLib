@@ -268,10 +268,12 @@ gh run download RUN_ID --name voiceover-mac-transcripts --dir .build/voiceover/h
 - `steps`: the steps `scripts/run-voiceover-mac.py` takes, quoted as on a command line, as in
   `"activate=Next Page"`. A `;` or a line break starts another session. Each session gets a
   fresh reader, and `ax:width` with the `width` input before its own steps. Left empty, one
-  session checks a page boundary: the left column's entry line, a Next Page activated through
-  VoiceOver, and the new page's entry line and second line. It moves no line before the turn:
-  when it was written VoiceOver came back to a column at the character offset it had there
-  ([#337](https://github.com/vocaro/EPUBLib/issues/337)).
+  session checks a page boundary: the left column's entry line and two lines down, a Next Page
+  activated through VoiceOver, and the new page's entry line and second line. The entry line
+  after the turn must be the page's first: with the fault of
+  [#337](https://github.com/vocaro/EPUBLib/issues/337) it is the third. The session brings
+  VoiceOver to the column by `ax:focus=search ax:focus=0`, without which it can pass on a
+  reader that has the fault.
 - `width` and `text_size`: the window width and the launch text size in points, 1100 and 23
   unless given.
 - `flow`: `paginated`, or `scrolled` for [continuous scroll](#continuous-scroll), which needs
