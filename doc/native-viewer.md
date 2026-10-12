@@ -363,15 +363,15 @@ as they did.
   estimate until it is laid out again. So once the boxes are resolved for a new height the
   reader rests the kept position again, as after a resize: the last one shown, or the visible
   start, read from the layout the new height replaces, once the person has scrolled or AppKit
-  has moved the view for a bar. A bar shown or hidden over a reader that runs under it (a
-  host's `ignoresSafeArea()`) changes the visible height and not the reader's size. Without
-  the rest an epigraph stood 81 points below the top on an iPhone while the navigation bar
-  was hidden, and on the Mac, after a toolbar was shown over a full-size content view, the
-  next layout drew another chapter, which the reader reported
+  has moved the view by a point or more for a bar. A bar shown or hidden over a reader that
+  runs under it (a host's `ignoresSafeArea()`) changes the visible height and not the
+  reader's size. Without the rest an epigraph stood 81 points below the top on an iPhone
+  while the navigation bar was hidden, and on the Mac, after a toolbar was shown over a
+  full-size content view, the next layout drew another chapter, which the reader reported
   ([#338](https://github.com/vocaro/EPUBLib/issues/338)). On iOS the rest puts the line being
   read at the top of the taller area when a bar hides. A book with no box to resolve is left
-  as UIKit leaves it: its text stays where it is on screen. On the Mac nothing lays the
-  reader out when a toolbar changes the insets
+  as UIKit leaves it: when a bar hides, its text stays where it is on screen. On the Mac
+  nothing lays the reader out when a toolbar changes the insets
   ([#162](https://github.com/vocaro/EPUBLib/issues/162)), so the boxes stay resolved for the
   old height until something else does: a change of appearance, or a resize.
   On Mac, VoiceOver enters a text view at its insertion point, which a read-only view does not
