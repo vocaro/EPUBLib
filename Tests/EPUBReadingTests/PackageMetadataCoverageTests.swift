@@ -20,7 +20,6 @@ final class PackageMetadataCoverageTests: XCTestCase {
     // MARK: Values
 
     func testWhiteSpaceInMetadataValuesIsStrippedAndCollapsed() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/75")
         // EPUB Reading Systems 3.3 §5.3: "Reading systems MUST strip and collapse ASCII whitespace
         // from Dublin Core and meta element values before processing." (W3C test pkg-meta-whitespace)
         let book = try book(metadata: """
@@ -38,6 +37,78 @@ final class PackageMetadataCoverageTests: XCTestCase {
         XCTAssertEqual(book.metadata.authors, ["Test Author"])
         XCTAssertEqual(book.metadata.languages, ["en"])
         XCTAssertEqual(book.metadata.identifiers, ["test-book"])
+    }
+
+    func testASCIIWhiteSpaceInAValueIsOneSpaceHoweverItIsWritten() throws {
+        // Infra's ASCII whitespace is tab, line feed, form feed, carriage return and space. A
+        // character reference gives the parser the character and a CDATA section its text; a
+        // carriage return written out reaches it as a line feed. Every Dublin Core value is read
+        // so, a language tag and an identifier too, and an element inside one adds its text.
+        let book = try book(metadata: "<dc:title>&#9;A&#10;&#13;B&#x20;&#x9;C\r\nD\rE<![CDATA[ \t\n F \n]]><!-- a note -->  <i>  G</i> </dc:title>"
+            + "<dc:creator>One\n\n\nAuthor</dc:creator><dc:creator>&#32;Another&#13;</dc:creator>"
+            + "<dc:language>\n\ten\n</dc:language><dc:identifier id=\"uid\">\n  urn:isbn:\n  978 0\t00   000000 2\n</dc:identifier>")
+        XCTAssertEqual(book.metadata.title, "A B C D E F G")
+        XCTAssertEqual(book.metadata.authors, ["One Author", "Another"])
+        XCTAssertEqual(book.metadata.languages, ["en"])
+        XCTAssertEqual(book.metadata.identifiers, ["urn:isbn: 978 0 00 000000 2"])
+        // XML holds no form feed. Written out, it is a control that reads as a space
+        // (doc/architecture.md), and so as one of the run it stands in.
+        let controls = try self.book(metadata: "<dc:title>\u{0C}A\u{0C} \u{0C}Test\u{1F}\u{0B}\tBook \u{0C}</dc:title><dc:language>en</dc:language>"
+            + "<dc:identifier id=\"uid\">test-book</dc:identifier>")
+        XCTAssertEqual(controls.metadata.title, "A Test Book")
+    }
+
+    func testWhiteSpaceOutsideASCIIInAValueIsTheAuthorsCharacter() throws {
+        // What EPUB Reading Systems 3.3 §5.3 has stripped and collapsed is ASCII whitespace. A
+        // no-break, ideographic or em space, a next line, a line separator and a zero-width space
+        // are none of it: each is kept at an end of a value and beside another, as foliate-js's
+        // `normalizeWhitespace` kept it, with the ASCII whitespace around it read as ever.
+        for space in ["\u{A0}", "\u{3000}", "\u{2003}", "\u{85}", "\u{2028}", "\u{200B}"] {
+            let value = "\(space)A\(space)\(space)B \(space) C\(space)", name = "U+" + String(space.unicodeScalars.first!.value, radix: 16)
+            let book = try book(metadata: "<dc:title>\n  \(value) \t</dc:title><dc:creator>\(value)</dc:creator><dc:creator>\(space)</dc:creator>"
+                + "<dc:language>en</dc:language><dc:identifier id=\"uid\">  test\(space)\(space)book  </dc:identifier>")
+            XCTAssertEqual(Array(book.metadata.title.unicodeScalars), Array(value.unicodeScalars), name)
+            // A value of nothing but such a character is a value, where one of ASCII whitespace is none.
+            XCTAssertEqual(book.metadata.authors.map { Array($0.unicodeScalars) }, [Array(value.unicodeScalars), Array(space.unicodeScalars)], name)
+            XCTAssertEqual(book.metadata.identifiers.map { Array($0.unicodeScalars) }, [Array("test\(space)\(space)book".unicodeScalars)], name)
+        }
+    }
+
+    // A `Character` holds a space together with a mark, selector or joiner after it, and is white
+    // space by its first scalar. Split by it, the mark would go with the space; read as one
+    // character of text, the space would stay where a run is collapsed or an end stripped.
+    func testASpaceInAValueIsOneWhateverMarkFollowsIt() throws {
+        for m in Fixture.clusteringMarks {
+            let book = try book(metadata: "<dc:title>  \(m)A  \(m)B\t\(m)C\n\(m)</dc:title><dc:creator> \(m) </dc:creator>"
+                + "<dc:language>en</dc:language><dc:identifier id=\"uid\">test-book</dc:identifier>")
+            XCTAssertEqual(Array(book.metadata.title.unicodeScalars), Array("\(m)A \(m)B \(m)C \(m)".unicodeScalars), m.debugDescription)
+            XCTAssertEqual(book.metadata.authors.map { Array($0.unicodeScalars) }, [Array(m.unicodeScalars)], m.debugDescription)
+        }
+    }
+
+    func testAValueIsCollapsedWhateverXMLSpaceSays() throws {
+        // `xml:space="preserve"` asks an application to keep white space. The package's schema
+        // has no such attribute and EPUB Reading Systems 3.3 §5.3 makes no exception for it.
+        let book = try book(metadata: "<dc:title xml:space=\"preserve\">  A   Test\n  Book  </dc:title><dc:creator>  Test   Author </dc:creator>"
+            + "<dc:language>en</dc:language><dc:identifier id=\"uid\">test-book</dc:identifier>", attributes: Self.dublinCore + " xml:space=\"preserve\"")
+        XCTAssertEqual(book.metadata.title, "A Test Book")
+        XCTAssertEqual(book.metadata.authors, ["Test Author"])
+    }
+
+    func testAMetaValueIsStrippedOfASCIIWhiteSpaceAlone() throws {
+        // §5.3 names `meta` values beside Dublin Core ones. The one this package reads is
+        // `rendition:layout`, whose value is `pre-paginated` however a tool wraps it, and is not
+        // with a character before or after it that only looks like a space.
+        func layouts(_ value: String) throws -> [EPUBLayout] {
+            try book(metadata: "<dc:title>A Test Book</dc:title><dc:language>en</dc:language><dc:identifier id=\"uid\">test-book</dc:identifier>"
+                + "<meta property=\"rendition:layout\">\(value)</meta>").spine.map(\.layout)
+        }
+        for value in ["pre-paginated", "\n    pre-paginated\n  ", "\t&#32;pre-paginated&#13;&#10;", "<![CDATA[ pre-paginated ]]>"] {
+            XCTAssertEqual(try layouts(value), [.prePaginated, .prePaginated], value.debugDescription)
+        }
+        for value in ["\u{A0}pre-paginated", "pre-paginated\u{3000}", "pre- paginated", "reflowable", ""] {
+            XCTAssertEqual(try layouts(value), [.reflowable, .reflowable], value.debugDescription)
+        }
     }
 
     func testTheFirstTitleIsTheMainTitleAndRepeatedElementsKeepTheirOrder() throws {

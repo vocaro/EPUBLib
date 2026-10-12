@@ -39,7 +39,9 @@ their `Character`, CRC corruption, malformed/deep/wide XML, UTF-16 entities, rep
 conflicting, absent, remote and differently cased manifest items, references that start at or climb past
 the container root or carry a query, padded mimetypes, containers that list another rendition first,
 entry names with a colon, contents entries that do not resolve, named character references and
-lower-case doctypes in navigation, control characters in navigation,
+lower-case doctypes in navigation, control characters in navigation, white space in metadata
+values and navigation labels (ASCII whitespace stripped and collapsed however it is written,
+white space outside ASCII and a mark after a space kept),
 cancellation after expansion starts, and exact IDPF/Adobe font deobfuscation vectors. The font
 tests check the XOR prefix and the untouched suffix against independently specified keys.
 

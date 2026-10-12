@@ -198,7 +198,6 @@ final class NavigationNCXCoverageTests: XCTestCase {
     }
 
     func testWhiteSpaceInAnNCXLabelIsCollapsed() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/75")
         // As in the navigation document: a label wrapped by a pretty-printer is one line of text.
         let document = ncx("""
             <navMap>
@@ -212,6 +211,52 @@ final class NavigationNCXCoverageTests: XCTestCase {
             </navMap>
             """)
         XCTAssertEqual(try book(ncx: document).tableOfContents.map(\.title), ["Chapter One: The Beginning"])
+    }
+
+    func testAnNCXPageLabelIsCollapsedInAnEPUB2BookAndBesideANavigationDocument() throws {
+        let document = ncx("""
+            <navMap>\(point("a", "One", "one.xhtml"))</navMap>
+            <pageList>
+              <pageTarget id="p1" type="front" value="12">
+                <navLabel>
+                  <text>page
+                    xii</text>
+                </navLabel>
+                <content src="one.xhtml#p1"/>
+              </pageTarget>
+              <pageTarget id="p2" type="normal" value="1"><navLabel><text>&#9;1&#13;&#10;</text></navLabel><content src="two.xhtml#p2"/></pageTarget>
+              <pageTarget id="p3" type="normal" value="2"><navLabel><text>  </text></navLabel><content src="two.xhtml#p3"/></pageTarget>
+            </pageList>
+            """)
+        let pages = [EPUBPageListEntry(label: "page xii", href: "OPS/one.xhtml#p1"), EPUBPageListEntry(label: "1", href: "OPS/two.xhtml#p2"),
+                     EPUBPageListEntry(label: "", href: "OPS/two.xhtml#p3")]
+        XCTAssertEqual(try book(ncx: document).pageList, pages)
+        // An EPUB 3 book's NCX fills the page list its navigation document lacks.
+        XCTAssertEqual(try EPUBPublication.open(data: Fixture.packageVariant(ncx: { _ in document })).pageList, pages)
+    }
+
+    func testWhiteSpaceOutsideASCIIInAnNCXLabelIsTheAuthorsCharacter() throws {
+        // As in the navigation document: ASCII whitespace is collapsed and stripped, and a
+        // no-break, ideographic or em space, a next line, a line separator or a zero-width space
+        // stays at an end of a label and beside another.
+        for space in ["\u{A0}", "\u{3000}", "\u{2003}", "\u{85}", "\u{2028}", "\u{200B}"] {
+            let label = "\(space)A\(space)\(space)B \(space) C\(space)", name = "U+" + String(space.unicodeScalars.first!.value, radix: 16)
+            let book = try book(ncx: ncx("<navMap>\(point("a", "\n  \(label) \t", "one.xhtml"))\(point("b", space, "two.xhtml", order: 2))</navMap>"
+                + "<pageList><pageTarget><navLabel>\n<text> \(label) </text>\n</navLabel><content src=\"one.xhtml#p1\"/></pageTarget></pageList>"))
+            let read = book.tableOfContents.map(\.title) + (book.pageList ?? []).map(\.label)
+            XCTAssertEqual(read.map { Array($0.unicodeScalars) }, [label, space, label].map { Array($0.unicodeScalars) }, name)
+        }
+    }
+
+    // A `Character` holds a space together with a mark, selector or joiner after it, and is white
+    // space by its first scalar. Split by it, the mark would go with the space; read as one
+    // character of text, the space would stay where a run is collapsed or an end stripped.
+    func testASpaceInAnNCXLabelIsOneWhateverMarkFollowsIt() throws {
+        for m in Fixture.clusteringMarks {
+            let entries = try book(ncx: ncx("<navMap>\(point("a", "  \(m)A  \(m)B\t\(m)C\n\(m)", "one.xhtml"))\(point("b", " \(m) ", "two.xhtml", order: 2))</navMap>"))
+                .tableOfContents
+            XCTAssertEqual(entries.map { Array($0.title.unicodeScalars) }, ["\(m)A \(m)B \(m)C \(m)", m].map { Array($0.unicodeScalars) }, m.debugDescription)
+        }
     }
 
     func testAnNCXOfManyLevelsIsReadToTheBottom() throws {

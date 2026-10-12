@@ -11,6 +11,11 @@ import libxml2
 /// Opening validates ZIP paths, declared sizes, CRCs and actual expanded sizes before returning.
 public struct EPUBPublication: Sendable {
     public let id: String
+    /// The first `dc:title` that has a value and, in document order, every `dc:creator`,
+    /// `dc:language` and `dc:identifier` that has one. A value is the element's text with each
+    /// run of ASCII whitespace read as one space and none left at either end, so one its
+    /// authoring tool wrapped and indented is one line; other white space, a no-break space
+    /// among it, is kept.
     public let metadata: EPUBMetadata
     /// The manifest's items whose files the archive holds. A remote item is never fetched and is
     /// left out, as is a font obfuscated with a key the package does not give.
@@ -18,13 +23,16 @@ public struct EPUBPublication: Sendable {
     public let spine: [EPUBSpineItem]
     /// The navigation document's `toc` or, without that document, the NCX's `navMap`. An entry
     /// whose href does not resolve inside the archive keeps its title and children, without an href.
+    /// A title is the text of the entry's link or heading, or of its `navLabel`, read as a
+    /// metadata value is: ASCII whitespace stripped from its ends and collapsed.
     public let tableOfContents: [EPUBNavigationItem]
     /// The navigation document's `landmarks` in order or, when it lists none, the OPF `guide`'s
-    /// references. Entries whose href does not resolve inside the archive are left out.
+    /// references. Entries whose href does not resolve inside the archive are left out. A title
+    /// is the link's text read as a contents title is, or a guide reference's `title` as written.
     public let landmarks: [EPUBLandmark]
     /// The navigation document's `page-list` in order, `hidden` or not, or, when it lists none,
     /// the NCX's `pageList`. nil when the book lists no page. Entries whose href does not resolve
-    /// inside the archive are left out.
+    /// inside the archive are left out. A label is read as a contents title is.
     public let pageList: [EPUBPageListEntry]?
     public let cover: EPUBResource?
     /// The direction pages advance in; `default` leaves it to the reading system.
@@ -149,7 +157,7 @@ public struct EPUBPublication: Sendable {
             let encryption = try xml("META-INF/encryption.xml")
             let identifiers = metadataNode?.children.filter { $0.name == "identifier" } ?? []
             let unique = identifiers.first { $0.attribute("id") == opf.attribute("unique-identifier") }
-            let identifier = unique?.text ?? ""
+            let identifier = unique?.keyText ?? ""
             for encrypted in encryption.descendants("EncryptedData") {
                 guard let algorithm = encrypted.descendants("EncryptionMethod").first?.attribute("Algorithm"),
                       let uri = encrypted.descendants("CipherReference").first?.attribute("URI"),
@@ -170,7 +178,7 @@ public struct EPUBPublication: Sendable {
                 case "http://ns.adobe.com/pdf/enc#RC":
                     // The key is the package's UUID: the unique identifier or, where that is
                     // not one, the first identifier that is.
-                    guard let uuid = ([unique].compactMap { $0 } + identifiers).lazy.compactMap({ uuidBytes($0.text) }).first else {
+                    guard let uuid = ([unique].compactMap { $0 } + identifiers).lazy.compactMap({ uuidBytes($0.keyText) }).first else {
                         contents[path] = nil
                         undecoded.insert(path)
                         if !isFont(mediaType: nil, path: path) { unproven.insert(path) }
@@ -399,7 +407,28 @@ private final class XMLNode {
     let attributes: [AttributeName: String]
     var children: [XMLNode] = []
     var content = ""
-    var text: String { content.trimmingCharacters(in: .whitespacesAndNewlines) }
+    /// The element's value or label: its text and that of everything inside it, with each run of
+    /// ASCII whitespace (tab, line feed, form feed, carriage return, space) read as one space and
+    /// none left at either end. EPUB Reading Systems 3.3 §5.3 requires that of Dublin Core and
+    /// `meta` values, and it is how a browser renders a navigation label. White space outside
+    /// ASCII, a no-break or an ideographic space, is the author's character and stays wherever
+    /// it is. Read by byte, not by `Character`: a space is one whatever mark follows it, and the
+    /// mark stays.
+    var text: String {
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(content.utf8.count)
+        var gap = false
+        for byte in content.utf8 {
+            if byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0C || byte == 0x0D { gap = !bytes.isEmpty; continue }
+            if gap { bytes.append(0x20); gap = false }
+            bytes.append(byte)
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+    /// The content without the white space of any kind at its ends: the identifier a font
+    /// obfuscation key is made from. What a key leaves out is its algorithm's rule, not the one
+    /// a value is read by, so a key does not start from `text`.
+    var keyText: String { content.trimmingCharacters(in: .whitespacesAndNewlines) }
     init(_ name: String, _ attributes: [AttributeName: String]) { self.name = name; self.attributes = attributes }
     /// The value of an attribute by local name; `namespace` nil matches an attribute in no namespace.
     func attribute(_ local: String, namespace: String? = nil) -> String? {

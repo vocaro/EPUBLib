@@ -42,6 +42,21 @@ bytes does not execute document content. XML expansion and external entity resol
 actual DTD syntax from comments, CDATA, processing instructions and quoted identifiers; it decodes
 UTF-16/32 input before inspecting markup.
 
+A metadata value and a navigation label are read as text: the element's and that of everything
+inside it, with each run of ASCII whitespace (tab, line feed, form feed, carriage return, space)
+as one space and none left at either end. EPUB Reading Systems 3.3 §5.3 requires that of Dublin
+Core and `meta` values, and it is how a browser renders a link, so a title or a label its
+authoring tool wrapped and indented is one line. The values are the Dublin Core title, creators,
+languages and identifiers and the `rendition:layout` `meta`; the labels are a contents entry's
+link or heading, a landmark's link, a page-list link and an NCX `navLabel`. A value left empty
+is not listed among the metadata; an entry whose label is left empty stays, without a title.
+White space outside ASCII, a no-break or an ideographic space among it, is the author's
+character and stays wherever it stands, and `xml:space` changes nothing. ASCII whitespace is
+found as its byte, not by `Character`: a space followed by a combining mark is a space, and the
+mark is kept. An attribute's value is not such text, and a guide reference's `title` is read as
+written. A font obfuscation key is made from the identifier's text by its algorithm's own rule,
+not from the value read here.
+
 A path the reader keeps is relative and made of names separated by single `/`: no name is empty,
 `.` or `..`, and the path holds no backslash or NUL. Entry names, the rootfile path and the path
 of every resolved reference are held to that. A delimiter in a path or a reference is found as
@@ -95,7 +110,7 @@ warnings, so this list is where they are disclosed:
   when its XML declaration is written in EBCDIC, names an encoding that is not on a fixed list
   of ASCII-compatible ones, or neither names one nor ends within the document's first 1,024
   bytes. A C0 control character XML forbids, copied from PDF text into a title, reads as a
-  space in an ASCII-compatible document.
+  space in an ASCII-compatible document, and so as one of the run of whitespace it stands in.
 
 `EPUBWriting` holds what it writes to the stricter rules: a path with a colon is refused, and so
 is a navigation href with a query, a leading `/` or a step above the root. The package does not
