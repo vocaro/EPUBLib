@@ -24,10 +24,18 @@ swift test --filter CFI
 bash scripts/test-ios.sh
 ```
 
+A window that mounts a reader for a test calls `keepLightAppearance()` (`ReaderTestWindow.swift`),
+so a reader whose style is System opens light on a Mac or simulator in dark appearance, and the
+suite gives one result by day and in the evening. A test that needs a dark host sets
+`ReaderTestWindow.pageControls.colorScheme`.
+`NativeSessionTests.testAMountedReaderIsLightOnADarkMachineUntilTheTestAsksForDark` holds the
+harness to that with a dark appearance for its own process.
+
 ## Coverage
 
 Parser tests cover EPUB 2/3 structure, navigation, landmarks and page lists, resource access, identity, limits,
-duplicate ZIP entries, symlinks, CRC corruption, malformed/deep/wide XML, UTF-16 entities, repeated,
+duplicate ZIP entries, symlinks, path separators and dot segments beside every scalar that joins
+their `Character`, CRC corruption, malformed/deep/wide XML, UTF-16 entities, repeated,
 conflicting, absent, remote and differently cased manifest items, references that start at or climb past
 the container root or carry a query, padded mimetypes, containers that list another rendition first,
 entry names with a colon, contents entries that do not resolve, named character references and
