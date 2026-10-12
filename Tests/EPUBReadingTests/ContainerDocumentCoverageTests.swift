@@ -491,13 +491,15 @@ final class ContainerDocumentCoverageTests: XCTestCase {
         // An identifier's metadata value has its ASCII whitespace stripped and collapsed and its
         // other white space kept (https://github.com/vocaro/EPUBLib/issues/75). A key is not made
         // from that value. IDPF's leaves out every space, tab and line end, where the value keeps
-        // one for each run. Adobe's is the UUID whatever white space surrounds it, a no-break
-        // space included, which the value keeps: what a key reads there is
+        // one for each run, and the zero-width space at either end, which the value keeps and
+        // `Character` does not count as white space: made from the value, the key would hold
+        // both. Adobe's is the UUID whatever white space surrounds it, a no-break space included,
+        // which the value keeps. What a key reads at the identifier's ends is
         // https://github.com/vocaro/EPUBLib/issues/82's to settle, and is held here as it stands.
         let original = font(1_100)
-        let spaced = try EPUBPublication.open(data: book(identifier: "\n    urn:isbn: 978 0\t00 000000\n 2\r\n  ",
+        let spaced = try EPUBPublication.open(data: book(identifier: "\u{200B}\n    urn:isbn: 978 0\t00 000000\n 2\r\n  \u{200B}",
             fonts: ["OPS/font.otf": obfuscated(original, key: sha1("urn:isbn:9780000000002"), prefix: 1040)], encryption: encryption([(Self.idpf, "OPS/font.otf")])))
-        XCTAssertEqual(spaced.metadata.identifiers, ["urn:isbn: 978 0 00 000000 2"])
+        XCTAssertEqual(spaced.metadata.identifiers.map { Array($0.unicodeScalars) }, [Array("\u{200B} urn:isbn: 978 0 00 000000 2 \u{200B}".unicodeScalars)])
         XCTAssertEqual(try spaced.data(at: "OPS/font.otf"), original)
         let key = Array(stride(from: UInt8(0x00), through: UInt8(0xff), by: 0x11))
         let padded = try EPUBPublication.open(data: book(identifier: " \u{A0}urn:uuid:00112233-4455-6677-8899-aabbccddeeff\u{3000}\n",

@@ -71,16 +71,18 @@ final class NavigationDocumentCoverageTests: XCTestCase {
     func testWhiteSpaceOutsideASCIIInALabelIsTheAuthorsCharacter() throws {
         // What is collapsed is what a browser collapses: ASCII whitespace. A no-break space is
         // there to be kept, and an ideographic or em space, a next line, a line separator and a
-        // zero-width space are as much the author's: each stays at an end of a label and beside
-        // another, as in foliate-js's `normalizeWhitespace`.
-        for space in ["\u{A0}", "\u{3000}", "\u{2003}", "\u{85}", "\u{2028}", "\u{200B}"] {
+        // zero-width space are as much the author's: in a label that holds anything else each
+        // stays at an end and beside another, as in foliate-js's `normalizeWhitespace`. A label
+        // of nothing else, the heading here, is empty.
+        for space in Fixture.spacesOutsideASCII {
             let label = "\(space)A\(space)\(space)B \(space) C\(space)", name = "U+" + String(space.unicodeScalars.first!.value, radix: 16)
             let book = try book(nav: "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">\n  \(label) \t</a></li>"
-                + "<li><span>\(space)</span><ol><li><a href=\"two.xhtml\">Two</a></li></ol></li></ol></nav>"
+                + "<li><span>\(space)</span><ol><li><a href=\"two.xhtml\">Two</a></li></ol></li>"
+                + "<li><span>\n \(label)\t</span><ol><li><a href=\"two.xhtml\">Two</a></li></ol></li></ol></nav>"
                 + "<nav epub:type=\"landmarks\"><ol><li><a epub:type=\"bodymatter\" href=\"one.xhtml\"> \(label) </a></li></ol></nav>"
                 + "<nav epub:type=\"page-list\"><ol><li><a href=\"one.xhtml#p1\"> \(label) </a></li></ol></nav>")
             let read = book.tableOfContents.map(\.title) + book.landmarks.map(\.title) + (book.pageList ?? []).map(\.label)
-            XCTAssertEqual(read.map { Array($0.unicodeScalars) }, [label, space, label, label].map { Array($0.unicodeScalars) }, name)
+            XCTAssertEqual(read.map { Array($0.unicodeScalars) }, [label, "", label, label, label].map { Array($0.unicodeScalars) }, name)
         }
     }
 
@@ -94,18 +96,41 @@ final class NavigationDocumentCoverageTests: XCTestCase {
         }
     }
 
-    func testALabelOfNothingButASCIIWhiteSpaceIsEmptyAndItsEntryKept() throws {
+    func testALabelOfNothingButWhiteSpaceOfAnyKindIsEmptyAndItsEntryKept() throws {
         // EPUB 3.3 §7.3 requires a label that is not empty "after concatenation of all child
         // content and application of whitespace normalization rules". One that is empty then is
-        // an entry with its target and no title, not one left out; a no-break space is a label.
+        // an entry with its target and no title, not one left out. A label of nothing but a
+        // no-break space, the placeholder some tools write and no host can show, is as empty.
         let book = try book(nav: "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\"> \n\t <b>  </b>\r\n</a></li><li><a href=\"two.xhtml\">&#160;</a></li>"
             + "<li><span>   </span><ol><li><a href=\"two.xhtml\">Two</a></li></ol></li></ol></nav>"
             + "<nav epub:type=\"landmarks\"><ol><li><a epub:type=\"toc\" href=\"#toc\">\n</a></li></ol></nav>"
             + "<nav epub:type=\"page-list\"><ol><li><a href=\"one.xhtml#p1\">  </a></li></ol></nav>")
-        XCTAssertEqual(book.tableOfContents, [Item(title: "", href: "OPS/one.xhtml"), Item(title: "\u{A0}", href: "OPS/two.xhtml"),
+        XCTAssertEqual(book.tableOfContents, [Item(title: "", href: "OPS/one.xhtml"), Item(title: "", href: "OPS/two.xhtml"),
                                               Item(title: "", children: [Item(title: "Two", href: "OPS/two.xhtml")])])
         XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["toc"], title: "", href: "OPS/nav.xhtml#toc")])
         XCTAssertEqual(book.pageList, [EPUBPageListEntry(label: "", href: "OPS/one.xhtml#p1")])
+        // So is one of white space of any other kind, alone or among ASCII whitespace
+        // (https://github.com/vocaro/EPUBLib/issues/75), in a contents link, a heading, a
+        // landmark and a page.
+        for space in Fixture.valuesOfOnlyWhiteSpace + ["&emsp;"] {
+            let book = try self.book(nav: "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">\(space)</a></li>"
+                + "<li><span>\(space)</span><ol><li><a href=\"two.xhtml\">Two</a></li></ol></li></ol></nav>"
+                + "<nav epub:type=\"landmarks\"><ol><li><a epub:type=\"bodymatter\" href=\"one.xhtml\">\(space)</a></li></ol></nav>"
+                + "<nav epub:type=\"page-list\"><ol><li><a href=\"one.xhtml#p1\">\(space)</a></li><li><a href=\"two.xhtml#p2\">2</a></li></ol></nav>")
+            let name = space.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: ".")
+            XCTAssertEqual(book.tableOfContents, [Item(title: "", href: "OPS/one.xhtml"), Item(title: "", children: [Item(title: "Two", href: "OPS/two.xhtml")])], name)
+            XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["bodymatter"], title: "", href: "OPS/one.xhtml")], name)
+            XCTAssertEqual(book.pageList, [EPUBPageListEntry(label: "", href: "OPS/one.xhtml#p1"), EPUBPageListEntry(label: "2", href: "OPS/two.xhtml#p2")], name)
+        }
+        // White space is such by its scalar, not its `Character`: a no-break space carrying a
+        // mark is how a mark is shown alone, and is a label, read whole.
+        for m in Fixture.clusteringMarks {
+            let book = try self.book(nav: "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">\u{A0}\(m)</a></li></ol></nav>"
+                + "<nav epub:type=\"landmarks\"><ol><li><a epub:type=\"bodymatter\" href=\"one.xhtml\"> \u{3000}\(m)\u{A0} </a></li></ol></nav>"
+                + "<nav epub:type=\"page-list\"><ol><li><a href=\"one.xhtml#p1\">\u{200B}\(m)</a></li></ol></nav>")
+            let read = book.tableOfContents.map(\.title) + book.landmarks.map(\.title) + (book.pageList ?? []).map(\.label)
+            XCTAssertEqual(read.map { Array($0.unicodeScalars) }, ["\u{A0}\(m)", "\u{3000}\(m)\u{A0}", "\u{200B}\(m)"].map { Array($0.unicodeScalars) }, m.debugDescription)
+        }
     }
 
     func testALabelIsCollapsedWhateverXMLSpaceSays() throws {

@@ -238,13 +238,41 @@ final class NavigationNCXCoverageTests: XCTestCase {
     func testWhiteSpaceOutsideASCIIInAnNCXLabelIsTheAuthorsCharacter() throws {
         // As in the navigation document: ASCII whitespace is collapsed and stripped, and a
         // no-break, ideographic or em space, a next line, a line separator or a zero-width space
-        // stays at an end of a label and beside another.
-        for space in ["\u{A0}", "\u{3000}", "\u{2003}", "\u{85}", "\u{2028}", "\u{200B}"] {
+        // stays at an end of a label that holds anything else and beside another. A label of
+        // nothing else, the second here, is empty.
+        for space in Fixture.spacesOutsideASCII {
             let label = "\(space)A\(space)\(space)B \(space) C\(space)", name = "U+" + String(space.unicodeScalars.first!.value, radix: 16)
             let book = try book(ncx: ncx("<navMap>\(point("a", "\n  \(label) \t", "one.xhtml"))\(point("b", space, "two.xhtml", order: 2))</navMap>"
                 + "<pageList><pageTarget><navLabel>\n<text> \(label) </text>\n</navLabel><content src=\"one.xhtml#p1\"/></pageTarget></pageList>"))
             let read = book.tableOfContents.map(\.title) + (book.pageList ?? []).map(\.label)
-            XCTAssertEqual(read.map { Array($0.unicodeScalars) }, [label, space, label].map { Array($0.unicodeScalars) }, name)
+            XCTAssertEqual(read.map { Array($0.unicodeScalars) }, [label, "", label].map { Array($0.unicodeScalars) }, name)
+        }
+    }
+
+    func testAnNCXLabelOfNothingButWhiteSpaceOfAnyKindIsEmptyAndItsEntryKept() throws {
+        // As in the navigation document (https://github.com/vocaro/EPUBLib/issues/75): a
+        // `navLabel` of nothing but white space, a lone no-break space included, is a point or a
+        // page with its target and no title, in an EPUB 2 book and where an EPUB 3 book's NCX
+        // fills the page list its navigation document lacks.
+        for space in Fixture.valuesOfOnlyWhiteSpace + ["  ", ""] {
+            let document = ncx("<navMap>\(point("a", space, "one.xhtml", point("b", "Inside", "one.xhtml#in", order: 2)))\(point("c", "Two", "two.xhtml", order: 3))</navMap>"
+                + "<pageList><pageTarget id=\"p1\"><navLabel>\n<text>\(space)</text>\n</navLabel><content src=\"one.xhtml#p1\"/></pageTarget>"
+                + "<pageTarget id=\"p2\"><navLabel><text>2</text></navLabel><content src=\"two.xhtml#p2\"/></pageTarget></pageList>")
+            let name = space.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: ".")
+            let pages = [EPUBPageListEntry(label: "", href: "OPS/one.xhtml#p1"), EPUBPageListEntry(label: "2", href: "OPS/two.xhtml#p2")]
+            let book = try book(ncx: document)
+            XCTAssertEqual(book.tableOfContents, [Item(title: "", href: "OPS/one.xhtml", children: [Item(title: "Inside", href: "OPS/one.xhtml#in")]),
+                                                  Item(title: "Two", href: "OPS/two.xhtml")], name)
+            XCTAssertEqual(book.pageList, pages, name)
+            XCTAssertEqual(try EPUBPublication.open(data: Fixture.packageVariant(ncx: { _ in document })).pageList, pages, name)
+        }
+        // White space is such by its scalar, not its `Character`: a no-break space carrying a
+        // mark is how a mark is shown alone, and is a label, read whole.
+        for m in Fixture.clusteringMarks {
+            let book = try book(ncx: ncx("<navMap>\(point("a", "\u{A0}\(m)", "one.xhtml"))</navMap>"
+                + "<pageList><pageTarget><navLabel><text> \u{3000}\(m)\u{A0} </text></navLabel><content src=\"one.xhtml#p1\"/></pageTarget></pageList>"))
+            let read = book.tableOfContents.map(\.title) + (book.pageList ?? []).map(\.label)
+            XCTAssertEqual(read.map { Array($0.unicodeScalars) }, ["\u{A0}\(m)", "\u{3000}\(m)\u{A0}"].map { Array($0.unicodeScalars) }, m.debugDescription)
         }
     }
 

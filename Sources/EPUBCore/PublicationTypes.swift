@@ -85,7 +85,8 @@ public struct EPUBLandmark: Equatable, Sendable {
 /// or of the EPUB 2 NCX `pageList`.
 public struct EPUBPageListEntry: Codable, Hashable, Sendable {
     /// The page's label, such as `xii` or `5`: the book's own text for it, with ASCII
-    /// whitespace stripped from its ends and collapsed.
+    /// whitespace stripped from its ends and collapsed. Empty when that text is nothing but
+    /// white space of any kind, a lone no-break space included.
     public let label: String
     /// Archive-relative URL reference, usually to the page's `pagebreak` marker by fragment.
     public let href: String

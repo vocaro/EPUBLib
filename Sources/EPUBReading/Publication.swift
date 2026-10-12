@@ -15,7 +15,8 @@ public struct EPUBPublication: Sendable {
     /// `dc:language` and `dc:identifier` that has one. A value is the element's text with each
     /// run of ASCII whitespace read as one space and none left at either end, so one its
     /// authoring tool wrapped and indented is one line; other white space, a no-break space
-    /// among it, is kept.
+    /// among it, is kept inside and at the ends of a value that holds anything else, and an
+    /// element that holds nothing but white space of any kind has no value.
     public let metadata: EPUBMetadata
     /// The manifest's items whose files the archive holds. A remote item is never fetched and is
     /// left out, as is a font obfuscated with a key the package does not give.
@@ -24,7 +25,8 @@ public struct EPUBPublication: Sendable {
     /// The navigation document's `toc` or, without that document, the NCX's `navMap`. An entry
     /// whose href does not resolve inside the archive keeps its title and children, without an href.
     /// A title is the text of the entry's link or heading, or of its `navLabel`, read as a
-    /// metadata value is: ASCII whitespace stripped from its ends and collapsed.
+    /// metadata value is: ASCII whitespace stripped from its ends and collapsed, and empty, its
+    /// entry kept, when the text is nothing but white space of any kind.
     public let tableOfContents: [EPUBNavigationItem]
     /// The navigation document's `landmarks` in order or, when it lists none, the OPF `guide`'s
     /// references. Entries whose href does not resolve inside the archive are left out. A title
@@ -418,9 +420,13 @@ private final class XMLNode {
     /// none left at either end. EPUB Reading Systems 3.3 §5.3 requires that of Dublin Core and
     /// `meta` values, and it is how a browser renders a navigation label. White space outside
     /// ASCII, a no-break or an ideographic space, is the author's character and stays wherever
-    /// it is. Read by byte, not by `Character`: a space is one whatever mark follows it, and the
+    /// it is in a value that holds anything else. A value of nothing but white space of any kind
+    /// (Foundation's `whitespacesAndNewlines`, the set `keyText` trims, by scalar) is empty: a
+    /// lone no-break space is a tool's placeholder, and no host can show one. ASCII whitespace
+    /// is read by byte, not by `Character`: a space is one whatever mark follows it, and the
     /// mark stays.
     var text: String {
+        guard !content.unicodeScalars.allSatisfy(CharacterSet.whitespacesAndNewlines.contains) else { return "" }
         var bytes: [UInt8] = []
         bytes.reserveCapacity(content.utf8.count)
         var gap = false

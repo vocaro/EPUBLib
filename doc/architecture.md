@@ -48,10 +48,13 @@ as one space and none left at either end. EPUB Reading Systems 3.3 §5.3 require
 Core and `meta` values, and it is how a browser renders a link, so a title or a label its
 authoring tool wrapped and indented is one line. The values are the Dublin Core title, creators,
 languages and identifiers and the `rendition:layout` `meta`; the labels are a contents entry's
-link or heading, a landmark's link, a page-list link and an NCX `navLabel`. A value left empty
-is not listed among the metadata; an entry whose label is left empty stays, without a title.
-White space outside ASCII, a no-break or an ideographic space among it, is the author's
-character and stays wherever it stands, and `xml:space` changes nothing. ASCII whitespace is
+link or heading, a landmark's link, a page-list link and an NCX `navLabel`. White space outside
+ASCII, a no-break or an ideographic space among it, is the author's character and is kept
+inside and at the ends of a value that holds anything else, but a value that is nothing but
+white space of any kind (Foundation's `whitespacesAndNewlines`, which counts the zero-width
+space) is empty: some tools write a lone no-break space as a placeholder, and no host can show
+one. A value left empty is not listed among the metadata; an entry whose label is left empty
+stays, without a title. `xml:space` changes nothing. ASCII whitespace is
 found as its byte, not by `Character`: a space followed by a combining mark is a space, and the
 mark is kept. An attribute's value is not such text, and a guide reference's `title` is read as
 written. A font obfuscation key is made from the identifier's text by its algorithm's own rule,

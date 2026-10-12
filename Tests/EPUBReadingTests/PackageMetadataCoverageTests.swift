@@ -61,16 +61,44 @@ final class PackageMetadataCoverageTests: XCTestCase {
     func testWhiteSpaceOutsideASCIIInAValueIsTheAuthorsCharacter() throws {
         // What EPUB Reading Systems 3.3 §5.3 has stripped and collapsed is ASCII whitespace. A
         // no-break, ideographic or em space, a next line, a line separator and a zero-width space
-        // are none of it: each is kept at an end of a value and beside another, as foliate-js's
-        // `normalizeWhitespace` kept it, with the ASCII whitespace around it read as ever.
-        for space in ["\u{A0}", "\u{3000}", "\u{2003}", "\u{85}", "\u{2028}", "\u{200B}"] {
+        // are none of it: in a value that holds anything else each is kept at an end and beside
+        // another, as foliate-js's `normalizeWhitespace` kept it, with the ASCII whitespace
+        // around it read as ever.
+        for space in Fixture.spacesOutsideASCII {
             let value = "\(space)A\(space)\(space)B \(space) C\(space)", name = "U+" + String(space.unicodeScalars.first!.value, radix: 16)
             let book = try book(metadata: "<dc:title>\n  \(value) \t</dc:title><dc:creator>\(value)</dc:creator><dc:creator>\(space)</dc:creator>"
-                + "<dc:language>en</dc:language><dc:identifier id=\"uid\">  test\(space)\(space)book  </dc:identifier>")
+                + "<dc:language> \(space)en\(space)\n</dc:language><dc:identifier id=\"uid\">  test\(space)\(space)book  </dc:identifier>")
             XCTAssertEqual(Array(book.metadata.title.unicodeScalars), Array(value.unicodeScalars), name)
-            // A value of nothing but such a character is a value, where one of ASCII whitespace is none.
-            XCTAssertEqual(book.metadata.authors.map { Array($0.unicodeScalars) }, [Array(value.unicodeScalars), Array(space.unicodeScalars)], name)
+            // An element of nothing but such a character has no value, as one of ASCII whitespace has none.
+            XCTAssertEqual(book.metadata.authors.map { Array($0.unicodeScalars) }, [Array(value.unicodeScalars)], name)
+            XCTAssertEqual(book.metadata.languages.map { Array($0.unicodeScalars) }, [Array("\(space)en\(space)".unicodeScalars)], name)
             XCTAssertEqual(book.metadata.identifiers.map { Array($0.unicodeScalars) }, [Array("test\(space)\(space)book".unicodeScalars)], name)
+        }
+    }
+
+    func testAnElementOfNothingButWhiteSpaceOfAnyKindHasNoValue() throws {
+        // A value that is only white space, ASCII or not, is empty, as it was before ASCII
+        // whitespace alone was stripped (https://github.com/vocaro/EPUBLib/issues/75): some tools
+        // write a lone `&nbsp;` as a placeholder, and no host can show one. The title is then the
+        // first one with a value, and a creator, language or identifier without one is not listed.
+        for space in Fixture.valuesOfOnlyWhiteSpace {
+            let book = try book(metadata: "<dc:title>\(space)</dc:title><dc:title>Real</dc:title><dc:creator>\(space)</dc:creator>"
+                + "<dc:language>\(space)</dc:language><dc:language>en</dc:language>"
+                + "<dc:identifier>\(space)</dc:identifier><dc:identifier id=\"uid\">test-book</dc:identifier>")
+            XCTAssertEqual(book.metadata, EPUBMetadata(title: "Real", authors: [], languages: ["en"], identifiers: ["test-book"]),
+                           space.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: "."))
+        }
+        // With no other title, the book has none.
+        let untitled = try self.book(metadata: "<dc:title>&#160;</dc:title><dc:creator>&#160;</dc:creator><dc:creator>An Author</dc:creator>"
+            + "<dc:language>en</dc:language><dc:identifier id=\"uid\">test-book</dc:identifier>")
+        XCTAssertEqual(untitled.metadata, EPUBMetadata(title: "", authors: ["An Author"], languages: ["en"], identifiers: ["test-book"]))
+        // White space is such by its scalar, not its `Character`: a no-break space carrying a
+        // mark is how a mark is shown alone, and is a value, read whole.
+        for m in Fixture.clusteringMarks {
+            let marked = try self.book(metadata: "<dc:title>\u{A0}\(m)</dc:title><dc:title>Real</dc:title><dc:creator> \u{3000}\(m)\u{A0} </dc:creator>"
+                + "<dc:language>en</dc:language><dc:identifier id=\"uid\">test-book</dc:identifier>")
+            XCTAssertEqual(Array(marked.metadata.title.unicodeScalars), Array("\u{A0}\(m)".unicodeScalars), m.debugDescription)
+            XCTAssertEqual(marked.metadata.authors.map { Array($0.unicodeScalars) }, [Array("\u{3000}\(m)\u{A0}".unicodeScalars)], m.debugDescription)
         }
     }
 
