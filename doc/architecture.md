@@ -47,12 +47,12 @@ A path the reader keeps is relative and made of names separated by single `/`: n
 of every resolved reference are held to that. A delimiter in a path or a reference is found as
 its byte, as an archive and a file system read it, not by `Character`: a `/`, `\`, `:`, `#`, `?`
 or `.` followed by a combining mark, variation selector or joiner, or preceded by a prepended
-mark such as U+0600, is still that delimiter or dot. So `../` followed by U+0301 and a name is
-read as `../` and the name alone is, and `a/` followed by U+0301 and `b` is the name `a` and a
-second name that begins with the mark. Paths are compared as Swift strings, by canonical
-equivalence, so a name's precomposed and decomposed forms are one path: an entry answers to a
-reference in either normalization form, and two entry names equal after normalization are
-duplicates.
+mark such as U+0600, is still that delimiter or dot. So `../` followed by U+0301 and a name is a
+`..` segment followed by a name that begins with the mark, and `a/` followed by U+0301 and `b` is
+the name `a` followed by a second name that begins with it. Paths are compared as Swift strings,
+by canonical equivalence, so a name's precomposed and decomposed forms are one path: an entry
+answers to a reference in either normalization form, and two entry names equal after
+normalization are duplicates.
 
 Default limits are 256 MiB compressed, 512 MiB expanded, 32 MiB per resource, 20,000 entries and
 4 MiB per XML document, with depth/node limits. Hosts may lower or raise import limits. Resources

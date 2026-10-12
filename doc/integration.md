@@ -141,11 +141,13 @@ Navigation items and emitted locations also carry encoded hrefs. Decode neither 
 A host that writes a resource to disk may join its `path` to a directory of its own. The `path` of
 every resource of an opened publication is relative; its names are separated by single `/`, none
 of them is empty, `.` or `..`, and it holds no backslash and no NUL. That is true of the path's
-bytes, which are what a file system is given, whatever combining marks, variation selectors or
-joiners a name carries. Pass the path whole to `URL` or `FileManager`, or split it at `/` in its
-`utf8` or `unicodeScalars` view: by `Character`, which `split(separator:)`, `hasPrefix` and
-`contains` compare on a `String`, a `/` followed by a combining mark is not a `/`. Foundation's
-`components(separatedBy:)` compares that way too, as does `range(of:)` unless told `.literal`.
+bytes, whatever combining marks, variation selectors or joiners a name carries, and of what a file
+system is given: Foundation hands it each name's canonical decomposition rather than those bytes,
+and decomposing it adds no `/`, `\`, `.`, `:` or NUL. Pass the path whole to `URL` or
+`FileManager`, or split it at `/` in its `utf8` or `unicodeScalars` view: by `Character`, which
+`split(separator:)`, `hasPrefix` and `contains` compare on a `String`, a `/` followed by a
+combining mark is not a `/`. Foundation's `components(separatedBy:)` compares that way too, as
+does `range(of:)` unless told `.literal`.
 
 The names themselves are the book's, and the host still decides what to do with them:
 
