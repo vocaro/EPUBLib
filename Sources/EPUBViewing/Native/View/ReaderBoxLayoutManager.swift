@@ -65,7 +65,7 @@ final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDele
     override func textLayoutFragment(for position: CGPoint) -> NSTextLayoutFragment? {
         guard let container = textContainer as? ReaderTextContainer, let page = container.boxPage,
               let content = textContentManager else { return super.textLayoutFragment(for: position) }
-        let global = position.offsetBy(dx: 0, dy: page.origin)
+        let global = position.offsetBy(dx: 0, dy: planOrigin(near: position, page: page, content: content))
         for region in page.geometry.regions where region.frame.contains(global) {
             let offset = max(0, region.range.location - page.offset)
             guard offset < content.offset(from: content.documentRange.location, to: content.documentRange.endLocation),
@@ -83,6 +83,19 @@ final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDele
             if let found { return found }
         }
         return super.textLayoutFragment(for: position)
+    }
+
+    /// How far the plan's coordinates are from the container's around `position`: the page's
+    /// origin while everything above is laid out. In a long text shown part way down TextKit
+    /// only estimates what is above, so it is read off the fragment laid out there: where the
+    /// plan has that paragraph's first line against where the line is.
+    private func planOrigin(near position: CGPoint, page: ReaderBoxPage, content: NSTextContentManager) -> CGFloat {
+        guard let fragment = super.textLayoutFragment(for: position),
+              let line = fragment.textLineFragments.first(where: { $0.characterRange.length > 0 }) else { return page.origin }
+        let start = content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location) + page.offset
+        guard let paragraph = page.geometry.paragraph(at: start), paragraph.range.location == start,
+              let planned = paragraph.lines.first else { return page.origin }
+        return planned.frame.minY - (fragment.layoutFragmentFrame.minY + line.typographicBounds.minY)
     }
 
     override func lineFragmentRange(for point: CGPoint, inContainerAt location: any NSTextLocation) -> NSTextRange? {

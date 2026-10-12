@@ -300,11 +300,9 @@ import UIKit
     }
 
     /// `clear` puts a paragraph exactly at a float's bottom edge. On a page that does not start
-    /// at the section's start, that first line is laid out beside the float's column as though
-    /// the float went on, so the page's lines break differently from the measured ones and the
-    /// last of them falls below the page.
+    /// at the section's start, that first line is still below the float, at the column's edge:
+    /// the page's lines break as the measured ones do and the last of them is on the page.
     func testAClearedParagraphBelowAFloatIsLaidOutOnALaterPageAsItWasMeasured() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/147")
         let small = CGSize(width: 180, height: 240)
         let section = try build("<p class='lead'>Lead.</p><p>Before words.</p><figure>Float box.</figure><p class='c'>After the float. \(H.prose)</p>",
                                 css: ".lead { margin-bottom:216px } figure { float:left; width:60px; height:75px } .c { clear:both }")
@@ -350,12 +348,8 @@ import UIKit
     }
 
     /// A table row starts below every float. Its first row begins exactly at the float's bottom
-    /// edge and is placed beside the float's column as though the float went on: shifted right
-    /// by the float's width, out of step with the rows after it and past the column's edge.
+    /// edge and spans the column there, in step with the rows after it.
     func testATableDirectlyBelowAFloatSpansTheColumn() throws {
-        #if os(macOS)
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/147")
-        #endif
         let small = CGSize(width: 180, height: 240)
         var shifted: [String] = []
         for margin in [0, 8, 16, 24, 32, 40] {

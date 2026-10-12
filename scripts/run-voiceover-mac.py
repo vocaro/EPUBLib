@@ -201,7 +201,8 @@ def main():
                                log_path.read_text(errors="replace").splitlines() if line.startswith("VOICEOVER_EVENT ")]
             if events_path.exists():
                 # What the reader reported and exposed, beside what VoiceOver said about it.
-                kinds = (" EVENT AXValueChanged", " EVENT AXLayoutChanged", " STATE", " LINE", " PRESS", " RESIZE", " FOCUS", " MISSING")
+                kinds = (" EVENT AXValueChanged", " EVENT AXLayoutChanged", " EVENT AXSelectedTextChanged", " STATE", " LINE", " PRESS",
+                         " RESIZE", " FOCUS", " MISSING")
                 transcript += [line for line in events_path.read_text(errors="replace").splitlines() if line[24:].startswith(kinds)]
             transcript_path = args.results / f"mac-{stamp}.transcript.txt"
             transcript_path.write_text("\n".join(sorted(transcript)) + "\n")
