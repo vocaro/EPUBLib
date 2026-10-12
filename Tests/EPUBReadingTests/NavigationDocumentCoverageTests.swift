@@ -21,7 +21,6 @@ final class NavigationDocumentCoverageTests: XCTestCase {
     // MARK: Labels
 
     func testWhiteSpaceInAContentsLabelIsCollapsed() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/75")
         // EPUB 3.3 §7.3 defines a label as the "concatenation of all child content and application
         // of whitespace normalization rules"; HTML renders the same link with single spaces.
         let entries = try contents("""
@@ -36,6 +35,108 @@ final class NavigationDocumentCoverageTests: XCTestCase {
             </ol>
             """)
         XCTAssertEqual(entries.map(\.title), ["Chapter One: The Beginning", "Chapter Two"])
+    }
+
+    func testALandmarkTitleAPageLabelAndAHeadingAreCollapsedAsAContentsLinkIs() throws {
+        let book = try book(nav: """
+            <nav epub:type="toc"><ol><li><span>
+                Part
+                One</span><ol><li><a href="one.xhtml">One</a></li></ol></li></ol></nav>
+            <nav epub:type="landmarks"><ol><li><a epub:type="bodymatter" href="one.xhtml">
+                Start of
+                <em>the   text</em>
+              </a></li></ol></nav>
+            <nav epub:type="page-list"><ol><li><a href="one.xhtml#p1">
+                <span>page</span>\txii
+              </a></li><li><a href="two.xhtml#p2"> 1 </a></li></ol></nav>
+            """)
+        XCTAssertEqual(book.tableOfContents, [Item(title: "Part One", children: [Item(title: "One", href: "OPS/one.xhtml")])])
+        XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["bodymatter"], title: "Start of the text", href: "OPS/one.xhtml")])
+        XCTAssertEqual(book.pageList, [EPUBPageListEntry(label: "page xii", href: "OPS/one.xhtml#p1"), EPUBPageListEntry(label: "1", href: "OPS/two.xhtml#p2")])
+    }
+
+    func testASCIIWhiteSpaceInALabelIsOneSpaceHoweverItIsWritten() throws {
+        // A character reference gives the parser the character and a CDATA section its text; a
+        // carriage return written out reaches it as a line feed. Elements end no run: the text
+        // of everything inside the link is put together first.
+        let entries = try contents("<ol><li><a href=\"one.xhtml\">&#9;A&#10;&#13;B&#x20;&#x9;C\r\nD\rE<![CDATA[ \t\n F \n]]><!-- a note -->  <b> <i> G</i> </b>\n</a></li>"
+            + "<li><a href=\"two.xhtml\"><b>H </b><i> I</i><b>J</b></a></li></ol>")
+        XCTAssertEqual(entries.map(\.title), ["A B C D E F G", "H IJ"])
+        // XML holds no form feed. Written out, it is a control that reads as a space
+        // (doc/architecture.md), and so as one of the run it stands in.
+        let controls = try contents("<ol><li><a href=\"one.xhtml\">\u{0C}Chapter\u{0C} \u{0B}One\u{1F}</a></li></ol>")
+        XCTAssertEqual(controls.map(\.title), ["Chapter One"])
+    }
+
+    func testWhiteSpaceOutsideASCIIInALabelIsTheAuthorsCharacter() throws {
+        // What is collapsed is what a browser collapses: ASCII whitespace. A no-break space is
+        // there to be kept, and an ideographic or em space, a next line, a line separator and a
+        // zero-width space are as much the author's: in a label that holds anything else each
+        // stays at an end and beside another, as in foliate-js's `normalizeWhitespace`. A label
+        // of nothing else, the heading here, is empty.
+        for space in Fixture.spacesOutsideASCII {
+            let label = "\(space)A\(space)\(space)B \(space) C\(space)", name = "U+" + String(space.unicodeScalars.first!.value, radix: 16)
+            let book = try book(nav: "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">\n  \(label) \t</a></li>"
+                + "<li><span>\(space)</span><ol><li><a href=\"two.xhtml\">Two</a></li></ol></li>"
+                + "<li><span>\n \(label)\t</span><ol><li><a href=\"two.xhtml\">Two</a></li></ol></li></ol></nav>"
+                + "<nav epub:type=\"landmarks\"><ol><li><a epub:type=\"bodymatter\" href=\"one.xhtml\"> \(label) </a></li></ol></nav>"
+                + "<nav epub:type=\"page-list\"><ol><li><a href=\"one.xhtml#p1\"> \(label) </a></li></ol></nav>")
+            let read = book.tableOfContents.map(\.title) + book.landmarks.map(\.title) + (book.pageList ?? []).map(\.label)
+            XCTAssertEqual(read.map { Array($0.unicodeScalars) }, [label, "", label, label, label].map { Array($0.unicodeScalars) }, name)
+        }
+    }
+
+    // A `Character` holds a space together with a mark, selector or joiner after it, and is white
+    // space by its first scalar. Split by it, the mark would go with the space; read as one
+    // character of text, the space would stay where a run is collapsed or an end stripped.
+    func testASpaceInALabelIsOneWhateverMarkFollowsIt() throws {
+        for m in Fixture.clusteringMarks {
+            let entries = try contents("<ol><li><a href=\"one.xhtml\">  \(m)A  \(m)B\t\(m)C\n\(m)</a></li><li><a href=\"two.xhtml\"> \(m) </a></li></ol>")
+            XCTAssertEqual(entries.map { Array($0.title.unicodeScalars) }, ["\(m)A \(m)B \(m)C \(m)", m].map { Array($0.unicodeScalars) }, m.debugDescription)
+        }
+    }
+
+    func testALabelOfNothingButWhiteSpaceOfAnyKindIsEmptyAndItsEntryKept() throws {
+        // EPUB 3.3 §7.3 requires a label that is not empty "after concatenation of all child
+        // content and application of whitespace normalization rules". One that is empty then is
+        // an entry with its target and no title, not one left out. A label of nothing but a
+        // no-break space, the placeholder some tools write and no host can show, is as empty.
+        let book = try book(nav: "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\"> \n\t <b>  </b>\r\n</a></li><li><a href=\"two.xhtml\">&#160;</a></li>"
+            + "<li><span>   </span><ol><li><a href=\"two.xhtml\">Two</a></li></ol></li></ol></nav>"
+            + "<nav epub:type=\"landmarks\"><ol><li><a epub:type=\"toc\" href=\"#toc\">\n</a></li></ol></nav>"
+            + "<nav epub:type=\"page-list\"><ol><li><a href=\"one.xhtml#p1\">  </a></li></ol></nav>")
+        XCTAssertEqual(book.tableOfContents, [Item(title: "", href: "OPS/one.xhtml"), Item(title: "", href: "OPS/two.xhtml"),
+                                              Item(title: "", children: [Item(title: "Two", href: "OPS/two.xhtml")])])
+        XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["toc"], title: "", href: "OPS/nav.xhtml#toc")])
+        XCTAssertEqual(book.pageList, [EPUBPageListEntry(label: "", href: "OPS/one.xhtml#p1")])
+        // So is one of white space of any other kind, alone or among ASCII whitespace
+        // (https://github.com/vocaro/EPUBLib/issues/75), in a contents link, a heading, a
+        // landmark and a page.
+        for space in Fixture.valuesOfOnlyWhiteSpace + ["&emsp;"] {
+            let book = try self.book(nav: "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">\(space)</a></li>"
+                + "<li><span>\(space)</span><ol><li><a href=\"two.xhtml\">Two</a></li></ol></li></ol></nav>"
+                + "<nav epub:type=\"landmarks\"><ol><li><a epub:type=\"bodymatter\" href=\"one.xhtml\">\(space)</a></li></ol></nav>"
+                + "<nav epub:type=\"page-list\"><ol><li><a href=\"one.xhtml#p1\">\(space)</a></li><li><a href=\"two.xhtml#p2\">2</a></li></ol></nav>")
+            let name = space.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: ".")
+            XCTAssertEqual(book.tableOfContents, [Item(title: "", href: "OPS/one.xhtml"), Item(title: "", children: [Item(title: "Two", href: "OPS/two.xhtml")])], name)
+            XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["bodymatter"], title: "", href: "OPS/one.xhtml")], name)
+            XCTAssertEqual(book.pageList, [EPUBPageListEntry(label: "", href: "OPS/one.xhtml#p1"), EPUBPageListEntry(label: "2", href: "OPS/two.xhtml#p2")], name)
+        }
+        // White space is such by its scalar, not its `Character`: a no-break space carrying a
+        // mark is how a mark is shown alone, and is a label, read whole.
+        for m in Fixture.clusteringMarks {
+            let book = try self.book(nav: "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">\u{A0}\(m)</a></li></ol></nav>"
+                + "<nav epub:type=\"landmarks\"><ol><li><a epub:type=\"bodymatter\" href=\"one.xhtml\"> \u{3000}\(m)\u{A0} </a></li></ol></nav>"
+                + "<nav epub:type=\"page-list\"><ol><li><a href=\"one.xhtml#p1\">\u{200B}\(m)</a></li></ol></nav>")
+            let read = book.tableOfContents.map(\.title) + book.landmarks.map(\.title) + (book.pageList ?? []).map(\.label)
+            XCTAssertEqual(read.map { Array($0.unicodeScalars) }, ["\u{A0}\(m)", "\u{3000}\(m)\u{A0}", "\u{200B}\(m)"].map { Array($0.unicodeScalars) }, m.debugDescription)
+        }
+    }
+
+    func testALabelIsCollapsedWhateverXMLSpaceSays() throws {
+        // `xml:space="preserve"` does not change how HTML renders text, and a label is HTML text.
+        let entries = try contents("<ol xml:space=\"preserve\"><li><a href=\"one.xhtml\" xml:space=\"preserve\">  Chapter   One\n  </a></li></ol>")
+        XCTAssertEqual(entries.map(\.title), ["Chapter One"])
     }
 
     func testALabelIsTheTextOfEverythingInsideItsLink() throws {

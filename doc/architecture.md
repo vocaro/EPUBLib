@@ -42,6 +42,24 @@ bytes does not execute document content. XML expansion and external entity resol
 actual DTD syntax from comments, CDATA, processing instructions and quoted identifiers; it decodes
 UTF-16/32 input before inspecting markup.
 
+A metadata value and a navigation label are read as text: the element's and that of everything
+inside it, with each run of ASCII whitespace (tab, line feed, form feed, carriage return, space)
+as one space and none left at either end. EPUB Reading Systems 3.3 §5.3 requires that of Dublin
+Core and `meta` values, and it is how a browser renders a link, so a title or a label its
+authoring tool wrapped and indented is one line. The values are the Dublin Core title, creators,
+languages and identifiers and the `rendition:layout` `meta`; the labels are a contents entry's
+link or heading, a landmark's link, a page-list link and an NCX `navLabel`. White space outside
+ASCII, a no-break or an ideographic space among it, is the author's character and is kept
+inside and at the ends of a value that holds anything else, but a value that is nothing but
+white space of any kind (Foundation's `whitespacesAndNewlines`, which counts the zero-width
+space) is empty: some tools write a lone no-break space as a placeholder, and no host can show
+one. A value left empty is not listed among the metadata; an entry whose label is left empty
+stays, without a title. `xml:space` changes nothing. ASCII whitespace is
+found as its byte, not by `Character`: a space followed by a combining mark is a space, and the
+mark is kept. An attribute's value is not such text, and a guide reference's `title` is read as
+written. A font obfuscation key is made from the identifier's text by its algorithm's own rule,
+not from the value read here.
+
 A path the reader keeps is relative and made of names separated by single `/`: no name is empty,
 `.` or `..`, and the path holds no backslash or NUL. Entry names, the rootfile path and the path
 of every resolved reference are held to that. A delimiter in a path or a reference is found as
@@ -65,9 +83,10 @@ Inputs need an EPUB mimetype, a container rootfile and a nonempty resolvable spi
 encryption, archive entries named outside the archive (a `..` segment, a leading `/`, a backslash),
 duplicate paths, symlinks, entity declarations, malformed metadata/navigation XML, one manifest id
 naming two resources and a spine that names a remote resource fail explicitly. So do bytes with
-no ZIP end record in their last 65,557, as far back as one with the longest comment begins: they
-are refused as no archive without the rest being searched, an archive followed by more than
-65,535 other bytes among them.
+no ZIP end record in their last 65,557, as far back as one with the longest comment begins, unless
+they begin with a local file header's signature as an archive does: they are refused as no
+archive by those last bytes and their first four, without the rest being read. Bytes that do
+begin so and hold no end record are refused after one search through them in memory.
 
 Faults that leave a book readable are read past instead. The publication model has no channel for
 warnings, so this list is where they are disclosed:
@@ -81,6 +100,20 @@ warnings, so this list is where they are disclosed:
   when there is exactly one.
 - **Contents.** An entry whose href does not resolve keeps its title and children, without an
   href. A landmark or page that does not resolve is left out.
+- **Archive.** The last end record in the file decides which archive is read, so bytes after a book
+  are passed over, however many, when they hold no end record's signature: a page a download was
+  wrapped in. Another archive after the book ends in one, and that record is followed with its
+  offsets counted from the file's first byte. An archive written with such offsets is read in the
+  book's place. One whose offsets count from its own first byte sends the reading into the book
+  before it: the file is refused unless a directory lies there, as it does when the same file is
+  run on twice. Where more bytes follow than a comment could hold, the archive is taken to end with
+  the comment of that last record and is read as it would be with nothing after it. The identity
+  and `archiveData` are the whole file's either way. An archive that has other bytes before it as
+  well, and more than 65,535 after it, is not looked for. A deflated entry is read by its stream
+  and held to its checksum: an uncompressed size its directory misstates is not believed, nor is a
+  compressed size that runs past the end of the archive, and the limits count what the entry
+  inflates to. The book is still refused when that compressed size is 2^63 bytes or more, or when a
+  data descriptor follows the entry and the misstated size places it past the end.
 - **Container.** White space around the mimetype's media type and a byte-order mark before it are
   ignored. A rootfile that is not typed as a package document is passed over for the first that
   is. An entry name may hold a colon, as it may the other characters OCF forbids.
@@ -95,7 +128,7 @@ warnings, so this list is where they are disclosed:
   when its XML declaration is written in EBCDIC, names an encoding that is not on a fixed list
   of ASCII-compatible ones, or neither names one nor ends within the document's first 1,024
   bytes. A C0 control character XML forbids, copied from PDF text into a title, reads as a
-  space in an ASCII-compatible document.
+  space in an ASCII-compatible document, and so as one of the run of whitespace it stands in.
 
 `EPUBWriting` holds what it writes to the stricter rules: a path with a colon is refused, and so
 is a navigation href with a query, a leading `/` or a step above the root. The package does not
