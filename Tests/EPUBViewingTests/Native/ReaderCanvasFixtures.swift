@@ -135,6 +135,26 @@ final class TextualTestAttachment: NSTextAttachment, ReaderTextualAttachment {
     func canvas(_ canvas: any ReaderCanvas, needsSection index: Int, forward: Bool) { needed.append((index, forward)) }
 }
 
+/// The scroll bars of a continuous scroll view. A Mac shows overlay ones with a trackpad and
+/// legacy ones with a mouse attached, and a legacy one takes its width from the scroll column
+/// (doc/native-viewer.md, "Layout"). A test of where lines sit across that column says which it
+/// means with `CanvasHost.setScrollBars`, so its result is not this Mac's. iOS has overlay ones only.
+enum CanvasScrollBars: CaseIterable {
+    case overlay
+    #if os(macOS)
+    case legacy
+    #endif
+
+    /// The width the scroll bar takes from the scroll view.
+    var width: CGFloat {
+        #if os(macOS)
+        self == .legacy ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+        #else
+        0
+        #endif
+    }
+}
+
 /// A canvas in a real window, like `ReaderTestWindow` hosts the reader.
 @MainActor final class CanvasHost {
     let canvas = ReaderCanvasView(frame: .zero)
@@ -142,6 +162,7 @@ final class TextualTestAttachment: NSTextAttachment, ReaderTextualAttachment {
     let recorder = CanvasRecorder()
     #if os(macOS)
     let window: NSWindow
+    private var scrollerStyle: NSKeyValueObservation?
     #else
     let window: UIWindow
     let controller = UIViewController()
@@ -182,6 +203,21 @@ final class TextualTestAttachment: NSTextAttachment, ReaderTextualAttachment {
         #endif
     }
 
+    /// Gives the canvas's scroll view `bars` and holds it to them: AppKit gives every scroll view
+    /// the Mac's preferred kind again whenever that changes, and a process on a Mac with a mouse
+    /// learns its preference a moment after it starts.
+    func setScrollBars(_ bars: CanvasScrollBars) throws {
+        #if os(macOS)
+        let scrollView = try XCTUnwrap(canvas.scrollContainer as? NSScrollView)
+        let style: NSScroller.Style = bars == .legacy ? .legacy : .overlay
+        scrollView.scrollerStyle = style
+        scrollerStyle = scrollView.observe(\.scrollerStyle) { view, _ in
+            MainActor.assumeIsolated { if view.scrollerStyle != style { view.scrollerStyle = style } }
+        }
+        layOut()
+        #endif
+    }
+
     func resize(to size: CGSize) {
         #if os(macOS)
         window.setContentSize(size)
@@ -193,6 +229,7 @@ final class TextualTestAttachment: NSTextAttachment, ReaderTextualAttachment {
 
     func close() {
         #if os(macOS)
+        scrollerStyle = nil
         window.close()
         window.contentView = nil
         #else
