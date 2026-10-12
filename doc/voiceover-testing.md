@@ -100,8 +100,9 @@ new phrase is recorded:
   or End).
 - `linecount`: Control-Option-F3 twice, the total and visible line counts.
 - `readall`: read from the cursor onward.
-- `nextheading`, `previousheading`: VoiceOver's own move to the next or previous heading
-  (Control-Option-Command-H, with Shift for the one before).
+- `nextheading`: VoiceOver's own move to the next heading, Control-Option-Command-H. There is
+  no step for the one before: with Shift added VoiceOver asked the reader for the next heading
+  again (macOS 27.0.1). Go back with the rotor's list.
 - `rotor`: Control-Option-U, which opens VoiceOver's rotor: lists of what the item under its
   cursor holds, the reader's Headings among them. `listright` and `listleft` go from list to
   list, `listdown` and `listup` along one, `listchoose` (Return) moves VoiceOver to the item

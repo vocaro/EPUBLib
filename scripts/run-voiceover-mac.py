@@ -26,8 +26,9 @@ COMMANDS = {
     "textstart": (115, True), "textend": (119, True), "readall": (0, False), "activate": (49, False),
     "linecount": (99, False), "rotor": (32, False)}
 TWICE = {"linecount"}  # Control-Option-F3 twice reads the total and visible line counts.
-# VoiceOver's moves by heading, Control-Option-Command-H, as (key code, with Shift).
-HEADING_COMMANDS = {"nextheading": (4, False), "previousheading": (4, True)}
+# VoiceOver's move to the next heading, Control-Option-Command-H, as (key code, with Shift).
+# With Shift it asked the reader's rotor for the next heading too, on macOS 27.0.1.
+HEADING_COMMANDS = {"nextheading": (4, False)}
 READER_KEYS = {"pagedown": 121, "pageup": 116}  # The reader's own keys, without modifiers.
 # Plain keys for the lists `rotor` opens: across the lists, along one, choose, close. With no
 # list open the reader takes them as its own.
