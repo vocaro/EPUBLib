@@ -85,7 +85,8 @@ struct QualificationScreen: View {
         switch defaults.string(forKey: "QualificationHost") ?? "toolbar" {
         case "strip":
             VStack(spacing: 0) {
-                EPUBReaderControlStrip(controls: controls).padding(.horizontal)
+                // Padding hides the strip's own layout priority from the stack.
+                EPUBReaderControlStrip(controls: controls).padding(.horizontal).layoutPriority(1)
                 reader(controls)
             }
         case "navigator":
