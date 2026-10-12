@@ -40,6 +40,12 @@ import Foundation
         status?.capabilities.contains(capability) == true
     }
     public func dismissError() { commandError = nil }
+    /// The command error to show beside a search field's own feedback: nil while the failed
+    /// search states the same refusal, which the pane printed twice and the strip three times.
+    var commandErrorBesideSearchFeedback: String? {
+        if case .failed(_, let error) = status?.search, error.message == commandError { return nil }
+        return commandError
+    }
 
     public func pageButtonLabel(for action: EPUBPageAction) -> String {
         if status?.style.flow == .scrolled { return action == .next ? "Scroll Forward" : "Scroll Backward" }

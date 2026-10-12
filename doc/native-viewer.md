@@ -299,6 +299,14 @@ as they did.
   document's end when scrolling is clamped. If estimates cannot align it, or TextKit 2 lays
   that line over other text, the text is loaded afresh and the position shown again
   ([#12](https://github.com/vocaro/EPUBLib/issues/12), [#41](https://github.com/vocaro/EPUBLib/issues/41)).
+  An assistive technology's read lays the whole text out behind the view: VoiceOver and a UI
+  test's snapshot ask where every paragraph is. That replaces the estimates the visible lines
+  were placed by. UIKit goes on drawing the viewport's paragraphs where they were, over the
+  place the finished layout gives other text, so the visible range is read from the paragraphs
+  the viewport laid out, once it has been laid out again where the view stands. AppKit would
+  draw the finished layout at the old offset, a chapter away, at the next scroll, so while the
+  view has not moved since it was last read, the reader first scrolls by as much as the first
+  visible line has moved.
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
