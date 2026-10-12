@@ -15,17 +15,19 @@ concurrency:
 
 jobs:
   session:
-    name: Session (${{ matrix.variant }})
+    name: Session (banner ${{ matrix.banner }}, ${{ matrix.pacing }})
     # The standard label only: larger runners are billed even in a public repository.
     runs-on: xcode-27
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        # XCTest's Automation Running banner is killed and respawned about every ten seconds
-        # on this image, and VoiceOver moves to each new one. `banner-off` stops launchd from
-        # starting it; `banner-on` leaves the image as it is, for comparison.
-        variant: [banner-off, banner-on]
+        # XCTest's Automation Running banner is restarted about every ten seconds on this
+        # image, and VoiceOver moves to an instance that survives. `removed` unloads its launch
+        # agent for the job; `as-is` leaves the image alone, for comparison.
+        banner: [removed, as-is]
+        # The runner's fixed pause after each key, or --advance-after.
+        pacing: [fixed, advance]
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
       RESULTS: .build/voiceover/results
@@ -53,6 +55,11 @@ jobs:
           echo "Secure input: $(ioreg -l -w 0 -d 1 | grep -c kCGSSessionSecureInputPID)"
           echo "Frontmost: $(osascript -e 'tell application "System Events" to return bundle identifier of first application process whose frontmost is true' 2>&1)"
           echo "Processors: $(sysctl -n hw.ncpu), memory: $(($(sysctl -n hw.memsize) / 1073741824)) GB"
+          if [ "${{ matrix.banner }}-${{ matrix.pacing }}" = as-is-fixed ]; then
+            # Whether the screen, and with it the reader's window, could be made taller.
+            HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install displayplacer > /dev/null 2>&1
+            displayplacer list 2>&1 | head -n 60
+          fi
           exit 0
 
       - name: Prepare the runner for VoiceOver
@@ -61,9 +68,13 @@ jobs:
           defaults write com.apple.VoiceOverTraining doNotShowSplashScreen -bool true
           # Each VoiceOver command presses Control; the default shortcut offers Dictation for it.
           defaults write com.apple.HIToolbox AppleDictationAutoEnable -int 0
-          if [ "${{ matrix.variant }}" = banner-off ]; then
-            launchctl disable "gui/$(id -u)/com.apple.dt.AutomationModeUI"
-            launchctl print-disabled "gui/$(id -u)" | grep -i automation || echo "Not listed as disabled"
+          if [ "${{ matrix.banner }}" = removed ]; then
+            launchctl bootout "gui/$(id -u)/com.apple.dt.AutomationModeUI" || echo "bootout exit $?"
+            if launchctl print "gui/$(id -u)/com.apple.dt.AutomationModeUI" > /dev/null 2>&1; then
+              echo "The banner's launch agent is still loaded"
+            else
+              echo "The banner's launch agent is not loaded"
+            fi
           fi
 
       - name: Generate the project
@@ -87,47 +98,29 @@ jobs:
           codesign -dvv "$READER" 2>&1 | grep -E "Signature|TeamIdentifier"
           echo "Elapsed: $(($(date +%s) - JOB_START)) s"
 
-      - name: Run the speech sessions
+      - name: Run a speech session
         run: |
           set +e
-          failures=0
-          # session NAME RUNNER-ARGUMENTS...: a fresh reader, one session, its transcript.
-          session() {
-            name=$1
-            shift
-            pkill -x VoiceOverVerificationMac && sleep 6
-            open -na "$PWD/$READER" --args -SampleFlow paginated -SampleFontSize 23
-            sleep 8
-            started=$(date +%s)
-            python3 scripts/run-voiceover-mac.py --timeout 300 "$@"
-            status=$?
-            [ "$status" -eq 0 ] || failures=$((failures + 1))
-            transcript=$(ls -t "$RESULTS"/mac-*.transcript.txt 2>/dev/null | head -n 1)
-            echo "$name: exit $status, $(($(date +%s) - started)) s, ${transcript##*/}" | tee -a "$RESULTS/sessions.txt"
-            echo "Elapsed: $(($(date +%s) - JOB_START)) s; VoiceOver state $(defaults read com.apple.universalaccess voiceOverOnOffKey 2>&1)"
-            screencapture -x "$RESULTS/screen-$name.png"
-            echo "::group::Transcript of $name"
-            cat "$transcript"
-            echo "::endgroup::"
-          }
-          # Where Next Page is depends on the window, which this runner's 1024 by 768 screen
-          # makes smaller than the documented one: walk left from the last column and count.
-          steps=(ax:next ax:lines ax:focus in line nextline out)
-          for _ in $(seq 14); do steps+=(left); done
-          session explore "${steps[@]}"
-          count=$(awk '/ STEP left/ { steps++ } / heard: .*Next Page/ && steps { print steps; exit }' "$transcript")
-          echo "Next Page is ${count:-not found} steps left of the last column"
-          [ -n "$count" ] || exit 1
-
-          # An entry line, a line move, a VoiceOver-activated Next Page, and the new first line.
-          steps=(ax:next ax:lines ax:focus in line nextline out)
-          for _ in $(seq "$count"); do steps+=(left); done
+          # An entry line, a line move, a VoiceOver-activated Next Page, and the new first line,
+          # in the documented two-column window: Next Page is nine items left of the last column.
+          steps=(ax:width=1100 ax:next ax:lines ax:focus in line nextline out)
+          for _ in $(seq 9); do steps+=(left); done
           steps+=("activate=Next Page" ax:lines)
-          for _ in $(seq $((count - 1))); do steps+=(right); done
+          for _ in $(seq 8); do steps+=(right); done
           steps+=(in line)
-          session fixed-pause "${steps[@]}"
-          session advance --advance-after 0.5 "${steps[@]}"
-          exit "$failures"
+          options=()
+          [ "${{ matrix.pacing }}" = advance ] && options=(--advance-after 0.5)
+
+          open -na "$PWD/$READER" --args -SampleFlow paginated -SampleFontSize 23
+          sleep 8
+          started=$(date +%s)
+          python3 scripts/run-voiceover-mac.py --timeout 300 ${options[@]+"${options[@]}"} "${steps[@]}"
+          status=$?
+          transcript=$(ls -t "$RESULTS"/mac-*.transcript.txt 2>/dev/null | head -n 1)
+          echo "Session: exit $status, $(($(date +%s) - started)) s, $(($(date +%s) - JOB_START)) s from the job's start, ${transcript##*/}" | tee "$RESULTS/sessions.txt"
+          echo "VoiceOver state: $(defaults read com.apple.universalaccess voiceOverOnOffKey 2>&1)"
+          cat "$transcript"
+          exit "$status"
 
       - name: Collect the end state
         if: always()
@@ -142,8 +135,8 @@ jobs:
             '(process == "AutomationModeUI" AND subsystem == "com.apple.dt.AutomationModeUI") OR ((process == "kernel" OR process == "launchd") AND eventMessage CONTAINS "AutomationModeUI") OR process == "DictationIM"' \
             2>&1 | grep -v -E "tccd|static code" | cut -c 1-300 | tail -n 3000 > "$RESULTS/banner-and-dictation.log"
           echo "Banner starts: $(grep -c 'Successfully spawned AutomationModeUI' "$RESULTS/banner-and-dictation.log"), kills: $(grep -c 'killing_specific_process.*AutomationModeUI' "$RESULTS/banner-and-dictation.log"), Dictation lines: $(grep -c DictationIM "$RESULTS/banner-and-dictation.log")"
+          echo "Transcript phrases naming the banner: $(cat "$RESULTS"/mac-*.transcript.txt 2>/dev/null | grep -c 'Automation Running')"
           rm -f "$RESULTS/voiceover-ax-observer"
-          cat "$RESULTS/sessions.txt"
           du -sh "$RESULTS"/* | sort -h | tail -n 5
           echo "Elapsed: $(($(date +%s) - JOB_START)) s"
 
@@ -151,7 +144,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: voiceover-${{ matrix.variant }}
+          name: voiceover-banner-${{ matrix.banner }}-${{ matrix.pacing }}
           path: |
             .build/voiceover/results/*.txt
             .build/voiceover/results/*.log
@@ -164,7 +157,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: voiceover-${{ matrix.variant }}-failure
+          name: voiceover-banner-${{ matrix.banner }}-${{ matrix.pacing }}-failure
           path: |
             .build/voiceover/results/*.xcresult
             .build/voiceover/results/*.png
