@@ -586,7 +586,7 @@ import AppKit
         if let retainedStart { anchor = retainedStart }
         scrollGeometry = (bounds, column.minX, column.width)
         withProgrammaticScroll { applyScrollGeometry(columnMinX: column.minX, width: column.width) }
-        updateScrollViewport()
+        updateScrollViewport(rest: false)
         if created { loadScrollContent() }
         scrollToAnchor()
         updateVisibleRange(force: created)
@@ -598,14 +598,24 @@ import AppKit
     /// width relays everything out anyway. Boxes are resolved against it again, which lays all
     /// the text out anew where there are any: a box that takes its height from the visible area
     /// moves its first line by the change in the space above it while its top edge stays, and
-    /// `settleScrollViewport` must not take that for a layout behind the view (#313).
-    func updateScrollViewport() {
+    /// `settleScrollViewport` must not take that for a layout behind the view (#313). Every
+    /// line below such a box moves with it, and until it is laid out again its place is an
+    /// estimate, so the kept position is then rested again as after a resize: a bar shown or
+    /// hidden over the reader changes the visible height and not the canvas's size (#338).
+    /// `rest` is false where the caller rests the position itself.
+    func updateScrollViewport(rest: Bool = true) {
         guard let textView = scrollTextView, let geometry = scrollGeometry else { return }
         let viewport = CGSize(width: geometry.width, height: max(0, scrollVisibleContainerRect.height))
-        if textView.readerContainer.viewportSize != viewport {
-            textView.readerContainer.viewportSize = viewport
-            if textView.refreshFlowBoxLayout() { scrollPlace = nil }
-        }
+        guard textView.readerContainer.viewportSize != viewport else { return }
+        // The visible start is read from the layout the new height is about to replace.
+        let retainedStart = rest && anchorFollowsScroll && textView.layoutFollowsViewport ? scrollVisibleRange()?.start : nil
+        textView.readerContainer.viewportSize = viewport
+        guard textView.refreshFlowBoxLayout() else { return }
+        scrollPlace = nil
+        guard rest else { return }
+        if let retainedStart { anchor = retainedStart }
+        scrollToAnchor()
+        updateVisibleRange(force: false)
     }
 
     private func tearDownScroll() {

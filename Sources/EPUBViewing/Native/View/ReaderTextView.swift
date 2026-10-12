@@ -98,8 +98,10 @@ extension ReaderTextView {
     }
 
     /// Recomputes native box geometry without replacing characters or disturbing selection.
-    /// True when the text's attributes were written again, which lays all of it out anew.
+    /// True when the text's attributes were written again, which lays all of it out anew;
+    /// `layoutFollowsViewport` keeps the answer.
     @discardableResult func refreshFlowBoxLayout() -> Bool {
+        layoutFollowsViewport = false
         guard let storage = contentStorage.textStorage, let source = flowSourceText else { return false }
         let text: NSAttributedString
         if source.length > 0, source.attribute(.readerBoxPage, at: 0, effectiveRange: nil) != nil {
@@ -110,6 +112,7 @@ extension ReaderTextView {
         // Ordinary sections already hold the source attributes. Avoid resetting every run
         // (and invalidating a whole book's native layout) when no box geometry changed them.
         if text === source, readerContainer.boxPage == nil { return false }
+        layoutFollowsViewport = true
         if storage.string == text.string {
             storage.beginEditing()
             text.enumerateAttributes(in: NSRange(location: 0, length: text.length)) { attributes, range, _ in
