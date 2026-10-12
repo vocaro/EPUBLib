@@ -135,6 +135,8 @@ waits for the insets and asks for the layout. The session test uses the public r
 `ignoresSafeArea()`: under a `NavigationStack` whose bar it hides on iOS, and on the Mac in a
 window whose toolbar it shows and hides, each followed by a change of appearance, which lays the
 reader out. The bars are the system's own, in a test host; nothing is looked at on a screen.
+Each window's toolbar has an identifier of its own: toolbars that share one share their
+visibility across the windows of a process, so hiding one hides the next test's.
 
 Highlight paint tests read the pixels the mounted reader's views last drew: none in the
 highlight's color before a search, the matches after it, and none again after Clear Search,
