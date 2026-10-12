@@ -38,6 +38,7 @@ struct SectionReport: Equatable, Sendable {
     var remoteResourcesRefused = 0
     /// Elements shown only as their fallback content or not at all, by local name
     /// (`video`, `audio`, `iframe`, `object`, `embed`, `canvas`, `form`, an unsupported `svg`…).
+    /// `table` counts the tables with cells their grid has no slot for, which follow the table.
     var unsupportedElements: [String: Int] = [:]
     /// Images or other resources that were missing from the archive or could not be decoded.
     var unreadableResources = 0

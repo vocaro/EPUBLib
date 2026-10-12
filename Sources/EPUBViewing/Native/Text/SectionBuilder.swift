@@ -139,6 +139,7 @@ final class SectionBuildState {
         typography: request.typography, fonts: request.fonts,
         style: { [unowned self] in self.style($0, $1) },
         renderContent: { [unowned self] in self.renderContent($0, style: $1) },
+        renderNodes: { [unowned self] in self.renderNodes($0, style: $1) },
         resolve: { [unowned self] in self.resolveResource($0) },
         report: report)
 
@@ -155,6 +156,47 @@ final class SectionBuildState {
         nesting += 1
         defer { nesting -= 1 }
         return SectionWriter(state: self, mode: .detached).renderContent(of: element, style: style)
+    }
+
+    /// Consecutive sibling nodes rendered into a separate string the same way, for the anonymous
+    /// cell a table puts around content written outside its cells. Too deep a nesting renders
+    /// their words, without those of the elements the flow leaves out (`flowStyle`).
+    func renderNodes(_ nodes: [ContentNode], style: ComputedStyle) -> NSAttributedString {
+        guard let first = nodes.first, let last = nodes.last else { return NSAttributedString() }
+        guard nesting < Self.maximumNesting else {
+            var words: [Substring] = []
+            // The styles of the elements the walk is inside, each with the last node it holds.
+            var open: [(end: Int, style: ComputedStyle)] = []
+            var order = first.order
+            while order <= last.subtreeEnd {
+                let node = document.nodes[order]
+                while let innermost = open.last, innermost.end < order { open.removeLast() }
+                if node.isElement {
+                    guard let computed = flowStyle(of: node, in: open.last?.style ?? style) else { order = node.subtreeEnd + 1; continue }
+                    open.append((node.subtreeEnd, computed))
+                } else if node.isText { words += node.text.split(whereSeparator: \.isWhitespace) }
+                order += 1
+            }
+            return NSAttributedString(string: words.joined(separator: " "), attributes: [
+                .font: request.fonts.font(for: style),
+                .foregroundColor: ReaderPalette.text(dark: request.typography.isDark),
+            ])
+        }
+        nesting += 1
+        defer { nesting -= 1 }
+        return SectionWriter(state: self, mode: .detached).renderContent(of: nodes, style: style)
+    }
+
+    /// An element's computed style, or nil where the writer leaves the element out of the flow
+    /// whatever it holds (`SectionWriter.enter`): one that is never rendered or has no box, and
+    /// a footnote, which is kept in the section's notes.
+    private func flowStyle(of element: ContentNode, in parent: ComputedStyle) -> ComputedStyle? {
+        if element.isHTML, ContentSemantics.neverRendered.contains(element.name) { return nil }
+        var computed = style(element, parent)
+        if element.isHTML("noscript"), computed.display == .none { computed.display = .block }
+        guard noteKind(element) != .footnote, computed.display != .none, computed.display != .tableColumn,
+              computed.display != .tableColumnGroup else { return nil }
+        return computed
     }
 
     /// The note an element is, with endnote scopes memoized.

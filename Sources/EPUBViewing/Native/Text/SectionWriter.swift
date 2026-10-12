@@ -117,17 +117,29 @@ final class SectionWriter {
     }
 
     func renderContent(of element: ContentNode, style: ComputedStyle) -> NSAttributedString {
+        renderContent(element.children, in: element, box: element, style: style, source: element.order...element.subtreeEnd)
+    }
+
+    /// Consecutive children of one element as the content of an anonymous box inheriting `style`
+    /// (an anonymous table cell). The detached map covers the nodes and what is between them.
+    func renderContent(of nodes: [ContentNode], style: ComputedStyle) -> NSAttributedString {
+        guard let first = nodes.first, let last = nodes.last, let parent = first.parent else { return NSAttributedString() }
+        return renderContent(nodes, in: parent, box: nil, style: style, source: first.order...last.subtreeEnd)
+    }
+
+    private func renderContent(_ children: [ContentNode], in element: ContentNode, box: ContentNode?, style: ComputedStyle,
+                               source: ClosedRange<Int>) -> NSAttributedString {
         let language = inheritedLanguage(of: element)
-        frames = [BlockFrame(style: style, format: blockFormat(style, node: element, parent: nil),
+        frames = [BlockFrame(style: style, format: blockFormat(style, node: box, parent: nil),
                              keepWithNext: false, firstParagraph: 0, language: language)]
         var context = InlineContext()
         context.language = language
-        walk(Entry(node: element, children: element.children, style: style, context: context))
+        walk(Entry(node: element, children: children, style: style, context: context))
         let result = finish()
         let text = NSMutableAttributedString(attributedString: result.string)
         if text.length > 0 {
             text.addAttribute(.readerDetachedMap, value: ReaderDetachedTextMap(map: result.map,
-                node: element.order, subtreeEnd: element.subtreeEnd), range: NSRange(location: 0, length: text.length))
+                node: source.lowerBound, subtreeEnd: source.upperBound), range: NSRange(location: 0, length: text.length))
         }
         return text
     }

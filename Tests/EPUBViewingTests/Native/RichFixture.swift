@@ -65,9 +65,11 @@ final class RichFixture {
     }
 
     /// Renders content as plain text in its style's font, images and tables through the factory.
-    func render(_ element: ContentNode, _ style: ComputedStyle) -> NSAttributedString {
+    func render(_ element: ContentNode, _ style: ComputedStyle) -> NSAttributedString { render(element.children, style) }
+
+    func render(_ nodes: [ContentNode], _ style: ComputedStyle) -> NSAttributedString {
         let output = NSMutableAttributedString()
-        for child in element.children {
+        for child in nodes {
             if child.isText {
                 let text = child.text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
                 output.append(NSAttributedString(string: text, attributes: [.font: fonts.font(for: style)]))
@@ -87,6 +89,7 @@ final class RichFixture {
             publication: publication, document: document, spineIndex: 0, typography: typography, fonts: fonts,
             style: { [unowned self] in self.style(for: $0, parent: $1) },
             renderContent: { [unowned self] in self.render($0, $1) },
+            renderNodes: { [unowned self] in self.render($0, $1) },
             resolve: { [document, report] reference in
                 guard let resolved = try? ResourceReference.resolve(reference, relativeTo: document.path) else {
                     report.report.remoteResourcesRefused += 1
