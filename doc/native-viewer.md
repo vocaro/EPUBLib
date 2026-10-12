@@ -386,8 +386,23 @@ The native CSS subset wraps prose beside left/right floated figures, text and ar
 then restores the full column below the box. Auto-width text floats use their content width,
 including narrow drop caps. Horizontal margins and padding reserve space around the native
 glyph column. `clear: left`, `right` and `both` move subsequent prose below the
-requested float side. Sized `inline-block` text fits after its prefix when space permits,
-and following prose wraps beside the box without overwriting the prefix.
+requested float side.
+
+A sized `inline-block` is set on its block's line. It starts where the text or the box before
+it ends, a space after it where the source has white space between the two, and at the start
+of the block's next line when the one it would be on is full. A box that opens its block takes
+the block's `text-indent`, and a block that sets its lines from the right fills them from the
+right. A run of such boxes is therefore a row that wraps as words do: the rows of asterisks
+that mark an omission, an initial in a box of fixed width before the rest of its word. The
+text after the run goes on from its last box, on the same line where that line has 48 points
+left, and the block that follows starts below the run's last row. A box's own horizontal
+margins, borders and padding stand between it and its neighbours. Each box is still a
+paragraph of its own in the text, so characters, offsets and CFIs are what they were.
+
+Three things about a row differ from a browser. Its boxes are aligned by their tops, not
+their baselines, and prose beside a box taller than a line wraps beside it as beside a float.
+A row starts at its line's start edge whatever the block's `text-align`. And lines fill in
+turn, where a browser that honours `text-wrap: pretty` evens the rows out.
 
 Absolute callouts honor `top`, `right`, `bottom`, `left` and `inset` within their nearest
 positioned ancestor, including a top inset that places them before their source location.
@@ -419,6 +434,16 @@ float's edge, its margin underneath it
 ([#63](https://github.com/vocaro/EPUBLib/issues/63),
 [#150](https://github.com/vocaro/EPUBLib/issues/150)). TextKit breaks a justified paragraph's
 lines a little differently where the container places them; their edges are the same.
+
+The boxes' places are planned for the whole of that text, and TextKit lays out only what is
+on screen: far into a book in continuous scroll it estimates the height of everything above,
+so a line can be screens from where the plan has it. The container therefore wraps each
+planned paragraph against the plan from where that paragraph's own first line is laid out,
+and takes text past the plan's end to be below every box; a point is found the same way,
+from the fragment laid out under it. Prose keeps clear of the boxes beside it wherever the
+book is opened, and is not pushed aside by boxes that are nowhere near. A line that starts
+exactly where a box ends is clear of it
+([#147](https://github.com/vocaro/EPUBLib/issues/147)).
 
 A `.disclosure` explains that box layouts may be simplified. Sticky positioning, negative
 relative vertical offsets, arbitrary overlap and `z-index`, and page-pinned or repeating fixed
@@ -624,7 +649,9 @@ Go: the native viewer is the bundled engine.
   visible unless explicitly hidden or clipped. Standard Ebooks' title pages are such a case:
   the heading and byline they park at `left: -999em` are shown above the title image that
   repeats them ([#63](https://github.com/vocaro/EPUBLib/issues/63)). General clipping and arbitrary offscreen
-  geometry are unsupported. Unsized inline-blocks remain inline. Ordinary percentage margins,
+  geometry are unsupported. Unsized inline-blocks remain inline. Sized ones in a row are
+  aligned by their tops and from their line's start edge, not by `vertical-align` or the
+  block's `text-align`. Ordinary percentage margins,
   padding and text indents resolve against the live containing content width, including
   constrained flow-box ancestors, and recalculate at resize. Mixed-unit CSS calculations
   and `min`/`max`/`clamp` branch selection still use the nominal media-query viewport;
