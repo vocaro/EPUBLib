@@ -28,7 +28,11 @@ struct ReaderScreen: View {
                         if session.capabilities.contains(.bookmarks) {
                             bookmarkMenu
                         }
-                    }.padding(.horizontal).id(reader.sessionID)
+                    }
+                    // Padding hides the strip's own layout priority from the stack: with it the
+                    // strip is offered the height it needs before the reader, and scrolls its
+                    // groups where the keyboard leaves it less.
+                    .padding(.horizontal).layoutPriority(1).id(reader.sessionID)
                 }
                 EPUBReaderView(session: session)
                     .id(reader.sessionID)

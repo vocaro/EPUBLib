@@ -125,7 +125,14 @@ lines, which name unit-test hosts of other sessions.
 VoiceOver enters a column at its insertion point, and a page turn resets that to the first
 line. Start a case with a turn and `ax:focus`, never a click. Eight `left` steps from the
 left column, nine from the right, reach **Next Page** in the sample's control strip; eight
-`right` steps return from it to the left column.
+`right` steps return from it to the left column. **Previous Page** is one step further.
+
+A session can open with VoiceOver's cursor on a control, on the reader's group or already on
+the text, and what VoiceOver keeps of a column depends on how it got there. For a case in which
+VoiceOver leaves a column and comes back, bring it to the column by a focus change from
+somewhere else, `ax:focus=search ax:focus=0`: when it was on the text from the start, it came
+back at the page's first line even on a reader with the fault of
+[#337](https://github.com/vocaro/EPUBLib/issues/337).
 
 Use a 600-point window for one column and 1100 points for two (`ax:width=600`),
 `-SampleFontSize 17` and `23`, and `ax:larger` or `ax:smaller` for a change while the reader is
@@ -268,8 +275,9 @@ gh run download RUN_ID --name voiceover-mac-transcripts --dir .build/voiceover/h
   `"activate=Next Page"`. A `;` or a line break starts another session. Each session gets a
   fresh reader, and `ax:width` with the `width` input before its own steps. Left empty, one
   session checks a page boundary: the left column's entry line, a Next Page activated through
-  VoiceOver, and the new page's entry line and second line. It moves no line before the turn,
-  because VoiceOver can come back to a column at the character offset it had there.
+  VoiceOver, and the new page's entry line and second line. It moves no line before the turn:
+  when it was written VoiceOver came back to a column at the character offset it had there
+  ([#337](https://github.com/vocaro/EPUBLib/issues/337)).
 - `width` and `text_size`: the window width and the launch text size in points, 1100 and 23
   unless given.
 - `flow`: `paginated`, or `scrolled` for [continuous scroll](#continuous-scroll), which needs
@@ -463,24 +471,27 @@ Four things went wrong in the first runs, and the runner and probe now allow for
   again every second and at the end. A simulator whose `backboardd` restarts comes back at 60
   within six seconds, VoiceOver still on: it aborted once in some thirty rotations, in Metal,
   with VoiceOver on. The runner then mutes the simulator again and the transcript has an
-  `UNMUTED` line. This reads a setting. Nothing listens to the Mac.
+  `UNMUTED` line. A check that gets no answer in five seconds is a `VOLUME gave no reading`
+  line instead: a few in most runs, while xcodebuild starts its test, and two thirds of them
+  on a saturated Mac. This reads a setting. Nothing listens to the Mac.
 - **A VoiceOver that is on and silent.** On a newly booted simulator VoiceOver's first start
-  took 40 to 50 seconds, by its own log waiting for the voice database, while XCTest's
-  `enable()` returned in a few. Until it is up, touches reach the reader as plain touches and
-  every move fails with "Failed to send moveForward command". The probe waits for VoiceOver's
-  first phrase, three minutes at most; the `voiceOver` line then says `silent for its first
-  44 s`. Switching VoiceOver off and on again did not help: one session stayed silent through
-  three starts.
+  took 40 to 60 seconds, by its own log waiting for the voice database, while XCTest's
+  `enable()` returned in a few. On a Mac other sessions had saturated it took 170, and the
+  default `--timeout` of 300 seconds then passed before the probe had finished. Until
+  VoiceOver is up, touches reach the reader as plain touches and every move fails with
+  "Failed to send moveForward command". The probe waits for VoiceOver's first phrase, three
+  minutes at most; the `voiceOver` line then says `silent for its first 44 s`. Switching
+  VoiceOver off and on again did not help: one session stayed silent through three starts.
 - **An xcodebuild that does not end.** After a test that recorded any issue, a warning
   included, xcodebuild runs `simctl diagnose --timeout=600` and waits for it. A rotated iPad
   logs such a warning in a probe that passes ("Support for all orientations will soon be
-  required"), and xcodebuild then ran on for 22 seconds, 30 seconds, a minute, and twice more
-  than five minutes, when it was stopped. The runner passes `-collect-test-diagnostics
-  never`, with which the same run ended within a second of its probe. If xcodebuild has still
-  not ended `--exit-grace` seconds after the probe, the runner stops it and its collector,
-  takes the speech from xcodebuild's output or from the unfinished result bundle
-  (`Staging/*/Diagnostics/**/StandardOutputAndStandardError.txt`), whichever holds more, and
-  says so in a `STOPPED` line.
+  required"), and xcodebuild then ran on for 22 seconds, 30 seconds, a minute, twice more than
+  five minutes, when it was stopped, and once the collector's whole ten. The runner passes
+  `-collect-test-diagnostics never`, with which the same run ended within a second of its
+  probe. If xcodebuild has still not ended `--exit-grace` seconds after the probe, the runner
+  stops it and its collector, takes the speech from xcodebuild's output or from the
+  unfinished result bundle (`Staging/*/Diagnostics/**/StandardOutputAndStandardError.txt`),
+  whichever holds more, and says so in a `STOPPED` line.
 - **Other sessions.** XCTest fails a UI test when a process it calls critical crashes while
   the test runs. One probe failed with "Critical process xctest crashed" while other sessions'
   unit tests were running on the Mac; its own transcript was complete. `FAILURE` lines give
@@ -517,7 +528,9 @@ an event that VoiceOver keeps from the reader. The end of a `read` costs 3.3 sec
 `activate` or `rotate` a little over one after the gesture. The simulators are not the
 devices of the record: an iPhone 17 Pro shows 402 × 874 points and its pages hold fewer lines
 than the iPhone 17 Pro Max's. In landscape the sample's control strip stacks and leaves its
-reader one line at 17 points, so `visible` finds no numbered line on the first spread.
+reader one line at 17 points, so `visible` finds no numbered line on the first spread. All of
+this is the iOS 27.0 runtime. The 27.1 runtime of Xcode 27.1 offers only the iPhone Duo and
+was not compared.
 
 ## Acceptance and evidence
 
@@ -593,7 +606,9 @@ The Mac runner's transcript is plain text and needs no export.
 - VoiceOver keeps its own text cursor for a column it rests on. If the page changes while it
   is not interacting, it re-enters at its previous character offset, or on the last line of a
   shorter page; `firstword` returns to the first visible word. A window resize moved a
-  resting cursor to the window's first control. Neither is a page-boundary failure.
+  resting cursor to the window's first control. Neither is a page-boundary failure. It kept
+  one for a column it had left too, until the canvas posted its layout change from the element
+  that holds the columns ([#337](https://github.com/vocaro/EPUBLib/issues/337)).
 - On 2026-10-11 the Mac sessions verified first and last lines, word order, end of text,
   line counts and page-turn continuity in one and two columns at 17 and 23 points, with value
   notifications for page turns, text-size changes and resizes. See the
@@ -626,6 +641,21 @@ The Mac runner's transcript is plain text and needs no export.
   600-point window entered at "In text word0072 word0073 word0074 word0075 word0076" after two
   Scroll Forward steps, as on the workstation. With the banner's launch agent left loaded on
   purpose, one session of four heard "application Automation Running" and was stopped.
+- On 2026-10-12 [hosted sessions](#hosted-mac-sessions) on `xcode-27` (image 20261006.0244.1,
+  macOS 27.0.1) heard VoiceOver come back to a column after a page turn, on `740c073` and with
+  the fix of [#337](https://github.com/vocaro/EPUBLib/issues/337), at the fixed pause. Two
+  lines were moved in the column before leaving it. `740c073` set the insertion point to the
+  offset it had before the turn and read from there: "In text word0237 word0238 word0239
+  word0240" on a left column starting at `word0229`, "In text word0305…" on a right one
+  starting at `word0297`, and in one column at 17 points "In text word0179…" on a page starting
+  at `word0172`. The fix set none and said "In text word0229 word0230 word0231 word0232", "In
+  text word0297…" and "In text word0172…". Previous Page, and Larger Text chosen from one item
+  away, went the same way on each. Page Down and Page Up while interacting read the new first
+  line, and continuous scroll entered at "In text word0072 word0073 word0074 word0075
+  word0076", as before. With the cursor resting on the column during the turn both said "In
+  text word0237…". The
+  [Mac verification](issue-55-voiceover-mac.md#coming-back-to-a-column-after-a-page-turn) has
+  each case.
 - On 2026-10-12, continuous scroll on a physical iPhone 17 Pro Max (iOS 27.2, 440 × 956,
   17 points) and iPad Air 13-inch (iPadOS 27.2, 23 points), the book of ordinary paragraphs,
   through XCTest's VoiceOver service with VoiceOver switched on for each session; its phrases
