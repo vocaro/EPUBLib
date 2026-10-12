@@ -460,24 +460,9 @@ private enum SourceEncoding {
 ///   one with no `>` of its own runs to the next, which may be that of a script's end tag, and
 ///   a declaration keyword inside one is still refused. The same is done in script and style
 ///   content, where it changes nothing unless libxml2 has left the script and reads an end tag.
-///   Nothing the scan reads as a start tag has such a name: a `<.` in text is escaped, and the
-///   `<.html …/>` below is empty. libxml2 can still read one out of what was copied as a script
-///   or a quoted value, and the end tag then closes that element, not the body.
-/// - Start tags that libxml2 reads as `<html/>`, `<head/>` or `<body/>` are kept from closing
-///   anything else. Where such a tag is out of place, as it is anywhere after text, libxml2
-///   ignores the tag and then lets its `/>` close whatever element is open, the body included.
-///   The body is written without the `/`, as content after `</body>` stays in the body. The head
-///   and the root are written with their end tags (`<html … ></html>`): libxml2 passes over the
-///   end tag of a start tag it has ignored. Where a root belongs, that opens and closes one as
-///   `<html/>` did, and libxml2 builds what follows in a root it implies. A root tag whose last
-///   quote is missing (`lang="en>`) runs to the `/>` of a `<meta/>` and is read that way, with
-///   its head and body. libxml2 puts the implied root inside the first, where the walk finds no
-///   body, unless a comment, a processing instruction or a DOCTYPE came first, so a root that
-///   begins the document gets an empty comment in front. Inside markup this scan does not
-///   follow, libxml2 may not read the start tag and the end tag would close the root; the root
-///   is renamed there (`<.html …/>`), an empty element that is nothing to the walk. None of this
-///   is done where libxml2 ends the start tag sooner than the scan does (`startTagClose`): the
-///   `/>` is then a later tag's, and changing it would open a `<script …/>` over what follows.
+///   Nothing the scan reads as a start tag has such a name, as a `<.` in text is escaped.
+///   libxml2 can still read one out of what was copied as a script or a quoted value, and the
+///   end tag then closes that element, not the body.
 /// - `<!-->` and `<!--->` become `<!---->` where a `<` kept as text brings them into view.
 ///   HTML closes the comment there and libxml2 reads on to the next `-->`, but libxml2 used to
 ///   skip from such a sign through the next `>`, the comment's own, and showed what follows.
@@ -507,9 +492,6 @@ private enum HTMLRecoverySource {
         let cdataOpen = Array("<![CDATA[".utf8), cdataClose = Array("]]>".utf8)
         let commentOpen = Array("<!--".utf8), commentClose = Array("-->".utf8)
         let replacement: [UInt8] = [0xEF, 0xBF, 0xBD] // U+FFFD
-        // Where libxml2 starts reading: past a byte-order mark and the white space it skips.
-        var start = starts(bytes, byteOrderMark, at: 0) ? byteOrderMark.count : 0
-        while start < bytes.count, [0x20, 0x09, 0x0A, 0x0D].contains(bytes[start]) { start += 1 }
         var closedComment = false
         // From a `<` copied as is (`<!`, `</`, `<?`) to the next `>`, libxml2 may be in a
         // declaration, a processing instruction or a tag that this scan does not follow.
@@ -536,15 +518,10 @@ private enum HTMLRecoverySource {
                 copyMarkup(index..<end + commentClose.count); index = end + commentClose.count
             } else if bytes[index] == 0x3C, let tag = tag(bytes, at: index) {
                 guard let end = tag.end else { return (nil, closedComment) }
-                switch tag.structure {
-                case .bodyOrRootEnd?: output.append(contentsOf: Array("</.".utf8)); copyMarkup(index + 2..<end)
-                case .emptyRoot? where inMarkup: output.append(contentsOf: Array("<.".utf8)); copyMarkup(index + 1..<end)
-                case .emptyRoot?:
-                    if index == start { output.append(contentsOf: emptyComment) }
-                    copyMarkup(index..<end - 2); output.append(contentsOf: Array(" ></html>".utf8))
-                case .emptyHead?: copyMarkup(index..<end - 2); output.append(contentsOf: Array(" ></head>".utf8))
-                case .emptyBody?: copyMarkup(index..<end - 2); output.append(contentsOf: Array(" >".utf8))
-                case nil: copyMarkup(index..<end)
+                if tag.endsBody {
+                    output.append(contentsOf: Array("</.".utf8)); copyMarkup(index + 2..<end)
+                } else {
+                    copyMarkup(index..<end)
                 }
                 index = end
                 guard let raw = tag.rawText else { continue }
@@ -590,13 +567,10 @@ private enum HTMLRecoverySource {
         return (output, closedComment)
     }
 
-    /// A tag that libxml2 would let close the body or the root: an end tag it reads as `</body>`
-    /// or `</html>`, or a start tag it reads as `<html/>`, `<head/>` or `<body/>`.
-    private enum Structure { case bodyOrRootEnd, emptyRoot, emptyHead, emptyBody }
-
     /// An HTML start or end tag at `position` (`<` then an ASCII letter, or `</` then a letter).
     /// `end` is the index after its `>` (or the input end), `nil` for an unterminated quoted value.
-    private static func tag(_ bytes: [UInt8], at position: Int) -> (end: Int?, rawText: String?, structure: Structure?)? {
+    /// `endsBody` marks an end tag that libxml2 reads as `</body>` or `</html>`.
+    private static func tag(_ bytes: [UInt8], at position: Int) -> (end: Int?, rawText: String?, endsBody: Bool)? {
         func letter(_ index: Int) -> Bool { index < bytes.count && (bytes[index] | 0x20) >= 0x61 && (bytes[index] | 0x20) <= 0x7A }
         func space(_ index: Int) -> Bool { [0x20, 0x09, 0x0A, 0x0C, 0x0D].contains(bytes[index]) }
         let closing = position + 1 < bytes.count && bytes[position + 1] == 0x2F // /
@@ -609,19 +583,12 @@ private enum HTMLRecoverySource {
         if closing {
             // libxml2 ends an end tag at the first `>`, quoted or not, and so acts on a
             // `</body>` in another end tag's quoted value.
-            let structure = names(bytes, body, at: nameStart) || names(bytes, root, at: nameStart) ? Structure.bodyOrRootEnd : nil
-            return (bytes[index...].firstIndex(of: 0x3E).map { $0 + 1 } ?? bytes.count, nil, structure)
+            let endsBody = names(bytes, body, at: nameStart) || names(bytes, root, at: nameStart)
+            return (bytes[index...].firstIndex(of: 0x3E).map { $0 + 1 } ?? bytes.count, nil, endsBody)
         }
         var selfClosing = false // libxml2 closes `<script/>` at once; no raw text follows.
         while index < bytes.count {
-            if bytes[index] == 0x3E { // >
-                guard selfClosing else { return (index + 1, rawText, nil) }
-                // `/>`, and where libxml2 ends the tag too. Where it ends it sooner, this `/>`
-                // belongs to a later tag for libxml2 and must stay that tag's.
-                guard bytes[index - 1] == 0x2F, let (name, structure) = empty.first(where: { names(bytes, $0.0, at: nameStart) }),
-                      startTagClose(bytes, afterNameAt: nameStart + name.count, upTo: index + 1) == index - 1 else { return (index + 1, nil, nil) }
-                return (index + 1, nil, structure)
-            }
+            if bytes[index] == 0x3E { return (index + 1, selfClosing ? nil : rawText, false) } // >
             if bytes[index] == 0x2F { selfClosing = true; index += 1; continue }
             if space(index) { index += 1; continue }
             selfClosing = false
@@ -634,61 +601,22 @@ private enum HTMLRecoverySource {
             while index < bytes.count, space(index) { index += 1 }
             if index < bytes.count, bytes[index] == 0x22 || bytes[index] == 0x27 {
                 let quote = bytes[index]
-                guard let close = bytes[(index + 1)...].firstIndex(of: quote) else { return (nil, rawText, nil) }
+                guard let close = bytes[(index + 1)...].firstIndex(of: quote) else { return (nil, rawText, false) }
                 index = close + 1
             } else {
                 // Unquoted: a quote here is an ordinary character, as in HTML.
                 while index < bytes.count, !space(index), bytes[index] != 0x3E { index += 1 }
             }
         }
-        return (bytes.count, rawText, nil)
+        return (bytes.count, rawText, false)
     }
 
-    private static let root = Array("HTML".utf8), head = Array("HEAD".utf8), body = Array("BODY".utf8)
-    private static let empty: [([UInt8], Structure)] = [(root, .emptyRoot), (head, .emptyHead), (body, .emptyBody)]
+    private static let root = Array("HTML".utf8), body = Array("BODY".utf8)
     private static let abruptComments = [Array("<!-->".utf8), Array("<!--->".utf8)], emptyComment = Array("<!---->".utf8)
-    private static let byteOrderMark: [UInt8] = [0xEF, 0xBB, 0xBF]
-
-    /// Where libxml2 ends a start tag whose name ends at `position`: the index of its `>`, or
-    /// of the `/` of its `/>`, or `nil` where that is not before `limit`. It reads an attribute
-    /// name only from an ASCII letter, `_`, `:` or `.` and passes over anything else to the next
-    /// white space or `>`, quotes and all, where HTML and `tag` read a name and its quoted
-    /// value: `<body /x="a>` ends at that `>` for libxml2. Nothing past `limit` is read, so that
-    /// a tag libxml2 runs on from costs no more than the tag the scan found.
-    private static func startTagClose(_ bytes: [UInt8], afterNameAt position: Int, upTo limit: Int) -> Int? {
-        func blank(_ byte: UInt8) -> Bool { byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D }
-        func letter(_ byte: UInt8) -> Bool { byte | 0x20 >= 0x61 && byte | 0x20 <= 0x7A }
-        func closes(_ index: Int) -> Bool {
-            bytes[index] == 0x3E || (bytes[index] == 0x2F && index + 1 < limit && bytes[index + 1] == 0x3E) // > or />
-        }
-        var index = position
-        while index < limit, blank(bytes[index]) { index += 1 }
-        while index < limit, !closes(index) {
-            if letter(bytes[index]) || [0x5F, 0x3A, 0x2E].contains(bytes[index]) {
-                while index < limit, letter(bytes[index]) || (bytes[index] >= 0x30 && bytes[index] <= 0x39)
-                        || [0x3A, 0x2D, 0x5F, 0x2E].contains(bytes[index]) { index += 1 }
-                while index < limit, blank(bytes[index]) { index += 1 }
-                if index < limit, bytes[index] == 0x3D { // =
-                    index += 1
-                    while index < limit, blank(bytes[index]) { index += 1 }
-                    if index < limit, bytes[index] == 0x22 || bytes[index] == 0x27 {
-                        guard let close = bytes[(index + 1)..<limit].firstIndex(of: bytes[index]) else { return nil }
-                        index = close + 1
-                    } else {
-                        while index < limit, !blank(bytes[index]), bytes[index] != 0x3E { index += 1 }
-                    }
-                }
-            } else {
-                while index < limit, !blank(bytes[index]), !closes(index) { index += 1 }
-            }
-            while index < limit, blank(bytes[index]) { index += 1 }
-        }
-        return index < limit ? index : nil
-    }
 
     /// Whether libxml2 reads the tag name at `position` as `name` (uppercase, for `matches`). It
     /// ends a name at the first byte that is not an ASCII letter or digit, `:`, `-`, `_` or `.`,
-    /// so `</body"x>` is `</body>` to it and `<head"x/>` is `<head/>`.
+    /// so `</body"x>` is `</body>` to it.
     private static func names(_ bytes: [UInt8], _ name: [UInt8], at position: Int) -> Bool {
         let next = position + name.count
         guard matches(bytes, name, at: position) else { return false }
