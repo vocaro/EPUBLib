@@ -64,6 +64,39 @@ For custom labels, icons or overflow menus compose your own buttons using `contr
 `changeStyle`, `submitSearch` and the observable status, instead of duplicating state plumbing.
 Do not put an inline text field inside a `Menu`; use the built-in search popover there.
 
+On iPhone and iPad the strip is as tall as its groups wherever it is offered that much, and
+where it is offered less it takes that and scrolls its groups. Its own search field raises the
+keyboard, and what the keyboard leaves a stack of the strip and the reader can be less than
+the strip needs: on an iPhone on its side at the larger text sizes, and at the largest
+accessibility size on an iPad mini on its side or a small iPhone upright. The page buttons and
+the field stay on screen there, and a drag on the strip brings the other groups up with the
+keyboard still up. Start it beside or between the controls or on a button: the field and the
+menus keep a touch that begins on them. With the room it needs the strip neither scrolls nor
+clips anything, and its frames are what they were before it could scroll. Its groups keep the
+height a stack gave them, so a label too long for its line is cut short and not wrapped. A
+strip with nothing in it that fills the width, such as one without `.search`, stays as wide as
+its groups. On a Mac the strip is as tall as its groups whatever it is offered: no keyboard
+takes its room and text is one size there, and a scroll view is a scroll area in the Mac's
+accessibility tree, one more container round the strip's controls.
+
+The strip sets a layout priority of 1 on itself, so that a stack offers it the height it needs
+before the reader beside it; views of equal priority are each offered an equal share, and the
+strip would scroll in half the screen. Padding or a frame applied to the strip hides its
+priority from the stack. A host that applies one sets the priority again after it, as the
+sample does:
+
+```swift
+VStack(spacing: 0) {
+    EPUBReaderControlStrip(controls: controls).padding(.horizontal).layoutPriority(1)
+    EPUBReaderView(session: controls.session)
+}
+```
+
+Without it the strip is still never cut off: it scrolls in the share it is given. The priority
+holds in a row as well as a column, where a strip placed beside flexible views of the host's is
+offered the width its row needs first; `.layoutPriority(0)` on the strip gives it an equal share
+again.
+
 Previous/next always submit logical commands. RTL books reverse the physical order and arrow
 icons, independently of the app's language. Scrolled flow retains viewport-step behavior and
 labels the buttons “Scroll Backward”/“Scroll Forward”.
@@ -74,9 +107,14 @@ chapter titles can be ambiguous. Nested children appear in submenus and parent l
 selectable. An empty contents menu says “No contents available”; entries without links are disabled.
 
 Search sends commands only on Return or the Search button. Typing does not search, and no
-keyboard shortcut is installed that could intercept editing keys. Search and Clear retain
-focus in the field. A search pane's field takes focus when the pane opens; the strip's inline
-field does not when it appears, so opening a book raises no keyboard over it.
+keyboard shortcut is installed that could intercept editing keys. On a Mac, Search and Clear
+retain focus in the field. On iPhone and iPad the field gives its focus up when Return or its
+Search button submits a search, in the strip and in a search pane alike, which puts the
+keyboard away: it would cover the page or the results the search shows, and where the strip
+fills what the keyboard leaves there is no page to tap to dismiss it. Clear Search there
+returns focus to the field, to type again. A search pane's field takes focus when the pane
+opens; the strip's inline field does not when it appears, so opening a book raises no keyboard
+over it.
 Whitespace-only submission clears highlights. The native engine rejects
 empty normalized queries and queries longer than 512 Swift characters, reports errors, and
 emits `.searchChanged(.searching(query:))`, then `.completed(query:hasMatches:)` after the
