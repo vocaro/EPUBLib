@@ -112,6 +112,18 @@ final class NavigationNCXCoverageTests: XCTestCase {
                        "a point without a target is a heading")
     }
 
+    func testANavPointWhoseTargetNamesNothingInTheBookIsAHeading() throws {
+        for src in ["https://example.invalid/more", "//example.invalid/more", "100%.xhtml", "text\\one.xhtml"] {
+            let entries = try book(ncx: ncx("<navMap>" + point("a", "One", "one.xhtml") + point("b", "Elsewhere", src, point("c", "Two", "two.xhtml"))
+                + "</navMap>")).tableOfContents
+            XCTAssertEqual(entries, [Item(title: "One", href: "OPS/one.xhtml"),
+                                     Item(title: "Elsewhere", href: nil, children: [Item(title: "Two", href: "OPS/two.xhtml")])], src)
+        }
+        let inside = try book(ncx: ncx("<navMap>" + point("a", "Up", "../../outside.xhtml") + point("b", "From the root", "/OPS/two.xhtml#x")
+            + point("c", "Query", "one.xhtml?page=2") + "</navMap>")).tableOfContents
+        XCTAssertEqual(inside.map(\.href), ["outside.xhtml", "OPS/two.xhtml#x", "OPS/one.xhtml"], "EPUB Reading Systems 3.3 §4.1.1")
+    }
+
     func testNCXTargetsResolveFromTheNCXFolderAndAreEncoded() throws {
         let document = ncx("<navMap>" + point("a", "Up", "../one.xhtml#start") + point("b", "Beside", "notes.xhtml")
             + point("c", "Spaced", "../my%20chapter%20%C3%A9.xhtml#a%20b") + point("d", "Unescaped", "../my chapter \u{E9}.xhtml") + "</navMap>")

@@ -56,16 +56,76 @@ final class NavigationDocumentCoverageTests: XCTestCase {
     }
 
     func testNamedCharacterReferencesUnderAnXHTMLDoctypeDoNotVanishFromALabel() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/77")
         // With an external DOCTYPE the XML parser cannot call an undeclared reference an error, and
         // it reports no text for it. Browsers know XHTML's set by this public identifier, as this
         // library's content-document parser does; the DTD itself is never read. The label must
-        // come out whole, or the document be refused: not lose its characters silently.
+        // come out whole, not lose its characters silently.
         let doctype = "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\">"
         let document = doctype + Fixture.navigationDocument("<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">Caf&eacute;&nbsp;&mdash; 1</a></li></ol></nav>")
-        let title: String?
-        do { title = try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in document })).tableOfContents.first?.title } catch { return }
-        XCTAssertEqual(title, "Caf\u{E9}\u{A0}\u{2014} 1")
+        XCTAssertEqual(try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in document })).tableOfContents.first?.title,
+                       "Caf\u{E9}\u{A0}\u{2014} 1")
+    }
+
+    func testHTMLsNamedReferencesAreReadWhateverTheDoctype() throws {
+        // `&nbsp;` under `<!DOCTYPE html>` is no XML, and it is what the same file holds as a
+        // content document, where it is read. XML's five names and numeric references stay.
+        let nav = Fixture.navigationDocument("<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\" title=\"A&nbsp;B\">"
+            + "Caf&eacute;&nbsp;&mdash; 1 &amp; &lt;2&gt; &quot;&apos; &#x41;&#66;</a></li></ol></nav>")
+        for doctype in ["<!DOCTYPE html>", "", "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n",
+                        "<!DOCTYPE html SYSTEM \"about:legacy-compat\">"] {
+            let book = try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in doctype + nav }))
+            XCTAssertEqual(book.tableOfContents.first?.title, "Caf\u{E9}\u{A0}\u{2014} 1 & <2> \"' AB", doctype)
+            XCTAssertEqual(book.tableOfContents.first?.href, "OPS/one.xhtml", doctype)
+        }
+        for (name, encoding) in [("UTF-16, little-endian", String.Encoding.utf16LittleEndian), ("UTF-16, big-endian", .utf16BigEndian)] {
+            let mark = encoding == .utf16LittleEndian ? Data([0xFF, 0xFE]) : Data([0xFE, 0xFF])
+            let book = try EPUBPublication.open(data: Fixture.packageVariant(adding: ["OPS/nav.xhtml": mark + ("<!doctype html>" + nav).data(using: encoding)!]))
+            XCTAssertEqual(book.tableOfContents.first?.title, "Caf\u{E9}\u{A0}\u{2014} 1 & <2> \"' AB", name)
+        }
+    }
+
+    func testANamedReferenceInACharacterDataSectionOrACommentIsNotOne() throws {
+        let entries = try contents("<ol><li><a href=\"one.xhtml\"><![CDATA[A&nbsp;B]]> &nbsp;C<!-- &nbsp; &bogus; --></a></li></ol>")
+        XCTAssertEqual(entries.first?.title, "A&nbsp;B \u{A0}C")
+    }
+
+    func testADoctypeWrittenInAnyCaseIsRead() throws {
+        // HTML's own spelling is `<!doctype html>`; XML knows only the upper-case keyword.
+        let nav = Fixture.navigationDocument("<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">Chapter 1</a></li></ol></nav>")
+        for doctype in ["<!doctype html>", "<!DocType html>", "<!doctype html SYSTEM \"about:legacy-compat\">",
+                        "<?xml version=\"1.0\"?>\n<!-- <!doctype nothing [> -->\n<!doctype html>\n",
+                        "<!doctype html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\">"] {
+            let book = try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in doctype + nav }))
+            XCTAssertEqual(book.tableOfContents, [Item(title: "Chapter 1", href: "OPS/one.xhtml")], doctype)
+        }
+    }
+
+    func testADoctypeInAnotherCaseCannotCarryDeclarationsPastTheScreen() throws {
+        // doc/architecture.md: "entity declarations ... fail explicitly", whatever the keyword's case.
+        let nav = Fixture.navigationDocument("<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">Chapter &e;</a></li></ol></nav>")
+        for doctype in ["<!doctype html [<!ENTITY e \"expanded\">]>", "<!DocType html [<!ENTITY e SYSTEM \"file:///etc/passwd\">]>",
+                        "<!doctype html [<!ENTITY % p \"x\"> %p;]>", "<!doctype html []>", "<!doctype html\n  [\n]>"] {
+            XCTAssertThrowsError(try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in doctype + nav })), doctype) {
+                XCTAssertEqual($0 as? EPUBPublicationError, .invalidXML("OPS/nav.xhtml"), doctype)
+            }
+        }
+    }
+
+    func testNavigationMarkupMalformedInOtherWaysIsStillRefused() throws {
+        func document(_ label: String, list: String = "</ol>") -> String {
+            "<!DOCTYPE html>" + Fixture.navigationDocument("<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">\(label)</a></li>\(list)</nav>")
+        }
+        let documents = [
+            "a name HTML does not know": document("Chapter &bogus; 1"), "a bare ampersand": document("Tom & Jerry"),
+            "a reference without its semicolon": document("A&nbsp B"), "an element left open": document("<em>Chapter 1"),
+            "a list left open": document("Chapter 1", list: ""), "an unquoted attribute": document("<span class=x>Chapter 1</span>"),
+            "a void element left open": document("Chapter<br>1"),
+        ]
+        for (name, document) in documents {
+            XCTAssertThrowsError(try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in document })), name) {
+                XCTAssertEqual($0 as? EPUBPublicationError, .invalidXML("OPS/nav.xhtml"), name)
+            }
+        }
     }
 
     // MARK: Structure

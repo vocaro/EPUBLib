@@ -92,7 +92,6 @@ public enum SpecConformanceCorpus {
     static let scripting = "doc/architecture.md, Viewer isolation: \"script elements are counted and disclosed but never run\""
     static let mediaOverlays = "doc/architecture.md: \"Media overlays, TTS and annotation persistence are outside the initial API\""
     static let patternFills = "doc/native-viewer.md, Decisions: \"Pattern fills ... show their title, description or drawing text instead\""
-    static let traversal = "doc/architecture.md: \"archive traversal ... fail explicitly\" (EPUB RS 3.3 section 2.2 permits refusing a publication that violates authoring requirements)"
     static let repair = "doc/architecture.md: \"Markup that is not well-formed is read with libxml2's forgiving HTML parser rather than refused\""
     static let entities = "doc/architecture.md: \"XMLSafety refuses entity declarations and internal DTD subsets\""
     static let externalLinks = "doc/native-viewer.md, Security: \"External links are refused with a notice\""
@@ -192,10 +191,8 @@ public enum SpecConformanceCorpus {
                                        .rendered(0, "Test passes if you see this.")),
         "ocf-package_multiple": .init("epub-rs#container-default-rendition", .spine(["FOO/BAR/content_001.xhtml"]),
                                       .rendered(0, "Test passes if you see this.")),
-        "ocf-url_link-leaking-relative": .init("epub-rs#sec-container-iri-step-parse", outOfScope: traversal, refused: "unsafePath",
-            note: "the test expects the leaking reference to stay inside the container and the photograph to show"),
-        "ocf-url_link-path-absolute": .init("epub-rs#sec-container-iri-root-parse", outOfScope: traversal, refused: "unsafePath",
-            note: "the test expects the path-absolute reference to resolve against the container root and the photograph to show"),
+        "ocf-url_link-leaking-relative": .init("epub-rs#sec-container-iri-step-parse", .image(0, path: "media/imgs/monastery.jpg")),
+        "ocf-url_link-path-absolute": .init("epub-rs#sec-container-iri-root-parse", .image(0, path: "media/imgs/monastery.jpg")),
         "ocf-url_link-relative": .init("epub-rs#sec-container-iri-root", .image(0, path: "media/imgs/monastery.jpg")),
         "ocf-url_manifest": .init("epub-rs#sec-container-iri-root", .spine(["EPUB/foo/content_001.xhtml"]),
                                   .rendered(0, "Test passes if this page opens.")),

@@ -134,7 +134,7 @@ final class ContainerDocumentCoverageTests: XCTestCase {
             "%2e%2e/OPS/book.opf", "%2E%2E/%2E%2E/escape", ".%2E/OPS/book.opf", "%2e./OPS/book.opf", "OPS/%2e%2e/%2e%2e/OPS/book.opf", "%2E", "OPS/%2e%2e",
             // A separator: one that hides a dot segment or makes the path absolute, and one other systems read.
             "..%2FOPS%2Fbook.opf", "OPS%2F..%2F..%2Fescape", "OPS%2f%2e%2e%2f%2e%2e%2fescape", "%2FOPS/book.opf", "%2F%2Fexample.invalid/book.opf",
-            "OPS%5Cbook.opf", "OPS%5cbook.opf", "..%5Cescape", "%5C%5Cexample.invalid%5Cbook.opf", "C%3A/book.opf", "OPS/a%3Ab.opf",
+            "OPS%5Cbook.opf", "OPS%5cbook.opf", "..%5Cescape", "%5C%5Cexample.invalid%5Cbook.opf",
             // A NUL.
             "%00", "OPS/book.opf%00", "OPS/book%00.opf", "OPS%00/book.opf",
             // No escape at all, or none of UTF-8: a lone byte, an overlong "..", "." or "/", half a surrogate pair.
@@ -151,9 +151,11 @@ final class ContainerDocumentCoverageTests: XCTestCase {
                           throws: .invalidXML("container rootfile"), fullPath.debugDescription)
         }
         // A control character other than NUL separates nothing and is no worse in a name than in
-        // an entry's own: the name it spells is looked up, and is not there.
+        // an entry's own: the name it spells is looked up, and is not there. Nor does an escaped
+        // colon separate anything, in a key of the archive read into memory.
         for (fullPath, path) in [("OPS/book.opf%0A", "OPS/book.opf\n"), ("OPS/book.opf%0D%0A", "OPS/book.opf\r\n"), ("%09OPS/book.opf", "\tOPS/book.opf"),
-                                 ("OPS/book%7F.opf", "OPS/book\u{7F}.opf"), ("OPS/%1Fbook.opf", "OPS/\u{1F}book.opf")] {
+                                 ("OPS/book%7F.opf", "OPS/book\u{7F}.opf"), ("OPS/%1Fbook.opf", "OPS/\u{1F}book.opf"),
+                                 ("C%3A/book.opf", "C:/book.opf"), ("OPS/a%3Ab.opf", "OPS/a:b.opf")] {
             assertOpening(try Fixture.packageVariant(container: container("<rootfiles><rootfile full-path=\"\(fullPath)\"/></rootfiles>")),
                           throws: .missingResource(path), fullPath.debugDescription)
         }
@@ -273,6 +275,51 @@ final class ContainerDocumentCoverageTests: XCTestCase {
         }
         XCTAssertEqual(try title(["OPS/book.opf", "OPS/other.opf"]), "A Test Book")
         XCTAssertEqual(try title(["OPS/other.opf", "OPS/book.opf", "OPS/missing.opf"]), "Another Rendition")
+    }
+
+    func testARootfileThatIsNoPackageDocumentIsPassedOverForTheFirstThatIs() throws {
+        // OCF 2.0.1 let a container list other renditions, such as a PDF, and some list one first.
+        let package = "application/oebps-package+xml"
+        func data(_ rootfiles: [(path: String, type: String?)]) throws -> Data {
+            let elements = rootfiles.map { "<rootfile full-path=\"\($0.path)\"" + ($0.type.map { " media-type=\"\($0)\"" } ?? "") + "/>" }.joined()
+            let other = String(decoding: try Fixture.files()["OPS/book.opf"]!, as: UTF8.self).replacingOccurrences(of: "A Test Book", with: "Another Rendition")
+            return try Fixture.packageVariant(container: container("<rootfiles>\(elements)</rootfiles>"),
+                                              adding: ["book.pdf": Data("%PDF-1.7".utf8), "OPS/other.opf": Data(other.utf8)])
+        }
+        func title(_ rootfiles: [(path: String, type: String?)]) throws -> String { try EPUBPublication.open(data: data(rootfiles)).metadata.title }
+        XCTAssertEqual(try title([("book.pdf", "application/pdf"), ("OPS/book.opf", package), ("OPS/other.opf", package)]), "A Test Book")
+        XCTAssertEqual(try title([("book.pdf", "application/pdf"), ("OPS/other.opf", nil), ("OPS/book.opf", package)]), "A Test Book",
+                       "an untyped rootfile is passed over too")
+        XCTAssertEqual(try title([("book.pdf", "application/pdf"), ("OPS/book.opf", " Application/OEBPS-Package+XML&#10;")]), "A Test Book",
+                       "a media type is compared without regard to case or the white space around it")
+        // Where none is typed as a package document, the first rootfile is taken for one.
+        XCTAssertEqual(try title([("OPS/book.opf", nil), ("book.pdf", "application/pdf")]), "A Test Book")
+        XCTAssertEqual(try title([("OPS/book.opf", "application/xml"), ("OPS/other.opf", "text/xml")]), "A Test Book")
+        assertOpening(try data([("book.pdf", "application/pdf"), ("OPS/book.opf", nil)]), throws: .invalidXML("book.pdf"))
+        // The first one typed as a package document is the one, usable or not.
+        assertOpening(try data([("OPS/absent.opf", package), ("OPS/book.opf", package)]), throws: .missingResource("OPS/absent.opf"))
+    }
+
+    func testARootfilePathMayHoldAColon() throws {
+        // Escaped as a URL has it, and as written, which may read as a scheme and is then only
+        // the name of the entry written that way.
+        for (folder, fullPath) in [("Vol 1: Start/", "Vol%201%3A%20Start/book.opf"), ("Vol 1: Start/", "Vol 1: Start/book.opf"), ("a:b/", "a:b/book.opf")] {
+            let book = try EPUBPublication.open(data: relocated(to: folder, fullPath: fullPath))
+            XCTAssertEqual(book.spine.map(\.resource.path), [folder + "one.xhtml", folder + "two.xhtml"], fullPath)
+            XCTAssertEqual(book.spine[0].resource.href.removingPercentEncoding, folder + "one.xhtml", fullPath)
+            XCTAssertFalse(book.spine[0].resource.href.contains(":"), fullPath)
+            XCTAssertEqual(book.tableOfContents.first?.href, book.spine[0].resource.href + "#start", fullPath)
+        }
+        assertOpening(try relocated(to: "a:b/", fullPath: "a:c/book.opf"), throws: .invalidXML("container rootfile"), "a scheme, and no entry's name")
+    }
+
+    func testARootfilePathIsNotReadPastWhatAManifestHrefIs() throws {
+        // A query is dropped from a manifest href, and a step above the container root stops
+        // there (#84). A rootfile was refused in these forms before and still is.
+        for fullPath in ["OPS/book.opf?v=2", "/OPS/book.opf", "../OPS/book.opf", "../../OPS/book.opf", "OPS/../../OPS/book.opf", "%2FOPS/book.opf"] {
+            assertOpening(try Fixture.packageVariant(container: container("<rootfiles><rootfile full-path=\"\(fullPath)\"/></rootfiles>")),
+                          throws: .invalidXML("container rootfile"), fullPath)
+        }
     }
 
     func testAContainerDocumentAsPackagingToolsWriteItIsRead() throws {
@@ -396,6 +443,9 @@ final class ContainerDocumentCoverageTests: XCTestCase {
         let data = try book(identifier: "test-book", fonts: ["OPS/fonts/My Font \u{E9}.otf": obfuscated(original, key: sha1("test-book"), prefix: 1040)],
                             encryption: encryption([(Self.idpf, "OPS/fonts/My%20Font%20%C3%A9.otf")]))
         XCTAssertEqual(try EPUBPublication.open(data: data).data(at: "OPS/fonts/My Font \u{E9}.otf"), original)
+        let colon = try book(identifier: "test-book", fonts: ["OPS/fonts/Serif: Bold.otf": obfuscated(original, key: sha1("test-book"), prefix: 1040)],
+                             encryption: encryption([(Self.idpf, "OPS/fonts/Serif%3A%20Bold.otf")]))
+        XCTAssertEqual(try EPUBPublication.open(data: colon).data(at: "OPS/fonts/Serif: Bold.otf"), original, "a colon in the path")
     }
 
     func testTheIDPFKeyIgnoresXMLWhiteSpaceInTheIdentifier() throws {
@@ -430,6 +480,120 @@ final class ContainerDocumentCoverageTests: XCTestCase {
         }
     }
 
+    func testAnAdobeKeyIsReadFromAUUIDWithoutHyphensOrInAnotherIdentifier() throws {
+        let key = Array(stride(from: UInt8(0x00), through: UInt8(0xff), by: 0x11))
+        let original = font(1_100)
+        let scrambled = obfuscated(original, key: key, prefix: 1024)
+        for identifier in ["00112233445566778899aabbccddeeff", "urn:uuid:00112233445566778899AABBCCDDEEFF", "00112233-4455-6677-8899-aabbccddeeff",
+                           "URN:UUID:00112233-4455-6677-8899-aabbccddeeff", "urn:uuid:0011-2233-4455-6677-8899-aabb-ccdd-eeff"] {
+            let data = try book(identifier: identifier, fonts: ["OPS/font.otf": scrambled], encryption: encryption([(Self.adobe, "OPS/font.otf")]))
+            XCTAssertEqual(try EPUBPublication.open(data: data).data(at: "OPS/font.otf"), original, identifier)
+        }
+        // A unique identifier that is no UUID: the first identifier that is one gives the key.
+        let uuid = "<dc:identifier>urn:uuid:00112233-4455-6677-8899-aabbccddeeff</dc:identifier>"
+        let another = "<dc:identifier>urn:uuid:ffffffff-ffff-ffff-ffff-ffffffffffff</dc:identifier>"
+        let files: [String: Data?] = ["META-INF/encryption.xml": encryption([(Self.adobe, "OPS/font.otf")]), "OPS/font.otf": scrambled]
+        let later = try Fixture.packageVariant(opf: {
+            $0.replacingOccurrences(of: ">test-book<", with: ">urn:isbn:9780000000002<")
+                .replacingOccurrences(of: "</metadata>", with: "<dc:identifier>doi:10.0000/example</dc:identifier>" + uuid + another + "</metadata>")
+        }, adding: files)
+        XCTAssertEqual(try EPUBPublication.open(data: later).data(at: "OPS/font.otf"), original, "in a later identifier")
+        // A unique identifier that is a UUID is the key, whatever stands before it.
+        let earlier = try Fixture.packageVariant(opf: {
+            $0.replacingOccurrences(of: "<dc:identifier id=\"uid\">test-book<", with: another + "<dc:identifier id=\"uid\">urn:uuid:00112233-4455-6677-8899-aabbccddeeff<")
+        }, adding: files)
+        XCTAssertEqual(try EPUBPublication.open(data: earlier).data(at: "OPS/font.otf"), original, "the unique identifier first")
+    }
+
+    func testAnObfuscatedFontWithoutAKeyIsLeftOutOfTheBook() throws {
+        // Only a typeface is lost. The item is left out as one whose file the archive lacks is.
+        let manifest = "<manifest><item id=\"font\" href=\"font.otf\" media-type=\"font/otf\"/><item id=\"plain\" href=\"plain.otf\" media-type=\"font/otf\"/>"
+            + "<item id=\"embedded\" href=\"embedded.otf\" media-type=\"font/otf\"/>"
+        let embedded = font(1_200)
+        for identifier in ["test-book", "urn:isbn:9780000000002", "urn:uuid:00112233-4455-6677-8899-aabbccddeef", "00112233445566778899aabbccddeeff0",
+                           "urn:uuid:0011223g-4455-6677-8899-aabbccddeeff", "urn:uuid:"] {
+            let data = try Fixture.packageVariant(opf: {
+                $0.replacingOccurrences(of: ">test-book<", with: ">\(identifier)<").replacingOccurrences(of: "<manifest>", with: manifest)
+            }, adding: [
+                "META-INF/encryption.xml": encryption([(Self.adobe, "OPS/font.otf"), (Self.idpf, "OPS/embedded.otf")]),
+                "OPS/font.otf": font(1_100), "OPS/plain.otf": font(900),
+                "OPS/embedded.otf": obfuscated(embedded, key: sha1(identifier), prefix: 1040),
+            ])
+            let book = try EPUBPublication.open(data: data)
+            XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"], identifier)
+            XCTAssertEqual(book.resources.filter { $0.mediaType == "font/otf" }.map(\.id), ["plain", "embedded"], identifier)
+            XCTAssertThrowsError(try book.data(at: "OPS/font.otf"), identifier) {
+                XCTAssertEqual($0 as? EPUBPublicationError, .missingResource("OPS/font.otf"), identifier)
+            }
+            XCTAssertEqual(try book.data(at: "OPS/plain.otf"), font(900), identifier)
+            XCTAssertEqual(try book.data(at: "OPS/embedded.otf"), embedded, "a font under the other algorithm is still decoded: \(identifier)")
+            XCTAssertEqual(book.archiveData, data, identifier)
+        }
+    }
+
+    func testAFontWithoutAKeyIsOneByItsMediaTypeOrItsNameHoweverOftenItIsListed() throws {
+        /// The plain book with one more manifest item, its file listed as obfuscated by `entries`.
+        func book(href: String, type: String, entries: [String]) throws -> EPUBPublication {
+            try EPUBPublication.open(data: Fixture.packageVariant(
+                opf: { $0.replacingOccurrences(of: "<manifest>", with: "<manifest><item id=\"font\" href=\"\(href)\" media-type=\"\(type)\"/>") },
+                adding: ["META-INF/encryption.xml": encryption(entries.map { ($0, "OPS/" + href) }), "OPS/" + href: font(1_100)]))
+        }
+        // By media type, in the spellings books give it, whatever the file is called.
+        for type in ["font/otf", "font/woff2", "application/vnd.ms-opentype", "application/x-font-ttf", "application/font-sfnt",
+                     "Application/X-Font-OpenType", "application/x-truetype-font", "application/vnd.ms-fontobject"] {
+            let book = try book(href: "typeface.bin", type: type, entries: [Self.adobe])
+            XCTAssertNil(book.resources.first { $0.id == "font" }, type)
+            XCTAssertEqual(book.spine.count, 2, type)
+        }
+        // By name, when the manifest calls it something else.
+        for name in ["serif.otf", "serif.TTF", "fonts/serif.woff2", "serif.woff", "serif.ttc", "serif.eot"] {
+            let book = try book(href: name, type: "application/octet-stream", entries: [Self.adobe])
+            XCTAssertNil(book.resources.first { $0.id == "font" }, name)
+            XCTAssertThrowsError(try book.data(at: "OPS/" + name), name)
+        }
+        // Listed twice, or under both obfuscations, it is still one font left out.
+        XCTAssertNil(try book(href: "serif.otf", type: "font/otf", entries: [Self.adobe, Self.adobe, Self.idpf]).resources.first { $0.id == "font" })
+        // A font the manifest does not declare is one by its name.
+        let undeclared = try EPUBPublication.open(data: Fixture.packageVariant(adding: [
+            "META-INF/encryption.xml": encryption([(Self.adobe, "OPS/stray.otf")]), "OPS/stray.otf": font(1_100)]))
+        XCTAssertThrowsError(try undeclared.data(at: "OPS/stray.otf"))
+        XCTAssertEqual(undeclared.spine.count, 2)
+        // Encryption of another kind on the same file is not undone by leaving the font out.
+        for entries in [[Self.adobe, "http://www.w3.org/2001/04/xmlenc#aes256-cbc"], ["http://www.w3.org/2001/04/xmlenc#aes256-cbc", Self.adobe],
+                        [Self.adobe, "urn:example:scramble"]] {
+            XCTAssertThrowsError(try book(href: "serif.otf", type: "font/otf", entries: entries), "\(entries)") {
+                XCTAssertEqual($0 as? EPUBPublicationError, .unsupportedEncryption, "\(entries)")
+            }
+        }
+    }
+
+    func testAnythingButAFontObfuscatedWithoutAKeyStillRefusesTheBook() throws {
+        // A typeface can be done without. A chapter, the contents or a style sheet scrambled the
+        // same way is encryption this package cannot undo, in the reading order or not.
+        for path in ["OPS/one.xhtml", "OPS/nav.xhtml", "OPS/toc.ncx"] {
+            assertOpening(try Fixture.packageVariant(adding: ["META-INF/encryption.xml": encryption([(Self.adobe, path)])]),
+                          throws: .unsupportedEncryption, path)
+        }
+        for type in ["text/css", "image/png", "application/octet-stream"] {
+            assertOpening(try Fixture.packageVariant(opf: { $0.replacingOccurrences(of: "<manifest>", with: "<manifest><item id=\"extra\" href=\"extra.bin\" media-type=\"\(type)\"/>") },
+                                                     adding: ["META-INF/encryption.xml": encryption([(Self.adobe, "OPS/extra.bin")]), "OPS/extra.bin": font(600)]),
+                          throws: .unsupportedEncryption, type)
+        }
+        // A file the manifest does not declare and nothing names as a font, the package's own among them.
+        for path in ["OPS/stray.png", "OPS/book.opf", "META-INF/container.xml", "mimetype"] {
+            assertOpening(try Fixture.packageVariant(adding: ["META-INF/encryption.xml": encryption([(Self.adobe, path)]), "OPS/stray.png": font(600)]),
+                          throws: .unsupportedEncryption, path)
+        }
+        // One file declared as a font and as a chapter is the chapter too.
+        assertOpening(try Fixture.packageVariant(opf: { $0.replacingOccurrences(of: "<manifest>", with: "<manifest><item id=\"font\" href=\"one.xhtml\" media-type=\"font/otf\"/>") },
+                                                 adding: ["META-INF/encryption.xml": encryption([(Self.adobe, "OPS/one.xhtml")])]),
+                      throws: .unsupportedEncryption, "declared twice")
+        // The manifest names the chapter in another case: still the scrambled chapter, not a missing one.
+        assertOpening(try Fixture.packageVariant(opf: { $0.replacingOccurrences(of: "href=\"one.xhtml\"", with: "href=\"ONE.xhtml\"") },
+                                                 adding: ["META-INF/encryption.xml": encryption([(Self.adobe, "OPS/one.xhtml")])]),
+                      throws: .unsupportedEncryption, "named in another case")
+    }
+
     func testEncryptionThatCannotBeUndoneFailsAsUnsupported() throws {
         func entry(_ method: String, _ cipher: String) -> Data {
             Data(("<encryption xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\" xmlns:enc=\"http://www.w3.org/2001/04/xmlenc#\">"
@@ -448,9 +612,7 @@ final class ContainerDocumentCoverageTests: XCTestCase {
         for (name, document) in documents {
             assertOpening(try Fixture.packageVariant(adding: ["META-INF/encryption.xml": document]), throws: .unsupportedEncryption, name)
         }
-        // A key cannot be derived from an identifier that is no UUID, or from none.
-        assertOpening(try book(identifier: "test-book", fonts: ["OPS/font.otf": font(100)], encryption: encryption([(Self.adobe, "OPS/font.otf")])),
-                      throws: .unsupportedEncryption, "Adobe without a UUID")
+        // The IDPF key is the unique identifier, and cannot be derived from none.
         assertOpening(try book(identifier: "  ", fonts: ["OPS/font.otf": font(100)], encryption: encryption([(Self.idpf, "OPS/font.otf")])),
                       throws: .unsupportedEncryption, "IDPF without an identifier")
         assertOpening(try Fixture.packageVariant(adding: ["META-INF/encryption.xml": Data("<encryption><EncryptedData>".utf8)]),

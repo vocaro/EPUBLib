@@ -32,14 +32,24 @@ final class EPUBCheckNavigationCoverageTests: XCTestCase {
         XCTAssertEqual(book.tableOfContents.map(\.href), ["OPS/one.xhtml#start", "OPS/two.xhtml"])
     }
 
-    func testAContentsLinkOutsideTheBookRefusesItWithATypedError() throws {
-        // NAV-010 for EPUBCheck. Unlike a landmark or a page, a contents entry that does not
-        // resolve inside the archive refuses the book.
-        for href in ["https://example.invalid/more", "../../outside.xhtml", "/absolute.xhtml"] {
-            XCTAssertThrowsError(try open(nav: toc("<li><a href=\"one.xhtml\">One</a></li><li><a href=\"\(href)\">Elsewhere</a></li>")), href) {
-                XCTAssertEqual($0 as? EPUBPublicationError, .unsafePath(href), href)
-            }
+    func testAContentsLinkThatNamesNothingInTheBookKeepsItsLabelWithoutATarget() throws {
+        // NAV-010 for EPUBCheck. Unlike a landmark or a page, a contents entry has entries under
+        // it: one that does not resolve stays, as a heading does, and the book is read.
+        for href in ["https://example.invalid/more", "//example.invalid/more", "mailto:reader@example.invalid", "100%.xhtml", "text\\one.xhtml",
+                     "http://host:port/more", " https://example.invalid/more"] {
+            let book = try open(nav: toc("<li><a href=\"one.xhtml\">One</a></li><li><a href=\"\(href)\">Elsewhere</a>"
+                + "<ol><li><a href=\"two.xhtml\">Two</a></li></ol></li>"))
+            XCTAssertEqual(book.tableOfContents.map(\.title), ["One", "Elsewhere"], href)
+            XCTAssertEqual(book.tableOfContents.map(\.href), ["OPS/one.xhtml", nil], href)
+            XCTAssertEqual(book.tableOfContents.last?.children, [EPUBNavigationItem(title: "Two", href: "OPS/two.xhtml")], href)
         }
+    }
+
+    func testAContentsLinkPastTheContainerRootOrWithAQueryIsReadFromInsideIt() throws {
+        // EPUB Reading Systems 3.3 §4.1.1: no reference leaves the container. RSC-033 for the query.
+        let book = try open(nav: toc("<li><a href=\"../../outside.xhtml\">Up</a></li><li><a href=\"/absolute.xhtml#x\">From the root</a></li>"
+            + "<li><a href=\"/OPS/two.xhtml\">Two</a></li><li><a href=\"one.xhtml?page=2#start\">One</a></li>"))
+        XCTAssertEqual(book.tableOfContents.map(\.href), ["outside.xhtml", "absolute.xhtml#x", "OPS/two.xhtml", "OPS/one.xhtml#start"])
     }
 
     func testALinkToADocumentTheArchiveLacksIsKeptAsWritten() throws {

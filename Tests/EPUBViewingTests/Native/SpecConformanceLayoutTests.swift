@@ -246,7 +246,9 @@ import UIKit
 
     /// RS 3.9 recommends asking before opening a link outside the publication;
     /// doc/native-viewer.md (Security) decides: "External links are refused with a notice".
-    /// Activating one, or a link that leaves the container, tells the host and moves nothing.
+    /// Activating one tells the host and moves nothing. A link that climbs past the container
+    /// root stops there (RS 4.1.1): it is a link into the book, here to a document it lacks,
+    /// and moves nothing either.
     func testALinkOutsideTheBookIsRefusedWithANoticeAndThePositionStays() async throws {
         var book = Book()
         book.add("one", body: "<p>Visit <a href=\"https://example.org/\">the site</a>, <a href=\"mailto:someone@example.org\">write</a> "
@@ -256,14 +258,14 @@ import UIKit
         try await reader.waitUntilReady()
         let session = reader.session, section = try XCTUnwrap(session.book.section(0))
         let before = session.visibleRange, located = reader.locations.count
+        XCTAssertEqual(section.specLink("a leaking link"), .internal(href: "outside.xhtml"))
         for phrase in ["the site", "write", "a leaking link"] {
             let link = try XCTUnwrap(section.specLink(phrase))
-            guard case .external = link else { return XCTFail("\(phrase) is \(link)") }
             session.canvas(try XCTUnwrap(session.canvas), didActivate: link,
                            at: ReaderTextPosition(section: 0, offset: section.specLocation(phrase)), rect: .zero)
         }
         try await Task.sleep(for: .milliseconds(100))
-        XCTAssertEqual(reader.notices, Array(repeating: "This reader does not open links outside the book.", count: 3))
+        XCTAssertEqual(reader.notices, Array(repeating: "This reader does not open links outside the book.", count: 2))
         XCTAssertEqual(session.visibleRange, before)
         XCTAssertEqual(reader.locations.count, located)
     }

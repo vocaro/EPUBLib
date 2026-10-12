@@ -29,7 +29,10 @@ bash scripts/test-ios.sh
 Parser tests cover EPUB 2/3 structure, navigation, landmarks and page lists, resource access, identity, limits,
 duplicate ZIP entries, symlinks, path separators and dot segments beside every scalar that joins
 their `Character`, CRC corruption, malformed/deep/wide XML, UTF-16 entities, repeated,
-conflicting and absent manifest items, control characters in navigation,
+conflicting, absent, remote and differently cased manifest items, references that start at or climb past
+the container root or carry a query, padded mimetypes, containers that list another rendition first,
+entry names with a colon, contents entries that do not resolve, named character references and
+lower-case doctypes in navigation, control characters in navigation,
 cancellation after expansion starts, and exact IDPF/Adobe font deobfuscation vectors. The font
 tests check the XOR prefix and the untouched suffix against independently specified keys.
 
