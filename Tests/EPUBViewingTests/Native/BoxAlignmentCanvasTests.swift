@@ -264,12 +264,13 @@ import UIKit
             XCTAssertEqual(result.top, 0, accuracy: 1.5, "\(size)")
             XCTAssertEqual(result.middle, 0.49, accuracy: 0.01, "\(size)")
         }
-        // The person scrolls the box's first line off the top (not through the canvas). The
-        // position a resize keeps is then the visible start, inside the box, and the resize
-        // shows the box whole again.
+        // The person scrolls the box's first line off the top (not through the canvas), to a
+        // little way into the second. The position a resize keeps is then the visible start,
+        // inside the box, and the resize shows the box whole again.
         let scroll = try XCTUnwrap(host.canvas.scrollTextView), book = try XCTUnwrap(host.canvas.scrollBook)
         let second = ReaderTextPosition(section: 1, offset: H.range("who read", in: texts[1]).location)
-        let delta = try XCTUnwrap(scroll.lineFrame(containing: book.location(of: second))).minY - host.canvas.scrollVisibleContainerRect.minY
+        let line = try XCTUnwrap(scroll.lineFrame(containing: book.location(of: second)))
+        let delta = line.minY + 0.3 * line.height - host.canvas.scrollVisibleContainerRect.minY
         #if os(macOS)
         let clip = try XCTUnwrap(host.canvas.scrollContainer as? NSScrollView).contentView
         clip.scroll(to: NSPoint(x: 0, y: clip.bounds.minY + delta))
@@ -278,7 +279,7 @@ import UIKit
         scroll.contentOffset.y += delta
         #endif
         try await host.settle()
-        XCTAssertEqual(host.canvas.visibleRange?.start, second, "the second line is at the top")
+        XCTAssertEqual(host.canvas.visibleRange?.start, second, "the second line is the first on screen")
         host.resize(to: CGSize(width: 460, height: 640))
         try await host.settle()
         result = try box("For those", "to the last page", section: 1)
@@ -300,7 +301,12 @@ import UIKit
             try await host.settle()
             let line = try frame(phrase, section: 4, of: texts, in: host.canvas)
             XCTAssertEqual(line.minY, try visibleArea(of: host.canvas).minY, accuracy: 1.5, "\(phrase): the position's own line")
-            XCTAssertEqual(host.canvas.visibleRange?.start, ReaderTextPosition(section: 4, offset: far))
+            // Resting within a point of the top, a book with box geometry can read the line
+            // above as the visible start, as for any position in it.
+            let shown = try XCTUnwrap(host.canvas.visibleRange?.start)
+            XCTAssertEqual(shown.section, 4)
+            XCTAssertLessThanOrEqual(shown.offset, far, phrase)
+            XCTAssertGreaterThan(shown.offset, far - 45, "\(phrase): no earlier than the line above")
         }
     }
 
