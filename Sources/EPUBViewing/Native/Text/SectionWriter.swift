@@ -102,14 +102,8 @@ final class SectionWriter {
     private var collectingRubyBase = false
     private var rubyBaseStart: Int?
 
-    /// Hidden labels waiting for their place: before the next content of the line they are in,
-    /// or a paragraph of their own when their block has no more content.
+    /// Hidden labels waiting for a line to stand in: the next content's, wherever that is.
     private var pendingSpoken: [SpokenLabel] = []
-    /// The first of the hidden labels' own paragraphs that stand before the next paragraph with
-    /// nothing of the flow between: after the flow's last paragraph, or after a forced page break.
-    private var spokenRun: Int?
-    /// One of them took that break, so the gap is kept below it as at the top of any page.
-    private var spokenTookPageBreak = false
     private var spokenAttributes: Int?
 
     private var stack: [Entry] = []
@@ -696,29 +690,24 @@ final class SectionWriter {
         if let previous = paragraphs.indices.last {
             buffer.append(CollectionOfOne(0x0A), attributes: paragraphs[previous].separatorAttributes)
             paragraph.start = buffer.count
-            // The gap is between this paragraph and the one before it in the flow. Hidden labels
-            // standing between them lie against this paragraph, below the gap: where the gap
-            // would be this paragraph's own (the section's first, or after a forced break), it
-            // is the first label's instead.
-            let flow = paragraphs.lastIndex { !$0.isSpoken }
-            if isNote { if let flow { paragraphs[flow].spacingAfter = 0.4 * state.bodyStyle.fontSize } }
+            if previous == 0, paragraphs[0].isSpoken {
+                // Hidden labels with a paragraph to themselves open the section and lie against
+                // this one: the section's leading gap is above them.
+                paragraphs[0].spacingBefore = gapValue
+                paragraphs[0].sizingBefore = dynamicGap
+            } else if isNote { paragraphs[previous].spacingAfter = 0.4 * state.bodyStyle.fontSize }
             else if pendingPageBreak && isSection {
                 paragraph.spacingBefore = gapValue; paragraph.pageBreakBefore = true
                 paragraph.sizingBefore = dynamicGap
-            } else if let first = spokenRun, spokenTookPageBreak || flow == nil {
-                paragraphs[first].spacingBefore = gapValue
-                paragraphs[first].sizingBefore = dynamicGap
-            } else if let flow {
-                paragraphs[flow].spacingAfter = gapValue
-                paragraphs[flow].sizingAfter = dynamicGap
+            } else {
+                paragraphs[previous].spacingAfter = gapValue
+                paragraphs[previous].sizingAfter = dynamicGap
             }
         } else if !isNote {
             paragraph.spacingBefore = gapValue
             paragraph.sizingBefore = dynamicGap
         }
         pendingPageBreak = false
-        spokenRun = nil
-        spokenTookPageBreak = false
         if isSection {
             paragraph.keepsOwnNext = frames.contains { $0.keepWithNext }
             paragraph.keptTogetherBy = frames.firstIndex { $0.keepTogether }
@@ -813,7 +802,7 @@ final class SectionWriter {
                                                 range: NSRange(location: start, length: end - start)) }
         }
         if isSection {
-            adoptSpokenParagraphs()
+            adoptSpokenParagraph()
             ReaderAlignmentLayout.tag(string, paragraphs: paragraphs.map { ($0.start, $0.alignmentItem) })
         }
         for attribute in postAttributes where NSMaxRange(attribute.range) <= length {
@@ -1313,57 +1302,34 @@ final class SectionWriter {
     }
 
     /// Pending labels in a paragraph of their own, for a section that opens with them before
-    /// content that cannot hold them, or holds nothing else. The paragraph has no height, lies
-    /// against the paragraph after it and is kept with it; that paragraph is spaced, indented
-    /// and marked as if it were the first (`openParagraph`).
+    /// content that cannot hold them, or holds nothing else. It is the section's first
+    /// paragraph, has no height and is kept with the one after it, which is spaced, indented
+    /// and marked as the section's first (`openParagraph`).
     private func flushSpokenParagraph() {
-        guard !pendingSpoken.isEmpty, !paragraphOpen else { return }
+        guard !pendingSpoken.isEmpty, paragraphs.isEmpty else { return }
         let attributes = spokenLabelAttributes()
         var paragraph = Paragraph(start: buffer.count, format: frames[frames.count - 1].format, indentsFirstLine: false,
                                   separatorAttributes: attributes)
-        if let previous = paragraphs.indices.last {
-            buffer.append(CollectionOfOne(0x0A), attributes: paragraphs[previous].separatorAttributes)
-            paragraph.start = buffer.count
-        }
         paragraph.isSpoken = true
         paragraph.keepsOwnNext = true
         paragraph.keepWithNext = true
-        if pendingPageBreak {
-            paragraph.pageBreakBefore = true
-            pendingPageBreak = false
-            spokenTookPageBreak = true
-            spokenRun = paragraphs.count
-        } else if spokenRun == nil {
-            spokenRun = paragraphs.count
-        }
+        // Nothing comes before it for a forced break to part it from.
+        pendingPageBreak = false
         // The boxes that open here have not begun: their first paragraph is still to come.
-        // A run of inline blocks goes on across it.
-        for frame in frames.indices where frames[frame].firstParagraph == paragraphs.count { frames[frame].firstParagraph += 1 }
-        if lastInlineBox?.paragraphs == paragraphs.count { lastInlineBox?.paragraphs += 1 }
+        for frame in frames.indices where frames[frame].firstParagraph == 0 { frames[frame].firstParagraph = 1 }
         paragraphs.append(paragraph)
         for label in pendingSpoken { appendSpoken(label, attributes: attributes) }
         pendingSpoken.removeAll()
     }
 
-    /// A hidden label's own paragraph is no item of a flex or grid container, but it lies among
-    /// the container's paragraphs, which are found as the consecutive ones tagged with it
-    /// (`ReaderAlignmentLayout.boxes`). It takes the item of the paragraph after it, or of the
-    /// one before it when that shares a container nearer to the label.
-    private func adoptSpokenParagraphs() {
-        for index in paragraphs.indices where paragraphs[index].isSpoken {
-            let containers = paragraphs[index].format.itemAlignment.containers
-            guard !containers.isEmpty else { continue }
-            func adoption(_ neighbour: Int?) -> (depth: Int, item: ReaderAlignmentItem)? {
-                guard let neighbour, let item = paragraphs[neighbour].alignmentItem else { return nil }
-                for (depth, container) in containers.enumerated() {
-                    if let found = item.inside(container) { return (depth, found) }
-                }
-                return nil
-            }
-            let after = adoption(paragraphs[(index + 1)...].firstIndex { !$0.isSpoken })
-            let before = adoption(paragraphs[..<index].lastIndex { !$0.isSpoken })
-            if let after, let before { paragraphs[index].alignmentItem = before.depth < after.depth ? before.item : after.item }
-            else { paragraphs[index].alignmentItem = (after ?? before)?.item }
+    /// Such a paragraph is no item of a flex or grid container, but when the section opens
+    /// inside one it lies among the container's paragraphs, which are found as the consecutive
+    /// ones tagged with it (`ReaderAlignmentLayout.boxes`): it takes the item of the paragraph
+    /// after it.
+    private func adoptSpokenParagraph() {
+        guard paragraphs.count > 1, paragraphs[0].isSpoken, let item = paragraphs[1].alignmentItem else { return }
+        for container in paragraphs[0].format.itemAlignment.containers {
+            if let found = item.inside(container) { paragraphs[0].alignmentItem = found; return }
         }
     }
 
