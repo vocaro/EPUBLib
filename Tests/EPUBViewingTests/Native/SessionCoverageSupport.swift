@@ -211,12 +211,14 @@ private struct SessionCoverageStageView: View {
         #if os(macOS)
         window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        window.keepLightAppearance()
         window.contentView = NSHostingView(rootView: view)
         window.orderFront(nil)
         #else
         if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
             window = UIWindow(windowScene: scene)
         } else { window = UIWindow(frame: CGRect(origin: .zero, size: size)) }
+        window.keepLightAppearance()
         window.rootViewController = UIHostingController(rootView: view)
         window.makeKeyAndVisible()
         #endif
