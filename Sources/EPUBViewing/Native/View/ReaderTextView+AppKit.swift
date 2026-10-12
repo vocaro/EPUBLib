@@ -206,8 +206,10 @@ final class ReaderTextView: NSTextView {
             let local = NSRange(location: run.location - range.location, length: run.length)
             guard NSMaxRange(local) <= result.length else { continue }
             // The role says that it is an image, in VoiceOver's own language: no name is made up.
-            let element = accessibilityElement(at: run, label: attachments.first { $0.range == run }?.text ?? image.alt)
-            element.setAccessibilityHelp("Double-click or choose Inspect Image to enlarge.")
+            let label = attachments.first { $0.range == run }?.text ?? image.alt
+            let element = accessibilityElement(at: run, label: label)
+            // VoiceOver reads the help of an element without a label as its name, in the line.
+            element.setAccessibilityHelp(label.isEmpty ? nil : "Double-click or choose Inspect Image to enlarge.")
             let actions = images.filter { $0.range == run }.map { entry in
                 NSAccessibilityCustomAction(name: entry.image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(entry.image.alt)") {
                     [weak self] in

@@ -168,6 +168,10 @@ import UIKit
                        "no element for decoration in a line or in a link that has words; one for decoration that is all its link holds")
         XCTAssertEqual(actions, [["Inspect Image"], ["Inspect Image: A described picture"], ["Inspect Image"],
                                  ["Inspect Image: Described jump"], ["Inspect Image"]])
+        // VoiceOver reads the help of an element without a label in the label's place, so an
+        // image without words has none: it was heard as "Double-click or choose Inspect Image
+        // to enlarge. image" in the middle of its line.
+        XCTAssertEqual(elements.map { $0.accessibilityHelp() != nil }, [false, true, false, true, false])
         XCTAssertTrue(try XCTUnwrap(elements[1].accessibilityCustomActions()?.first).handler?() ?? false)
         XCTAssertNotNil(host.canvas.imageInspector)
         host.canvas.imageInspector?.close()
