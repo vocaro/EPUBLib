@@ -189,6 +189,18 @@ and the iPhone 17 Pro (750 points between its safe-area insets) has one. On the 
 was rendered for five titles in a window never put on screen (600 by 800 points for one
 column and for continuous scroll, 1200 by 800 for two columns): 108 captures.
 
+After the owner approved an on-screen session, the Mac sample app was opened once per page and
+its window captured: 31 pages of *The Great Gatsby*, *The Sun Also Rises*, *Dracula*,
+*Tristram Shandy* and the book written for the `150vh` check, in a window of 700 by 1,050
+points for one column and continuous scroll and 1,300 by 950 for two columns. The book, the
+section, the flow, the text size and the window's frame were launch arguments (`-SampleHref`
+was added to the sample for this), and each launch was in the background: the app was never
+made active, no key or click was sent to it, and the frontmost app was the same before and
+after all 31 captures. These pages have no WebKit beside them. They agree with the off-screen
+rendering: the epigraph of *The Great Gatsby* has the same five lines, 23.5 points apart, their
+ink within 3 points of the recorded glyph extents once the wider window's 50 points are taken
+off, and the dedication sits 23.5 points lower in continuous scroll than in paging in both.
+
 ### What was found
 
 1. **Continuous scroll misplaced every centred page; fixed.** A text with a float, a
@@ -277,10 +289,10 @@ unchanged until he has.
 | | |
 | --- | --- |
 | Before | `main` at `5dbdedf` |
-| After | this branch at `2431b6a` (the fix merged with `main` at `864cf18`); the Mac pages at `ccc29a1`, the same library sources |
+| After | this branch at `2431b6a` (the fix merged with `main` at `864cf18`); the Mac pages at `ccc29a1`, the same library sources; the sample app on the Mac's screen at `f4e7c51` |
 | Mac | macOS 27.0 (26A428). Xcode 27.1 (27A9269), Apple Swift 6.4, for the captures and the Mac suite; Xcode 27.0 (27A266a), the default of `scripts/test-ios.sh`, for the simulator suites |
 | Simulators | iOS 27.0 (24A434); iPhone 17 Pro, iPad Air 13-inch (M4); created for this and deleted |
-| Appearance | Light on both sides of every comparison. The simulators were set to light, and the reader's style and the web view were set to Light. The Mac was in Dark; its off-screen window and web view were set to Aqua and the reader's style to Light |
+| Appearance | Light on both sides of every comparison. The simulators were set to light, and the reader's style and the web view were set to Light. The Mac was in Dark; its off-screen window and web view were set to Aqua and the reader's style to Light, and the sample app was launched with `-NSRequiresAquaSystemAppearance YES`, so its window was captured in light |
 | Tests | Mac suite at `aa15514` (the branch merged with `main` at `ef7f52b`): 2,262 tests, no failures. iPad Air 13-inch (M4) simulator at `2431b6a`: 2,140 tests, no failures. iPhone 17 Pro simulator at `2431b6a`: 2,140 tests, 2 failures, both time limits |
 
 The two iPhone failures were time limits (190 nested notes in 10 seconds, 11,205 elements
@@ -291,8 +303,9 @@ and the Mac run have no failure.
 ### Not verified
 
 - No physical iPhone or iPad.
-- The Mac's own screen: the Mac pages were rendered off screen, with no window shown. An
-  on-screen session waits for the owner's approval.
+- Use of the Mac app by hand: on the Mac's screen the sample app was captured without being
+  made active, so nothing there was clicked, typed or scrolled, and its pages were not compared
+  with WebKit.
 - No VoiceOver session.
 - The larger qualification corpus (`EPUBLIB_CORPUS`), which is not configured on this Mac.
 - The four choices above, which are the owner's to judge.
