@@ -290,18 +290,18 @@ struct EPUBSearchField: View {
     @Bindable var controls: EPUBReaderControls
     var onDismiss: (() -> Void)? = nil
     @FocusState private var focused: Bool
-    /// Whether the field has focus once a search is submitted. A search pane's does, and so
-    /// does the inline field on a Mac. On iPhone and iPad the inline field gives it up, which
-    /// puts the keyboard away: the keyboard covers the page the search is about to show, and
-    /// where the strip fills what the keyboard leaves there is no page to tap to dismiss it.
-    static func keepsFocusAfterSearch(inPane: Bool) -> Bool {
+    /// Whether the field has focus once a search is submitted. On a Mac it does. On iPhone and
+    /// iPad it gives focus up, in the control strip and in a search pane alike, which puts the
+    /// keyboard away: the keyboard covers the page or the results the search is about to show,
+    /// and where the strip fills what the keyboard leaves there is no page to tap to dismiss
+    /// it. Clear Search returns focus to the field everywhere, to type again.
+    static var keepsFocusAfterSearch: Bool {
         #if os(macOS)
         true
         #else
-        inPane
+        false
         #endif
     }
-    private var keepsFocusAfterSearch: Bool { Self.keepsFocusAfterSearch(inPane: onDismiss != nil) }
     var body: some View {
         VStack(alignment: .leading) {
             HStack {
@@ -311,9 +311,10 @@ struct EPUBSearchField: View {
                     .submitLabel(.search)
                     .onSubmit {
                         controls.submitSearch()
-                        // UIKit ends editing on Return. Restore focus after that submission
-                        // has settled, without moving focus to the reading surface.
-                        guard keepsFocusAfterSearch else { return }
+                        // UIKit ends editing on Return, which is what puts the keyboard away.
+                        // On a Mac, keep focus in the field once that submission has settled,
+                        // without moving it to the reading surface.
+                        guard Self.keepsFocusAfterSearch else { return }
                         Task { @MainActor in
                             await Task.yield()
                             focused = true
@@ -321,7 +322,7 @@ struct EPUBSearchField: View {
                     }
                     .accessibilityLabel("Search in book")
                     .frame(minWidth: 140, idealWidth: 220)
-                Button("Search", systemImage: "magnifyingglass") { controls.submitSearch(); focused = keepsFocusAfterSearch }
+                Button("Search", systemImage: "magnifyingglass") { controls.submitSearch(); focused = Self.keepsFocusAfterSearch }
                     .labelStyle(.iconOnly).help("Search")
                 if let onDismiss {
                     Button("Close Search", systemImage: "xmark") {

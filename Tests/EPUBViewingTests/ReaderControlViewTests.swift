@@ -372,6 +372,9 @@ import UIKit
         // Return submits what was typed and opens its match in the second chapter.
         editor.keyDown(with: try key(36, "\r", in: host.window))
         try await wait("the submitted search") { state.status.search == .completed(query: "unique destination", hasMatches: true) }
+        // On a Mac the field goes on being edited after Return (issue 330 changes iPhone and iPad alone).
+        let kept = try XCTUnwrap(field.currentEditor(), "Return leaves the field being edited")
+        XCTAssertTrue(host.window.firstResponder === kept)
         await model.waitForCommands()
         try await wait("the match") { session.visibleRange?.start.section == 1 }
         let highlights = Set(session.drawnHighlights)

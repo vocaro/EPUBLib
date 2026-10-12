@@ -476,15 +476,15 @@ import UIKit
 
     /// A search from the strip's own field left the keyboard over the page it was about to show,
     /// and where the strip fills what the keyboard leaves there is no page to tap to put it
-    /// away. On iPhone and iPad the inline field gives up its focus when it submits a search
-    /// (issue 330). A search pane's field keeps it, and so does either on a Mac. The test host
-    /// cannot press Return in a SwiftUI field: the keyboard itself is in the qualification record.
-    func testOnlyTheInlineFieldOnIPhoneAndIPadGivesUpFocusAfterASearch() {
-        XCTAssertTrue(EPUBSearchField.keepsFocusAfterSearch(inPane: true))
+    /// away. On iPhone and iPad the field gives up its focus when it submits a search, in the
+    /// strip and in a search pane alike (issue 330); on a Mac it keeps it, which
+    /// `ReaderControlViewTests` holds with a Return key. The test host cannot press Return in a
+    /// SwiftUI field on iOS: the keyboard itself is in the qualification record.
+    func testTheSearchFieldGivesUpFocusAfterASearchOnIPhoneAndIPad() {
         #if os(macOS)
-        XCTAssertTrue(EPUBSearchField.keepsFocusAfterSearch(inPane: false))
+        XCTAssertTrue(EPUBSearchField.keepsFocusAfterSearch)
         #else
-        XCTAssertFalse(EPUBSearchField.keepsFocusAfterSearch(inPane: false))
+        XCTAssertFalse(EPUBSearchField.keepsFocusAfterSearch)
         #endif
     }
 
