@@ -346,7 +346,6 @@ import XCTest
     /// linear" — "a book with no linear section keeps all". Such a book has to be readable from
     /// end to end by page turns in either flow.
     func testABookWithNoLinearSectionIsReadThroughByPageTurnsInEitherFlow() async throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/159")
         for flow in [EPUBReadingFlow.scrolled, .paginated] {
             let reader = try open(SessionCoverageBook.epub([
                 Section("a", "<p>First section.</p>\(SessionCoverageBook.filler(60))", linear: false),
@@ -363,7 +362,7 @@ import XCTest
                 try await reader.wait("\(flow): turn \(turn)") { reader.session.visibleRange != shown || reader.state.status.canGoNext == false }
                 if let section = reader.section, seen.last != section { seen.append(section) }
             }
-            XCTAssertEqual(seen, [0, 1], "\(flow): page turns stop at the end of the first section, with Next disabled")
+            XCTAssertEqual(seen, [0, 1], "\(flow): page turns read on into the second section")
             reader.close()
         }
     }

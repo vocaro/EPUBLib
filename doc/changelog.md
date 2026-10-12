@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Keep each occurrence of a repeated spine item's own position. A bookmark, highlight or reported location in the second or third repeat named the first, so restoring it went back there. Positions saved by foliate-js still resolve ([#108](https://github.com/vocaro/EPUBLib/issues/108)).
+- Page through a book in which no spine item is linear. Next Page was disabled at the end of its first section in paging, though continuous scroll showed the whole book ([#159](https://github.com/vocaro/EPUBLib/issues/159)).
+- Stop taking the language of a content document that declares none from the package's `dc:language` for generated text: the marks around `q` and locale-sensitive case mapping follow only `lang` and `xml:lang` in the content, so an unlabelled French book gets “ ” around `q`, not « ». The package's language remains a hint for glyph choice and speech ([#109](https://github.com/vocaro/EPUBLib/issues/109)).
 - Show the inline search field's queued line only for a queued search. It appeared for every command, briefly resizing inline controls and the reader under them, so on iPhone and iPad the first Next Page press after opening a book landed back on the same page ([#28](https://github.com/vocaro/EPUBLib/issues/28)).
 - Leave focus alone when the control strip's inline search field appears. It focused itself as a search pane's field does, so opening a book on iPhone raised the keyboard over most of the page and started VoiceOver in an editing field ([#28](https://github.com/vocaro/EPUBLib/issues/28)).
 - Give VoiceOver an iPad spread's columns in source order. A chapter opening's left column, lowered by its top spacing, was read after the right column ([#28](https://github.com/vocaro/EPUBLib/issues/28)).

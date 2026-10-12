@@ -110,14 +110,16 @@ final class PositionSpineCoverageTests: XCTestCase {
     }
 
     /// A spine that names one resource twice is invalid (epubcheck OPF-034), but books do it.
-    /// foliate looked the itemref's `idref` up among the spine items, so a CFI into a repeat
-    /// names the first.
-    func testARepeatedSpineItemResolvesToItsFirstItemref() throws {
+    /// A CFI into a repeat names that repeat, the itemref its package path lands on (EPUB
+    /// Reading Systems 3.3 §5.5). foliate looked the itemref's `idref` up among the spine items
+    /// and named the first; the reader departs from it on purpose (#108).
+    func testARepeatedSpineItemResolvesToTheItemrefItsPathLandsOn() throws {
         let (publication, spine) = try open(package("\(Self.metadata)\(Self.manifest)<spine><itemref idref=\"one\"/><itemref idref=\"two\"/>"
             + "<itemref idref=\"one\"/><itemref idref=\"three\"/></spine>"))
         XCTAssertEqual(publication.spine.count, 4)
         XCTAssertEqual(spine.bases, ["epubcfi(/6/2)", "epubcfi(/6/4)", "epubcfi(/6/6)", "epubcfi(/6/8)"])
-        XCTAssertEqual(spine.resolve("epubcfi(/6/6!/4/2/1:0)")?.spineIndex, 0)
+        XCTAssertEqual(spine.resolve("epubcfi(/6/2!/4/2/1:0)")?.spineIndex, 0)
+        XCTAssertEqual(spine.resolve("epubcfi(/6/6!/4/2/1:0)")?.spineIndex, 2)
         XCTAssertEqual(spine.resolve("epubcfi(/6/6!/4/2/1:0)")?.localPath, "/4/2/1:0")
         XCTAssertEqual(spine.resolve("epubcfi(/6/8!/4/2/1:0)")?.spineIndex, 3, "items after the repeat keep their own step")
         XCTAssertEqual(publication.spine[0].resource.path, publication.spine[2].resource.path, "the repeat is the same document")
