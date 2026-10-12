@@ -32,11 +32,23 @@ tables removed and disclosed as `svg:font-color`. No script or remote/file-resou
 installed. SVG filter effects are omitted before rendering with a disclosure; the remaining
 drawing is preserved. Pattern fills are refused with authored fallback text and a disclosure;
 the native pipeline bounds SVG bytes, depth, nodes, use expansion, single text-run
-length, marker instances, image bytes and pixels, and output/isolated-layer raster
-memory before rendering. Font databases
+length, marker instances, reference loops and chains, image bytes and pixels, and
+output/isolated-layer raster memory before rendering. Font databases
 share immutable options and retain a process-wide 64 MiB byte reservation for
 their full lifetime, including SVG trees remaining after cache eviction. A database
 a tree still holds is shared by later drawings naming the same fonts, never duplicated.
+
+The renderer follows a `mask`, a `clip-path`, a marker and a `use` by calling itself, and
+a gradient's `href` in a loop. It stops a loop of one or two masks or clip paths
+(`fix_recursive_links` in `usvg/parser/svgtree/parse.rs`), a marker it is already drawing
+(`usvg/parser/marker.rs`) and an `href` walk that is back where it began (`HrefIter` in
+`usvg/parser/svgtree/mod.rs`), and nothing else: a longer loop or a deep chain spends the
+stack, and a walk into a loop it did not begin in never returns. Neither is a panic.
+`SVGReferenceScreen.swift` refuses those drawings first. It reads a `url(#…)` as svgtypes
+0.16.1 does (`funciri.rs`), a stylesheet and a `style` attribute as simplecss 0.2.2 does,
+step for step, and takes the elements that are drawn where they stand from
+`convert_element` in `usvg/parser/converter.rs`. Review it against those sources whenever
+the renderer is updated.
 
 The XCFramework is approximately 45 MiB before compression. `checksums.json`
 records the exact vendored archive hashes. `dependencies.json` identifies the
