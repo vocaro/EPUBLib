@@ -213,8 +213,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   wrap, reverse or be reordered stay blocks in reading order, with a `.disclosure`. Alignment is
   paragraph spacing and indents resolved at the live column size and never changes a section's
   characters, so CFIs, search, selection and highlights do not depend on it. The subset follows
-  a survey of published stylesheets and this repository's fixtures, not a book corpus
-  ([qualification](issue-20-flex-grid-alignment.md)).
+  a survey of published stylesheets and this repository's fixtures; ten shipped Standard Ebooks
+  titles were then rendered beside WebKit
+  ([qualification](issue-20-flex-grid-alignment.md#shipped-books)).
 - **Continuous scroll** is whole-book: one `UITextView`/`NSTextView` over every linear
   section, so nothing resets at a section boundary and the system scroll edge effects apply.
   Until every section is built it shows the current section, then swaps to the whole book in
@@ -313,16 +314,19 @@ as they did.
   A legacy scrollbar appears once the text is longer than the window, which is after the
   column was first set, so the text is laid out again at the narrower width in the layout pass
   that follows, before the scroll view is first drawn.
-  A shown position's line rests at the top of the visible area. Far from what is laid out,
-  TextKit 2 only estimates where text is, and the viewport's layout estimates differently, so a
-  long jump checks which line the top shows: from text before the position, it lays out through
-  the position in one run and scrolls to its now exact line; from text past it, it climbs above
-  it first ([#13](https://github.com/vocaro/EPUBLib/issues/13)). A resize keeps the line holding
-  the position (the last one shown, or the visible start once the person has scrolled) at the
-  top, through any number of resizes in quick succession. A bounded correction loop verifies
-  that the requested line actually reaches the visible top, allowing a visible line at the
-  document's end when scrolling is clamped. If estimates cannot align it, or TextKit 2 lays
-  that line over other text, the text is loaded afresh and the position shown again
+  A shown position's line rests at the top of the visible area, or the top edge of an aligned
+  box around it that fits there ([Flex and grid alignment](#flex-and-grid-alignment)). Far
+  from what is laid out, TextKit 2 only estimates where text is, and the viewport's layout
+  estimates differently, so a long jump checks which line the top shows: from text before the
+  position, it lays out through the position in one run and scrolls to its now exact line;
+  from text past it, it climbs above it first
+  ([#13](https://github.com/vocaro/EPUBLib/issues/13)). A resize keeps the line holding the
+  position (the last one shown, or the visible start once the person has scrolled), or that
+  box's top edge, at the top, through any number of resizes in quick succession. A bounded
+  correction loop verifies that the requested line actually reaches the visible top, allowing
+  a visible line at the document's end when scrolling is clamped. If estimates cannot align
+  it, or TextKit 2 lays that line over other text, the text is loaded afresh and the position
+  shown again
   ([#12](https://github.com/vocaro/EPUBLib/issues/12), [#41](https://github.com/vocaro/EPUBLib/issues/41)).
   An assistive technology's read lays the whole text out behind the view: VoiceOver and a UI
   test's snapshot ask where every paragraph is. That replaces the estimates the visible lines
@@ -336,6 +340,17 @@ as they did.
   of where it was last read has not moved and nobody has scrolled it: its first line is still
   held, and the position kept is still the one shown, not the visible start
   ([#302](https://github.com/vocaro/EPUBLib/issues/302)).
+  On Mac, VoiceOver enters a text view at its insertion point, which a read-only view does not
+  draw and replaced text leaves at its end: the end of the book. New text starts with it at
+  its first line, and the scroll view's is kept on the first line on screen. A move the reader
+  makes itself (a shown position, a scroll step, rebuilt text) puts it there, as a page turn
+  does for a column; after other scrolling it follows only while it is where the reader last
+  put it, so one placed by a click or by VoiceOver, which scrolls the view as it reads, stays.
+  A selection is never moved, and nothing is scrolled. Each such move also posts a layout
+  change naming the text view: without it VoiceOver, back in a text it had left, returns to
+  its own previous cursor and scrolls the view there. On iOS VoiceOver reads the text view's
+  own elements, from the book's first paragraph when it moves in from the controls
+  ([#301](https://github.com/vocaro/EPUBLib/issues/301)).
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
@@ -393,6 +408,18 @@ blocks in reading order; fallback widths expand when necessary to leave readable
 long box text can continue across pages. Up to eight nested width constraints resolve within
 the enclosing box in this fallback.
 
+A text that holds any of these boxes has every one of its lines placed by the reader's text
+container: one section in pages, the whole book in continuous scroll. TextKit then wraps a line
+within its paragraph's indents but aligns and justifies it across the rectangle it was handed,
+as if the paragraph had none. So the container hands TextKit paragraphs without indents and
+gives each line a rectangle that already leaves out its paragraph's head, first-line and tail
+indent. Margins, centring, right alignment, justification and list markers are then where they
+are in a text without boxes, and a paragraph with its own margin beside a float starts at the
+float's edge, its margin underneath it
+([#63](https://github.com/vocaro/EPUBLib/issues/63),
+[#150](https://github.com/vocaro/EPUBLib/issues/150)). TextKit breaks a justified paragraph's
+lines a little differently where the container places them; their edges are the same.
+
 A `.disclosure` explains that box layouts may be simplified. Sticky positioning, negative
 relative vertical offsets, arbitrary overlap and `z-index`, and page-pinned or repeating fixed
 boxes are outside the supported subset. Conventional positioned, visually hidden accessibility
@@ -445,9 +472,15 @@ changes.
   on the page.
 - **Continuous scroll.** The viewport is the visible reading area, as for images sized in
   `vh`: a `min-height: 98vh` section takes about one screen and its content sits in the middle
-  of it. Heights follow the visible area when it changes. A position that starts an aligned
-  box (a navigation to its section, a restored location) rests the box's top edge at the top
-  of the visible area, not its first line, so the box is shown as composed. A box that opens
+  of it. Heights follow the visible area when it changes. A position in an aligned box that
+  fits the visible area rests the box's top edge at the top of that area, not the position's
+  line, so the box is shown as composed: a navigation to its section, a restored location or a
+  search result inside it, and the end of its section, where turning back to its page in
+  paging leaves the position before a change to continuous scroll. The box is the run of
+  consecutive paragraphs tagged with the same supported container that has a `height` or
+  `min-height`, the outermost one that fits where they nest, and it fits when its top edge is
+  no further from the bottom of its last line than the visible area is tall. A position in a
+  taller box rests its own line, which the box's top edge could put off screen. A box that opens
   the scrolled text has its space restored as its first fragment's top margin, since TextKit
   drops the spacing before a document's first paragraph.
 
@@ -588,7 +621,9 @@ Go: the native viewer is the bundled engine.
   A layout disclosure accompanies books using these box styles. Common positioned accessibility
   labels hidden with zero-area `clip: rect(...)`, `clip-path: inset(50%)`, visibility or large negative
   top/left offsets in absolute units stay omitted; font-relative or mixed-unit offsets remain
-  visible unless explicitly hidden or clipped. General clipping and arbitrary offscreen
+  visible unless explicitly hidden or clipped. Standard Ebooks' title pages are such a case:
+  the heading and byline they park at `left: -999em` are shown above the title image that
+  repeats them ([#63](https://github.com/vocaro/EPUBLib/issues/63)). General clipping and arbitrary offscreen
   geometry are unsupported. Unsized inline-blocks remain inline. Ordinary percentage margins,
   padding and text indents resolve against the live containing content width, including
   constrained flow-box ancestors, and recalculate at resize. Mixed-unit CSS calculations

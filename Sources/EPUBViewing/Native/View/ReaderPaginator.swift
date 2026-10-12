@@ -129,6 +129,7 @@ struct ReaderTableFragment: Equatable {
         container.alignmentLead = 0
         layoutManager.textContainer = container
         layoutManager.configureGeometry()
+        container.deliverIndents(for: storage)
         storage.attributedString = text
         contentStorage = storage
         self.layoutManager = layoutManager
@@ -358,6 +359,7 @@ struct ReaderTableFragment: Equatable {
         container.configureBoxes(in: pageText)
         manager.textContainer = container
         manager.configureGeometry()
+        container.deliverIndents(for: storage)
         storage.attributedString = pageText
         var visibleEnd = 0
         var visibleBottom: CGFloat = 0
