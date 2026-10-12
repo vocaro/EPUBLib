@@ -112,12 +112,22 @@ public enum EPUBPackageWriter {
                 .init(path: "mimetype", content: "application/epub+zip")]
     }
 
+    /// `string` as text or an attribute value, escaped scalar by scalar. As a `Character`, and to
+    /// Foundation's string search, a "<", "&" or quote with a combining mark after it is another
+    /// character, and would be written as it stands. What XML 1.0 cannot hold is left out.
     private static func xml(_ string: String) -> String {
-        String(String.UnicodeScalarView(string.unicodeScalars.filter {
-            $0.value == 9 || $0.value == 10 || $0.value == 13 ||
-                (0x20...0xD7FF).contains($0.value) || (0xE000...0xFFFD).contains($0.value) || $0.value >= 0x10000
-        })).replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
-            .replacingOccurrences(of: "\"", with: "&quot;").replacingOccurrences(of: "'", with: "&apos;")
+        var escaped = String.UnicodeScalarView()
+        for scalar in string.unicodeScalars {
+            switch scalar.value {
+            case 0x26: escaped.append(contentsOf: "&amp;".unicodeScalars)
+            case 0x3C: escaped.append(contentsOf: "&lt;".unicodeScalars)
+            case 0x3E: escaped.append(contentsOf: "&gt;".unicodeScalars)
+            case 0x22: escaped.append(contentsOf: "&quot;".unicodeScalars)
+            case 0x27: escaped.append(contentsOf: "&apos;".unicodeScalars)
+            case 0x09, 0x0A, 0x0D, 0x20...0xD7FF, 0xE000...0xFFFD, 0x10000...: escaped.append(scalar)
+            default: break
+            }
+        }
+        return String(escaped)
     }
 }
