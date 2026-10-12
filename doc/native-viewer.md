@@ -325,6 +325,17 @@ as they did.
   it, or TextKit 2 lays that line over other text, the text is loaded afresh and the position
   shown again
   ([#12](https://github.com/vocaro/EPUBLib/issues/12), [#41](https://github.com/vocaro/EPUBLib/issues/41)).
+  The visible range the reader reports runs from the first line mostly below the top of the
+  visible area to the last mostly above its bottom. A rest is accepted within a point of the
+  top, and the line above the rested one ends where it starts, so a sliver of that line can
+  be on screen: a line less than half shown is not counted, and the position reported, which
+  is also the visible start a resize keeps, is the one shown. Where the book has a float or
+  positioned box anywhere the reader places every line itself, and the range is read from the
+  lines' own frames: every line whose middle the visible area holds, wherever it is in the
+  source (a float stands beside prose that follows it), and a line taller than the area that
+  holds the area's middle, such as a long table row. When the area's middle is in a gap and
+  that leaves no line, every line showing at all counts
+  ([#305](https://github.com/vocaro/EPUBLib/issues/305)).
   An assistive technology's read lays the whole text out behind the view: VoiceOver and a UI
   test's snapshot ask where every paragraph is. That replaces the estimates the visible lines
   were placed by. UIKit goes on drawing the viewport's paragraphs where they were, over the

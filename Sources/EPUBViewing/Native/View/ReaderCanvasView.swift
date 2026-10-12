@@ -801,7 +801,10 @@ import AppKit
         }
     }
 
-    /// The first and last characters in the visible area (not under the bars).
+    /// The first and last characters in the visible area (not under the bars): from the first
+    /// line mostly below its top through the last mostly above its bottom. A line the area
+    /// shows less than half of is not on screen, so the line above a position resting a
+    /// fraction of a point low (`anchorFrameIsVisible`) is not the visible start.
     private func scrollVisibleRange() -> ReaderTextRange? {
         guard let textView = scrollTextView, scrollBook != nil || textView.placement.section != nil else { return nil }
         // The layout is what the view draws only once the viewport has settled on it.
@@ -809,7 +812,9 @@ import AppKit
         let rect = scrollVisibleContainerRect
         let start: Int, end: Int
         if textView.readerContainer.hasNonlinearGeometry {
-            guard let shown = textView.visibleCharacterRange(in: rect) else { return nil }
+            // A float or positioned box is beside or over lines later in the source: every
+            // line counts by its own frame.
+            guard let shown = textView.mostlyVisibleCharacterRange(in: rect) else { return nil }
             start = shown.location; end = NSMaxRange(shown)
         } else {
             start = textView.lineBoundary(atContainerY: rect.minY, lineEnd: false)
