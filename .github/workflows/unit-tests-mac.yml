@@ -1,0 +1,173 @@
+name: Mac unit tests
+
+# `swift test` on a hosted runner, which nothing else is using while the tests run.
+# See "Hosted Mac tests" in doc/testing.md.
+on:
+  # A pull request is tested as merged into its base. To test by hand and on main only,
+  # delete this trigger.
+  pull_request:
+    paths-ignore: ['doc/**', '**.md']
+  push:
+    branches: [main]
+    paths-ignore: ['doc/**', '**.md']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: >-
+          Branch, tag or full commit SHA whose tests are built and run. Empty runs the branch
+          the run is started from.
+        type: string
+      filter:
+        description: >-
+          Regular expression for `swift test --filter`, such as ReaderCanvasViewTests. Empty
+          runs every test.
+        type: string
+      repeat:
+        description: How many times the tests run, one pass after another in one build.
+        type: string
+        default: '1'
+
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Mac unit tests, {0}, {1}{2}', inputs.ref || github.ref_name, inputs.filter || 'every test', inputs.repeat != '1' && format(', {0} passes', inputs.repeat) || '') || '' }}
+
+permissions:
+  contents: read
+
+# A newer run for the same pull request, or by hand for the same ref, filter and count,
+# replaces one still in progress. A run for main finishes; of those waiting behind it only the
+# newest is kept.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.ref || github.ref }}-${{ inputs.filter }}-${{ inputs.repeat }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
+jobs:
+  test:
+    name: swift test
+    # The standard label only: a larger runner, such as xcode-27-xlarge, is billed even in a
+    # public repository.
+    runs-on: xcode-27
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Describe the runner
+        run: |
+          echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+          echo "Commit: $(git log -1 --format='%H %s')"
+          echo "Image: xcode-27 $RUNNER_ARCH (${ImageOS:-unknown}) ${ImageVersion:-unknown}"
+          echo "System: $(sw_vers -productName) $(sw_vers -productVersion) $(sw_vers -buildVersion)"
+          echo "Xcode: $(xcodebuild -version | tr '\n' ' ')"
+          echo "Processors: $(sysctl -n hw.ncpu), memory: $(($(sysctl -n hw.memsize) / 1073741824)) GB"
+          # Some canvas tests lay text out beside a scroll bar, and the kind a Mac shows
+          # follows its pointing device. A process learns the kind a moment after it starts.
+          cat > "$RUNNER_TEMP/scroll-bars.swift" <<'SWIFT'
+          import AppKit
+          RunLoop.main.run(until: Date(timeIntervalSinceNow: 1))
+          print(NSScroller.preferredScrollerStyle == .legacy ? "legacy" : "overlay")
+          SWIFT
+          echo "Scroll bars: $(swift "$RUNNER_TEMP/scroll-bars.swift" 2> /dev/null || echo unknown)"
+
+      - name: Build
+        run: |
+          swift build --build-tests
+          echo "Built $(($(date +%s) - JOB_START)) s after the job started"
+
+      - name: Test
+        env:
+          FILTER: ${{ inputs.filter }}
+          REPEAT: ${{ inputs.repeat || '1' }}
+        run: |
+          case "$REPEAT" in
+            '' | *[!0-9]* | 0*)
+              echo "::error::repeat is a whole number from 1 up, not '$REPEAT'"
+              exit 1
+              ;;
+          esac
+          arguments=(--skip-build)
+          if [ -n "$FILTER" ]; then arguments+=(--filter "$FILTER"); fi
+          logs="$RUNNER_TEMP/unit-tests"
+          mkdir -p "$logs"
+          : > "$logs/failed.txt"
+          {
+            echo "| Pass | Tests | Failed | Skipped | Seconds | swift test |"
+            echo "| --- | --- | --- | --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          # The last pass ends three minutes before the job's limit.
+          deadline=$((JOB_START + 37 * 60))
+          result=0
+          line="No pass ran"
+          ran=0
+          red=0
+          longest=0
+          for pass in $(seq 1 "$REPEAT"); do
+            began=$(date +%s)
+            if [ $((began + longest)) -gt "$deadline" ]; then
+              echo "::error::Passes $pass to $REPEAT were not run: the job's time would have run out"
+              result=1
+              break
+            fi
+            log="$logs/pass-$pass.log"
+            status=0
+            echo "::group::Pass $pass of $REPEAT"
+            swift test "${arguments[@]}" 2>&1 | tee "$log" || status=$?
+            echo "::endgroup::"
+            took=$(($(date +%s) - began))
+            if [ "$took" -gt "$longest" ]; then longest=$took; fi
+            ran=$pass
+
+            # XCTest names each case as it ends. Swift Testing gives one count for its run.
+            cases=$(grep -c -E "^Test Case '.*' (passed|failed|skipped) \(" "$log" || true)
+            skipped=$(grep -c -E "^Test Case '.*' skipped \(" "$log" || true)
+            other=$(sed -n -E 's/^.*Test run with ([0-9]+) tests? .*$/\1/p' "$log" | awk '{ n += $1 } END { print n + 0 }')
+            {
+              sed -n -E "s/^Test Case '-\[[^.]+\.([^ ]+) ([^]]+)\]' failed \(.*$/\1.\2/p" "$log"
+              sed -n -E -e '/Test run with /d' -e 's/^[^ ]+ +Test (.+) failed after [0-9.]+ seconds.*$/\1/p' "$log"
+            } | sort -u > "$logs/failed-$pass.txt"
+            cat "$logs/failed-$pass.txt" >> "$logs/failed.txt"
+            failed=$(wc -l < "$logs/failed-$pass.txt" | tr -d ' ')
+
+            total=$((cases + other))
+            line="Pass $pass of $REPEAT: $total tests, $failed failed, $skipped skipped, $took s, swift test exit $status"
+            echo "$line"
+            echo "| $pass | $total | $failed | $skipped | $took | exit $status |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$total" -eq 0 ] && [ "$status" -eq 0 ]; then
+              # A filter that matches nothing leaves swift test nothing to fail.
+              echo "::error::No test ran${FILTER:+: nothing matches the filter '$FILTER'}"
+              result=1
+              red=$((red + 1))
+            elif [ "$status" -ne 0 ]; then
+              result=1
+              red=$((red + 1))
+              # Each failed assertion, where `gh run view` and the pull request show it.
+              sed -n -E "s|^$GITHUB_WORKSPACE/([^:]+):([0-9]+): error: -\[[^.]+\.([^ ]+) ([^]]+)\] : (.*)$|::error file=\1,line=\2,title=\3.\4::\5|p" "$log" \
+                | awk 'NR <= 10'
+              if [ "$failed" -eq 0 ]; then
+                echo "::error::swift test exited $status in pass $pass and named no failed test"
+                tail -n 40 "$log"
+              fi
+            fi
+          done
+
+          if [ "$REPEAT" -eq 1 ]; then
+            echo "::notice::$line"
+          else
+            echo "::notice::$ran of $REPEAT passes ran and $red of them failed"
+          fi
+          if [ -s "$logs/failed.txt" ]; then
+            {
+              echo
+              echo "Failed, with the number of passes each failed in:"
+              echo
+              echo '```'
+              sort "$logs/failed.txt" | uniq -c | sort -rn
+              echo '```'
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$result"
