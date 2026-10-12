@@ -461,6 +461,144 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
         }
         // The four footnote kinds in the body, and everything in the footnote.
         XCTAssertEqual(hidden, 4 + kinds.count)
+
+        // The twelfth kind is the exception: a table part typed as a footnote. A table drawn as a grid shows the part
+        // whatever its type, and the ids are settled without knowing how its table will be shown, so a later id names
+        // the part only where a footnote around it is hidden. This factory draws no table, so in the body the writer
+        // leaves the part out all the same, and its later id names nothing there (doc/native-viewer.md, Footnotes).
+        let parts = Self.tableParts.map(\.name)
+        func tables(_ prefix: String) -> String { parts.map { Self.table(typing: $0, later: prefix + $0, deep: prefix + $0 + "d") }.joined() }
+        let tabled = try H.build(tables("k") + "<section epub:type='endnotes'>" + tables("e") + "</section><aside epub:type='footnote'>"
+            + tables("f") + "</aside>")
+        for (prefix, expected) in [("k", "hidden, unnamed"), ("e", "shown, unnamed"), ("f", "hidden, named")] {
+            for part in parts {
+                let id = prefix + part
+                let element = try XCTUnwrap(tabled.document.element(id: id))
+                let shown = tabled.map.spans.contains { $0.node > element.order && $0.node <= element.subtreeEnd }
+                // A column holds nothing to show, in the flow or out of it.
+                let columns = prefix == "e" && (part == "colgroup" || part == "col")
+                XCTAssertEqual("\(shown ? "shown" : "hidden"), \(tabled.notes[id] != nil ? "named" : "unnamed")",
+                               columns ? "hidden, unnamed" : expected, "\(id): \(part) typed as a footnote")
+            }
+        }
+    }
+
+    // MARK: Table parts typed as footnotes
+
+    /// The elements a table is made of, which the table builder lays out by name (`TableContent`). With each: where a
+    /// table drawn as a grid shows the later text of `table(typing:)`, and whether a link without the `noteref` type
+    /// to the later element is a note link (when that element is a child of the part).
+    private static let tableParts: [(name: String, shown: String, plainIsNoteLink: Bool)] = [
+        ("td", "in a cell", true), ("th", "in a cell", true), ("tr", "in a cell", true), ("tbody", "in a cell", false),
+        ("thead", "in a cell", false), ("tfoot", "in a cell", false), ("caption", "in the flow", true),
+        ("colgroup", "nowhere", true), ("col", "nowhere", true),
+    ]
+
+    /// A table of two columns with one part typed as a footnote. Inside that part an id is on an element after its
+    /// first (`later`) and on one inside that element (`deep`): neither is on the part's leading chain.
+    private static func table(typing part: String, later: String = "later", deep: String = "deep") -> String {
+        let blocks = "<p>Lead.</p><p id='\(later)'>Later <b id='\(deep)'>deep</b>.</p>"
+        let cells = "<td>Lead.</td><td id='\(later)'>Later <b id='\(deep)'>deep</b>.</td>"
+        let plain = "<tr><td>a</td><td>b</td></tr>"
+        switch part {
+        case "td", "th": return "<table><tr><td>1.</td><\(part) role='doc-footnote'>\(blocks)</\(part)></tr></table>"
+        case "tr": return "<table><tr role='doc-footnote'>\(cells)</tr></table>"
+        case "tbody": return "<table><tbody role='doc-footnote'><tr>\(cells)</tr></tbody></table>"
+        case "thead": return "<table><thead role='doc-footnote'><tr>\(cells)</tr></thead><tbody>\(plain)</tbody></table>"
+        case "tfoot": return "<table><tbody>\(plain)</tbody><tfoot role='doc-footnote'><tr>\(cells)</tr></tfoot></table>"
+        case "caption": return "<table><caption role='doc-footnote'>\(blocks)</caption>\(plain)</table>"
+        case "colgroup": return "<table><colgroup role='doc-footnote'><col/><col id='\(later)'><i id='\(deep)'/></col></colgroup>\(plain)</table>"
+        default: return "<table><col role='doc-footnote'><i/><i id='\(later)'><b id='\(deep)'/></i></col><col/>\(plain)</table>"
+        }
+    }
+
+    /// What a reference into a table meets: where the table shows `phrase`, the ids the section's notes are under, and
+    /// the kind of link each word is.
+    private func facts(_ text: SectionText, showing phrase: String, links words: [String]) -> [String] {
+        let inCell = TableCoverage.tables(in: text.string).contains { $0.cells.contains { $0.content.string.contains(phrase) } }
+        let shown = inCell ? "in a cell" : text.string.string.contains(phrase) ? "in the flow" : "nowhere"
+        return ["shown \(shown)", "keys " + text.notes.keys.sorted().joined(separator: " ")] + words.map { word in
+            switch S.link(word, in: text) {
+            case .note(let href)?: "\(word): note link to \(href)"
+            case .internal(let href)?: "\(word): internal link to \(href)"
+            case .external(let href)?: "\(word): external link to \(href)"
+            case nil: "\(word): no link"
+            }
+        }
+    }
+
+    func testAReferenceIntoATableCellOrRowGroupTypedAsAFootnoteFindsNoNoteAndNavigates() throws {
+        // The table builder draws a grid's parts without asking whether one is a footnote, so the typed cell is on the
+        // page and a reference to its second paragraph navigates to the table (`NativeSession` navigates when a note
+        // link has no note), as it did before a hidden footnote took every id inside it.
+        let cell = try S.styled("""
+            <p>Claim<a epub:type="noteref" href="#n17">noteref</a>, <a href="#n17">plain</a>.</p>\
+            <table><tr><td>17.</td><td role="doc-footnote"><p>Lead of the cell.</p><p id="n17">Endnote number 17 here.</p></td></tr></table>
+            """)
+        XCTAssertEqual(facts(cell, showing: "Endnote number 17 here.", links: ["noteref", "plain"]), [
+            "shown in a cell", "keys ", "noteref: note link to OPS/one.xhtml#n17", "plain: note link to OPS/one.xhtml#n17",
+        ])
+
+        // An endnotes table whose row group is typed as one footnote. Only the first row's id, on the group's leading
+        // chain, names the group; a reference to the seventeenth or the thirtieth row navigates to the table rather
+        // than opening all thirty from the top, and a plain link to a cell of a row is an internal link.
+        let rows = (1...30).map { "<tr id=\"n\($0)\"><td>\($0).</td><td id=\"c\($0)\">Endnote number \($0) here.</td></tr>" }.joined()
+        let group = try S.styled("""
+            <p>Claim<a epub:type="noteref" href="#n17">seventeenth</a>, <a epub:type="noteref" href="#n30">thirtieth</a>, \
+            <a href="#n17">plain</a>, <a href="#c17">cell</a>.</p><table><tbody role="doc-footnote">\(rows)</tbody></table>
+            """)
+        XCTAssertEqual(facts(group, showing: "Endnote number 17 here.", links: ["seventeenth", "thirtieth", "plain", "cell"]), [
+            "shown in a cell", "keys n1", "seventeenth: note link to OPS/one.xhtml#n17", "thirtieth: note link to OPS/one.xhtml#n30",
+            "plain: note link to OPS/one.xhtml#n17", "cell: internal link to OPS/one.xhtml#c17",
+        ])
+    }
+
+    func testALaterIdInATablePartTypedAsAFootnoteNamesNothingHoweverItsTableIsShown() throws {
+        // With every part a table is made of: no id past the part's leading ones is a key, and the links are the ones
+        // a note that stays in the flow gets. A link deeper than a child of the part is an internal link.
+        let references = "<p>Claim<a epub:type='noteref' href='#later'>noteref</a>, <a href='#later'>plain</a>, <a href='#deep'>deeper</a>.</p>"
+        for (part, shown, plainIsNoteLink) in Self.tableParts {
+            let expected = ["keys ", "noteref: note link to OPS/one.xhtml#later",
+                            "plain: \(plainIsNoteLink ? "note" : "internal") link to OPS/one.xhtml#later",
+                            "deeper: internal link to OPS/one.xhtml#deep"]
+            let body = references + Self.table(typing: part)
+            // Drawn as a grid by the table builder, the part is on the page.
+            XCTAssertEqual(facts(try S.styled(body), showing: "Later", links: ["noteref", "plain", "deeper"]), ["shown " + shown] + expected, part)
+            // As tabbed rows, where no table is drawn, the writer leaves the part out. Its later ids name nothing
+            // there either: the ids do not depend on how the table is shown.
+            XCTAssertEqual(facts(try H.build(body), showing: "Later", links: ["noteref", "plain", "deeper"]), ["shown nowhere"] + expected, part)
+        }
+        // So too in a table of one column, which flows as text.
+        let column = "<table><tr><td role='doc-footnote'><p>Lead.</p><p id='later'>Later <b id='deep'>deep</b>.</p></td></tr></table>"
+        XCTAssertEqual(facts(try S.styled(references + column), showing: "Later", links: ["noteref", "plain", "deeper"]), [
+            "shown nowhere", "keys ", "noteref: note link to OPS/one.xhtml#later", "plain: note link to OPS/one.xhtml#later",
+            "deeper: internal link to OPS/one.xhtml#deep",
+        ])
+    }
+
+    func testAFootnoteInsideATablePartAndATablePartWithItsOwnIdAreNamedAsBefore() throws {
+        // What is inside a typed part is counted as anywhere else. A footnote `aside` in a typed cell is hidden by the
+        // writer, which renders the cell's content, and takes every id inside it; the cell's own later id names nothing.
+        let nested = try S.styled("""
+            <p>Text</p><table><tr><td>1.</td><td role="doc-footnote"><p>Cell lead.</p>\
+            <aside epub:type="footnote"><p>Aside lead.</p><p id="a2">Aside later.</p></aside><p id="c2">Cell later.</p></td></tr></table>
+            """)
+        XCTAssertEqual(nested.notes.mapValues(\.string), ["a2": "Aside lead.\nAside later."])
+        XCTAssertEqual(TableCoverage.tables(in: nested.string).first?.cells.map(\.text), ["1.", "Cell lead. Cell later."])
+
+        // A part that carries an id of its own, or on a leading descendant, is a note under that id as it always was:
+        // each typed row opens alone. An id further into a row names nothing.
+        let rows = try S.styled("""
+            <p>Text</p><table><tr role="doc-footnote" id="r1"><td>1.</td><td>The first note.</td></tr>\
+            <tr role="doc-footnote"><td id="r2">2.</td><td id="r2b">The second note.</td></tr></table>
+            """)
+        XCTAssertEqual(rows.notes.mapValues { $0.string.split(whereSeparator: \.isWhitespace).joined(separator: " ") },
+                       ["r1": "1. The first note.", "r2": "2. The second note."])
+
+        // Inside a footnote that is hidden, a typed part is hidden with it, like any note there, and takes its later ids.
+        let hidden = try S.styled("<p>Text</p><aside epub:type='footnote' id='fn'>" + Self.table(typing: "td") + "</aside>")
+        XCTAssertEqual(hidden.notes["later"]?.string, "Lead.\nLater deep.")
+        XCTAssertEqual(hidden.notes["deep"]?.string, "Lead.\nLater deep.")
     }
 
     func testAPlainLinkToAnythingInsideAHiddenFootnoteShowsTheNote() throws {

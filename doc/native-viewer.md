@@ -214,6 +214,13 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     navigates to that element, which can be read where it is. An endnotes list marked as one
     note is the case that matters: a reference to its seventeenth item goes to that item
     rather than opening the whole list from the top.
+  - A table cell, row, row group, caption or column marked as a footnote
+    (`role="doc-footnote"`) is not hidden on that account: unless a hidden footnote is
+    around it, it is named as a note that stays in the flow. A table of two or more columns
+    is drawn as a grid, which shows such a part in its place whatever its role, so a link to
+    a later element inside it navigates to the table. A table of one column flows as text
+    and does leave the part out; a link to a later element inside it then finds nothing to
+    show. A footnote inside a cell is hidden as it is anywhere else.
   - An id inside a note nested in another names the nested note alone, and that note is left
     out of the outer note's popover. Two exceptions keep text from being lost: a nested note
     that no id names, which nothing could open, is part of the note around it; and a note
@@ -224,10 +231,11 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   - An id used more than once names one note: one that carries it on its own element or a
     leading descendant before a hidden one that holds it elsewhere, and otherwise the first
     in the document.
-  - A link without the `noteref` type shows a note when it names the note or one of its
-    children, or anything inside a footnote hidden from the flow; deeper into a note that
-    is in the flow, it navigates. Inside a popover, a link to the note being shown is plain
-    text.
+  - A link without the `noteref` type acts as one when it names a note or one of its
+    children, or anything inside a footnote hidden from the flow: it shows the note that id
+    names, and navigates where the id names none (a later child of a note that stays in the
+    flow). Deeper into a note that is in the flow it is an ordinary link and navigates.
+    Inside a popover, a link to the note being shown is plain text.
   - A footnote `aside` with no id anywhere in it cannot be referred to and is not shown.
 - **Flex and grid.** TextKit lays a section out as one column of paragraphs, so the reader
   aligns the flex and grid layouts that keep that column: a column flex container, a one-column

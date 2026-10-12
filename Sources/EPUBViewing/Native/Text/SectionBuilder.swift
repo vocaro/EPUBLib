@@ -208,9 +208,10 @@ final class SectionBuildState {
         ContentSemantics.noteKind(element) { self.insideEndnotes[$0.order] }
     }
 
-    /// Whether the flow leaves an element out as a footnote, to show it only in place of its
-    /// reference. The writer hides by this (`SectionWriter.enter`), and by this a note takes
-    /// every id inside it (`noteIDs`): what is hidden can then be shown.
+    /// Whether the writer leaves an element out of the flow as a footnote, to show it only in
+    /// place of its reference (`SectionWriter.enter`). By the same test a note takes every id
+    /// inside it (`noteIDs`), so that what is hidden can be shown, with the one exception
+    /// `insideHiddenFootnote` makes: a table part.
     func isHiddenFootnote(_ element: ContentNode) -> Bool { noteKind(element) == .footnote }
 
     /// The nearest note at or around each element, by order (-1 for none), computed in one pass
@@ -227,12 +228,28 @@ final class SectionBuildState {
     /// Whether each element (by order) is a footnote hidden from the flow or inside one,
     /// computed in one pass when first needed, so asking is not a climb through the notes
     /// around the element.
+    ///
+    /// A footnote is hidden when the writer hides it (`isHiddenFootnote`), with one exception:
+    /// a table part typed as a footnote (`ContentSemantics.isTablePart`) is not counted. The
+    /// table builder (`TableContent.build`) makes a grid of a table's parts by their names and
+    /// never asks whether one is a footnote, so a table of two or more columns draws a cell,
+    /// row, row group or caption so typed where it stands (a column has nothing to show), and
+    /// only a table that flows as text has the writer leave it out. Which of the two a table
+    /// is, is the rich-content factory's decision and not known here. So in both the part is
+    /// named as a note that stays in the flow, and a reference to a later element of it
+    /// navigates to the table. Where the table flows as text, that reference finds nothing
+    /// shown.
+    ///
+    /// What is around or inside the part is counted as anywhere else: a part inside a hidden
+    /// footnote is hidden with it, and a footnote inside a part is hidden itself, since
+    /// whatever a grid shows that is not one of its parts goes through the writer.
     private lazy var insideHiddenFootnote: [Bool] = {
         let enclosing = enclosingNote
         var inside = [Bool](repeating: false, count: document.nodes.count)
         for node in document.nodes where node.isElement {
-            if enclosing[node.order] == node.order, isHiddenFootnote(node) { inside[node.order] = true }
-            else if let parent = node.parent { inside[node.order] = inside[parent.order] }
+            if enclosing[node.order] == node.order, isHiddenFootnote(node), !ContentSemantics.isTablePart(node) {
+                inside[node.order] = true
+            } else if let parent = node.parent { inside[node.order] = inside[parent.order] }
         }
         return inside
     }()
@@ -280,8 +297,8 @@ final class SectionBuildState {
     /// How many notes captured on their own an element is in, itself counted.
     func noteDepth(of element: ContentNode) -> Int { namedNoteDepth[element.order] }
 
-    /// Whether an element is a footnote hidden from the flow, or inside one: navigating to it
-    /// shows nothing.
+    /// Whether an element is a footnote hidden from the flow, or inside one, as
+    /// `insideHiddenFootnote` counts them: navigating to it shows nothing.
     func isInsideHiddenFootnote(_ element: ContentNode) -> Bool { insideHiddenFootnote[element.order] }
 
     /// Captures a note element's content once, under the ids that name it. A note that stays
@@ -289,9 +306,11 @@ final class SectionBuildState {
     /// child, and that one's, up to the first nested note): a reference may name the note's
     /// first paragraph or the number that opens it, and the note needs no id of its own. A
     /// reference to any other element of such a note navigates to it, since it can be read
-    /// there. A footnote hidden from the flow (`isHiddenFootnote`) cannot, so it and every note
-    /// inside it are also named by every other id inside them that is not inside a note nested
-    /// further in. Ids inside a nested note name that note alone.
+    /// there. A footnote hidden from the flow (`insideHiddenFootnote`) cannot, so it and every
+    /// note inside it are also named by every other id inside them that is not inside a note
+    /// nested further in. Ids inside a nested note name that note alone. A table part typed as
+    /// a footnote is not hidden on that account, since a table may draw it: unless a hidden
+    /// footnote is around it, it is named as a note that stays in the flow.
     ///
     /// An id used more than once names one note. The notes that carry it themselves or on a
     /// leading descendant come first, in document order; then the hidden ones that hold it

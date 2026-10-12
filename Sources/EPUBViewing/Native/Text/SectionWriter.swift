@@ -508,8 +508,9 @@ final class SectionWriter {
         // The note's own number, or another link to the note it is in.
         if case .note(let ids, _) = mode, path == document.path, let fragment, ids.contains(fragment) { return nil }
         if ContentSemantics.isNoteReference(element) { return .note(href: resolved) }
-        // A plain link to a note or its child shows the note; so does one to anything inside a
-        // footnote hidden from the flow, where there is nothing to navigate to.
+        // A plain link to a note or its child is a note link; so is one to anything inside a
+        // footnote hidden from the flow (`isInsideHiddenFootnote`), where there is nothing to
+        // navigate to.
         if path == document.path, let fragment, let target = document.element(id: fragment),
            state.noteKind(target) != nil || target.parent.flatMap(state.noteKind) != nil
             || (!fragment.isEmpty && state.isInsideHiddenFootnote(target)) {
