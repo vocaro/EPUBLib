@@ -14,6 +14,37 @@ enum WriterCoverage {
     static let clusteringMarks = ["\u{301}", "\u{338}", "\u{20E3}", "\u{FE0F}", "\u{E0100}", "\u{200C}", "\u{200D}", "\u{1F3FB}", "\u{93E}",
                                   "\u{94D}", "\u{3099}", "\u{E0020}"]
 
+    /// The characters the writer writes as references, in text and in attribute values.
+    static let markup: [Unicode.Scalar] = ["&", "<", ">", "\"", "'"]
+    /// Every scalar `String` takes into the `Character` of an "&", "<", ">", `"` or "'" written
+    /// before it (`after`), and every scalar that takes one written after it into its own
+    /// (`before`), found by asking `String`. `unjoined` is any combining mark with a combining
+    /// class, enclosing mark, variation selector, emoji modifier or join control that is not
+    /// among the first: there should be none.
+    static let joiningMarkup: (after: [Unicode.Scalar], before: [Unicode.Scalar], unjoined: [Unicode.Scalar]) = {
+        var after: [Unicode.Scalar] = [], before: [Unicode.Scalar] = [], unjoined: [Unicode.Scalar] = []
+        func isOneCharacter(_ first: Unicode.Scalar, _ second: Unicode.Scalar) -> Bool {
+            var pair = String.UnicodeScalarView()
+            pair.append(first); pair.append(second)
+            return String(pair).count == 1
+        }
+        for value in UInt32(0)...0x10FFFF {
+            guard let scalar = Unicode.Scalar(value) else { continue }
+            // Most scalars join nothing, which one string with the scalar on both sides of each
+            // markup character tells of all five at once.
+            var screen = String.UnicodeScalarView([scalar])
+            for character in markup { screen.append(character); screen.append(scalar) }
+            let joins = String(screen).count < 2 * markup.count + 1
+            let follows = joins && markup.contains { isOneCharacter($0, scalar) }
+            if follows { after.append(scalar) }
+            if joins, markup.contains(where: { isOneCharacter(scalar, $0) }) { before.append(scalar) }
+            let properties = scalar.properties
+            if !follows, properties.canonicalCombiningClass != .notReordered || properties.generalCategory == .enclosingMark
+                || properties.isVariationSelector || properties.isEmojiModifier || properties.isJoinControl { unjoined.append(scalar) }
+        }
+        return (after, before, unjoined)
+    }()
+
     /// `text` with each byte outside ASCII percent-encoded, as a resource's href writes it.
     static func escapingNonASCII(_ text: String) -> String {
         text.utf8.map { $0 < 0x80 ? String(UnicodeScalar($0)) : String(format: "%%%02X", $0) }.joined()

@@ -6,6 +6,9 @@ import Foundation
 /// computed as foliate-js's `SectionProgress` and `TOCProgress` did: progression by section
 /// byte size (nonlinear sections weigh nothing), and the title of the last contents entry at or
 /// before a position. Pages are found the same way, but at a range's start (`pages(in:)`).
+/// A book with no linear section keeps all of them in the reading order (`NativeBook.isOmitted`),
+/// so each weighs its size. foliate-js weighed such a book nothing and gave it no progression;
+/// this departs from it on purpose.
 struct NativeProgress {
     private let sizes: [Double]
     private let total: Double
@@ -16,8 +19,9 @@ struct NativeProgress {
     private let pages: [Page]
 
     init(publication: EPUBPublication) {
+        let hasLinear = publication.spine.contains(where: \.isLinear)
         sizes = publication.spine.map { item in
-            guard item.isLinear, let data = try? publication.data(for: item.resource) else { return 0 }
+            guard item.isLinear || !hasLinear, let data = try? publication.data(for: item.resource) else { return 0 }
             return Double(data.count)
         }
         total = sizes.reduce(0, +)
