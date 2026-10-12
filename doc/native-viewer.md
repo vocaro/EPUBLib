@@ -24,6 +24,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
    A qualified subset of XML-shaped HTML uses Foliate's HTML whitespace and namespace rules.
    Unqualified HTML repairs remain readable but cannot issue or resolve CFIs: the reader
    discloses that saved positions and highlights are unavailable for those sections.
+   For that parser a `<` that opens no markup (`x < y`, `p <.05`) is kept as text, as HTML
+   reads it; libxml2 alone discards what follows it.
    `XMLSafety` refuses entity declarations first. No DTD or network access, depth and node limits.
 2. **Style** (`StyleResolver`, `CSSStyleSheet`, `FontRegistry`). A bounded CSS parser and
    cascade over a user-agent stylesheet, the book's archive-local stylesheets and `style`
@@ -110,7 +112,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
 - **Spoken math.** Assistive technologies read a formula's `alttext` verbatim, in the content's
   language: the nearest `xml:lang` or `lang` on the `math` element or an ancestor, else the
   publication's. Without `alttext` the reading is generated from the markup, and elementary
-  math is read row by row. MathMLLayout 0.1.0 generates English only, so a generated reading is
+  math is read row by row. MathMLLayout 0.1.1 generates English only, so a generated reading is
   tagged English whatever the book's language, for an English voice to read, rather than
   handed to the book's voice as if it were its language.
 - **SVG.** Inline and archive SVG illustrations render through the bundled resvg static
@@ -519,7 +521,7 @@ Go: the native viewer is the bundled engine.
   past its bounds that follow it, are located as the table, not by their characters. A table
   that holds only cells written outside rows flows as text, a paragraph for each cell, rather
   than as the one anonymous row CSS gives them.
-- MathML is laid out by MathMLLayout 0.1.0, which has no line breaking, `mglyph`, elementary
+- MathML is laid out by MathMLLayout 0.1.1, which has no line breaking, `mglyph`, elementary
   math or localized speech; the reader works around each as far as the engine's API allows
   ([#25](https://github.com/vocaro/EPUBLib/issues/25)):
   - A formula breaks only along its own rows (`math`, `mrow`, `mstyle`, `semantics`). A

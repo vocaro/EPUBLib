@@ -200,6 +200,38 @@ final class SectionContentRobustnessCoverageTests: XCTestCase {
         XCTAssertEqual(text.map.length, text.string.length)
     }
 
+    /// The rest of a sentence after an unescaped `<` is shown, and the reader's positions are
+    /// those of what it shows: every character maps to its place in the document and back, a
+    /// search finds the words after the sign where they are drawn, and an `id` after it is an
+    /// anchor. The style sheet's own sign is still the style sheet's. It remains a section
+    /// whose tree the HTML parser repaired, so it reports that it has no CFIs to give.
+    func testTextAfterAStrayLessThanSignIsShownWhereItsPositionsSayItIs() throws {
+        let data = try Fixture.epub(overrides: ["OPS/one.xhtml": """
+        <html xmlns='http://www.w3.org/1999/xhtml'><head><title>T</title><style>p > em { font-style: normal } /* a < b */</style></head>\
+        <body><p>if x < y then <em>done</em></p><p id='after'>p <.05 and 1 << 2</p></body></html>
+        """])
+        let book = try EPUBPublication.open(data: data)
+        let text = SectionBuilder.build(SectionBuildRequest(publication: book, spineIndex: 0, typography: NativeTypography(),
+                                                            fonts: FontRegistry(publication: book), rich: PlaceholderRichContent()))
+        XCTAssertFalse(text.report.withheld)
+        XCTAssertTrue(text.report.recoveredAsHTML)
+        XCTAssertTrue(text.report.cfiUnavailable)
+        XCTAssertEqual(text.string.string, "if x < y then done\np <.05 and 1 << 2")
+        XCTAssertEqual(S.mapViolations(text) + S.locationViolations(text) + S.stringViolations(text), [])
+        XCTAssertEqual(text.document.nodes.first { $0.isHTML("style") }?.textContent, "p > em { font-style: normal } /* a < b */")
+        XCTAssertFalse(S.traits("done", in: text).contains(.traitItalic), "the style sheet was read whole")
+
+        let string = text.string.string as NSString
+        let anchor = try XCTUnwrap(text.anchors["after"])
+        XCTAssertEqual(string.substring(from: anchor), "p <.05 and 1 << 2")
+        for query in ["y then done", "x < y", "1 << 2"] {
+            let match = try XCTUnwrap(TextSearch.matches(of: query, in: text.document, locale: nil).first, query)
+            let start = text.map.location(of: match.start), end = text.map.location(of: match.end, isEnd: true)
+            XCTAssertEqual(string.substring(with: NSRange(location: start, length: end - start)), query)
+            XCTAssertEqual(EPUBCFI.localPath(from: match.start, to: match.end, in: text.document), "", query)
+        }
+    }
+
     func testHostileRubyListAndTableMarkupDoesNotTrap() throws {
         let bodies = [
             "<rt>stray</rt><rp>x</rp><ruby><ruby><rt>a</rt></ruby><rt>b</rt></ruby><ruby/>",
@@ -223,11 +255,13 @@ final class SectionContentRobustnessCoverageTests: XCTestCase {
     func testElementsNamedOnlyWithColonsBuildAsUnknownInlineElementsInBothParsers() throws {
         // XML 1.0's Name admits a name made only of colons, and libxml2's XML and HTML parsers both
         // hand it on. The document keeps the parser's name whole, so nothing splits it at the colon.
+        // To HTML `<:` is text, not a tag: there the name is what libxml2 leaves of `a::` once it
+        // has taken `a` for a prefix.
         let css = #"* { color: red } \: { font-style: italic } p > :first-child { font-weight: bold } [\:] { color: green }"#
         let prose: [(body: String, text: String, recovered: Bool)] = [
             ("<p>a<: id='q' class='k' style='color: blue' :='v'>b</:>c<:/>d<::>e</::></p>", "abcde", false),
             ("<p>a</p><:>b</:><p>c</p>", "a\nb\nc", false),
-            ("<p>a</b><: id='q'>b</:>c<::>d</::></p>", "abcd", true),
+            ("<p>a</b><a:: id='q'>b</a::>c<a:::>d</a:::></p>", "abcd", true),
         ]
         for (body, expected, recovered) in prose {
             let text = try S.styled(body, css: css)
@@ -245,7 +279,7 @@ final class SectionContentRobustnessCoverageTests: XCTestCase {
             "<table><:><tr><td>a</td></tr></:><tr><:>b</:></tr></table><ul><:>a</:><li>b</li></ul>",
             "<p>a<math xmlns='http://www.w3.org/1998/Math/MathML'><mrow><:/><: id='m'><mi>x</mi></:></mrow></math>b</p>",
             "<p>a<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><: id='s'><rect width='5' height='5'/></:><text>t</text></svg>b</p>",
-            "<p>a</b><math><:>x</:></math>c</p>",
+            "<p>a</b><math><a::>x</a::></math>c</p>",
         ]
         for body in rich {
             let text = try S.styled(body, css: css)

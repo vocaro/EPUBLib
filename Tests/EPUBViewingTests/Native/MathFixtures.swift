@@ -215,6 +215,6 @@ enum MathFixtures {
     static let fraction = "<mfrac><mi>a</mi><msup><mi>b</mi><mn>2</mn></msup></mfrac>"
     static let frenchAlttext = "a sur b au carré"
     static let germanAlttext = "a durch b Quadrat"
-    /// What MathMLLayout 0.1.0 generates for it, whatever the book's language.
+    /// What MathMLLayout 0.1.1 generates for it, whatever the book's language.
     static let englishReading = "start fraction a over b squared end fraction"
 }

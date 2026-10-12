@@ -29,7 +29,8 @@ struct RichContentContext {
     /// inherits `style`: what a table holds outside its cells.
     let renderNodes: (_ nodes: [ContentNode], _ style: ComputedStyle) -> NSAttributedString
     /// Resolves a local reference (`src`, `href`, `xlink:href`, `data`) against the section to a
-    /// decoded archive path. Anything outside the archive returns nil and counts as refused.
+    /// decoded archive path. A remote reference, and one that cannot name an archive entry,
+    /// returns nil and counts as refused.
     let resolve: (_ reference: String) -> String?
     let report: SectionReportBox
 }

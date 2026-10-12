@@ -183,22 +183,30 @@ final class ContentDocument: @unchecked Sendable {
     }
 
     private static func parseHTML(_ data: Data, path: String, limits: ContentLimits) throws -> ContentDocument {
-        let doc = data.withUnsafeBytes { buffer in
+        // libxml2 would discard the text after a `<` that opens no markup. What the parser is
+        // given stays within the byte limit with those signs replaced.
+        guard let source = HTMLStraySigns.replaced(in: data, limit: min(limits.bytes, Int(Int32.max))) else {
+            throw ContentDocumentError.limitExceeded("bytes")
+        }
+        let doc = source.data.withUnsafeBytes { buffer in
             htmlReadMemory(buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, "UTF-8", htmlOptions)
         }
         guard let doc else { throw ContentDocumentError.malformed(path) }
         defer { xmlFreeDoc(doc) }
-        guard let document = try convert(doc, path: path, limits: limits, recovered: true, html: true) else {
+        guard let document = try convert(doc, path: path, limits: limits, recovered: true, html: true,
+                                         signPlaceholder: source.placeholder) else {
             throw ContentDocumentError.malformed(path)
         }
         return document
     }
 
+    /// `signPlaceholder` is what `HTMLStraySigns` gave the parser in place of a stray `<`.
     private static func convert(_ doc: xmlDocPtr, path: String, limits: ContentLimits,
-                                recovered: Bool, html: Bool) throws -> ContentDocument? {
+                                recovered: Bool, html: Bool, signPlaceholder: Unicode.Scalar? = nil) throws -> ContentDocument? {
         guard let rootElement = xmlDocGetRootElement(doc) else { return nil }
         var nodes: [ContentNode] = []
         func string(_ value: UnsafePointer<xmlChar>?) -> String { value.map { String(cString: $0) } ?? "" }
+        func restored(_ text: String) -> String { signPlaceholder.map { HTMLStraySigns.restored(text, from: $0) } ?? text }
         func build(_ xml: xmlNodePtr, depth: Int) throws -> ContentNode {
             guard depth < limits.depth else { throw ContentDocumentError.limitExceeded("depth") }
             let namespace = html ? "" : string(xml.pointee.ns?.pointee.href)
@@ -216,7 +224,7 @@ final class ContentDocument: @unchecked Sendable {
                 let attributeNamespace = html ? "" : string(current.pointee.ns?.pointee.href)
                 let local = string(current.pointee.name)
                 attributes.append(ContentAttribute(name: html ? local.lowercased() : local,
-                                                   namespace: attributeNamespace, value: value))
+                                                   namespace: attributeNamespace, value: restored(value)))
                 attribute = current.pointee.next
             }
             let node = ContentNode(element: name, namespace: namespace, attributes: attributes)
@@ -227,7 +235,7 @@ final class ContentDocument: @unchecked Sendable {
             var hasPendingText = false
             func flushText() {
                 guard hasPendingText else { return }
-                let text = ContentNode(text: pendingText)
+                let text = ContentNode(text: restored(pendingText))
                 text.parent = node; text.indexInParent = node.children.count
                 text.order = nodes.count; text.subtreeEnd = text.order
                 nodes.append(text); node.children.append(text)
