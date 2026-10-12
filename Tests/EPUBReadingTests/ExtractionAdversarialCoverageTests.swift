@@ -44,9 +44,11 @@ final class ExtractionAdversarialCoverageTests: XCTestCase {
         try assertReturnsOrIsMalformed(Data(page("<p>a<:/>b</p>").utf8), recovering: false, "strict")
     }
 
-    // The same name through the recovery path: libxml2's HTML parser also accepts ":" as a tag name.
+    // The same name through the recovery path. To HTML `<:` is text, not a tag (#198); libxml2's
+    // HTML parser still hands on the name ":" for `<a::>`, once it has taken `a` for a prefix.
     func testARecoveredElementNamedWithALoneColonIsReadOrRefusedWithoutTrapping() throws {
-        try assertReturnsOrIsMalformed(Data(page("<p>a</b><:>b</p>").utf8), recovering: true, "recovery")
+        try assertReturnsOrIsMalformed(Data(page("<p>a</b><a::>b</p>").utf8), recovering: true, "recovery")
+        try assertReturnsOrIsMalformed(Data(page("<p>a</b><:>b</p>").utf8), recovering: true, "recovery, as text")
     }
 
     // Read, not refused: both parsers report a name made only of colons whole and unprefixed, so
@@ -59,7 +61,9 @@ final class ExtractionAdversarialCoverageTests: XCTestCase {
             XCTAssertEqual(strict.title, "TU", name)
             XCTAssertEqual(strict.anchors, ["q": EPUBTextMark(offset: 1, separator: 0)], name)
             XCTAssertFalse(strict.recoveredAsHTML, name)
-            let recovered = try book(page("<p>a</b><\(name) id='q'>b</\(name)>c</p>")).textSection(at: 0, recoversMalformedMarkup: true)
+            // In recovery `<:` is text (#198), so the name is spelled as the reader's test spells
+            // it: what libxml2 leaves of `a:` and the colons once it has taken `a` for a prefix.
+            let recovered = try book(page("<p>a</b><a:\(name) id='q'>b</a:\(name)>c</p>")).textSection(at: 0, recoversMalformedMarkup: true)
             XCTAssertEqual(recovered.text, "abc", name)
             XCTAssertEqual(recovered.anchors, ["q": EPUBTextMark(offset: 1, separator: 0)], name)
             XCTAssertTrue(recovered.recoveredAsHTML, name)
