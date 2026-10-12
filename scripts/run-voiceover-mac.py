@@ -32,6 +32,9 @@ def enabled():
         ["defaults", "read", "com.apple.universalaccess", "voiceOverOnOffKey"],
         capture_output=True, text=True, timeout=5)
     value = result.stdout.strip()
+    # A Mac that has never run VoiceOver has neither the key nor the process: it is off.
+    if result.returncode and not subprocess.run(["pgrep", "-x", "VoiceOver"], capture_output=True).stdout:
+        return False
     if result.returncode or value not in ("0", "1"):
         raise RuntimeError("Cannot determine the original VoiceOver state; aborting")
     return value == "1"
