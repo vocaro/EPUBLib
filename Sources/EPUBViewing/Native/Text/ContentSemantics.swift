@@ -96,6 +96,8 @@ enum ContentSemantics {
     // MARK: Quotation marks
 
     /// `<q>` marks by language, outer then inner, as the CSS `quotes: auto` tables give them.
+    /// `language` is the one the content declares; with none the marks are the English ones,
+    /// whatever the package's `dc:language` (EPUB Reading Systems 3.3 §3.7).
     static func quotes(language: String?, depth: Int) -> (open: String, close: String) {
         let tag = language?.lowercased() ?? "en"
         let primary = tag.split(separator: "-").first.map(String.init) ?? tag

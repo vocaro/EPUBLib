@@ -26,6 +26,19 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
    discloses that saved positions and highlights are unavailable for those sections.
    For that parser a `<` that opens no markup (`x < y`, `p <.05`) is kept as text, as HTML
    reads it; libxml2 alone discards what follows it.
+   That parser is given UTF-8, so an unclosed tag does not change a section's characters:
+   UTF-16 and UTF-32 are decoded first, told by the byte-order mark or NUL pattern the screen
+   tells them by, and any other encoding by the name in the XML declaration as the XML parser
+   reads it, with that parser's decoder. An HTML `<meta charset>` is not read, and a
+   declaration the XML parser rejects names nothing. A document that its declared encoding
+   cannot decode is read as UTF-8, with U+FFFD for what is not. Bytes that only a NUL tells
+   as UTF-16 or UTF-32, and that hold no markup once decoded, are not a document and are
+   withheld. What was decoded by a declared encoding is screened again, and what the parser
+   is given is held to the byte limit.
+   U+0000 does not end the section: it is left out of text and is U+FFFD in tags, comments
+   and the raw text of `script` and `style`, as HTML reads it.
+   A section whose file is cut off inside markup stays withheld, with its disclosure: the
+   screen refuses markup left open at the end of the input before either parser runs.
    `XMLSafety` refuses entity declarations first. No DTD or network access, depth and node limits.
 2. **Style** (`StyleResolver`, `CSSStyleSheet`, `FontRegistry`). A bounded CSS parser and
    cascade over a user-agent stylesheet, the book's archive-local stylesheets and `style`
@@ -57,7 +70,12 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   bookmarks are `epublib-cfi-v1` (`EPUBReader.bookmarkFormat`): names for the library, not a
   renderer, so they outlive any change of how pages are drawn. The value is an EPUB CFI in the
   form foliate-js produced, generated and resolved by a port of its code. A range contained
-  in one document carries its CFI in `bookmark`. A range spanning documents also carries
+  in one document carries its CFI in `bookmark`. A CFI into a spine item the spine repeats
+  names the occurrence its package path lands on: each repeat keeps its own position, as EPUB
+  Reading Systems 3.3 §5.5 has them "distinct items for user interface (UI) purposes". This
+  departs from foliate-js, which resolved every repeat to the first; its CFIs still resolve, and
+  one saved in a later repeat restores there
+  ([#108](https://github.com/vocaro/EPUBLib/issues/108)). A range spanning documents also carries
   `rangeBookmarks`, ordered per-document CFIs for every nonempty included section, with
   `bookmark` equal to the first entry. Nonlinear sections omitted from continuous scroll and
   empty section endpoints or sections containing only generated markers contribute no segment. Existing single-document locations continue
@@ -112,7 +130,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
 - **Spoken math.** Assistive technologies read a formula's `alttext` verbatim, in the content's
   language: the nearest `xml:lang` or `lang` on the `math` element or an ancestor, else the
   publication's. Without `alttext` the reading is generated from the markup, and elementary
-  math is read row by row. MathMLLayout 0.1.0 generates English only, so a generated reading is
+  math is read row by row. MathMLLayout 0.1.1 generates English only, so a generated reading is
   tagged English whatever the book's language, for an English voice to read, rather than
   handed to the book's voice as if it were its language.
 - **SVG.** Inline and archive SVG illustrations render through the bundled resvg static
@@ -178,7 +196,35 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   section, so nothing resets at a section boundary and the system scroll edge effects apply.
   Until every section is built it shows the current section, then swaps to the whole book in
   place. Nonlinear sections stay out of it, as page turns step over them; navigating to one
-  shows it on its own.
+  shows it on its own. A book with no linear section keeps every section in both: it scrolls
+  and pages through from end to end, where foliate-js stopped at the end of the first section
+  ([#159](https://github.com/vocaro/EPUBLib/issues/159)), and each then counts toward
+  progression by its size, where foliate-js weighed them all nothing
+  ([#232](https://github.com/vocaro/EPUBLib/issues/232)).
+- **Content language.** A narrow reading of EPUB Reading Systems 3.3 §3.7, which says a
+  reading system "MUST NOT assume either the language or the base direction" of a content
+  document from the package (owner decision, 2026-10-11,
+  [#109](https://github.com/vocaro/EPUBLib/issues/109)). The package's language has two uses
+  and the reader keeps one:
+  - Text generated from language follows only the language the content declares, `xml:lang`
+    or `lang` on the element or an ancestor: the marks around a `q`, and the case mapping of
+    `text-transform` and of small capitals a font lacks. With none declared the result is the
+    same whatever the package's `dc:language`: an unlabelled French book gets “ ” around a
+    `q`, not « », and an unlabelled Turkish one capitalizes `i` as `I`.
+  - Typesetting and speech still take the package's first `dc:language` as a hint, because
+    some language has to be chosen anyway: the CoreText language attribute, which steers
+    glyph choice and line breaking (every run of an unlabelled document in a Japanese book is
+    tagged `ja`, so its Han characters take their Japanese forms), and the language a formula
+    is spoken in (see Spoken math); body text on UIKit is to follow
+    ([#65](https://github.com/vocaro/EPUBLib/issues/65)). So typesetting is not independent of
+    the package, which is the sense in which the reading is narrow.
+
+  Content that declares a language overrides the package for both, and `lang=""` (the language
+  is unknown) leaves text without a language or the hint. `:lang()` selectors and the search
+  locale read the document alone. The base-direction half of the requirement is met in full:
+  a document that declares no direction reads the same whatever the package's `dir`.
+  foliate-js gave a document without `lang` the book's language, so its `q` marks followed
+  the package.
 - **Building** is per section and lazy for first paint: the opening section builds first and
   the session emits `.ready` once it is on screen; the rest build in the background in
   parallel. Images decode lazily, downsampled to their displayed size, under a shared cache
@@ -206,6 +252,16 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   `navigate(href:)` shows it. Before them the page list's order does, so no earlier section is
   built to find the page a section opens on. A range across sections in continuous scroll
   skips the nonlinear ones it leaves out.
+- **Sections cut off inside markup.** A section whose file ends inside markup (a tag cut in
+  half, a closing `</` or `<`, or a comment, CDATA section, processing instruction or declaration
+  that is never closed) is withheld: it shows "This section could not be shown.", the reader
+  discloses it, and the rest of the book reads as before. HTML would show the text before the
+  cut. `XMLSafety` screens a document for declarations before either parser sees it and treats
+  markup left open at the end of input as unsafe, because that is where a scan and a parser
+  most easily disagree about what the bytes are. The cost is one section of a file some tool
+  wrote short; a download cut short is no readable archive at all
+  ([#202](https://github.com/vocaro/EPUBLib/issues/202)). Text extraction's recovery reads the
+  matching case the same way: a `<` that is the last byte of a file is not text.
 - **Book pose.** New public `View.epubReaderDivision(_:)` reserves a vertical division in the
   reader's own coordinates. Columns never depend on device idiom, orientation or screen.
 
@@ -391,7 +447,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
 
 | Command | Behaviour |
 | --- | --- |
-| `nextPage` / `previousPage` | Page turn (paginated) or one viewport (scrolled); stops at the book's ends; skips nonlinear sections as foliate-js did. |
+| `nextPage` / `previousPage` | Page turn (paginated) or one viewport (scrolled); stops at the book's ends; skips nonlinear sections as foliate-js did, unless no section is linear. |
 | `navigate(href:)` | An encoded spine or resource href with optional fragment; unknown or non-local hrefs throw `invalidCommand`. |
 | `restore(location)` | Same publication, engine ID and `epublib-cfi-v1` format or `incompatibleLocation`; validates/resolves every bookmark segment and shows the first segment's start. Does not select text or add a highlight. |
 | `locate(text, highlight)` | First match in reading order with foliate's matcher. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A miss emits `.notice("the cited passage could not be found in this book")`. Clears search highlights. |
@@ -411,7 +467,8 @@ change of the current match, and nil when a clear, another query, a failure, a c
 `.relocated` reports the opening position (the text start, see Decisions). `.relocated`
 carries the section href, overall progression (by section byte size, as foliate-js computed it),
 the table-of-contents title for the position, the page-list entries it shows (see Decisions)
-and the visible range's CFIs. A selection's `.selectionChanged` event and host selection action
+and the visible range's CFIs. A nonlinear section counts nothing toward progression unless no
+section is linear (see Decisions). A selection's `.selectionChanged` event and host selection action
 carry the same complete passage: `text` omits nonlinear sections, and `location.rangeBookmarks`
 preserves all included documents. Its `page` names the entry in effect at its start and `pages`
 includes the entries it spans, omitting nonlinear pages. Save the entire `EPUBLocation` and pass
@@ -502,7 +559,7 @@ Go: the native viewer is the bundled engine.
 - Whole-table bookmarks and visible row ranges retain attachment granularity. A resize or
   flow change without a precise cell endpoint returns a continued row to its source position
   rather than preserving its particular visual fragment.
-- MathML is laid out by MathMLLayout 0.1.0, which has no line breaking, `mglyph`, elementary
+- MathML is laid out by MathMLLayout 0.1.1, which has no line breaking, `mglyph`, elementary
   math or localized speech; the reader works around each as far as the engine's API allows
   ([#25](https://github.com/vocaro/EPUBLib/issues/25)):
   - A formula breaks only along its own rows (`math`, `mrow`, `mstyle`, `semantics`). A
