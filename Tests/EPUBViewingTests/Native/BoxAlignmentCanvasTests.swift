@@ -207,6 +207,115 @@ import UIKit
         XCTAssertEqual(host.canvas.visibleRange?.start, ReaderTextPosition(section: 3, offset: opening))
     }
 
+    /// The visible reading area of the scroll view, in the canvas's coordinates.
+    private func visibleArea(of canvas: ReaderCanvasView) throws -> CGRect {
+        let view = try XCTUnwrap(canvas.scrollTextView)
+        let origin = view.containerOrigin
+        return view.convert(canvas.scrollVisibleContainerRect.offsetBy(dx: origin.x, dy: origin.y), to: canvas)
+    }
+
+    /// A page turned back to leaves the position at its section's end, which for a one-page
+    /// dedication is the box's last line. Changing to continuous scroll there must show the box
+    /// as navigating to it does, and so must any other position inside it. The book is Standard
+    /// Ebooks' compatible build, which has box geometry: the text container places every line.
+    func testScrolledPositionInsideAnAlignedBoxRestsTheBoxAtTheTopOfTheVisibleArea() async throws {
+        let prose = String(repeating: "<p>A paragraph of ordinary reading text for pagination.</p>", count: 60)
+        let tall = "<section style='display: flex; flex-direction: column; justify-content: center; min-height: 98vh'>"
+            + (0..<90).map { "<p>Line \($0) of a box taller than the screen.</p>" }.joined() + "</section>"
+        let texts = [try H.build(F.shippedTitleBody, css: F.shippedCSS), try H.build(F.shippedDedicationBody, css: F.shippedCSS),
+                     try H.build(F.shippedEpigraphBody, css: F.shippedCSS),
+                     try H.build("<h2>Chapter</h2><p>The chapter opens here.</p>" + prose, css: F.shippedCSS),
+                     try H.build(tall, css: F.shippedCSS)]
+        let source = FakeCanvasSource(texts.map(\.string))
+        source.book = CanvasText.book(texts.map(\.string))
+        let host = CanvasHost(source, size: CGSize(width: 500, height: 700), configuration: .init(flow: .paginated))
+        defer { host.close() }
+        /// How far the box starting `section` has its top edge below the top of the visible
+        /// area, and its lines' middle as a share of that area's height.
+        func box(_ first: String, _ last: String, section: Int) throws -> (top: CGFloat, middle: CGFloat) {
+            let canvas = host.canvas, view = try XCTUnwrap(canvas.scrollTextView), book = try XCTUnwrap(canvas.scrollBook)
+            let visible = try visibleArea(of: canvas)
+            let top = try frame(first, section: section, of: texts, in: canvas), bottom = try frame(last, section: section, of: texts, in: canvas)
+            let lead = ReaderAlignmentLayout.lead(in: try XCTUnwrap(view.contentStorage.textStorage),
+                                                  at: book.location(of: ReaderTextPosition(section: section, offset: 0)))
+            XCTAssertGreaterThan(lead, 100, "the box has space above its first line")
+            return (top.minY - lead - visible.minY, ((top.minY + bottom.maxY) / 2 - visible.minY) / visible.height)
+        }
+        // Paging: back from the chapter over the epigraph to the dedication.
+        host.canvas.show(ReaderTextPosition(section: 3, offset: 0), selecting: nil)
+        host.layOut()
+        XCTAssertEqual(host.canvas.turnPage(forward: false), .turned)
+        XCTAssertEqual(host.canvas.turnPage(forward: false), .turned)
+        XCTAssertEqual(host.canvas.visibleRange, ReaderTextRange(section: 1, 0..<texts[1].string.length))
+        XCTAssertEqual(host.canvas.anchor, ReaderTextPosition(section: 1, offset: texts[1].string.length), "the section's end")
+        host.canvas.configuration.flow = .scrolled
+        host.layOut()
+        try await host.settle()
+        XCTAssertEqual(host.canvas.scrollTextView?.readerContainer.hasNonlinearGeometry, true, "the book has box geometry")
+        var result = try box("For those", "to the last page", section: 1)
+        XCTAssertEqual(result.top, 0, accuracy: 1.5, "the dedication's top edge is at the top of the visible area")
+        XCTAssertEqual(result.middle, 0.49, accuracy: 0.01)
+        XCTAssertEqual(host.canvas.visibleRange?.start, ReaderTextPosition(section: 1, offset: 0))
+        // A resize keeps it so.
+        for size in [CGSize(width: 420, height: 560), CGSize(width: 500, height: 700)] {
+            host.resize(to: size)
+            try await host.settle()
+            result = try box("For those", "to the last page", section: 1)
+            XCTAssertEqual(result.top, 0, accuracy: 1.5, "\(size)")
+            XCTAssertEqual(result.middle, 0.49, accuracy: 0.01, "\(size)")
+        }
+        // A position on a line in the middle of the epigraph, as a search result has.
+        let third = H.range("And every road", in: texts[2]).location
+        host.canvas.show(ReaderTextPosition(section: 2, offset: third), selecting: nil)
+        try await host.settle()
+        result = try box("A lantern in the window", "An Imagined Poet", section: 2)
+        XCTAssertEqual(result.top, 0, accuracy: 1.5, "the epigraph's top edge is at the top of the visible area")
+        XCTAssertEqual(result.middle, 0.49, accuracy: 0.01)
+        XCTAssertEqual(host.canvas.visibleRange?.start, ReaderTextPosition(section: 2, offset: 0))
+        // A box taller than the visible area: its top edge there could put the position off
+        // screen, so every position in it rests its own line, the ones on its first screen too.
+        for phrase in ["Line 45 of a box", "Line 5 of a box"] {
+            let far = H.range(phrase, in: texts[4]).location
+            host.canvas.show(ReaderTextPosition(section: 4, offset: far), selecting: nil)
+            try await host.settle()
+            let line = try frame(phrase, section: 4, of: texts, in: host.canvas)
+            XCTAssertEqual(line.minY, try visibleArea(of: host.canvas).minY, accuracy: 1.5, "\(phrase): the position's own line")
+            XCTAssertEqual(host.canvas.visibleRange?.start, ReaderTextPosition(section: 4, offset: far))
+        }
+    }
+
+    /// The same in a book without box geometry, where TextKit places the lines: a flex box, a
+    /// grid, and the box that opens the text, whose space above its first line TextKit drops.
+    func testChangingToScrollOnAPageTurnedBackToShowsItsBoxAsComposed() async throws {
+        let texts = try sections()
+        let source = FakeCanvasSource(texts.map(\.string))
+        source.book = CanvasText.book(texts.map(\.string))
+        let host = CanvasHost(source, size: CGSize(width: 500, height: 700), configuration: .init(flow: .paginated))
+        defer { host.close() }
+        let pages: [(section: Int, first: String, last: String, middle: CGFloat)] = [
+            (2, "For the patient reader.", "For the patient reader.", 0.45), (1, "A quiet line stands alone.", "An Imagined Author", 0.49),
+            (0, "An Aligned Book", "Test Author", 0.5)]
+        for page in pages {
+            host.canvas.show(ReaderTextPosition(section: page.section + 1, offset: 0), selecting: nil)
+            host.layOut()
+            XCTAssertEqual(host.canvas.turnPage(forward: false), .turned)
+            XCTAssertEqual(host.canvas.anchor, ReaderTextPosition(section: page.section, offset: texts[page.section].string.length))
+            host.canvas.configuration.flow = .scrolled
+            host.layOut()
+            try await host.settle()
+            XCTAssertEqual(host.canvas.scrollTextView?.readerContainer.hasNonlinearGeometry, false)
+            let visible = try visibleArea(of: host.canvas)
+            let top = try frame(page.first, section: page.section, of: texts, in: host.canvas)
+            let bottom = try frame(page.last, section: page.section, of: texts, in: host.canvas)
+            XCTAssertEqual((top.minY + bottom.maxY) / 2 - visible.minY, page.middle * visible.height, accuracy: tolerance, "\(page.first)")
+            XCTAssertEqual(host.canvas.visibleRange?.start, ReaderTextPosition(section: page.section, offset: 0), "\(page.first)")
+            // And back: the page being read is the one shown.
+            host.canvas.configuration.flow = .paginated
+            host.layOut()
+            XCTAssertEqual(host.canvas.visibleRange, ReaderTextRange(section: page.section, 0..<texts[page.section].string.length))
+        }
+    }
+
     /// Standard Ebooks' compatible build in one continuous scroll view. Its title page positions
     /// a heading and a byline (and the chapter here floats an initial), so the whole book has box
     /// geometry and the text container places every line. The flex pages must sit where they do

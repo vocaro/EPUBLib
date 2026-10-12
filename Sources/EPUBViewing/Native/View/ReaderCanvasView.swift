@@ -686,7 +686,7 @@ import AppKit
     /// there, or refinement did not bring the target into the viewport.
     @discardableResult private func scrollToAnchorLine() -> Bool {
         guard let textView = scrollTextView, let anchor else { return true }
-        let location: Int
+        var location: Int
         if let book = scrollBook {
             location = book.location(of: anchor)
         } else if textView.placement.section == anchor.section {
@@ -695,6 +695,10 @@ import AppKit
         if scrollBook == nil, location >= textView.textLength {
             withProgrammaticScroll { scrollToContainerY(.greatestFiniteMagnitude) }
             return true
+        }
+        // Inside an aligned box that fits the visible area, the box is what is shown.
+        if anchor.tableCell == nil {
+            location = textView.restLocation(for: location, fitting: scrollVisibleContainerRect.height)
         }
         withProgrammaticScroll { scrollLineToTop(containing: location, in: textView) }
         if anchor.tableCell != nil, var cell = tableAnchorFrame(for: anchor) {
