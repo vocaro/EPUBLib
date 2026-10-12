@@ -171,6 +171,8 @@ final class CSSSyntaxRobustnessCoverageTests: XCTestCase {
         // A body of a book's paragraphs under one parent is ordinary, and a hostile one may hold
         // every node the document bound allows. Four times the siblings is four times the
         // elements to style; sixteen times the work means each one rescans all before it.
+        // These two searches fit what the matcher remembers of them. A sheet with more searches
+        // than that holds still costs the square: https://github.com/vocaro/EPUBLib/issues/341.
         let css = "nav ~ p { clear: both } aside ~ p { float: left }"
         _ = try matchingSeconds(siblings: 200, css: css)
         let small = try matchingSeconds(siblings: 1_000, css: css)

@@ -3,7 +3,9 @@ import Synchronization
 import XCTest
 
 /// `~` over long runs of siblings: what `SiblingSearchMemo` answers and what it tests against the
-/// walk of earlier siblings that it shortens there, and against what the selectors say.
+/// walk of earlier siblings that it shortens there, and against what the selectors say. A run is
+/// walked once only while a section's searches fit the memo: what a sheet with more of them
+/// costs is https://github.com/vocaro/EPUBLib/issues/341.
 final class SiblingSearchMemoTests: XCTestCase {
     func testLongRunsMatchWhatTheSelectorsSay() throws {
         // Forty paragraphs around a `nav`: more earlier siblings than are walked directly.
