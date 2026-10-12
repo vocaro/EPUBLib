@@ -322,7 +322,8 @@ A move costs half a second and a touch about five and a half, most of it XCTest 
 an event that VoiceOver keeps from the reader. The end of a `read` costs 3.3 seconds and an
 `activate` or `rotate` a little over one after the gesture. The simulators are not the
 devices of the record: an iPhone 17 Pro shows 402 × 874 points and its pages hold fewer lines
-than the iPhone 17 Pro Max's.
+than the iPhone 17 Pro Max's. In landscape the sample's control strip stacks and leaves its
+reader one line at 17 points, so `visible` finds no numbered line on the first spread.
 
 ## Acceptance and evidence
 
