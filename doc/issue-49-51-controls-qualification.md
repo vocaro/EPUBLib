@@ -470,4 +470,6 @@ and, on the Mac, `-QualificationWindowSize <width>x<height>`. For the iPhone Duo
 Xcode 27.1 and pass `--hinge-script`; never send that simulator `simctl io screenConfig`,
 which crash-loops its SpringBoard. For the Mac pass `--mac` in place of `--device`, with a
 signed build, and ask whoever is using the Mac first: the probe takes its pointer and keyboard.
-A new simulator shows the keyboard's first-run card once; tap its Continue before typing.
+A new simulator shows the keyboard's first-run card once; tap its Continue before typing. A
+run stopped part-way leaves the simulator as it was, with VoiceOver on or the text size large:
+restore both before the next run, because with VoiceOver on a tap only moves its cursor.
