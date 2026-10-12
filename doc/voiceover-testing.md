@@ -1,8 +1,10 @@
 # VoiceOver testing
 
 Use real VoiceOver speech to verify the paginated reader on a Mac, physical iPhone and
-physical iPad. Native accessibility API tests and simulator runs support this work but do
-not establish what VoiceOver reads. The sessions are recorded in the
+physical iPad. Native accessibility API tests support this work but do not establish what
+VoiceOver reads. A [simulator's VoiceOver](#simulators) does read, with no device, window or
+sound, but it activates nothing, and its sessions are not acceptance evidence. The sessions
+are recorded in the
 [Mac verification](issue-55-voiceover-mac.md) and the
 [iPad and iPhone verification](issue-28-voiceover-devices.md); the acceptance matrix is in
 [#28](https://github.com/vocaro/EPUBLib/issues/28).
@@ -279,8 +281,8 @@ any of them go on side by side.
 With `advance_after` set to `0.5`, stepping took about a quarter of the time in four pairs of
 sessions, and 95 of 97 keys recorded the same first phrase as at the fixed pause. The hint that
 follows a move is cut short, and a phrase VoiceOver repeats is not recorded again. It suits
-exploring and walks across controls. The fixed pause stays the default; which pacing a
-transcript kept as evidence should use has not been decided.
+exploring and walks across controls. A transcript offered as acceptance evidence is recorded
+at a fixed pause; see [Acceptance and evidence](#acceptance-and-evidence).
 
 The job fails unless every session exits 0. `sessions.txt` in the download gives each
 session's outcome, transcript and command: 124 means the deadline was reached, 125 that the
@@ -369,9 +371,14 @@ check the device state afterward, especially after cancellation. A user must ent
 required XCTest UI Automation passcode directly on the device. Never collect it in logs or chat.
 
 The probe launches the reader and performs the comma-separated steps, recording VoiceOver's
-phrase after each. Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
+phrase after each, and ends with `finished`: a transcript without that line stopped early.
+Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 
-- `read`: move forward until VoiceOver repeats itself at the end of the screen.
+- `read`: move forward until VoiceOver stays on the last item. There it repeats that item's
+  phrase, but so does a second item with the same label. One move back tells them apart: from
+  the last item it reaches the item before, and a move forward returns. Where that settles
+  nothing, because the item before says the same or VoiceOver does not move back, three more
+  repeats end the read, as three did before. A `read` line says which way it ended.
 - `forward=COUNT`, `backward=COUNT`: that many moves to the next or previous item, where
   `read` would go on through a whole book in continuous scroll.
 - `visible`: the window size and each column's first and last numbered lines as XCTest sees
@@ -379,7 +386,9 @@ phrase after each. Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from t
   scroll while the cursor is in the text, are counted apart.
 - `touch=LABEL`: touch the first item whose label begins with LABEL. Under VoiceOver a touch
   moves its cursor there; `touch=word` is the first numbered line.
-- `activate=LABEL`: touch the item, then double-tap, which is VoiceOver's activation.
+- `activate=LABEL`: touch the item, then double-tap, which is VoiceOver's activation. The
+  probe goes on once the screen has changed and held still for half a second, after two
+  seconds at most, and a `settled` line says which.
 - `point=X:Y`: touch a place in the window, as fractions of its width and height, whatever is
   listed there.
 - `flick=down`, `flick=up`: one finger steps through the rotor. With the cursor on a line it
@@ -388,7 +397,8 @@ phrase after each. Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from t
   upward flick registered, which reaches the same actions.
 - `flick=right`, `flick=left`: VoiceOver's next and previous item; `flick=right*12` repeats it.
 - `rotate=landscape`, `rotate=portrait`: an iPad shows two columns in landscape and one in
-  portrait. End a session in the orientation it started in.
+  portrait. The probe waits for the screen as after `activate`, three seconds at most. End a
+  session in the orientation it started in.
 - `wait=SECONDS`, and `screenshot`, attached to the result bundle: what is on the glass,
   independent of every accessibility snapshot.
 
@@ -406,6 +416,94 @@ turns pages by activating the page buttons or a line's Next Page action. A trans
 begins in an editing field, with the keyboard's keys after the page, is not a reading-order
 result. Use physical-device sessions for acceptance.
 
+## Simulators
+
+`scripts/run-voiceover-simulator.py` runs the same probe on simulators of its own, with no
+device, no Simulator window and no sound. It is a quick check of what VoiceOver reads, not
+acceptance evidence:
+
+```sh
+python3 scripts/run-voiceover-simulator.py
+python3 scripts/run-voiceover-simulator.py --device iPad-Air-13-inch-M4 --font-size 23 \
+  --steps 'rotate=landscape,visible,touch=Page boundary,read,rotate=portrait'
+```
+
+The runner generates the fixture and project if they are missing or stale and builds the probe
+once; a simulator build needs no signing team. It creates an iPhone 17 Pro and an iPad Air
+13-inch (M4) on the iOS 27.0 runtime (`--device` and `--runtime` choose others), boots them
+with `simctl` alone, sets each one's volume to 0 and runs one `xcodebuild
+test-without-building` for each at the same time, under `--timeout`. It deletes its simulators
+however the run ends, also when it is terminated, and never boots, changes or deletes one it
+did not create. `--steps`, `--font-size`, `--flow scrolled` and `--voiceover-off` are the
+probe's settings above. Each simulator gets `simulator-TYPE-STAMP.transcript.txt` beside its
+log and result bundle in `.build/voiceover/results/`: the device, revision and steps, the
+probe's lines, then the result, with VoiceOver's state and the volume as `devicectl` reports
+them. The exit status is 0 only when every probe ran all its steps and passed, VoiceOver is
+off again and no simulator lost its mute.
+
+Four things went wrong in the first runs, and the runner and probe now allow for each:
+
+- **Sound.** A simulator's VoiceOver speaks through the Mac's own output device, at volume
+  60 unless told otherwise. Nothing runs until the volume reads 0, and the runner reads it
+  again every second and at the end. A simulator whose `backboardd` restarts comes back at 60
+  within six seconds, VoiceOver still on: it aborted once in some thirty rotations, in Metal,
+  with VoiceOver on. The runner then mutes the simulator again and the transcript has an
+  `UNMUTED` line. This reads a setting. Nothing listens to the Mac.
+- **A VoiceOver that is on and silent.** On a newly booted simulator VoiceOver's first start
+  took 40 to 50 seconds, by its own log waiting for the voice database, while XCTest's
+  `enable()` returned in a few. Until it is up, touches reach the reader as plain touches and
+  every move fails with "Failed to send moveForward command". The probe waits for VoiceOver's
+  first phrase, three minutes at most; the `voiceOver` line then says `silent for its first
+  44 s`. Switching VoiceOver off and on again did not help: one session stayed silent through
+  three starts.
+- **An xcodebuild that does not end.** After a test that recorded any issue, a warning
+  included, xcodebuild runs `simctl diagnose --timeout=600` and waits for it. A rotated iPad
+  logs such a warning in a probe that passes ("Support for all orientations will soon be
+  required"), and xcodebuild then ran on for 22 seconds, 30 seconds, a minute, and twice more
+  than five minutes, when it was stopped. The runner passes `-collect-test-diagnostics
+  never`, with which the same run ended within a second of its probe. If xcodebuild has still
+  not ended `--exit-grace` seconds after the probe, the runner stops it and its collector,
+  takes the speech from xcodebuild's output or from the unfinished result bundle
+  (`Staging/*/Diagnostics/**/StandardOutputAndStandardError.txt`), whichever holds more, and
+  says so in a `STOPPED` line.
+- **Other sessions.** XCTest fails a UI test when a process it calls critical crashes while
+  the test runs. One probe failed with "Critical process xctest crashed" while other sessions'
+  unit tests were running on the Mac; its own transcript was complete. `FAILURE` lines give
+  XCTest's reasons.
+
+A simulator session establishes what VoiceOver reads and in what order: each line, the end of
+the page, both columns of an iPad's landscape spread, and the page after a turn. It does not
+establish that VoiceOver can activate anything. On these simulators a double tap under
+VoiceOver does not perform the cursor item's action. The reader receives one plain touch
+where the double tap landed, about a quarter of a second later: with the cursor on Next Page
+and the double tap on the heading, the touch arrived on the heading and the page stayed.
+
+- `activate=Next Page` turns the page in portrait because that touch lands on the button it
+  names. The page that follows is real, and so is VoiceOver's reading of it. That VoiceOver
+  activated the button is not shown.
+- In landscape the touch arrives a quarter turn away, at (height − y, x) for a double tap at
+  (x, y): on the iPad at (890, 43) for the button at (43, 134), where nothing is. The page
+  does not turn. On the iPhone it lands in the search field and brings up the keyboard.
+- The rotor offers a line's actions and speaks them (`flick=down` says "Next Page"), and
+  `doubletap` performs none: the touch goes to the line, and neither the reader's action nor
+  its `accessibilityActivate` is called.
+- XCTest's Control-Option-Space reaches VoiceOver, whose log names it Activate, and nothing
+  reaches the reader. Control-Option with an arrow does move the cursor, in 0.4 seconds.
+
+With VoiceOver off the same touches turn the page in both orientations, and on physical
+devices VoiceOver performs every one of these
+([iPad and iPhone verification](issue-28-voiceover-devices.md)), so the difference is the
+simulator's and not the probe's or the reader's. Page actions, the rotor and turns in
+landscape need a device. To read a later landscape spread on a simulator, turn pages in
+portrait and then rotate: the reader keeps its place.
+
+A move costs half a second and a touch about five and a half, most of it XCTest waiting for
+an event that VoiceOver keeps from the reader. The end of a `read` costs 3.3 seconds and an
+`activate` or `rotate` a little over one after the gesture. The simulators are not the
+devices of the record: an iPhone 17 Pro shows 402 × 874 points and its pages hold fewer lines
+than the iPhone 17 Pro Max's. In landscape the sample's control strip stacks and leaves its
+reader one line at 17 points, so `visible` finds no numbered line on the first spread.
+
 ## Acceptance and evidence
 
 For each device, exercise supported one- and two-column layouts, normal and larger text,
@@ -418,6 +516,11 @@ one on a workstation is. Record its runner image and image version, such as `xco
 three, and the job's "Set up job" log prints the image. Everything else here applies to it
 unchanged. A hosted session that completes is no more an acceptance result than any other:
 read its transcript against the visible text. The iPhone and iPad still need physical devices.
+
+Record a Mac transcript offered as evidence at a fixed pause, the runner's default, on a
+workstation or hosted. `--advance-after` is for exploring: it cuts short whatever follows a
+key's first phrase, and in the paired sessions it once recorded a control's hint in place of
+its name. Run a failure first seen with it again at a fixed pause before reporting it.
 
 1. Capture the first spoken line upon entering each column, before advancing. The first
    numbered word must match that column's first visible word.
@@ -564,6 +667,18 @@ The Mac runner's transcript is plain text and needs no export.
   two halves of a move, VoiceOver stopped at a line it had reached above the screen.
 - Not done on a device: a larger text size, VoiceOver's three-finger scroll and its read-all
   gesture, which XCTest cannot make, a book whose lines hold floats or tables, and listening.
+
+- On 2026-10-12 the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0) recorded, at 17
+  points: on an iPhone 17 Pro word0001–word0016 in 4 lines and, after Next Page,
+  word0017–word0080 in 16; on an iPad Air 13-inch (M4) in portrait word0001–word0301 in 36
+  lines, then word0302–word0670 in 45 and word0671–word1037 in 44, and in landscape
+  word0358–word0567 beside word0568–word0777, 60 lines read left column first. At 23 points
+  the iPad showed word0001–word0146 in 24 lines and then word0147–word0345 in 33; the iPhone
+  no numbered line on its first page and word0001–word0036 in 12 on its second. VoiceOver
+  spoke every numbered line once and in order, then the book title, where it stayed, and
+  XCTest's view of the columns agreed. A phrase is cut at 64 characters, so an iPad line
+  shows its first seven words. No page action, rotor action or landscape turn was performed
+  by VoiceOver there; see the section.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
