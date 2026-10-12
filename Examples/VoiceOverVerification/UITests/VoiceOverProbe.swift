@@ -259,13 +259,16 @@ import XCUIAutomation
                     heard("flick=\(flick.first ?? "")")
                 }
             case "rotor":
-                // Two fingers turned on the glass turn VoiceOver's rotor to its next setting, which
-                // it names. `rotor=Headings` turns it until it names that one, twenty turns at
-                // most; `flick=down` and `flick=up` then move by it.
+                // Two fingers turned on the glass turn VoiceOver's rotor, which names the setting
+                // it comes to. `rotor=Headings` turns it until it names that one, thirty turns
+                // at most; `flick=down` and `flick=up` then move by it. One turn of a given
+                // size moved the rotor one setting in some sessions and three in others, which
+                // went round and round past Headings: the turns are of several sizes.
                 let wanted = parts.count > 1 ? parts[1] : ""
                 var found = wanted.isEmpty
-                for _ in 0..<(wanted.isEmpty ? 1 : 20) {
-                    app.rotate(.pi / 4, withVelocity: 2)
+                let turns: [CGFloat] = [.pi / 4, .pi / 6, .pi / 9, .pi / 5, .pi / 12]
+                for turn in 0..<(wanted.isEmpty ? 1 : 30) {
+                    app.rotate(turns[turn % turns.count], withVelocity: 2)
                     RunLoop.current.run(until: Date().addingTimeInterval(0.8))
                     let phrase = (try? voiceOver.currentSpeech().utterance) ?? "no speech"
                     note("rotor", phrase)

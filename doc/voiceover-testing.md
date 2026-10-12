@@ -27,8 +27,11 @@ bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
-of the book is a few screens from the start of its last chapter. Do not import private books
-for this check.
+of the book is a few screens from the start of its last chapter. The first book's headings
+are "Page boundary verification" (level 1), which opens it, "Link target reached" (level 2)
+after the numbered paragraph, and the two parked ones (level 1), each opening its section;
+the second book's are "Chapter one", "Chapter two" and "Chapter three", screens apart. Do not
+import private books for this check.
 
 Use Xcode 27, OS 27, XcodeGen, Python 3, and a graphical Mac login. Select a signing team for
 the UI-test runners and physical-device app. Signed Mac UI tests worked in the initial
@@ -411,10 +414,13 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
   performs the chosen one without moving the cursor. On an iPhone in landscape only the
   upward flick registered, which reaches the same actions.
 - `flick=right`, `flick=left`: VoiceOver's next and previous item; `flick=right*12` repeats it.
-- `rotor=LABEL`: two fingers turned on the glass, which turns VoiceOver's rotor to its next
-  setting, repeated until VoiceOver names LABEL, twenty turns at most: `rotor=Headings`.
-  `flick=down` and `flick=up` then move by that setting, heading to heading. Without a label
-  it turns the rotor once.
+- `rotor=LABEL`: two fingers turned on the glass, which turns VoiceOver's rotor, repeated
+  until VoiceOver names LABEL, thirty turns at most: `rotor=Headings`. `flick=down` and
+  `flick=up` then move by that setting, heading to heading. Without a label it turns the
+  rotor once. Turn it after the touch that places the cursor: a touch on an item with actions
+  put an iPad's rotor back on Actions. A turn of one size moved the rotor one setting in some
+  sessions and three in others, which went round past Headings, so the turns are of several
+  sizes.
 - `rotate=landscape`, `rotate=portrait`: an iPad shows two columns in landscape and one in
   portrait. The probe waits for the screen as after `activate`, three seconds at most. End a
   session in the orientation it started in.
@@ -563,7 +569,19 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    technology."; and a screenshot shows none of the hidden words. On the section with a
    hidden heading over a table, opened in continuous scroll, VoiceOver moving into the text
    meets "Parked table heading" before the table's first row, and the view does not move.
-7. Restore all original VoiceOver/scripting settings and independently verify restoration.
+7. Headings. On an iPhone or iPad VoiceOver says "Heading" after a heading's words, shown or
+   hidden, and reads a heading that takes several lines as one item. With the rotor on
+   Headings (`rotor=Headings`, turned after the touch that places the cursor), `flick=down`
+   moves to the next heading on the page or screen and then to the next one in the book,
+   turning the page or scrolling to it, and `flick=up` goes back the same way; `visible`
+   after a move shows the page or screen the reader went to. Past the book's last or first
+   heading VoiceOver says "Heading not found". Wait a few seconds after the book opens
+   (`wait=8`): a chapter not built yet ends the search. On a Mac `nextheading` moves
+   VoiceOver to the next heading in the text area and reads its words, to "Heading not
+   found" past the last, and the view shows the heading; `rotor` opens on the Heading menu,
+   which lists the page's headings, or the whole book's in continuous scroll, each by its
+   words and level, and `listchoose` moves to the one named.
+8. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
