@@ -62,7 +62,6 @@ final class EPUBCheckPackageDocumentCoverageTests: XCTestCase {
     // MARK: Metadata
 
     func testMetadataValuesCollapseTheirWhitespace() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/75")
         // EPUB 3.3, 5.5.2: "Whitespace within these element values is not significant. Sequences
         // of one or more whitespace characters are collapsed to a single space during processing."
         let book = try open(package(metadata: """
