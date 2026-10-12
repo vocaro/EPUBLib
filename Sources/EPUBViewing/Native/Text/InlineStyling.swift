@@ -191,6 +191,17 @@ final class InlineStyling {
         CTFontGetAdvancesForGlyphs(font, .horizontal, &glyph, &advance, 1)
         return advance.width
     }
+
+    /// The default tab interval of a paragraph set in `font`: CSS's initial `tab-size`, eight
+    /// spaces.
+    static func tabInterval(_ font: PlatformFont) -> CGFloat { tabInterval(8 * spaceAdvance(font)) }
+
+    /// `interval` as a default tab interval: at least a point, whatever a font's space or a
+    /// marker measures. No paragraph style the builder makes is without one. TextKit cannot
+    /// place a tab that has neither a stop after it nor an interval: in a plain container it
+    /// ends the paragraph at the tab, so the rest gets no line, and in a container with boxes
+    /// it asks for the next line down without end.
+    static func tabInterval(_ interval: CGFloat) -> CGFloat { interval.isFinite && interval >= 1 ? interval : 1 }
 }
 
 /// Every value a builder paragraph style sets, so identical paragraphs share one style object.
@@ -210,7 +221,7 @@ struct ParagraphStyleKey: Hashable {
     var characterWrap = false
     /// A list marker's tab stop.
     var tabStop: CGFloat?
-    /// `tab-size` in points; 0 keeps the default interval.
+    /// The interval of the tabs no stop is ahead of (`InlineStyling.tabInterval`).
     var tabInterval: CGFloat = 0
 
     func apply(to style: NSMutableParagraphStyle) {
@@ -227,6 +238,6 @@ struct ParagraphStyleKey: Hashable {
         style.hyphenationFactor = hyphenate ? 1 : 0
         style.lineBreakMode = characterWrap ? .byCharWrapping : .byWordWrapping
         style.tabStops = tabStop.map { [NSTextTab(textAlignment: .natural, location: $0)] } ?? []
-        if tabInterval > 0 { style.defaultTabInterval = tabInterval }
+        style.defaultTabInterval = InlineStyling.tabInterval(tabInterval)
     }
 }
