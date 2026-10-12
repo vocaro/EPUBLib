@@ -239,9 +239,10 @@ runner script stopped the session, and 2 that it refused the steps. The download
 macOS, Xcode and screen, the observer, `xcodebuild` and build logs, and a screenshot of the
 runner's screen at the end. The run's summary page shows each session's steps and speech. The
 artifacts expire after five days; copy what must be kept. A failed job also uploads
-`voiceover-mac-result-bundles`, about 230 MB a session. A stopped session's bundle has no
-`Info.plist`, so `xcresulttool` cannot open it, but its log archive opens with
-`log show --archive`.
+`voiceover-mac-result-bundles`, 100 MB for four short sessions, and adds
+`banner-and-dictation.log` to the transcripts: the banner's starts and anything from Dictation
+in the system log. A stopped session's bundle has no `Info.plist`, so `xcresulttool` cannot
+open it, but its log archive opens with `log show --archive`.
 
 A hosted session differs from one on a workstation:
 

@@ -153,8 +153,8 @@ def main():
 
     def check_banner(moment):
         if guarded and any(BANNER in text for _, text in phrases(log_path)):
-            raise RuntimeError(f"VoiceOver named XCTest's {BANNER} banner {moment}, so its cursor may have left "
-                               "the reader and the speech after that is not the reader's; session stopped")
+            raise RuntimeError(f"VoiceOver named XCTest's {BANNER} banner {moment}, so its cursor may be on "
+                               "the banner and not on the reader; session stopped")
 
     finished = args.results / f"mac-{stamp}.finished"
     environment = dict(os.environ, TEST_RUNNER_VOICEOVER_STOP=str(finished))
