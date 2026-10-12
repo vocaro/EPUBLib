@@ -310,6 +310,9 @@ as they did.
   is the column's width, set only when that changes, so a resize lays the text out once at most.
   On Mac, the column uses the actual scroll viewport's horizontal extent, including width
   reserved by a legacy scrollbar; a scrollbar preference change also recalculates wrapping.
+  A legacy scrollbar appears once the text is longer than the window, which is after the
+  column was first set, so the text is laid out again at the narrower width in the layout pass
+  that follows, before the scroll view is first drawn.
   A shown position's line rests at the top of the visible area. Far from what is laid out,
   TextKit 2 only estimates where text is, and the viewport's layout estimates differently, so a
   long jump checks which line the top shows: from text before the position, it lays out through
@@ -328,7 +331,11 @@ as they did.
   the viewport laid out, once it has been laid out again where the view stands. AppKit would
   draw the finished layout at the old offset, a chapter away, at the next scroll, so while the
   view has not moved since it was last read, the reader first scrolls by as much as the first
-  visible line has moved.
+  visible line has moved. AppKit moves the view itself, by a fraction of a point, when it
+  aligns the offset to the pixel grid at the scroll view's first display. A view within a point
+  of where it was last read has not moved and nobody has scrolled it: its first line is still
+  held, and the position kept is still the one shown, not the visible start
+  ([#302](https://github.com/vocaro/EPUBLib/issues/302)).
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
