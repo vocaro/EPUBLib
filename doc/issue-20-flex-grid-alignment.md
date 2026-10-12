@@ -232,6 +232,46 @@ window captures.
   last line rests at the top of the reading area with the dedication's blank space scrolled
   away. See [Remaining boundaries](#remaining-boundaries).
 
+### Physical devices and VoiceOver
+
+The owner asked for both before the issue closes. On 2026-10-12 the repository's VoiceOver
+verification reader and probe ([VoiceOver testing](voiceover-testing.md)) were built at
+`d2951fb` and signed, with *The Great Gatsby* bundled in place of the synthetic fixture and two
+launch parameters added to the probe for these runs only: the flow and the section to open.
+Neither change is committed.
+
+**On the glass.** XCTest screenshots of an iPad Air 13-inch (M3) and an iPhone 17 Pro Max, both
+on OS 27.2 (24B5099f), with VoiceOver off, at 17 points: the dedication and the epigraph in
+paging in portrait and landscape, and the dedication in continuous scroll in both. The iPad
+was in light appearance and the iPhone in dark.
+
+- The dedication's lines are centred across the screen: their middles are 511 to 512 points
+  across the iPad's 1,024 and 219 to 220 across the iPhone's 440.
+- The iPad's epigraph has the five lines of the simulator's capture, and the ink of each
+  starts and ends within 3 points of the glyph extents the simulator recorded.
+- In continuous scroll the dedication is 23.5 points lower than in paging on the iPad and
+  23.7 on the iPhone, as on the simulators and the Mac, with the last lines of the imprint
+  above it.
+- In landscape the iPad shows the dedication and the epigraph alone in the left column. The
+  iPhone 17 Pro Max is 956 points wide and has two columns in landscape too. Under the
+  sample's controls and footer its page there is about four lines tall, less than the 3em the
+  stylesheet puts above the text and the text together, so the dedication's last line and the
+  epigraph's later lines run on into the right column.
+
+**VoiceOver on the devices.** With VoiceOver switched on by the probe, touching the
+dedication's first line and moving forward spoke "Once again", "to", "Zelda" and then the
+footer. Next Page was activated through VoiceOver. On the epigraph it spoke the five lines in
+order on the iPad and, on the iPhone, the six lines its narrower column makes (the third wraps
+after "high-"), then the footer. The probe switched VoiceOver off again at the end of each
+run.
+
+**VoiceOver on the Mac.** In paging with one column (a window of 600 by 882 points, 17 points)
+the dedication has three accessibility lines and the epigraph five, the lines on screen.
+VoiceOver read them in order, and each page turn sent its value notification. In continuous
+scroll VoiceOver was not heard reading the epigraph: it enters the text at the reader's
+insertion point, which was at the end of the book, and moving it needed control of the
+reader's window that was not granted.
+
 ### What was found
 
 1. **Continuous scroll misplaced every centred page; fixed.** A text with a float, a
@@ -374,8 +414,9 @@ kept, for these reasons:
 | After | this branch at `2431b6a` (the fix merged with `main` at `864cf18`); the Mac pages at `ccc29a1`, the same library sources; the sample app on the Mac's screen at `f4e7c51` |
 | Mac | macOS 27.0 (26A428). Xcode 27.1 (27A9269), Apple Swift 6.4, for the captures and the Mac suite; Xcode 27.0 (27A266a), the default of `scripts/test-ios.sh`, for the simulator suites |
 | Simulators | iOS 27.0 (24A434); iPhone 17 Pro, iPad Air 13-inch (M4); created for this and deleted |
+| Devices | iPad Air 13-inch (M3) and iPhone 17 Pro Max, OS 27.2 (24B5099f); the verification reader at `d2951fb`, built with Xcode 27.0 (27A266a) |
 | Appearance | Light on both sides of every comparison. The simulators were set to light, and the reader's style and the web view were set to Light. The Mac was in Dark; its off-screen window and web view were set to Aqua and the reader's style to Light, and the sample app was launched with `-NSRequiresAquaSystemAppearance YES`, so its window was captured in light |
-| Tests | Mac suite at `8100232` (the branch merged with `main` at `4a4624f`): 2,265 tests, no failures. iPad Air 13-inch (M4) simulator at `2431b6a`: 2,140 tests, no failures. iPhone 17 Pro simulator at `2431b6a`: 2,140 tests, 2 failures, both time limits |
+| Tests | Mac suite at `4deb252` (the branch merged with `main` at `2187f80`): 2,321 tests, no failures. iPad Air 13-inch (M4) simulator at `2431b6a`: 2,140 tests, no failures. iPhone 17 Pro simulator at `2431b6a`: 2,140 tests, 2 failures, both time limits |
 
 The two iPhone failures were time limits (190 nested notes in 10 seconds, 11,205 elements
 styled in 3) missed while the machine's load average was in the hundreds from other work. The
@@ -384,8 +425,10 @@ and the Mac run have no failure.
 
 ### Not verified
 
-- No physical iPhone or iPad.
-- No VoiceOver session.
+- VoiceOver in continuous scroll, on the Mac or on a device, and VoiceOver in two columns or
+  at large text.
+- On physical devices: any title but *The Great Gatsby*, any size but 17 points, and the
+  comparison with WebKit, which was made on the simulators and off screen on the Mac.
 
 ## Remaining boundaries
 
