@@ -67,12 +67,22 @@ query, no matches, one match, fourteen and a refusal. The iPad's popover measure
 before and after, 316 × 93 empty and 372 × 446 with results.
 
 **With the iPhone on its side, results pushed the field off the screen.** In landscape (874 ×
-402, seen at `145a21c`) the keyboard leaves the sheet about 225 points. The result list asked
-for at least 160 of them, the pane came out taller than the sheet, and the sheet cut its top
-off: the field was at y = −38 and Close Search at y = −31, out of reach until the keyboard was
-put away. The list's minimum is now 44 points in a compact height. At `f98db10` the field is at
-y = 16 and Close Search at y = 22, with the list 52 points tall above the keyboard, before and
-after a rotation with the pane open, and Close Search closed it.
+402, seen at `145a21c`) the result list asked for at least 160 points, the sheet's content came
+out taller than the sheet, and the sheet cut its top off: the field was at y = −38 and Close
+Search at y = −31, out of reach until the keyboard was put away. The list's minimum is now 44
+points in a compact height. At `f98db10` the field is at y = 16 and Close Search at y = 22, with
+the list 52 points tall above the keyboard, before and after a rotation with the pane open, and
+Close Search closed it.
+
+The keyboard leaves the sheet 177 points there, not the 225 or so this record first gave. Read
+again at `e47700f`: the keys begin at y = 222, their suggestions take the 45 points over them,
+the list ends at y = 161 and the sheet's padding at 177. The field, its buttons, the match
+navigator and the padding take 125 of the 177, so at the default text size the list has 8
+points more than its minimum. At larger sizes the content is taller than the sheet again. At
+the largest ordinary size (`extra-extra-extra-large`) the field is at y = 8. At the first
+accessibility size (`accessibility-medium`) it is at y = −2 and Close Search at y = 1, and at
+the largest (`accessibility-extra-extra-extra-large`) the field, 73 points tall, is at y = −58
+and Close Search, 66 tall, at y = −54. That was not changed here.
 
 **Continuous scroll lost its place after an accessibility read.** On iOS the scrolled reader is
 a text view whose accessibility lists every paragraph of the book, and reading that list (an
