@@ -373,8 +373,8 @@ as they did.
   that leaves no line, every line showing at all counts
   ([#305](https://github.com/vocaro/EPUBLib/issues/305)).
   An assistive technology's read can lay the whole text out behind the view: on Mac, and on
-  iOS before the scroll view listed only its lines on screen (below), VoiceOver and a UI
-  test's snapshot ask where every paragraph is. That replaces the estimates the visible lines
+  iOS before the scroll view listed its own lines (below), VoiceOver and a UI test's
+  snapshot ask where every paragraph is. That replaces the estimates the visible lines
   were placed by. UIKit goes on drawing the viewport's paragraphs where they were, over the
   place the finished layout gives other text, so the visible range is read from the paragraphs
   the viewport laid out, once it has been laid out again where the view stands. AppKit would
@@ -425,28 +425,44 @@ as they did.
   On iOS, VoiceOver walks a text view's accessibility elements and, moving in from a control,
   takes the first. UIKit's own are every paragraph of the book, so it took the book's first
   paragraph and scrolled the reader back to it. The scroll view lists its lines instead, as a
-  page column does: the lines on screen, each with the links and attachments in it as elements
-  of their own, and each by the part of it inside the area the insets leave. UIKit scrolls a
-  line the cursor comes to until that area holds its frame and then 40 points further, and
-  the first line on screen is often cut by the top inset, so its whole frame would move the
-  reader as VoiceOver came in. While the cursor is on a line, the two lines before the screen
-  and the two after it are listed as well, and the two each side of the cursor's own line:
-  VoiceOver moves on to them, UIKit scrolls the one it lands on into view, and it reads on
-  through the book in either direction. Two, because from a line that was the first listed
-  when VoiceOver took it, it goes back to the control before the text whatever has been
-  listed before that line since. The cursor counts as in the text from the moment a line is
-  told it has it until UIKit's focus notification names something that is not one of the
-  view's lines, or VoiceOver is switched. A line left is told so, and a notification naming
-  only it is posted, before the next line is told it has the cursor; when either was taken
-  for the cursor leaving, the list shrank to the screen for a moment and VoiceOver stopped at
-  a line it had reached above the screen. A line keeps its element while it is listed or
-  under the cursor. Listing scrolls nothing and selects nothing
+  page column does, each with the links and attachments in it as elements of their own: the
+  lines on screen, each by the part of it inside the area the insets leave, and the fifty
+  lines after them. UIKit scrolls a line the cursor comes to until that area holds its frame
+  and then 40 points further, and the first line on screen is often cut by the top inset, so
+  its whole frame would move the reader as VoiceOver came in
   ([#301](https://github.com/vocaro/EPUBLib/issues/301)).
-  One case is open. Straight after a menu closes, the contents menu on an iPad on its side
-  for one, VoiceOver can walk the lines it found on screen at that moment and no others: it
-  comes in at the first line, reads to the last that was on screen, and goes on to the scroll
-  bar ([#339](https://github.com/vocaro/EPUBLib/issues/339); [VoiceOver testing](voiceover-testing.md),
-  "Harness pitfalls and current results").
+  The lines after the screen are there for the way VoiceOver moves. It asks UIKit for the
+  items after the one its cursor is on, and for those before it, then moves through what it
+  was given and asks again only when it has used them. As a rule it asks for two when its
+  cursor lands on an item and for one more at each move. At its first move after the screen
+  has changed under it, as when a menu closes, it asks for fifty each way: given the lines
+  on screen alone, it read to the last of them and went on to the scroll bar and the host's
+  next control. Fifty is what it asked for on iOS 27.0 and iPadOS 27.2, and the number
+  listed is taken from that. While the cursor is on a line, fifty lines are listed each side
+  of the screen and each side of the cursor's own line: VoiceOver moves on to them, UIKit
+  scrolls the one it lands on into view, and it reads on through the book in either
+  direction. Moving back into the text from below, VoiceOver takes the last line listed, so
+  while its cursor is on one of the scroll view's own bars or on something below the reading
+  area the list is the lines on screen alone, as it was before, and that is the last of
+  them.
+  The cursor counts as on a line from the moment the line is told it has it until UIKit's
+  focus notification names something that is not one of the view's lines, or VoiceOver is
+  switched. A line left is told so, and a notification naming only it is posted, before the
+  next line is told it has the cursor; when either was taken for the cursor leaving, the
+  list shrank for a moment and VoiceOver stopped at a line it had reached above the screen.
+  A line keeps its element while it is listed or under the cursor. Listing scrolls nothing
+  and selects nothing, and lays out no more than the lines it lists
+  ([#339](https://github.com/vocaro/EPUBLib/issues/339)).
+  VoiceOver keeps what it was given, which leaves three things as they are. After a menu, a
+  move back past the line it came in at, made before it has used the fifty, goes to the
+  control before the text and not to the line above. A reader that is moved while VoiceOver
+  holds lines it has not reached, by a scroll step with the cursor on a control, leaves it
+  holding lines that are no longer listed: it says the first of them and returns to the
+  control. And away from the top of the book, moving back into the text from below gives
+  the last line on screen and then the control before the text: UIKit scrolls the view 88
+  points back as the cursor goes to the scroll bar, and the line VoiceOver was given is
+  then below the screen ([#367](https://github.com/vocaro/EPUBLib/issues/367);
+  [VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current results").
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
