@@ -699,7 +699,11 @@ The Mac runner's transcript is plain text and needs no export.
   "Parked link to the target", "Shown", "last", "words.". In continuous scroll the lines
   after "This is the end of the numbered paragraph." were the same three, and Read All gave
   them in order, a sentence at a time. Neither label hidden from everyone is in any
-  transcript. Nobody listened, and no workstation was used.
+  transcript. A fourth session, at `1e44a71`, read the page that opens with a hidden heading
+  over a table (thirteen `ax:next` steps): on entering, "In text Parked table heading"; by
+  line, "Parked table heading", "Table row group", "Shown words after the table."; by word,
+  "Parked table heading", "Table row group", "Shown", "words". Nobody listened, and no
+  workstation was used.
 
 - On 2026-10-12 the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0) recorded, at 17
   points: on an iPhone 17 Pro word0001–word0016 in 4 lines and, after Next Page,
