@@ -149,6 +149,8 @@ the application, then performs its steps and prints each event with its time, th
 selection and the numbered-word span of its value:
 
 - `next`, `previous`: press the page buttons, found by label or help rather than index.
+- `press=LABEL`: press any other button by its label, as in `"ax:press=Use Toolbar"`, which
+  moves the sample's controls from the reader's group to the window's toolbar.
 - `larger`, `smaller`: choose the Appearance menu's text-size items.
 - `width=POINTS`: resize the window.
 - `focus`, `focus=COLUMN`, `focus=search`: give the last column, a numbered column or the
