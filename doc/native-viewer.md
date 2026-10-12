@@ -206,6 +206,16 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   `navigate(href:)` shows it. Before them the page list's order does, so no earlier section is
   built to find the page a section opens on. A range across sections in continuous scroll
   skips the nonlinear ones it leaves out.
+- **Sections cut off inside markup.** A section whose file ends inside markup (a tag cut in
+  half, a closing `</` or `<`, or a comment, CDATA section, processing instruction or declaration
+  that is never closed) is withheld: it shows "This section could not be shown.", the reader
+  discloses it, and the rest of the book reads as before. HTML would show the text before the
+  cut. `XMLSafety` screens a document for declarations before either parser sees it and treats
+  markup left open at the end of input as unsafe, because that is where a scan and a parser
+  most easily disagree about what the bytes are. The cost is one section of a file some tool
+  wrote short; a download cut short is no readable archive at all
+  ([#202](https://github.com/vocaro/EPUBLib/issues/202)). Text extraction's recovery reads the
+  matching case the same way: a `<` that is the last byte of a file is not text.
 - **Book pose.** New public `View.epubReaderDivision(_:)` reserves a vertical division in the
   reader's own coordinates. Columns never depend on device idiom, orientation or screen.
 
