@@ -28,7 +28,8 @@ simulator was created for these runs and deleted afterwards.
 with `EPUBReaderToolbar` for search, contents, appearance and reading mode at `.topBarTrailing`
 and the page buttons at `.topBarPinnedTrailing`, as [reader-controls.md](reader-controls.md)
 shows. Launch arguments swap in the embedded `EPUBReaderControlStrip`, or a host-placed
-`EPUBSearchResultNavigator` in the bottom bar, and add host actions beside the supplied groups.
+`EPUBSearchResultNavigator` in the bottom bar with `EPUBSearchResultList` in a sheet, and add
+host actions beside the supplied groups.
 A line under the reader prints the reader's public state, so each control's effect can be read
 back. Its three books are synthetic (`scripts/make-controls-fixture.py`):
 
@@ -65,13 +66,13 @@ points. The pane now fills its sheet from the top: at `145a21c` the field is at 
 query, no matches, one match, fourteen and a refusal. The iPad's popover measures the same
 before and after, 316 × 93 empty and 372 × 446 with results.
 
-**With the iPhone on its side, results pushed the field off the screen.** In landscape
-(874 × 402, seen at `145a21c`) the keyboard leaves the sheet about 225 points. The result list asked for at least
-160 of them, the pane came out taller than the sheet, and the sheet cut its top off: the field
-was at y = −38 and Close Search at y = −31, out of reach until the keyboard was put away. The
-list's minimum is now 44 points in a compact height. At `f98db10` the field is at y = 16 and
-Close Search at y = 22, with the list 52 points tall above the keyboard, before and after a
-rotation with the pane open, and Close Search closed it.
+**With the iPhone on its side, results pushed the field off the screen.** In landscape (874 ×
+402, seen at `145a21c`) the keyboard leaves the sheet about 225 points. The result list asked
+for at least 160 of them, the pane came out taller than the sheet, and the sheet cut its top
+off: the field was at y = −38 and Close Search at y = −31, out of reach until the keyboard was
+put away. The list's minimum is now 44 points in a compact height. At `f98db10` the field is at
+y = 16 and Close Search at y = 22, with the list 52 points tall above the keyboard, before and
+after a rotation with the pane open, and Close Search closed it.
 
 **Continuous scroll lost its place after an accessibility read.** On iOS the scrolled reader is
 a text view whose accessibility lists every paragraph of the book, and reading that list (an
@@ -139,6 +140,12 @@ sheet titled Search Results with the count and a close button; choosing a row cl
 "No matches" appears under the field. After a search the field keeps focus, so the keyboard
 stays over the lower half of the page; a tap on the page put it away.
 
+**Host-placed navigator.** With `EPUBSearchResultNavigator` in the bottom bar and the pane
+closed (`f98db10`, continuous scroll), Next Match went from 1 to 14 and on to 1, and Previous
+Match back from 1 to 12. After each of the fourteen steps the current match was on screen, at
+the top of the view. The host's own sheet of `EPUBSearchResultList` opened scrolled to the
+current match.
+
 **Right-to-left book.** Next Page is on the left with a left-pointing chevron and Previous
 Page on the right, in the toolbar and in the strip, and Next Page moved forward through the
 book in both. Contents and its submenu list the Arabic titles; a search for "مصباح", typed
@@ -146,11 +153,11 @@ through the keyboard, found 5 and stepped 1, 2, 3 and back with the match shown 
 continuous scroll the buttons keep their sides and are named Scroll Forward and Scroll
 Backward.
 
-**Overflow.** With four host actions beside the supplied groups (`145a21c`), the bar keeps
-Search, Contents, the reading-mode picker, a More button, Previous Page and Next Page; More
-lists Appearance and the four host actions. Nothing was chosen through More. A refused command
-adds the supplied
-Reader Error item, which on this width also sends Appearance into More.
+**Overflow.** With four host actions beside the supplied groups, the bar keeps Search,
+Contents, the reading-mode picker, a More button, Previous Page and Next Page; More lists
+Appearance and the four host actions. Appearance opens there as a submenu with its five
+entries; Larger Text and Dark, chosen through it, took effect (`f98db10`). A refused command
+adds the supplied Reader Error item, which on this width also sends Appearance into More.
 
 **Rotation.** With the pane open at "2 of 14", landscape to portrait and back kept the query
 and the count each time. A contents menu open during a rotation was dismissed and the bar came
@@ -386,7 +393,9 @@ Described, not decided. None of these was changed.
 4. **A shown result can end up just above the view in continuous scroll on iPhone.** After two
    Previous Match steps in the sheet and Close Search, match 7 was one line above the top of
    the view (`5dbdedf`); matches 3, 4 and 9 in the same run were on screen, and all four were
-   on the iPad. The sheet and its keyboard resize the reader under them.
+   on the iPad. The sheet and its keyboard resize the reader under them. At `f98db10`, stepped
+   with the host-placed navigator and no sheet in the way, all fourteen were on screen; the
+   sheet case was not repeated there.
 5. **The reader reflows under the search keyboard.** On iPad the page goes from one column to
    two while the popover's keyboard is up, and back. On iPhone the same resize happens behind
    the sheet.
@@ -426,9 +435,8 @@ Described, not decided. None of these was changed.
   did not start. The Duo's inner display under VoiceOver, as above.
 - iPad windows narrower than full screen (Split View, Slide Over, resized windows).
 - The pending search's accessibility tree, and an error other than a refused query.
-- The host-placed `EPUBSearchResultNavigator` in a bottom bar: its runs ended in XCTest
-  snapshot failures on a loaded Mac before any step.
-- Choosing a supplied menu from inside the iPhone bar's More menu.
+- Choosing a row in a host's own sheet of `EPUBSearchResultList`, and the host-placed
+  navigator on iPad and the iPhone Duo.
 - The control strip under the VoiceOver service.
 
 ## Evidence and repeating it
