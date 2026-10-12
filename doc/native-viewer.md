@@ -609,7 +609,9 @@ The spike the issue asked for ran on the books StudyWright reads, with the opt-i
 Ebooks, Project Gutenberg and government titles), the 87 PDFReflowLib conversions of the
 review set, and, as a sample of imported EPUBs, 165 conversions of the same PDFs by two other
 converters (72 of which EPUBReading opens; the rest reference resources missing from their
-archives and are refused by the parser, as before).
+archives and are refused by the parser, as before). Those books belong to that project, not
+to EPUBLib: this is the record of one run, and the corpora for verifying changes are the
+public ones ([corpus runs](testing.md#corpus-runs)).
 
 - **Fidelity.** 213 books, 9,566 sections, 90 million rendered characters and 55,748
   attachments built with no crash, no withheld section and no text-map round-trip failure.
