@@ -112,7 +112,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
 - **Spoken math.** Assistive technologies read a formula's `alttext` verbatim, in the content's
   language: the nearest `xml:lang` or `lang` on the `math` element or an ancestor, else the
   publication's. Without `alttext` the reading is generated from the markup, and elementary
-  math is read row by row. MathMLLayout 0.1.0 generates English only, so a generated reading is
+  math is read row by row. MathMLLayout 0.1.1 generates English only, so a generated reading is
   tagged English whatever the book's language, for an English voice to read, rather than
   handed to the book's voice as if it were its language.
 - **SVG.** Inline and archive SVG illustrations render through the bundled resvg static
@@ -502,7 +502,7 @@ Go: the native viewer is the bundled engine.
 - Whole-table bookmarks and visible row ranges retain attachment granularity. A resize or
   flow change without a precise cell endpoint returns a continued row to its source position
   rather than preserving its particular visual fragment.
-- MathML is laid out by MathMLLayout 0.1.0, which has no line breaking, `mglyph`, elementary
+- MathML is laid out by MathMLLayout 0.1.1, which has no line breaking, `mglyph`, elementary
   math or localized speech; the reader works around each as far as the engine's API allows
   ([#25](https://github.com/vocaro/EPUBLib/issues/25)):
   - A formula breaks only along its own rows (`math`, `mrow`, `mstyle`, `semantics`). A
