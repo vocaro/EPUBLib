@@ -1,10 +1,12 @@
 import CoreGraphics
 import Foundation
+import Synchronization
 
 /// Computes styles for one content document: user-agent defaults, then author sheets in order,
 /// then `style` attributes, honouring `!important`, specificity and inheritance.
 ///
-/// Immutable after `init`, so `style(for:parent:)` may be called from any thread.
+/// Immutable after `init` except for what it remembers of sibling searches, which is locked, so
+/// `style(for:parent:)` may be called from any thread.
 final class StyleResolver: @unchecked Sendable {
     let typography: NativeTypography
     let document: ContentDocument
@@ -17,6 +19,7 @@ final class StyleResolver: @unchecked Sendable {
 
     private let author: CSSRuleIndex
     private let facts: ElementFacts
+    private let siblingSearches = SiblingSearchMemo()
     /// The root element's computed font size, which `rem` refers to.
     private var rootFontSize: CGFloat
     let initialValues: ComputedStyle
@@ -50,7 +53,7 @@ final class StyleResolver: @unchecked Sendable {
     func style(for element: ContentNode, parent: ComputedStyle) -> ComputedStyle {
         guard element.isElement else { return parent }
         let order = element.order
-        let matcher = SelectorMatcher(document: document, facts: facts)
+        let matcher = SelectorMatcher(document: document, facts: facts, siblingSearches: siblingSearches)
         var winners = [CSSValue?](repeating: nil, count: CSSProperty.count)
 
         func apply(_ declarations: [CSSDeclaration], important: Bool) {
@@ -254,10 +257,65 @@ struct ElementFacts: Sendable {
 
 // MARK: - Selector matching
 
+/// What matching in one document has learned about `~` searches, so that an element in a long
+/// run of siblings does not test every sibling before it again. `a ~ b` holds at an element
+/// exactly when some earlier sibling matches `a`, so for one `~` combinator and one parent this
+/// holds how many of the parent's leading element children have been tested against the
+/// selector to the combinator's left, and the first that matched. Each child is then tested
+/// once for a combinator, not once for every sibling after it.
+final class SiblingSearchMemo: Sendable {
+    struct Key: Hashable {
+        /// Of the selector's `identity`, which lives as long as the rule index that is matched.
+        let selector: ObjectIdentifier
+        /// Index of the compound to the combinator's left.
+        let compound: Int32
+        let parent: Int32
+    }
+
+    struct Progress {
+        /// Index among the parent's children of the next node to test.
+        var next: Int32 = 0
+        /// Element children tested so far.
+        var tested: Int32 = 0
+        /// 1-based position among element children of the first that matched, or 0.
+        var first: Int32 = 0
+    }
+
+    /// An element with no more earlier siblings than this walks them: that costs less than a
+    /// lookup, and a parent of few children then needs no entry.
+    let directWalk: Int32
+    /// Room is made for an entry beyond this many by forgetting them all, which bounds the
+    /// memory (under 4 MB). A search that was forgotten tests its parent's leading children
+    /// again, so more searches than this under way at once cost what the walk does.
+    let capacity: Int
+    private let entries = Mutex<[Key: Progress]>([:])
+
+    init(directWalk: Int32 = 8, capacity: Int = 1 << 16) {
+        self.directWalk = directWalk; self.capacity = capacity
+    }
+
+    func progress(_ key: Key) -> Progress { entries.withLock { $0[key] } ?? Progress() }
+
+    /// Keeps whichever of `progress` and what is held has gone further: two threads on one
+    /// search find the same.
+    func record(_ progress: Progress, for key: Key) {
+        entries.withLock { entries in
+            if let held = entries[key] {
+                if held.tested < progress.tested { entries[key] = progress }
+                return
+            }
+            if entries.count >= capacity { entries.removeAll(keepingCapacity: true) }
+            entries[key] = progress
+        }
+    }
+}
+
 /// Right-to-left selector matching with WebKit's pruning of descendant and sibling searches.
 struct SelectorMatcher {
     let document: ContentDocument
     let facts: ElementFacts
+    /// nil: every `~` walks the siblings before the element.
+    var siblingSearches: SiblingSearchMemo?
 
     private enum Result { case matches, failsLocally, failsAllSiblings, failsCompletely }
 
@@ -286,6 +344,12 @@ struct SelectorMatcher {
             guard sibling >= 0 else { return .failsAllSiblings }
             return match(selector, sibling, from: index + 1)
         case .subsequentSibling:
+            let position = facts.positions[element]
+            if let memo = siblingSearches, let identity = selector.identity, position - 1 > memo.directWalk {
+                let key = SiblingSearchMemo.Key(selector: ObjectIdentifier(identity), compound: Int32(index + 1),
+                                                parent: facts.parents[element])
+                return anyChild(before: position, matches: selector, key, memo) ? .matches : .failsAllSiblings
+            }
             var sibling = Int(facts.previousElements[element])
             while sibling >= 0 {
                 let result = match(selector, sibling, from: index + 1)
@@ -294,6 +358,27 @@ struct SelectorMatcher {
             }
             return .failsAllSiblings
         }
+    }
+
+    /// Whether one of the first `position - 1` element children of `key.parent` matches
+    /// `selector` from `key.compound` leftwards. The walk above answers the same: a result it
+    /// stops at short of a match says that no earlier sibling matches either. Children are
+    /// tested from the first, and only those that no earlier call reached.
+    private func anyChild(before position: Int32, matches selector: CSSComplexSelector, _ key: SiblingSearchMemo.Key,
+                          _ memo: SiblingSearchMemo) -> Bool {
+        var progress = memo.progress(key)
+        if progress.first > 0 { return progress.first < position }
+        guard progress.tested < position - 1 else { return false }
+        let children = document.nodes[Int(key.parent)].children
+        while progress.tested < position - 1 {
+            let child = children[Int(progress.next)]
+            progress.next += 1
+            guard child.isElement else { continue }
+            progress.tested += 1
+            if match(selector, child.order, from: Int(key.compound)) == .matches { progress.first = progress.tested; break }
+        }
+        memo.record(progress, for: key)
+        return progress.first > 0
     }
 
     private func matches(_ compound: CSSCompoundSelector, _ element: Int) -> Bool {

@@ -157,8 +157,8 @@ final class CSSSyntaxRobustnessCoverageTests: XCTestCase {
     /// CPU seconds of this thread: unlike a wall clock, unaffected by other work on the machine.
     private func threadSeconds() -> Double { Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1e9 }
 
-    private func matchingSeconds(siblings: Int, css: String) throws -> Double {
-        let section = StyleTestSupport.xhtml(body: "<h1>t</h1>" + String(repeating: "<p>x</p>", count: siblings), css: css)
+    private func matchingSeconds(siblings: Int, css: String, sibling: String = "<p>x</p>") throws -> Double {
+        let section = StyleTestSupport.xhtml(body: "<h1>t</h1>" + String(repeating: sibling, count: siblings), css: css)
         let document = try ContentDocument.parse(Data(section.utf8), path: "OPS/one.xhtml")
         let sheets = [CSSStyleSheet.parse(css, path: "OPS/one.xhtml")]
         let start = threadSeconds()
@@ -168,7 +168,6 @@ final class CSSSyntaxRobustnessCoverageTests: XCTestCase {
     }
 
     func testSubsequentSiblingMatchingDoesNotGrowWithTheSquareOfTheSiblingCount() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/112", options: .nonStrict())
         // A body of a book's paragraphs under one parent is ordinary, and a hostile one may hold
         // every node the document bound allows. Four times the siblings is four times the
         // elements to style; sixteen times the work means each one rescans all before it.
@@ -177,6 +176,26 @@ final class CSSSyntaxRobustnessCoverageTests: XCTestCase {
         let small = try matchingSeconds(siblings: 1_000, css: css)
         let large = try matchingSeconds(siblings: 4_000, css: css)
         XCTAssertLessThan(large / small, 8, "1,000 siblings took \(small) s of CPU and 4,000 took \(large) s")
+    }
+
+    func testASiblingSearchBehindAnotherCombinatorOrPseudoClassDoesNotRescanEitherForEveryElement() throws {
+        // What is left of a `~` is tested against earlier siblings whatever joins it to the rest:
+        // where every sibling passes the compound and fails further left (`aside + p ~ p`,
+        // `html > p ~ p`), where the search belongs to an ancestor of the subject, and where a
+        // pseudo-class holds the search. One search inside another multiplied the two walks.
+        let shapes: [(css: String, sibling: String, siblings: Int)] = [
+            ("h1 + p ~ p { clear: both } aside + p ~ p { float: left }", "<p>x</p>", 1_000),
+            ("html > p ~ p { clear: both } nav ~ p ~ p { float: left }", "<p>x</p>", 1_000),
+            ("nav ~ p i { clear: both } aside ~ p > i { float: left }", "<p><i>x</i></p>", 1_000),
+            ("p:not(nav ~ p) { clear: both } p:is(aside ~ p) { float: left }", "<p>x</p>", 1_000),
+            (":is(nav ~ p) ~ p { clear: both }", "<p>x</p>", 500),
+        ]
+        for shape in shapes {
+            _ = try matchingSeconds(siblings: 200, css: shape.css, sibling: shape.sibling)
+            let small = try matchingSeconds(siblings: shape.siblings, css: shape.css, sibling: shape.sibling)
+            let large = try matchingSeconds(siblings: shape.siblings * 4, css: shape.css, sibling: shape.sibling)
+            XCTAssertLessThan(large / small, 8, "\(shape.css): \(shape.siblings) siblings took \(small) s of CPU and four times as many took \(large) s")
+        }
     }
 
     func testCombinatorHeavySelectorsOverADeepSiblingRichDocumentTerminate() throws {
