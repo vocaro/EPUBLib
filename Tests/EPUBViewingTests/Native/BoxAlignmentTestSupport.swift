@@ -15,8 +15,8 @@ import UIKit
     /// differently by a fraction of a point.
     static let tolerance: CGFloat = 2
 
-    static func build(_ body: String, css: String, fontSize: CGFloat = 16) throws -> SectionText {
-        let publication = try StyleTestSupport.publication(section: StyleTestSupport.xhtml(body: body, css: css))
+    static func build(_ body: String, css: String, fontSize: CGFloat = 16, files: [String: Data] = [:]) throws -> SectionText {
+        let publication = try StyleTestSupport.publication(section: StyleTestSupport.xhtml(body: body, css: css), files: files)
         return SectionBuilder.build(SectionBuildRequest(publication: publication, spineIndex: 0,
             typography: NativeTypography(fontSize: fontSize), fonts: FontRegistry(publication: publication),
             rich: NativeRichContent()))
