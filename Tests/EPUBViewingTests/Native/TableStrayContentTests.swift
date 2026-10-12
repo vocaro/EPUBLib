@@ -55,19 +55,28 @@ final class TableStrayContentTests: XCTestCase {
             XCTAssertEqual(Set(shown.keys).subtracting(written), [], item.name)
             BuilderHarness.assertMapRoundTrips(section)
             // A word in a cell, written as one or not, is found at its characters and maps back.
-            grids += TableCoverage.tables(in: section.string).isEmpty ? 0 : 1
+            // The grids say which words those are: the ones among a cell's own characters. (A
+            // word of a table nested in the cell is that table's row, a unit of the cell.)
+            let models = TableCoverage.tables(in: section.string)
+            grids += models.isEmpty ? 0 : 1
+            let inCells = Set(models.flatMap(\.cells).flatMap { tokens(in: $0.content.string) })
             for node in section.document.nodes where node.isText {
                 let text = node.text as NSString
-                for match in Self.token.matches(in: node.text, range: NSRange(location: 0, length: text.length))
-                where text.substring(with: match.range).hasPrefix("v") {
+                for match in Self.token.matches(in: node.text, range: NSRange(location: 0, length: text.length)) {
+                    let word = text.substring(with: match.range)
+                    guard word.hasPrefix("v"), inCells.contains(word) else { continue }
                     let source = DOMPosition(node, match.range.location)
                     let position = section.renderedPosition(source)
-                    guard let endpoint = position.tableCell, let cell = section.tableCell(position) else { continue }
-                    // A word of a table nested in the cell is that table's row, a unit of the cell.
+                    guard let endpoint = position.tableCell, let cell = section.tableCell(position) else {
+                        XCTFail("\(word) in \(item.name) is in a cell and is not located in one: \(item.body)")
+                        continue
+                    }
                     let content = cell.content.string as NSString
-                    guard endpoint.offset < content.length, content.character(at: endpoint.offset) != 0xFFFC else { continue }
-                    XCTAssertEqual((cell.content.string as NSString).substring(with: NSRange(location: endpoint.offset, length: match.range.length)),
-                                   text.substring(with: match.range), item.name)
+                    guard endpoint.offset + match.range.length <= content.length else {
+                        XCTFail("\(word) in \(item.name) is located past the end of its cell: \(item.body)")
+                        continue
+                    }
+                    XCTAssertEqual(content.substring(with: NSRange(location: endpoint.offset, length: match.range.length)), word, item.name)
                     XCTAssertEqual(section.domPosition(position), source, item.name)
                     locatedInCells += 1
                 }
@@ -113,7 +122,7 @@ final class TableStrayContentTests: XCTestCase {
                        [["A@0", "@1", "B@2"], ["C@0", "D@1"]], "an empty cell keeps its column")
         let spanning = try TableCoverage.table("<table><tr><td>A</td><td>B</td></tr><th colspan='2'>Total</th></table>")
         XCTAssertEqual(TableCoverage.grid(spanning), [["A@0", "B@1"], ["Total@0x2"]])
-        XCTAssertTrue(spanning.cells[2].isHeader)
+        XCTAssertTrue(spanning.cells[try TableCoverage.cell("Total", in: spanning)].isHeader)
     }
 
     /// The row a group's stray content makes is one of that group's rows: the header's stay with
@@ -159,18 +168,18 @@ final class TableStrayContentTests: XCTestCase {
         <tbody style="background: silver">stray</tbody></table>
         """)
         XCTAssertEqual(table.cells.map(\.text), ["A", "B", "loose", "stray"])
-        XCTAssertEqual(table.cells[0].padding, TableModel.Insets(top: 8, right: 8, bottom: 8, left: 8))
-        XCTAssertEqual(table.cells[0].borders.widths, TableModel.Insets(top: 1, right: 1, bottom: 1, left: 1))
-        for cell in table.cells[2...] {
-            XCTAssertEqual(cell.padding, TableModel.Insets(), cell.text)
-            XCTAssertEqual(cell.borders.widths, TableModel.Insets(), cell.text)
-            XCTAssertNil(cell.background, cell.text)
-            XCTAssertFalse(cell.isHeader, cell.text)
+        let written = table.cells[try TableCoverage.cell("A", in: table)]
+        XCTAssertEqual(written.padding, TableModel.Insets(top: 8, right: 8, bottom: 8, left: 8))
+        XCTAssertEqual(written.borders.widths, TableModel.Insets(top: 1, right: 1, bottom: 1, left: 1))
+        for text in ["loose", "stray"] {
+            let cell = table.cells[try TableCoverage.cell(text, in: table)]
+            XCTAssertEqual(cell.padding, TableModel.Insets(), text)
+            XCTAssertEqual(cell.borders.widths, TableModel.Insets(), text)
+            XCTAssertNil(cell.background, text)
+            XCTAssertFalse(cell.isHeader, text)
         }
-        XCTAssertNotNil(table.rows[0].background)
-        XCTAssertEqual(table.rows[0].height, 40)
-        XCTAssertNil(table.rows[1].background, "an anonymous row has no box of its own")
-        XCTAssertEqual(table.rows[1].height, 0)
+        XCTAssertEqual(table.rows.map { $0.background != nil }, [true, false], "an anonymous row has no box of its own")
+        XCTAssertEqual(table.rows.map(\.height), [40, 0])
     }
 
     func testATableWrittenOutsideTheCellsIsDrawnInItsAnonymousCell() throws {
@@ -178,7 +187,8 @@ final class TableStrayContentTests: XCTestCase {
         <table><tr><td>A</td><td>B</td></tr><table><tr><td>in one</td><td>in two</td></tr></table></table>
         """)
         XCTAssertEqual(table.cells.map(\.text), ["A", "B", "in one in two"])
-        let inner = try XCTUnwrap(TableCoverage.tables(in: table.cells[2].content).first)
+        let anonymous = table.cells[try TableCoverage.cell("in one in two", in: table)]
+        let inner = try XCTUnwrap(TableCoverage.tables(in: anonymous.content).first)
         XCTAssertEqual(TableCoverage.grid(inner), [["in one@0", "in two@1"]])
     }
 
@@ -275,6 +285,25 @@ final class TableStrayContentTests: XCTestCase {
         }
     }
 
+    /// That plain text leaves out what the reader leaves out within the eight levels: an
+    /// element that has no box, with all it holds, and a footnote, which stays in the notes.
+    func testContentOutsideTheCellsOfADeeplyNestedTableLeavesOutWhatIsNotShown() throws {
+        let table = """
+        <table><tr><td>w1</td><td>w2</td></tr><p style="display: none">h3</p><aside epub:type="footnote" id="note">n4</aside>\
+        <p>w5 <span hidden="hidden">h6 <b style="display: inline">h7</b></span> w8</p><noscript>w9</noscript>\
+        <div>w10 <aside epub:type="footnote" id="inner"><p>n11</p></aside><template>h12</template></div></table>
+        """
+        for depth in [2, 8] {
+            var markup = table
+            for _ in 0..<depth { markup = "<table><tr><td>\(markup)</td><td>x</td></tr></table>" }
+            let section = try TableCoverage.section(markup, css: "noscript { display: none }")
+            let words = section.string.readerPlainText().split(whereSeparator: \.isWhitespace).map(String.init)
+            XCTAssertEqual(words.filter { $0 != "x" }, ["w1", "w2", "w5", "w8", "w9", "w10"], "inside \(depth) tables")
+            XCTAssertEqual(section.notes["note"]?.string, "n4", "inside \(depth) tables")
+            XCTAssertEqual(section.notes["inner"]?.string, "n11", "inside \(depth) tables")
+        }
+    }
+
     // MARK: Captions
 
     /// CSS 2.2 §17.4: each caption is placed by its own `caption-side`, in document order.
@@ -336,7 +365,7 @@ final class TableStrayContentTests: XCTestCase {
         XCTAssertEqual(TableCoverage.grid(table), [["Next@0"], ["A@0", "B@1"]], "the cells that had a slot keep it")
         XCTAssertEqual(section.string.string, "Before\n\u{FFFC}\n\u{FFFC}\nWide one\nWide two\nBelow\nAfter")
         XCTAssertEqual(section.report.unsupportedElements["table"], 1)
-        XCTAssertNotNil(NativeDisclosure.text(for: section.report))
+        XCTAssertEqual(NativeDisclosure.text(for: section.report), "One table has cells that are shown after it, out of place.")
         XCTAssertEqual(section.anchors["after"], section.string.length - 5)
         BuilderHarness.assertMapRoundTrips(section)
     }

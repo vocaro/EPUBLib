@@ -174,16 +174,23 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   rows and cells arrives where it was written, and a grid gives it the anonymous rows and cells
   of CSS 2.2 §17.2.1: a row around what a table or a row group holds outside its rows (text,
   other elements, cells without a row, a table, a caption in a row group), and a cell around
-  what a row holds outside its cells. They have no padding or borders of their own, are located,
-  selected and searched like any cell, and exist only for content that shows: white space,
-  comments, scripts and hidden elements make none, and what is written in a `col` or a
-  `colgroup` has no box. The forgiving HTML parser moves nothing out of a table either, so
-  recovered markup is shown the same way, in place rather than ahead of the table. Every
-  caption is shown, above or below the rows as its own `caption-side` says. A grid holds 200
-  columns and 20,000 cells. A cell whose `colspan` runs past the 200th column reaches the
-  table's last column when it is the last cell of its row; a cell the grid has no slot for
-  (one written after such a span, one starting past the 200th column, or one past the 20,000th
-  cell) follows the table as a paragraph of its own in reading order, with a `.disclosure`.
+  what a row holds outside its cells. A row written in a row, a row group written in a row or
+  a row group, and rows written in another element there (a `div`, a `form`) are such content
+  too: their cells show as stacked paragraphs in one anonymous cell. Anonymous rows and cells
+  have no padding or borders of their own, are located, selected and searched like any cell,
+  and exist only for content that shows: white space, comments, scripts and hidden elements
+  make none, and what is written in a `col` or a `colgroup` has no box. They take part in the
+  grid as CSS has it, so a `rowspan` from the row above can end on an anonymous row and a
+  column can widen to an anonymous cell's content. The forgiving HTML parser moves nothing out
+  of a table either, so recovered markup is shown the same way, in place rather than ahead of
+  the table. Every caption is shown, above or below the rows as its own `caption-side` says.
+  A grid holds 200 columns and 20,000 cells. A cell whose `colspan` runs past the 200th column
+  reaches the table's last column when it is the last cell of its row, and then takes one row
+  whatever its `rowspan`. A cell the grid has no slot for follows the table as a paragraph of
+  its own in reading order, and the `.disclosure` says so: a cell with such a span that is not
+  the last of its row (the cells written after it keep their slots) or that follows another
+  cell left out of that row, a cell starting past the 200th column, and every cell past the
+  20,000th.
   Visible cells have
   native text interaction surfaces aligned to their drawn glyphs: select and Copy cell text,
   invoke the host's selection action, follow internal links and open notes. External links retain
