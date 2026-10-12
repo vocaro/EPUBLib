@@ -268,56 +268,151 @@ import UIKit
     /// suggestions, an iPhone SE 168 and an iPhone 17e 166. The sheet with results must fit in
     /// that at every text size, or its top is cut off, the field and Close Search with it.
     func testSearchPaneWithResultsFitsACompactHeight() async throws {
-        XCTAssertEqual(EPUBSearchResultPane.minimumListHeight(.regular), 160)
-        XCTAssertEqual(EPUBSearchResultPane.minimumListHeight(nil), 160)
+        XCTAssertEqual(EPUBSearchResultPane.minimumListHeight, 44)
         #if os(iOS)
         let session = Session(), model = try controls(session)
         session.publish(.completed(query: "needle", hasMatches: true), Self.results(7, current: 0))
-        // What the toolbar's Search button presents: the field, its buttons, Clear Search, the
-        // navigator and the list, padded and held to the sheet's top. Disabled, which changes
-        // no size, so that the field does not take focus in the test host as it does when its
-        // sheet opens.
-        func sheet(_ height: UserInterfaceSizeClass, _ textSize: DynamicTypeSize = .large) -> some View {
-            EPUBSearchField(controls: model, onDismiss: {}).padding().frame(maxHeight: .infinity, alignment: .top)
-                .disabled(true).environment(\.verticalSizeClass, height).dynamicTypeSize(textSize)
-        }
-        let regular = MountedView(sheet(.regular))
-        defer { regular.close() }
-        try await Task.sleep(for: .milliseconds(60))
-        XCTAssertGreaterThan(regular.minimumHeight(), 177, "160 points for the list are what did not fit")
-
         // The iPhone 17 Pro's sheet, its 874 points less the 62 at each end, the iPhone SE's and
         // the iPhone 17e's.
         let rooms = [CGSize(width: 750, height: 177), CGSize(width: 667, height: 168), CGSize(width: 750, height: 166)]
         for room in rooms {
             for textSize in DynamicTypeSize.allCases {
                 let name = "\(textSize) in \(Int(room.width)) by \(Int(room.height)) points"
-                let compact = MountedView(sheet(.compact, textSize), size: room)
-                defer { compact.close() }
-                try await Task.sleep(for: .milliseconds(60))
-                let field = try XCTUnwrap(compact.views(UITextField.self).first, name)
-                let list = try XCTUnwrap(compact.views(UICollectionView.self).first, name)
-                XCTAssertLessThanOrEqual(compact.height(in: room), room.height, "\(name): the content is taller than its sheet")
-                XCTAssertGreaterThanOrEqual(compact.frame(of: field).minY, 0, "\(name): the field is cut off the top")
-                XCTAssertLessThanOrEqual(compact.frame(of: field).maxY, room.height, name)
-                // Under the field the list has at least its minimum, or everything there scrolls.
-                let scroller = compact.views(UIScrollView.self).first { !($0 is UICollectionView) && !$0.isDescendant(of: field) }
-                if let scroller {
-                    let frame = compact.frame(of: scroller)
-                    XCTAssertTrue(list.isDescendant(of: scroller), name)
-                    XCTAssertGreaterThanOrEqual(frame.minY, compact.frame(of: field).maxY, name)
-                    XCTAssertLessThanOrEqual(frame.maxY, room.height, name)
-                    XCTAssertGreaterThan(scroller.contentSize.height, frame.height, "\(name): nothing to scroll to")
-                } else {
-                    XCTAssertGreaterThanOrEqual(compact.frame(of: list).height, 44 - 0.5, name)
-                    XCTAssertLessThanOrEqual(compact.frame(of: list).maxY, room.height, "\(name): the list runs out of the sheet")
-                }
-                if textSize == .large, room == rooms[0] { XCTAssertNil(scroller, "at the default size the list fits there as it is") }
-                if textSize == .accessibility5 { XCTAssertNotNil(scroller, "\(name): the field's row and Clear Search leave no room for a list") }
+                let pane = try await paneHeld(to: room, .compact, textSize, model: model)
+                if textSize == .large, room == rooms[0] { XCTAssertNil(pane.scroller, "at the default size the list fits there as it is") }
+                if textSize == .accessibility5 { XCTAssertNotNil(pane.scroller, "\(name): the field's row and Clear Search leave no room for a list") }
             }
         }
         #endif
     }
+
+    /// A regular height can be as short of room. Upright, an iPhone SE leaves the search sheet
+    /// 387 points above the keyboard and its suggestions and an iPhone 13 mini 425, and an iPad
+    /// mini on its side leaves the popover 284. With 160 points promised to the list, the pane
+    /// was taller than each at some text size: than the iPad's popover by 2 points at the default.
+    func testSearchPaneWithResultsFitsARegularHeight() async throws {
+        #if os(iOS)
+        let session = Session(), model = try controls(session)
+        session.publish(.completed(query: "needle", hasMatches: true), Self.results(7, current: 0))
+        // Each room, and its list's height on its simulator at the default text size. The sheets
+        // gave the list more than 160 points there, and it has what it had, to the point or two
+        // by which a screen's scale moves it; the popover's 2 points come off its 160.
+        let phone = CGSize(width: 375, height: 387), mini = CGSize(width: 375, height: 425), popover = CGSize(width: 372, height: 284)
+        let rooms: [(CGSize, ClosedRange<CGFloat>)] = [(phone, 258...262), (mini, 297...301), (popover, 155...159)]
+        for (room, listAtDefault) in rooms {
+            for textSize in DynamicTypeSize.allCases {
+                let name = "\(textSize) in \(Int(room.width)) by \(Int(room.height)) points"
+                let pane = try await paneHeld(to: room, .regular, textSize, model: model)
+                if textSize == .large {
+                    XCTAssertNil(pane.scroller, name)
+                    XCTAssertTrue(listAtDefault.contains(pane.list.height), "\(name): the list is \(pane.list.height) points tall")
+                }
+                if textSize == .accessibility5 {
+                    XCTAssertLessThan(pane.list.height, 160, "\(name): the list had no 160 points to take")
+                    // Upright, the list has what the keyboard leaves it. The popover has none to give.
+                    XCTAssertEqual(pane.scroller != nil, room == popover, name)
+                }
+            }
+        }
+        #endif
+    }
+
+    /// A popover is as tall as its content's ideal height, to the pixel. The pane's choice
+    /// between its content as it is and the same content scrolling is made by ideal height
+    /// too, with the list at its least: the pane must still ask a popover for the 320 points
+    /// its list had there, and must not scroll in the popover it asked for.
+    func testSearchPaneIsWholeInThePopoverItAsksFor() async throws {
+        XCTAssertEqual(EPUBSearchResultPane.popoverListHeight, 320)
+        let session = Session(), model = try controls(session)
+        let states: [(String, EPUBSearchState, EPUBSearchResults?)] = [
+            ("idle", .idle, nil),
+            ("failed", .failed(query: " ", error: .invalidCommand("The search text is empty or too long")), nil),
+            ("empty", .completed(query: "absent", hasMatches: false), EPUBSearchResults(query: "absent")),
+            ("listed", .completed(query: "needle", hasMatches: true), Self.results(7, current: 0)),
+        ]
+        #if os(macOS)
+        let textSizes = [DynamicTypeSize.large]
+        #else
+        let textSizes = DynamicTypeSize.allCases
+        #endif
+        for (state, search, results) in states {
+            session.publish(search, results)
+            for textSize in textSizes {
+                let name = "\(state) at \(textSize)"
+                let pane = Self.searchPane(model).dynamicTypeSize(textSize)
+                // Held to a size, so that the device's safe area is no part of what is measured.
+                let asking = MountedView(pane, size: CGSize(width: 400, height: 400))
+                try await Task.sleep(for: .milliseconds(60))
+                let ideal = asking.idealSize()
+                asking.close()
+                let popover = MountedView(pane, size: ideal)
+                defer { popover.close() }
+                try await Task.sleep(for: .milliseconds(60))
+                XCTAssertNil(popover.paneScroller(), "\(name): the pane scrolls in a popover of the \(ideal) it asked for")
+                if results?.isEmpty == false {
+                    let list = try XCTUnwrap(popover.listFrame(), name)
+                    XCTAssertEqual(list.height, 320, accuracy: 0.5, name)
+                    XCTAssertEqual(list.maxY, ideal.height - 16, accuracy: 0.5, name)
+                    #if os(iOS)
+                    // What the iPad showed before the pane could scroll: 372 × 446, the list 340 × 320.
+                    if textSize == .large {
+                        XCTAssertEqual(ideal.width, 372, accuracy: 0.5)
+                        XCTAssertEqual(ideal.height, 446, accuracy: 1)
+                        XCTAssertEqual(list.width, 340, accuracy: 0.5)
+                    }
+                    #endif
+                } else {
+                    XCTAssertNil(popover.listFrame(), name)
+                    // A size rounded down by less than a point is not a reason to scroll: 2 points are.
+                    let rounded = MountedView(pane, size: CGSize(width: ideal.width, height: ideal.height - 0.75))
+                    let short = MountedView(pane, size: CGSize(width: ideal.width, height: ideal.height - 2))
+                    defer { rounded.close(); short.close() }
+                    try await Task.sleep(for: .milliseconds(60))
+                    XCTAssertNil(rounded.paneScroller(), name)
+                    XCTAssertNotNil(short.paneScroller(), name)
+                }
+            }
+        }
+    }
+
+    /// What the toolbar's Search button presents: the field, its buttons, Clear Search, the
+    /// navigator and the list, padded and held to the top of its sheet or popover. Disabled,
+    /// which changes no size, so that the field does not take focus in the test host as it does
+    /// when the pane opens.
+    private static func searchPane(_ model: EPUBReaderControls) -> some View {
+        EPUBSearchField(controls: model, onDismiss: {}).padding().frame(maxHeight: .infinity, alignment: .top).disabled(true)
+    }
+
+    #if os(iOS)
+    /// Mounts the pane in a sheet or popover with `room` for it and checks that it is whole
+    /// there: the field under its padding, and beneath it either the list with at least its
+    /// minimum, or everything scrolling. Returns the list's frame and what scrolls, if anything.
+    private func paneHeld(to room: CGSize, _ height: UserInterfaceSizeClass, _ textSize: DynamicTypeSize,
+                          model: EPUBReaderControls) async throws -> (list: CGRect, scroller: UIScrollView?) {
+        let name = "\(textSize) in \(Int(room.width)) by \(Int(room.height)) points"
+        let pane = MountedView(Self.searchPane(model).environment(\.verticalSizeClass, height).dynamicTypeSize(textSize), size: room)
+        defer { pane.close() }
+        try await Task.sleep(for: .milliseconds(60))
+        let field = try XCTUnwrap(pane.views(UITextField.self).first, name)
+        let list = try XCTUnwrap(pane.listFrame(), name)
+        // Content over by less than a point is not scrolled for it.
+        XCTAssertLessThanOrEqual(pane.height(in: room), room.height + 1, "\(name): the content is taller than its room")
+        XCTAssertGreaterThan(pane.frame(of: field).minY, 15, "\(name): the field is cut off the top")
+        XCTAssertLessThanOrEqual(pane.frame(of: field).maxY, room.height, name)
+        let scroller = pane.paneScroller()
+        if let scroller {
+            let frame = pane.frame(of: scroller)
+            XCTAssertTrue(try XCTUnwrap(pane.views(UICollectionView.self).first, name).isDescendant(of: scroller), name)
+            XCTAssertGreaterThanOrEqual(frame.minY, pane.frame(of: field).maxY, name)
+            XCTAssertLessThanOrEqual(frame.maxY, room.height, name)
+            XCTAssertGreaterThan(scroller.contentSize.height, frame.height, "\(name): nothing to scroll to")
+        } else {
+            XCTAssertGreaterThanOrEqual(list.height, 44 - 0.5, name)
+            XCTAssertEqual(list.maxY, room.height - 16, accuracy: 1, "\(name): the list ends where its room's padding begins")
+        }
+        return (list, scroller)
+    }
+    #endif
 
     /// Mounts the supplied views in real windows and lays each search state out: on their own,
     /// and in a navigation toolbar with the navigator placed by the host. SwiftUI builds no
@@ -375,6 +470,14 @@ import UIKit
     }
 }
 
+#if os(macOS)
+private typealias PlatformView = NSView
+private typealias PlatformScrollView = NSScrollView
+#else
+private typealias PlatformView = UIView
+private typealias PlatformScrollView = UIScrollView
+#endif
+
 /// A SwiftUI view in a real window of the platform's own kind.
 @MainActor private final class MountedView {
     #if os(macOS)
@@ -388,17 +491,23 @@ import UIKit
     private let fit: (CGSize) -> CGSize
     #endif
 
+    /// With a `size`, the view is held to it as a sheet or popover of that size holds its
+    /// content: whatever the window's size, and with no safe area.
     #if os(macOS)
-    init(_ view: some View) {
+    init(_ view: some View, size: CGSize? = nil) {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         host = NSHostingView(rootView: view)
-        window.contentView = host
+        if let size {
+            // As the window's content view the hosting view would resize the window to its own limits.
+            let root = NSView(frame: NSRect(x: 0, y: 0, width: 720, height: 900))
+            host.frame = NSRect(origin: .zero, size: size)
+            root.addSubview(host)
+            window.contentView = root
+        } else { window.contentView = host }
         window.orderFront(nil)
     }
     #else
-    /// With a `size`, the view is held to it as a sheet of that size holds its content: whatever
-    /// the window's size, and with no safe area.
     init(_ view: some View, size: CGSize? = nil) {
         if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
             window = UIWindow(windowScene: scene)
@@ -420,51 +529,80 @@ import UIKit
     #endif
 
     func fittingSize() -> CGSize {
+        layOut()
         #if os(macOS)
-        host.layoutSubtreeIfNeeded()
         return host.fittingSize
         #else
-        host.view.setNeedsLayout()
-        host.view.layoutIfNeeded()
         return fit(CGSize(width: window.bounds.width, height: .greatestFiniteMagnitude))
         #endif
     }
 
-    #if os(iOS)
-    /// The least height the view accepts at the window's width. The hosting controller's fitting
-    /// size includes its window's safe area, which belongs to the device and not to the view: 66
-    /// points on an iPhone 17 Pro, most of them under the Dynamic Island, and none in the test
-    /// host on an iPad.
-    func minimumHeight() -> CGFloat {
-        host.view.setNeedsLayout()
-        host.view.layoutIfNeeded()
-        let safeArea = host.view.safeAreaInsets
-        return fit(CGSize(width: window.bounds.width, height: 1)).height - safeArea.top - safeArea.bottom
+    /// The size the view asks for when it is offered none, which is the size a popover takes.
+    func idealSize() -> CGSize {
+        layOut()
+        return root.intrinsicContentSize
     }
 
+    #if os(iOS)
     /// The height the view takes when offered `size`: more than its height when it does not fit.
     func height(in size: CGSize) -> CGFloat {
-        host.view.setNeedsLayout()
-        host.view.layoutIfNeeded()
+        layOut()
         return fit(size).height
     }
+    #endif
 
-    /// The UIKit views of one kind that SwiftUI made for the view, in tree order.
-    func views<Kind: UIView>(_ kind: Kind.Type) -> [Kind] {
-        host.view.setNeedsLayout()
-        host.view.layoutIfNeeded()
+    /// The platform views of one kind that SwiftUI made for the view, in tree order.
+    func views<Kind: PlatformView>(_ kind: Kind.Type) -> [Kind] {
+        layOut()
         var found: [Kind] = []
-        func visit(_ view: UIView) {
+        func visit(_ view: PlatformView) {
             if let match = view as? Kind { found.append(match) }
             view.subviews.forEach(visit)
         }
-        visit(host.view)
+        visit(root)
         return found
     }
 
-    /// Where one of them is in the mounted view.
-    func frame(of view: UIView) -> CGRect { view.convert(view.bounds, to: host.view) }
-    #endif
+    /// Where one of them is in the mounted view, from its top.
+    func frame(of view: PlatformView) -> CGRect { view.convert(view.bounds, to: root) }
+
+    /// The scroll view the search pane puts under its field when its content does not fit: one
+    /// that is neither a list's nor inside the field.
+    func paneScroller() -> PlatformScrollView? {
+        #if os(macOS)
+        views(NSScrollView.self).first { !($0.documentView is NSTableView) && $0.enclosingScrollView == nil }
+        #else
+        views(UIScrollView.self).first { scroller in
+            !(scroller is UICollectionView) && !views(UITextField.self).contains { scroller.isDescendant(of: $0) }
+        }
+        #endif
+    }
+
+    /// Where the result list is in the mounted view, if it has one.
+    func listFrame() -> CGRect? {
+        #if os(macOS)
+        views(NSTableView.self).first?.enclosingScrollView.map(frame(of:))
+        #else
+        views(UICollectionView.self).first.map(frame(of:))
+        #endif
+    }
+
+    private var root: PlatformView {
+        #if os(macOS)
+        host
+        #else
+        host.view
+        #endif
+    }
+
+    private func layOut() {
+        #if os(macOS)
+        host.layoutSubtreeIfNeeded()
+        #else
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+        #endif
+    }
 
     func close() {
         #if os(macOS)

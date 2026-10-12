@@ -85,12 +85,26 @@ MathML notation. Literal CDATA markers in quoted alternatives remain literal. As
 Standard, a `<` that opens no tag stays text (`p < 0.05`, `a <_< b`): a tag opens only before an
 ASCII letter, `/`, `!` or `?`. A `<` that is the last byte of the file is the one exception. It
 stays the cut-off tag it may be, so it is not shown, and a file that is only `<` is
-`malformedContent`. Content after an early `</body>` or
-`</html>` stays in the body, as does a second document in the same file, and U+0000 is dropped
+`malformedContent`. An early `</body>` or `</html>` closes nothing, in a script or style as
+outside one, so content after it stays in the body, as does a second document in the same
+file, and U+0000 is dropped
 from text and read as U+FFFD inside tags, comments and scripts instead of ending the section
-there. Recovery
-conservatively rejects declaration keywords even inside comments or attribute values, any
-DOCTYPE internal subset, and unterminated CDATA or quoted attribute values.
+there. A `<!-->` or `<!--->` that follows a `<` kept as text, with no `>` between them, is closed
+there, as HTML closes it. In other malformed markup the tree is libxml2's, which is not always
+the HTML Standard's: it can end a script or style at an end tag that directly follows the start
+tag (any but `</body>` and `</html>`, which end nothing there either), for example, and
+elsewhere reads `<!-->` as a comment that is still open. A self-closing `<html/>`, `<head/>` or
+`<body/>` is left to libxml2 as well: where the tag is out of place, libxml2 ignores it and lets
+its `/>` close the element that is open, which can end the body early. The rest of the section
+is then not read, or, where a later `<body>` opens a second body, the section is
+`malformedContent`. That is a known gap
+([#292](https://github.com/vocaro/EPUBLib/issues/292)). A recovered tree with no body is
+`malformedContent` too, which includes a head `style` or `script` with no end tag whose content
+begins with `</html>` or `</body>` and goes on with text: it runs to the end of the file (HTML
+gives such a document no body either). Recovery
+conservatively rejects declaration keywords anywhere, even inside comments, attribute values or
+end tags, any DOCTYPE internal subset, and, outside what libxml2 reads as a comment, an
+unterminated CDATA section and a start tag's quoted attribute value that never ends.
 Unsafe declarations, exceeded limits, cancellation and well-formed documents without the expected
 XHTML structure remain errors. A parser halt at its built-in nesting cap returns
 `limitExceeded("depth")` instead of partial text, even with a larger caller limit; recovery is

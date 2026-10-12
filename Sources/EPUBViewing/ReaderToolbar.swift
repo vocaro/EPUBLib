@@ -254,7 +254,6 @@ struct EPUBSearchField: View {
     @Bindable var controls: EPUBReaderControls
     var onDismiss: (() -> Void)? = nil
     @FocusState private var focused: Bool
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
     var body: some View {
         VStack(alignment: .leading) {
             HStack {
@@ -291,17 +290,20 @@ struct EPUBSearchField: View {
                         .labelStyle(.iconOnly).help("Clear Search")
                 }
             }
-            if onDismiss != nil, verticalSizeClass == .compact {
-                // An iPhone on its side has little above its keyboard, and at larger text sizes
-                // Clear Search and the match navigator outgrow it with no list at all. A sheet
-                // centres content taller than itself, which cut the field and Close Search off
-                // the top: what does not fit under them scrolls there instead.
-                ViewThatFits(in: .vertical) {
-                    VStack(alignment: .leading) { belowField }
-                    ScrollView {
-                        VStack(alignment: .leading) { belowField }.frame(maxWidth: .infinity, alignment: .leading)
+            if onDismiss != nil {
+                // The pane has what its sheet or popover leaves above the keyboard. Clear Search
+                // and the match navigator grow with the text, and on an iPhone on its side they
+                // outgrow that with no list at all. A sheet or popover centres content taller
+                // than itself, which cut the field and Close Search off the top: what does not
+                // fit under them scrolls there instead.
+                EPUBSearchPaneFit(popoverRoom: EPUBSearchResultPane.popoverListRoom(controls)) {
+                    ViewThatFits(in: .vertical) {
+                        VStack(alignment: .leading) { belowField }
+                        ScrollView {
+                            VStack(alignment: .leading) { belowField }.frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .scrollDismissesKeyboard(.immediately)
                     }
-                    .scrollDismissesKeyboard(.immediately)
                 }
             } else { belowField }
         }
