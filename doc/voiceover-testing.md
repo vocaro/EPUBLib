@@ -442,12 +442,13 @@ Four things went wrong in the first runs, and the runner and probe now allow for
   with VoiceOver on. The runner then mutes the simulator again and the transcript has an
   `UNMUTED` line. This reads a setting. Nothing listens to the Mac.
 - **A VoiceOver that is on and silent.** On a newly booted simulator VoiceOver's first start
-  took 40 to 50 seconds, by its own log waiting for the voice database, while XCTest's
-  `enable()` returned in a few. Until it is up, touches reach the reader as plain touches and
-  every move fails with "Failed to send moveForward command". The probe waits for VoiceOver's
-  first phrase, three minutes at most; the `voiceOver` line then says `silent for its first
-  44 s`. Switching VoiceOver off and on again did not help: one session stayed silent through
-  three starts.
+  took 40 to 60 seconds, by its own log waiting for the voice database, while XCTest's
+  `enable()` returned in a few. On a Mac other sessions had saturated it took 170, and the
+  default `--timeout` of 300 seconds then passed before the probe had finished. Until
+  VoiceOver is up, touches reach the reader as plain touches and every move fails with
+  "Failed to send moveForward command". The probe waits for VoiceOver's first phrase, three
+  minutes at most; the `voiceOver` line then says `silent for its first 44 s`. Switching
+  VoiceOver off and on again did not help: one session stayed silent through three starts.
 - **An xcodebuild that does not end.** After a test that recorded any issue, a warning
   included, xcodebuild runs `simctl diagnose --timeout=600` and waits for it. A rotated iPad
   logs such a warning in a probe that passes ("Support for all orientations will soon be
