@@ -142,7 +142,7 @@ platform. A test whose input kills the test process is disabled by name (`disabl
 with its issue above it. A test of input that TextKit might never finish laying out runs the
 layout under `BoundedLayout` (`BoxLayoutTerminationCoverageTests`), which stops the reader's
 text container answering after a set number of calls, so the test fails instead of hanging
-the suite. Three corpus runs are opt-in: `EPUBLIB_W3C_EPUB_TESTS` (the `tests`
+the suite. Three [corpus runs](#corpus-runs) are opt-in: `EPUBLIB_W3C_EPUB_TESTS` (the `tests`
 directory of w3c/epub-tests) holds each W3C reading-system test to an expected outcome,
 `EPUBLIB_EPUBCHECK_FIXTURES` (`src/test/resources` of w3c/epubcheck) takes every EPUBCheck
 fixture through opening, text extraction and a native build, and `EPUBLIB_EPUBCHECK_CLI` (the
@@ -160,6 +160,31 @@ coverage does not substitute for hardware performance and accessibility testing.
 For real VoiceOver sessions, use the [VoiceOver testing process](voiceover-testing.md) and
 the isolated `Examples/VoiceOverVerification` reader. Its diagnostic speech probe is outside
 the local gate because it takes control of the user interface and changes VoiceOver state.
+
+## Corpus runs
+
+The corpora are public and the W3C's own: [w3c/epub-tests](https://github.com/w3c/epub-tests),
+the reading-system conformance tests (OCF, package document, navigation, content documents,
+layout), and the fixtures of [w3c/epubcheck](https://github.com/w3c/epubcheck), valid and
+invalid. Neither is kept in the repository. Fetch them once and set the variables:
+
+```sh
+eval "$(bash scripts/fetch-corpora.sh)"
+swift test --filter "SpecConformanceW3CCorpus|EPUBCheckCorpus|EPUBCheckWriterValidationTests"
+```
+
+The script fetches each corpus at a pinned commit into `~/Library/Caches/EPUBLib/corpora`
+(`EPUBLIB_CORPORA_DIR` names another place), which every worktree shares, and prints
+`EPUBLIB_W3C_EPUB_TESTS`, `EPUBLIB_EPUBCHECK_FIXTURES` and, when `epubcheck` is installed,
+`EPUBLIB_EPUBCHECK_CLI`. The expected outcome of each W3C test is in
+`Tests/EPUBTestSupport/SpecConformanceCorpus.swift`; a new pin goes in the script together
+with that table.
+
+`NativeCorpusQualificationTests` builds every book under `EPUBLIB_CORPUS`, a list of
+directories of EPUB files. The variable names no collection and is not part of verifying a
+change. The [first qualification](native-viewer.md#qualification) ran it on books that belong
+to another project; EPUBLib does not depend on that project or its files, and they are not to
+be used to test it.
 
 ## Adapter contract tests
 
