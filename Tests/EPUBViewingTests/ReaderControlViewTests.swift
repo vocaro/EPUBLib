@@ -50,6 +50,7 @@ import UIKit
             #if os(macOS)
             window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
+            window.keepLightAppearance()
             hosting = NSHostingView(rootView: AnyView(content))
             window.contentView = hosting
             window.orderFront(nil)
@@ -57,6 +58,7 @@ import UIKit
             if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
                 window = UIWindow(windowScene: scene)
             } else { window = UIWindow(frame: CGRect(origin: .zero, size: size)) }
+            window.keepLightAppearance()
             window.frame = CGRect(origin: .zero, size: size)
             hosting = UIHostingController(rootView: AnyView(content))
             window.rootViewController = hosting

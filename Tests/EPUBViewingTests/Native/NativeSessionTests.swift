@@ -123,6 +123,40 @@ import XCTest
         }
     }
 
+    /// A reader mounted for a test opens light on a machine in dark appearance, and is dark
+    /// only while the test asks, so what a System style resolves to is the test's to say.
+    func testAMountedReaderIsLightOnADarkMachineUntilTheTestAsksForDark() async throws {
+        // Dark for this process alone, as a machine in dark appearance gives every window that sets none.
+        #if os(macOS)
+        let application = NSApplication.shared, own = application.appearance
+        application.appearance = NSAppearance(named: .darkAqua)
+        defer { application.appearance = own }
+        let plain = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        XCTAssertEqual(plain.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]), .darkAqua, "the machine is not dark to this test")
+        #else
+        // A window made without a scene follows the device, which nothing here can change.
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        scene?.traitOverrides.userInterfaceStyle = .dark
+        defer { scene?.traitOverrides.remove(UITraitUserInterfaceStyle.self) }
+        if let scene { XCTAssertEqual(UIWindow(windowScene: scene).traitCollection.userInterfaceStyle, .dark, "the machine is not dark to this test") }
+        #endif
+
+        let (session, window, events) = try open(Fixture.epub())
+        defer { session.close(); window.close() }
+        let state = try XCTUnwrap(session.readerState)
+        func shows(dark: Bool) -> Bool {
+            session.systemIsDark == dark && session.book.isComplete && session.book.typography == NativeTypography(isDark: dark)
+                && session.canvas?.configuration.isDark == dark && state.status.effectiveAppearance == (dark ? .dark : .light)
+        }
+        try await wait("the opened reader") { events().contains(.ready) && session.book.isComplete }
+        XCTAssertEqual(state.status.style.appearance, .system)
+        XCTAssertTrue(shows(dark: false), "a System style opened \(state.status.effectiveAppearance) in a test window")
+        window.pageControls.colorScheme = .dark
+        try await wait("the dark the test asked for") { shows(dark: true) }
+        window.pageControls.colorScheme = nil
+        try await wait("the window's own light") { shows(dark: false) }
+    }
+
     func testToolbarSearchOpensFirstOffscreenMatchAndKeepsHighlights() async throws {
         let padding = String(repeating: "<p>Ordinary text before the destination.</p>", count: 80)
         let chapter = """
