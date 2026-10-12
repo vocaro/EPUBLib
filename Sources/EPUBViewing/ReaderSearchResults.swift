@@ -371,24 +371,66 @@ struct EPUBSearchResultPane: View {
     /// Closes the pane when it is a popover or sheet. nil for the inline field.
     let onDismiss: (() -> Void)?
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     var body: some View {
         if controls.searchResults?.isEmpty == false {
             EPUBSearchResultNavigator(controls: controls, showsResultBrowser: onDismiss == nil, showsStatus: false)
             if let onDismiss {
+                // The list's ideal height is its least: see `EPUBSearchPaneFit`.
                 EPUBSearchResultList(controls: controls) { _ in if sizeClass == .compact { onDismiss() } }
-                    .frame(minWidth: 260, idealWidth: 340, minHeight: Self.minimumListHeight(verticalSizeClass),
-                           idealHeight: 320, maxHeight: 480)
+                    .frame(minWidth: 260, idealWidth: 340, minHeight: Self.minimumListHeight,
+                           idealHeight: Self.minimumListHeight, maxHeight: 480)
             }
         }
     }
 
-    /// An iPhone 17 Pro on its side leaves the pane's sheet 177 points above the keyboard and its
-    /// suggestions, and the field, its buttons, the navigator and the padding take 125 of them.
-    /// With 160 more promised to the list, the sheet's content was taller than the sheet, which
-    /// cut the field and Close Search off the top.
-    static func minimumListHeight(_ verticalSizeClass: UserInterfaceSizeClass?) -> CGFloat {
-        verticalSizeClass == .compact ? 44 : 160
+    /// The least the list takes. The pane has what its sheet or popover leaves above the
+    /// keyboard: 177 points on an iPhone 17 Pro on its side, 284 in an iPad mini's popover on
+    /// its side. The field, its buttons, the navigator and the padding take 125 of them at the
+    /// default text size, and with 160 more promised to the list the content was taller than
+    /// either, which cut the field and Close Search off the top.
+    static let minimumListHeight: CGFloat = 44
+
+    /// What a popover, which is as tall as its content's ideal height, gives the list.
+    static let popoverListHeight: CGFloat = 320
+
+    /// How much taller than its least the presented pane is in a popover with room for it.
+    static func popoverListRoom(_ controls: EPUBReaderControls) -> CGFloat {
+        controls.searchResults?.isEmpty == false ? popoverListHeight - minimumListHeight : 0
+    }
+}
+
+/// Holds the search pane's choice, under its field, between its content as it is and the same
+/// content scrolling, and puts right two things about how `ViewThatFits` makes it.
+///
+/// `ViewThatFits` takes the first choice whose ideal height is no more than the height offered,
+/// so the list's ideal height is the least it takes and the content is kept whole wherever the
+/// list has that much. A popover, though, is as tall as its content's ideal height: asked for
+/// one, this adds `popoverRoom`, the rest of what a popover gives the list.
+///
+/// A popover with no list is then exactly as tall as its content, to the pixel. Content that
+/// is over by less than a point is offered its own height, so that a rounded size does not
+/// make it scroll.
+struct EPUBSearchPaneFit: Layout {
+    var popoverRoom: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let content = subviews.first else { return .zero }
+        guard let height = proposal.height else {
+            let ideal = content.sizeThatFits(proposal)
+            return CGSize(width: ideal.width, height: ideal.height + popoverRoom)
+        }
+        return content.sizeThatFits(ProposedViewSize(width: proposal.width, height: offered(height, width: proposal.width, to: content)))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let content = subviews.first else { return }
+        let height = offered(bounds.height, width: bounds.width, to: content)
+        content.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: height))
+    }
+
+    private func offered(_ height: CGFloat, width: CGFloat?, to content: LayoutSubview) -> CGFloat {
+        let least = content.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        return least > height && least - height < 1 ? least : height
     }
 }

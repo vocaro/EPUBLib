@@ -158,10 +158,13 @@ host wanting Find Next on Command-G binds it to `controls.showNextSearchResult()
 
 Once a search has results, the search pane shows the navigator under the field: `3 of 27`,
 or `27 matches` before one has been shown. As a popover or sheet the pane lists the results
-beneath it. The inline field in `EPUBReaderControlStrip` has a Search Results button that
-presents the list in a popover instead. Choosing a result shows it; in a compact width, where
-the pane covers the reader, it also closes the pane, leaving the query and results in place.
-Both views are public for other placements:
+beneath it. Where the keyboard leaves the pane little room, such as an iPhone on its side or
+an iPad mini's popover on its side, the list gives way first, down to 44 points, and whatever
+still does not fit under the field scrolls there, so that larger text does not push the field
+and the X off the screen. The inline field in `EPUBReaderControlStrip` has a Search Results
+button that presents the list in a popover instead. Choosing a result shows it; in a compact
+width, where the pane covers the reader, it also closes the pane, leaving the query and results
+in place. Both views are public for other placements:
 
 <!-- snippet:searchResults -->
 ```swift

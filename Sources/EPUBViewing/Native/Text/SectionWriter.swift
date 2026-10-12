@@ -92,6 +92,9 @@ final class SectionWriter {
     private var lastWasCollapsedSpace = false
     private var pendingBreaks: [PendingBreak] = []
     private var lastScalar: UInt32 = 0x0A
+    /// The sized inline box that closed last, while nothing but white space has followed it on
+    /// its block's line: with that block's depth and the paragraph count when the box closed.
+    private var lastInlineBox: (box: ReaderInlineBox, depth: Int, paragraphs: Int)?
     private var isolates: [Isolate] = []
     private var collectingRubyBase = false
     private var rubyBaseStart: Int?
@@ -519,7 +522,9 @@ final class SectionWriter {
 
     private func enterBlock(_ node: ContentNode, style: ComputedStyle, language: InlineLanguage) {
         if style.display == .listItem, pendingMarker != nil { openParagraph() } // An outer item's marker gets its own line.
+        let inline = inlineBox(style) // Read from the line the box is on, which closing the paragraph ends.
         closeParagraph()
+        lastInlineBox = nil
         if !isNote {
             gap.add(resolve(style.margin.top))
             let inset = resolve(style.padding.top) + Self.width(style.border.top)
@@ -534,9 +539,33 @@ final class SectionWriter {
         }
         let parent = frames[frames.count - 1]
         let keep = ContentSemantics.isHeading(node) || node.isHTML("dt") || style.breakAfter == .avoid
-        frames.append(BlockFrame(style: style, format: blockFormat(style, node: node, parent: parent),
+        frames.append(BlockFrame(style: style, format: blockFormat(style, node: node, parent: parent, inline: inline),
                                  keepWithNext: keep, keepTogether: style.breakInside == .avoid,
                                  firstParagraph: paragraphs.count, language: language))
+        frames[frames.count - 1].inlineBox = inline
+    }
+
+    /// A sized inline box's place on the line it is written on: whether text or another such box
+    /// precedes it there, and the white space between them, which the box's own paragraph drops.
+    private func inlineBox(_ style: ComputedStyle) -> ReaderInlineBox? {
+        guard style.display == .inlineBlock, style.float == .none, !style.isOutOfFlow, style.requiresFlowBox else { return nil }
+        let parent = frames[frames.count - 1]
+        var continues = false, space: CGFloat = 0
+        if paragraphOpen {
+            continues = !lineStart && pendingBreaks.isEmpty
+            if continues, pendingSpace != nil { space = spaceAdvance(parent) }
+        } else if let last = lastInlineBox, last.depth == frames.count, last.paragraphs == paragraphs.count {
+            continues = true
+            space = last.box.trailingSpace
+        }
+        let opensBlock = !continues && paragraphs.count == parent.firstParagraph && pendingMarker == nil
+        return ReaderInlineBox(block: parent.format.flow, rightToLeft: parent.format.direction == .rightToLeft,
+                               continuesLine: continues, leadingSpace: space,
+                               firstLineIndent: opensBlock ? parent.format.textIndent : 0)
+    }
+
+    private func spaceAdvance(_ frame: BlockFrame) -> CGFloat {
+        InlineStyling.spaceAdvance(state.request.fonts.font(for: frame.style))
     }
 
     private func exitBlock() {
@@ -544,6 +573,7 @@ final class SectionWriter {
         closeParagraph()
         guard frames.count > 1 else { return }
         let frame = frames.removeLast()
+        lastInlineBox = frame.inlineBox.map { ($0, frames.count, paragraphs.count) }
         if frame.format.itemAlignment.close() { state.report.report.flexGridSimplified = true }
         // `break-inside: avoid` keeps a box's paragraphs with each other, not its last with what follows.
         if frame.keepTogether, let last = paragraphs.indices.last, last >= frame.firstParagraph,
@@ -560,7 +590,8 @@ final class SectionWriter {
         if isSection, frame.style.breakAfter == .page || frame.style.breakAfter == .column { pendingPageBreak = true }
     }
 
-    private func blockFormat(_ style: ComputedStyle, node: ContentNode?, parent: BlockFrame?) -> BlockFormat {
+    private func blockFormat(_ style: ComputedStyle, node: ContentNode?, parent: BlockFrame?,
+                             inline: ReaderInlineBox? = nil) -> BlockFormat {
         var left = parent?.format.left ?? 0, right = parent?.format.right ?? 0
         if parent != nil { // The base frame is the column itself; a box adds its own edges.
             var marginLeft = resolve(style.margin.left), marginRight = resolve(style.margin.right)
@@ -613,7 +644,7 @@ final class SectionWriter {
         let containing = parent?.format.scope
         let scope = style.position != .static || containing == nil ? ReaderBoxScope(style: style, left: left, right: right, parent: containing) : containing!
         if style.requiresFlowBox && boxes.count < 8 {
-            boxes.append(ReaderFlowBoxConstraint(style: style, containing: containing, replaced: replaced))
+            boxes.append(ReaderFlowBoxConstraint(style: style, containing: containing, replaced: replaced, inline: inline))
         }
         let itemAlignment = parent.map { ReaderAlignmentFrame(style: style, parent: $0.format.itemAlignment) } ?? (isSection ? .root : .none)
         return BlockFormat(boxes: boxes, flow: ReaderParagraphFlow(style: style, scope: scope), scope: scope,
@@ -1012,6 +1043,10 @@ final class SectionWriter {
     /// on the line. A single U+0020 maps exactly, so a paragraph's words share one span.
     private func collapsibleSpace(node: ContentNode?, offset: Int, length: Int, exact: Bool, segmentBreak: Bool,
                                   attributes: Int) {
+        // After a sized inline box the space opens no paragraph; the box keeps it for what follows.
+        if !paragraphOpen, let last = lastInlineBox, last.depth == frames.count, last.paragraphs == paragraphs.count {
+            last.box.trailingSpace = spaceAdvance(frames[frames.count - 1])
+        }
         guard paragraphOpen, !lineStart, pendingBreaks.isEmpty, !lastWasCollapsedSpace else { return }
         if pendingSpace == nil {
             pendingSpace = PendingSpace(node: node?.order, offset: offset, length: length, exact: exact,
@@ -1341,6 +1376,8 @@ private struct BlockFrame {
     /// `paragraphs.count` when the box opened: its first paragraph gets `text-indent`.
     let firstParagraph: Int
     var attributes: Int?
+    /// Set for a sized inline box: its place on its parent's line.
+    var inlineBox: ReaderInlineBox?
     let language: InlineLanguage
 
     init(style: ComputedStyle, format: BlockFormat, keepWithNext: Bool, keepTogether: Bool = false,

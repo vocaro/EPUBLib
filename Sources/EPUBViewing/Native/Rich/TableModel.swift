@@ -162,10 +162,30 @@ final class TableModel: @unchecked Sendable {
 /// Measures attributed text for table layout.
 enum TableMeasure {
     /// Max-content: the widest paragraph unwrapped, as string drawing lays it out.
+    ///
+    /// String drawing sizes every attachment on the way, and a table row's height is its whole
+    /// table laid out for the line: every cell, at up to five scales when a row is taller than
+    /// a page, each sizing the rows of the tables in its own cells in turn. A width needs none
+    /// of that, so the rows are measured as `TableRowWidthAttachment`s and no table is laid out.
+    /// (String drawing leaves out the lines below the box it measures in. Rows of no height
+    /// take none of that box, so a tall table hides neither itself nor what follows it.)
     static func maximumWidth(_ text: NSAttributedString) -> CGFloat {
         guard text.length > 0 else { return 0 }
-        let rect = text.boundingRect(with: CGSize(width: 100_000, height: 100_000), options: [.usesLineFragmentOrigin], context: nil)
+        let rect = measuringRowWidths(text).boundingRect(with: CGSize(width: 100_000, height: 100_000),
+                                                         options: [.usesLineFragmentOrigin], context: nil)
         return ceil(rect.width)
+    }
+
+    /// `text` with a `TableRowWidthAttachment` in place of each table row.
+    private static func measuringRowWidths(_ text: NSAttributedString) -> NSAttributedString {
+        var rows: [NSRange] = []
+        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+            if value is TableRowAttachment { rows.append(range) }
+        }
+        guard !rows.isEmpty else { return text }
+        let measured = NSMutableAttributedString(attributedString: text)
+        for range in rows { measured.addAttribute(.attachment, value: TableRowWidthAttachment(), range: range) }
+        return measured
     }
 
     /// Min-content: the widest unit between line-break opportunities (UAX #14, as CoreText

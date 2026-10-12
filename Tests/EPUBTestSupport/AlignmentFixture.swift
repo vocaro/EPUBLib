@@ -65,6 +65,85 @@ public extension Fixture {
             """
         public static let dedicationBody = "<section id=\"dedication\"><p id=\"to\">For the patient reader.</p></section>"
 
+        /// The same pages as Standard Ebooks' compatible EPUB build ships them (its stylesheets
+        /// are CC0; read from ten titles downloaded on 2026-10-11), with original content. The
+        /// build differs from the Manual of Style rules above: class selectors stand in for
+        /// `epub|type`, margins are longhands, `text-align: left` replaces `initial`, a verse
+        /// line is a block `span` with a hanging indent, and the rule separating items is only
+        /// there when a page has several. The title page hides its heading and byline far to
+        /// the left of an image of the same words; half-title pages are plain centred headings.
+        public static let shippedCSS = """
+            @charset "utf-8";
+            @namespace epub "http://www.idpf.org/2007/ops";
+            body{ font-variant-numeric: oldstyle-nums; hyphens: auto; -webkit-hyphens: auto; text-wrap: pretty; }
+            p{ margin-top: 0; margin-right: 0; margin-bottom: 0; margin-left: 0; text-indent: 1em; }
+            blockquote{ margin-top: 1em; margin-right: 2.5em; margin-bottom: 1em; margin-left: 2.5em; }
+            h1, h2, hgroup{ break-after: avoid; break-inside: avoid; font-variant: small-caps; hyphens: none;
+                margin-top: 3em; margin-right: 0; margin-bottom: 3em; margin-left: 0; text-align: center; }
+            h2 + p, p.first-child{ hanging-punctuation: first last; text-indent: 0; }
+            cite{ font-style: normal; }
+            blockquote cite{ display: block; font-style: italic; text-align: right; }
+            b, strong{ font-variant: small-caps; font-weight: normal; }
+            section{ display: block; }
+            section.epub-type-contains-word-titlepage h1,
+            section.epub-type-contains-word-titlepage p{ left: -999em; position: absolute; }
+            .epub-type-contains-word-z3998-verse p{ text-align: left; text-indent: 0; }
+            .epub-type-contains-word-z3998-verse p > span{ display: block; padding-left: 1em; text-indent: -1em; }
+            .epub-type-contains-word-z3998-verse p > span + br{ display: none; }
+            p span.i1{ padding-left: 2em; text-indent: -1em; }
+            section.epub-type-contains-word-dedication p{ font-variant: small-caps; text-align: center; }
+            section.epub-type-contains-word-dedication{ text-align: center; }
+            section.epub-type-contains-word-dedication > *{
+                display: inline-block; margin-top: auto; margin-right: auto; margin-bottom: auto; margin-left: auto;
+                margin-top: 3em; max-width: 80%;
+            }
+            @supports(display: flex){
+                section.epub-type-contains-word-dedication{
+                    align-items: center; box-sizing: border-box; display: flex; flex-direction: column;
+                    justify-content: center; min-height: calc(98vh - 3em); padding-top: 3em;
+                }
+                section.epub-type-contains-word-dedication > *{
+                    margin-top: 0; margin-right: 0; margin-bottom: 0; margin-left: 0;
+                }
+            }
+            .epub-type-contains-word-epigraph{ font-style: italic; hyphens: none; -webkit-hyphens: none; }
+            .epub-type-contains-word-epigraph cite{ font-style: normal; font-variant: small-caps; margin-top: 1em; }
+            section.epub-type-contains-word-epigraph{ text-align: center; }
+            section.epub-type-contains-word-epigraph > *{
+                display: inline-block; margin-top: auto; margin-right: auto; margin-bottom: auto; margin-left: auto;
+                margin-top: 3em; max-width: 80%; text-align: left;
+            }
+            @supports(display: flex){
+                section.epub-type-contains-word-epigraph{
+                    align-items: center; box-sizing: border-box; display: flex; flex-direction: column;
+                    justify-content: center; min-height: calc(98vh - 3em); padding-top: 3em;
+                }
+                section.epub-type-contains-word-epigraph > *{
+                    margin-top: 0; margin-right: 0; margin-bottom: 0; margin-left: 0;
+                }
+            }
+            """
+
+        public static let shippedTitleBody = """
+            <section class="epub-type-contains-word-titlepage" id="titlepage" epub:type="titlepage">\
+            <h1 epub:type="title">An Aligned Book</h1><p>By <b>Test Author</b>.</p></section>
+            """
+
+        public static let shippedEpigraphBody = """
+            <section class="epub-type-contains-word-epigraph" id="epigraph" role="doc-epigraph" epub:type="epigraph">\
+            <blockquote class="epub-type-contains-word-z3998-verse" epub:type="z3998:verse"><p class="first-child">\
+            <span id="line1">A lantern in the window, burning low,</span><br/>\
+            <span class="i1" id="line2">Kept for the one who is not yet home,</span><br/>\
+            <span id="line3">And every road that leaves the town will know</span><br/>\
+            <span class="i1" id="line4">The way back.</span></p>\
+            <cite id="poet">An Imagined Poet</cite></blockquote></section>
+            """
+
+        public static let shippedDedicationBody = """
+            <section class="epub-type-contains-word-dedication" id="dedication" role="doc-dedication" epub:type="dedication">\
+            <p class="first-child">For those<br/>who read<br/>to the last page</p></section>
+            """
+
         /// Layouts outside the supported subset: side-by-side flex items and a two-column grid.
         public static let unsupportedCSS = """
             body { margin: 0; }
