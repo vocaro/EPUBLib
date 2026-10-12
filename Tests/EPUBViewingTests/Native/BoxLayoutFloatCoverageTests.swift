@@ -346,7 +346,6 @@ import UIKit
     /// CSS 2.2 9.5: line boxes beside a float are shortened to make room for it, so a paragraph
     /// whose own margin is narrower than the float starts at the float's edge.
     func testProseWithItsOwnLeftMarginStartsAtTheFloatsEdgeNotPastIt() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/150")
         let (section, view) = try layout("<figure>Alpha box.</figure><p class='m'>\(H.prose)</p>",
                                          css: "figure { float:left; width:100px; height:60px } .m { margin-left:50px }")
         let region = try XCTUnwrap(H.region("Alpha box.", in: section, view: view))
