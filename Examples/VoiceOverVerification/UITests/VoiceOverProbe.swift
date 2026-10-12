@@ -250,6 +250,20 @@ import XCUIAutomation
                     RunLoop.current.run(until: Date().addingTimeInterval(0.6))
                     heard("flick=\(flick.first ?? "")")
                 }
+            case "rotor":
+                // Two fingers turned on the glass turn VoiceOver's rotor to its next setting, which
+                // it names. `rotor=Headings` turns it until it names that one, twenty turns at
+                // most; `flick=down` and `flick=up` then move by it.
+                let wanted = parts.count > 1 ? parts[1] : ""
+                var found = wanted.isEmpty
+                for _ in 0..<(wanted.isEmpty ? 1 : 20) {
+                    app.rotate(.pi / 4, withVelocity: 2)
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+                    let phrase = (try? voiceOver.currentSpeech().utterance) ?? "no speech"
+                    note("rotor", phrase)
+                    if !wanted.isEmpty, phrase.localizedCaseInsensitiveContains(wanted) { found = true; break }
+                }
+                if !found { note(step, "MISSING") }
             case "wait":
                 RunLoop.current.run(until: Date().addingTimeInterval(Double(parts.last ?? "") ?? 1))
             case "screenshot":

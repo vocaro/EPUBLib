@@ -154,8 +154,9 @@ final class ReaderTextView: UITextView {
 
     // UIKit's native text accessibility can traverse TextKit's hidden paragraph context even
     // with a shortened accessibilityValue. Expose only measured visible lines, splitting links
-    // and attachments into independently actionable elements. Visual text and selection retain
-    // the original TextKit 2 storage and all of its paragraph layout context.
+    // and attachments into independently actionable elements, and a heading as one element
+    // with the header trait and its level. Visual text and selection retain the original
+    // TextKit 2 storage and all of its paragraph layout context.
     //
     // The canvas's scroll view lists its lines too. UIKit's own elements are every paragraph of
     // the book, and VoiceOver moving into the text takes the first: the book's first paragraph,
@@ -220,8 +221,10 @@ final class ReaderTextView: UITextView {
         if let cache = scrollAccessibilityCache, cache.place == place { return cache.elements }
         guard let shown = canvas.scrollSpokenCharacters() else { return [] }
         var listed = [shown]
-        if let cursor = accessibilityCursor, let line = line(containing: cursor.range.location) {
-            let screen = withLinesAround(shown), around = withLinesAround(line.range)
+        if let cursor = accessibilityCursor, var held = line(containing: cursor.range.location)?.range {
+            // A heading under the cursor can take several lines.
+            if let last = line(containing: NSMaxRange(cursor.range) - 1) { held.formUnion(last.range) }
+            let screen = withLinesAround(shown), around = withLinesAround(held)
             // The cursor can rest on a line the person has since scrolled away from.
             if NSMaxRange(around) < screen.location { listed = [around, screen] }
             else if NSMaxRange(screen) < around.location { listed = [screen, around] }
@@ -273,47 +276,69 @@ final class ReaderTextView: UITextView {
         accessibilityCursor = nil
     }
 
-    /// One element for each line, except where a link or attachment needs its own.
+    /// One element for each line, except where a link or attachment needs its own, and one for
+    /// a heading's text however many lines it takes: VoiceOver reads it whole, says it is a
+    /// heading once and stops on it once when it moves by heading.
     private func accessibilityElements(for lines: [ReaderVisualLine],
                                        reusing existing: [ReaderPageAccessibilityElement]) -> [ReaderPageAccessibilityElement] {
         guard let storage = contentStorage.textStorage else { return [] }
+        let text = storage.string as NSString
         var elements: [ReaderPageAccessibilityElement] = []
         for line in lines {
             // Layout flags (often stored on a paragraph's first UTF-16 unit), colors and
             // fonts do not define AX reading units. Keep each actual line intact except
-            // where a link or attachment needs its own label and activation behavior.
-            var runs: [(range: NSRange, url: URL?, attachment: NSTextAttachment?)] = []
+            // where a link, an attachment or a heading needs its own label and behavior.
+            var runs: [(range: NSRange, url: URL?, attachment: NSTextAttachment?, heading: ReaderHeading?)] = []
             storage.enumerateAttributes(in: line.range) { attributes, range, _ in
                 let url = attributes[.link] as? URL ?? (attributes[.link] as? String).flatMap(URL.init(string:))
                 let attachment = attributes[.attachment] as? NSTextAttachment
+                var heading = attributes[.readerHeading] as? ReaderHeading
                 if let previous = runs.last, NSMaxRange(previous.range) == range.location,
                    previous.url == url, previous.attachment === attachment {
-                    runs[runs.count - 1].range.length += range.length
-                } else { runs.append((range, url, attachment)) }
+                    // The break that ends a heading's line is read with it, as any line's is.
+                    if heading == nil, attachment == nil, previous.heading != nil, Self.isBreak(text, range) { heading = previous.heading }
+                    if previous.heading === heading {
+                        runs[runs.count - 1].range.length += range.length
+                        return
+                    }
+                }
+                runs.append((range, url, attachment, heading))
             }
-            for (range, url, attachment) in runs {
+            for (run, url, attachment, heading) in runs {
+                var range = run
+                if heading != nil, attachment == nil {
+                    range = headingText(at: run.location)
+                    // The line before this one gave the same heading.
+                    if let last = elements.last, last.range == range, last.url == url { continue }
+                }
                 // The break after an attachment that ends its paragraph is a run of its own
                 // with nothing to say: no element, or VoiceOver stops on silence.
-                if attachment == nil, (storage.string as NSString).substring(with: range).allSatisfy(\.isWhitespace) { continue }
+                if attachment == nil, text.substring(with: range).allSatisfy(\.isWhitespace) { continue }
                 let element = existing.first { $0.range == range && $0.url == url }
                     ?? ReaderPageAccessibilityElement(view: self, range: range, url: url)
-                element.accessibilityLabel = plainText(in: range)
+                var label = plainText(in: range)
                 var traits: UIAccessibilityTraits = url == nil ? .staticText : .link
                 // A hidden label is words the page does not show, not a picture.
                 let isSpoken = attachment is SpokenLabelAttachment
                 if attachment != nil {
                     if !isSpoken { traits.insert(.image) }
-                    if let image = attachment as? ReaderImageAttachment {
-                        element.accessibilityLabel = image.alt.isEmpty ? "Book image" : image.alt
-                    }
+                    if let image = attachment as? ReaderImageAttachment { label = image.alt.isEmpty ? "Book image" : image.alt }
                     // A formula's reading has its own voice: the book's language or the generator's.
                     if let language = (attachment as? ReaderTextualAttachment)?.textLanguage {
                         element.accessibilityLanguage = language
                     }
                 }
+                element.accessibilityLabel = label
+                if let heading {
+                    traits.insert(.header)
+                    // VoiceOver takes a heading's level from its label's attributes; 0 is none.
+                    element.accessibilityAttributedLabel = NSAttributedString(
+                        string: label, attributes: [.accessibilityTextHeadingLevel: heading.level])
+                }
                 element.accessibilityTraits = traits
                 // A scroll view's bounds move with its content, and a line listed past the
                 // screen is outside them.
+                if range != run { ensureLayout(from: range.location, through: NSMaxRange(range) - 1) }
                 var frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
                 if frame.isNull { frame = line.frame }
                 // It takes no room; a point where it stands lets VoiceOver rest on it.
@@ -324,6 +349,51 @@ final class ReaderTextView: UITextView {
             }
         }
         return elements
+    }
+
+    /// Whether `range` holds nothing but the characters that end a line or a paragraph.
+    private static func isBreak(_ text: NSString, _ range: NSRange) -> Bool {
+        range.length > 0 && text.rangeOfCharacter(from: CharacterSet.newlines.inverted, range: range).location == NSNotFound
+    }
+
+    /// What one element reads of the heading at `location`: its text there over every line it
+    /// takes, as far as a link or an attachment in it begins or ends, with the break that ends
+    /// its paragraph. A page column gives the part on its page. The same characters whichever
+    /// of the heading's lines is asked for, so a line listed later finds the element already
+    /// there, and a heading half above the screen in continuous scroll keeps one element as
+    /// more of its lines are listed.
+    private func headingText(at location: Int) -> NSRange {
+        let unknown = NSRange(location: location, length: 0)
+        guard let storage = contentStorage.textStorage else { return unknown }
+        let bounds = isPageColumn ? shownCharacters : NSRange(location: 0, length: storage.length)
+        var whole = NSRange()
+        guard NSLocationInRange(location, bounds),
+              storage.attribute(.readerHeading, at: location, longestEffectiveRange: &whole, in: bounds) != nil else { return unknown }
+        func link(_ attributes: [NSAttributedString.Key: Any]) -> URL? {
+            attributes[.link] as? URL ?? (attributes[.link] as? String).flatMap(URL.init(string:))
+        }
+        let own = link(storage.attributes(at: location, effectiveRange: nil))
+        var found = unknown, ended = false
+        storage.enumerateAttributes(in: whole) { attributes, range, stop in
+            if attributes[.attachment] == nil, link(attributes) == own {
+                found = found.length > 0 ? found.union(range) : range
+            } else if range.location > location {
+                ended = true
+                stop.pointee = true
+            } else { found = unknown }
+        }
+        guard !ended else { return found }
+        let text = storage.string as NSString
+        var end = NSMaxRange(found)
+        while end < NSMaxRange(bounds) {
+            let attributes = storage.attributes(at: end, effectiveRange: nil)
+            let character = NSRange(location: end, length: 1)
+            guard attributes[.readerHeading] == nil, attributes[.attachment] == nil, link(attributes) == own,
+                  Self.isBreak(text, character) else { break }
+            end += 1
+            if text.character(at: end - 1) == 0x0A { break }
+        }
+        return NSRange(location: found.location, length: end - found.location)
     }
 
     // VoiceOver reads the page, not the clipped context after it, with attachments as their text.
