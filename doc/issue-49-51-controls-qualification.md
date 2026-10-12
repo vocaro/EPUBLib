@@ -45,8 +45,9 @@ nothing; every statement below was read from its logs, trees and screenshots.
 
 Revisions: the reader at `5dbdedf` for the first pass on all three simulators; `145a21c`, with
 the first two fixes below, for the VoiceOver service, large text, overflow, rotation and the
-Mac; `f98db10`, with `main` at `9a1a797` merged and all four fixes, for the last iPhone runs.
-Each run's `meta.txt` holds its revision, OS and Xcode.
+Mac; `f98db10`, with `main` at `9a1a797` merged and all four fixes, for the last iPhone runs,
+made from `5fa8fc5`, which adds only this record. Each run's `meta.txt` holds its revision, OS
+and Xcode.
 
 ## Defects found and fixed
 
@@ -68,9 +69,9 @@ before and after, 316 × 93 empty and 372 × 446 with results.
 (874 × 402, seen at `145a21c`) the keyboard leaves the sheet about 225 points. The result list asked for at least
 160 of them, the pane came out taller than the sheet, and the sheet cut its top off: the field
 was at y = −38 and Close Search at y = −31, out of reach until the keyboard was put away. The
-list's minimum is now 44 points in a compact height. Its test measures the least height the pane
-accepts in a compact and in a regular size class; the fixed build was not re-run in landscape
-(see [Not verified](#not-verified)).
+list's minimum is now 44 points in a compact height. At `f98db10` the field is at y = 16 and
+Close Search at y = 22, with the list 52 points tall above the keyboard, before and after a
+rotation with the pane open, and Close Search closed it.
 
 **Continuous scroll lost its place after an accessibility read.** On iOS the scrolled reader is
 a text view whose accessibility lists every paragraph of the book, and reading that list (an
@@ -83,8 +84,9 @@ after settling the viewport where the view stands; AppKit, which showed the same
 headless test by drawing the earlier text, holds the first visible line in place instead.
 `ScrolledAccessibilityReadTests` fails on both platforms without the change. Its trigger is a
 stand-in, a request for every paragraph's rectangle, because a test host has no text
-accessibility to walk. The live sequence was not re-run on the fixed build (see [Not
-verified](#not-verified)).
+accessibility to walk. At `f98db10` the same live sequence, read included, reported the fourth
+chapter after each step (0.5162, then 0.5328 of the book) and showed it again in Paging
+(0.5476): the values of a run without the read.
 
 ## iPhone 17 Pro
 
@@ -426,10 +428,6 @@ Described, not decided. None of these was changed.
 - The pending search's accessibility tree, and an error other than a refused query.
 - The host-placed `EPUBSearchResultNavigator` in a bottom bar: its runs ended in XCTest
   snapshot failures on a loaded Mac before any step.
-- The last two fixes on a live build. At `f98db10` the iPhone simulator stopped taking
-  XCTest's touches ("Timed out while synthesizing event") with the Mac's load average in the
-  hundreds, so the landscape pane and the scroll step after a read were not seen fixed on
-  screen. Their tests pass on the iPad Air 13-inch simulator at that revision.
 - Choosing a supplied menu from inside the iPhone bar's More menu.
 - The control strip under the VoiceOver service.
 
