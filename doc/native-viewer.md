@@ -57,7 +57,12 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   bookmarks are `epublib-cfi-v1` (`EPUBReader.bookmarkFormat`): names for the library, not a
   renderer, so they outlive any change of how pages are drawn. The value is an EPUB CFI in the
   form foliate-js produced, generated and resolved by a port of its code. A range contained
-  in one document carries its CFI in `bookmark`. A range spanning documents also carries
+  in one document carries its CFI in `bookmark`. A CFI into a spine item the spine repeats
+  names the occurrence its package path lands on: each repeat keeps its own position, as EPUB
+  Reading Systems 3.3 §5.5 has them "distinct items for user interface (UI) purposes". This
+  departs from foliate-js, which resolved every repeat to the first; its CFIs still resolve, and
+  one saved in a later repeat restores there
+  ([#108](https://github.com/vocaro/EPUBLib/issues/108)). A range spanning documents also carries
   `rangeBookmarks`, ordered per-document CFIs for every nonempty included section, with
   `bookmark` equal to the first entry. Nonlinear sections omitted from continuous scroll and
   empty section endpoints or sections containing only generated markers contribute no segment. Existing single-document locations continue
@@ -178,7 +183,33 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   section, so nothing resets at a section boundary and the system scroll edge effects apply.
   Until every section is built it shows the current section, then swaps to the whole book in
   place. Nonlinear sections stay out of it, as page turns step over them; navigating to one
-  shows it on its own.
+  shows it on its own. A book with no linear section keeps every section in both: it scrolls
+  and pages through from end to end, where foliate-js stopped at the end of the first section
+  ([#159](https://github.com/vocaro/EPUBLib/issues/159)).
+- **Content language.** A narrow reading of EPUB Reading Systems 3.3 §3.7, which says a
+  reading system "MUST NOT assume either the language or the base direction" of a content
+  document from the package (owner decision, 2026-10-11,
+  [#109](https://github.com/vocaro/EPUBLib/issues/109)). The package's language has two uses
+  and the reader keeps one:
+  - Text generated from language follows only the language the content declares, `xml:lang`
+    or `lang` on the element or an ancestor: the marks around a `q`, and the case mapping of
+    `text-transform` and of small capitals a font lacks. With none declared the result is the
+    same whatever the package's `dc:language`: an unlabelled French book gets “ ” around a
+    `q`, not « », and an unlabelled Turkish one capitalizes `i` as `I`.
+  - Typesetting and speech still take the package's first `dc:language` as a hint, because
+    some language has to be chosen anyway: the CoreText language attribute, which steers
+    glyph choice and line breaking (every run of an unlabelled document in a Japanese book is
+    tagged `ja`, so its Han characters take their Japanese forms), and the language a formula
+    is spoken in (see Spoken math); body text on UIKit is to follow
+    ([#65](https://github.com/vocaro/EPUBLib/issues/65)). So typesetting is not independent of
+    the package, which is the sense in which the reading is narrow.
+
+  Content that declares a language overrides the package for both, and `lang=""` (the language
+  is unknown) leaves text without a language or the hint. `:lang()` selectors and the search
+  locale read the document alone. The base-direction half of the requirement is met in full:
+  a document that declares no direction reads the same whatever the package's `dir`.
+  foliate-js gave a document without `lang` the book's language, so its `q` marks followed
+  the package.
 - **Building** is per section and lazy for first paint: the opening section builds first and
   the session emits `.ready` once it is on screen; the rest build in the background in
   parallel. Images decode lazily, downsampled to their displayed size, under a shared cache
@@ -391,7 +422,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
 
 | Command | Behaviour |
 | --- | --- |
-| `nextPage` / `previousPage` | Page turn (paginated) or one viewport (scrolled); stops at the book's ends; skips nonlinear sections as foliate-js did. |
+| `nextPage` / `previousPage` | Page turn (paginated) or one viewport (scrolled); stops at the book's ends; skips nonlinear sections as foliate-js did, unless no section is linear. |
 | `navigate(href:)` | An encoded spine or resource href with optional fragment; unknown or non-local hrefs throw `invalidCommand`. |
 | `restore(location)` | Same publication, engine ID and `epublib-cfi-v1` format or `incompatibleLocation`; validates/resolves every bookmark segment and shows the first segment's start. Does not select text or add a highlight. |
 | `locate(text, highlight)` | First match in reading order with foliate's matcher. `highlight` selects it natively (emitting `.selectionChanged` with the passage). A miss emits `.notice("the cited passage could not be found in this book")`. Clears search highlights. |

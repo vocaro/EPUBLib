@@ -128,7 +128,6 @@ import UIKit
     /// purposes": a position in the second or third occurrence of a repeated spine item names
     /// that occurrence, not the first (W3C test pkg-spine-duplicate-item-ui).
     func testEachOccurrenceOfARepeatedSpineItemHasItsOwnPosition() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/108")
         var book = Book()
         book.add("first", body: "<p>The first document.</p>")
         book.add("refrain", body: "<p>A refrain that returns.</p>")
@@ -242,6 +241,46 @@ import UIKit
                        at: ReaderTextPosition(section: 3, offset: last.specLocation("a link to the refrain")), rect: .zero)
         try await reader.wait("the first occurrence") { session.visibleRange?.start.section == 1 }
         XCTAssertEqual(session.visibleRange?.start, ReaderTextPosition(section: 1, offset: 0))
+    }
+
+    /// RS 5.5: repeats are "distinct items for user interface (UI) purposes". A position saved
+    /// in a later occurrence of a repeated spine item names that occurrence, and restoring it
+    /// goes back there, not to the first occurrence, in either flow.
+    func testAPositionSavedInALaterRepeatRestoresToThatRepeat() async throws {
+        var book = Book()
+        book.add("first", body: "<h1>First</h1>" + Book.prose(30, label: "First"))
+        book.add("refrain", body: "<h1>Refrain</h1>" + Book.prose(30, label: "Refrain"))
+        book.spine = ["first", "refrain", "refrain", "refrain"].map { "    <itemref idref=\"\($0)\"/>" }.joined(separator: "\n")
+        let reader = try mount(book)
+        try await reader.waitUntilReady()
+        let session = reader.session
+        // Only page turns reach a later repeat: an href names the first. One page into the third itemref.
+        for turn in 0..<200 where session.visibleRange.map({ $0.start.section == 2 && $0.start.offset > 0 }) != true {
+            let before = session.visibleRange
+            try await session.send(.nextPage)
+            try await reader.wait("turn \(turn)") { session.visibleRange != before }
+        }
+        let start = try XCTUnwrap(session.visibleRange?.start)
+        XCTAssertEqual(start.section, 2); XCTAssertGreaterThan(start.offset, 0)
+        try await reader.wait("its location") { session.lastLocation?.bookmark?.value.hasPrefix("epubcfi(/6/6!") == true }
+        let location = try XCTUnwrap(session.lastLocation)
+        XCTAssertEqual(location.href, "EPUB/refrain.xhtml")
+        let first = try XCTUnwrap(SpineCFIs(publication: session.publication).resolve(try XCTUnwrap(location.bookmark).value))
+        XCTAssertEqual(first.spineIndex, 2)
+        let stored = try JSONDecoder().decode(EPUBLocation.self, from: JSONEncoder().encode(location))
+        for flow in [EPUBReadingFlow.paginated, .scrolled] {
+            try await session.send(.style(.init(flow: flow)))
+            try await session.send(.navigate(href: "EPUB/first.xhtml"))
+            try await reader.wait("the first document in \(flow)") { session.visibleRange?.start.section == 0 }
+            try await session.send(.restore(stored))
+            try await reader.wait("the second repeat in \(flow)") {
+                guard let visible = session.visibleRange else { return false }
+                return flow == .paginated ? visible.start == start : visible.start <= start && start < visible.end
+            }
+            try await reader.wait("its location in \(flow)") { session.lastLocation?.bookmark?.value.hasPrefix("epubcfi(/6/6!") == true }
+            XCTAssertEqual(session.lastLocation?.progression ?? 0, try XCTUnwrap(location.progression), accuracy: 0.05, "\(flow)")
+        }
+        XCTAssertTrue(reader.notices.isEmpty, "\(reader.notices)")
     }
 
     /// RS 3.9 recommends asking before opening a link outside the publication;
