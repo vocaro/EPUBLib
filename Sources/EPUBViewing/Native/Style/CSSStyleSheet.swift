@@ -48,7 +48,7 @@ enum StyleReference: Equatable {
     case remote
     /// A `data:` URL, which this renderer does not decode for styles or fonts.
     case data
-    /// Escapes the archive or is malformed.
+    /// Names no path an archive entry can have.
     case invalid
 
     init(_ reference: String, relativeTo base: String) {

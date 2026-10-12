@@ -132,14 +132,35 @@ final class RichMediaImageCoverageTests: XCTestCase {
         XCTAssertEqual(text.report.unreadableResources, 0)
     }
 
-    func testRemoteAndOutOfArchiveReferencesAreRefusedAndCountedNotFetched() throws {
-        for src in ["https://example.com/a.png", "//example.com/a.png", "file:///etc/hosts", "/OPS/pic.png", "../../top.png", "pic.png?v=2"] {
+    func testRemoteReferencesAreRefusedAndCountedNotFetched() throws {
+        for src in ["https://example.com/a.png", "//example.com/a.png", "file:///etc/hosts", "pic.png\\x", "100%.png"] {
             let (image, text) = try firstImage("<p><img src='\(src)' alt='Remote'/></p>", files: ["pic.png": RichMediaImages.solid(width: 10, height: 10)])
             XCTAssertNil(image, "\(src) must not resolve to an image")
             XCTAssertEqual(text.richMediaPlain, "Remote", "\(src) shows its alt text")
             XCTAssertEqual(text.report.remoteResourcesRefused, 1, "\(src) is counted as a refused out-of-archive reference")
             XCTAssertEqual(text.report.unreadableResources, 0, "\(src) is never decoded")
         }
+    }
+
+    func testAReferencePastTheContainerRootOrWithAQueryIsReadFromInsideTheArchive() throws {
+        // EPUB Reading Systems 3.3 §4.1.1: a leading "/" names the container root and ".." stops
+        // there (W3C tests ocf-url_link-path-absolute and ocf-url_link-leaking-relative show a
+        // photograph this way). A query cannot change which entry is meant.
+        let png = RichMediaImages.solid(width: 10, height: 10)
+        let files = ["pic.png": png, "/top.png": png]
+        for (src, path) in ["/OPS/pic.png": "OPS/pic.png", "/top.png": "top.png", "../../top.png": "top.png", "../../../../OPS/pic.png": "OPS/pic.png",
+                            "pic.png?v=2": "OPS/pic.png", "pic.png?v=2#frag": "OPS/pic.png"] {
+            let (image, text) = try firstImage("<p><img src='\(src)' alt='Inside'/></p>", files: files)
+            XCTAssertEqual(image?.path, path, src)
+            XCTAssertEqual(text.report.remoteResourcesRefused, 0, src)
+            XCTAssertEqual(text.report.unreadableResources, 0, src)
+        }
+        // What such a reference names may still be missing, as any other may.
+        let (missing, text) = try firstImage("<p><img src='../../absent.png' alt='Absent'/></p>", files: files)
+        XCTAssertNil(missing)
+        XCTAssertEqual(text.richMediaPlain, "Absent")
+        XCTAssertEqual(text.report.remoteResourcesRefused, 0)
+        XCTAssertEqual(text.report.unreadableResources, 1)
     }
 
     func testMissingTruncatedZeroByteAndMistypedImages() throws {

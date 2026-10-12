@@ -295,7 +295,8 @@ final class SectionBuilderTests: XCTestCase {
         }
         XCTAssertEqual(link("internal"), .internal(href: "OPS/two.xhtml#start"))
         XCTAssertEqual(link("external"), .external("https://example.com/x"))
-        XCTAssertEqual(link("escape"), .external("../../escape.xhtml"))
+        // `..` stops at the container root (EPUB Reading Systems 3.3 §4.1.1).
+        XCTAssertEqual(link("escape"), .internal(href: "escape.xhtml"))
         XCTAssertEqual(link("here"), .internal(href: "OPS/one.xhtml#here"))
         XCTAssertEqual(link("mail"), .external("mailto:a@b.c"))
         XCTAssertNil(link("anchor"))

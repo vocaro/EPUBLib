@@ -51,14 +51,43 @@ For large books, open on a background task. Task cancellation is checked while e
 The optional import progress callback receives cumulative expanded bytes on that task's thread.
 A host granting security-scoped file access must keep access active until opening completes.
 
-Inputs need an EPUB mimetype, a container rootfile and a nonempty resolvable spine. Remote manifest
-resources, unsupported encryption, archive traversal, duplicate paths, symlinks, entity declarations,
-malformed metadata/navigation XML and one manifest id naming two resources fail explicitly. Three
-faults real converters write are read past instead: a manifest item repeated verbatim counts once,
-an item whose file the archive lacks is left out of `resources` unless the spine names it, and a
-C0 control character XML forbids, copied from PDF text into a title, reads as a space in an
-ASCII-compatible document. The package does not otherwise repair malformed EPUBs, validate the full
-EPUB specification, synthesize page numbers or provide DRM support. Standard IDPF
+Inputs need an EPUB mimetype, a container rootfile and a nonempty resolvable spine. Unsupported
+encryption, archive entries named outside the archive (a `..` segment, a leading `/`, a backslash),
+duplicate paths, symlinks, entity declarations, malformed metadata/navigation XML, one manifest id
+naming two resources and a spine that names a remote resource fail explicitly. So do bytes with
+no ZIP end record in their last 65,557, as far back as one with the longest comment begins: they
+are refused as no archive without the rest being searched, an archive followed by more than
+65,535 other bytes among them.
+
+Faults that leave a book readable are read past instead. The publication model has no channel for
+warnings, so this list is where they are disclosed:
+
+- **References.** No reference leaves the container: a leading `/` names the container root and
+  `..` stops there (EPUB Reading Systems 3.3 §4.1.1). A query is dropped. The container's rootfile
+  path is the exception: it names the package document or nothing, and is refused in these forms.
+- **Manifest.** An item repeated verbatim counts once. An item whose file the archive lacks and a
+  remote item, which is never fetched, are left out of `resources`; the spine still needs every
+  document it names. An href that matches no entry names the one entry that differs only in case,
+  when there is exactly one.
+- **Contents.** An entry whose href does not resolve keeps its title and children, without an
+  href. A landmark or page that does not resolve is left out.
+- **Container.** White space around the mimetype's media type and a byte-order mark before it are
+  ignored. A rootfile that is not typed as a package document is passed over for the first that
+  is. An entry name may hold a colon, as it may the other characters OCF forbids.
+- **Fonts.** Adobe's obfuscation key is read from a UUID with or without hyphens, in the unique
+  identifier or else the first identifier that is one. A font obfuscated with a key the package
+  does not give is left out of `resources`: a font is a file named as one (`.otf`, `.ttf`,
+  `.woff`…) or declared with a font media type. Anything else obfuscated that way is unsupported
+  encryption.
+- **XML.** In the container, package, navigation and NCX documents, HTML's named character
+  references (`&nbsp;`) and a `DOCTYPE` keyword in any case are read as a browser reads them in
+  content. A C0 control character XML forbids, copied from PDF text into a title, reads as a
+  space in an ASCII-compatible document.
+
+`EPUBWriting` holds what it writes to the stricter rules: a path with a colon is refused, and so
+is a navigation href with a query, a leading `/` or a step above the root. The package does not
+otherwise repair malformed EPUBs, validate the full EPUB specification, synthesize page numbers
+or provide DRM support. Standard IDPF
 and Adobe font obfuscation are decoded for resource access, including the viewer's embedded fonts. Media overlays,
 TTS and annotation persistence are outside the initial API. The headless publication model enumerates no
 search results; a reader session lists them as rendered (`EPUBSearchResults`, see [reader controls](reader-controls.md#search-results)).
