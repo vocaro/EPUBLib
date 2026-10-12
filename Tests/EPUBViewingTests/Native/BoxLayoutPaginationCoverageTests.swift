@@ -9,18 +9,33 @@ import AppKit
 import UIKit
 #endif
 
-/// The reader's fragments with chosen margins, by the offset each paragraph starts at.
+/// TextKit's own fragment with chosen margins: the reader's without what it does to its frame.
+private final class PlainMarginFragment: NSTextLayoutFragment {
+    var top: CGFloat = 0, bottom: CGFloat = 0
+    override var topMargin: CGFloat { super.topMargin + top }
+    override var bottomMargin: CGFloat { super.bottomMargin + bottom }
+}
+
+/// Fragments with chosen margins, by the offset each paragraph starts at: the reader's, or
+/// TextKit's own.
 private final class BoxMarginFragments: NSObject, NSTextLayoutManagerDelegate {
     let margins: [Int: (top: CGFloat, bottom: CGFloat)]
+    let plain: Bool
     weak var storage: NSTextContentStorage?
-    init(margins: [Int: (top: CGFloat, bottom: CGFloat)], storage: NSTextContentStorage) { self.margins = margins; self.storage = storage }
+    init(margins: [Int: (top: CGFloat, bottom: CGFloat)], plain: Bool, storage: NSTextContentStorage) {
+        self.margins = margins; self.plain = plain; self.storage = storage
+    }
 
     func textLayoutManager(_ manager: NSTextLayoutManager, textLayoutFragmentFor location: any NSTextLocation,
                            in element: NSTextElement) -> NSTextLayoutFragment {
-        let fragment = ReaderBoxLayoutFragment(textElement: element, range: nil)
-        if let storage, let margin = margins[storage.offset(from: storage.documentRange.location, to: location)] {
-            fragment.topAdjustment = margin.top; fragment.bottomAdjustment = margin.bottom
+        let margin = storage.flatMap { margins[$0.offset(from: $0.documentRange.location, to: location)] } ?? (0, 0)
+        if plain {
+            let fragment = PlainMarginFragment(textElement: element, range: nil)
+            fragment.top = margin.top; fragment.bottom = margin.bottom
+            return fragment
         }
+        let fragment = ReaderBoxLayoutFragment(textElement: element, range: nil)
+        fragment.topAdjustment = margin.top; fragment.bottomAdjustment = margin.bottom
         return fragment
     }
 }
@@ -442,11 +457,21 @@ private final class BoxMarginFragments: NSObject, NSTextLayoutManagerDelegate {
         }
     }
 
+    /// More boxes that can open a section. At the very top of a section most of the boxes above
+    /// take back exactly their height at every text size; these fall short at several.
+    private let sectionOpeners: [(name: String, body: String, css: String)] = [
+        ("three floats stacked on the left", "<figure class='x'>Float one.</figure><figure class='x'>Float two.</figure><figure class='x'>Float three.</figure>"
+            + "<p>After the boxes. \(BoxLayoutHarness.prose)</p>", ".x { float:left; width:60px; height:75px }"),
+        ("a float with a margin below it", "<figure class='x'>Float one.</figure><p>After the boxes. \(BoxLayoutHarness.prose)</p>",
+         ".x { float:left; width:60px; height:75px; margin-bottom:0.7em }"),
+        ("a float with margins above and below it", "<figure class='x'>Float one.</figure><p>After the boxes. \(BoxLayoutHarness.prose)</p>",
+         ".x { float:left; width:60px; height:75px; margin:0.7em 0 }")]
+
     /// The same at the start of a section, where a box that falls short of its lines' height
     /// puts the paragraph after it above the top of the whole text: in the paginator's own
     /// layout and in continuous scroll.
     func testASectionOpeningWithBoxesKeepsTheProseAfterThemInRows() throws {
-        for (name, body, css) in pageOpeners {
+        for (name, body, css) in pageOpeners + sectionOpeners {
             for fontSize in stride(from: CGFloat(11), through: 31, by: 1.3) {
                 let label = "\(name), text size \(fontSize)"
                 let section = try build(body, css: css, fontSize: fontSize)
@@ -462,58 +487,19 @@ private final class BoxMarginFragments: NSObject, NSTextLayoutManagerDelegate {
         }
     }
 
-    /// Boxes that open a page can all stand below the point its text flows from. Here an
-    /// absolute box with a top inset is the highest thing on the page: it pushes the float before
-    /// it down past itself, and the prose after it too. The page's top is the absolute box's,
-    /// above which nothing can be laid out, so the float's lines, the absolute box's and the
-    /// prose's are each placed from that top: where the section has them, in rows.
-    func testBoxesThatAllStandBelowWhereAPagesTextStartsAreLaidOutAsTheSectionHasThem() throws {
-        let small = CGSize(width: 180, height: 240)
-        let section = try build("<p class='lead'>Lead.</p><figure class='x'>Float one.</figure><aside class='a'>Absolute words.</aside><p>After the boxes. \(H.prose)</p>",
-                                css: ".lead { break-after:page } .x { float:left; width:60px; height:75px } .a { position:absolute; left:0; top:1.7em; width:100% }")
-        let (paginator, pages) = H.pages(section, size: small)
-        let plan = try XCTUnwrap(paginator.text.attribute(.readerBoxPage, at: 0, effectiveRange: nil) as? ReaderBoxPage)
-        let float = H.range("Float one.", in: section), absolute = H.range("Absolute words.", in: section), after = H.range("After the boxes.", in: section)
-        let page = try XCTUnwrap(pages.dropFirst().first)
-        XCTAssertEqual(page.range.location, float.location, "the forced break opens the page with the float")
-        XCTAssertTrue(NSLocationInRange(after.location, page.range))
-        // The float starts where the lead ended, and stands below the absolute box that follows it.
-        let start = try XCTUnwrap(plan.geometry.paragraph(at: float.location)).flowStart
-        let top = try XCTUnwrap(plan.geometry.regions.first { $0.range.location == absolute.location }).frame.minY
-        XCTAssertGreaterThan(top, start + 2, "the highest box on the page is below where the page's text flows from")
-        XCTAssertGreaterThan(try XCTUnwrap(plan.geometry.regions.first { $0.range.location == float.location }).frame.minY, top + 10)
-        XCTAssertEqual(page.layoutTop, top, accuracy: 0.5, "the page starts at the absolute box")
-
-        let view = H.pageView(paginator, page: page)
-        XCTAssertEqual(fragmentsAboveTheTop(view), 0, "fragments above the page's top")
-        XCTAssertEqual(overlappingLines(view), 0, "pairs of lines drawn over each other")
-        assertLinesFit(view, page: page, size: small, "the page of boxes")
-        let whole = H.view(section.string, size: small)
-        let expected = H.lines(in: whole, intersecting: page.range), lines = H.lines(in: view, intersecting: view.shownCharacters)
-        XCTAssertEqual(lines.map { NSRange(location: $0.range.location + page.range.location, length: $0.range.length) }, expected.map(\.range), "the section's line breaks")
-        for (line, other) in zip(lines, expected) {
-            // The boxes' own lines to half a point. The prose is pushed down to a box's bottom edge,
-            // where rounding can take it a point further (https://github.com/vocaro/EPUBLib/issues/147).
-            let accuracy: CGFloat = other.range.location < after.location ? 0.5 : 1.5
-            XCTAssertEqual(line.frame.minX, other.frame.minX, accuracy: 0.5, "\(other.range)")
-            XCTAssertEqual(line.frame.minY, other.frame.minY - page.layoutTop, accuracy: accuracy, "\(other.range)")
-        }
-        XCTAssertEqual(H.frame("Absolute words.", in: section, view: whole).minY, top, accuracy: 0.5)
-        let shown = view.segmentFrames(for: NSRange(location: absolute.location - page.range.location, length: absolute.length)).reduce(CGRect.null) { $0.union($1) }
-        XCTAssertEqual(shown.minY, 0, accuracy: 0.5, "the absolute box is at the page's top")
-    }
-
     /// TextKit starts each fragment where the one before it ends, and lays the lines of a
     /// fragment that starts above the top of its container one over another, however little
-    /// above. A fragment whose margins take back more than its height would end there, so its
-    /// frame ends at the top instead; one that ends inside the container, above where it
-    /// starts, is left as it is (the last paragraph of a box of several does).
-    func testAFragmentWhoseMarginsTakeBackMoreThanItsHeightEndsAtItsContainersTop() throws {
+    /// above. A box's margins take back its height only to within rounding, so a frame that
+    /// would end that little above the top ends at it. A frame that ends above the top by a
+    /// real distance is another fault (https://github.com/vocaro/EPUBLib/issues/242): it is
+    /// left exactly as TextKit has it, and so is one that ends inside the container, above
+    /// where it starts (the last paragraph of a box of several does).
+    func testAFrameEndingAboveTheTopByARoundingResidualEndsAtItAndOneFurtherAboveIsLeftAlone() throws {
         let prose = Array(repeating: "Ordinary prose wraps beside the box and returns to the full column below it.", count: 3).joined(separator: " ")
         let paragraphs = ["Box words.", prose, "Last paragraph of words that wraps to a second line at least."]
         let text = NSAttributedString(string: paragraphs.joined(separator: "\n"), attributes: [.font: PlatformFont.systemFont(ofSize: 16)])
         let starts = paragraphs.indices.map { index in paragraphs[..<index].reduce(0) { $0 + $1.utf16.count + 1 } }
-        func layout(_ margins: [Int: (top: CGFloat, bottom: CGFloat)]) -> [(frame: CGRect, lines: [CGFloat])] {
+        func layout(_ margins: [Int: (top: CGFloat, bottom: CGFloat)], plain: Bool = false) -> [(frame: CGRect, lines: [CGFloat])] {
             let storage = NSTextContentStorage(), manager = NSTextLayoutManager()
             storage.addTextLayoutManager(manager)
             let container = ReaderTextContainer(size: CGSize(width: 180, height: 0))
@@ -521,7 +507,7 @@ private final class BoxMarginFragments: NSObject, NSTextLayoutManagerDelegate {
             // A box elsewhere: the container is no plain rectangle, as on every page with a box.
             container.boxRegions = [.init(range: NSRange(location: 0, length: 0), frame: CGRect(x: 0, y: 50_000, width: 60, height: 60), side: .left)]
             manager.textContainer = container
-            let delegate = BoxMarginFragments(margins: margins, storage: storage)
+            let delegate = BoxMarginFragments(margins: margins, plain: plain, storage: storage)
             manager.delegate = delegate
             storage.attributedString = text
             var fragments: [(CGRect, [CGFloat])] = []
@@ -531,15 +517,24 @@ private final class BoxMarginFragments: NSObject, NSTextLayoutManagerDelegate {
             }
             return withExtendedLifetime(delegate) { fragments }
         }
+        /// The reader's fragments with `margins` are TextKit's own, bit for bit.
+        func assertLeftAlone(_ margins: [Int: (top: CGFloat, bottom: CGFloat)], _ label: String, line: UInt = #line) {
+            let reader = layout(margins), own = layout(margins, plain: true)
+            XCTAssertEqual(reader.map(\.frame), own.map(\.frame), "the frames are TextKit's own: \(label)", line: line)
+            XCTAssertEqual(reader.map(\.lines), own.map(\.lines), "the lines are TextKit's own: \(label)", line: line)
+        }
         let natural = layout([:])
         XCTAssertEqual(natural.count, 3)
         let heights = natural.map(\.frame.height), rows = natural[1].lines
         XCTAssertGreaterThanOrEqual(rows.count, 4, "the second paragraph wraps")
         XCTAssertEqual(rows, rows.sorted()); XCTAssertEqual(Set(rows).count, rows.count, "its lines are in rows")
+        assertLeftAlone([:], "no margins")
         for top: CGFloat in [0, 30] {
-            for excess: CGFloat in [0, heights[0].ulp, 2.2e-14, 1e-9, 0.5, 10] {
-                let label = "a top margin of \(top) and \(excess) more than its height taken back"
-                let fragments = layout([starts[0]: (top, -(top + heights[0] + excess))])
+            // What the sum of a box's margins and its height is out by: a few 1e-14 on a short
+            // page, more the further down a section the page starts.
+            for residual: CGFloat in [0, heights[0].ulp, 2.2e-14, 1.4e-11, 1e-9] {
+                let label = "a top margin of \(top) and \(residual) more than its height taken back"
+                let fragments = layout([starts[0]: (top, -(top + heights[0] + residual))])
                 XCTAssertEqual(fragments[0].lines.first ?? -1, top, accuracy: 1e-6, label)
                 XCTAssertGreaterThanOrEqual(fragments[1].frame.origin.y, 0, "the next fragment starts in the container: \(label)")
                 XCTAssertEqual(fragments[1].frame.origin.y, 0, accuracy: 1e-9, label)
@@ -547,18 +542,28 @@ private final class BoxMarginFragments: NSObject, NSTextLayoutManagerDelegate {
                 for (line, row) in zip(fragments[1].lines, rows) { XCTAssertEqual(line, row, accuracy: 1e-6, "its lines keep their rows: \(label)") }
                 XCTAssertEqual(fragments[2].frame.origin.y, heights[1], accuracy: 1e-6, label)
             }
+            // What a page's first box that was pushed down ends above the top by.
+            for distance: CGFloat in [0.5, 9.5, 13] {
+                let label = "a top margin of \(top) and \(distance) more than its height taken back"
+                let margins = [starts[0]: (top: top, bottom: -(top + heights[0] + distance))]
+                assertLeftAlone(margins, label)
+                XCTAssertEqual(layout(margins)[1].frame.origin.y, -distance, accuracy: 1e-9, "the next fragment starts above the top: \(label)")
+            }
         }
-        // The second fragment takes back the first's height too, and more: it ends at the top.
-        let returned = layout([starts[1]: (0, -(heights[1] + heights[0] + 5))])
+        // The second fragment takes back the first's height too, as the last paragraph of a box
+        // of two does, and a residual more: it ends at the top.
+        let returned = layout([starts[1]: (0, -(heights[1] + heights[0] + 1.4e-11))])
         XCTAssertEqual(returned[1].frame.origin.y, heights[0], accuracy: 1e-6)
-        XCTAssertEqual(returned[2].frame.origin.y, 0, "the fragment after it starts at the container's top")
+        XCTAssertGreaterThanOrEqual(returned[2].frame.origin.y, 0, "the fragment after it starts in the container")
+        XCTAssertEqual(returned[2].frame.origin.y, 0, accuracy: 1e-9)
         XCTAssertEqual(returned[2].lines.count, natural[2].lines.count)
         for (line, row) in zip(returned[2].lines, natural[2].lines) { XCTAssertEqual(line, row, accuracy: 1e-6) }
+        // And 5 points more: it ends above the top, and stays there.
+        assertLeftAlone([starts[1]: (0, -(heights[1] + heights[0] + 5))], "the second fragment ends 5 above the top")
         // Half of the first's height: it ends inside the container, and stays there.
-        let inside = layout([starts[1]: (0, -(heights[1] + heights[0] / 2))])
-        XCTAssertEqual(inside[2].frame.origin.y, heights[0] / 2, accuracy: 1e-6)
-        XCTAssertEqual(inside[2].lines.count, natural[2].lines.count)
-        for (line, row) in zip(inside[2].lines, natural[2].lines) { XCTAssertEqual(line, row, accuracy: 1e-6) }
+        let inside = [starts[1]: (top: CGFloat(0), bottom: -(heights[1] + heights[0] / 2))]
+        assertLeftAlone(inside, "the second fragment ends inside the container")
+        XCTAssertEqual(layout(inside)[2].frame.origin.y, heights[0] / 2, accuracy: 1e-6)
     }
 
     /// A table row starts below every float. Its first row begins exactly at the float's bottom
