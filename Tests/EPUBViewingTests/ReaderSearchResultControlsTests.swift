@@ -264,6 +264,27 @@ import UIKit
             .map { String(emphasized[$0.range].characters) }, ["needle"], "only the occurrence is emphasized")
     }
 
+    /// An iPhone on its side leaves the search sheet about 225 points above the keyboard. The pane
+    /// with results must fit in that, or the sheet cuts its field and Close Search off the top.
+    func testSearchPaneWithResultsFitsACompactHeight() async throws {
+        XCTAssertEqual(EPUBSearchResultPane.minimumListHeight(.regular), 160)
+        XCTAssertEqual(EPUBSearchResultPane.minimumListHeight(nil), 160)
+        #if os(iOS)
+        let session = Session(), model = try controls(session)
+        session.publish(.completed(query: "needle", hasMatches: true), Self.results(7, current: 0))
+        func pane(_ height: UserInterfaceSizeClass) -> MountedView {
+            MountedView(VStack(alignment: .leading) { EPUBSearchResultPane(controls: model, onDismiss: {}) }
+                .environment(\.verticalSizeClass, height))
+        }
+        let regular = pane(.regular), compact = pane(.compact)
+        defer { regular.close(); compact.close() }
+        try await Task.sleep(for: .milliseconds(60))
+        // The field, its buttons, Clear Search and the sheet's padding take about 120 points more.
+        XCTAssertGreaterThanOrEqual(regular.minimumHeight(), 160)
+        XCTAssertLessThanOrEqual(compact.minimumHeight(), 100)
+        #endif
+    }
+
     /// Mounts the supplied views in real windows and lays each search state out: on their own,
     /// and in a navigation toolbar with the navigator placed by the host. SwiftUI builds no
     /// accessibility tree for an in-process query, so names and values are asserted on the
@@ -362,6 +383,15 @@ import UIKit
         return fit(CGSize(width: window.bounds.width, height: .greatestFiniteMagnitude))
         #endif
     }
+
+    #if os(iOS)
+    /// The least height the view accepts at the window's width.
+    func minimumHeight() -> CGFloat {
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+        return fit(CGSize(width: window.bounds.width, height: 1)).height
+    }
+    #endif
 
     func close() {
         #if os(macOS)

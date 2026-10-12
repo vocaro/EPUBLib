@@ -1,0 +1,89 @@
+name: ControlsQualification
+options:
+  deploymentTarget:
+    iOS: "27.0"
+    macOS: "27.0"
+packages:
+  EPUBLib:
+    path: ../..
+settings:
+  base:
+    SWIFT_VERSION: "6.2"
+    GENERATE_INFOPLIST_FILE: YES
+    MARKETING_VERSION: "0.2.5"
+    CURRENT_PROJECT_VERSION: 1
+    CODE_SIGN_STYLE: Automatic
+targets:
+  ControlsQualification:
+    type: application
+    platform: iOS
+    sources:
+      - QualificationApp.swift
+      - Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.epubreaderlib.controlsqualification
+        INFOPLIST_KEY_CFBundleDisplayName: Controls Qualification
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+    dependencies:
+      - package: EPUBLib
+        product: EPUBCore
+      - package: EPUBLib
+        product: EPUBReading
+      - package: EPUBLib
+        product: EPUBViewing
+  ControlsQualificationMac:
+    type: application
+    platform: macOS
+    sources:
+      - QualificationApp.swift
+      - Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.epubreaderlib.controlsqualification.mac
+        INFOPLIST_KEY_CFBundleDisplayName: Controls Qualification
+        ENABLE_APP_SANDBOX: YES
+    dependencies:
+      - package: EPUBLib
+        product: EPUBCore
+      - package: EPUBLib
+        product: EPUBReading
+      - package: EPUBLib
+        product: EPUBViewing
+  ControlsProbeIOS:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.epubreaderlib.controlsprobe
+    dependencies:
+      - target: ControlsQualification
+  ControlsProbeMac:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [UITests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.epubreaderlib.controlsprobe.mac
+    dependencies:
+      - target: ControlsQualificationMac
+schemes:
+  ControlsProbeIOS:
+    build:
+      targets:
+        ControlsQualification: all
+        ControlsProbeIOS: [test]
+    test:
+      targets: [ControlsProbeIOS]
+  ControlsProbeMac:
+    build:
+      targets:
+        ControlsQualificationMac: all
+        ControlsProbeMac: [test]
+    test:
+      targets: [ControlsProbeMac]

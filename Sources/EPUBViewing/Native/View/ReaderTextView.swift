@@ -297,15 +297,36 @@ extension ReaderTextView {
         ReaderVisualLine.sourceRange(intersecting: rect, in: visualLines())
     }
 
+    /// The fragment the viewport last laid out at container `y`: the one the view draws there.
+    /// Once the whole text has been laid out behind the view, as an assistive technology's read
+    /// of every paragraph's frame does, TextKit 2 holds two fragments at one place: UIKit goes
+    /// on drawing the viewport's where the earlier estimates put them, and every other one
+    /// stands at its exact distance from the top. Asked for the fragment at a point, the layout
+    /// manager can answer with the one that is not on screen, a chapter away.
+    private func viewportFragment(atContainerY y: CGFloat) -> NSTextLayoutFragment? {
+        // A range kept from text since replaced can reach past the end of what is here now.
+        guard let range = readerLayoutManager.textViewportLayoutController.viewportRange,
+              range.endLocation.compare(readerLayoutManager.documentRange.endLocation) != .orderedDescending else { return nil }
+        var found: NSTextLayoutFragment?
+        readerLayoutManager.enumerateTextLayoutFragments(from: range.location, options: []) { fragment in
+            guard fragment.rangeInElement.location.compare(range.endLocation) == .orderedAscending else { return false }
+            let frame = fragment.layoutFragmentFrame
+            if frame.minY <= y, y < frame.maxY { found = fragment }
+            return found == nil
+        }
+        return found
+    }
+
     /// The first character of the first line mostly below `y` (`lineEnd` false), or the end of
     /// the last line mostly above it (`lineEnd` true), in text container coordinates, among the
-    /// lines already laid out.
+    /// lines already laid out: the viewport's own where it has any at `y`.
     func lineBoundary(atContainerY y: CGFloat, lineEnd: Bool) -> Int {
         if readerContainer.hasNonlinearGeometry {
             return ReaderVisualLine.boundary(at: y, lineEnd: lineEnd, in: visualLines(), length: textLength)
         }
         let layoutManager = readerLayoutManager
-        guard let fragment = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: max(0, y))) else {
+        guard let fragment = viewportFragment(atContainerY: max(0, y))
+                ?? layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: max(0, y))) else {
             return y <= 0 ? 0 : textLength
         }
         let start = offset(of: fragment.rangeInElement.location)
