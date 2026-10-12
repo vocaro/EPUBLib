@@ -32,7 +32,8 @@ import XCUIAutomation
         app.launch()
         let snapshots = true
         #endif
-        guard !snapshots || app.buttons["Close"].waitForExistence(timeout: 20) else {
+        // `waitForExistence` takes about a second even when the element is already there.
+        guard !snapshots || app.buttons["Close"].exists || app.buttons["Close"].waitForExistence(timeout: 20) else {
             XCTFail("The bundled synthetic EPUB must be open")
             return
         }
@@ -84,9 +85,64 @@ import XCUIAutomation
         func heard(_ command: String) {
             note(command, (try? voiceOver.currentSpeech().utterance) ?? "no speech")
         }
-        note("voiceOver", wasEnabled ? "was already on" : voiceOver.isEnabled ? "turned on for this session" : "left off")
+        // Every label and frame XCTest sees in the reader, to tell when a change has finished.
+        func screen() -> String {
+            var items: [String] = []
+            func collect(_ element: any XCUIElementSnapshot) {
+                items.append("\(element.label) \(element.frame)")
+                element.children.forEach(collect)
+            }
+            if let root = try? app.snapshot() { collect(root) }
+            return items.joined(separator: "\n")
+        }
+        // Waits until the screen differs from `before` and has then held still for half a second,
+        // for `limit` seconds at most: the fixed wait this replaces, which a step that changes
+        // nothing still costs. The transcript says which it was.
+        func settle(_ before: String, limit: TimeInterval) {
+            let started = Date()
+            var last = before, changed: Date?
+            while Date().timeIntervalSince(started) < limit {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+                let now = screen()
+                if now != last {
+                    last = now
+                    changed = Date()
+                } else if let changed, Date().timeIntervalSince(changed) >= 0.5 {
+                    note("settled", String(format: "the screen changed and held still after %.1f s", changed.timeIntervalSince(started)))
+                    return
+                }
+            }
+            note("settled", String(format: changed == nil ? "nothing on screen changed in %.1f s" : "the screen was still changing after %.1f s", limit))
+        }
+        // Switched on is not yet speaking. On a simulator VoiceOver's first start often says
+        // nothing, for as long as it stays on, and every step would then record silence;
+        // switching it off and on again starts it. `currentSpeech()` waits a second for a phrase.
+        var starts = 1
+        func speaks(within seconds: TimeInterval) -> Bool {
+            let deadline = Date().addingTimeInterval(seconds)
+            repeat {
+                if (try? voiceOver.currentSpeech()) != nil { return true }
+            } while Date() < deadline
+            return false
+        }
+        if !wasEnabled, voiceOver.isEnabled, !speaks(within: 5) {
+            repeat {
+                try voiceOver.disable()
+                RunLoop.current.run(until: Date().addingTimeInterval(2))
+                try voiceOver.enable()
+                starts += 1
+            } while !speaks(within: 30) && starts < 3
+            guard speaks(within: 1) else {
+                note("voiceOver", "STOPPED: on but silent after \(starts) starts")
+                XCTFail("VoiceOver is on but says nothing")
+                return
+            }
+        }
+        note("voiceOver", wasEnabled ? "was already on" : !voiceOver.isEnabled ? "left off"
+            : starts == 1 ? "turned on for this session" : "turned on for this session, silent until start \(starts)")
         heard("initial")
-        for step in (environment["VOICEOVER_STEPS"] ?? "read").split(separator: ",").map(String.init) {
+        let steps = (environment["VOICEOVER_STEPS"] ?? "read").split(separator: ",").map(String.init)
+        for step in steps {
             let parts = step.split(separator: "=", maxSplits: 1).map(String.init)
             // Another session's app in front would be read and touched instead of the reader.
             guard app.state == .runningForeground else {
@@ -96,13 +152,34 @@ import XCUIAutomation
             }
             switch parts[0] {
             case "read":
-                // Forward until VoiceOver repeats itself at the end of the screen.
+                // Forward until VoiceOver stays on the last item. It then repeats that item's
+                // phrase, about two seconds later, but so does a move to a second item with the
+                // same label. One move back tells them apart: from the last item it reaches the
+                // item before, which said something else; from a second item it reaches the first.
+                var spoken = [events.last?["utterance"] ?? ""]
                 var repeated = 0
                 for _ in 0..<150 {
-                    let speech = try voiceOver.moveForward()
-                    repeated = speech.utterance == events.last?["utterance"] ? repeated + 1 : 0
-                    record("moveForward", speech)
-                    if repeated >= 3 { break }
+                    let phrase = try voiceOver.moveForward()
+                    record("moveForward", phrase)
+                    defer { spoken.append(phrase.utterance) }
+                    guard phrase.utterance == spoken.last else { repeated = 0; continue }
+                    if repeated == 0, spoken.count > 1, spoken[spoken.count - 2] != phrase.utterance {
+                        let back = try voiceOver.moveBackward()
+                        record("moveBackward", back)
+                        record("moveForward", try voiceOver.moveForward())
+                        if back.utterance == spoken[spoken.count - 2] {
+                            note("read", "ended: VoiceOver had stayed on the last item")
+                            break
+                        }
+                        // A second item with the same label: read on from it.
+                        if back.utterance == phrase.utterance { continue }
+                    }
+                    // Going back settled nothing: three repeats in a row, as before.
+                    repeated += 1
+                    if repeated >= 3 {
+                        note("read", "ended: the same phrase three more times")
+                        break
+                    }
                 }
             case "visible":
                 // The numbered lines XCTest sees in each column, to compare with the speech.
@@ -124,15 +201,16 @@ import XCUIAutomation
                 let button = app.buttons[label].firstMatch
                 let element = button.exists ? button
                     : app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).firstMatch
-                guard element.waitForExistence(timeout: 5) else { note(step, "MISSING"); continue }
+                guard element.exists || element.waitForExistence(timeout: 5) else { note(step, "MISSING"); continue }
                 // `doubletap` keeps the rotor's selection: the item must already hold the cursor.
                 if parts[0] != "doubletap" {
                     element.tap()
                     heard(step)
                 }
                 guard parts[0] != "touch" else { continue }
+                let before = screen()
                 element.doubleTap()
-                RunLoop.current.run(until: Date().addingTimeInterval(2))
+                settle(before, limit: 2)
                 heard("activated")
             case "flick":
                 // One finger up or down steps through VoiceOver's rotor: for a line, its actions.
@@ -154,12 +232,15 @@ import XCUIAutomation
                 add(attachment)
                 note(step, attachment.name ?? "")
             case "rotate":
+                let before = screen()
                 XCUIDevice.shared.orientation = parts.last == "landscape" ? .landscapeLeft : .portrait
-                RunLoop.current.run(until: Date().addingTimeInterval(3))
+                settle(before, limit: 3)
                 heard(step)
             default: XCTFail("Unknown step \(step)")
             }
         }
+        // A transcript without this line stopped early, whatever became of the test session.
+        note("finished", "all \(steps.count) steps")
         #endif
     }
 
