@@ -257,6 +257,8 @@ A hosted session differs from one on a workstation:
 - Nobody listens and nothing is stepped by hand: a step list goes in and a transcript comes
   out. Whatever needs a person's ear or a decision between two steps needs a workstation.
 - The build is signed ad hoc, without a team.
+- The three-processor runner is slow to start the reader. Seven of 26 sessions opened with
+  "VoiceOver on VoiceOverVerificationMac not responding"; every later phrase was the reader's.
 - `xcode-27` is a public-preview image. Its privacy grants, its automation mode without
   authentication and the behaviour of XCTest's banner belong to the image version and can
   change; `runner.txt` names the version.
