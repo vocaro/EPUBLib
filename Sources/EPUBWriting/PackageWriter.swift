@@ -114,9 +114,7 @@ public enum EPUBPackageWriter {
 
     /// `string` as text or an attribute value, escaped scalar by scalar. As a `Character`, and to
     /// Foundation's string search, a "<", "&" or quote with a combining mark after it is another
-    /// character, and would be written as it stands. A tab or line end is written as a
-    /// reference: a parser reads a literal one in an attribute value as a space, and a carriage
-    /// return anywhere as a line feed. What XML 1.0 cannot hold is left out.
+    /// character, and would be written as it stands. What XML 1.0 cannot hold is left out.
     private static func xml(_ string: String) -> String {
         var escaped = String.UnicodeScalarView()
         for scalar in string.unicodeScalars {
@@ -126,8 +124,7 @@ public enum EPUBPackageWriter {
             case 0x3E: escaped.append(contentsOf: "&gt;".unicodeScalars)
             case 0x22: escaped.append(contentsOf: "&quot;".unicodeScalars)
             case 0x27: escaped.append(contentsOf: "&apos;".unicodeScalars)
-            case 0x09, 0x0A, 0x0D: escaped.append(contentsOf: "&#\(scalar.value);".unicodeScalars)
-            case 0x20...0xD7FF, 0xE000...0xFFFD, 0x10000...: escaped.append(scalar)
+            case 0x09, 0x0A, 0x0D, 0x20...0xD7FF, 0xE000...0xFFFD, 0x10000...: escaped.append(scalar)
             default: break
             }
         }

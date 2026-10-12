@@ -189,7 +189,7 @@ final class CSSCascadeHintCoverageTests: XCTestCase {
     func testAFontFaceIsReadWhateverMarkStandsBesideAQuoteCommaOrBackslash() throws {
         let result = try styled("""
             <div><font id="quote" face="&quot;&#x301;x&quot;, Georgia">a</font><font id="apostrophe" face="'&#x308;x', Georgia">b</font>
-            <font id="comma" face="Arial,&#x301;x, Georgia">c</font><font id="backslash" face="a\\&#x338;x, Georgia">d</font>
+            <font id="comma" face="Arial,&#x301;x, Georgia">c</font><font id="backslash" face="x&#x600;\\, Georgia">d</font>
             <font id="prepended" face="x&#x600;&quot;, Georgia">e</font></div>
             """, css: "div { font-family: Palatino }")
         func families(_ id: String) -> [[String]] { result.style(id).fontFamilies.map { $0.unicodeScalars.map { String($0.value, radix: 16) } } }
@@ -197,7 +197,9 @@ final class CSSCascadeHintCoverageTests: XCTestCase {
         XCTAssertEqual(families("quote"), scalars("\u{301}x", "georgia"))
         XCTAssertEqual(families("apostrophe"), scalars("\u{308}x", "georgia"))
         XCTAssertEqual(families("comma"), scalars("arial", "\u{301}x", "georgia"))
-        XCTAssertEqual(families("backslash"), scalars("a\u{338}x", "georgia"))
+        // A backslash left before a combining mark only escapes the mark, and the name is the
+        // same. Left after a prepended mark it escapes the quote that closes the name.
+        XCTAssertEqual(families("backslash"), scalars("x\u{600}", "georgia"))
         XCTAssertEqual(families("prepended"), scalars("x\u{600}", "georgia"))
     }
 

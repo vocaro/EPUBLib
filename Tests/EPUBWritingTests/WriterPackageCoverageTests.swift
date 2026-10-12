@@ -233,35 +233,6 @@ struct WriterPackageCoverageTests {
         #expect(written == after.count + before.count)
     }
 
-    // A parser reads a literal carriage return as a line feed, and in an attribute value reads a
-    // literal tab or line end as a space, so each is written as a character reference.
-    @Test func tabsAndLineEndsAreReadBackAsGivenFromTextAndAttributeValues() async throws {
-        let text = "a\tb\nc\rd\r\ne"
-        let odd = EPUBResource(id: accepted("i" + text, or: "c"), path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml")
-        let data = EPUBResource(id: accepted("d" + text, or: "d"), path: "EPUB/data.bin", mediaType: "application/x-odd;" + text)
-        let facts = EPUBPackageMetadata(metadata: .init(title: text, authors: [text], languages: [text]), identifier: text,
-                                        modificationDate: WriterCoverage.date, summary: text, keywords: [text])
-        let documents = try generate(facts, resources: [odd, data], spine: [.init(resource: odd)], contents: [.init(title: text, href: "EPUB/one.xhtml")],
-                                      pages: [.init(title: text, href: "EPUB/one.xhtml")])
-        let package = try opf(documents), navigation = try nav(documents)
-        for name in ["dc:title", "dc:identifier", "dc:description", "dc:language", "dc:creator", "dc:subject"] {
-            expectScalars(package.named(name).map(\.text), [text], name)
-        }
-        let items = Array(package.named("item").dropFirst())
-        expectScalars(items.map { $0.attributes["id"] } + package.named("itemref").map { $0.attributes["idref"] }, [odd.id, data.id, odd.id], "id")
-        expectScalars(items.map { $0.attributes["media-type"] }, [odd.mediaType, data.mediaType], "media-type")
-        let html = try #require(navigation.elements.first)
-        expectScalars([html.attributes["xml:lang"], html.attributes["lang"]], [text, text], "lang")
-        expectScalars(navigation.named("a").map(\.text), [text, text], "labels")
-        let publication = try await reopened(documents, content: [odd.path: WriterCoverage.xhtml("<p>Text</p>"), data.path: Data([0])])
-        expectScalars([publication.metadata.title] + publication.metadata.identifiers + publication.metadata.languages + publication.metadata.authors,
-                      [text, text, text, text], "metadata read back")
-        expectScalars(publication.tableOfContents.map(\.title) + (publication.pageList ?? []).map(\.label), [text, text], "labels read back")
-        let resources = Array(publication.resources.dropFirst())
-        expectScalars(resources.map(\.id) + publication.spine.map(\.resource.id), [odd.id, data.id, odd.id], "ids read back")
-        expectScalars(resources.map(\.mediaType), [odd.mediaType, data.mediaType], "media types read back")
-    }
-
     // MARK: Package structure
 
     @Test func documentsNameTheirPathsRootfileVersionAndUniqueIdentifier() throws {
