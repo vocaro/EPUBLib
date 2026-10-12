@@ -18,7 +18,10 @@ originally exposed off-page text. A second section, **Hidden labels** (`OPS/labe
 holds what a book hides from the page and keeps for assistive technology: a heading and a
 byline parked at `left: -999em` above an image without alternative text, words clipped to
 nothing inside a line, and a parked link. It also holds what a book hides from everyone: a
-`visibility: hidden` paragraph and an `aria-hidden` one. A second bundled book, opened with
+`visibility: hidden` paragraph and an `aria-hidden` one. A third, **Hidden heading over a
+table** (`OPS/table.xhtml`), opens with a parked heading and then a table, so the heading is
+hidden labels alone on a line of no height, and goes on for more than a screen. A second
+bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
@@ -429,7 +432,9 @@ read its transcript against the visible text. The iPhone and iPad still need phy
    title heading" and "By the parked author." before the image, "Clipped words in the line."
    between the two shown sentences, and "Parked link to the target" as a link before "Shown
    last words."; it never reads "Words nobody is given." or "Words kept from assistive
-   technology."; and a screenshot shows none of the hidden words.
+   technology."; and a screenshot shows none of the hidden words. On the section with a
+   hidden heading over a table, opened in continuous scroll, VoiceOver moving into the text
+   meets "Parked table heading" before the table's first row, and the view does not move.
 7. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
@@ -551,28 +556,38 @@ The Mac runner's transcript is plain text and needs no export.
   gesture, which XCTest cannot make, a book whose lines hold floats or tables, and listening.
 - On 2026-10-12 the hidden-labels section was read on a physical iPhone 17 Pro Max and a
   physical iPad Air 13-inch (M3), both on OS 27.2, through XCTest's VoiceOver service and not
-  by ear: at 17 and at 28 points, in pages and in continuous scroll, and on the iPad in
-  landscape with two columns as well as in portrait. In pages, moving forward from the
-  Bookmark control: "Parked title heading", "By the parked author.", "Book Image", "Shown
-  opening words.", "Clipped words in the line.", "Shown closing words.", "Parked link to the
-  target Link", "Shown last words.". At 28 points on the iPhone the line wraps, and the
-  clipped words came between "Shown opening words." and "Shown". In continuous scroll
-  VoiceOver reads a paragraph at a time, and each label came in the paragraph it stands in:
-  "￼ Parked title heading ￼ By the parked author. ￼", "Shown opening words. ￼ Clipped words
-  in the line. Shown closing words.", "￼ Parked link to the target Shown last words. Double
-  tap to activate embedded link". Neither label hidden from everyone was read in any run,
-  the screenshots show the image and the shown words only, and VoiceOver was off on both
-  devices afterward. On the iPad the probe needs `touch=Bookmark` before `read`: from the
-  first item its cursor stayed on the window's resize control in a simulator. The iPad
-  refused UI automation twice that day ("Timed out while enabling automation mode") and ran
-  half an hour later with nothing changed from the Mac. Not heard: what VoiceOver voices for
-  the attachment character before a label in continuous scroll on iOS.
+  by ear. At 17 points, moving forward from the Bookmark control, in pages and in continuous
+  scroll with its lines listed: "Parked title heading", "By the parked author.", "Book Image",
+  "Shown opening words.", "Clipped words in the line.", "Shown closing words.", "Parked link
+  to the target Link", "Shown last words.". In continuous scroll the lines on screen above
+  the section came first, ending "Link target reached" and "This is the end of the numbered
+  paragraph.", and moving back gave the same items in reverse. Pages were read at 28 points
+  too, and on the iPad in landscape with two columns: on the iPhone the line wraps at that
+  size, and the clipped words came between "Shown opening words." and "Shown". Before the
+  scroll view listed its lines, continuous scroll read a paragraph at a time, at 17 and 28
+  points, with each label in the paragraph it stands in: "￼ Parked title heading ￼ By the
+  parked author. ￼", "Shown opening words. ￼ Clipped words in the line. Shown closing words.",
+  "￼ Parked link to the target Shown last words. Double tap to activate embedded link".
+  Neither label hidden from everyone was read in any run, the screenshots show the image and
+  the shown words only, and VoiceOver was off on both devices afterward. On the iPad the
+  probe needs `touch=Bookmark` before `read`: from the first item its cursor stayed on the
+  window's resize control in a simulator. The iPad refused UI automation twice that day
+  ("Timed out while enabling automation mode") and ran half an hour later with nothing
+  changed from the Mac.
+- The same day, on both devices, the section with a hidden heading over a table, at 17
+  points. Opened in continuous scroll, the first move forward from Bookmark gave "Parked
+  table heading", then "First cell Second cell Image", "Third cell Fourth cell Image",
+  "Shown words after the table." and the lines after it, and moving back returned through
+  the rows to "Parked table heading". The screenshots before and after are the same but for
+  VoiceOver's cursor, a point above the table: the view did not move. In pages the table's
+  four cells came first, each an item, then "Parked table heading", then the rows: a
+  table's cells are read before the lines of their page there, whatever those are.
 - The same day the section was heard on a Mac: GitHub's hosted `xcode-27` runner (image
   `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in three
   [hosted sessions](#hosted-mac-sessions) at `d010812`, in a window 600 points wide at 17
-  points. The section is the book's last: fourteen `ax:next` steps reach its page,
-  and in continuous scroll `textend` puts VoiceOver on "Link target reached", three lines
-  above it. In pages, on entering: "In text Parked title heading By the parked author. Book
+  points. The section was then the book's last: fourteen `ax:next` steps reached its page
+  (twelve turn pages), and in continuous scroll `textend` put VoiceOver on "Link target
+  reached", three lines above it. In pages, on entering: "In text Parked title heading By the parked author. Book
   image im", the 64 characters the probe records. By line: "Parked title heading By the
   parked author. Book image image", "Shown opening words. Clipped words in the line. Shown
   closing w", "Parked link to the target Shown last words.", "end of text". By word each
