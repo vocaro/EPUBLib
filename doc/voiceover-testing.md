@@ -1,8 +1,10 @@
 # VoiceOver testing
 
 Use real VoiceOver speech to verify the paginated reader on a Mac, physical iPhone and
-physical iPad. Native accessibility API tests and simulator runs support this work but do
-not establish what VoiceOver reads. The sessions are recorded in the
+physical iPad. Native accessibility API tests support this work but do not establish what
+VoiceOver reads. A [simulator's VoiceOver](#simulators) does read, with no device, window or
+sound, but it activates nothing, and its sessions are not acceptance evidence. The sessions
+are recorded in the
 [Mac verification](issue-55-voiceover-mac.md) and the
 [iPad and iPhone verification](issue-28-voiceover-devices.md); the acceptance matrix is in
 [#28](https://github.com/vocaro/EPUBLib/issues/28).
@@ -14,11 +16,25 @@ separate application identifiers and a bundled synthetic EPUB. It opens the fixt
 without a file-picker interaction. The book contains `word0001` through `word1200` in one
 justified paragraph, a heading, an internal **Verification link**, and an image labeled
 **Blue verification square**. Its long paragraph retains the continuation context that
-originally exposed off-page text. Do not import private books for this check.
+originally exposed off-page text. A second section, **Hidden labels** (`OPS/labels.xhtml`),
+holds what a book hides from the page and keeps for assistive technology: a heading and a
+byline parked at `left: -999em` above an image without alternative text, words clipped to
+nothing inside a line, and a parked link. It also holds what a book hides from everyone: a
+`visibility: hidden` paragraph and an `aria-hidden` one. A third, **Hidden heading over a
+table** (`OPS/table.xhtml`), opens with a parked heading and then a table, so the heading is
+hidden labels alone on a line of no height, and goes on for more than a screen. A second
+bundled book, opened with
+`-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
+ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
+twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
+of the book is a few screens from the start of its last chapter. Do not import private books
+for this check.
 
 Use Xcode 27, OS 27, XcodeGen, Python 3, and a graphical Mac login. Select a signing team for
 the UI-test runners and physical-device app. Signed Mac UI tests worked in the initial
-session; unsigned runs did not complete. Build and generate from the repository root:
+session; unsigned runs did not complete. A [hosted Mac session](#hosted-mac-sessions) needs
+neither a workstation nor a team: its build is signed ad hoc. Build and generate from the
+repository root:
 
 ```sh
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
@@ -36,6 +52,10 @@ build products, logs and result bundles are ignored by Git. Keep configuration c
 `project.yml`; do not commit a personal team identifier.
 
 ## Mac speech capture
+
+A Mac session takes over the machine it runs on. Unless someone has to listen or step by
+hand, run it on a hosted runner, which needs no workstation and counts as acceptance evidence:
+see [Hosted Mac sessions](#hosted-mac-sessions). On a workstation, proceed as follows.
 
 Reserve an interval with exclusive control of the Mac's keyboard focus. Use one automation
 controller: no competing agents, other `swift test` or simulator UI runs, or manual VoiceOver
@@ -68,7 +88,9 @@ approval flow; do not edit TCC databases or enable broad developer permissions a
 
 The probe only records. It polls `XCUIVoiceOverService.currentSpeech()` and prints each new
 phrase as a timestamped `VOICEOVER_EVENT`, while the runner sends its steps in order and
-waits `--pause` seconds after each VoiceOver command:
+waits `--pause` seconds after each VoiceOver command. With `--advance-after SECONDS` it sends
+the next step that long after a key's first new phrase, and waits out the pause only when no
+new phrase is recorded:
 
 - `in`, `out`: start or stop interacting with the item in the VoiceOver cursor.
 - `right`, `left`: the next or previous item; inside text, the next or previous word.
@@ -95,7 +117,14 @@ lines, which name unit-test hosts of other sessions.
 VoiceOver enters a column at its insertion point, and a page turn resets that to the first
 line. Start a case with a turn and `ax:focus`, never a click. Eight `left` steps from the
 left column, nine from the right, reach **Next Page** in the sample's control strip; eight
-`right` steps return from it to the left column.
+`right` steps return from it to the left column. **Previous Page** is one step further.
+
+A session can open with VoiceOver's cursor on a control, on the reader's group or already on
+the text, and what VoiceOver keeps of a column depends on how it got there. For a case in which
+VoiceOver leaves a column and comes back, bring it to the column by a focus change from
+somewhere else, `ax:focus=search ax:focus=0`: when it was on the text from the start, it came
+back at the page's first line even on a reader with the fault of
+[#337](https://github.com/vocaro/EPUBLib/issues/337).
 
 Use a 600-point window for one column and 1100 points for two (`ax:width=600`),
 `-SampleFontSize 17` and `23`, and `ax:larger` or `ax:smaller` for a change while the reader is
@@ -138,7 +167,9 @@ button and use `activate` in a runner session.
 `--xctest-values` adds XCTest's own snapshot of each column to the transcript whenever it
 changes. Use it with `ax:` steps only: once the probe queries the application, XCTest's
 **Automation Running** banner takes the VoiceOver cursor about every thirty seconds while the
-runner types. Snapshots re-queried for each read matched the observer after every native page
+runner types. The runner stops a session, with exit status 125, as soon as VoiceOver has named
+the banner, because the speech after that may be the banner's; only `--xctest-values` with
+`ax:` steps alone is exempt. Snapshots re-queried for each read matched the observer after every native page
 turn, text-size change and resize, with and without the reader's notifications. Read an
 element again rather than reuse a value, and treat neither XCTest nor the observer as speech.
 
@@ -174,8 +205,157 @@ point can be followed beside the speech.
 paragraph is visible from its first character while any of it is on screen, and VoiceOver's
 first and last visible word, and a text cursor it brings back into view, go by that. The text
 area's lines are the whole book's, so a `STATE` read is slow in a long book; the fixture has
-269 at this size. On a simulator or device, `TEST_RUNNER_VOICEOVER_FLOW=scrolled` opens the
-fixture in continuous scroll.
+269 at this size.
+
+On an iPhone or iPad VoiceOver walks the scroll view's accessibility elements instead, and the
+reader lists the lines on screen, with two more each side while VoiceOver's cursor is in the
+text. Run the probe (see "Physical iPhone and iPad") in that flow, on the book of ordinary
+paragraphs, by adding to its command:
+
+```sh
+TEST_RUNNER_VOICEOVER_FLOW=scrolled TEST_RUNNER_VOICEOVER_BOOK=paragraphs \
+TEST_RUNNER_VOICEOVER_FONT_SIZE=17 \
+TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wait=2,visible,screenshot,forward=9,visible,screenshot,forward=30,visible,backward=44,visible,screenshot'
+```
+
+1. Two scroll steps end in the middle of a paragraph. The first `visible` gives the first and
+   last lines on screen; nothing above or below them is listed.
+2. Eight moves forward from Scroll Forward cross the sample's other controls and the ninth
+   enters the text. Its phrase is the first line on screen, not `w01` of that line's
+   paragraph, and the screenshot after it shows the same lines as the one before: coming in
+   scrolled nothing.
+3. The second `visible` counts four more lines, two each side of the screen, and says how
+   many are outside the window.
+4. The moves forward give every line once, in order, while the view follows; the moves back
+   pass the line VoiceOver came in at and go on above it. A phrase repeated, a line missing,
+   or a control's name among them is a failure.
+5. `backward=1` straight after coming in returns to the control before the text. A touch on
+   a control (`touch=Bookmark`) takes the cursor out, and `visible` then lists the lines on
+   screen alone; the next move forward comes in at the first of them.
+6. `activate=Contents,activate=Chapter two` moves the reader with the cursor on a control, and
+   `point=0.5:0.8` touches a line directly: VoiceOver reads the line under the finger.
+
+Drive at least one session with `flick=right*20` and `flick=left*30` in place of `forward`
+and `backward`: those are VoiceOver's own gestures for the next and previous item, where the
+others are the test service's moves. They take about six seconds each under XCTest.
+
+## Hosted Mac sessions
+
+The same reader, probe, observer and runner script record real VoiceOver speech on GitHub's
+hosted `xcode-27` runner. A session there takes over no workstation, several can run at once,
+and the standard runner costs nothing in this public repository. It is acceptance evidence
+for the Mac, under the same rules as a workstation session; see
+[Acceptance and evidence](#acceptance-and-evidence). The
+[Mac VoiceOver workflow](../.github/workflows/voiceover-mac.yml) builds the reader at a ref,
+runs one or more sessions and uploads their transcripts. It starts only by hand:
+
+```sh
+gh workflow run voiceover-mac.yml --ref YOUR_BRANCH -f width=600 -f text_size=17 \
+  -f steps='ax:next ax:lines ax:focus in line nextline ; ax:next ax:focus in lastword line nextline'
+gh run list --workflow voiceover-mac.yml --limit 3
+gh run watch RUN_ID --exit-status
+gh run download RUN_ID --name voiceover-mac-transcripts --dir .build/voiceover/hosted/RUN_ID
+```
+
+`--ref` chooses the branch whose workflow file is used, and that branch is built unless the
+`ref` input names another one. The inputs, all optional:
+
+- `ref`: a branch, a tag or a full commit SHA whose reader and probe are built. The runner,
+  observer and session scripts still come from the `--ref` branch, so a commit older than this
+  workflow can be heard, and two commits compared, with one harness.
+- `steps`: the steps `scripts/run-voiceover-mac.py` takes, quoted as on a command line, as in
+  `"activate=Next Page"`. A `;` or a line break starts another session. Each session gets a
+  fresh reader, and `ax:width` with the `width` input before its own steps. Left empty, one
+  session checks a page boundary: the left column's entry line, a Next Page activated through
+  VoiceOver, and the new page's entry line and second line. It moves no line before the turn:
+  when it was written VoiceOver came back to a column at the character offset it had there
+  ([#337](https://github.com/vocaro/EPUBLib/issues/337)).
+- `width` and `text_size`: the window width and the launch text size in points, 1100 and 23
+  unless given.
+- `flow`: `paginated`, or `scrolled` for [continuous scroll](#continuous-scroll), which needs
+  its own steps.
+- `pause`: the runner's `--pause`, 5 seconds unless given.
+- `advance_after`: the runner's `--advance-after`. Empty keeps the fixed pause.
+
+A job has twenty minutes and a session at most 300 seconds, the runner script's limit.
+Preparing the runner and building take about two minutes and the boundary session about three
+at the fixed pause, so a run of that one session has uploaded its transcript about five minutes
+after it starts. A session that could not end three minutes before the job's limit is reported
+as not run, and the job fails. A new run for the same ref, width, text size and flow cancels
+one still in progress, so put step lists that share those into one run; runs that differ in
+any of them go on side by side.
+
+With `advance_after` set to `0.5`, stepping took about a quarter of the time in four pairs of
+sessions, and 95 of 97 keys recorded the same first phrase as at the fixed pause. The hint that
+follows a move is cut short, and a phrase VoiceOver repeats is not recorded again. It suits
+exploring and walks across controls. A transcript offered as acceptance evidence is recorded
+at a fixed pause; see [Acceptance and evidence](#acceptance-and-evidence).
+
+The job fails unless every session exits 0. `sessions.txt` in the download gives each
+session's outcome, transcript and command: 124 means the deadline was reached, 125 that the
+runner script stopped the session, and 2 that it refused the steps. The download also holds a
+`mac-STAMP.transcript.txt` for each session in order, `runner.txt` with the commit, the runner
+image and its version, macOS, Xcode, System Integrity Protection and the screen, the observer,
+`xcodebuild` and build logs, and a screenshot of the runner's screen at the end. The job's log
+prints each transcript, and the script writes each session's steps and speech to the run's
+summary page. The artifacts expire after five days; copy what must be kept. A failed job also uploads
+`voiceover-mac-result-bundles`, 100 MB for four short sessions, and adds
+`banner-and-dictation.log` to the transcripts: the banner's starts and anything from Dictation
+in the system log. A stopped session's bundle has no `Info.plist`, so `xcresulttool` cannot
+open it, but its log archive opens with `log show --archive`.
+
+A hosted session differs from one on a workstation:
+
+- The screen is 1920 × 1080 and the reader's window 850 points high, where the recorded
+  workstation sessions have 882. A full column holds one line fewer, 17 at 23 points; the
+  column widths are the same. Take every boundary from the session's own `STATE` and `LINE`
+  lines.
+- macOS and Xcode are the image's, recorded in `runner.txt`: on 2026-10-12, macOS 27.0.1
+  (`26A434`) where the recorded workstation sessions used 27.0 (`26A428`).
+- Nobody listens and nothing is stepped by hand: a step list goes in and a transcript comes
+  out. Whatever needs a person's ear or a decision between two steps needs a workstation.
+- The build is signed ad hoc, without a team.
+- The three-processor runner is slow to start the reader. Seven of 26 sessions opened with
+  "VoiceOver on VoiceOverVerificationMac not responding"; every later phrase was the reader's.
+- `xcode-27` is a public-preview image. Its privacy grants, its automation mode without
+  authentication and the behaviour of XCTest's banner belong to the image version and can
+  change; `runner.txt` names the version.
+
+The workflow prepares the runner before it builds. Each step is there for a failure seen
+without it:
+
+1. `defaults write com.apple.VoiceOverTraining doNotShowSplashScreen -bool true`: a Mac that
+   has never run VoiceOver opens its welcome dialog first. No session was tried without this.
+2. `defaults write com.apple.HIToolbox AppleDictationAutoEnable -int 0`: every VoiceOver
+   command presses Control, and after about four of them "Do you want to enable Dictation?"
+   took the VoiceOver cursor.
+3. `launchctl bootout gui/$(id -u)/com.apple.dt.AutomationModeUI`: XCTest's Automation
+   Running banner is a system launch agent with `KeepAlive` for as long as
+   `/var/db/com.apple.dt.automationmode/automation-enabled` exists, and `EnablePressuredExit`.
+   On this image it is killed and restarted about every ten seconds during a UI test, and
+   VoiceOver moves to an instance that survives and stays there. That lost three sessions of
+   seven. `launchctl disable` does not stop the banner. Unloading the agent works only because
+   the runner has System Integrity Protection disabled, which `runner.txt` records. A Mac with
+   it engaged refuses and changes nothing: "Boot-out failed: 150: Operation not permitted
+   while System Integrity Protection is engaged". The job fails if the launch agent is still
+   loaded, and the runner script stops any session in which VoiceOver names the banner.
+4. `displayplacer` sets the screen to 1920 × 1080: the image's 1024 × 768 screen held the
+   window to 1024 × 674, and `ax:width=1100` reported success without resizing it. The job
+   fails if the screen is not that size afterwards.
+5. `CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=` for the build: an ad hoc signature needs no team,
+   certificate or secret, and the image's own privacy grants were enough for the UI test.
+6. The runner script reads a missing `voiceOverOnOffKey` as off when no `VoiceOver` process
+   exists, which is the state of a Mac that has never run VoiceOver.
+
+These commands change settings of the logged-in user and belong on a disposable runner. Do
+not run them on a workstation, where the third does nothing in any case; the workflow's first
+step refuses a machine that is not GitHub's. Keep `runs-on: xcode-27`: a larger runner, such
+as `xcode-27-xlarge`, is billed even in a public repository. To see what a run cost, expect
+`"billable": {}` from:
+
+```sh
+gh api repos/vocaro/EPUBLib/actions/runs/RUN_ID/timing
+```
 
 ## Physical iPhone and iPad
 
@@ -198,24 +378,41 @@ check the device state afterward, especially after cancellation. A user must ent
 required XCTest UI Automation passcode directly on the device. Never collect it in logs or chat.
 
 The probe launches the reader and performs the comma-separated steps, recording VoiceOver's
-phrase after each. Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
+phrase after each, and ends with `finished`: a transcript without that line stopped early.
+Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 
-- `read`: move forward until VoiceOver repeats itself at the end of the screen.
+- `read`: move forward until VoiceOver stays on the last item. There it repeats that item's
+  phrase, but so does a second item with the same label. One move back tells them apart: from
+  the last item it reaches the item before, and a move forward returns. Where that settles
+  nothing, because the item before says the same or VoiceOver does not move back, three more
+  repeats end the read, as three did before. A `read` line says which way it ended.
+- `forward=COUNT`, `backward=COUNT`: that many moves to the next or previous item, where
+  `read` would go on through a whole book in continuous scroll.
 - `visible`: the window size and each column's first and last numbered lines as XCTest sees
-  them, to compare with the speech.
+  them, to compare with the speech. Lines listed above or below the window, as in continuous
+  scroll while the cursor is in the text, are counted apart.
 - `touch=LABEL`: touch the first item whose label begins with LABEL. Under VoiceOver a touch
   moves its cursor there; `touch=word` is the first numbered line.
-- `activate=LABEL`: touch the item, then double-tap, which is VoiceOver's activation.
+- `activate=LABEL`: touch the item, then double-tap, which is VoiceOver's activation. The
+  probe goes on once the screen has changed and held still for half a second, after two
+  seconds at most, and a `settled` line says which.
+- `point=X:Y`: touch a place in the window, as fractions of its width and height, whatever is
+  listed there.
 - `flick=down`, `flick=up`: one finger steps through the rotor. With the cursor on a line it
   offers the line's actions, Next Page first; `doubletap=LABEL` on that same line then
   performs the chosen one without moving the cursor. On an iPhone in landscape only the
   upward flick registered, which reaches the same actions.
+- `flick=right`, `flick=left`: VoiceOver's next and previous item; `flick=right*12` repeats it.
 - `rotate=landscape`, `rotate=portrait`: an iPad shows two columns in landscape and one in
-  portrait. End a session in the orientation it started in.
+  portrait. The probe waits for the screen as after `activate`, three seconds at most. End a
+  session in the orientation it started in.
 - `wait=SECONDS`, and `screenshot`, attached to the result bundle: what is on the glass,
   independent of every accessibility snapshot.
 
-`TEST_RUNNER_VOICEOVER_FONT_SIZE` sets the launch text size. `TEST_RUNNER_VOICEOVER_OFF=1`
+`TEST_RUNNER_VOICEOVER_FONT_SIZE` sets the launch text size, `TEST_RUNNER_VOICEOVER_FLOW=scrolled`
+opens the book in continuous scroll, `TEST_RUNNER_VOICEOVER_HREF` opens a section other than
+the first (`OPS/labels.xhtml`) and `TEST_RUNNER_VOICEOVER_BOOK=paragraphs` opens the book of
+ordinary paragraphs. `TEST_RUNNER_VOICEOVER_OFF=1`
 leaves VoiceOver off, so the same steps are plain touches: use it to tell a VoiceOver failure
 from one of the reader's own. The probe stops when the reader is no longer in the foreground.
 Another session's tests on the same device bring their own app forward or switch VoiceOver
@@ -227,11 +424,116 @@ turns pages by activating the page buttons or a line's Next Page action. A trans
 begins in an editing field, with the keyboard's keys after the page, is not a reading-order
 result. Use physical-device sessions for acceptance.
 
+## Simulators
+
+`scripts/run-voiceover-simulator.py` runs the same probe on simulators of its own, with no
+device, no Simulator window and no sound. It is a quick check of what VoiceOver reads, not
+acceptance evidence:
+
+```sh
+python3 scripts/run-voiceover-simulator.py
+python3 scripts/run-voiceover-simulator.py --device iPad-Air-13-inch-M4 --font-size 23 \
+  --steps 'rotate=landscape,visible,touch=Page boundary,read,rotate=portrait'
+```
+
+The runner generates the fixture and project if they are missing or stale and builds the probe
+once; a simulator build needs no signing team. It creates an iPhone 17 Pro and an iPad Air
+13-inch (M4) on the iOS 27.0 runtime (`--device` and `--runtime` choose others), boots them
+with `simctl` alone, sets each one's volume to 0 and runs one `xcodebuild
+test-without-building` for each at the same time, under `--timeout`. It deletes its simulators
+however the run ends, also when it is terminated, and never boots, changes or deletes one it
+did not create. `--steps`, `--font-size`, `--flow scrolled` and `--voiceover-off` are the
+probe's settings above. Each simulator gets `simulator-TYPE-STAMP.transcript.txt` beside its
+log and result bundle in `.build/voiceover/results/`: the device, revision and steps, the
+probe's lines, then the result, with VoiceOver's state and the volume as `devicectl` reports
+them. The exit status is 0 only when every probe ran all its steps and passed, VoiceOver is
+off again and no simulator lost its mute.
+
+Four things went wrong in the first runs, and the runner and probe now allow for each:
+
+- **Sound.** A simulator's VoiceOver speaks through the Mac's own output device, at volume
+  60 unless told otherwise. Nothing runs until the volume reads 0, and the runner reads it
+  again every second and at the end. A simulator whose `backboardd` restarts comes back at 60
+  within six seconds, VoiceOver still on: it aborted once in some thirty rotations, in Metal,
+  with VoiceOver on. The runner then mutes the simulator again and the transcript has an
+  `UNMUTED` line. A check that gets no answer in five seconds is a `VOLUME gave no reading`
+  line instead: a few in most runs, while xcodebuild starts its test, and two thirds of them
+  on a saturated Mac. This reads a setting. Nothing listens to the Mac.
+- **A VoiceOver that is on and silent.** On a newly booted simulator VoiceOver's first start
+  took 40 to 60 seconds, by its own log waiting for the voice database, while XCTest's
+  `enable()` returned in a few. On a Mac other sessions had saturated it took 170, and the
+  default `--timeout` of 300 seconds then passed before the probe had finished. Until
+  VoiceOver is up, touches reach the reader as plain touches and every move fails with
+  "Failed to send moveForward command". The probe waits for VoiceOver's first phrase, three
+  minutes at most; the `voiceOver` line then says `silent for its first 44 s`. Switching
+  VoiceOver off and on again did not help: one session stayed silent through three starts.
+- **An xcodebuild that does not end.** After a test that recorded any issue, a warning
+  included, xcodebuild runs `simctl diagnose --timeout=600` and waits for it. A rotated iPad
+  logs such a warning in a probe that passes ("Support for all orientations will soon be
+  required"), and xcodebuild then ran on for 22 seconds, 30 seconds, a minute, twice more than
+  five minutes, when it was stopped, and once the collector's whole ten. The runner passes
+  `-collect-test-diagnostics never`, with which the same run ended within a second of its
+  probe. If xcodebuild has still not ended `--exit-grace` seconds after the probe, the runner
+  stops it and its collector, takes the speech from xcodebuild's output or from the
+  unfinished result bundle (`Staging/*/Diagnostics/**/StandardOutputAndStandardError.txt`),
+  whichever holds more, and says so in a `STOPPED` line.
+- **Other sessions.** XCTest fails a UI test when a process it calls critical crashes while
+  the test runs. One probe failed with "Critical process xctest crashed" while other sessions'
+  unit tests were running on the Mac; its own transcript was complete. `FAILURE` lines give
+  XCTest's reasons.
+
+A simulator session establishes what VoiceOver reads and in what order: each line, the end of
+the page, both columns of an iPad's landscape spread, and the page after a turn. It does not
+establish that VoiceOver can activate anything. On these simulators a double tap under
+VoiceOver does not perform the cursor item's action. The reader receives one plain touch
+where the double tap landed, about a quarter of a second later: with the cursor on Next Page
+and the double tap on the heading, the touch arrived on the heading and the page stayed.
+
+- `activate=Next Page` turns the page in portrait because that touch lands on the button it
+  names. The page that follows is real, and so is VoiceOver's reading of it. That VoiceOver
+  activated the button is not shown.
+- In landscape the touch arrives a quarter turn away, at (height − y, x) for a double tap at
+  (x, y): on the iPad at (890, 43) for the button at (43, 134), where nothing is. The page
+  does not turn. On the iPhone it lands in the search field and brings up the keyboard.
+- The rotor offers a line's actions and speaks them (`flick=down` says "Next Page"), and
+  `doubletap` performs none: the touch goes to the line, and neither the reader's action nor
+  its `accessibilityActivate` is called.
+- XCTest's Control-Option-Space reaches VoiceOver, whose log names it Activate, and nothing
+  reaches the reader. Control-Option with an arrow does move the cursor, in 0.4 seconds.
+
+With VoiceOver off the same touches turn the page in both orientations, and on physical
+devices VoiceOver performs every one of these
+([iPad and iPhone verification](issue-28-voiceover-devices.md)), so the difference is the
+simulator's and not the probe's or the reader's. Page actions, the rotor and turns in
+landscape need a device. To read a later landscape spread on a simulator, turn pages in
+portrait and then rotate: the reader keeps its place.
+
+A move costs half a second and a touch about five and a half, most of it XCTest waiting for
+an event that VoiceOver keeps from the reader. The end of a `read` costs 3.3 seconds and an
+`activate` or `rotate` a little over one after the gesture. The simulators are not the
+devices of the record: an iPhone 17 Pro shows 402 × 874 points and its pages hold fewer lines
+than the iPhone 17 Pro Max's. In landscape the sample's control strip stacks and leaves its
+reader one line at 17 points, so `visible` finds no numbered line on the first spread. All of
+this is the iOS 27.0 runtime. The 27.1 runtime of Xcode 27.1 offers only the iPhone Duo and
+was not compared.
+
 ## Acceptance and evidence
 
 For each device, exercise supported one- and two-column layouts, normal and larger text,
 and a text-size change while the reader is open. Record the build revision, OS/Xcode versions,
 device, window size/orientation, font size and visible first/last numbered words.
+
+For the Mac, a speech session run on the hosted `xcode-27` runner is acceptance evidence, as
+one on a workstation is. Record its runner image and image version, such as `xcode-27-arm64`
+20261006.0244.1, beside the OS and Xcode versions; `runner.txt` in the run's download has all
+three, and the job's "Set up job" log prints the image. Everything else here applies to it
+unchanged. A hosted session that completes is no more an acceptance result than any other:
+read its transcript against the visible text. The iPhone and iPad still need physical devices.
+
+Record a Mac transcript offered as evidence at a fixed pause, the runner's default, on a
+workstation or hosted. `--advance-after` is for exploring: it cuts short whatever follows a
+key's first phrase, and in the paired sessions it once recorded a control's hint in place of
+its name. Run a failure first seen with it again at a fixed pause before reporting it.
 
 1. Capture the first spoken line upon entering each column, before advancing. The first
    numbered word must match that column's first visible word.
@@ -242,7 +544,14 @@ device, window size/orientation, font size and visible first/last numbered words
 4. Confirm heading order, the link's label/action and the image's spoken label.
 5. Resize or change typography, wait for the new layout, and repeat the boundary and ordering
    checks. On Mac verify corresponding value-change notifications and fresh text values.
-6. Restore all original VoiceOver/scripting settings and independently verify restoration.
+6. On the hidden-labels section, in pages and in continuous scroll: VoiceOver reads "Parked
+   title heading" and "By the parked author." before the image, "Clipped words in the line."
+   between the two shown sentences, and "Parked link to the target" as a link before "Shown
+   last words."; it never reads "Words nobody is given." or "Words kept from assistive
+   technology."; and a screenshot shows none of the hidden words. On the section with a
+   hidden heading over a table, opened in continuous scroll, VoiceOver moving into the text
+   meets "Parked table heading" before the table's first row, and the view does not move.
+7. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
@@ -282,7 +591,9 @@ The Mac runner's transcript is plain text and needs no export.
 - VoiceOver keeps its own text cursor for a column it rests on. If the page changes while it
   is not interacting, it re-enters at its previous character offset, or on the last line of a
   shorter page; `firstword` returns to the first visible word. A window resize moved a
-  resting cursor to the window's first control. Neither is a page-boundary failure.
+  resting cursor to the window's first control. Neither is a page-boundary failure. It kept
+  one for a column it had left too, until the canvas posted its layout change from the element
+  that holds the columns ([#337](https://github.com/vocaro/EPUBLib/issues/337)).
 - On 2026-10-11 the Mac sessions verified first and last lines, word order, end of text,
   line counts and page-turn continuity in one and two columns at 17 and 23 points, with value
   notifications for page turns, text-size changes and resizes. See the
@@ -305,10 +616,136 @@ The Mac runner's transcript is plain text and needs no export.
   layout change, entering went to the first visible character by AppKit's account, the
   numbered paragraph's first line. Not heard: that resting case with the layout change,
   scrolling by hand, contents navigation, a change from paging, a book of ordinary paragraphs.
-- On an iPhone simulator, through XCTest's VoiceOver service and not by ear, moving forward
-  from the controls into the text of continuous scroll went to the book's first paragraph and
-  scrolled the reader back to it, three screens up
-  ([#301](https://github.com/vocaro/EPUBLib/issues/301)).
+- On 2026-10-12 [hosted sessions](#hosted-mac-sessions) on `xcode-27` (macOS 27.0.1, windows
+  850 points high) heard the page boundary in both layouts. Two columns at 23 points: "In text
+  word0093 word0094 word0095 word0096", a right column ending at `word0228`, "2 updated items"
+  for a Next Page activated through VoiceOver, then "In text word0229 word0230 word0231
+  word0232" and "word0233 word0234 word0235 word0236". One column at 17 points, with
+  `advance_after` at 0.5: "In text word0055…", a last line "word0165…word0171" followed by "end
+  of text", then "In text word0172…" after the turn. Continuous scroll at 23 points in a
+  600-point window entered at "In text word0072 word0073 word0074 word0075 word0076" after two
+  Scroll Forward steps, as on the workstation. With the banner's launch agent left loaded on
+  purpose, one session of four heard "application Automation Running" and was stopped.
+- On 2026-10-12 [hosted sessions](#hosted-mac-sessions) on `xcode-27` (image 20261006.0244.1,
+  macOS 27.0.1) heard VoiceOver come back to a column after a page turn, on `740c073` and with
+  the fix of [#337](https://github.com/vocaro/EPUBLib/issues/337), at the fixed pause. Two
+  lines were moved in the column before leaving it. `740c073` set the insertion point to the
+  offset it had before the turn and read from there: "In text word0237 word0238 word0239
+  word0240" on a left column starting at `word0229`, "In text word0305…" on a right one
+  starting at `word0297`, and in one column at 17 points "In text word0179…" on a page starting
+  at `word0172`. The fix set none and said "In text word0229 word0230 word0231 word0232", "In
+  text word0297…" and "In text word0172…". Previous Page, and Larger Text chosen from one item
+  away, went the same way on each. Page Down and Page Up while interacting read the new first
+  line, and continuous scroll entered at "In text word0072 word0073 word0074 word0075
+  word0076", as before. With the cursor resting on the column during the turn both said "In
+  text word0237…". The
+  [Mac verification](issue-55-voiceover-mac.md#coming-back-to-a-column-after-a-page-turn) has
+  each case.
+- On 2026-10-12, continuous scroll on a physical iPhone 17 Pro Max (iOS 27.2, 440 × 956,
+  17 points) and iPad Air 13-inch (iPadOS 27.2, 23 points), the book of ordinary paragraphs,
+  through XCTest's VoiceOver service with VoiceOver switched on for each session; its phrases
+  were recorded and nobody listened. Before the scroll view listed its lines, two Scroll
+  Forward steps on the iPhone left `p003w01` to `p008w40` on screen, and the ninth move
+  forward from Scroll Forward gave "C hapter one", then the whole of `p001`, with the reader
+  back at the top of the book ([#301](https://github.com/vocaro/EPUBLib/issues/301)).
+  With the lines listed, on the iPhone: after two steps the first line of the reading area
+  was `p005w21 … p005w25`, the fifth of its paragraph, and the ninth move gave that line; the
+  screenshots before and after it differ only in VoiceOver's cursor. `backward=1` returned to
+  Bookmark. Twenty-eight moves forward and forty back gave every line once and in order, the
+  view following, back past the line VoiceOver came in at to `p004w01`. After
+  `activate=Contents,activate=Chapter two` the fifth move from Contents gave "Chapter two",
+  twenty-four more read on past the last line that had been on screen, and thirty back
+  passed the heading into the chapter before. A touch on Bookmark left the twenty lines on
+  screen listed alone, `point=0.5:0.8` gave the line under it, and twenty-two `flick=right`
+  and twenty-eight `flick=left` read on and back as the service's moves had.
+  On the iPad upright (1024 × 1366): after two steps the ninth move gave `p010w15 … p010w21`,
+  the third line of its paragraph and the first of the reading area; forty-four moves
+  forward and sixty back gave every line once and in order. In the first book at 23 points
+  the lines read "Page boundary verification", "Verification link Link", ". Image:", "Blue
+  verification square Image", and after three steps the ninth move gave `word0550 …
+  word0555`, the first on screen.
+- The same day, on the iPad on its side (1366 × 1024), straight after
+  `activate=Contents,activate=Chapter two`: the fifth move gave "Chapter two" and seventeen
+  more the lines down to `p043w36 … p043w40`, the last that had been on screen when the
+  menu closed. The next gave "Vertical scroll bar" and the one after the sample's footer;
+  the lines after `p043w40`, listed by then, were passed over. Moving back from there gave
+  the lines in order to "Chapter two", then three of them a second time, then went on above
+  the heading without a gap. An iPhone 17 Pro simulator (iOS 27.0) does the same after any
+  menu closes, even when the chapter chosen is the one on screen, and reads on, as the
+  devices did, when VoiceOver comes into the text after a step of the reader's own or
+  without a menu having closed. VoiceOver appears to keep the elements it found when the
+  menu closed and to walk those while its cursor stays on them. Posting a layout change,
+  with no element or with the line under the cursor, did not change that in the simulator;
+  a page-scrolled notification made VoiceOver skip lines; giving it new elements for the
+  same lines once its cursor had moved on made it lose its place. It is not resolved
+  ([#339](https://github.com/vocaro/EPUBLib/issues/339)).
+- In the simulator, UIKit scrolled the line VoiceOver's cursor came to until the area inside
+  the scroll view's insets held its frame, and then until the line was 40 points below the
+  top of that area or about 120 above its bottom. A line that was the first listed when
+  VoiceOver took it led back to the control before the text on the next move back, though
+  lines had been listed before it since; and when the list shrank to the screen between the
+  two halves of a move, VoiceOver stopped at a line it had reached above the screen.
+- Not done on a device: a larger text size, VoiceOver's three-finger scroll and its read-all
+  gesture, which XCTest cannot make, a book whose lines hold floats or tables, and listening.
+- On 2026-10-12 the hidden-labels section was read on a physical iPhone 17 Pro Max and a
+  physical iPad Air 13-inch (M3), both on OS 27.2, through XCTest's VoiceOver service and not
+  by ear. At 17 points, moving forward from the Bookmark control, in pages and in continuous
+  scroll with its lines listed: "Parked title heading", "By the parked author.", "Book Image",
+  "Shown opening words.", "Clipped words in the line.", "Shown closing words.", "Parked link
+  to the target Link", "Shown last words.". In continuous scroll the lines on screen above
+  the section came first, ending "Link target reached" and "This is the end of the numbered
+  paragraph.", and moving back gave the same items in reverse. Pages were read at 28 points
+  too, and on the iPad in landscape with two columns: on the iPhone the line wraps at that
+  size, and the clipped words came between "Shown opening words." and "Shown". Before the
+  scroll view listed its lines, continuous scroll read a paragraph at a time, at 17 and 28
+  points, with each label in the paragraph it stands in: "￼ Parked title heading ￼ By the
+  parked author. ￼", "Shown opening words. ￼ Clipped words in the line. Shown closing words.",
+  "￼ Parked link to the target Shown last words. Double tap to activate embedded link".
+  Neither label hidden from everyone was read in any run, the screenshots show the image and
+  the shown words only, and VoiceOver was off on both devices afterward. On the iPad the
+  probe needs `touch=Bookmark` before `read`: from the first item its cursor stayed on the
+  window's resize control in a simulator. The iPad refused UI automation twice that day
+  ("Timed out while enabling automation mode") and ran half an hour later with nothing
+  changed from the Mac.
+- The same day, on both devices, the section with a hidden heading over a table, at 17
+  points. Opened in continuous scroll, the first move forward from Bookmark gave "Parked
+  table heading", then "First cell Second cell Image", "Third cell Fourth cell Image",
+  "Shown words after the table." and the lines after it, and moving back returned through
+  the rows to "Parked table heading". The screenshots before and after are the same but for
+  VoiceOver's cursor, a point above the table: the view did not move. In pages the table's
+  four cells came first, each an item, then "Parked table heading", then the rows: a
+  table's cells are read before the lines of their page there, whatever those are.
+- The same day the section was heard on a Mac: GitHub's hosted `xcode-27` runner (image
+  `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in three
+  [hosted sessions](#hosted-mac-sessions) at `d010812`, in a window 600 points wide at 17
+  points. The section was then the book's last: fourteen `ax:next` steps reached its page
+  (twelve turn pages), and in continuous scroll `textend` put VoiceOver on "Link target
+  reached", three lines above it. In pages, on entering: "In text Parked title heading By the parked author. Book
+  image im", the 64 characters the probe records. By line: "Parked title heading By the
+  parked author. Book image image", "Shown opening words. Clipped words in the line. Shown
+  closing w", "Parked link to the target Shown last words.", "end of text". By word each
+  label is one stop: "Parked title heading", "By the parked author.", "Book image image",
+  "Shown", "opening", "words.", "Clipped words in the line.", "Shown", "closing", "words.",
+  "Parked link to the target", "Shown", "last", "words.". In continuous scroll the lines
+  after "This is the end of the numbered paragraph." were the same three, and Read All gave
+  them in order, a sentence at a time. Neither label hidden from everyone is in any
+  transcript. A fourth session, at `1e44a71`, read the page that opens with a hidden heading
+  over a table (thirteen `ax:next` steps): on entering, "In text Parked table heading"; by
+  line, "Parked table heading", "Table row group", "Shown words after the table."; by word,
+  "Parked table heading", "Table row group", "Shown", "words". Nobody listened, and no
+  workstation was used.
+
+- On 2026-10-12 the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0) recorded, at 17
+  points: on an iPhone 17 Pro word0001–word0016 in 4 lines and, after Next Page,
+  word0017–word0080 in 16; on an iPad Air 13-inch (M4) in portrait word0001–word0301 in 36
+  lines, then word0302–word0670 in 45 and word0671–word1037 in 44, and in landscape
+  word0358–word0567 beside word0568–word0777, 60 lines read left column first. At 23 points
+  the iPad showed word0001–word0146 in 24 lines and then word0147–word0345 in 33; the iPhone
+  no numbered line on its first page and word0001–word0036 in 12 on its second. VoiceOver
+  spoke every numbered line once and in order, then the book title, where it stayed, and
+  XCTest's view of the columns agreed. A phrase is cut at 64 characters, so an iPad line
+  shows its first seven words. No page action, rotor action or landscape turn was performed
+  by VoiceOver there; see the section.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).

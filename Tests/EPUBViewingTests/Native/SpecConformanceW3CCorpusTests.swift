@@ -26,6 +26,8 @@ import UIKit
         var withheld: [Int] = []
         var recovered: [Int] = []
         var disclosures: [Corpus.Disclosure] = []
+        /// Sections whose own report carries the flex and grid disclosure.
+        var flexGridSections = 0
         var mapViolations = 0
         var failures: [String] = []
     }
@@ -38,17 +40,19 @@ import UIKit
         let directories = try Corpus.testDirectories(under: rootURL)
         XCTAssertFalse(directories.isEmpty, "No test directories under \(root)")
         var lines = ["id | requirement | scope | result | sections (withheld, repaired) | disclosed | detail"]
-        var failed = 0
+        var failed = 0, sections = 0
         for (id, url) in directories {
             let expectation = Corpus.expectation(for: id)
             let outcome = await run(id, at: url, expecting: expectation)
             for failure in outcome.failures { XCTFail("\(id) [\(expectation.requirement)]: \(failure)") }
             if !outcome.failures.isEmpty { failed += 1 }
+            sections += outcome.sections
             let scope = expectation.outOfScope == nil ? "in scope" : "decided"
             let detail = (outcome.failures + [expectation.note].compactMap { $0 }.map { "note: \($0)" }).joined(separator: "; ")
+            let disclosed = outcome.disclosures.map { $0 == .flexGrid ? "\($0.rawValue) (sections: \(outcome.flexGridSections))" : $0.rawValue }
             lines.append("\(id) | \(expectation.requirement) | \(scope) | \(outcome.failures.isEmpty ? "as expected" : "FAILED") (\(outcome.status))"
                 + " | \(outcome.sections) (\(outcome.withheld.count), \(outcome.recovered.count))"
-                + " | \(outcome.disclosures.map(\.rawValue).joined(separator: ",")) | \(detail)")
+                + " | \(disclosed.joined(separator: ",")) | \(detail)")
         }
         // A split archive's first segment is no archive: RS 3.3 section 4.2 treats it as in error.
         for segment in try Corpus.splitArchiveSegments(under: rootURL) {
@@ -63,7 +67,7 @@ import UIKit
         if let output = ProcessInfo.processInfo.environment[Corpus.reportKey] {
             try report.write(to: URL(fileURLWithPath: output), atomically: true, encoding: .utf8)
         }
-        print("W3C epub-tests: \(directories.count) tests, \(failed) not as expected")
+        print("W3C epub-tests: \(directories.count) tests, \(sections) sections, \(failed) not as expected")
     }
 
     private func run(_ id: String, at url: URL, expecting expectation: Corpus.Expectation) async -> Outcome {
@@ -91,6 +95,7 @@ import UIKit
             report.formUnion(section.report)
             if section.report.withheld { outcome.withheld.append(section.spineIndex) }
             if section.report.recoveredAsHTML { outcome.recovered.append(section.spineIndex) }
+            if section.report.flexGridSimplified { outcome.flexGridSections += 1 }
             outcome.mapViolations += Self.mapViolations(section)
         }
         outcome.sections = sections.count
@@ -123,6 +128,7 @@ import UIKit
         case .withheld: report.withheld
         case .positionsUnavailable: report.cfiUnavailable
         case .mathFallback: report.mathFallbacks > 0
+        case .flexGrid: report.flexGridSimplified
         }
     }
 

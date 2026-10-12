@@ -101,16 +101,53 @@ final class PositioningStyleTests: XCTestCase {
             let result = try StyleTestSupport.styled("""
                 <div id='parent'><span id='inherited'>Text</span></div><span id='trailing'>Trailing</span><span id='relative'>Relative</span>
                 """, css: """
-                #parent { top:calc(-1200px + 100px); left:-64em; }
+                #parent { top:calc(-1200px + 100px); left:-62em; }
                 #inherited { position:absolute; top:inherit; left:inherit; }
                 #trailing { position:absolute; left:0; top:0; right:-9999px; bottom:-9999px; }
-                #relative { position:relative; left:-64em; }
+                #relative { position:relative; left:-62em; }
                 """, typography: .init(fontSize: fontSize))
             XCTAssertTrue(result.style("inherited").isVisuallyHiddenPositionedBox)
             XCTAssertFalse(result.style("trailing").isVisuallyHiddenPositionedBox)
             XCTAssertFalse(result.style("relative").isVisuallyHiddenPositionedBox)
             XCTAssertEqual(result.style("trailing").positionRight, .points(-1000))
             XCTAssertEqual(result.style("trailing").positionBottom, .points(-1000))
+        }
+    }
+
+    /// `doc/native-viewer.md`: an `em` or a `rem` counts as 16 CSS pixels in the off-screen rule,
+    /// so the authored number decides and no font size, the element's or the reader's, changes it.
+    func testFontRelativeOffsetsAreOffscreenByTheirAuthoredCountAtEveryFontSize() throws {
+        let hidden = ["left:-999em", "top:-999em", "left:-999rem", "top:-9999rem", "left:-62.5em", "top:-62.5rem",
+                      "left:calc(-999em - 10px)", "left:calc(-50em - 200px)", "top:calc(-31.25em * 2)", "left:calc(-30rem - 33em)",
+                      "left:calc(-9999px + 2em)", "left:min(-999em, -10px)", "inset:-999em auto auto auto",
+                      "left:-999em; right:-999em"]
+        let visible = ["left:-62.49em", "top:-62rem", "left:-20em", "left:calc(-50em - 199px)", "left:calc(-999em + 950em)",
+                       "left:max(-999em, -10px)", "left:999em", "right:-999em", "bottom:-999em",
+                       "left:-999ex", "left:-999ch", "left:-999cap", "left:-999ic", "top:-999lh", "top:-999rlh",
+                       "left:-999%", "left:-999vw", "top:-999vh", "left:-999vmin", "top:-999vmax",
+                       "left:calc(-999em - 1%)", "left:calc(-999em - 1vw)", "left:calc(-999em - 1ex)", "left:min(-999em, -999%)"]
+        let body = (hidden + visible).enumerated().map { "<span id='s\($0)' style='position:absolute; \($1)'>Label</span>" }.joined()
+            + "<div class='tiny'><span id='tinyFar'>Label</span><span id='tinyNear'>Label</span></div>"
+            + "<div class='huge'><span id='hugeFar'>Label</span><span id='hugeNear'>Label</span></div>"
+        // Root sizes a book may set: the reader's own, the 10-pixel rem of `62.5%`, and a large one.
+        for root in ["", "html { font-size:62.5% } ", "html { font-size:300% } "] {
+            for fontSize: CGFloat in [12, 17, 96] {
+                let result = try StyleTestSupport.styled(body, css: root + """
+                    .tiny { font-size:0.25em } .huge { font-size:5em } .tiny span, .huge span { position:absolute }
+                    #tinyFar, #hugeFar { left:-63em } #tinyNear, #hugeNear { left:-62em }
+                    """, typography: .init(fontSize: fontSize))
+                let label = "\(root)at \(fontSize) points"
+                for (index, declaration) in (hidden + visible).enumerated() {
+                    XCTAssertEqual(result.style("s\(index)").isVisuallyHiddenPositionedBox, index < hidden.count, "\(declaration) \(label)")
+                }
+                // The computed offset is the element's own em, and is not what decides.
+                for id in ["tinyFar", "hugeFar"] { XCTAssertTrue(result.style(id).positionLeftIsOffscreen, "\(id) \(label)") }
+                for id in ["tinyNear", "hugeNear"] { XCTAssertFalse(result.style(id).positionLeftIsOffscreen, "\(id) \(label)") }
+                for id in ["tinyFar", "tinyNear", "hugeFar", "hugeNear"] { XCTAssertFalse(result.style(id).positionTopIsOffscreen, "\(id) \(label)") }
+                guard root.isEmpty else { continue }
+                XCTAssertEqual(result.style("hugeNear").positionLeft, .points(-1000), "visible at the limit of any offset, \(label)")
+                if fontSize == 12 { XCTAssertEqual(result.style("tinyFar").positionLeft, .points(-252), "hidden 252 points away") }
+            }
         }
     }
 }

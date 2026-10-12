@@ -168,7 +168,7 @@ extension PageAccessibilityTests {
             XCTAssertFalse(host.canvas.isAccessibilityElement)
             host.canvas.configuration.flow = .scrolled
             host.layOut()
-            XCTAssertNil(host.canvas.accessibilityElements, "continuous scroll keeps UIKit's own traversal")
+            XCTAssertNil(host.canvas.accessibilityElements, "in continuous scroll the one text view lists its own lines")
         }
     }
 
@@ -262,6 +262,69 @@ extension PageAccessibilityTests {
         canvas.reloadContent(keeping: nativePassage.start)
         XCTAssertEqual(canvas.currentSelection?.range, nativePassage)
         XCTAssertFalse(window.isVisible)
+    }
+
+    /// VoiceOver comes back to a column it has left at the text offset it had on the page before
+    /// unless the spread's layout change is posted by the element that holds the columns, and
+    /// not by the window (#337). What VoiceOver does with it is heard only in a speech session
+    /// (doc/voiceover-testing.md); this holds the notification to that shape.
+    func testASpreadsLayoutChangeIsPostedByTheElementHoldingItsColumns() throws {
+        let text = CanvasText.body((0..<900).map { String(format: "word%04d", $0) }.joined(separator: " "))
+        func reader() -> (canvas: ReaderCanvasView, source: FakeCanvasSource, recorder: CanvasRecorder) {
+            let canvas = ReaderCanvasView(frame: .zero), source = FakeCanvasSource([text]), recorder = CanvasRecorder()
+            canvas.dataSource = source
+            canvas.delegate = recorder
+            return (canvas, source, recorder)
+        }
+        typealias Posted = (element: AnyObject, notification: NSAccessibility.Notification, named: [AnyObject])
+        /// The notifications of each page turn: forward twice, then back.
+        func turns(_ canvas: ReaderCanvasView, in window: NSWindow) throws -> [Posted] {
+            var posted: [Posted] = [], all: [Posted] = []
+            canvas.postAccessibilityNotification = { element, notification, userInfo in
+                posted.append((element as AnyObject, notification, userInfo[.uiElements] as? [AnyObject] ?? []))
+            }
+            canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+            window.contentView?.layoutSubtreeIfNeeded()
+            XCTAssertEqual(canvas.textViews.count, 2)
+            for forward in [true, true, false] {
+                posted.removeAll()
+                XCTAssertEqual(canvas.turnPage(forward: forward), .turned)
+                XCTAssertEqual(posted.count, 1, "one notification for a page turn")
+                let change = try XCTUnwrap(posted.first)
+                XCTAssertEqual(change.notification, .layoutChanged)
+                XCTAssertEqual(change.named.map(ObjectIdentifier.init), canvas.textViews.map(ObjectIdentifier.init),
+                               "the change names the visible columns")
+                all.append(change)
+            }
+            // Unordered, so a live VoiceOver session on this Mac hears nothing of it.
+            XCTAssertFalse(window.isVisible)
+            return all
+        }
+        let frame = CGRect(x: 0, y: 0, width: 1100, height: 500)
+        // As in a host's interface, where the columns share a group with its controls.
+        let hosted = reader()
+        let group = NSView(frame: frame)
+        group.setAccessibilityElement(true)
+        group.setAccessibilityRole(.group)
+        hosted.canvas.frame = group.bounds
+        hosted.canvas.autoresizingMask = [.width, .height]
+        group.addSubview(hosted.canvas)
+        let window = NSWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = group
+        defer { window.contentView = nil; window.close() }
+        for change in try turns(hosted.canvas, in: window) {
+            XCTAssertTrue(change.element === group, "posted by \(change.element), not by the group that holds the columns")
+        }
+        // With nothing between the canvas and its window, the window holds the columns.
+        let alone = reader()
+        let bare = NSWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
+        bare.isReleasedWhenClosed = false
+        bare.contentView = alone.canvas
+        defer { bare.contentView = nil; bare.close() }
+        for change in try turns(alone.canvas, in: bare) {
+            XCTAssertTrue(change.element === bare, "posted by \(change.element), not by the window")
+        }
     }
 
     func testPageAccessibilitySelectionCannotReachContinuationAndComposedCharactersStayWhole() throws {

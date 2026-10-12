@@ -109,10 +109,18 @@ final class SectionBuildState {
     /// Nesting of `renderContent` and note captures, bounded so hostile nesting cannot recurse deeply.
     private var nesting = 0
     private static let maximumNesting = 8
-    /// UTF-16 units all of a section's notes may hold. Notes never repeat one another's text (a
-    /// note leaves out the notes nested in it), so only hostile markup comes near this.
+    /// UTF-16 units all of a section's notes may hold of their own. A note leaves out the notes
+    /// nested in it that are captured on their own, so only hostile markup comes near this.
     static let maximumNoteLength = 4 << 20
     private var noteBudget = SectionBuildState.maximumNoteLength
+    /// UTF-16 units the notes with nothing of their own may hold of the notes nested in them.
+    /// It is apart from the note budget, so what such a note repeats takes nothing from a
+    /// note's own text.
+    private var wholeNoteBudget = SectionBuildState.maximumNoteLength
+    /// How many levels of the notes nested in it a note with nothing of its own shows: two
+    /// elements marking one note, inside a wrapper around several. `captureNote` has the bound
+    /// this puts on the work.
+    static let wholeNoteDepth = 2
     /// Whether each node (by order) has an endnotes container among its ancestors, computed in one
     /// pass when first needed, so classifying notes is not quadratic in their nesting.
     private lazy var insideEndnotes: [Bool] = {
@@ -194,7 +202,7 @@ final class SectionBuildState {
         if element.isHTML, ContentSemantics.neverRendered.contains(element.name) { return nil }
         var computed = style(element, parent)
         if element.isHTML("noscript"), computed.display == .none { computed.display = .block }
-        guard noteKind(element) != .footnote, computed.display != .none, computed.display != .tableColumn,
+        guard !isHiddenFootnote(element), computed.display != .none, computed.display != .tableColumn,
               computed.display != .tableColumnGroup else { return nil }
         return computed
     }
@@ -204,33 +212,159 @@ final class SectionBuildState {
         ContentSemantics.noteKind(element) { self.insideEndnotes[$0.order] }
     }
 
-    /// Captures a note element's content once, under its `id` and the ids of its leading
-    /// descendants (a noteref may name the note's first paragraph rather than the note, which
-    /// then needs no id of its own). A leading descendant that is a note itself is not followed:
-    /// its ids name that note.
+    /// Whether the writer leaves an element out of the flow as a footnote, to show it only in
+    /// place of its reference (`SectionWriter.enter`). By the same test a note takes every id
+    /// inside it (`noteIDs`), so that what is hidden can be shown, with the one exception
+    /// `insideHiddenFootnote` makes: a table part.
+    func isHiddenFootnote(_ element: ContentNode) -> Bool { noteKind(element) == .footnote }
+
+    /// The nearest note at or around each element, by order (-1 for none), computed in one pass
+    /// when first needed.
+    private lazy var enclosingNote: [Int] = {
+        var enclosing = [Int](repeating: -1, count: document.nodes.count)
+        for node in document.nodes where node.isElement {
+            if noteKind(node) != nil { enclosing[node.order] = node.order }
+            else if let parent = node.parent { enclosing[node.order] = enclosing[parent.order] }
+        }
+        return enclosing
+    }()
+
+    /// Whether each element (by order) is a footnote hidden from the flow or inside one,
+    /// computed in one pass when first needed, so asking is not a climb through the notes
+    /// around the element.
+    ///
+    /// A footnote is hidden when the writer hides it (`isHiddenFootnote`), with one exception:
+    /// a table part typed as a footnote (`ContentSemantics.isTablePart`) is not counted. The
+    /// table builder (`TableContent.build`) makes a grid of a table's parts by their names and
+    /// never asks whether one is a footnote, so a table of two or more columns draws a cell,
+    /// row, row group or caption so typed where it stands (a column has nothing to show), and
+    /// only a table that flows as text has the writer leave it out. Which of the two a table
+    /// is, is the rich-content factory's decision and not known here. So in both the part is
+    /// named as a note that stays in the flow, and a reference to a later element of it
+    /// navigates to the table. Where the table flows as text, that reference finds nothing
+    /// shown.
+    ///
+    /// What is around or inside the part is counted as anywhere else: a part inside a hidden
+    /// footnote is hidden with it, and a footnote inside a part is hidden itself, since
+    /// whatever a grid shows that is not one of its parts goes through the writer.
+    private lazy var insideHiddenFootnote: [Bool] = {
+        let enclosing = enclosingNote
+        var inside = [Bool](repeating: false, count: document.nodes.count)
+        for node in document.nodes where node.isElement {
+            if enclosing[node.order] == node.order, isHiddenFootnote(node), !ContentSemantics.isTablePart(node) {
+                inside[node.order] = true
+            } else if let parent = node.parent { inside[node.order] = inside[parent.order] }
+        }
+        return inside
+    }()
+
+    /// The ids each note is captured under, by the note element's order (`captureNote` has the
+    /// rule). Settled for the whole document before any note is rendered, so an id names one
+    /// note whatever order the notes are reached in.
+    private lazy var noteIDs: [Int: [String]] = {
+        let enclosing = enclosingNote, hidden = insideHiddenFootnote
+        var ids: [Int: [String]] = [:], taken = Set<String>()
+        // First each note's own id and those of its leading descendants, as far as a nested note.
+        for note in document.nodes where note.isElement && enclosing[note.order] == note.order {
+            var leading: ContentNode? = note
+            while let node = leading, enclosing[node.order] == note.order {
+                if let id = node.id, taken.insert(id).inserted { ids[note.order, default: []].append(id) }
+                leading = node.children.first(where: \.isElement)
+            }
+        }
+        // Then every other id inside a footnote hidden from the flow, for the nearest note
+        // around it. An empty id adds no name here.
+        for node in document.nodes where node.isElement && hidden[node.order] {
+            if let id = node.id, !id.isEmpty, taken.insert(id).inserted { ids[enclosing[node.order], default: []].append(id) }
+        }
+        return ids
+    }()
+
+    /// How many notes captured on their own each element is in, itself counted (by order),
+    /// computed in one pass when first needed.
+    private lazy var namedNoteDepth: [Int] = {
+        let ids = noteIDs
+        var depth = [Int](repeating: 0, count: document.nodes.count)
+        for node in document.nodes where node.isElement {
+            depth[node.order] = (node.parent.map { depth[$0.order] } ?? 0) + (ids[node.order] == nil ? 0 : 1)
+        }
+        return depth
+    }()
+
+    /// Whether a note's content is being rendered: by its own writer, or by one that writer
+    /// started for a table cell or caption in the note.
+    private(set) var isCapturingNote = false
+
+    /// Whether some id names a note, so that it is captured on its own.
+    func isNamedNote(_ element: ContentNode) -> Bool { noteIDs[element.order] != nil }
+
+    /// How many notes captured on their own an element is in, itself counted.
+    func noteDepth(of element: ContentNode) -> Int { namedNoteDepth[element.order] }
+
+    /// Whether an element is a footnote hidden from the flow, or inside one, as
+    /// `insideHiddenFootnote` counts them: navigating to it shows nothing.
+    func isInsideHiddenFootnote(_ element: ContentNode) -> Bool { insideHiddenFootnote[element.order] }
+
+    /// Captures a note element's content once, under the ids that name it. A note that stays
+    /// in the flow is named by its own id and those of its leading descendants (a first element
+    /// child, and that one's, up to the first nested note): a reference may name the note's
+    /// first paragraph or the number that opens it, and the note needs no id of its own. A
+    /// reference to any other element of such a note navigates to it, since it can be read
+    /// there. A footnote hidden from the flow (`insideHiddenFootnote`) cannot, so it and every
+    /// note inside it are also named by every other id inside them that is not inside a note
+    /// nested further in. Ids inside a nested note name that note alone. A table part typed as
+    /// a footnote is not hidden on that account, since a table may draw it: unless a hidden
+    /// footnote is around it, it is named as a note that stays in the flow.
+    ///
+    /// An id used more than once names one note. The notes that carry it themselves or on a
+    /// leading descendant come first, in document order; then the hidden ones that hold it
+    /// anywhere else.
     ///
     /// Only the section's own walk captures notes, and it reaches every element once. A note's
-    /// content leaves out the notes nested in it, which are captured on their own, so notes never
-    /// repeat each other's text however deeply they nest; the note budget bounds the rest.
+    /// content leaves out the notes nested in it that are captured on their own, so notes do not
+    /// repeat each other's text however deeply they nest, and the note budget bounds what they
+    /// hold. A nested note that no id names is captured nowhere else, so it is part of the note
+    /// around it.
+    ///
+    /// A note with nothing of its own would show nothing, so it is rendered a second time with
+    /// the notes nested in it, `wholeNoteDepth` levels of them. That is the only repetition,
+    /// and it does not grow with the document or the nesting: besides the rendering for the
+    /// note it belongs to, an element is rendered at most `wholeNoteDepth + 1` times more, for
+    /// that note and the `wholeNoteDepth` captured notes around it. A note deeper inside a
+    /// stack of notes that hold only one another is left out of the outer ones, which stay
+    /// empty. What the second rendering holds comes from a budget of its own.
     func captureNote(_ element: ContentNode) {
         guard noteBudget > 0, nesting < Self.maximumNesting else { return }
-        var ids: [String] = []
-        var leading: ContentNode? = element
-        while let node = leading, node === element || noteKind(node) == nil {
-            // Claims the id, so a note cannot capture itself again.
-            if let id = node.id, notes[id] == nil { notes[id] = NSAttributedString(); ids.append(id) }
-            leading = node.elementChildren.first
-        }
-        guard !ids.isEmpty else { return }
+        guard let ids = noteIDs[element.order], notes[ids[0]] == nil else { return }
+        // Claims the ids, so a note cannot capture itself again.
+        let claimed = NSAttributedString()
+        for id in ids { notes[id] = claimed }
         nesting += 1
-        defer { nesting -= 1 }
-        var content = SectionWriter(state: self, mode: .note(ids: Set(ids))).renderNote(element)
-        if content.length > noteBudget {
-            let end = (content.string as NSString).rangeOfComposedCharacterSequence(at: noteBudget).location
+        isCapturingNote = true
+        defer { nesting -= 1; isCapturingNote = false }
+        let names = Set(ids), depth = namedNoteDepth[element.order], reported = report.report
+        let writer = SectionWriter(state: self, mode: .note(ids: names, depth: depth))
+        var content = Self.cut(writer.renderNote(element), to: &noteBudget)
+        if writer.leftOutNote, wholeNoteBudget > 0, content.string.allSatisfy(\.isWhitespace) {
+            // Whichever rendering is not kept leaves nothing in the report.
+            let own = report.report
+            report.report = reported
+            let whole = SectionWriter(state: self, mode: .note(ids: names, depth: depth + Self.wholeNoteDepth)).renderNote(element)
+            if whole.string.allSatisfy(\.isWhitespace) { report.report = own }
+            else { content = Self.cut(whole, to: &wholeNoteBudget) }
+        }
+        for id in ids { notes[id] = content }
+    }
+
+    /// A note's content, cut to what is left of a budget and taken from it.
+    private static func cut(_ content: NSAttributedString, to budget: inout Int) -> NSAttributedString {
+        var content = content
+        if content.length > budget {
+            let end = (content.string as NSString).rangeOfComposedCharacterSequence(at: budget).location
             content = content.attributedSubstring(from: NSRange(location: 0, length: end))
         }
-        noteBudget -= content.length
-        for id in ids { notes[id] = content }
+        budget -= content.length
+        return content
     }
 
     /// `RichContentContext.resolve`: the decoded archive path of a local reference. Remote and

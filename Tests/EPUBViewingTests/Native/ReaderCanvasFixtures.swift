@@ -135,6 +135,27 @@ final class TextualTestAttachment: NSTextAttachment, ReaderTextualAttachment {
     func canvas(_ canvas: any ReaderCanvas, needsSection index: Int, forward: Bool) { needed.append((index, forward)) }
 }
 
+/// The scroll bars of a continuous scroll view. A Mac shows overlay ones with a trackpad and
+/// legacy ones with a mouse attached, and a legacy one takes its width from the scroll column
+/// (doc/native-viewer.md, "Layout"). A test of where lines sit across that column says which it
+/// means with `CanvasHost.setScrollBars`, so that its result does not depend on what is attached
+/// to the Mac it runs on. iOS has overlay ones only.
+enum CanvasScrollBars: CaseIterable {
+    case overlay
+    #if os(macOS)
+    case legacy
+    #endif
+
+    /// The width the scroll bar takes from the scroll view.
+    var width: CGFloat {
+        #if os(macOS)
+        self == .legacy ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+        #else
+        0
+        #endif
+    }
+}
+
 /// A canvas in a real window, like `ReaderTestWindow` hosts the reader.
 @MainActor final class CanvasHost {
     let canvas = ReaderCanvasView(frame: .zero)
@@ -142,20 +163,24 @@ final class TextualTestAttachment: NSTextAttachment, ReaderTextualAttachment {
     let recorder = CanvasRecorder()
     #if os(macOS)
     let window: NSWindow
+    private var scrollerStyle: NSKeyValueObservation?
     #else
     let window: UIWindow
     let controller = UIViewController()
     #endif
 
+    /// `underBars` puts the canvas under a bar the host shows and hides without resizing it
+    /// (`setBar`), as a reader that ignores the safe area is: a navigation bar on iOS, and on
+    /// the Mac the title bar of a full-size content view, which a toolbar makes taller.
     init(_ source: FakeCanvasSource, size: CGSize = CGSize(width: 600, height: 700),
-         configuration: ReaderCanvasConfiguration = .init()) {
+         configuration: ReaderCanvasConfiguration = .init(), underBars: Bool = false) {
         self.source = source
         canvas.dataSource = source
         canvas.delegate = recorder
         canvas.configuration = configuration
         #if os(macOS)
-        window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.titled],
-                          backing: .buffered, defer: false)
+        window = NSWindow(contentRect: CGRect(origin: .zero, size: size),
+                          styleMask: underBars ? [.titled, .fullSizeContentView] : [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = canvas
         window.orderFront(nil)
@@ -167,7 +192,7 @@ final class TextualTestAttachment: NSTextAttachment, ReaderTextualAttachment {
             window = UIWindow(frame: CGRect(origin: .zero, size: size))
         }
         controller.view = canvas
-        window.rootViewController = controller
+        window.rootViewController = underBars ? UINavigationController(rootViewController: controller) : controller
         window.makeKeyAndVisible()
         #endif
         layOut()
@@ -182,6 +207,50 @@ final class TextualTestAttachment: NSTextAttachment, ReaderTextualAttachment {
         #endif
     }
 
+    /// Gives the canvas's scroll view `bars` and holds it to them: AppKit gives every scroll view
+    /// the Mac's preferred kind again whenever that changes, and a process on a Mac with a mouse
+    /// learns its preference a moment after it starts.
+    func setScrollBars(_ bars: CanvasScrollBars) throws {
+        #if os(macOS)
+        let scrollView = try XCTUnwrap(canvas.scrollContainer as? NSScrollView)
+        let style: NSScroller.Style = bars == .legacy ? .legacy : .overlay
+        scrollView.scrollerStyle = style
+        scrollerStyle = scrollView.observe(\.scrollerStyle) { view, _ in
+            MainActor.assumeIsolated { if view.scrollerStyle != style { view.scrollerStyle = style } }
+        }
+        layOut()
+        #endif
+    }
+
+    /// Whether the bar of a canvas made `underBars` is showing: the navigation bar on iOS, the
+    /// window's toolbar on the Mac (none to begin with).
+    var barIsShown: Bool {
+        #if os(macOS)
+        window.toolbar?.isVisible == true
+        #else
+        controller.navigationController?.isNavigationBarHidden == false
+        #endif
+    }
+
+    /// Shows or hides that bar and lays out as a display cycle does. The canvas keeps its size;
+    /// the height of its visible area follows the bar. On the Mac the scroll view's automatic
+    /// insets follow the toolbar a moment later, which is waited for, and nothing lays the
+    /// canvas out for them (#162), so this asks for the layout that anything else would bring.
+    func setBar(shown: Bool) async throws {
+        #if os(macOS)
+        let scrollView = canvas.scrollContainer as? NSScrollView
+        let before = scrollView?.contentInsets.top
+        if window.toolbar == nil { window.toolbar = NSToolbar(identifier: "org.epublib.tests.canvas-host.\(UUID().uuidString)") }
+        window.toolbar?.isVisible = shown
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline, scrollView?.contentInsets.top == before { try await Task.sleep(for: .milliseconds(20)) }
+        canvas.needsLayout = true
+        #else
+        controller.navigationController?.setNavigationBarHidden(!shown, animated: false)
+        #endif
+        layOut()
+    }
+
     func resize(to size: CGSize) {
         #if os(macOS)
         window.setContentSize(size)
@@ -193,6 +262,7 @@ final class TextualTestAttachment: NSTextAttachment, ReaderTextualAttachment {
 
     func close() {
         #if os(macOS)
+        scrollerStyle = nil
         window.close()
         window.contentView = nil
         #else

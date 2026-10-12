@@ -18,10 +18,12 @@ import UIKit
         let capabilities: Set<EPUBReaderCapability>
         let readerState: EPUBReaderState?
         var received: [EPUBReaderCommand] = []
-        init(results: Bool = true, navigates: Bool = true) {
+        /// `everyGroup` adds what Contents and Appearance need, so that a strip has all five groups.
+        init(results: Bool = true, navigates: Bool = true, everyGroup: Bool = false) {
             var capabilities: Set<EPUBReaderCapability> = [.pagination, .scrolling, .searchHighlight]
             if navigates { capabilities.insert(.search) }
             if results { capabilities.insert(.searchResults) }
+            if everyGroup { capabilities.formUnion([.navigateHref, .typography]) }
             self.capabilities = capabilities
             let state = EPUBReaderState(status: .init(capabilities: capabilities))
             state.modify { $0.lifecycle = .ready }
@@ -414,6 +416,202 @@ import UIKit
     }
     #endif
 
+    /// A host stacks the strip with its reader, and the strip's own field raises the keyboard over
+    /// both. From the top safe area to the keyboard's suggestions that leaves the stack 178 points
+    /// on an iPhone 17 Pro on its side, 169 on an iPhone SE, 284 on an iPad mini on its side and
+    /// 387 on an upright iPhone SE; an upright iPhone 17 Pro has 484, which the strip fits at
+    /// every text size (issue 330). The strip was as tall as its groups whatever it was offered,
+    /// and a stack taller than its room is centred on it: the page buttons and the field went
+    /// off the top of the screen. Short of room, the strip scrolls its groups in the room it has.
+    func testControlStripScrollsItsGroupsInTheRoomAKeyboardLeaves() async throws {
+        let session = Session(everyGroup: true), model = try controls(session)
+        session.publish(.completed(query: "needle", hasMatches: true), Self.results(14, current: 0))
+        #if os(macOS)
+        // Text is one size on a Mac: a short window is the only way to run out of room there.
+        let rooms = [CGSize(width: 700, height: 300), CGSize(width: 700, height: 44), CGSize(width: 300, height: 300), CGSize(width: 300, height: 90)]
+        #else
+        let rooms = [CGSize(width: 750, height: 178), CGSize(width: 667, height: 169), CGSize(width: 1133, height: 284),
+                     CGSize(width: 375, height: 387), CGSize(width: 402, height: 484)]
+        #endif
+        // Padded at its sides, as the sample and the qualification host have the strip, and as
+        // the stack's own view, as the example in doc/reader-controls.md has it.
+        for padded in [true, false] {
+            let held = try await stripHeld(to: rooms, groups: EPUBReaderControlGroup.allCases, padded: padded, model: model)
+            XCTAssertGreaterThan(held.short, 0, "no room was too short for the strip")
+            XCTAssertGreaterThan(held.whole, 0, "no room had the height the strip needs")
+            #if os(iOS)
+            // A stack offers its views equal shares of its height. The strip is offered what it needs first.
+            XCTAssertGreaterThan(held.wholeInOverHalf, 0, "no strip needed more than half of a room that had the height for it")
+            #endif
+        }
+        #if os(iOS)
+        // A room that is short by less than a point is not a reason to scroll: 2 points are.
+        let room = CGSize(width: 375, height: 667)
+        let needed = try await groupsAsTheyWere(model, groups: EPUBReaderControlGroup.allCases, width: room.width, .large, padded: true).strip.height
+        let rounded = try await frames(of: EPUBReaderControlStrip(controls: model), stackedIn: CGSize(width: 375, height: needed + Self.hostLine - 0.75), .large)
+        let short = try await frames(of: EPUBReaderControlStrip(controls: model), stackedIn: CGSize(width: 375, height: needed + Self.hostLine - 2), .large)
+        XCTAssertEqual(rounded.strip.height, needed, accuracy: 0.1)
+        XCTAssertEqual(short.strip.height, needed - 2, accuracy: 0.1)
+        XCTAssertEqual(short.toScroll, 2, accuracy: 0.5)
+        #endif
+    }
+
+    /// A strip without its search field has nothing in it that takes the width it is offered: it
+    /// is as wide as its groups, and a host places it. A scroll view takes the width it is
+    /// offered. The strip must still be as wide as its groups, scrolling or not.
+    func testControlStripWithoutASearchFieldIsAsWideAsItsGroups() async throws {
+        let session = Session(everyGroup: true), model = try controls(session)
+        #if os(macOS)
+        let rooms = [CGSize(width: 700, height: 300), CGSize(width: 700, height: 30), CGSize(width: 120, height: 300), CGSize(width: 120, height: 60)]
+        #else
+        let rooms = [CGSize(width: 750, height: 178), CGSize(width: 375, height: 169), CGSize(width: 375, height: 387), CGSize(width: 200, height: 484)]
+        #endif
+        for padded in [true, false] {
+            let held = try await stripHeld(to: rooms, groups: [.pages, .contents, .appearance, .readingMode], padded: padded, model: model)
+            XCTAssertGreaterThan(held.short, 0, "no room was too short for the strip")
+            XCTAssertGreaterThan(held.whole, 0, "no room had the height the strip needs")
+            XCTAssertGreaterThan(held.narrow, 0, "no strip was narrower than its room")
+        }
+    }
+
+    /// A search from the strip's own field left the keyboard over the page it was about to show,
+    /// and where the strip fills what the keyboard leaves there is no page to tap to put it
+    /// away. On iPhone and iPad the field gives up its focus when it submits a search, in the
+    /// strip and in a search pane alike (issue 330); on a Mac it keeps it, which
+    /// `ReaderControlViewTests` holds with a Return key. The test host cannot press Return in a
+    /// SwiftUI field on iOS: the keyboard itself is in the qualification record.
+    func testTheSearchFieldGivesUpFocusAfterASearchOnIPhoneAndIPad() {
+        #if os(macOS)
+        XCTAssertTrue(EPUBSearchField.keepsFocusAfterSearch)
+        #else
+        XCTAssertFalse(EPUBSearchField.keepsFocusAfterSearch)
+        #endif
+    }
+
+    /// The line the qualification host has under its reader. Its height comes off the strip's room.
+    private static let hostLine: CGFloat = 21
+
+    /// The strip's groups as it arranged them before it could scroll: in a row where that fits
+    /// the width and in a column where it does not, as tall as they are. With the room it needs
+    /// the strip is this, to the point, and on a Mac it is this in any room. `groupsAsTheyWere`
+    /// gives them the height a host's stack gave them.
+    private static func rigidStrip(_ model: EPUBReaderControls, groups: [EPUBReaderControlGroup]) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack { ForEach(groups, id: \.self) { EPUBReaderControl(controls: model, group: $0, inlineSearch: true) } }
+            VStack(alignment: .leading) { ForEach(groups, id: \.self) { EPUBReaderControl(controls: model, group: $0, inlineSearch: true) } }
+        }
+    }
+
+    /// Where a strip, its field and what scrolls in it are in a host's stack, from the stack's top.
+    private struct StripFrames {
+        var strip: CGRect
+        var field: CGRect?
+        var scroller: CGRect?
+        /// How much of the scroll view's content is out of sight.
+        var toScroll: CGFloat = 0
+        /// Whether the scroll view cuts off what its content draws past its edge.
+        var clips = false
+    }
+
+    /// The groups as a host's stack laid them out before the strip could scroll. Such a stack
+    /// offered the strip an equal share of its height with the reader, which at the larger text
+    /// sizes is less than the groups need, so that a label too long for its line was cut short
+    /// and not wrapped: Appearance, 375 points across at the largest size. Measured here in a
+    /// stack that has the height they need and offers them half of it.
+    private func groupsAsTheyWere(_ model: EPUBReaderControls, groups: [EPUBReaderControlGroup], width: CGFloat,
+                                  _ textSize: DynamicTypeSize, padded: Bool) async throws -> StripFrames {
+        let rigid = Self.rigidStrip(model, groups: groups)
+        let wrapped = try await frames(of: rigid, stackedIn: CGSize(width: width, height: 2000), textSize, padded: padded, first: false)
+        let room = CGSize(width: width, height: wrapped.strip.height + Self.hostLine)
+        return try await frames(of: rigid, stackedIn: room, textSize, padded: padded, first: false)
+    }
+
+    /// Mounts `strip` as the documented hosts stack it, held to `room`: over a reader that gives
+    /// way, with a line of the host's own beneath. A host that pads the strip gives it its layout
+    /// priority again, which padding hides from the stack; `first` false leaves that out.
+    private func frames(of strip: some View, stackedIn room: CGSize, _ textSize: DynamicTypeSize, padded: Bool = true,
+                        first: Bool = true) async throws -> StripFrames {
+        let marked = strip.background(FrameMarker())
+        let stack = VStack(spacing: 0) {
+            if padded { marked.padding(.horizontal).layoutPriority(first ? 1 : 0) } else { marked }
+            Color.clear
+            Color.clear.frame(height: Self.hostLine)
+        }
+        let host = MountedView(stack.dynamicTypeSize(textSize), size: room)
+        defer { host.close() }
+        try await Task.sleep(for: .milliseconds(60))
+        let marker = try XCTUnwrap(host.views(FrameMarker.Marker.self).first)
+        var frames = StripFrames(strip: host.frame(of: marker), field: host.searchField().map(host.frame(of:)))
+        if let scroller = host.paneScroller() {
+            frames.scroller = host.frame(of: scroller)
+            frames.toScroll = host.heightOutOfSight(in: scroller)
+            frames.clips = host.clips(scroller)
+        }
+        return frames
+    }
+
+    /// Holds a strip of `groups` to each room at each text size and compares it with its groups
+    /// as tall as they are. Where they fit under the host's line the strip is exactly that;
+    /// where they do not, it has the room's height and scrolls the rest. Returns how many of
+    /// each it met: `wholeInOverHalf` of the whole strips needed more than half their room, and
+    /// `narrow` strips were narrower than theirs.
+    private func stripHeld(to rooms: [CGSize], groups: [EPUBReaderControlGroup], padded: Bool,
+                           model: EPUBReaderControls) async throws -> (short: Int, whole: Int, wholeInOverHalf: Int, narrow: Int) {
+        #if os(macOS)
+        let textSizes = [DynamicTypeSize.large]
+        #else
+        let textSizes = DynamicTypeSize.allCases
+        #endif
+        var met = (short: 0, whole: 0, wholeInOverHalf: 0, narrow: 0)
+        for room in rooms {
+            for textSize in textSizes {
+                let name = "\(textSize) in \(Int(room.width)) by \(Int(room.height)) points\(padded ? "" : ", not padded")"
+                let rigid = try await groupsAsTheyWere(model, groups: groups, width: room.width, textSize, padded: padded)
+                let held = try await frames(of: EPUBReaderControlStrip(controls: model, groups: groups), stackedIn: room, textSize, padded: padded)
+                let available = room.height - Self.hostLine
+                XCTAssertEqual(held.strip.minX, rigid.strip.minX, accuracy: 0.5, name)
+                XCTAssertEqual(held.strip.width, rigid.strip.width, accuracy: 0.5, "\(name): the strip is not as wide as its groups")
+                if rigid.strip.width < room.width - (padded ? 32 : 0) - 0.5 { met.narrow += 1 }
+                XCTAssertEqual(held.field == nil, !groups.contains(.search), name)
+                let fits = rigid.strip.height <= available + 0.5
+                if fits { met.whole += 1 } else { met.short += 1 }
+                if fits, rigid.strip.height > available / 2 { met.wholeInOverHalf += 1 }
+                #if os(macOS)
+                // On a Mac the strip is as tall as its groups in any room, and nothing in it scrolls.
+                XCTAssertEqual(held.strip.height, rigid.strip.height, accuracy: 0.5, name)
+                XCTAssertNil(held.scroller, name)
+                guard fits else { continue }
+                #else
+                XCTAssertEqual(held.strip.minY, 0, accuracy: 0.5, "\(name): the strip's top is not the room's")
+                if let field = held.field {
+                    XCTAssertGreaterThanOrEqual(field.minY, -0.5, "\(name): the field is cut off the top")
+                    XCTAssertLessThanOrEqual(field.maxY, available + 0.5, "\(name): the field is under the keyboard")
+                }
+                guard fits else {
+                    XCTAssertEqual(held.strip.height, available, accuracy: 0.5, "\(name): the strip is not as tall as its room")
+                    let scroller = try XCTUnwrap(held.scroller, "\(name): the strip is short of room and nothing scrolls")
+                    XCTAssertEqual(scroller.minY, held.strip.minY, accuracy: 0.5, name)
+                    XCTAssertEqual(scroller.height, held.strip.height, accuracy: 0.5, name)
+                    XCTAssertEqual(held.toScroll, rigid.strip.height - available, accuracy: 1, "\(name): what is out of sight is not what the room is short of")
+                    XCTAssertTrue(held.clips, "\(name): the groups out of sight are drawn over what is under the strip")
+                    continue
+                }
+                XCTAssertLessThan(held.toScroll, 1, "\(name): the strip scrolls with the room it needs")
+                XCTAssertFalse(held.clips, "\(name): the strip clips its groups with the room it needs")
+                #endif
+                XCTAssertEqual(held.strip.minY, rigid.strip.minY, accuracy: 0.5, name)
+                XCTAssertEqual(held.strip.height, rigid.strip.height, accuracy: 0.5, "\(name): the strip has the room it needs and is not as tall as its groups")
+                if let field = held.field, let was = rigid.field {
+                    XCTAssertEqual(field.minX, was.minX, accuracy: 0.5, name)
+                    XCTAssertEqual(field.minY, was.minY, accuracy: 0.5, name)
+                    XCTAssertEqual(field.width, was.width, accuracy: 0.5, name)
+                    XCTAssertEqual(field.height, was.height, accuracy: 0.5, name)
+                }
+            }
+        }
+        return met
+    }
+
     /// Mounts the supplied views in real windows and lays each search state out: on their own,
     /// and in a navigation toolbar with the navigator placed by the host. SwiftUI builds no
     /// accessibility tree for an in-process query, so names and values are asserted on the
@@ -476,6 +674,24 @@ private typealias PlatformScrollView = NSScrollView
 #else
 private typealias PlatformView = UIView
 private typealias PlatformScrollView = UIScrollView
+#endif
+
+/// An empty platform view to put behind a SwiftUI view that has none of its own, to read where
+/// that view is.
+private struct FrameMarker {
+    final class Marker: PlatformView {}
+}
+
+#if os(macOS)
+extension FrameMarker: NSViewRepresentable {
+    func makeNSView(context: Context) -> Marker { Marker() }
+    func updateNSView(_ view: Marker, context: Context) {}
+}
+#else
+extension FrameMarker: UIViewRepresentable {
+    func makeUIView(context: Context) -> Marker { Marker() }
+    func updateUIView(_ view: Marker, context: Context) {}
+}
 #endif
 
 /// A SwiftUI view in a real window of the platform's own kind.
@@ -566,8 +782,9 @@ private typealias PlatformScrollView = UIScrollView
     /// Where one of them is in the mounted view, from its top.
     func frame(of view: PlatformView) -> CGRect { view.convert(view.bounds, to: root) }
 
-    /// The scroll view the search pane puts under its field when its content does not fit: one
-    /// that is neither a list's nor inside the field.
+    /// The scroll view the search pane puts under its field when its content does not fit, or
+    /// the one the control strip holds its groups in: one that is neither a list's nor inside
+    /// the field.
     func paneScroller() -> PlatformScrollView? {
         #if os(macOS)
         views(NSScrollView.self).first { !($0.documentView is NSTableView) && $0.enclosingScrollView == nil }
@@ -575,6 +792,35 @@ private typealias PlatformScrollView = UIScrollView
         views(UIScrollView.self).first { scroller in
             !(scroller is UICollectionView) && !views(UITextField.self).contains { scroller.isDescendant(of: $0) }
         }
+        #endif
+    }
+
+    /// The field the reader types a search in, if the view has one.
+    func searchField() -> PlatformView? {
+        #if os(macOS)
+        views(NSTextField.self).first(where: \.isEditable)
+        #else
+        views(UITextField.self).first
+        #endif
+    }
+
+    /// How much taller a scroll view's content is than the scroll view: what scrolls into it.
+    func heightOutOfSight(in scroller: PlatformScrollView) -> CGFloat {
+        layOut()
+        #if os(macOS)
+        return (scroller.documentView?.frame.height ?? 0) - scroller.contentView.bounds.height
+        #else
+        return scroller.contentSize.height - scroller.bounds.height
+        #endif
+    }
+
+    /// Whether a scroll view cuts off what its content draws past its edge.
+    func clips(_ scroller: PlatformScrollView) -> Bool {
+        layOut()
+        #if os(macOS)
+        return scroller.contentView.clipsToBounds
+        #else
+        return scroller.clipsToBounds
         #endif
     }
 

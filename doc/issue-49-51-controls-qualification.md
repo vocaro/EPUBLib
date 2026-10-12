@@ -150,6 +150,102 @@ scroll, and at y = 18 at the largest. These three simulators ran iOS 27.0 on bui
 Xcode 27.0. On both iPhones the keyboard was sometimes down in the first tree after Return, at
 the default size as well as the largest; the field was tapped and the tree taken again.
 
+**With its own keyboard up, the control strip went off the top of the screen**
+([#330](https://github.com/vocaro/EPUBLib/issues/330)). The strip was as tall as its groups
+whatever it was offered. Its field raises the keyboard and kept it up after a search, and the
+search adds the match row. Where that left the host's stack less height than the strip and the
+host's 21-point status line need, the stack was centred on its room, and half of what was over
+went off the top. Seen at `b95ed53` and `57bef2e` after a search for "lantern": an iPhone 17 Pro
+on its side has 178 points from the top of the screen to the keyboard's suggestions, and the
+page buttons were at y = −23 at `extra-extra-extra-large`, y = −39 at `accessibility-medium` and
+y = −123 at `accessibility-extra-extra-extra-large`, where 9 of the field's 73 points were left
+on screen. An iPhone SE on its side has 169 points: the page buttons had lost 10 of their 17 at
+the default size, and at the largest Search and Clear Search were above the screen. At the
+largest size an iPad mini on its side (284 points, from y = 32) had the page buttons at y = −38
+to 16, and an upright iPhone SE (387 points, from y = 20) had them at y = −27 to 27. In each the
+reader view had no height, so there was no page to tap to put the keyboard away.
+
+On iPhone and iPad the strip now scrolls its groups where it is offered less height than they
+need, and its field gives up focus when it submits a search, which puts the keyboard away. At
+`ef79633` (iOS 27.0, built with Xcode 27.0), in twenty runs of the three simulators, the field
+was tapped, "lantern" typed, the keyboard's own Search key touched, and the field tapped again
+to bring the keyboard back over the results. With the keyboard up the strip starts at the top
+of the safe area and ends at the status line, which is above the keyboard: it has 157 points
+on the iPhone 17 Pro on its side, 148 on the iPhone SE, 263 on the iPad mini and 366 on the
+upright iPhone SE, to the nearest point. Top and bottom edges, before and after the search
+alike:
+
+| Where | Text size | Page buttons | Field | Search | Clear Search |
+| --- | --- | --- | --- | --- | --- |
+| iPhone 17 Pro on its side | `extra-extra-extra-large` | 0 to 23 | 26 to 63 | 32 to 58 | 31 to 58 |
+| | `accessibility-medium` | 0 to 28 | 31 to 74 | 37 to 68 | 37 to 69 |
+| | largest | 0 to 54 | 59 to 132 | 65 to 125 | 64 to 126 |
+| iPhone SE on its side | `large` | 0 to 17 | 19 to 53 | 27 to 46 | 26 to 46 |
+| | `extra-extra-extra-large` | 0 to 23 | 26 to 63 | 31 to 57 | 31 to 58 |
+| | `accessibility-medium` | 0 to 29 | 32 to 75 | 37 to 69 | 37 to 70 |
+| | largest | 0 to 54 | 59 to 132 | 65 to 125 | 64 to 126 |
+| iPad mini on its side | largest | 32 to 86 | 91 to 164 | 97 to 157 | 96 to 158 |
+| iPhone SE upright | largest | 20 to 74 | 79 to 152 | 85 to 145 | 84 to 146 |
+
+The groups under them scroll. After the search the match row is whole under the field on the
+iPad mini, the upright iPhone SE and, up to `accessibility-medium`, both iPhones on their
+sides; at the largest size on their sides it is out of sight, 5 points of it showing on the
+iPhone 17 Pro. One drag on the strip, with the keyboard still up, brought the reading mode to
+the strip's bottom edge wherever the strip scrolls, with Appearance, Contents and the match row
+above it: all of the match row but on the iPhone SE on its side at `accessibility-medium`,
+where 30 of its 33 points showed, and at the largest size on the iPhones on their sides, where
+the strip showed the reading mode, Appearance and the lower third to half of Contents. Where
+the drag starts matters. One that began beside a row, between two rows or at Search and Clear
+Search scrolled the strip. One that began in the field did not, on the iPhone SE on its side
+at the largest size, and neither did a drag or a swipe that began on Contents on the upright
+iPhone SE: the field and the menus keep a touch that starts on them. That is the probe's
+synthetic touch; a finger was not tried. Beside the top safe area the strip scrolls under the
+status bar, as any scroll view does.
+
+Three seconds after the keyboard's Search key was touched, the keyboard was down and nothing
+had keyboard focus, in all twenty runs; tapping the field brought both back. Return was a
+touch on that key because a Return typed by XCTest can leave the keyboard down by itself, under
+a field that still has focus ([#307](https://github.com/vocaro/EPUBLib/issues/307#issuecomment-6132965039)):
+at `b95ed53` the field read "Keyboard Focused" after it in every tree. In eighteen of the
+twenty the strip was then whole with the page under it; the other two are the iPhones on their
+sides at the largest size, below. A tap on the strip's Search button did as the key does, and
+Clear Search brought the keyboard back with the field empty and in focus (iPhone 17 Pro
+upright).
+
+The search pane's field has the same rule, by the owner's second answer. At `bc83557` on the
+iPhone 17 Pro, a touch on the keyboard's Search key in the pane left the keyboard down and
+nothing with keyboard focus. Upright at the default size the sheet's list is then 480 points
+tall. On its side at the largest size the field is at y = 18 and Close Search at y = 22 with
+Clear Search, the navigator and the list, 95 points tall, all on screen, where they scrolled
+in the 49 points over the keyboard until a drag put it away. The pane's own Search button did
+as the key does, and Clear Search brought the keyboard back with the field in focus. On an
+iPad Air upright the popover is 372 × 446 after the key with its list 320 points tall, as it
+was with the keyboard up, and Clear Search brought the keyboard back there too.
+
+The screen can be too short without a keyboard. At the largest size with results the strip's
+groups are 402 points tall on the iPhone 17 Pro on its side and 403 on the iPhone SE, and the
+strip has 361 and 354 points there. The page buttons are at y = 0 and the reading mode is
+reached by scrolling, where the page buttons were at y = −25 on the iPhone SE before.
+
+Where the strip has the room it needs, nothing moved. The trees of the 33 states in which the
+strip was whole at `b95ed53` were compared, element by element, with those at `ef79633`: before
+the field is tapped in each of that revision's fifteen runs (the five poses at `large`,
+`accessibility-medium` and the largest size), with the field tapped in ten and with the
+keyboard up after the search in eight. Every element has the frame it had, but for four on the
+upright iPhone 17 Pro that are a point off in height or position: the Contents symbol at the
+default and the largest size, the Paging symbol at the default size and the Search button at
+`accessibility-medium`. The strip's groups are laid out as a stack laid them out when it
+offered the strip half its height: a label too long for its line is cut short and not wrapped,
+so that Appearance still reads "Appearan…" on the iPhone SE upright at the largest size and the
+strip is 340 points tall there, as it was.
+
+A host that pads the strip, as this one and the sample do, now sets the strip's layout priority
+again after the padding; see [reader-controls.md](reader-controls.md). On a Mac the strip is as
+it was. Nothing raises a keyboard there, and a scroll view is a scroll area in the Mac's
+accessibility tree, a container round what it holds: read on macOS 27.0 from a window of a
+button, a field, a menu and a segmented picker, with and without a scroll view round them.
+VoiceOver was not run on it.
+
 **Continuous scroll lost its place after an accessibility read.** On iOS the scrolled reader is
 a text view whose accessibility lists every paragraph of the book, and reading that list (an
 XCTest snapshot did it here; VoiceOver reads the same elements) lays the whole text out behind
@@ -201,7 +297,9 @@ count at "2 of 14", and the next step showed 3, not the match nearest the page. 
 in the list (the ninth, then the fourteenth after scrolling to it) showed that result and
 closed the sheet; reopened, the pane still held the query and "9 of 14". Close Search left the
 query, the highlights and the current match; Clear Search emptied the field and ended the
-search with the pane still open.
+search with the pane still open. Since [#330](https://github.com/vocaro/EPUBLib/issues/330) a
+search from the pane's field puts the keyboard away, as one from the strip's does: item 12 of
+[For the owner to judge](#for-the-owner-to-judge).
 
 After each of these the current match was on screen in paging, drawn orange against the other
 matches' yellow. In continuous scroll, with the pane opened and closed around each step,
@@ -213,8 +311,10 @@ field with Search and Clear Search, the match row once there are results, Conten
 Appearance, the reading-mode picker. Every one operated as in the toolbar. The match row reads
 "1 of 14" with Previous Match, Next Match and Search Results, which presents the browser as a
 sheet titled Search Results with the count and a close button; choosing a row closed it.
-"No matches" appears under the field. After a search the field keeps focus, so the keyboard
-stays over the lower half of the page; a tap on the page put it away.
+"No matches" appears under the field. After a search the field kept focus then, so the keyboard
+stayed over the lower half of the page until a tap on the page put it away. Since
+[#330](https://github.com/vocaro/EPUBLib/issues/330) the field gives focus up when it submits a
+search and the keyboard goes: item 12 of [For the owner to judge](#for-the-owner-to-judge).
 
 **Host-placed navigator.** With `EPUBSearchResultNavigator` in the bottom bar and the pane
 closed (`f98db10`, continuous scroll), Next Match went from 1 to 14 and on to 1, and Previous
@@ -341,6 +441,18 @@ The simulator's text size was set to the largest accessibility size
 - **Search pane short of room.** With the keyboard up an iPhone on its side, a small iPhone
   upright and an iPad mini on its side leave the pane less than it needs at this size. What
   each shows is under [Defects found and fixed](#defects-found-and-fixed).
+- **The strip with its own keyboard up** (`ef79633`, iOS 27.0, Xcode 27.0; an iPhone 17 Pro
+  and an iPhone SE on their sides and upright and an iPad mini on its side, at `large`,
+  `extra-extra-extra-large`, `accessibility-medium` and this size). Where the keyboard leaves
+  the strip less height than its groups need, it scrolls them: on its side the iPhone 17 Pro
+  at `extra-extra-extra-large` and both accessibility sizes, and the iPhone SE at those and,
+  once a search has added the match row, at the default size; at this size the iPad mini on
+  its side, and the upright iPhone SE after a search. The page buttons, the field, Search and
+  Clear Search are whole at the top of the strip in every one, and a drag brings the rest up
+  with the keyboard still up. The upright iPhone 17 Pro fits the strip at all four sizes: at
+  this one, after a search, it takes 459 of the 463 points above the status line. Frames, and
+  where a drag has to start, are under
+  [Defects found and fixed](#defects-found-and-fixed).
 - **The strip's Search Results with the keyboard up** (`d360069`, iOS 27.0, Xcode 27.0; each
   device on its side at `large`, `accessibility-medium` and this size). The browser asks for
   240 points at least, and it has them. On an iPhone it is a sheet, and presenting it puts the
@@ -356,6 +468,11 @@ The simulator's text size was set to the largest accessibility size
   points tall. At this size the title takes two lines with the count under it, and those and
   the padding take 253 of the 284. One drag in the list's 31 points put the keyboard away; the
   popover then took 373 × 420 with the list 167 tall, and Close Search Results closed it.
+  Since #330 a search from the strip's field puts the keyboard away itself: at `ef79633`, on
+  the iPad mini on its side at this size, Search Results tapped after the search opened a
+  popover of 360 × 433 with no keyboard under it and the list 167 points tall. The keyboard
+  is under the popover again only if the field is tapped between the search and Search
+  Results.
 - **iPhone Duo.** Not completed; see [Not verified](#not-verified).
 
 XCTest's accessibility audit ran on the opening screen and on the search pane at this size. For
@@ -507,8 +624,16 @@ Described, not decided. None of these was changed.
     in two runs. It may be the simulator or the automation; it needs a finger.
 11. **The error item shifts the bar.** After a refused command the toolbar gains Reader Error,
     and on iPhone that moves Appearance into More until the error is cleared.
-12. **The keyboard stays up after a search in the strip** on iPhone, since the field keeps
-    focus; a tap on the page dismisses it.
+12. **The keyboard stayed up after a search in the strip** on iPhone, since the field kept
+    focus; a tap on the page dismissed it, and at larger text sizes on an iPhone on its side
+    the strip filled what the keyboard left, with no page to tap. Decided by the owner on
+    2026-10-12 ([#330](https://github.com/vocaro/EPUBLib/issues/330)): on iPhone and iPad
+    Return puts the keyboard away, and the Mac keeps focus in the field as before. Asked the
+    same day whether the search pane's field should do the same, he answered "yes, same rule
+    for the pane". The Search button of either field does as Return does, and Clear Search
+    returns focus to the field, to type again; those two follow from his answers and were not
+    put to him. While the reader types, before any search, the keyboard is up and the strip
+    scrolls; a drag on it does not put the keyboard away.
 13. **The page label after a search.** On a first page that starts before the book's first
     page marker, the reader's location reads "no page" when opened, "page 1" once a result on
     that page is shown, and "no page" again after the pane closes.
@@ -518,7 +643,9 @@ Described, not decided. None of these was changed.
     Judged at the owner's request: the browser's layout stays as it is. Nothing is cut off,
     and making its title row scroll would give up a Close Search Results that is always on
     screen. What is out of place is a keyboard under a list that takes no typing, which is
-    item 12's question.
+    item 12's question. Item 12's answer removes it after a search: the keyboard is away
+    before Search Results can be tapped, and the list is 167 points tall. A reader who taps
+    the field again and then Search Results has the keyboard under the list as before.
 
 ## Not verified
 
@@ -542,6 +669,11 @@ Described, not decided. None of these was changed.
 - Choosing a row in a host's own sheet of `EPUBSearchResultList`, and the host-placed
   navigator on iPad and the iPhone Duo.
 - The control strip under the VoiceOver service.
+- The strip's scrolling under a finger. The probe's drag and swipe scrolled it from between
+  its rows and from its buttons, and not from the field, Contents or Appearance; whether a
+  quick swipe that starts on one of those scrolls it on a device was not tried. Nor was the
+  strip under a keyboard taller than the simulator's English one, in an iPad window smaller
+  than the screen, with host views in it, or under the reader instead of over it.
 
 ## Evidence and repeating it
 
@@ -551,6 +683,7 @@ is under `.build/voiceover/results/`. None of it is committed. The Mac's screens
 whole screen and stay local.
 
 ```sh
+export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 python3 scripts/make-controls-fixture.py
 xcodegen generate --spec Examples/ControlsQualification/project.yml
 DEVICE=$(xcrun simctl create "controls-$$" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro \
@@ -559,21 +692,30 @@ xcrun simctl boot "$DEVICE"
 xcodebuild -project Examples/ControlsQualification/ControlsQualification.xcodeproj \
   -scheme ControlsProbeIOS -destination "platform=iOS Simulator,id=$DEVICE" \
   -derivedDataPath .build/qualification/derived build-for-testing
-printf 'tap=Search\ntype=lantern\\n\ndump=results\ntap=Next Match\nstatus\n' > steps.txt
+printf 'tap=Search\ntype=lantern\ntap=search\ndump=results\ntap=Next Match\nstatus\n' > steps.txt
 python3 scripts/run-controls-qualification.py --device "$DEVICE" --name search \
   --args "-QualificationBook ltr" --steps steps.txt
 xcrun simctl delete "$DEVICE"
 ```
 
+The first line is the default of `scripts/test-ios.sh`; the runner has it too, whatever
+`xcode-select` names, and does not run a probe that another Xcode built. `tap=search` presses
+the keyboard's own key: a Return typed with `\n` in a `type=` step can leave the keyboard down
+under a field that still has focus, and
+[#307](https://github.com/vocaro/EPUBLib/issues/307#issuecomment-6132965039) has the counts.
+Each `dump` line of the log says whether the keyboard was on screen and what had keyboard
+focus, and on iOS every scenario starts upright.
+
 The probe's steps are documented where they are handled, in
 `Examples/ControlsQualification/UITests/ControlsProbe.swift`. Host arguments:
 `-QualificationBook ltr|rtl|long`, `-QualificationHost toolbar|strip|navigator`,
 `-QualificationPlacement automatic|leading|bottom`, `-QualificationHostItems <count>`,
-`-QualificationFlow scrolled`, `-QualificationFontSize <points>`, `-QualificationTitle NO`
-and, on the Mac, `-QualificationWindowSize <width>x<height>`. For the iPhone Duo build with
-Xcode 27.1 and pass `--hinge-script`; never send that simulator `simctl io screenConfig`,
-which crash-loops its SpringBoard. For the Mac pass `--mac` in place of `--device`, with a
-signed build, and ask whoever is using the Mac first: the probe takes its pointer and keyboard.
-A new simulator shows the keyboard's first-run card once; tap its Continue before typing. A
-run stopped part-way leaves the simulator as it was, with VoiceOver on or the text size large:
-restore both before the next run, because with VoiceOver on a tap only moves its cursor.
+`-QualificationFlow scrolled`, `-QualificationFontSize <points>`, `-QualificationTitle NO` and,
+on the Mac, `-QualificationWindowSize <width>x<height>`. For the iPhone Duo set `DEVELOPER_DIR`
+to Xcode 27.1 for the build and the run, and pass `--hinge-script`; never send that simulator
+`simctl io screenConfig`, which crash-loops its SpringBoard. For the Mac pass `--mac` in place
+of `--device`, with a signed build, and ask whoever is using the Mac first: the probe takes its
+pointer and keyboard. A new simulator shows the keyboard's first-run card once; tap its Continue
+before typing. A run stopped part-way leaves the simulator as it was, with VoiceOver on or the
+text size large: restore both before the next run, because with VoiceOver on a tap only moves
+its cursor.

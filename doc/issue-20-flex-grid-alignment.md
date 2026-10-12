@@ -120,11 +120,13 @@ content.
 - `BoxAlignmentCanvasTests`: a mounted canvas in paginated flow with one and two columns and
   in continuous scroll, with navigation, page turns, selection, highlights and resizing.
   Tolerance 2.5 points: a visible line is placed to within a point.
-  The shipped pages in one continuous scroll view, whose title page and a floated initial give
-  the whole book box geometry: the verse, its attribution and the dedication sit where they do
+  The shipped pages in one continuous scroll view, where an initial floated in the chapter
+  gives the whole book box geometry: the verse, its attribution and the dedication sit where they do
   on pages of their own, at two sizes. In the same book, a view the person has moved to where
   half a point of the line above a shown position is on screen, or of a line at the bottom:
   that line is not the visible start or end, and a resize keeps the line shown at the top.
+  The dedication shown from its top edge stays there, and stays the place reported, through
+  seven changes of the window's height at the same width.
 - `BoxAlignmentSessionTests`: the fixture book through the public commands in both flows:
   disclosure, href navigation, located and selected passage, saved highlight, restore, and the
   same CFIs in either flow.
@@ -333,10 +335,19 @@ reader's window that was not granted.
    others 4.4 left.
 5. **Baselines.** Line boxes agree; the reader sets glyphs about a tenth of an em lower within
    one (1.8 points at 17, 2.8 at 28), as it does for all text.
-6. **Title pages show their hidden heading.** The reader's rule for off-screen labels takes
-   offsets in absolute units, so `left: -999em` leaves the eight headings and bylines visible
-   above the image that repeats them ([limitations](native-viewer.md#limitations)). Not
-   changed here.
+6. **Title pages showed their hidden heading; fixed afterwards.** The reader's rule for
+   off-screen labels took offsets in absolute units, so `left: -999em` left the eight headings
+   and bylines visible above the image that repeats them, and the headings "Imprint" and
+   "Colophon" above the logo in all ten. The rule now counts an `em` or a `rem` as 16 CSS
+   pixels ([floats and positioned boxes](native-viewer.md#floats-and-positioned-boxes)). Of
+   the ten titles' 724 sections, built at 12, 17 and 96 points, 28 changed: the 8 title pages,
+   which now draw their image alone, and the 10 imprints and 10 colophons, each drawn without
+   its heading. The hidden words are still in the text for VoiceOver, as characters that take
+   no room in the line of the image or logo ([hidden labels](native-viewer.md#floats-and-positioned-boxes)). No
+   other section's text changed, and none differs between the three sizes. Those headings
+   were also why every one of the ten emitted "Some floating, positioned or inline box
+   layouts may be simplified…"; nine no longer do, and *Tristram Shandy* does for its inline
+   blocks. The captures and counts elsewhere in this section were taken before that.
 7. **A row of sized inline blocks was scattered, and overlapped in continuous scroll; fixed
    since.** *Tristram Shandy* marks omissions with runs of asterisks, each in an inline block
    of fixed width, which a browser sets as rows inside the paragraph, and in chapter 8.13 puts
@@ -395,11 +406,22 @@ read. No section in either corpus carries the disclosure.
 
 What does not open is refused by EPUBReading and has no sections. Of the sections built, the
 reader withholds 26 in the W3C tests and 7 in EPUBCheck's fixtures; a withheld section has no
-layout to disclose. The totals agree with the reports of the two corpus tests at the same
-revisions, and `EPUBCheckCorpusTests`, whose report lists each fixture's disclosures, lists
-this one for none. The W3C test's report does not list it, so the sections were counted by a
-test written for this with those tests' helpers (`SpecConformanceCorpus`, `EPUBCheckCorpus`),
-which is not kept.
+layout to disclose.
+
+The two corpus tests repeat the count. Run them as [corpus runs](testing.md#corpus-runs) says,
+with `EPUBLIB_W3C_EPUB_TESTS_REPORT` naming a file and `EPUBLIB_EPUBCHECK_REPORT` a directory:
+
+- `SpecConformanceW3CCorpusTests` prints the number of tests and of sections. Its report has a
+  line for each test with its sections, and the "disclosed" column names `flexGrid` for a test
+  with a section that carries the disclosure, followed by the number of such sections.
+- `EPUBCheckCorpusTests` prints the fixtures, how many opened and their sections, for whole
+  publications, package documents and content documents in turn. In `publications.json`,
+  `packages.json` and `documents.json` a fixture with such a section has `flexGridSimplified`
+  under `disclosures` and, beside it, the number of them as `flexGridSimplifiedSections`.
+
+On these pins neither name is in any report, and the totals are the table's. The first count
+was made at `45b8569` by a test written for it, before the W3C test's report listed this
+disclosure; the two tests gave the same figures with the library at `57bef2e`.
 
 No publication emits the sentence, so there is none to judge. What the count shows is narrower
 than it looks, because these are conformance fixtures and next to none of them uses flexbox or
@@ -412,10 +434,14 @@ grid:
   centres a page's one image: `figure { margin: 0; height: 100%; display: flex; align-items:
   center; justify-content: center }`. That is a row with one item. All 38 sections with such
   a figure are aligned and none is disclosed, which is right: nothing in them is meant to sit
-  side by side.
-- **Controls.** The same seven tests with a second image put in each figure, in memory,
-  disclose all 38 sections, and `Fixture.alignment()` counted the same way discloses its one
-  section of unsupported layouts.
+  side by side. `SpecConformanceCorpus` expects each of the seven not to disclose it, so the
+  W3C run fails if one does.
+- **Controls.** In the first count, the same seven tests with a second image put in each
+  figure, in memory, disclosed all 38 sections, and `Fixture.alignment()` counted the same way
+  disclosed its one section of unsupported layouts. The corpus tests see it too: given a copy
+  of `lay-pp-embedded-images` with a second image in each of its nine figures, the W3C run
+  lists it with `flexGrid (sections: 9)` and as failed, and `EPUBCheckCorpusTests` reports
+  `flexGridSimplifiedSections` as 9.
 - **EPUBCheck's fixtures** have one stylesheet with flex rules (`css/flexbox.css`), a loose
   file that belongs to no publication.
 
@@ -424,8 +450,11 @@ about how often shipped books emit it; the ten titles above are the only shipped
 
 ### Sections with boxes
 
-None of the ten floats anything. Their boxes are the headings that title pages, imprints and
-colophons position off to the left, and in *Tristram Shandy* sized inline blocks. The first
+None of the ten floats anything. Their boxes were the headings that title pages, imprints and
+colophons position off to the left, and in *Tristram Shandy* sized inline blocks. Since those
+headings are hidden (finding 6) they are no longer boxes: 8 sections of *Tristram Shandy* have
+box geometry and no section of the other nine, so in continuous scroll those nine are laid out
+without the text container placing their lines. The first
 pages of five such sections and of every title page were captured in pages and in continuous
 scroll on both simulators (160 captures). No line leaves its column or page. In 7 captures,
 all of *Tristram Shandy*'s asterisk rows, an asterisk and the prose after it overlapped
@@ -472,7 +501,7 @@ kept, for these reasons:
 | Simulators | iOS 27.0 (24A434); iPhone 17 Pro, iPad Air 13-inch (M4); created for this and deleted |
 | Devices | iPad Air 13-inch (M3) and iPhone 17 Pro Max, OS 27.2 (24B5099f); the verification reader at `d2951fb`, built with Xcode 27.0 (27A266a) |
 | Appearance | Light on both sides of every comparison. The simulators were set to light, and the reader's style and the web view were set to Light. The Mac was in Dark; its off-screen window and web view were set to Aqua and the reader's style to Light, and the sample app was launched with `-NSRequiresAquaSystemAppearance YES`, so its window was captured in light |
-| Disclosure count on the W3C corpora | `main` at `45b8569`; w3c/epub-tests at `54092b4` and w3c/epubcheck at `0cc28fb`, the pins of `scripts/fetch-corpora.sh`; macOS 27.0 (26A428), Xcode 27.1 (27A9269), Apple Swift 6.4 |
+| Disclosure count on the W3C corpora | `main` at `45b8569`, and from the two corpus tests with the library at `57bef2e`; w3c/epub-tests at `54092b4` and w3c/epubcheck at `0cc28fb`, the pins of `scripts/fetch-corpora.sh`; macOS 27.0 (26A428), Xcode 27.1 (27A9269), Apple Swift 6.4 |
 | Tests | Mac suite at `4deb252` (the branch merged with `main` at `2187f80`): 2,321 tests, no failures. iPad Air 13-inch (M4) simulator at `2431b6a`: 2,140 tests, no failures. iPhone 17 Pro simulator at `2431b6a`: 2,140 tests, 2 failures, both time limits |
 
 The two iPhone failures were time limits (190 nested notes in 10 seconds, 11,205 elements
@@ -505,15 +534,13 @@ and the Mac run have no failure.
 - A container holding a float or positioned box is left in block flow, and a section with
   both an aligned box and such boxes relies on the existing box geometry for the latter.
 - In continuous scroll a change of the visible height re-resolves the whole text's attributes
-  when it holds an aligned box, as it already does for percentage-sized paragraphs.
+  when it holds an aligned box, as it already does for percentage-sized paragraphs, and the
+  kept position is rested again afterwards.
 - `text-wrap: pretty` and `balance` are not laid out: lines break greedily, where WebKit evens
   them out. `hanging-punctuation` is not laid out: a quotation mark a browser hangs outside
   its block is inside it, which makes the block that much wider.
 - Rules that a row draws with empty `::before` and `::after` flex items are not drawn, and
   that is not disclosed (*Tristram Shandy*, chapters 1.4 and 4.27).
-- A title page that parks its heading with a font-relative offset (`left: -999em`) shows it:
-  the reader's rule for off-screen labels takes absolute units
-  ([limitations](native-viewer.md#limitations)).
 - Continuous scroll rests a box's top edge at the top for a position anywhere in the box only
   when the whole box fits the visible area ([Flows](#flows)). In a taller box a position rests
   its own line. A container aligned only across the line or only by a gap, with no `height` or
@@ -521,7 +548,8 @@ and the Mac run have no failure.
   holds for every position the reader shows, the one a resize or a setting change keeps
   included: where the person has scrolled part of a one-screen box off the top, a resize
   shows the box whole again, moving its lines down to where the box puts them.
-- In a book with box geometry (every Standard Ebooks title, for its title page) a position
+- In a book with box geometry (when this was seen, every Standard Ebooks title, for the
+  headings its title page parks off screen; since finding 6 they are not boxes) a position
   can rest a fraction of a point below the top of the visible area, and a sliver of the line
   above it is then on screen. Continuous scroll counted every line the area showed at all in
   such a book, so that line was the visible start: for a box rested by its top edge the last
@@ -536,15 +564,45 @@ and the Mac run have no failure.
   dedication reached by turning back and changing flow is reported as the dedication. The
   fixture's lines were read the same way on the simulators before (asked 1835, reported 1794
   on the iPhone), and the tests that allowed for it name the visible start again.
-- On the Mac a change of the window's height at the same column width can leave a box rested
-  by its top edge above or below the top by the change in the space above its first line.
-  The step that holds the first line on screen in place after a layout behind the view
-  ([Layout](native-viewer.md#layout)) takes the box's new height for one. In *The Great
-  Gatsby* at 1,000 points wide the dedication was 98 points low after the height went from
-  1,000 to 800, with a position in the imprint reported, and 98 points high after 800 to
-  1,000, on some resizes and not others; a change of width shows the box whole again. This is
-  older than the change above, and can now happen where a box that had rested a fraction low
-  used to sit one line down after a resize instead
-  ([#313](https://github.com/vocaro/EPUBLib/issues/313)). The resize keeping the visible start
+- On the Mac a change of the window's height at the same column width could leave a box
+  rested by its top edge above or below the top by the change in the space above its first
+  line. The step that holds the first line on screen in place after a layout behind the view
+  ([Layout](native-viewer.md#layout)) took the box's new height for one: the top edge rested
+  where it had, so the view had not moved, and the first line had. When this was found the
+  step compared the visible top with where it had been for equality, and the rest reaches the
+  same place by arithmetic that differs in the last bit from one height to another, so it
+  happened on some resizes and not others. The reader now forgets where that line stood
+  whenever a new visible height resolves the boxes again, as it does for a new column width
+  ([#313](https://github.com/vocaro/EPUBLib/issues/313)). With the shipped pages in a canvas
+  500 points wide, the dedication shown after the title page was 68.6 points low after the
+  height went from 700 to 560, 49 after 700 to 600 and 24.5 after 700 to 650, with the title
+  page's last line reported each time; it now stays within a point of the top with the
+  dedication reported through seven changes of height. The resize keeping the visible start
   whether or not the person has scrolled is
   [#164](https://github.com/vocaro/EPUBLib/issues/164).
+- A bar shown or hidden over a reader that runs under it changes the visible height and not
+  the reader's size, and the boxes were then resolved for the new height with nothing resting
+  the kept position afterwards, as a resize does. On an iPhone 17 Pro simulator, through the
+  public reader under a `NavigationStack`'s bar, the fixture's epigraph stood 81 points below
+  the top of the visible area while the bar was hidden (24 above it under a canvas with the
+  bottom toolbar shown; 27.5 and 23.5 below with the shipped pages, with the title page's
+  last line as the visible start). On the Mac, with the reader under the title bar of a
+  full-size content view, a toolbar changed the scroll view's insets and the next layout of
+  the reader, which a change of appearance brings, drew the chapter: through the public
+  reader the epigraph was shown, then the dedication and then the chapter were reported as
+  the place, and a place in the chapter became one 17 paragraphs on. The reader now rests the
+  kept position again whenever a new visible height has resolved the boxes
+  ([Layout](native-viewer.md#layout), [#338](https://github.com/vocaro/EPUBLib/issues/338)):
+  the epigraph stays within a point of the top and is the place reported through four
+  changes of the bar on both, and so does a place in the chapter. UIKit reports the
+  scrolling of an inset change only once the change is over, so the rest made during it was
+  taken for the person's scroll, and the next bar change kept the visible start as read after
+  UIKit had moved the view for the bar: on an iPad Air simulator a paragraph shown was 38.6
+  points below the top after the bar had hidden twice. A report that finds the view where
+  the rest left it is now the reader's own. Measured in test hosts on
+  2026-10-12 and not looked at on a screen or a device. Two things follow. On iOS the line
+  being read in a book with such boxes moves to the top of the taller area when a bar hides,
+  where it stayed where it was on screen before, as it still does in a book with none. And
+  on the Mac the reader is still not laid out when a toolbar changes the insets
+  ([#162](https://github.com/vocaro/EPUBLib/issues/162)), so until something else lays it
+  out its boxes are resolved for the old height.

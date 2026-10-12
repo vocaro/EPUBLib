@@ -286,12 +286,17 @@ final class SectionContentElementCoverageTests: XCTestCase {
         XCTAssertEqual(S.maximumAlpha(of: image, size: size) ?? 0, 0, "a `visibility: hidden` rule is drawn")
     }
 
-    func testVisuallyHiddenPositionedLabelsStayOutOfTheText() throws {
+    func testVisuallyHiddenPositionedLabelsAreNotDrawnAndAreKeptForAssistiveTechnology() throws {
         let text = try S.styled("""
             <p>a<span style="position: absolute; left: -9999px">offscreen</span>b\
-            <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0)">clipped</span>c</p>
+            <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0)">clipped</span>c\
+            <span style="position: absolute; left: -9999px; visibility: hidden">unseen and unheard</span>d</p>
             """)
-        XCTAssertEqual(text.string.string, "abc")
+        XCTAssertEqual(text.string.drawnString, "abcd")
+        XCTAssertEqual(text.string.spokenLabels, ["offscreen", "clipped"])
+        XCTAssertEqual(text.string.string, "a\u{FFFC}b\u{FFFC}cd", "each label is one character where its box stands")
+        XCTAssertEqual(text.string.readerPlainText(), "a offscreen b clipped cd", "read and copied as words of its own")
+        XCTAssertEqual(S.mapViolations(text, sameCharacters: false) + S.stringViolations(text), [])
     }
 
     // MARK: Page breaks and structural semantics

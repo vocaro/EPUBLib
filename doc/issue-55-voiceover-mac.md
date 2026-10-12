@@ -111,13 +111,69 @@ values of the initial session were therefore not caused by the missing notificat
 not reproduced; a value held from an earlier query is the likely source. They are not
 page-turn failures.
 
+## Coming back to a column after a page turn
+
+Found on 2026-10-12 and fixed in [#337](https://github.com/vocaro/EPUBLib/issues/337).
+Everything in this section was heard in [hosted sessions](voiceover-testing.md#hosted-mac-sessions)
+on GitHub's `xcode-27` runner (image 20261006.0244.1, macOS 27.0.1 `26A434`, Xcode 27.0
+`27A266a`, windows 850 points high) at the fixed pause, and none of it on a workstation.
+
+VoiceOver keeps a text cursor of its own in a column it has left. The case: interact with a
+column, move down two lines, stop interacting, move to a page button, activate it, come back
+and interact again. On `740c073` VoiceOver then set the column's insertion point to the offset
+it had on the page before (`SELECTION`) and read from that line, where the new page's first
+line was expected. With the fix (`6c8068d`, then `97635e7` and `a745cde` as `main` was merged
+into it) it sets none and reads the first line:
+
+| Layout and turn | New page | `740c073` | With the fix |
+| --- | --- | --- | --- |
+| 23 pt, two columns, left, Next Page | `word0229–word0296` | `72,0`, "In text word0237 word0238 word0239 word0240" | "In text word0229 word0230 word0231 word0232" |
+| 23 pt, two columns, right, Next Page | `word0297–word0364` | `72,0`, "In text word0305 word0306 word0307 word0308" | "In text word0297 word0298 word0299 word0300" |
+| 23 pt, two columns, left, Previous Page | `word0093–word0160` | `72,0`, "In text word0101 word0102 word0103 word0104" | "In text word0093 word0094 word0095 word0096" |
+| 17 pt, one column, Next Page | `word0172–word0285` | `108,0`, "In text word0179 word0180 word0181 word0182 word0183 word0184 wo" | "In text word0172 word0173 word0174 word0175 word0176 word0177 wo" |
+| 17 pt, one column, Previous Page | `word0055–word0171` | `126,0`, "In text word0067 word0068 word0069 word0070 word0071 word0072" | "In text word0055 word0056 word0057 word0058 word0059 word0060" |
+| 23 pt, two columns, left, Next Page pressed natively from one item away | `word0229–word0296` | `72,0`, "In text word0237 word0238 word0239 word0240" | "In text word0229 word0230 word0231 word0232" |
+| 23 pt, two columns, left, Larger Text from one item away | `word0071–word0127` | `72,0`, "In text word0079 word0080 word0081" | "In text word0071 word0072 word0073 word0074" |
+
+So it took neither VoiceOver's own activation of the button nor a walk across the controls.
+
+A cursor resting on the column during the turn is another matter, and unchanged: after `out`
+and then Page Down, or a native press of Next Page, both commits set `72,0` and said "In text
+word0237 word0238 word0239 word0240" ([below](#what-remains-voiceovers-own)).
+
+The sessions of 2026-10-11 above read the first line in this case for a reason that has since
+gone. Until [#67](https://github.com/vocaro/EPUBLib/pull/67) the control strip's search field
+showed "Search queued…" during every command, so each page turn changed the SwiftUI group that
+holds the strip and the columns, and that group posted two layout changes of its own. VoiceOver
+gives up the cursors it keeps in a group's text areas when that group posts a layout change,
+and keeps them when the window posts one, which is all the canvas did: `8896d61` (#61) reads
+the first line and `eab6c48` (#67) the third, with one commit and a merge between them not
+heard. Posted by the window, a change naming the columns, the group or the window itself, a
+second one, a later one, and one with the columns announced as created all left the cursor
+where it was; so did one posted by each column.
+
+The canvas now posts its layout change, still naming the visible columns, from the element
+that holds them. On a turn VoiceOver says what it said before: "2 updated items" in two
+columns, the item under its cursor in one. Page Down and Page Up while interacting still move
+it to the new page's first line ("word0229 word0230 word0231 word0232", then back to "word0093
+word0094 word0095 word0096"), and continuous scroll still enters at the first line on screen
+("In text word0072 word0073 word0074 word0075 word0076"). One thing is new: a VoiceOver cursor
+on the group itself, where it often is when VoiceOver has just started, moves to the left
+column on a page turn and reads its text.
+
+A session that opened with VoiceOver's cursor already on the text read the first line in this
+case without the fix too: in one column on `b79fcf9`, `9b581c4` and `740c073`. The sessions in
+the table therefore bring VoiceOver to the column by a focus change from somewhere else:
+`ax:focus=search ax:focus=0`, or `ax:focus` alone in a session that began on a control.
+
 ## What remains VoiceOver's own
 
 - If the page changes while the VoiceOver cursor rests on a column without interacting,
   entering resumes at the character offset VoiceOver had on the previous page: "In text
   word0172 word0173 word0174 word0175 word0176" on a column starting at `word0119`, or the
   last line when the new page is shorter. Control-Option-Home returns to the first visible
-  word. Leaving the column, or interacting during the turn, starts at the first line.
+  word. Leaving the column, or interacting during the turn, starts at the first line; from
+  #67 until #337 leaving it did not ([above](#coming-back-to-a-column-after-a-page-turn)).
 - A window resize moved a cursor resting on a column to the window's first control, with and
   without the reader's layout change.
 - VoiceOver completes a word broken across lines without a hyphen: "…at the next num", then
