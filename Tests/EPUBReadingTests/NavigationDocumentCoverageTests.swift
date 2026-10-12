@@ -7,6 +7,7 @@ import XCTest
 /// The EPUB 3 navigation document: the `toc` nav's labels, nesting and hrefs, and XML bounds.
 final class NavigationDocumentCoverageTests: XCTestCase {
     private typealias Item = EPUBNavigationItem
+    private let xhtml11 = #"<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">"#
 
     /// The plain book with its navigation document replaced by one holding `body`.
     private func book(nav body: String, adding: [String: Data?] = [:]) throws -> EPUBPublication {
@@ -87,6 +88,35 @@ final class NavigationDocumentCoverageTests: XCTestCase {
     func testANamedReferenceInACharacterDataSectionOrACommentIsNotOne() throws {
         let entries = try contents("<ol><li><a href=\"one.xhtml\"><![CDATA[A&nbsp;B]]> &nbsp;C<!-- &nbsp; &bogus; --></a></li></ol>")
         XCTAssertEqual(entries.first?.title, "A&nbsp;B \u{A0}C")
+    }
+
+    func testNamedCharacterReferencesInLabelsAreDecodedWhateverTheDoctype() throws {
+        // XHTML's names are read as the content-document parsers read them: from a built-in table,
+        // with or without a DOCTYPE to declare them. Character data sections, comments and an
+        // escaped ampersand keep what they spell.
+        let navs = "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">Caf&eacute;&nbsp;&mdash; <![CDATA[&nbsp;]]><!-- &bogus; -->&amp;nbsp; 1</a></li></ol></nav>"
+            + "<nav epub:type=\"landmarks\"><ol><li><a epub:type=\"bodymatter\" href=\"one.xhtml\">D&eacute;but</a></li></ol></nav>"
+            + "<nav epub:type=\"page-list\"><ol><li><a href=\"one.xhtml#p1\">&sect;&thinsp;1</a></li></ol></nav>"
+        for doctype in ["", "<!DOCTYPE html>", "<!DOCTYPE html SYSTEM \"about:legacy-compat\">", xhtml11,
+                        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" + xhtml11] {
+            let book = try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in doctype + Fixture.navigationDocument(navs) }))
+            XCTAssertEqual(book.tableOfContents, [Item(title: "Caf\u{E9}\u{A0}\u{2014} &nbsp;&nbsp; 1", href: "OPS/one.xhtml")], doctype)
+            XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["bodymatter"], title: "D\u{E9}but", href: "OPS/one.xhtml")], doctype)
+            XCTAssertEqual(book.pageList, [EPUBPageListEntry(label: "\u{A7}\u{2009}1", href: "OPS/one.xhtml#p1")], doctype)
+        }
+    }
+
+    func testNamedCharacterReferencesInALabelAreDecodedBesideALabelWithATildeAndBrace() throws {
+        // `~{` opens a two-byte run in the HZ encoding. This document is UTF-8, so a label that
+        // holds a template expression is plain text and the references before it are references.
+        let nav = "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">Caf&eacute;&nbsp;&mdash; 1</a></li>"
+            + "<li><a href=\"two.xhtml\">Using ~{...} fragments</a></li></ol></nav>"
+        for doctype in [xhtml11, "<?xml version=\"1.0\" encoding=\"utf-8\"?>" + xhtml11, ""] {
+            let book = try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in doctype + Fixture.navigationDocument(nav) }))
+            XCTAssertEqual(book.tableOfContents, [
+                Item(title: "Caf\u{E9}\u{A0}\u{2014} 1", href: "OPS/one.xhtml"), Item(title: "Using ~{...} fragments", href: "OPS/two.xhtml"),
+            ], doctype)
+        }
     }
 
     func testADoctypeWrittenInAnyCaseIsRead() throws {

@@ -116,7 +116,8 @@ enum PageTurnResult: Equatable, Sendable {
     func text(forSection index: Int) -> NSAttributedString?
     /// Full semantic passage, including precise cell coordinates and offscreen continuations.
     func selectionText(in range: ReaderTextRange) -> String?
-    /// Nonlinear sections are reached by links and navigation; page turns step over them.
+    /// Nonlinear sections are reached by links and navigation; page turns step over them. In a
+    /// book with no linear section every section answers true, so page turns read it through.
     func isLinear(section index: Int) -> Bool
     /// The whole book for continuous scroll, once every section is built.
     var bookText: ReaderBookText? { get }

@@ -169,6 +169,34 @@ final class NavigationNCXCoverageTests: XCTestCase {
         }
     }
 
+    func testNamedCharacterReferencesInNCXLabelsAreDecodedWithOrWithoutTheDoctype() throws {
+        // EPUB 2 era tools wrote XHTML's names into labels. The DAISY DTD is never read, and under
+        // its DOCTYPE the XML parser reports no text for a name it has no declaration for, so
+        // XHTML's names are decoded from a built-in table.
+        let doctype = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n"
+            + "<!DOCTYPE ncx PUBLIC \"-//NISO//DTD ncx 2005-1//EN\" \"http://www.daisy.org/z3986/2005/ncx-2005-1.dtd\">\n"
+        let document = ncx("<navMap>\(point("a", "Don&rsquo;t&nbsp;Panic", "one.xhtml"))</navMap><pageList><pageTarget id=\"p1\" type=\"normal\" value=\"1\">"
+            + "<navLabel><text>&sect;&nbsp;1</text></navLabel><content src=\"one.xhtml#p1\"/></pageTarget></pageList>")
+        for prolog in [doctype, ""] {
+            let book = try book(ncx: prolog + document)
+            XCTAssertEqual(book.tableOfContents, [Item(title: "Don\u{2019}t\u{A0}Panic", href: "OPS/one.xhtml")], prolog)
+            XCTAssertEqual(book.pageList, [EPUBPageListEntry(label: "\u{A7}\u{A0}1", href: "OPS/one.xhtml#p1")], prolog)
+        }
+    }
+
+    func testNamedCharacterReferencesInAnNCXLabelAreDecodedBesideALabelWithATildeAndBrace() throws {
+        // `~{` opens a two-byte run in the HZ encoding. This document is UTF-8, as one with no
+        // encoding declared or with that one is, so a label that holds a template expression is
+        // plain text and the references in the label before it are references.
+        let doctype = "<!DOCTYPE ncx PUBLIC \"-//NISO//DTD ncx 2005-1//EN\" \"http://www.daisy.org/z3986/2005/ncx-2005-1.dtd\">\n"
+        let document = ncx("<navMap>\(point("a", "Caf&eacute;&nbsp;&mdash; 1", "one.xhtml"))\(point("b", "Using ~{...} fragments", "two.xhtml", order: 2))</navMap>")
+        for prolog in [doctype, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + doctype, ""] {
+            XCTAssertEqual(try book(ncx: prolog + document).tableOfContents, [
+                Item(title: "Caf\u{E9}\u{A0}\u{2014} 1", href: "OPS/one.xhtml"), Item(title: "Using ~{...} fragments", href: "OPS/two.xhtml"),
+            ], prolog)
+        }
+    }
+
     func testWhiteSpaceInAnNCXLabelIsCollapsed() throws {
         XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/75")
         // As in the navigation document: a label wrapped by a pretty-printer is one line of text.
