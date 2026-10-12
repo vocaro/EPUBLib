@@ -37,6 +37,10 @@ build products, logs and result bundles are ignored by Git. Keep configuration c
 
 ## Mac speech capture
 
+A Mac session takes over the machine it runs on. Unless someone has to listen or step by
+hand, run it on a hosted runner, which needs no workstation: see
+[Hosted Mac sessions](#hosted-mac-sessions). On a workstation, proceed as follows.
+
 Reserve an interval with exclusive control of the Mac's keyboard focus. Use one automation
 controller: no competing agents, other `swift test` or simulator UI runs, or manual VoiceOver
 commands during a session. VoiceOver announces their windows and menus too, and any window or
@@ -68,7 +72,9 @@ approval flow; do not edit TCC databases or enable broad developer permissions a
 
 The probe only records. It polls `XCUIVoiceOverService.currentSpeech()` and prints each new
 phrase as a timestamped `VOICEOVER_EVENT`, while the runner sends its steps in order and
-waits `--pause` seconds after each VoiceOver command:
+waits `--pause` seconds after each VoiceOver command. With `--advance-after SECONDS` it sends
+the next step that long after a key's first new phrase, and waits out the pause only when no
+new phrase is recorded:
 
 - `in`, `out`: start or stop interacting with the item in the VoiceOver cursor.
 - `right`, `left`: the next or previous item; inside text, the next or previous word.
@@ -138,7 +144,9 @@ button and use `activate` in a runner session.
 `--xctest-values` adds XCTest's own snapshot of each column to the transcript whenever it
 changes. Use it with `ax:` steps only: once the probe queries the application, XCTest's
 **Automation Running** banner takes the VoiceOver cursor about every thirty seconds while the
-runner types. Snapshots re-queried for each read matched the observer after every native page
+runner types. The runner stops a session, with exit status 125, as soon as VoiceOver has named
+the banner, because the speech after that may be the banner's; only `--xctest-values` with
+`ax:` steps alone is exempt. Snapshots re-queried for each read matched the observer after every native page
 turn, text-size change and resize, with and without the reader's notifications. Read an
 element again rather than reuse a value, and treat neither XCTest nor the observer as speech.
 
@@ -176,6 +184,106 @@ first and last visible word, and a text cursor it brings back into view, go by t
 area's lines are the whole book's, so a `STATE` read is slow in a long book; the fixture has
 269 at this size. On a simulator or device, `TEST_RUNNER_VOICEOVER_FLOW=scrolled` opens the
 fixture in continuous scroll.
+
+## Hosted Mac sessions
+
+The same reader, probe, observer and runner script record real VoiceOver speech on GitHub's
+hosted `xcode-27` runner. A session there takes over no workstation, several can run at once,
+and the standard runner costs nothing in this public repository. The
+[Mac VoiceOver workflow](../.github/workflows/voiceover-mac.yml) builds the reader at a ref,
+runs one or more sessions and uploads their transcripts. It starts only by hand:
+
+```sh
+gh workflow run voiceover-mac.yml --ref YOUR_BRANCH -f width=600 -f text_size=17 \
+  -f steps='ax:next ax:lines ax:focus in line nextline ; ax:next ax:focus in lastword line nextline'
+gh run list --workflow voiceover-mac.yml --limit 3
+gh run watch RUN_ID --exit-status
+gh run download RUN_ID --name voiceover-mac-transcripts --dir .build/voiceover/hosted/RUN_ID
+```
+
+`--ref` chooses the branch whose workflow file and harness are used, and that branch is built
+unless `ref` names another branch, tag or commit. The scripts come from the ref that is built,
+so it must contain this workflow's scripts. The inputs, all optional:
+
+- `steps`: the steps `scripts/run-voiceover-mac.py` takes, quoted as on a command line, as in
+  `"activate=Next Page"`. A `;` or a line break starts another session. Each session gets a
+  fresh reader, and `ax:width` with the `width` input before its own steps. Left empty, one
+  session checks a page boundary: the left column's entry line, two line moves, a Next Page
+  activated through VoiceOver, and the new page's entry line.
+- `width` and `text_size`: the window width and the launch text size in points, 1100 and 23
+  unless given.
+- `flow`: `paginated`, or `scrolled` for [continuous scroll](#continuous-scroll), which needs
+  its own steps.
+- `pause`: the runner's `--pause`, 5 seconds unless given.
+- `advance_after`: the runner's `--advance-after`. Empty keeps the fixed pause.
+
+A job has twenty minutes and a session at most 300 seconds, the runner script's limit.
+Preparing the runner and building take about two minutes, a boundary session about three at
+the fixed pause, and the transcripts are uploaded three to five minutes after a one-session job
+starts. A session that could not end three minutes before the job's limit is reported as not
+run, and the job fails. A new run for the same ref, width, text size and flow cancels one still
+in progress, so put step lists that share those into one run.
+
+With `advance_after` set to `0.5`, stepping took about a quarter of the time in four pairs of
+sessions, and 95 of 97 keys recorded the same first phrase as at the fixed pause. The hint that
+follows a move is cut short, and a phrase VoiceOver repeats is not recorded again. Use it to
+explore and to walk across controls, and the fixed pause for a transcript that will be quoted.
+
+The job fails unless every session exits 0. `sessions.txt` in the download gives each
+session's outcome, transcript and command: 124 means the deadline was reached, 125 that the
+runner script stopped the session, and 2 that it refused the steps. The download also holds a
+`mac-STAMP.transcript.txt` for each session in order, `runner.txt` with the commit, image,
+macOS, Xcode and screen, the observer, `xcodebuild` and build logs, and a screenshot of the
+runner's screen at the end. The run's summary page shows each session's steps and speech. The
+artifacts expire after five days; copy what must be kept. A failed job also uploads
+`voiceover-mac-result-bundles`, about 230 MB a session. A stopped session's bundle has no
+`Info.plist`, so `xcresulttool` cannot open it, but its log archive opens with
+`log show --archive`.
+
+A hosted session differs from one on a workstation:
+
+- The screen is 1920 × 1080 and the reader's window 850 points high, where the recorded
+  workstation sessions have 882. A full column holds one line fewer, 17 at 23 points; the
+  column widths are the same. Take every boundary from the session's own `STATE` and `LINE`
+  lines.
+- macOS and Xcode are the image's, recorded in `runner.txt`: on 2026-10-12, macOS 27.0.1
+  (`26A434`) where the recorded workstation sessions used 27.0 (`26A428`).
+- Nobody listens and nothing is stepped by hand: a step list goes in and a transcript comes
+  out. Whatever needs a person's ear or a decision between two steps needs a workstation.
+- The build is signed ad hoc, without a team.
+- `xcode-27` is a public-preview image. Its privacy grants, its automation mode without
+  authentication and the behaviour of XCTest's banner belong to the image version and can
+  change; `runner.txt` names the version.
+
+The workflow prepares the runner before it builds. Each step is there for a failure seen
+without it:
+
+1. `defaults write com.apple.VoiceOverTraining doNotShowSplashScreen -bool true`: a Mac that
+   has never run VoiceOver opens its welcome dialog first. No session was tried without this.
+2. `defaults write com.apple.HIToolbox AppleDictationAutoEnable -int 0`: every VoiceOver
+   command presses Control, and after about four of them "Do you want to enable Dictation?"
+   took the VoiceOver cursor.
+3. `launchctl bootout gui/$(id -u)/com.apple.dt.AutomationModeUI`: on this image XCTest's
+   Automation Running banner is killed and restarted about every ten seconds, and VoiceOver
+   moves to an instance that survives and stays there. That lost three sessions of seven.
+   `launchctl disable` does not stop the banner. The job fails if the launch agent is still
+   loaded, and the runner script stops any session in which VoiceOver names the banner.
+4. `displayplacer` sets the screen to 1920 × 1080: the image's 1024 × 768 screen held the
+   window to 1024 × 674, and `ax:width=1100` reported success without resizing it. The job
+   fails if the screen is not that size afterwards.
+5. `CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=` for the build: an ad hoc signature needs no team,
+   certificate or secret, and the image's own privacy grants were enough for the UI test.
+6. The runner script reads a missing `voiceOverOnOffKey` as off when no `VoiceOver` process
+   exists, which is the state of a Mac that has never run VoiceOver.
+
+These commands change settings of the logged-in user and belong on a disposable runner. Do
+not run them on a workstation; the workflow's first step refuses a machine that is not
+GitHub's. Keep `runs-on: xcode-27`: a larger runner, such as `xcode-27-xlarge`, is billed even
+in a public repository. To see what a run cost, expect `"billable": {}` from:
+
+```sh
+gh api repos/vocaro/EPUBLib/actions/runs/RUN_ID/timing
+```
 
 ## Physical iPhone and iPad
 
