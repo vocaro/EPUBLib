@@ -335,6 +335,63 @@ import UIKit
         XCTAssertTrue(ReaderBoxLayout.resolve(slice, viewport: size).text === slice)
     }
 
+    // MARK: A box's paragraphs
+
+    /// Continuous scroll finds the box around a position from the paragraphs' own tags.
+    func testBoxesAroundALocationAreTheParagraphsSharingAContainerWithAHeight() throws {
+        let column = "display: flex; flex-direction: column; justify-content: center; "
+        let section = try H.build("""
+            <p>Before the boxes.</p>\
+            <div class='outer'><p>Outer first.</p><div class='inner'><p>Inner first.</p><p>Inner last.</p></div><p>Outer last.</p></div>\
+            <div class='loose'><p>No height one.</p><p>No height two.</p></div>\
+            <div class='row'><p>Left.</p><p>Right.</p></div><p>After the boxes.</p>
+            """, css: reset + ".outer { \(column) min-height: 500px } .inner { \(column) height: 200px } "
+                + ".loose { \(column) align-items: center } .row { display: flex; height: 300px }")
+        let text = section.string
+        func start(_ phrase: String) -> Int { H.range(phrase, in: section).location }
+        func boxes(_ phrase: String, offset: Int = 0) -> [NSRange] {
+            ReaderAlignmentLayout.boxes(in: text, around: start(phrase) + offset)
+        }
+        let outer = NSRange(location: start("Outer first."), length: start("No height one.") - start("Outer first."))
+        let inner = NSRange(location: start("Inner first."), length: start("Outer last.") - start("Inner first."))
+        XCTAssertEqual(boxes("Outer first."), [outer])
+        XCTAssertEqual(boxes("Outer last.", offset: 6), [outer], "from any character of any of its paragraphs")
+        XCTAssertEqual(boxes("Inner first."), [outer, inner], "the outermost first")
+        XCTAssertEqual(boxes("Inner last.", offset: 11), [outer, inner], "a paragraph's own break is its last character")
+        XCTAssertEqual(boxes("Before the boxes."), [])
+        XCTAssertEqual(boxes("No height two."), [], "a container without a height composes nothing down the page")
+        XCTAssertEqual(boxes("Right."), [], "a row with several items is in block flow")
+        XCTAssertEqual(boxes("After the boxes."), [])
+        XCTAssertEqual(ReaderAlignmentLayout.boxes(in: text, around: -1), [])
+        XCTAssertEqual(ReaderAlignmentLayout.boxes(in: NSAttributedString(), around: 0), [])
+        // The same from resolved text, which is what a scroll view holds.
+        let resolved = ReaderBoxLayout.resolve(text, viewport: size).text
+        XCTAssertEqual(ReaderAlignmentLayout.boxes(in: resolved, around: start("Inner last.")), [outer, inner])
+        XCTAssertGreaterThan(ReaderAlignmentLayout.lead(in: resolved, at: outer.location), 0)
+        // In a whole book a section's end is the break after it: still the box that ends there,
+        // and never the next section's paragraphs, even where a spine repeats an item.
+        let page = try H.build("<section><p>For someone.</p><p>With thanks.</p></section>",
+                               css: reset + "section { \(column) min-height: 98vh }")
+        let book = CanvasText.book([page.string, page.string, section.string])
+        let length = page.string.length
+        XCTAssertEqual(ReaderAlignmentLayout.boxes(in: book.string, around: book.location(of: ReaderTextPosition(section: 0, offset: length))),
+                       [NSRange(location: 0, length: length)])
+        XCTAssertEqual(ReaderAlignmentLayout.boxes(in: book.string, around: book.location(of: ReaderTextPosition(section: 1, offset: 3))),
+                       [NSRange(location: length + 1, length: length)])
+        XCTAssertEqual(ReaderAlignmentLayout.boxes(in: book.string, around: book.string.length), [],
+                       "the book's end is in its last paragraph, which is in no box")
+    }
+
+    func testABoxLongerThanAnyScreenIsNotMeasured() throws {
+        let paragraphs = (0..<1_600).map { "<p>Paragraph \($0) of a section that its body lays out as a column.</p>" }.joined()
+        let section = try H.build(paragraphs, css: reset + "html { height: 100% } body { display: flex; flex-direction: column; min-height: 100% }")
+        XCTAssertGreaterThan(section.string.length, ReaderAlignmentLayout.maximumMeasuredContainer)
+        XCTAssertNotNil(section.string.attribute(.readerAlignment, at: 0, effectiveRange: nil))
+        for location in [0, section.string.length / 2, section.string.length] {
+            XCTAssertEqual(ReaderAlignmentLayout.boxes(in: section.string, around: location), [], "\(location)")
+        }
+    }
+
     // MARK: Other content
 
     func testRulesAndTablesAreMeasuredInsideAnAlignedBox() throws {

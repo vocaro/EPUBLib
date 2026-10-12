@@ -68,4 +68,39 @@ import XCTest
         XCTAssertEqual(bookmarks[.paginated]?.position, bookmarks[.scrolled]?.position, "a position's CFI does not depend on the flow")
         XCTAssertEqual(bookmarks[.paginated]?.selection, bookmarks[.scrolled]?.selection)
     }
+
+    /// Previous Page leaves the position at the end of the section turned back to. In the
+    /// reader's own book text that is the break the book puts after the section, and changing
+    /// to continuous scroll there must still show the one-page box whole.
+    func testChangingToContinuousScrollOnAPageTurnedBackToShowsItsBoxAsComposed() async throws {
+        let publication = try EPUBPublication.open(data: Fixture.alignment())
+        let session = try XCTUnwrap(try NativeEngine().makeSession(publication: publication, selectionAction: nil) { _ in } as? NativeSession)
+        let window = ReaderTestWindow(session: session)
+        defer { session.close(); window.close() }
+        try await wait("the whole book") { session.readerState?.status.lifecycle == .ready && session.book.isComplete }
+        try await session.send(.style(EPUBReaderStyle(fontSize: 17, flow: .paginated)))
+        try await wait("pages") { session.book.isComplete && session.readerState?.status.style.flow == .paginated }
+        // Back from the section after the dedication, over the dedication, to the epigraph.
+        try await session.send(.navigate(href: "OPS/layouts.xhtml"))
+        try await wait("the section after the dedication") { session.visibleRange?.start.section == 3 }
+        for section in [2, 1] {
+            try await session.send(.previousPage)
+            try await wait("section \(section)") { session.visibleRange?.start.section == section }
+        }
+        let length = try XCTUnwrap(session.book.section(1)).string.length
+        XCTAssertEqual(session.canvas?.anchor, ReaderTextPosition(section: 1, offset: length), "the section's end")
+        try await session.send(.style(EPUBReaderStyle(fontSize: 17, flow: .scrolled)))
+        try await wait("continuous scroll") { session.readerState?.status.style.flow == .scrolled && session.canvas?.scrollBook != nil }
+        try await wait("the epigraph from its start") { session.visibleRange?.start == ReaderTextPosition(section: 1, offset: 0) }
+        let canvas = try XCTUnwrap(session.canvas), view = try XCTUnwrap(canvas.scrollTextView), book = try XCTUnwrap(canvas.scrollBook)
+        let start = book.location(of: ReaderTextPosition(section: 1, offset: 0))
+        let lead = ReaderAlignmentLayout.lead(in: try XCTUnwrap(view.contentStorage.textStorage), at: start)
+        XCTAssertGreaterThan(lead, 100, "the epigraph has space above its first line")
+        let visible = canvas.scrollVisibleContainerRect
+        let first = try XCTUnwrap(view.lineFrame(containing: start))
+        let last = try XCTUnwrap(view.lineFrame(containing: book.location(of: ReaderTextPosition(section: 1, offset: length - 1))))
+        XCTAssertEqual(first.minY - lead, visible.minY, accuracy: 1.5, "the box's top edge is at the top of the visible area")
+        XCTAssertEqual((first.minY + last.maxY) / 2 - visible.minY, 0.49 * visible.height, accuracy: 2.5, "its lines are in the middle")
+        XCTAssertEqual(session.readerState?.status.location?.href, "OPS/epigraph.xhtml")
+    }
 }

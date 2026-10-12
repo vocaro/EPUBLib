@@ -219,6 +219,8 @@ enum SVGContent {
         guard valid, unsupportedConstructs(svg).isDisjoint(with: refused) else { return false }
         guard textRunsAreBounded(nodes) else { return false }
         let ids = elementsByID(nodes)
+        // Loops and chains of references the renderer would follow until its stack is spent, or for ever.
+        guard SVGReferenceScreen.accepts(nodes, ids: ids) else { return false }
         var costs: [ObjectIdentifier: Int] = [:]
         var active = Set<ObjectIdentifier>()
         func cost(_ node: ContentNode, depth: Int) -> Int? {
