@@ -115,6 +115,41 @@ record and the iPhone 17e's frames; the iPhone SE, the iPhone 17 Pro Max and the
 from before the change come from builds made with Xcode 27.1 `27A9269` on iOS 27.0, which gave
 the iPhone 17 Pro the same frames.
 
+**A regular height could be as short of room**
+([#310](https://github.com/vocaro/EPUBLib/issues/310)). Outside a compact height the list still
+asked for 160 points and nothing scrolled. An iPad mini on its side (1133 × 744) leaves the
+search popover 284 points above the keyboard, from y = 32 to 316, which was 2 fewer than the
+pane needed at the default text size: seen at `b2bbeac`, the field was at y = 47, a point of
+the padding above it gone. At `accessibility-medium` the field was at y = 25 and Close Search
+at y = 29. At `accessibility-extra-extra-extra-large` the field was at y = −31 and Close Search
+at y = −28, above the popover with the Search button, and the popover showed Clear Search, the
+navigator and part of one result. Upright, an iPhone SE (375 × 667) leaves the sheet 387 points
+from y = 20 and an iPhone 13 mini (375 × 812) leaves it 425 from y = 50. Both held the pane up
+to `accessibility-medium`. At the largest size the SE's field was at y = 8, its top 12 points
+cut off with 9 of Close Search's, and the 13 mini's was at y = 57, whole, with 11 points of the
+padding above it gone.
+
+The list now gives way to 44 points in every height, and what still does not fit under the
+field scrolls there. At `0dc1b41` with the keyboard up, the iPad mini on its side has the field
+at y = 48 at the default size and at `accessibility-medium`, with the list 157 and 113 points
+tall. At the largest size its field is at y = 50 and Close Search at y = 54, and their row
+leaves 154 points in which Clear Search, the navigator and the list scroll. One drag there put
+the keyboard away; the popover then took the 418 × 608 it asks for with the list 320 points
+tall, Next Match stepped to the second match and Close Search closed the pane. At the largest
+size the iPhone SE has the field at y = 38 and Close Search at y = 42 with the list 99 points
+tall, and the iPhone 13 mini has them at y = 68 and y = 72 with the list 138 tall. On each,
+Next Match stepped twice and Close Search closed the pane.
+
+Nothing else moved. Upright, both iPhones have the frames they had at the default size and at
+`accessibility-medium`: the list 260 and 216 points tall on the SE, 299 and 254 on the 13 mini.
+The iPad mini's popover upright is 372 × 446 with the list 340 × 320, as it is on its side once
+the keyboard is away, and without results it is 316 × 93 at the default size, 348 × 119 at
+`accessibility-medium` and 418 × 193 at the largest, before and after. The iPhone SE on its
+side has the frames given above: the field at y = 16 at the default size, where 2 points
+scroll, and at y = 18 at the largest. These three simulators ran iOS 27.0 on builds made with
+Xcode 27.0. On both iPhones the keyboard was sometimes down in the first tree after Return, at
+the default size as well as the largest; the field was tapped and the tree taken again.
+
 **Continuous scroll lost its place after an accessibility read.** On iOS the scrolled reader is
 a text view whose accessibility lists every paragraph of the book, and reading that list (an
 XCTest snapshot did it here; VoiceOver reads the same elements) lays the whole text out behind
@@ -303,6 +338,9 @@ The simulator's text size was set to the largest accessibility size
   `145a21c` in landscape) taps on either segment left the flow unchanged. The same taps
   switched it on the iPhone at this size, on the iPad at the default size and in the strip at
   this size. Not explained.
+- **Search pane short of room.** With the keyboard up an iPhone on its side, a small iPhone
+  upright and an iPad mini on its side leave the pane less than it needs at this size. What
+  each shows is under [Defects found and fixed](#defects-found-and-fixed).
 - **iPhone Duo.** Not completed; see [Not verified](#not-verified).
 
 XCTest's accessibility audit ran on the opening screen and on the search pane at this size. For
@@ -475,6 +513,8 @@ Described, not decided. None of these was changed.
   entries no longer fit the outer display without scrolling, and went no further; a second
   did not start. The Duo's inner display under VoiceOver, as above.
 - iPad windows narrower than full screen (Split View, Slide Over, resized windows).
+- The control strip's Search Results popover where the keyboard leaves it less than the 240
+  points it asks for, such as an iPhone on its side.
 - The pending search's accessibility tree, and an error other than a refused query.
 - Choosing a row in a host's own sheet of `EPUBSearchResultList`, and the host-placed
   navigator on iPad and the iPhone Duo.
