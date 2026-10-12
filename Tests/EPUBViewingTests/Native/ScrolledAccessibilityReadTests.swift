@@ -11,13 +11,14 @@ import UIKit
 /// Continuous scroll after an assistive technology has read the book's text (doc/native-viewer.md
 /// "Continuous scroll"): the place reported and kept is still the text on screen.
 ///
-/// VoiceOver and an XCUITest snapshot list one element for every paragraph of the book, each with
-/// its frame, so UIKit asks TextKit 2 where every paragraph is and the whole book is laid out.
-/// No assistive technology is driven here, and a test host has no accessibility elements to
-/// walk: UIKit's text accessibility is not loaded in it, and the scroll text view answers with
-/// none. `readEveryParagraph(of:)` stands in for the read by asking the text view for each
-/// paragraph's rectangle through the platform's own text geometry (`firstRect(for:)` on UIKit,
-/// `accessibilityFrame(for:)` on AppKit), which lays the book out the same way.
+/// On Mac, and on iOS while the scroll view had UIKit's own text elements, VoiceOver and an
+/// XCUITest snapshot list one element for every paragraph of the book, each with its frame, so
+/// TextKit 2 is asked where every paragraph is and the whole book is laid out. On iOS the scroll
+/// view now lists only its lines on screen (`ScrolledAccessibilityLinesTests`), and anything
+/// else that asks for every paragraph's rectangle lays the book out the same way.
+/// No assistive technology is driven here. `readEveryParagraph(of:)` stands in for the read by
+/// asking the text view for each paragraph's rectangle through the platform's own text geometry
+/// (`firstRect(for:)` on UIKit, `accessibilityFrame(for:)` on AppKit).
 @MainActor final class ScrolledAccessibilityReadTests: XCTestCase {
     private typealias Subject = (reader: SessionCoverageReader, canvas: ReaderCanvasView, view: ReaderTextView)
     private var readers: [SessionCoverageReader] = []

@@ -14,7 +14,12 @@ separate application identifiers and a bundled synthetic EPUB. It opens the fixt
 without a file-picker interaction. The book contains `word0001` through `word1200` in one
 justified paragraph, a heading, an internal **Verification link**, and an image labeled
 **Blue verification square**. Its long paragraph retains the continuation context that
-originally exposed off-page text. Do not import private books for this check.
+originally exposed off-page text. A second bundled book, opened with
+`-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
+ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
+twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
+of the book is a few screens from the start of its last chapter. Do not import private books
+for this check.
 
 Use Xcode 27, OS 27, XcodeGen, Python 3, and a graphical Mac login. Select a signing team for
 the UI-test runners and physical-device app. Signed Mac UI tests worked in the initial
@@ -174,8 +179,39 @@ point can be followed beside the speech.
 paragraph is visible from its first character while any of it is on screen, and VoiceOver's
 first and last visible word, and a text cursor it brings back into view, go by that. The text
 area's lines are the whole book's, so a `STATE` read is slow in a long book; the fixture has
-269 at this size. On a simulator or device, `TEST_RUNNER_VOICEOVER_FLOW=scrolled` opens the
-fixture in continuous scroll.
+269 at this size.
+
+On an iPhone or iPad VoiceOver walks the scroll view's accessibility elements instead, and the
+reader lists the lines on screen, with two more each side while VoiceOver's cursor is in the
+text. Run the probe (see "Physical iPhone and iPad") in that flow, on the book of ordinary
+paragraphs, by adding to its command:
+
+```sh
+TEST_RUNNER_VOICEOVER_FLOW=scrolled TEST_RUNNER_VOICEOVER_BOOK=paragraphs \
+TEST_RUNNER_VOICEOVER_FONT_SIZE=17 \
+TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wait=2,visible,screenshot,forward=9,visible,screenshot,forward=30,visible,backward=44,visible,screenshot'
+```
+
+1. Two scroll steps end in the middle of a paragraph. The first `visible` gives the first and
+   last lines on screen; nothing above or below them is listed.
+2. Eight moves forward from Scroll Forward cross the sample's other controls and the ninth
+   enters the text. Its phrase is the first line on screen, not `w01` of that line's
+   paragraph, and the screenshot after it shows the same lines as the one before: coming in
+   scrolled nothing.
+3. The second `visible` counts four more lines, two each side of the screen, and says how
+   many are outside the window.
+4. The moves forward give every line once, in order, while the view follows; the moves back
+   pass the line VoiceOver came in at and go on above it. A phrase repeated, a line missing,
+   or a control's name among them is a failure.
+5. `backward=1` straight after coming in returns to the control before the text. A touch on
+   a control (`touch=Bookmark`) takes the cursor out, and `visible` then lists the lines on
+   screen alone; the next move forward comes in at the first of them.
+6. `activate=Contents,activate=Chapter two` moves the reader with the cursor on a control, and
+   `point=0.5:0.8` touches a line directly: VoiceOver reads the line under the finger.
+
+Drive at least one session with `flick=right*20` and `flick=left*30` in place of `forward`
+and `backward`: those are VoiceOver's own gestures for the next and previous item, where the
+others are the test service's moves. They take about six seconds each under XCTest.
 
 ## Physical iPhone and iPad
 
@@ -201,21 +237,29 @@ The probe launches the reader and performs the comma-separated steps, recording 
 phrase after each. Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 
 - `read`: move forward until VoiceOver repeats itself at the end of the screen.
+- `forward=COUNT`, `backward=COUNT`: that many moves to the next or previous item, where
+  `read` would go on through a whole book in continuous scroll.
 - `visible`: the window size and each column's first and last numbered lines as XCTest sees
-  them, to compare with the speech.
+  them, to compare with the speech. Lines listed above or below the window, as in continuous
+  scroll while the cursor is in the text, are counted apart.
 - `touch=LABEL`: touch the first item whose label begins with LABEL. Under VoiceOver a touch
   moves its cursor there; `touch=word` is the first numbered line.
 - `activate=LABEL`: touch the item, then double-tap, which is VoiceOver's activation.
+- `point=X:Y`: touch a place in the window, as fractions of its width and height, whatever is
+  listed there.
 - `flick=down`, `flick=up`: one finger steps through the rotor. With the cursor on a line it
   offers the line's actions, Next Page first; `doubletap=LABEL` on that same line then
   performs the chosen one without moving the cursor. On an iPhone in landscape only the
   upward flick registered, which reaches the same actions.
+- `flick=right`, `flick=left`: VoiceOver's next and previous item; `flick=right*12` repeats it.
 - `rotate=landscape`, `rotate=portrait`: an iPad shows two columns in landscape and one in
   portrait. End a session in the orientation it started in.
 - `wait=SECONDS`, and `screenshot`, attached to the result bundle: what is on the glass,
   independent of every accessibility snapshot.
 
-`TEST_RUNNER_VOICEOVER_FONT_SIZE` sets the launch text size. `TEST_RUNNER_VOICEOVER_OFF=1`
+`TEST_RUNNER_VOICEOVER_FONT_SIZE` sets the launch text size, `TEST_RUNNER_VOICEOVER_FLOW=scrolled`
+opens the book in continuous scroll and `TEST_RUNNER_VOICEOVER_BOOK=paragraphs` opens the
+book of ordinary paragraphs. `TEST_RUNNER_VOICEOVER_OFF=1`
 leaves VoiceOver off, so the same steps are plain touches: use it to tell a VoiceOver failure
 from one of the reader's own. The probe stops when the reader is no longer in the foreground.
 Another session's tests on the same device bring their own app forward or switch VoiceOver
