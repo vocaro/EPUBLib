@@ -35,7 +35,6 @@ what each run checks.
   run in this repository. EPUBLib depends on none of them.
 - `EPUBLIB_CORPUS` is a hook for a directory of EPUB files and names no collection. Leave it
   unset unless the owner names the directory for the task in hand.
-- The earlier qualification records ([native viewer](doc/native-viewer.md#qualification),
-  [flex and grid](doc/issue-20-flex-grid-alignment.md)) describe runs on another project's
-  books. They are history, not a corpus to reproduce.
+- The first qualification ([native viewer](doc/native-viewer.md#qualification)) describes a
+  run on another project's books. It is history, not a corpus to reproduce.
 - When a task needs real books, ask the owner which public collection to use.

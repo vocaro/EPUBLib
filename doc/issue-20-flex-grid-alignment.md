@@ -380,17 +380,6 @@ inside the subset, and emit nothing. Two more rows in *Tristram Shandy* (chapter
 4.27) are not disclosed: their only real item is text, which is placed, and the rules drawn by
 their empty `::before` and `::after` boxes are not drawn.
 
-The qualification corpus is not kept with the repository, and `EPUBLIB_CORPUS` is not set on
-the Mac this ran on. With the owner's agreement the count was made, on 2026-10-12 at `376d94f`,
-on the books the [first qualification](native-viewer.md#qualification) describes, as they are
-on that Mac now: StudyWright's shelf sources (`pipeline/shelf/sources`, 55 EPUBs and 21 more
-under `native-candidates`) and the exports of the PDF review set by PDFReflowLib and two other
-converters (`blind-check-359/exports` in the PDFReflowLib measurements: 91, 92 and 91 EPUBs).
-Of the 350 files, EPUBReading opens 347 (the others have an empty spine, an image over the
-import limit and a cut-short archive), and every one of their 27,731 sections was built as
-`NativeCorpusQualificationTests` builds them. None carries the disclosure. The same count on
-the ten titles above gives the three named there.
-
 ### Sections with boxes
 
 None of the ten floats anything. Their boxes are the headings that title pages, imprints and
