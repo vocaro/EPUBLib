@@ -1,5 +1,6 @@
 import EPUBCore
 import Foundation
+import libxml2
 import os
 import XCTest
 @testable import EPUBViewing
@@ -445,11 +446,301 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     }
 
     func testTextAfterAStrayLessThanSignSurvivesTheFallback() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/103")
         let document = try parse("<html \(Self.xhtml)>\(Self.head)<body><p>if x < y then done</p><p>next</p></body></html>")
         XCTAssertTrue(document.recoveredAsHTML)
         XCTAssertTrue(bodyText(document).contains("next"))
         XCTAssertTrue(bodyText(document).contains("y then done"), "the rest of the sentence is gone: \(bodyText(document).debugDescription)")
+    }
+
+    /// U+FDD0 or a noncharacter after it, which a Swift literal may not hold.
+    private static func noncharacter(_ offset: UInt32 = 0) -> Unicode.Scalar { Unicode.Scalar(0xFDD0 + offset)! }
+
+    /// Elements as `<name>` and text as itself, for what the body holds.
+    private func bodyModel(_ document: ContentDocument) -> [String] {
+        guard let body = document.body else { return [] }
+        return document.nodes[(body.order + 1)..<(body.subtreeEnd + 1)].map { $0.isElement ? "<\($0.name)>" : $0.text }
+    }
+
+    /// Every `<` the HTML tokenizer emits as a character is text in the fallback (tag open state:
+    /// "Anything else", which is all but an ASCII letter, `/`, `!` and `?`), and the paragraph
+    /// after it is still a paragraph of its own. libxml2 alone discards each one with the text
+    /// through the next `>`, and makes elements of `<.05`, `<_b` and `<:b`.
+    func testEverySignHTMLReadsAsACharacterIsKeptInTheFallback() throws {
+        let cases: [(String, String, [String])] = [
+            ("a space", "<p>if x < y then done</p><p>next</p>", ["<p>", "if x < y then done", "<p>", "next"]),
+            ("a digit", "<p>p <0.05 and 1 <2</p><p>next</p>", ["<p>", "p <0.05 and 1 <2", "<p>", "next"]),
+            ("a full stop", "<p>p <.05 and q</p><p>next</p>", ["<p>", "p <.05 and q", "<p>", "next"]),
+            ("an equals sign", "<p>x <= y and y >= z</p><p>next</p>", ["<p>", "x <= y and y >= z", "<p>", "next"]),
+            ("another sign", "<p>a << b <<< c</p><p>next</p>", ["<p>", "a << b <<< c", "<p>", "next"]),
+            ("a greater-than sign", "<p>a <> b</p><p>next</p>", ["<p>", "a <> b", "<p>", "next"]),
+            ("a hyphen", "<p>a <- b <-- c</p><p>next</p>", ["<p>", "a <- b <-- c", "<p>", "next"]),
+            ("an underscore", "<p>a <_b > c</p><p>next</p>", ["<p>", "a <_b > c", "<p>", "next"]),
+            ("a colon", "<p>a <:b > c</p><p>next</p>", ["<p>", "a <:b > c", "<p>", "next"]),
+            ("a letter outside ASCII", "<p>a <\u{E9}t\u{E9} > c</p><p>next</p>", ["<p>", "a <\u{E9}t\u{E9} > c", "<p>", "next"]),
+            ("a quotation mark", "<p>a <\"b\" and <'c'</p><p>next</p>", ["<p>", "a <\"b\" and <'c'", "<p>", "next"]),
+            ("a line break", "<p>a <\nb</p><p>next</p>", ["<p>", "a <\nb", "<p>", "next"]),
+            ("a reference", "<p>a <&amp; b</p><p>next</p>", ["<p>", "a <& b", "<p>", "next"]),
+            ("its paragraph's end tag", "<p>a <</p><p>next</p>", ["<p>", "a <", "<p>", "next"]),
+            ("a space, beside tags that are tags", "<p>1 < 2 <b>and</b> 3 < 4</p><p>next</p>", ["<p>", "1 < 2 ", "<b>", "and", " 3 < 4", "<p>", "next"]),
+            ("a space in a table cell", "<table><tr><td>a < b</td><td>c</td></tr></table><p>next</p>",
+             ["<table>", "<tr>", "<td>", "a < b", "<td>", "c", "<p>", "next"]),
+            ("a MathML operator's end tag", "<math><mi>a</mi><mo><</mo><mi>b</mi></math><p>next</p>",
+             ["<math>", "<mi>", "a", "<mo>", "<", "<mi>", "b", "<p>", "next"]),
+        ]
+        for (label, body, expected) in cases {
+            let document = try page(body)
+            XCTAssertTrue(document.recoveredAsHTML, label)
+            XCTAssertFalse(document.canResolveCFIs, label)
+            XCTAssertEqual(bodyModel(document), expected, "a sign before \(label)")
+        }
+    }
+
+    /// Only a sign in text becomes text. Raw text, where a reference would be shown as it is
+    /// written, keeps the sign itself, and markup that holds a sign is the markup it was: an
+    /// attribute value, a comment, a declaration, a processing instruction or a tag.
+    func testASignOutsideTextIsWhatItWas() throws {
+        let raw = try parse("""
+        <html \(Self.xhtml)><head><title>a < b</title><style>a::after { content: "<" } b < c</style>\
+        <script>if (a < b) { c <<= 1 }</script></head><body><p>d < e</p>\
+        <STYLE type="text/css">f < g</stylesheet> h < i</STYLE ><script src="a.js"/><p>j < k</p>\
+        <style>l < m</style x><p>n</<style>o < p</style>q < r</p></body></html>
+        """)
+        XCTAssertTrue(raw.recoveredAsHTML)
+        func texts(_ name: String, in document: ContentDocument) -> [String] { document.nodes.filter { $0.isHTML(name) }.map(\.textContent) }
+        XCTAssertEqual(texts("title", in: raw), ["a < b"])
+        // libxml2 drops an end tag that closes nothing, `</stylesheet>`, and reads on as raw text.
+        XCTAssertEqual(texts("style", in: raw), ["a::after { content: \"<\" } b < c", "f < g h < i", "l < m", "o < p"])
+        XCTAssertEqual(texts("script", in: raw), ["if (a < b) { c <<= 1 }", ""], "`<script/>` is empty: what follows it is text")
+        XCTAssertEqual(texts("p", in: raw), ["d < e", "j < k", "no < pq < r"])
+
+        // Where libxml2 ends raw text depends on the tree it has built: directly after the start
+        // tag it reads any end tag as one, so `</p>` closes the style sheet with its paragraph
+        // and `</b>`, which closes nothing, is dropped with the text through its `>`.
+        let ended = try page("<p>a<style></p> b < c</style>d < e<p>f<script></b g < h>if (i < j) {}</script>k < l</p>")
+        XCTAssertEqual(bodyModel(ended), ["<p>", "a", "<style>", " b < cd < e", "<p>", "f", "<script>", "if (i < j) {}", "k < l"])
+
+        let markup = try page("""
+        <p title="a > b < c" class=x<y lang=d< >e < f</p><p>g<!-- h < i > j --> k < l</p><p>m<?n o < p ?> q < r</p>\
+        <p>s<![CDATA[t < u]]> v < w</p><p < x>y</p z < 0>1 < 2<p>next</p>
+        """)
+        XCTAssertEqual(bodyModel(markup), ["<p>", "e < f", "<p>", "g k < l", "<p>", "m q < r", "<p>", "s v < w", "<p>", "y", "1 < 2", "<p>", "next"])
+        let paragraph = try first("p", in: markup)
+        XCTAssertEqual(paragraph.attributes.map(\.name), ["title", "class", "lang"])
+        XCTAssertEqual(paragraph.attributes.map(\.value), ["a > b < c", "x<y", "d<"])
+        XCTAssertEqual(markup.nodes.filter { $0.isHTML("p") }[4].attributes.map(\.name), ["x"], "a sign among the attributes names none")
+        // A `>` in a DOCTYPE's quoted identifier does not end it.
+        XCTAssertEqual(bodyModel(try page("<p>x < y</p>", prolog: "<!DOCTYPE html PUBLIC \"a>b < c\" \"d>e\">")), ["<p>", "x < y"])
+    }
+
+    /// Reading a sign as text brings into view the markup after it that libxml2 took for the
+    /// inside of a tag. A declaration there, which the screen passed over as it did, declares
+    /// nothing: the HTML parser reads no entity declarations, and the XML parser, which the
+    /// screen is for, stopped at the sign.
+    func testADeclarationBroughtIntoViewByAKeptSignDeclaresNothing() throws {
+        let document = try page("<p>x <_y <!DOCTYPE html [<!ENTITY e \"hidden\">]> &e;</p><p>&e; next</p>")
+        XCTAssertTrue(document.recoveredAsHTML)
+        XCTAssertEqual(bodyModel(document), ["<p>", "x <_y ]> &e;", "<p>", "&e; next"])
+    }
+
+    /// The sign is replaced before the parser reads the bytes and is itself again in the tree:
+    /// one character of its text node, counted once by the offsets after it, matched by a search
+    /// and followed by an `id` that is found. The section is still one whose tree libxml2
+    /// repaired, so it issues and resolves no CFI.
+    func testAKeptSignIsOneCharacterAndTheSectionStillIssuesNoCFI() throws {
+        let document = try page("<p id=\"one\">if x < y &lt; z &amp;lt; done</p><p id=\"two\">p <.05 next</p>")
+        XCTAssertTrue(document.recoveredAsHTML)
+        XCTAssertFalse(document.canResolveCFIs)
+        let one = try XCTUnwrap(document.element(id: "one"))
+        XCTAssertEqual(one.children.count, 1, "one text node")
+        let text = try XCTUnwrap(one.children.first)
+        XCTAssertEqual(text.text, "if x < y < z &lt; done", "a written reference is still the sign, and an escaped one its four characters")
+        XCTAssertEqual(text.utf16Length, 22)
+        XCTAssertEqual(document.element(id: "two")?.textContent, "p <.05 next", "no element was made of `.05`")
+        let match = try XCTUnwrap(TextSearch.matches(of: "x < y", in: document, locale: nil).first)
+        XCTAssertEqual([match.start.offset, match.end.offset], [3, 8])
+        XCTAssertTrue(match.start.node === text && match.end.node === text)
+        XCTAssertEqual(EPUBCFI.localPath(from: match.start, to: match.end, in: document), "")
+        XCTAssertNil(EPUBCFI.resolve(localPath: "/4/2/1:5", in: document))
+    }
+
+    /// What the parser is given differs from the file only where a stray sign stood, by a
+    /// noncharacter the file does not hold as itself or as a reference, so that nothing the
+    /// author wrote is taken for a sign. Well-formed XHTML is read as XML with every `<` it
+    /// has, and UTF-16, which the fallback cannot read either way, is left as it was.
+    func testAStraySignIsGivenToTheParserAsACharacterTheDocumentDoesNotHold() throws {
+        func replaced(_ markup: String) throws -> (text: String, placeholder: Unicode.Scalar?) {
+            let result = try XCTUnwrap(HTMLStraySigns.replaced(in: Data(markup.utf8), limit: .max))
+            return (String(decoding: result.data, as: UTF8.self), result.placeholder)
+        }
+        let unchanged = [
+            "<?xml version=\"1.0\"?><!DOCTYPE html><html><head><title>T</title></head><body><p title=\"a &lt; b\">c &lt; d<!-- e --><br/></p x></body></html>",
+            "<p>one<p>two</div><img src=a.png alt=\"b > c\"><a href=x?y=1&z=2>link</a></<?<!", "",
+        ]
+        for markup in unchanged {
+            let result = try replaced(markup)
+            XCTAssertEqual(result.text, markup)
+            XCTAssertNil(result.placeholder, markup)
+        }
+        let one = String(Self.noncharacter()), two = String(Self.noncharacter(1))
+        let stray = "<p>a < b <= c</p><p title=\"d < e\">f <.5 <</p><style>g < h</style>i <"
+        let result = try replaced(stray)
+        XCTAssertEqual(result.placeholder, Self.noncharacter())
+        XCTAssertEqual(result.text, "<p>a \(one) b \(one)= c</p><p title=\"d \(one) e\">f \(one).5 \(one)</p><style>g \(one) h</style>i \(one)")
+        XCTAssertEqual(HTMLStraySigns.restored(result.text, from: Self.noncharacter()), stray)
+
+        // The author's own noncharacters, written either way, are passed over and kept.
+        XCTAssertEqual(try replaced("<p>a < b \(one) &#xFDD1; &#64978; &#x0FDD3 &#XFDD4;</p>").placeholder, Self.noncharacter(5))
+        let kept = try page("<p title=\"\(one) < &#xFDD1;\">a < b \(one) &#xFDD1; c</p>")
+        XCTAssertEqual(bodyModel(kept), ["<p>", "a < b \(one) \(two) c"])
+        XCTAssertEqual(try first("p", in: kept).attribute("title"), "\(one) < \(two)")
+        // A file that holds all thirty-two is parsed as it is.
+        let every = "<p>a < b " + (0xFDD0...0xFDEF).map { "&#\($0);" }.joined() + "</p>"
+        XCTAssertNil(try replaced(every).placeholder)
+        XCTAssertEqual(try replaced(every).text, every)
+
+        let wellFormed = try page("<p title=\"a &lt; b\">c<![CDATA[ < d > e < f]]></p><script><![CDATA[if (g < h) {}]]></script>")
+        XCTAssertFalse(wellFormed.recoveredAsHTML)
+        XCTAssertEqual(bodyModel(wellFormed), ["<p>", "c < d > e < f", "<script>", "if (g < h) {}"])
+
+        let markup = "<html \(Self.xhtml)>\(Self.head)<body><p>if x < y then done</p><p>next</p></body></html>"
+        for (label, mark, encoding) in [("little endian", [UInt8](arrayLiteral: 0xFF, 0xFE), String.Encoding.utf16LittleEndian),
+                                        ("big endian", [0xFE, 0xFF], .utf16BigEndian)] {
+            let wide = Data(mark) + (try XCTUnwrap(markup.data(using: encoding)))
+            let result = try XCTUnwrap(HTMLStraySigns.replaced(in: wide, limit: .max), label)
+            XCTAssertEqual(result.data, wide, label)
+            XCTAssertNil(result.placeholder, label)
+        }
+    }
+
+    /// The bytes given to the parser are held to the byte limit, the tree to the depth and node
+    /// limits, and the scan reads its input once.
+    func testReplacedSignsKeepTheLimitsAndTheInputIsReadOnce() throws {
+        let stray = "<html><body><p>a < b</p></body></html>" // The placeholder is two bytes longer than the sign.
+        var limits = ContentLimits(); limits.bytes = stray.utf8.count + 2
+        XCTAssertEqual(try parse(stray, limits: limits).body?.textContent, "a < b")
+        for bytes in [stray.utf8.count + 1, stray.utf8.count] {
+            limits.bytes = bytes
+            XCTAssertThrowsError(try parse(stray, limits: limits), "\(bytes) bytes") { error in
+                XCTAssertEqual(error as? ContentDocumentError, .limitExceeded("bytes"), "\(bytes) bytes")
+            }
+        }
+        // Without a stray sign nothing is added, so a file of exactly the limit is still read.
+        let plain = "<html><body><p>a b</b></p></body></html>"
+        limits.bytes = plain.utf8.count
+        XCTAssertEqual(try parse(plain, limits: limits).body?.textContent, "a b")
+
+        // A sign is a character, not a node: half a million of them are one text node.
+        let signs = try parse("<html><body><p>" + String(repeating: "< ", count: 500_000) + "</p></body></html>")
+        XCTAssertEqual(signs.nodes.count, 4)
+        XCTAssertEqual(signs.nodes.last?.utf16Length, 1_000_000)
+        limits = ContentLimits(); limits.nodes = 5
+        XCTAssertThrowsError(try parse("<html><body><p>a < b</p><p>c < d</p></body></html>", limits: limits)) { error in
+            XCTAssertEqual(error as? ContentDocumentError, .limitExceeded("nodes"))
+        }
+        XCTAssertThrowsError(try parse("<html><body>" + String(repeating: "<div>a < b", count: 5_000))) { error in
+            XCTAssertEqual(error as? ContentDocumentError, .limitExceeded("depth"))
+        }
+
+        // Signs, the beginnings of references and the zeros a reference may be padded with, by
+        // the hundred thousand. A scan that read on from each one anew would take minutes.
+        for (prefix, repeated) in [("", "<"), ("", "< "), ("< ", "</"), ("< ", "&#"), ("< ", "&#x0"), ("< &#", "0"), ("< &#x", "0"), ("< ", String(Self.noncharacter()))] {
+            let label = prefix + repeated
+            let data = Data((prefix + String(repeating: repeated, count: 300_000 / repeated.utf8.count)).utf8)
+            let start = Date()
+            let result = try XCTUnwrap(HTMLStraySigns.replaced(in: data, limit: .max), label)
+            XCTAssertLessThan(Date().timeIntervalSince(start), 30, label)
+            XCTAssertNotNil(result.placeholder, label)
+            XCTAssertLessThanOrEqual(result.data.count, data.count * 3, label)
+            XCTAssertNil(HTMLStraySigns.replaced(in: data, limit: result.data.count - 1), label)
+        }
+    }
+
+    /// libxml2's own HTML tree for `data`: each element with its attributes and each text node,
+    /// with its depth, in document order, and whether it is text outside `script` and `style`.
+    private func libxml2Tree(_ data: Data) -> [(entry: String, isText: Bool)] {
+        let options = Int32(HTML_PARSE_NONET.rawValue | HTML_PARSE_NOERROR.rawValue | HTML_PARSE_NOWARNING.rawValue
+            | HTML_PARSE_RECOVER.rawValue | HTML_PARSE_NODEFDTD.rawValue)
+        let parsed = data.withUnsafeBytes { buffer in
+            htmlReadMemory(buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, "UTF-8", options)
+        }
+        guard let parsed else { return [] }
+        defer { xmlFreeDoc(parsed) }
+        var tree: [(entry: String, isText: Bool)] = []
+        func walk(_ first: xmlNodePtr?, rawText: Bool, depth: Int) {
+            var node = first
+            while let current = node {
+                if current.pointee.type == XML_ELEMENT_NODE {
+                    let name = String(cString: current.pointee.name)
+                    var entry = "\(depth) <\(name)"
+                    var attribute = current.pointee.properties
+                    while let property = attribute {
+                        var value = ""
+                        var part = property.pointee.children
+                        while let text = part {
+                            if let content = text.pointee.content { value += String(cString: content) }
+                            part = text.pointee.next
+                        }
+                        entry += " \(String(cString: property.pointee.name))=\(value.debugDescription)"
+                        attribute = property.pointee.next
+                    }
+                    tree.append((entry + ">", false))
+                    if depth < 250 { walk(current.pointee.children, rawText: name == "script" || name == "style", depth: depth + 1) }
+                } else if current.pointee.type == XML_TEXT_NODE || current.pointee.type == XML_CDATA_SECTION_NODE {
+                    tree.append(("\(depth) " + (current.pointee.content.map { String(cString: $0) } ?? "").debugDescription, !rawText))
+                }
+                node = current.pointee.next
+            }
+        }
+        walk(xmlDocGetRootElement(parsed), rawText: false, depth: 0)
+        return tree
+    }
+
+    /// The placeholder is right only if libxml2 reads it as it read the sign everywhere but in
+    /// text. Over generated markup, then: where no sign comes to be shown as text, the tree is
+    /// the one libxml2 builds from the file as it is. No placeholder is left in the reader's
+    /// tree, in a name, a text node or an attribute. And the bytes given to the parser are the
+    /// file's own once each placeholder is read as the sign. (The tokens have no colon: libxml2
+    /// names `<a:style>` `style` in its tree but reads no raw text in it, and the comparison
+    /// tells raw text by that name.)
+    func testThePlaceholderIsReadAsTheSignWasEverywhereButInText() throws {
+        let tokens = ["<", "<", "<", "<", ">", ">", "\"", "'", "=", "/", " ", " ", "a", "p", "b", "x", "1", "!", "?", "-", "--", ".", "_", "\n", "\t", "\u{C}",
+                      "\u{0}", "\u{E9}", String(Self.noncharacter()), "&#xFDD1;", "&lt;", "&", "<p>", "</p>", "<p ", "<a href=", "title=\"", "class='", "<br/>", "/>",
+                      "</", "<?", "<!", "<!--", "-->", "--!>", "<![CDATA[", "]]>", "<!DOCTYPE", "<!doctype html", " PUBLIC", " SYSTEM", "style", "script",
+                      "<style", "</style", "<style>", "</style>", "<STYLE ", "</STYLE ", "<style/>", "<script>", "</script>", "<script src=", "<script />",
+                      "<title>", "</title>", "<textarea>", "</textarea>", "<xmp>", "</xmp>", "<svg>", "</svg>", "<math>", "<html>", "</html>", "<head>",
+                      "<body>", "</body>", "<table>", "<tr>", "<td>", "</table>", "<select>", "<option>", "<ul>", "<li>", "<h1>", "</h1>", "<div>", "</div>"]
+        var state: UInt64 = 103
+        func random(_ bound: Int) -> Int {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return Int((state >> 33) % UInt64(bound))
+        }
+        var replacements = 0, compared = 0
+        for _ in 0..<30_000 {
+            let markup = (random(2) == 0 ? "<html><body>" : "") + (0...random(18)).map { _ in tokens[random(tokens.count)] }.joined()
+            let data = Data(markup.utf8)
+            let replaced = try XCTUnwrap(HTMLStraySigns.replaced(in: data, limit: .max))
+            guard let placeholder = replaced.placeholder else { continue }
+            replacements += 1
+            guard HTMLStraySigns.restored(String(decoding: replaced.data, as: UTF8.self), from: placeholder) == markup else {
+                return XCTFail("more than its stray signs was replaced in \(markup.debugDescription)")
+            }
+            let tree = libxml2Tree(replaced.data)
+            if !tree.contains(where: { $0.isText && $0.entry.unicodeScalars.contains(placeholder) }) {
+                compared += 1
+                guard tree.map({ HTMLStraySigns.restored($0.entry, from: placeholder) }) == libxml2Tree(data).map(\.entry) else {
+                    return XCTFail("the placeholder is not read as the sign was in \(markup.debugDescription)")
+                }
+            }
+            guard let document = try? ContentDocument.parse(data, path: "generated.xhtml") else { continue }
+            for node in document.nodes {
+                let strings = [node.name, node.text] + node.attributes.flatMap { [$0.name, $0.value] }
+                guard !strings.contains(where: { $0.unicodeScalars.contains(placeholder) }) else {
+                    return XCTFail("a placeholder is left in \(node.isText ? "text" : "<\(node.name)>") of \(markup.debugDescription)")
+                }
+            }
+        }
+        XCTAssertGreaterThan(replacements, 3_000, "the generator has stopped making stray signs")
+        XCTAssertGreaterThan(compared, 1_000, "the generator has stopped putting them outside text")
     }
 
     /// Namespaces in XML: a prefix must be declared. WebKit reports "Namespace prefix epub for

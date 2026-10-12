@@ -286,7 +286,8 @@ final class CSSCascadeFontCoverageTests: XCTestCase {
             ["OPS/css/a.woff2", "OPS/css/a.ttf", "OPS/css/a.otf"],
             ["OPS/fonts/My Font.ttf", "OPS/css/y.otf", "OPS/css/a.ttf"],
             ["OPS/css/local.woff"],
-            ["OPS/css/inside.ttf"],
+            // `..` stops at the container root.
+            ["outside.ttf", "OPS/css/inside.ttf"],
             ["OPS/css/quoted name.ttf", "OPS/css/spaced name.ttf"],
         ])
         XCTAssertEqual(sheet.remoteReferences, 3, "Remote sources are counted and never listed")

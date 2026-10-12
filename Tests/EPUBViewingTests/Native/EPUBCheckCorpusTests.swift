@@ -26,7 +26,7 @@ import XCTest
         var openError: String?
         /// The failure is not an `EPUBPublicationError`.
         var untypedOpenError = false
-        /// A refusal the architecture document names: a remote manifest resource or encryption.
+        /// A refusal the architecture document names: a remote resource in the spine or encryption.
         var documentedRefusal = false
         var sections = 0
         var characters = 0
