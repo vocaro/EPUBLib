@@ -31,8 +31,9 @@ as host-exported CoreText SFNT outline bytes, with SVG/COLR/bitmap color-glyph
 tables removed and disclosed as `svg:font-color`. No script or remote/file-resource loader is
 installed. SVG filter effects are omitted before rendering with a disclosure; the remaining
 drawing is preserved. Pattern fills are refused with authored fallback text and a disclosure;
-the native pipeline bounds SVG bytes, depth, nodes, use expansion, image bytes and
-pixels, and output/isolated-layer raster memory before rendering. Font databases
+the native pipeline bounds SVG bytes, depth, nodes, use expansion, single text-run
+length, marker instances, image bytes and pixels, and output/isolated-layer raster
+memory before rendering. Font databases
 share immutable options and retain a process-wide 64 MiB byte reservation for
 their full lifetime, including SVG trees remaining after cache eviction. A database
 a tree still holds is shared by later drawings naming the same fonts, never duplicated.
