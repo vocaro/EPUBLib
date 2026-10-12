@@ -722,10 +722,11 @@ The Mac runner's transcript is plain text and needs no export.
   (`flick=right*27`) gave the four controls, the heading and twenty-two lines in order to
   `p044w22 … p044w28`. iPhone 17 Pro simulator (iOS 27.0), the same commit: after
   `activate=Contents,activate=Chapter one`, seventy lines forward from `p001w01` to
-  `p008w22`, in order, where it had stopped at `p002w29 … p002w33`, and back to the heading
-  in order, the service giving one phrase twice where `p004w39 p004w40` was due, on a move
-  that took 2.4 s with the Mac's load average at 750; the two-step session, a touch on
-  Bookmark, `point=0.5:0.8` and six and eight flicks, in order.
+  `p008w22`, in order, where it had stopped at `p002w29 … p002w33`, and sixty-nine back to
+  the heading in order. In one run of two the service gave a phrase twice where
+  `p004w39 p004w40` was due, on a move that took 2.4 s with the Mac's load average at 750.
+  The two-step session, a touch on Bookmark, `point=0.5:0.8` and six and eight flicks: in
+  order.
 - Coming into the text from below, the same day and commit, from the sample's footer
   (`touch=VoiceOver Paragraph,backward=6`). At the top of the book, in the simulator: the
   scroll bar, the last line on screen and the lines above it in order. Further in, on the
