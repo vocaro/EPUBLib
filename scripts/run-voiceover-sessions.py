@@ -25,10 +25,12 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS = ROOT / ".build/voiceover/results"
 READER = ROOT / ".build/voiceover/mac/Build/Products/Debug/VoiceOverVerificationMac.app"
-# An entry line, two line moves, a VoiceOver-activated Next Page and the new page's first line.
-# Next Page is eight items left of the left column, with one column or two.
-BOUNDARY = ("ax:next ax:lines ax:focus=0 in line nextline nextline out " + "left " * 8
-            + '"activate=Next Page" ax:lines ' + "right " * 8 + "in line")
+# The left column's entry line, a Next Page activated through VoiceOver, then the new page's
+# entry line and its second line. Next Page is eight items left of the left column, with one
+# column or two. The lines are read after the turn: VoiceOver may come back to a column at the
+# character offset it had there, so a line moved before the turn can move the second entry.
+BOUNDARY = ("ax:next ax:lines ax:focus=0 in line out " + "left " * 8
+            + '"activate=Next Page" ax:lines ' + "right " * 8 + "in line nextline nextline")
 OUTCOMES = {0: "completed", 2: "refused by the runner script", 124: "ended early or reached its deadline",
             125: "stopped"}
 

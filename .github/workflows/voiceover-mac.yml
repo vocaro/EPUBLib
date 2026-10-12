@@ -7,8 +7,8 @@ on:
     inputs:
       ref:
         description: >-
-          Branch, tag or commit whose reader is built. Empty builds the branch the run is
-          started from.
+          Branch, tag or full commit SHA whose reader is built. Empty builds the branch the
+          run is started from.
         type: string
       steps:
         description: >-

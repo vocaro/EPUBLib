@@ -201,15 +201,17 @@ gh run watch RUN_ID --exit-status
 gh run download RUN_ID --name voiceover-mac-transcripts --dir .build/voiceover/hosted/RUN_ID
 ```
 
-`--ref` chooses the branch whose workflow file and harness are used, and that branch is built
-unless `ref` names another branch, tag or commit. The scripts come from the ref that is built,
-so it must contain this workflow's scripts. The inputs, all optional:
+`--ref` chooses the branch whose workflow file is used, and that branch is built unless the
+`ref` input names another one. The inputs, all optional:
 
+- `ref`: a branch, a tag or a full commit SHA whose reader and probe are built. The runner,
+  observer and session scripts still come from the `--ref` branch, so a commit older than this
+  workflow can be heard, and two commits compared, with one harness.
 - `steps`: the steps `scripts/run-voiceover-mac.py` takes, quoted as on a command line, as in
   `"activate=Next Page"`. A `;` or a line break starts another session. Each session gets a
   fresh reader, and `ax:width` with the `width` input before its own steps. Left empty, one
-  session checks a page boundary: the left column's entry line, two line moves, a Next Page
-  activated through VoiceOver, and the new page's entry line.
+  session checks a page boundary: the left column's entry line, a Next Page activated through
+  VoiceOver, and the new page's entry line and second line.
 - `width` and `text_size`: the window width and the launch text size in points, 1100 and 23
   unless given.
 - `flow`: `paginated`, or `scrolled` for [continuous scroll](#continuous-scroll), which needs
