@@ -154,9 +154,13 @@ enum NativeDisclosure {
               many: "# interactive parts of this document were not run.")
         count(report.remoteResourcesRefused, one: "One resource this document asked to load from the internet was not loaded.",
               many: "# resources this document asked to load from the internet were not loaded.")
-        let unsupported = report.unsupportedElements.values.reduce(0, +)
+        // A table is counted for the cells its grid has no slot for, and those are shown.
+        let tables = report.unsupportedElements["table"] ?? 0
+        let unsupported = report.unsupportedElements.values.reduce(0, +) - tables
         count(unsupported, one: "One part of this document, such as a video or a form, cannot be shown by this reader.",
               many: "# parts of this document, such as videos or forms, cannot be shown by this reader.")
+        count(tables, one: "One table has cells that are shown after it, out of place.",
+              many: "# tables have cells that are shown after them, out of place.")
         count(report.unreadableResources, one: "One image could not be shown.", many: "# images could not be shown.")
         count(report.mathFallbacks, one: "One formula is shown as plain text.", many: "# formulas are shown as plain text.")
         count(report.mathApproximations, one: "One formula is shown in a simplified layout.",
