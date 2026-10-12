@@ -106,7 +106,10 @@ not fit scroll, and at y = 18 at the largest.
 Nothing else moved at the default size. The iPhone 17 Pro on its side and upright, the iPhone
 17 Pro Max on its side, the iPhone SE upright and the iPad's popover in both orientations (372
 × 446, the list 340 × 320) have the frames they had before. The iPhone 17 Pro Max upright was
-not compared: the keyboard was not up when its frames were read before the change.
+not compared: the keyboard was not up when its frames were read before the change. The iPhone
+17 Pro and the iPad were read again at `31b0e7f`, built with Xcode 27.0 like the rest of this
+record; the iPhone SE, the iPhone 17 Pro Max and every frame from before the change come from
+builds made with Xcode 27.1 `27A9269` on iOS 27.0, which gave the iPhone 17 Pro the same frames.
 
 **Continuous scroll lost its place after an accessibility read.** On iOS the scrolled reader is
 a text view whose accessibility lists every paragraph of the book, and reading that list (an
