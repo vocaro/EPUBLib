@@ -76,8 +76,12 @@ enum SectionBuilder {
                                                path: item.resource.path)
         var report = SectionReport()
         report.withheld = true
+        let font = request.fonts.font(for: ComputedStyle(fontSize: request.typography.fontSize))
+        // No text handed to layout is without a tab interval, as in a section that was built.
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.defaultTabInterval = InlineStyling.tabInterval(font)
         let notice = NSAttributedString(string: "This section could not be shown.", attributes: [
-            .font: request.fonts.font(for: ComputedStyle(fontSize: request.typography.fontSize)),
+            .font: font, .paragraphStyle: paragraph,
             .foregroundColor: ReaderPalette.secondaryText(dark: request.typography.isDark),
         ])
         return SectionText(spineIndex: request.spineIndex, href: item.resource.href, document: empty, string: notice,
