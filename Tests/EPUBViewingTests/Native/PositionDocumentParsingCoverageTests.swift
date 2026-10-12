@@ -566,7 +566,7 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     /// What the parser is given differs from the file only where a stray sign stood, by a
     /// noncharacter the file does not hold as itself or as a reference, so that nothing the
     /// author wrote is taken for a sign. Well-formed XHTML is read as XML with every `<` it
-    /// has, and UTF-16, which the fallback cannot read either way, is left as it was.
+    /// has, and UTF-16 is decoded before its signs are sought.
     func testAStraySignIsGivenToTheParserAsACharacterTheDocumentDoesNotHold() throws {
         func replaced(_ markup: String) throws -> (text: String, placeholder: Unicode.Scalar?) {
             let result = try XCTUnwrap(HTMLStraySigns.replaced(in: Data(markup.utf8), limit: .max))
@@ -602,13 +602,13 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
         XCTAssertFalse(wellFormed.recoveredAsHTML)
         XCTAssertEqual(bodyModel(wellFormed), ["<p>", "c < d > e < f", "<script>", "if (g < h) {}"])
 
+        // A sign before a NUL opens nothing either, and the signs after it are still sought.
+        XCTAssertEqual(try replaced("<p>a <\u{0}b < c</p>").text, "<p>a \(one)\u{0}b \(one) c</p>")
         let markup = "<html \(Self.xhtml)>\(Self.head)<body><p>if x < y then done</p><p>next</p></body></html>"
         for (label, mark, encoding) in [("little endian", [UInt8](arrayLiteral: 0xFF, 0xFE), String.Encoding.utf16LittleEndian),
                                         ("big endian", [0xFE, 0xFF], .utf16BigEndian)] {
             let wide = Data(mark) + (try XCTUnwrap(markup.data(using: encoding)))
-            let result = try XCTUnwrap(HTMLStraySigns.replaced(in: wide, limit: .max), label)
-            XCTAssertEqual(result.data, wide, label)
-            XCTAssertNil(result.placeholder, label)
+            XCTAssertEqual(bodyModel(try ContentDocument.parse(wide, path: "wide.xhtml")), ["<p>", "if x < y then done", "<p>", "next"], label)
         }
     }
 
