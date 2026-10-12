@@ -341,6 +341,21 @@ The simulator's text size was set to the largest accessibility size
 - **Search pane short of room.** With the keyboard up an iPhone on its side, a small iPhone
   upright and an iPad mini on its side leave the pane less than it needs at this size. What
   each shows is under [Defects found and fixed](#defects-found-and-fixed).
+- **The strip's Search Results with the keyboard up** (`d360069`, iOS 27.0, Xcode 27.0; each
+  device on its side at `large`, `accessibility-medium` and this size). The browser asks for
+  240 points at least, and it has them. On an iPhone it is a sheet, and presenting it puts the
+  keyboard away: the keyboard was in the tree taken before Search Results was tapped, was not
+  in the tree with the sheet open, and was back once the sheet had closed. The sheet has the
+  whole height. On an iPhone 17 Pro (874 × 402) the title is at y = 16 at each size and Close
+  Search Results at y = 18, 19 and 22, where it is 54 × 51, and the list is 319, 299 and 254
+  points tall. On an iPhone SE (667 × 375) they are at the same heights and the list is 311,
+  292 and 247 tall. On an iPad it is a popover, and the keyboard stays up under it. An iPad
+  mini on its side (1133 × 744) leaves it 284 points, from y = 32 to 316, and the popover is
+  373 × 284 beside its button: the 360 it asks for and its arrow. The title is at y = 48 at
+  each size and Close Search Results at y = 50, 51 and 85, whole; the list is 220, 201 and 31
+  points tall. At this size the title takes two lines with the count under it, and those and
+  the padding take 253 of the 284. One drag in the list's 31 points put the keyboard away; the
+  popover then took 373 × 420 with the list 167 tall, and Close Search Results closed it.
 - **iPhone Duo.** Not completed; see [Not verified](#not-verified).
 
 XCTest's accessibility audit ran on the opening screen and on the search pane at this size. For
@@ -497,6 +512,9 @@ Described, not decided. None of these was changed.
 13. **The page label after a search.** On a first page that starts before the book's first
     page marker, the reader's location reads "no page" when opened, "page 1" once a result on
     that page is shown, and "no page" again after the pane closes.
+14. **The strip's Search Results list under the keyboard at the largest text size** is 31
+    points tall in an iPad mini's popover on its side, less than a line of a row, where the
+    search pane keeps its list 44. A drag in it puts the keyboard away and gives it 167.
 
 ## Not verified
 
@@ -513,8 +531,9 @@ Described, not decided. None of these was changed.
   entries no longer fit the outer display without scrolling, and went no further; a second
   did not start. The Duo's inner display under VoiceOver, as above.
 - iPad windows narrower than full screen (Split View, Slide Over, resized windows).
-- The control strip's Search Results popover where the keyboard leaves it less than the 240
-  points it asks for, such as an iPhone on its side.
+- The control strip's Search Results popover under a keyboard taller than the simulator's
+  English one. At the largest text size an iPad mini on its side leaves the popover 31 points
+  more than its title, count and padding take.
 - The pending search's accessibility tree, and an error other than a refused query.
 - Choosing a row in a host's own sheet of `EPUBSearchResultList`, and the host-placed
   navigator on iPad and the iPhone Duo.
