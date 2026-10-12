@@ -478,7 +478,6 @@ import UIKit
     /// the package's `dc:language`: what the reader generates from language (the marks around a
     /// `q`) is the same whatever the package says (W3C test pkg-lang_but_not_content).
     func testThePackagesLanguageIsNotAssumedForContent() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/109")
         let body = "<p>She said <q>the better is the enemy of the good</q>.</p>"
         var rendered: [String: String] = [:]
         for language in ["en", "fr", "de", "ja"] {
@@ -489,6 +488,108 @@ import UIKit
         XCTAssertEqual(rendered["fr"], rendered["en"])
         XCTAssertEqual(rendered["de"], rendered["en"])
         XCTAssertEqual(rendered["ja"], rendered["en"])
+    }
+
+    /// RS 3.7, for the other text the reader generates from language: case mapping. A document
+    /// that declares no language maps case the same in a Turkish book as in an English one, and
+    /// one that says it is Turkish gets Turkish's dotted capital and dotless small letter.
+    func testThePackagesLanguageDoesNotChooseCaseMappingForContent() throws {
+        let body = """
+            <p style="text-transform: uppercase">istanbul</p>
+            <p style="text-transform: lowercase">ISPARTA</p>
+            <p style="text-transform: capitalize">izmir</p>
+            <p style="font-family: Georgia; font-variant: small-caps">Edirne ili</p>
+            <div lang="tr"><p style="text-transform: uppercase">iznik</p><p style="text-transform: lowercase">IĞDIR</p>
+            <p style="font-family: Georgia; font-variant: small-caps">Sinop ili</p></div>
+            """
+        let book = try build(body) { $0.metadata = "<dc:title>Kitap</dc:title><dc:language>tr</dc:language>" }
+        let turkish = book[0].specText
+        XCTAssertEqual(turkish, try build(body)[0].specText)
+        for phrase in ["ISTANBUL", "isparta", "Izmir", "İZNİK", "ığdır"] {
+            XCTAssertTrue(turkish.contains(phrase), "\(phrase) in \(turkish.debugDescription)")
+        }
+        // A family without small capitals shows lower-case letters as smaller capitals: mapped too.
+        let georgia = ComputedStyle(fontFamilies: ["georgia"], fontSize: 16, isSmallCaps: true)
+        if FontRegistry(publication: book.publication).needsSyntheticSmallCaps(for: georgia) {
+            XCTAssertTrue(turkish.contains("EDIRNE ILI"), turkish)
+            XCTAssertTrue(turkish.contains("SİNOP İLİ"), turkish)
+        }
+    }
+
+    /// The reader's narrow reading of RS 3.7 (#109): the package's first `dc:language` stays a
+    /// hint where some language has to be chosen anyway. CoreText chooses glyphs for a language,
+    /// so every run of an unlabelled document in a Japanese book is typeset as Japanese, in the
+    /// section, a table cell and a note alike, while the text generated around its `q`s is not
+    /// Japanese.
+    func testThePackagesLanguageStaysAHintForTypesetting() throws {
+        let body = """
+            <p>She wrote <q>直</q> and <q>骨 <q>inner</q></q>.</p><ul><li>An item</li></ul>
+            <table><tr><td>A cell says <q>海</q>.</td><td>Another</td></tr></table>
+            <aside epub:type="footnote" id="note">A note says <q>角</q>.</aside>
+            """
+        let japanese = try build(body) { $0.metadata = "<dc:title>本</dc:title><dc:language>ja</dc:language>" }[0]
+        let unstated = try build(body) { $0.metadata = "<dc:title>A Book</dc:title>" }[0]
+        func languages(_ text: NSAttributedString) -> Set<String?> {
+            var found: Set<String?> = []
+            text.enumerateAttributes(in: NSRange(location: 0, length: text.length)) { attributes, _, _ in
+                if attributes[.attachment] == nil { found.insert(attributes[InlineStyling.languageKey] as? String) }
+            }
+            return found
+        }
+        func cell(_ section: SectionText) throws -> NSAttributedString {
+            let row = try XCTUnwrap(RichFixture.attachments(in: section.string).compactMap { $0 as? TableRowAttachment }.first)
+            return try XCTUnwrap(row.table.cells.first { $0.content.string.contains("A cell") }).content
+        }
+        XCTAssertTrue(japanese.specText.contains("She wrote “直” and “骨 ‘inner’”."), japanese.specText)
+        XCTAssertEqual(languages(japanese.string), ["ja"], "paragraphs, quote marks and list markers")
+        XCTAssertEqual(try cell(japanese).string, "A cell says “海”.")
+        XCTAssertEqual(languages(try cell(japanese)), ["ja"])
+        let note = try XCTUnwrap(japanese.notes["note"])
+        XCTAssertEqual(note.string, "A note says “角”.")
+        XCTAssertEqual(languages(note), ["ja"])
+        // A package that names no language gives no hint, and the same text.
+        XCTAssertEqual(unstated.specText, japanese.specText)
+        XCTAssertEqual(languages(unstated.string), [nil])
+        XCTAssertEqual(languages(try cell(unstated)), [nil])
+        XCTAssertEqual(languages(try XCTUnwrap(unstated.notes["note"])), [nil])
+    }
+
+    /// A document that declares its own language is in that language for both uses, whatever
+    /// the package says: its `q` marks and its glyphs are French in a Japanese book, an element
+    /// inside it changes both again, and `lang=""` (the language is unknown) leaves neither a
+    /// language nor the package's hint.
+    func testAContentDocumentsOwnLanguageOverridesThePackagesForGeneratedTextAndTypesetting() throws {
+        let body = """
+            <p>Elle dit <q>bonjour</q>.</p><p xml:lang="de">Er sagt <q>hallo</q>.</p>
+            <p lang="">Unknown <q>words</q>.</p>
+            <table><tr><td>Une cellule dit <q>oui</q>.</td><td lang="">Cell <q>unknown</q>.</td></tr></table>
+            <aside epub:type="footnote" id="note">Une note dit <q>non</q>.</aside>
+            """
+        let section = try build(body, root: "lang=\"fr\" xml:lang=\"fr\"") {
+            $0.metadata = "<dc:title>本</dc:title><dc:language>ja</dc:language>"
+        }[0]
+        func language(_ phrase: String, in text: NSAttributedString) -> String? {
+            let range = (text.string as NSString).range(of: phrase)
+            XCTAssertNotEqual(range.location, NSNotFound, phrase)
+            return range.location == NSNotFound ? nil : text.attribute(InlineStyling.languageKey, at: range.location, effectiveRange: nil) as? String
+        }
+        XCTAssertTrue(section.specText.contains("Elle dit «\u{202F}bonjour\u{202F}»."), section.specText)
+        XCTAssertTrue(section.specText.contains("Er sagt „hallo“."), section.specText)
+        XCTAssertTrue(section.specText.contains("Unknown “words”."), section.specText)
+        XCTAssertEqual(language("Elle dit", in: section.string), "fr")
+        XCTAssertEqual(language("«", in: section.string), "fr")
+        XCTAssertEqual(language("Er sagt", in: section.string), "de")
+        XCTAssertNil(language("Unknown", in: section.string))
+        let row = try XCTUnwrap(RichFixture.attachments(in: section.string).compactMap { $0 as? TableRowAttachment }.first)
+        let french = try XCTUnwrap(row.table.cells.first { $0.content.string.contains("Une cellule") }).content
+        let unknown = try XCTUnwrap(row.table.cells.first { $0.content.string.contains("Cell") }).content
+        XCTAssertEqual(french.string, "Une cellule dit «\u{202F}oui\u{202F}».")
+        XCTAssertEqual(language("Une cellule", in: french), "fr")
+        XCTAssertEqual(unknown.string, "Cell “unknown”.")
+        XCTAssertNil(language("Cell", in: unknown))
+        let note = try XCTUnwrap(section.notes["note"])
+        XCTAssertEqual(note.string, "Une note dit «\u{202F}non\u{202F}».")
+        XCTAssertEqual(language("Une note", in: note), "fr")
     }
 
     /// HTML's `ruby`: the annotation rides above its base and adds no characters to the text,

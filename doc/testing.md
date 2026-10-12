@@ -48,7 +48,10 @@ geometry and the TextKit 2 views. MathML fixtures cover wide display and inline 
 and 28 points in a 320-point column, their rows as laid out and drawn in both flows, `mglyph`,
 elementary math, and readings in French and German content with and without `alttext`. CFI and search tests replay vectors recorded from foliate-js's own
 `epubcfi.js` and `search.js` in WebKit before they were removed, so CFIs the WebKit reader
-recorded keep naming the same positions. Live session tests mount a reader in a window, open at
+recorded keep naming the same positions. The one exception is deliberate: a CFI into a later
+occurrence of a spine item the spine repeats names that occurrence, where foliate-js named the
+first ([#108](https://github.com/vocaro/EPUBLib/issues/108)); the spine vectors are held to the
+document foliate-js named, not to its index. Live session tests mount a reader in a window, open at
 the text start (a `bodymatter` landmark, a guide `text` reference or the first linear section),
 navigate between sections, exercise styles and flows, update page controls without changing location/selection/highlights, locate/select passages, restore positions
 (including a foliate-written CFI under EPUBLib's bookmark identity, refusing the old tag, and a
