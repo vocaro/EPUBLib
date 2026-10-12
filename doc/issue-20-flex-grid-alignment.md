@@ -125,6 +125,8 @@ content.
   on pages of their own, at two sizes. In the same book, a view the person has moved to where
   half a point of the line above a shown position is on screen, or of a line at the bottom:
   that line is not the visible start or end, and a resize keeps the line shown at the top.
+  The dedication shown from its top edge stays there, and stays the place reported, through
+  seven changes of the window's height at the same width.
 - `BoxAlignmentSessionTests`: the fixture book through the public commands in both flows:
   disclosure, href navigation, located and selected passage, saved highlight, restore, and the
   same CFIs in either flow.
@@ -404,11 +406,22 @@ read. No section in either corpus carries the disclosure.
 
 What does not open is refused by EPUBReading and has no sections. Of the sections built, the
 reader withholds 26 in the W3C tests and 7 in EPUBCheck's fixtures; a withheld section has no
-layout to disclose. The totals agree with the reports of the two corpus tests at the same
-revisions, and `EPUBCheckCorpusTests`, whose report lists each fixture's disclosures, lists
-this one for none. The W3C test's report does not list it, so the sections were counted by a
-test written for this with those tests' helpers (`SpecConformanceCorpus`, `EPUBCheckCorpus`),
-which is not kept.
+layout to disclose.
+
+The two corpus tests repeat the count. Run them as [corpus runs](testing.md#corpus-runs) says,
+with `EPUBLIB_W3C_EPUB_TESTS_REPORT` naming a file and `EPUBLIB_EPUBCHECK_REPORT` a directory:
+
+- `SpecConformanceW3CCorpusTests` prints the number of tests and of sections. Its report has a
+  line for each test with its sections, and the "disclosed" column names `flexGrid` for a test
+  with a section that carries the disclosure, followed by the number of such sections.
+- `EPUBCheckCorpusTests` prints the fixtures, how many opened and their sections, for whole
+  publications, package documents and content documents in turn. In `publications.json`,
+  `packages.json` and `documents.json` a fixture with such a section has `flexGridSimplified`
+  under `disclosures` and, beside it, the number of them as `flexGridSimplifiedSections`.
+
+On these pins neither name is in any report, and the totals are the table's. The first count
+was made at `45b8569` by a test written for it, before the W3C test's report listed this
+disclosure; the two tests gave the same figures with the library at `57bef2e`.
 
 No publication emits the sentence, so there is none to judge. What the count shows is narrower
 than it looks, because these are conformance fixtures and next to none of them uses flexbox or
@@ -421,10 +434,14 @@ grid:
   centres a page's one image: `figure { margin: 0; height: 100%; display: flex; align-items:
   center; justify-content: center }`. That is a row with one item. All 38 sections with such
   a figure are aligned and none is disclosed, which is right: nothing in them is meant to sit
-  side by side.
-- **Controls.** The same seven tests with a second image put in each figure, in memory,
-  disclose all 38 sections, and `Fixture.alignment()` counted the same way discloses its one
-  section of unsupported layouts.
+  side by side. `SpecConformanceCorpus` expects each of the seven not to disclose it, so the
+  W3C run fails if one does.
+- **Controls.** In the first count, the same seven tests with a second image put in each
+  figure, in memory, disclosed all 38 sections, and `Fixture.alignment()` counted the same way
+  disclosed its one section of unsupported layouts. The corpus tests see it too: given a copy
+  of `lay-pp-embedded-images` with a second image in each of its nine figures, the W3C run
+  lists it with `flexGrid (sections: 9)` and as failed, and `EPUBCheckCorpusTests` reports
+  `flexGridSimplifiedSections` as 9.
 - **EPUBCheck's fixtures** have one stylesheet with flex rules (`css/flexbox.css`), a loose
   file that belongs to no publication.
 
@@ -484,7 +501,7 @@ kept, for these reasons:
 | Simulators | iOS 27.0 (24A434); iPhone 17 Pro, iPad Air 13-inch (M4); created for this and deleted |
 | Devices | iPad Air 13-inch (M3) and iPhone 17 Pro Max, OS 27.2 (24B5099f); the verification reader at `d2951fb`, built with Xcode 27.0 (27A266a) |
 | Appearance | Light on both sides of every comparison. The simulators were set to light, and the reader's style and the web view were set to Light. The Mac was in Dark; its off-screen window and web view were set to Aqua and the reader's style to Light, and the sample app was launched with `-NSRequiresAquaSystemAppearance YES`, so its window was captured in light |
-| Disclosure count on the W3C corpora | `main` at `45b8569`; w3c/epub-tests at `54092b4` and w3c/epubcheck at `0cc28fb`, the pins of `scripts/fetch-corpora.sh`; macOS 27.0 (26A428), Xcode 27.1 (27A9269), Apple Swift 6.4 |
+| Disclosure count on the W3C corpora | `main` at `45b8569`, and from the two corpus tests with the library at `57bef2e`; w3c/epub-tests at `54092b4` and w3c/epubcheck at `0cc28fb`, the pins of `scripts/fetch-corpora.sh`; macOS 27.0 (26A428), Xcode 27.1 (27A9269), Apple Swift 6.4 |
 | Tests | Mac suite at `4deb252` (the branch merged with `main` at `2187f80`): 2,321 tests, no failures. iPad Air 13-inch (M4) simulator at `2431b6a`: 2,140 tests, no failures. iPhone 17 Pro simulator at `2431b6a`: 2,140 tests, 2 failures, both time limits |
 
 The two iPhone failures were time limits (190 nested notes in 10 seconds, 11,205 elements
@@ -546,15 +563,19 @@ and the Mac run have no failure.
   dedication reached by turning back and changing flow is reported as the dedication. The
   fixture's lines were read the same way on the simulators before (asked 1835, reported 1794
   on the iPhone), and the tests that allowed for it name the visible start again.
-- On the Mac a change of the window's height at the same column width can leave a box rested
-  by its top edge above or below the top by the change in the space above its first line.
-  The step that holds the first line on screen in place after a layout behind the view
-  ([Layout](native-viewer.md#layout)) takes the box's new height for one. In *The Great
-  Gatsby* at 1,000 points wide the dedication was 98 points low after the height went from
-  1,000 to 800, with a position in the imprint reported, and 98 points high after 800 to
-  1,000, on some resizes and not others; a change of width shows the box whole again. This is
-  older than the change above, and can now happen where a box that had rested a fraction low
-  used to sit one line down after a resize instead
-  ([#313](https://github.com/vocaro/EPUBLib/issues/313)). The resize keeping the visible start
+- On the Mac a change of the window's height at the same column width could leave a box
+  rested by its top edge above or below the top by the change in the space above its first
+  line. The step that holds the first line on screen in place after a layout behind the view
+  ([Layout](native-viewer.md#layout)) took the box's new height for one: the top edge rested
+  where it had, so the view had not moved, and the first line had. When this was found the
+  step compared the visible top with where it had been for equality, and the rest reaches the
+  same place by arithmetic that differs in the last bit from one height to another, so it
+  happened on some resizes and not others. The reader now forgets where that line stood
+  whenever a new visible height resolves the boxes again, as it does for a new column width
+  ([#313](https://github.com/vocaro/EPUBLib/issues/313)). With the shipped pages in a canvas
+  500 points wide, the dedication shown after the title page was 68.6 points low after the
+  height went from 700 to 560, 49 after 700 to 600 and 24.5 after 700 to 650, with the title
+  page's last line reported each time; it now stays within a point of the top with the
+  dedication reported through seven changes of height. The resize keeping the visible start
   whether or not the person has scrolled is
   [#164](https://github.com/vocaro/EPUBLib/issues/164).

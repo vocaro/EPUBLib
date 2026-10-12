@@ -367,10 +367,8 @@ import UIKit
             XCTAssertGreaterThan(sliver, 0, "the line above \(position) shows")
             XCTAssertLessThan(sliver, 1, "by less than the point a rest is accepted within")
             XCTAssertEqual(canvas.visibleRange?.start, position, "a sliver of the line above is not the visible start")
-            // The person has scrolled, so a resize keeps the visible start: the same line. The
-            // width changes too: on the Mac a change of height alone can leave a box rested by
-            // its top edge off by the change in its space above the first line (#313).
-            for size in [CGSize(width: 420, height: 560), CGSize(width: 500, height: 700)] {
+            // The person has scrolled, so a resize keeps the visible start: the same line.
+            for size in [CGSize(width: 500, height: 560), CGSize(width: 500, height: 700)] {
                 host.resize(to: size)
                 try await host.settle()
                 XCTAssertEqual(try rest(position).minY, canvas.scrollVisibleContainerRect.minY, accuracy: 1.5, "\(position) at \(size)")
@@ -385,6 +383,55 @@ import UIKit
         XCTAssertGreaterThan(sliver, 0, "the paragraph's first line shows")
         XCTAssertLessThan(sliver, 1)
         XCTAssertEqual(canvas.visibleRange?.end, last, "the visible end is the end of the line before")
+    }
+
+    /// A box rested by its top edge stays there through changes of the visible height at the
+    /// same column width. Its first line moves by the change in the space above it, and on the
+    /// Mac the step that holds the first line on screen in place after a layout behind the view
+    /// took that for one and scrolled by as much (#313). When this was found the step compared
+    /// the visible top with where it had been for equality, and the rest reaches the same place
+    /// by arithmetic that differs in the last bit from one height to another, so the defect
+    /// came and went. Here 700 to 560 showed it on 2026-10-12; 700 to 600 and to 650 move the
+    /// line by 49 and 24.5 points, which are exact in binary and so leave the arithmetic the
+    /// same wherever the box is.
+    func testAChangeOfHeightAloneKeepsABoxRestedByItsTopEdgeAtTheTop() async throws {
+        let prose = String(repeating: "<p>A paragraph of ordinary reading text for pagination.</p>", count: 60)
+        let texts = [try H.build(F.shippedTitleBody, css: F.shippedCSS), try H.build(F.shippedDedicationBody, css: F.shippedCSS),
+                     try H.build(F.shippedEpigraphBody, css: F.shippedCSS),
+                     try H.build("<h2>Chapter</h2><p>The chapter opens here.</p>" + prose, css: F.shippedCSS)]
+        let source = FakeCanvasSource(texts.map(\.string))
+        source.book = CanvasText.book(texts.map(\.string))
+        let host = CanvasHost(source, size: CGSize(width: 500, height: 700), configuration: .init(flow: .scrolled))
+        defer { host.close() }
+        // The title page first, so that the text above the dedication is laid out.
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        host.layOut()
+        try await host.settle()
+        let canvas = host.canvas, view = try XCTUnwrap(canvas.scrollTextView), book = try XCTUnwrap(canvas.scrollBook)
+        let dedication = ReaderTextPosition(section: 1, offset: 0), location = book.location(of: dedication)
+        /// How far the dedication's top edge is below the top of the visible area, and the
+        /// space the box keeps above its first line.
+        func box() throws -> (top: CGFloat, lead: CGFloat) {
+            let line = try XCTUnwrap(view.lineFrame(containing: location))
+            let rest = view.anchorFrame(of: line, at: location)
+            return (rest.minY - canvas.scrollVisibleContainerRect.minY, line.minY - rest.minY)
+        }
+        canvas.show(dedication, selecting: nil)
+        try await host.settle()
+        var shown = try box()
+        XCTAssertEqual(shown.top, 0, accuracy: 1, "shown")
+        XCTAssertEqual(canvas.visibleRange?.start, dedication, "shown")
+        let column = view.readerContainer.size.width
+        for height: CGFloat in [640, 700, 560, 700, 600, 700, 650] {
+            let before = shown.lead
+            host.resize(to: CGSize(width: 500, height: height))
+            try await host.settle()
+            shown = try box()
+            XCTAssertEqual(view.readerContainer.size.width, column, "the column keeps its width, so its lines wrap as they did")
+            XCTAssertGreaterThan(abs(shown.lead - before), 20, "the space above the first line follows the height, \(height)")
+            XCTAssertEqual(shown.top, 0, accuracy: 1, "the box's top edge at height \(height)")
+            XCTAssertEqual(canvas.visibleRange?.start, dedication, "height \(height)")
+        }
     }
 
     /// The same in a book without box geometry, where TextKit places the lines: a flex box, a
@@ -423,7 +470,9 @@ import UIKit
     /// and byline are hidden off to the left, on lines of no height, and are not boxes; the
     /// chapter here floats an initial, so the whole book has box geometry and the text
     /// container places every line. The flex pages must sit where they do on pages of their
-    /// own, which have none (#63).
+    /// own, which have none (#63). The pages are as wide as the scroll view shows text in,
+    /// which on a Mac with legacy scroll bars is the window less a scroll bar, so the two
+    /// columns are the same width under either kind (#302).
     func testShippedStandardEbooksPagesKeepTheirPlaceInContinuousScroll() async throws {
         let prose = String(repeating: "<p>A paragraph of ordinary reading text for pagination.</p>", count: 60)
         let texts = [try H.build(F.shippedTitleBody, css: F.shippedCSS), try H.build(F.shippedDedicationBody, css: F.shippedCSS),
@@ -435,60 +484,70 @@ import UIKit
                       "And every road that leaves the town will know", "The way back."]
         let dedication = ["For those", "who read", "to the last page"]
         for size in [CGSize(width: 500, height: 700), CGSize(width: 340, height: 640)] {
-            // Pages: each section in a column of its own.
-            let pages = CanvasHost(FakeCanvasSource(texts.map(\.string)), size: size, configuration: .init(flow: .paginated))
-            defer { pages.close() }
-            var paged: [String: CGRect] = [:]
-            for (section, phrases) in [(1, dedication), (2, verses + ["An Imagined Poet"])] {
-                pages.canvas.show(ReaderTextPosition(section: section, offset: 0), selecting: nil)
-                pages.layOut()
-                XCTAssertEqual(pages.canvas.textViews.first?.readerContainer.hasNonlinearGeometry, false)
-                for phrase in phrases { paged[phrase] = try frame(phrase, section: section, of: texts, in: pages.canvas) }
+            for bars in CanvasScrollBars.allCases {
+                let here = "at \(size) with \(bars) scroll bars"
+                // Continuous scroll: the whole book in one text view.
+                let source = FakeCanvasSource(texts.map(\.string))
+                source.book = CanvasText.book(texts.map(\.string))
+                let host = CanvasHost(source, size: size, configuration: .init(flow: .scrolled))
+                defer { host.close() }
+                try host.setScrollBars(bars)
+                func visibleArea() throws -> CGRect {
+                    let view = try XCTUnwrap(host.canvas.scrollTextView)
+                    let origin = view.containerOrigin
+                    return view.convert(host.canvas.scrollVisibleContainerRect.offsetBy(dx: origin.x, dy: origin.y), to: host.canvas)
+                }
+                host.canvas.show(ReaderTextPosition(section: 2, offset: 0), selecting: nil)
+                host.layOut()
+                try await host.settle()
+                let scroll = try XCTUnwrap(host.canvas.scrollTextView)
+                XCTAssertNotNil(host.canvas.scrollBook)
+                XCTAssertTrue(scroll.readerContainer.hasNonlinearGeometry, "the book has box geometry")
+                // A legacy scroll bar takes its width from what the scroll view shows text in.
+                let shown = scroll.convert(scroll.bounds, to: host.canvas)
+                XCTAssertEqual(shown.width, size.width - bars.width, here)
+                // Pages that wide: each section in a column of its own.
+                let pages = CanvasHost(FakeCanvasSource(texts.map(\.string)), size: CGSize(width: shown.width, height: size.height),
+                                       configuration: .init(flow: .paginated))
+                defer { pages.close() }
+                var paged: [String: CGRect] = [:]
+                for (section, phrases) in [(1, dedication), (2, verses + ["An Imagined Poet"])] {
+                    pages.canvas.show(ReaderTextPosition(section: section, offset: 0), selecting: nil)
+                    pages.layOut()
+                    XCTAssertEqual(pages.canvas.textViews.first?.readerContainer.hasNonlinearGeometry, false)
+                    for phrase in phrases {
+                        paged[phrase] = try frame(phrase, section: section, of: texts, in: pages.canvas).offsetBy(dx: shown.minX, dy: 0)
+                    }
+                }
+                var visible = try visibleArea()
+                var lines: [CGRect] = []
+                for phrase in verses + ["An Imagined Poet"] {
+                    let line = try frame(phrase, section: 2, of: texts, in: host.canvas), page = try XCTUnwrap(paged[phrase])
+                    XCTAssertEqual(line.minX, page.minX, accuracy: 1, "\(phrase) \(here)")
+                    XCTAssertEqual(line.maxX, page.maxX, accuracy: 1, "\(phrase) \(here)")
+                    XCTAssertEqual(line.height, page.height, accuracy: 1, "\(phrase) wraps as on its page, \(here)")
+                    lines.append(line)
+                }
+                let poet = lines[4], left = lines[0].minX
+                XCTAssertEqual(lines[1].minX - left, 16, accuracy: 1, "an indented verse line")
+                XCTAssertEqual(lines[2].minX, left, accuracy: 1)
+                XCTAssertEqual((left + poet.maxX) / 2, visible.midX, accuracy: tolerance, "the quotation is centred, \(here)")
+                XCTAssertLessThanOrEqual(lines.map(\.maxX).max() ?? 0, poet.maxX + 1, "the attribution ends at the quotation's right edge")
+                XCTAssertLessThanOrEqual(poet.maxX - left, 0.8 * visible.width + 1, "no wider than `max-width: 80%`")
+                XCTAssertEqual((lines[0].minY + poet.maxY) / 2 - visible.minY, 0.49 * visible.height, accuracy: tolerance, here)
+                // The dedication: centred lines in a centred paragraph.
+                host.canvas.show(ReaderTextPosition(section: 1, offset: 0), selecting: nil)
+                try await host.settle()
+                visible = try visibleArea()
+                for phrase in dedication {
+                    let line = try frame(phrase, section: 1, of: texts, in: host.canvas), page = try XCTUnwrap(paged[phrase])
+                    XCTAssertEqual(line.midX, visible.midX, accuracy: tolerance, "\(phrase) \(here)")
+                    XCTAssertEqual(line.minX, page.minX, accuracy: 1, "\(phrase) \(here)")
+                }
+                let first = try frame(dedication[0], section: 1, of: texts, in: host.canvas)
+                let last = try frame(dedication[2], section: 1, of: texts, in: host.canvas)
+                XCTAssertEqual((first.minY + last.maxY) / 2 - visible.minY, 0.49 * visible.height, accuracy: tolerance, here)
             }
-            // Continuous scroll: the whole book in one text view.
-            let source = FakeCanvasSource(texts.map(\.string))
-            source.book = CanvasText.book(texts.map(\.string))
-            let host = CanvasHost(source, size: size, configuration: .init(flow: .scrolled))
-            defer { host.close() }
-            func visibleArea() throws -> CGRect {
-                let view = try XCTUnwrap(host.canvas.scrollTextView)
-                let origin = view.containerOrigin
-                return view.convert(host.canvas.scrollVisibleContainerRect.offsetBy(dx: origin.x, dy: origin.y), to: host.canvas)
-            }
-            host.canvas.show(ReaderTextPosition(section: 2, offset: 0), selecting: nil)
-            host.layOut()
-            try await host.settle()
-            let scroll = try XCTUnwrap(host.canvas.scrollTextView)
-            XCTAssertNotNil(host.canvas.scrollBook)
-            XCTAssertTrue(scroll.readerContainer.hasNonlinearGeometry, "the book has box geometry")
-            var visible = try visibleArea()
-            var lines: [CGRect] = []
-            for phrase in verses + ["An Imagined Poet"] {
-                let line = try frame(phrase, section: 2, of: texts, in: host.canvas), page = try XCTUnwrap(paged[phrase])
-                XCTAssertEqual(line.minX, page.minX, accuracy: 1, "\(phrase) at \(size)")
-                XCTAssertEqual(line.maxX, page.maxX, accuracy: 1, "\(phrase) at \(size)")
-                XCTAssertEqual(line.height, page.height, accuracy: 1, "\(phrase) wraps as on its page, at \(size)")
-                lines.append(line)
-            }
-            let poet = lines[4], left = lines[0].minX
-            XCTAssertEqual(lines[1].minX - left, 16, accuracy: 1, "an indented verse line")
-            XCTAssertEqual(lines[2].minX, left, accuracy: 1)
-            XCTAssertEqual((left + poet.maxX) / 2, visible.midX, accuracy: tolerance, "the quotation is centred, at \(size)")
-            XCTAssertLessThanOrEqual(lines.map(\.maxX).max() ?? 0, poet.maxX + 1, "the attribution ends at the quotation's right edge")
-            XCTAssertLessThanOrEqual(poet.maxX - left, 0.8 * visible.width + 1, "no wider than `max-width: 80%`")
-            XCTAssertEqual((lines[0].minY + poet.maxY) / 2 - visible.minY, 0.49 * visible.height, accuracy: tolerance)
-            // The dedication: centred lines in a centred paragraph.
-            host.canvas.show(ReaderTextPosition(section: 1, offset: 0), selecting: nil)
-            try await host.settle()
-            visible = try visibleArea()
-            for phrase in dedication {
-                let line = try frame(phrase, section: 1, of: texts, in: host.canvas), page = try XCTUnwrap(paged[phrase])
-                XCTAssertEqual(line.midX, visible.midX, accuracy: tolerance, "\(phrase) at \(size)")
-                XCTAssertEqual(line.minX, page.minX, accuracy: 1, "\(phrase) at \(size)")
-            }
-            let first = try frame(dedication[0], section: 1, of: texts, in: host.canvas)
-            let last = try frame(dedication[2], section: 1, of: texts, in: host.canvas)
-            XCTAssertEqual((first.minY + last.maxY) / 2 - visible.minY, 0.49 * visible.height, accuracy: tolerance)
         }
     }
 
