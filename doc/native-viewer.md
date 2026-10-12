@@ -461,19 +461,24 @@ A label hidden in one of those ways (parked off screen, or clipped with a zero-a
 `clip: rect(...)` or `clip-path: inset(50%)`) is in the text as one character for each block
 of its words. The character takes no room and draws nothing. VoiceOver reads the words for
 it where the box stands in the document; a selection or a copy that spans it carries them,
-and an occurrence found in them is a search result at that place. Inside a line it stands in
-the line, whose white space collapses across it as across any box taken out of the flow.
-Between blocks it has a line of no height directly above the block that follows and on that
-block's page; the blocks around it keep their margins, first-line indent, list marker and
-forced break, and are laid out exactly as without it. In a table cell, a note, a float or a
-positioned box it has no line of its own: it joins the content after it, or follows that
-content when it is a block image or a table. What it says is its text with white space
-collapsed and the alternative text of images and formulas in it, without the parts that
-`display: none`, `visibility: hidden` or `aria-hidden="true"` hide and without ruby
-annotations. It keeps the language it declares and, when it is a link, the link. An id on or
-inside it names the label, and a saved position inside it is the label. A box that
-`visibility: hidden` or `aria-hidden="true"` hides, and one with no words, is left out
-altogether, for assistive technology too.
+and an occurrence found in them is a search result at that place. It stands in a line that
+holds something, because a text view's own accessibility reads such lines: VoiceOver in
+continuous scroll on iOS skipped a label given a line of no height to itself. Inside a line
+it stands where the box does, and the line's white space collapses across it as across any
+box taken out of the flow. Between blocks it opens the line of the content that follows, in
+whatever block that is, so it is read just before that content and on its page; a block
+image it precedes is still set as alone on its line. Where the content that follows must
+open its own paragraph (a table's rows, a float, a positioned box) the label ends the
+paragraph before instead, and a label after a section's last content ends that. Only a
+section that opens with labels before such content, or holds nothing else, gives them a
+paragraph of their own: a line of no height against the paragraph after it, which is spaced
+and indented as the section's first. The page is laid out exactly as it is without the
+label. What a label says is its text with white space collapsed and the alternative text of
+images and formulas in it, without the parts that `display: none`, `visibility: hidden` or
+`aria-hidden="true"` hide and without ruby annotations. It keeps the language it declares
+and, when it is a link, the link. An id on or inside it names the label, and a saved
+position inside it is the label. A box that `visibility: hidden` or `aria-hidden="true"`
+hides, and one with no words, is left out altogether, for assistive technology too.
 
 ### Flex and grid alignment
 
@@ -665,7 +670,9 @@ Go: the native viewer is the bundled engine.
   A layout disclosure accompanies books using these box styles. Common positioned accessibility
   labels hidden with zero-area `clip: rect(...)`, `clip-path: inset(50%)` or
   top/left offsets of -1,000 CSS pixels or less (16 to the `em` or `rem`, so `-62.5em`) are
-  not drawn and are read by VoiceOver where they stand; percentage and viewport
+  not drawn and are read by VoiceOver where they stand (one that opens a section before a
+  table or a float has a line of no height to itself, which VoiceOver in continuous scroll on
+  iOS may pass over); percentage and viewport
   offsets remain visible unless explicitly hidden or clipped. A box parked that far to the
   left that reaches back on screen, with a `right` offset or a great width, is hidden with
   the rest. A hidden heading is read as plain text, as a shown one is, and an image without

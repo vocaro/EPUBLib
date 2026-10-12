@@ -339,7 +339,7 @@ reader's window that was not granted.
    the ten titles' 724 sections, built at 12, 17 and 96 points, 28 changed: the 8 title pages,
    which now draw their image alone, and the 10 imprints and 10 colophons, each drawn without
    its heading. The hidden words are still in the text for VoiceOver, as characters that take
-   no room ([hidden labels](native-viewer.md#floats-and-positioned-boxes)). No
+   no room in the line of the image or logo ([hidden labels](native-viewer.md#floats-and-positioned-boxes)). No
    other section's text changed, and none differs between the three sizes. Those headings
    were also why every one of the ten emitted "Some floating, positioned or inline box
    layouts may be simplified…"; nine no longer do, and *Tristram Shandy* does for its inline
