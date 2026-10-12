@@ -164,6 +164,14 @@ final class CFIGoldenVectorTests: XCTestCase {
             }
             let spine = SpineCFIs(package: package, spineCount: bases.count)
             XCTAssertEqual(spine.bases, bases, vectors.name)
+            // The one departure from foliate (#108): foliate looked the `idref` of the itemref a
+            // path lands on up in the spine and named the first item with it, so it resolved a
+            // repeat to the item it repeats. The reader names the itemref itself. Every CFI
+            // foliate resolved still resolves, to an occurrence of the document foliate named.
+            XCTAssertEqual(spine.bases.map { spine.resolve($0)?.spineIndex }, Array(bases.indices), "\(vectors.name): each base names its own itemref")
+            let idrefs = try bases.map { base in
+                try XCTUnwrap(EPUBCFI.element(at: XCTUnwrap(EPUBCFI.parse(base).path?.first), in: package)?.attribute("idref"), base)
+            }
             for vector in vectors.resolve ?? [] {
                 let cfi = try XCTUnwrap(vector[0].string)
                 let resolved = spine.resolve(cfi)
@@ -171,7 +179,7 @@ final class CFIGoldenVectorTests: XCTestCase {
                     XCTAssertNil(resolved?.spineIndex, "\(vectors.name) \(cfi)")
                     continue
                 }
-                XCTAssertEqual(resolved?.spineIndex, index, "\(vectors.name) \(cfi)")
+                XCTAssertEqual(resolved.flatMap { idrefs.firstIndex(of: idrefs[$0.spineIndex]) }, index, "\(vectors.name) \(cfi)")
                 // A range whose parent is only the package path leaves foliate's anchor nothing to resolve.
                 let local = vector[2].string.map { $0.hasPrefix(",") ? "" : $0 }
                 XCTAssertEqual(resolved?.localPath, local, "\(vectors.name) \(cfi)")

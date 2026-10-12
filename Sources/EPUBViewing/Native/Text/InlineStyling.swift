@@ -6,6 +6,28 @@ import UIKit
 import AppKit
 #endif
 
+/// The two languages text is written in. A content document that declares no language is not
+/// in the package's (EPUB Reading Systems 3.3 §3.7), so what the reader generates from language
+/// follows `declared` alone. Typesetting has to choose glyphs for some language anyway, and
+/// takes the package's as a hint.
+struct InlineLanguage: Hashable {
+    /// BCP 47 language the content declares (`xml:lang`/`lang`, inherited); nil when it declares
+    /// none, or declares it unknown (`lang=""`). Quotation marks and case mapping follow it.
+    var declared: String?
+    /// The package's first `dc:language`, until the content declares a language of its own,
+    /// the unknown one included.
+    var hint: String?
+
+    /// The language CoreText chooses glyphs for (`InlineStyling.languageKey`).
+    var typesetting: String? { declared ?? hint }
+
+    /// `xml:lang`/`lang` on an element: its language from here down, in place of the hint.
+    mutating func declare(_ language: String) {
+        declared = language.isEmpty ? nil : language
+        hint = nil
+    }
+}
+
 /// What an inline box contributes to its text beyond its own computed style.
 struct InlineContext {
     var link: ReaderLink?
@@ -16,8 +38,8 @@ struct InlineContext {
     var background: ComputedStyle.Color?
     /// Accumulated `vertical-align` shift, in points.
     var baselineOffset: CGFloat = 0
-    /// BCP 47 language (`xml:lang`/`lang`, inherited).
-    var language: String?
+    /// The content's language (`xml:lang`/`lang`, inherited) and the package's as a hint.
+    var language = InlineLanguage()
     /// `<q>` nesting, for alternating quotation marks.
     var quoteDepth = 0
 }
@@ -77,7 +99,7 @@ final class InlineStyling {
                       kern: style.letterSpacing + (wordSpacing ? style.wordSpacing : 0),
                       oblique: fonts.needsSyntheticItalic(for: style),
                       embolden: fonts.needsSyntheticBold(for: style),
-                      language: context.language, link: link?.url.absoluteString)
+                      language: context.language.typesetting, link: link?.url.absoluteString)
         if let index = indices[key] { return index }
         var attributes: [NSAttributedString.Key: Any] = [.font: font]
         switch key.color {

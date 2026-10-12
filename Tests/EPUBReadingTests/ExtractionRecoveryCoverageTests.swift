@@ -128,26 +128,152 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
     // continues in the data state. Browsers show "p < 0.05"; an unescaped "<" is exactly why such
     // a file needs recovery.
     func testRecoveryKeepsProseAfterABareLessThanSign() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/93")
         let section = try recovered(page("<p>The result p < 0.05 was significant.</p><p>Next</p>"))
         XCTAssertEqual(section.text, "The result p < 0.05 was significant.\nNext")
+    }
+
+    // The same state before a digit, punctuation, a space, another "<", a non-ASCII letter, an
+    // underscore or a colon, in a heading and the title as in a paragraph. Every field matches
+    // the document that escapes each sign.
+    func testEveryLessThanSignThatOpensNoMarkupReadsLikeItsEscapedTwin() throws {
+        let body = "<h1 id='h'>x &lt;= y and y >= z</h1><p id='p'>p &lt;.05, a&lt;3, 5 &lt;é, &lt;&lt; and &lt;<b id='b'>bold</b>> &lt; </p>"
+            + "<p id='u'>a &lt;_&lt; b, &lt;:3 and &lt;_x id='no'>c&lt;:y>d</p><p id='n'>Next</p>"
+        let strict = try book(page(body, head: "<title>a &lt; b &lt;_ c</title>")).textSection(at: 0)
+        XCTAssertEqual(strict.text, "x <= y and y >= z\np <.05, a<3, 5 <é, << and <bold> <\na <_< b, <:3 and <_x id='no'>c<:y>d\nNext")
+        let twin = try recovered(page(body.replacingOccurrences(of: "&lt;", with: "<"), head: "<title>a < b <_ c</title>"))
+        XCTAssertEqual(twin.title, strict.title)
+        XCTAssertEqual(twin.text, strict.text)
+        XCTAssertEqual(twin.anchors, strict.anchors)
+        XCTAssertEqual(twin.headings, strict.headings)
+    }
+
+    // A "<" inside an attribute value, a comment, script content or a processing instruction is
+    // already where it belongs.
+    func testALessThanSignInsideMarkupIsLeftAlone() throws {
+        let section = try recovered(page("<p>a</b> <img alt='1 < 2'/><!-- c < d --><script>if (e < f) {}</script><?pi g < h ?> i</p>"
+            + "<p>j <img alt='<_x> <:y>'/> k</p>"))
+        XCTAssertEqual(section.text, "a 1 < 2 i\nj <_x> <:y> k")
+    }
+
+    // HTML Standard, tag open state: only an ASCII letter, "/", "!" or "?" goes on to a tag. To
+    // libxml2 an underscore and a colon start a name too, and what looked like a tag in prose
+    // opened an element and took its attributes (#198). The native reader reads these as text.
+    func testALessThanSignBeforeAnUnderscoreOrAColonIsText() throws {
+        let section = try recovered(page("<_ at the start</b><p>a <_< b and <:3</p><p>j <_x id='u'>k</_x> <:y id='v'>l</:y></p><div><em><:></em></div>"))
+        XCTAssertEqual(section.text, "<_ at the start\na <_< b and <:3\nj <_x id='u'>k <:y id='v'>l\n<:>")
+        XCTAssertEqual(section.anchors, [:], "what reads as a tag in prose gives no element its id")
+        // The same sign as the last thing in the file but for the character after it.
+        for (tail, text) in [("<_", "before\nafter\n<_"), ("<:", "before\nafter\n<:"), ("<_>", "before\nafter\n<_>")] {
+            XCTAssertEqual(try recovered("<html><head><title>T</title></head><body><p>before</p><p>after</p>\(tail)").text, text, tail)
+        }
+    }
+
+    // Nothing can follow a "<" that ends the input, so it stays the cut-off tag it may be.
+    func testALessThanSignThatEndsTheInputIsATruncatedTag() throws {
+        XCTAssertEqual(try recovered("<html><head><title>T</title></head><body><p>before</p><p>after</p><").text, "before\nafter")
     }
 
     // HTML Standard, "after body" and "after after body" insertion modes: a start tag or text
     // there is a parse error that is reprocessed "in body", so the content stays in the document.
     func testRecoveryKeepsContentAfterAnEarlyBodyOrDocumentEndTag() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/93")
         let section = try recovered("<html xmlns='http://www.w3.org/1999/xhtml'><head><title>T</title></head><body><p>One</b></p></body></html><p>Two</p>")
         XCTAssertEqual(section.text, "One\nTwo")
+    }
+
+    // The same between the two end tags, with its positions, for each spelling libxml2 reads as
+    // one of them: it ends a tag name at the first byte that cannot be in one, as in </body"x>.
+    func testRecoveryKeepsContentAfterABodyEndTagInAnySpelling() throws {
+        for end in ["</body>", "</BODY >", "</body></HTML\n>", "</body class='x'>", "</body\"x>", "</html>"] {
+            let section = try recovered("<html xmlns='http://www.w3.org/1999/xhtml'><head><title>T</title></head><body><p>One</b></p>\(end)<p id='two'>Two</p>tail</html>")
+            XCTAssertEqual(section.text, "One\nTwo\ntail", end)
+            XCTAssertEqual(section.anchors, ["two": EPUBTextMark(offset: 4, separator: 1)], end)
+        }
+    }
+
+    // HTML Standard, "in body" insertion mode: a second <html> or <body> start tag only adds
+    // attributes to the first, a <head> start tag is ignored, and <title> is inserted where it
+    // stands. Two documents in one file are one body; the first title names the section.
+    func testASecondDocumentInTheFileIsReadIntoTheSameBody() throws {
+        let section = try recovered("<html><head><title>A</title></head><body><p>One</p></body></html>\n"
+            + "<?xml version='1.0'?><!DOCTYPE html><html lang='en'><head><title>B</title></head><body class='x'><h1 id='h'>Two</h1></body></html>")
+        XCTAssertEqual(section.title, "A")
+        XCTAssertEqual(section.text, "One\nB\nTwo")
+        XCTAssertEqual(section.headings, [EPUBTextHeading(mark: EPUBTextMark(offset: 6, separator: 1), text: "Two")])
+        XCTAssertEqual(section.anchors, ["h": EPUBTextMark(offset: 6, separator: 1)])
+    }
+
+    func testBodyEndTagsInCommentsScriptsCDATAAndAttributeValuesAreNotEndTags() throws {
+        let section = try recovered(page("<p>a</b><!-- </body></html> --> <![CDATA[</body>]]> <img alt='</html>'/></p><script>'</body></html>'</script><p>b</p>"))
+        XCTAssertEqual(section.text, "a </body> </html>\nb")
+    }
+
+    // libxml2 skips a "<?" or "</" that no name follows and reads on, and ends an end tag at its
+    // first ">" even inside a quoted value, so it acts on a body end tag after any of these.
+    func testRecoveryKeepsContentAfterABodyEndTagThatFollowsOtherBrokenMarkup() throws {
+        for broken in ["<? </body>", "</3 </body>", "</div title='></body>'>"] {
+            let lines = try recovered(page("<div><p>One</b></p>\(broken)<p>Two</p>")).text.split(separator: "\n")
+            XCTAssertEqual(lines.first, "One", broken)
+            XCTAssertEqual(lines.last, "Two", broken)
+        }
+    }
+
+    // The tag's place is kept: HTML reads the text on either side of it as written, not as the
+    // character reference its two halves would spell.
+    func testTextOnEitherSideOfABodyEndTagDoesNotJoinIntoAReference() throws {
+        XCTAssertEqual(try recovered(page("<p>A&nb</body>sp;B &l</html>t;i></p><p>C</p>")).text, "A&nbsp;B &lt;i>\nC")
+    }
+
+    // Content that used to fall outside the body is read under the same limits as the rest.
+    func testContentAfterAnEarlyDocumentEndTagObeysTheLimits() throws {
+        let publication = try book("<html><head><title>T</title></head><body><p>One</p></body></html><div><p>Two</p></div>")
+        let cases: [(WritableKeyPath<EPUBTextExtractionLimits, Int>, Int, String)] = [
+            (\.depth, 4, "depth"), (\.elementCount, 7, "elementCount"), (\.outputBytes, 7, "outputBytes")]
+        for (key, passing, name) in cases {
+            var limits = EPUBTextExtractionLimits()
+            limits[keyPath: key] = passing
+            XCTAssertEqual(try publication.textSection(at: 0, limits: limits, recoversMalformedMarkup: true).text, "One\nTwo", name)
+            limits[keyPath: key] = passing - 1
+            XCTAssertThrowsError(try publication.textSection(at: 0, limits: limits, recoversMalformedMarkup: true), name) {
+                XCTAssertEqual($0 as? EPUBTextExtractionError, .limitExceeded(name))
+            }
+        }
     }
 
     // HTML Standard, "in body" insertion mode, U+0000: a parse error; the character is ignored.
     // doc/text-extraction.md: recovery "never yields partial text". Refusing the document would
     // also honour that; returning only what precedes the NUL does not.
     func testRecoveryDoesNotSilentlyTruncateAtANULCharacter() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/93")
         let publication = try book(page("<p>before</b></p>\u{0}<p>after</p>"))
         guard let section = try? publication.textSection(at: 0, recoversMalformedMarkup: true) else { return }
         XCTAssertEqual(section.text, "before\nafter")
+    }
+
+    // HTML Standard, tokenization: U+0000 in an attribute value, a comment or script data is
+    // read as U+FFFD. libxml2 ends its input at the character wherever it falls, so a NUL in the
+    // first attribute used to empty the section.
+    func testRecoveryReadsPastANULCharacterWhereverItFalls() throws {
+        let section = try recovered(page("<p id='a\u{0}b'>be\u{0}fore</b> <img alt='pi\u{0}c'/></p>\u{0}<!-- c\u{0} --><script>d\u{0}</script>"
+            + "<p>after<![CDATA[ e\u{0}f]]></p>\u{0}", head: "<title>T\u{0}t</title>"))
+        XCTAssertEqual(section.title, "Tt")
+        XCTAssertEqual(section.text, "before pi\u{FFFD}c\nafter ef")
+        XCTAssertEqual(section.anchors, ["a\u{FFFD}b": EPUBTextMark(offset: 0, separator: 0)])
+    }
+
+    // Dropping the character must not make markup of the bytes around it. HTML reads "<\0b>" as
+    // text; "</\0body>" and "<!-\0-" are not the end tag and the comment opener they resemble,
+    // either of which would hide the paragraph after them.
+    func testDroppingANULCharacterNeverJoinsBytesIntoMarkup() throws {
+        let lines = try recovered(page("<p>a <\u{0}b> c</b></p><p>d </\u{0}body> <!-\u{0}- e --></p><p>f</p>")).text.split(separator: "\n")
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertEqual(lines.first, "a <b> c")
+        XCTAssertEqual(lines.last, "f")
+    }
+
+    // One pass over the bytes: a section of nothing but these defects, twenty thousand times
+    // over and well inside the input limit, is read whole.
+    func testASectionOfNothingButTheseDefectsIsReadWhole() throws {
+        let count = 20_000
+        let section = try recovered(page(String(repeating: "a < b\u{0}</body></html>", count: count) + "<p>end</p>"))
+        XCTAssertEqual(section.text, String(repeating: "a < b", count: count) + "\nend")
     }
 }

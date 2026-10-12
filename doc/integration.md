@@ -138,6 +138,36 @@ Use `EPUBResource.path` for `publication.data(at:)` and `EPUBResource.href` for 
 Navigation items and emitted locations also carry encoded hrefs. Decode neither before sending
 `.navigate`; a literal `#`, `%` or `?` in a filename has different meaning in a URL reference.
 
+A host that writes a resource to disk may join its `path` to a directory of its own. The `path` of
+every resource of an opened publication is relative; its names are separated by single `/`, none
+of them is empty, `.` or `..`, and it holds no backslash and no NUL. That is true of the path's
+bytes, which are what a file system is given, whatever combining marks, variation selectors or
+joiners a name carries. Pass the path whole to `FileManager`, or split it at `/` in its `utf8` or
+`unicodeScalars` view: by `Character`, which `split(separator:)`, `hasPrefix` and `contains`
+compare on a `String`, a `/` followed by a combining mark is not a `/`.
+
+The names themselves are the book's, and the host still decides what to do with them:
+
+- **Names a platform reserves, alters or does not allow.** A name that begins with a dot or holds
+  control characters; a colon, which a book's file names may hold and which Windows reads as a
+  drive or stream separator; Windows device names and a closing dot or space; length limits.
+- **Names made of dots and invisible characters.** `..` followed by a zero-width joiner, or dots
+  mixed with other default-ignorable characters, is a name and not a dot segment, and the reader
+  accepts it. APFS keeps such a name inside the host's folder. A file system that ignores those
+  characters when it compares names could read one as `..`.
+- **Paths seen through `URL`.** `URL.pathComponents` drops a byte-order mark (U+FEFF) that opens
+  a name and reports `..` for a name of U+FEFF and two dots, though the file system is given the
+  whole name. Inspect a path's bytes or scalars, not its `URL` components.
+- **Names a file system holds equal.** Two paths may differ only in case, or be a file and a
+  folder of one name.
+- **Anything the host converts.** Keep symbolic links out of the destination, and check a path
+  again after any conversion: compatibility normalization and legacy code pages turn other
+  characters into `/`, `\`, `.` and `:`.
+
+A `path` is the manifest's spelling of the name, or the archive entry's own where the two differ
+only in case. It equals the entry's name as a Swift string, which is canonical equivalence, and
+need not match it byte for byte.
+
 To store a position, encode `EPUBLocation` using `JSONEncoder`. On reopen, compare its publication
 ID and send `.restore(location)` only when bookmarks are supported. Compare a stored bookmark with
 `EPUBReader.identifier` and `EPUBReader.bookmarkFormat` rather than literal strings. A bookmark the
