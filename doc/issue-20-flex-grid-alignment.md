@@ -395,7 +395,7 @@ kept, for these reasons:
 | Simulators | iOS 27.0 (24A434); iPhone 17 Pro, iPad Air 13-inch (M4); created for this and deleted |
 | Devices | iPad Air 13-inch (M3) and iPhone 17 Pro Max, OS 27.2 (24B5099f); the verification reader at `d2951fb`, built with Xcode 27.0 (27A266a) |
 | Appearance | Light on both sides of every comparison. The simulators were set to light, and the reader's style and the web view were set to Light. The Mac was in Dark; its off-screen window and web view were set to Aqua and the reader's style to Light, and the sample app was launched with `-NSRequiresAquaSystemAppearance YES`, so its window was captured in light |
-| Tests | Mac suite at `8100232` (the branch merged with `main` at `4a4624f`): 2,265 tests, no failures. iPad Air 13-inch (M4) simulator at `2431b6a`: 2,140 tests, no failures. iPhone 17 Pro simulator at `2431b6a`: 2,140 tests, 2 failures, both time limits |
+| Tests | Mac suite at `4deb252` (the branch merged with `main` at `2187f80`): 2,321 tests, no failures. iPad Air 13-inch (M4) simulator at `2431b6a`: 2,140 tests, no failures. iPhone 17 Pro simulator at `2431b6a`: 2,140 tests, 2 failures, both time limits |
 
 The two iPhone failures were time limits (190 nested notes in 10 seconds, 11,205 elements
 styled in 3) missed while the machine's load average was in the hundreds from other work. The
