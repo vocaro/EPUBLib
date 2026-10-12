@@ -188,6 +188,9 @@ final class ReaderTextView: UITextView {
                 } else { runs.append((range, url, attachment)) }
             }
             for (range, url, attachment) in runs {
+                // The break after an attachment that ends its paragraph is a run of its own
+                // with nothing to say: no element, or VoiceOver stops on silence.
+                if attachment == nil, (storage.string as NSString).substring(with: range).allSatisfy(\.isWhitespace) { continue }
                 let element = ReaderPageAccessibilityElement(view: self, range: range, url: url)
                 element.accessibilityLabel = plainText(in: range)
                 var traits: UIAccessibilityTraits = url == nil ? .staticText : .link

@@ -1280,7 +1280,9 @@ final class SectionWriter {
     /// (`openParagraph`).
     private func flushSpokenParagraphs() {
         guard !pendingSpoken.isEmpty, !paragraphOpen, spokenLabelsStandAlone else { return }
-        let attributes = spokenAttributes ?? styling.intern([.font: PlatformFont.systemFont(ofSize: 1)])
+        // A font too small to give the line a height of its own: UIKit keeps a line as tall as
+        // its font's descender whatever the paragraph allows.
+        let attributes = spokenAttributes ?? styling.intern([.font: PlatformFont.systemFont(ofSize: SpokenLabelAttachment.lineHeight)])
         spokenAttributes = attributes
         var index = 0
         while index < pendingSpoken.count {

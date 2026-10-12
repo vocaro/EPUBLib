@@ -402,7 +402,8 @@ lines a little differently where the container places them; their edges are the 
 A `.disclosure` explains that box layouts may be simplified. Sticky positioning, negative
 relative vertical offsets, arbitrary overlap and `z-index`, and page-pinned or repeating fixed
 boxes are outside the supported subset. Conventional positioned, visually hidden accessibility
-labels remain omitted to avoid visible duplicate text. The offscreen heuristic recognizes
+labels are not drawn, so that the page shows no duplicate text, and are kept for assistive
+technology as a browser keeps them (below). The offscreen heuristic recognizes
 top/left offsets of -1,000 CSS pixels or less as the book wrote them, an `em` or a `rem`
 counting as 16 pixels (`-62.5em`), including calculations in those units alone. That is the em
 media queries are given, not the element's font size or the reader's: `left: -999em`, where
@@ -416,6 +417,24 @@ rendered text and saved range offsets identical across reader font-size changes.
 arbitrary offscreen geometry and transforms are outside this subset.
 Fixed-layout publications still reflow and report their existing fixed-layout disclosure; this
 subset does not implement fixed-page geometry.
+
+A label hidden in one of those ways (parked off screen, or clipped with a zero-area
+`clip: rect(...)` or `clip-path: inset(50%)`) is in the text as one character for each block
+of its words. The character takes no room and draws nothing. VoiceOver reads the words for
+it where the box stands in the document; a selection or a copy that spans it carries them,
+and an occurrence found in them is a search result at that place. Inside a line it stands in
+the line, whose white space collapses across it as across any box taken out of the flow.
+Between blocks it has a line of no height directly above the block that follows and on that
+block's page; the blocks around it keep their margins, first-line indent, list marker and
+forced break, and are laid out exactly as without it. In a table cell, a note, a float or a
+positioned box it has no line of its own: it joins the content after it, or follows that
+content when it is a block image or a table. What it says is its text with white space
+collapsed and the alternative text of images and formulas in it, without the parts that
+`display: none`, `visibility: hidden` or `aria-hidden="true"` hide and without ruby
+annotations. It keeps the language it declares and, when it is a link, the link. An id on or
+inside it names the label, and a saved position inside it is the label. A box that
+`visibility: hidden` or `aria-hidden="true"` hides, and one with no words, is left out
+altogether, for assistive technology too.
 
 ### Flex and grid alignment
 
@@ -483,7 +502,9 @@ The following are the defaults. Host commands and accessibility actions stay ena
 - Keys (all flows): Left/Page Up previous, Right/Page Down/Space next, Shift-Space previous.
   In continuous scroll a page turn scrolls by one viewport less a line.
 - VoiceOver: page-turn actions via `accessibilityScrollAction` and the named "Next Page" and
-  "Previous Page" actions; text reads in order from the text views.
+  "Previous Page" actions; text reads in order from the text views. Text that a book hides
+  from the page and keeps for assistive technology is read where it stands, as text
+  ([hidden labels](#floats-and-positioned-boxes)).
 - Selection: native selection UI with the host's `EPUBSelectionAction` in the edit or context
   menu, no length cap. Dragging can extend a selection across a two-column spread in either
   reading direction. A located passage is selected in every visible column and remains
@@ -597,12 +618,13 @@ Go: the native viewer is the bundled engine.
   in reading order without clipping text. Sticky positioning, negative relative vertical
   offsets, arbitrary overlap/`z-index` and page-pinned or repeating fixed boxes are unsupported.
   A layout disclosure accompanies books using these box styles. Common positioned accessibility
-  labels hidden with zero-area `clip: rect(...)`, `clip-path: inset(50%)`, visibility or
-  top/left offsets of -1,000 CSS pixels or less (16 to the `em` or `rem`, so `-62.5em`) stay
-  omitted, and a position saved inside one opens at what follows it; percentage and viewport
+  labels hidden with zero-area `clip: rect(...)`, `clip-path: inset(50%)` or
+  top/left offsets of -1,000 CSS pixels or less (16 to the `em` or `rem`, so `-62.5em`) are
+  not drawn and are read by VoiceOver where they stand; percentage and viewport
   offsets remain visible unless explicitly hidden or clipped. A box parked that far to the
-  left that reaches back on screen, with a `right` offset or a great width, is omitted with
-  the rest. General clipping and arbitrary offscreen
+  left that reaches back on screen, with a `right` offset or a great width, is hidden with
+  the rest. A hidden heading is read as plain text, as a shown one is, and an image without
+  alternative text beside it is still announced as "Book image". General clipping and arbitrary offscreen
   geometry are unsupported. Unsized inline-blocks remain inline. Ordinary percentage margins,
   padding and text indents resolve against the live containing content width, including
   constrained flow-box ancestors, and recalculate at resize. Mixed-unit CSS calculations

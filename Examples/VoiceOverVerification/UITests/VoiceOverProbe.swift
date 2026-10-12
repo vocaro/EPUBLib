@@ -27,8 +27,10 @@ import XCUIAutomation
         // from one of the reader's own.
         if !wasEnabled, environment["VOICEOVER_OFF"] == nil { try voiceOver.enable() }
         let app = XCUIApplication(bundleIdentifier: "org.epubreaderlib.voiceoververify")
-        app.launchArguments = ["-SampleFlow", "paginated"]
+        app.launchArguments = ["-SampleFlow", environment["VOICEOVER_FLOW"] ?? "paginated"]
         if let size = environment["VOICEOVER_FONT_SIZE"] { app.launchArguments += ["-SampleFontSize", size] }
+        // A section other than the first, such as the fixture's hidden labels (`OPS/labels.xhtml`).
+        if let href = environment["VOICEOVER_HREF"] { app.launchArguments += ["-SampleHref", href] }
         app.launch()
         let snapshots = true
         #endif

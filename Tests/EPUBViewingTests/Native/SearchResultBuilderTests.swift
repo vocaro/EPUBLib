@@ -38,6 +38,23 @@ final class SearchResultBuilderTests: XCTestCase {
         XCTAssertEqual(TextSearch.text(of: match, in: foreign), "", "a match is read in its own document")
     }
 
+    /// A label hidden from the page and kept for assistive technology is in the text as one
+    /// character: an occurrence in it is found, as a browser finds text parked off screen, and
+    /// its place is the label.
+    func testAnOccurrenceInAHiddenLabelIsAResultAtTheLabel() throws {
+        let text = try BuilderHarness.build("""
+        <h1 class="spoken">A hidden pin heading</h1><p>First pin.</p><p class="unseen">A pin nobody is given.</p>
+        """, rules: [(".spoken", { $0.position = .absolute; $0.positionLeftIsOffscreen = true }),
+                     (".unseen", { $0.position = .absolute; $0.positionLeftIsOffscreen = true; $0.isHidden = true })])
+        XCTAssertEqual(text.string.string, "\u{FFFC}\nFirst pin.")
+        XCTAssertEqual(text.string.readerPlainText(), "A hidden pin heading\nFirst pin.")
+        let found = try batch("pin", in: text)
+        XCTAssertEqual(found.results.map(\.matchedText), ["pin", "pin"], "not the one `visibility: hidden` hides from everyone")
+        XCTAssertEqual(found.ranges, [ReaderTextRange(section: 0, 0..<1), ReaderTextRange(section: 0, 8..<11)])
+        XCTAssertEqual(found.results.map(\.location.quote), ["pin", "pin"])
+        XCTAssertFalse(found.hasMore)
+    }
+
     func testOnlyRenderedOccurrencesBecomeResultsInDocumentOrder() throws {
         let text = try BuilderHarness.build("""
         <h1 id="top">Heading with pin</h1><p class="gone">A hidden pin.</p><p>First pin, second PIN.</p>\
