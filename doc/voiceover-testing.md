@@ -418,9 +418,6 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 - `rotate=landscape`, `rotate=portrait`: an iPad shows two columns in landscape and one in
   portrait. The probe waits for the screen as after `activate`, three seconds at most. End a
   session in the orientation it started in.
-- `listen=SECONDS`: record each further phrase VoiceOver says about the item under its
-  cursor. Every other step records one phrase, and a label that ends with its paragraph's
-  break ends that phrase: what VoiceOver says of the item's traits and actions comes after.
 - `wait=SECONDS`, and `screenshot`, attached to the result bundle: what is on the glass,
   independent of every accessibility snapshot.
 

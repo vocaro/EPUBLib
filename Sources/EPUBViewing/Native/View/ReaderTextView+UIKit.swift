@@ -383,6 +383,9 @@ final class ReaderTextView: UITextView {
                         element.accessibilityLanguage = language
                     }
                 }
+                // A heading is read as its words: with its paragraph's break after them VoiceOver
+                // ends the phrase there, before it has said that this is a heading.
+                if heading != nil, let end = label.lastIndex(where: { !$0.isNewline }) { label = String(label[...end]) }
                 element.accessibilityLabel = label
                 element.heading = heading
                 if let heading {

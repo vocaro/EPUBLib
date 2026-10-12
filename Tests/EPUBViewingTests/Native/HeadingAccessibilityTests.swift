@@ -83,6 +83,41 @@ import UIKit
         XCTAssertTrue(zip(shown, built).allSatisfy { $0.heading === $1.heading })
     }
 
+    /// Where a move by heading goes when the page or the screen has no more: the book's next
+    /// heading, through the chapters page turns reach.
+    func testTheBooksNextHeadingIsFoundThroughTheChaptersPageTurnsReach() throws {
+        let first = try H.build("<h1>First</h1><p>Words.</p><h2>Second</h2><p>More words.</p>", css: Self.css)
+        let aside = try H.build("<h1>In a chapter page turns step over</h1><p>Aside.</p>", css: Self.css)
+        let table = try H.build("<h1 class=\"sr\">Hidden over a table</h1><table><tr><td>One</td><td>Two</td></tr></table><p>After.</p>", css: Self.css)
+        let last = try H.build("<p>No heading here.</p>", css: Self.css)
+        let end = try H.build("<h3>The last</h3>", css: Self.css)
+        let host = CanvasHost(FakeCanvasSource([first.string, aside.string, table.string, last.string, nil, end.string],
+                                               linear: [true, false, true, true, true, true]), size: CGSize(width: 320, height: 560))
+        hosts.append(host)
+        func heading(_ section: Int, _ offset: Int, forward: Bool = true) -> ReaderTextPosition? {
+            host.canvas.heading(from: ReaderTextPosition(section: section, offset: offset), forward: forward)
+        }
+        let second = H.range("Second", in: first).location
+        XCTAssertEqual(table.string.string.first, "\u{FFFC}", "the third chapter opens with its hidden heading")
+        // Within a chapter: the heading a position is inside is neither after nor before it.
+        XCTAssertEqual(heading(0, 0), ReaderTextPosition(section: 0, offset: second))
+        XCTAssertEqual(heading(0, 2), ReaderTextPosition(section: 0, offset: second))
+        XCTAssertNil(heading(0, 2, forward: false))
+        XCTAssertEqual(heading(0, 5, forward: false), ReaderTextPosition(section: 0, offset: 0), "from the end of the first heading")
+        XCTAssertEqual(heading(0, second + 3, forward: false), ReaderTextPosition(section: 0, offset: 0))
+        // On to the next chapter page turns reach, whose heading is hidden; the one between is passed over.
+        XCTAssertEqual(heading(0, second), ReaderTextPosition(section: 2, offset: 0))
+        XCTAssertEqual(heading(2, 0, forward: false), ReaderTextPosition(section: 0, offset: second))
+        // A search that starts in the chapter passed over looks in it, and leaves it either way.
+        XCTAssertEqual(heading(1, 5), ReaderTextPosition(section: 2, offset: 0))
+        XCTAssertEqual(heading(1, aside.string.length, forward: false), ReaderTextPosition(section: 1, offset: 0))
+        XCTAssertEqual(heading(1, 0, forward: false), ReaderTextPosition(section: 0, offset: second))
+        // Through a chapter with no heading to one that is not built yet, which ends the search.
+        XCTAssertNil(heading(2, 0))
+        XCTAssertNil(heading(5, 0, forward: false), "and from past it")
+        XCTAssertNil(heading(0, 0, forward: false), "none before the book's first")
+    }
+
     #if os(iOS)
     /// What VoiceOver is given of an element: "heading" and its level where it is one, "link"
     /// where it is one, and its words.
@@ -118,8 +153,9 @@ import UIKit
         XCTAssertGreaterThan(frame.height, lines[0].frame.height * 1.5)
         // The label VoiceOver speaks and the one it takes the level from are the same words.
         XCTAssertEqual(elements[0].accessibilityAttributedLabel?.string, elements[0].accessibilityLabel)
-        XCTAssertEqual(elements[0].accessibilityLabel, "A chapter title long enough to take two lines of the page\n",
-                       "with the break that ends its paragraph, as a line has it")
+        XCTAssertEqual(elements[0].accessibilityLabel, "A chapter title long enough to take two lines of the page",
+                       "its words, without the break that ends its paragraph: VoiceOver says \"Heading\" straight after them")
+        XCTAssertEqual(elements[1].accessibilityLabel, "Plain words follow it.\n", "a line that is no heading is read as before")
         // The container protocol agrees, and each element is where its text is.
         XCTAssertEqual(view.accessibilityElementCount(), elements.count)
         for (index, element) in elements.enumerated() {
@@ -161,7 +197,11 @@ import UIKit
             repeat {
                 for view in host.canvas.textViews where !view.isHidden {
                     let elements = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
-                    XCTAssertEqual(elements.map { $0.accessibilityLabel ?? "" }.joined(), view.visibleText)
+                    // A heading's label leaves out the break after it; nothing else is left out.
+                    XCTAssertEqual(elements.map { $0.accessibilityLabel ?? "" }.joined().filter { $0 != "\n" }, view.visibleText.filter { $0 != "\n" })
+                    XCTAssertEqual(elements.filter { !$0.accessibilityTraits.contains(.header) }.map { $0.accessibilityLabel ?? "" }.joined().filter { $0 == "\n" }.count
+                                    + elements.filter { $0.accessibilityTraits.contains(.header) }.count,
+                                   view.visibleText.filter { $0 == "\n" }.count, "every paragraph's break is in a line's label or follows a heading")
                     spoken += view.visibleText
                     headings += elements.filter { $0.accessibilityTraits.contains(.header) }.map(read)
                 }

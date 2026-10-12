@@ -241,6 +241,7 @@ import XCUIAutomation
                 // `flick=right*12` repeats it: VoiceOver's own next and previous item.
                 let flick = (parts.last ?? "").split(separator: "*").map(String.init)
                 for _ in 0..<(flick.count > 1 ? Int(flick[1]) ?? 1 : 1) {
+                    let before = try? voiceOver.currentSpeech().utterance
                     switch flick.first {
                     case "up": app.swipeUp(velocity: .fast)
                     case "down": app.swipeDown(velocity: .fast)
@@ -248,6 +249,13 @@ import XCUIAutomation
                     default: app.swipeRight(velocity: .fast)
                     }
                     RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+                    // A move that turns pages, or a busy Mac under a simulator, can leave the
+                    // phrase before the flick standing for a while: three seconds more for a
+                    // new one. A flick that brings the same phrase again waits them out.
+                    let limit = Date().addingTimeInterval(3)
+                    while Date() < limit, (try? voiceOver.currentSpeech().utterance) == before {
+                        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+                    }
                     heard("flick=\(flick.first ?? "")")
                 }
             case "rotor":
@@ -264,19 +272,6 @@ import XCUIAutomation
                     if !wanted.isEmpty, phrase.localizedCaseInsensitiveContains(wanted) { found = true; break }
                 }
                 if !found { note(step, "MISSING") }
-            case "listen":
-                // What VoiceOver goes on to say about the item under its cursor. A step records
-                // one phrase, and a label that ends with its paragraph's break ends the phrase:
-                // "Heading" and "Actions available" come after it.
-                let until = Date().addingTimeInterval(Double(parts.last ?? "") ?? 3)
-                var last = events.last?["utterance"] ?? ""
-                while Date() < until {
-                    if let phrase = try? voiceOver.currentSpeech().utterance, phrase != last {
-                        last = phrase
-                        note("listen", phrase)
-                    }
-                    RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-                }
             case "wait":
                 RunLoop.current.run(until: Date().addingTimeInterval(Double(parts.last ?? "") ?? 1))
             case "screenshot":
