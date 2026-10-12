@@ -3,14 +3,16 @@ import XCTest
 
 /// References between an SVG's elements that the bundled renderer cannot follow: a loop of
 /// masks or clip paths it does not unlink, a gradient `href` walk that never ends, and a chain
-/// of nesting and references deeper than the nesting limit. Each is refused before the
-/// renderer parses it and shows its fallback text with the `svg` disclosure.
+/// of nesting and references deeper than the nesting limit. With them, a linear gradient that
+/// repeats or reflects, which the renderer panics on where the gradient has no length. Each is
+/// refused before the renderer parses it and shows its fallback text with the `svg` disclosure.
 ///
-/// The renderer spends its stack or never returns on most drawings here, and either would end
-/// the test run. So the screen is asked for its verdict, which is plain Swift over the parsed
-/// drawing and never reaches the renderer. Only two kinds of drawing are handed on: those
-/// the renderer was shown to draw safely, one child process a drawing, on the 512 KiB stack a
-/// section is built on; and those the rendering limits have just refused, which stop before it.
+/// The renderer spends its stack, never returns or panics on most drawings here, and any of
+/// the three would end the test run. So the screen is asked for its verdict, which is plain
+/// Swift over the parsed drawing and never reaches the renderer. Only two kinds of drawing are
+/// handed on: those the renderer was shown to draw safely, one child process a drawing, on the
+/// 512 KiB stack a section is built on; and those the rendering limits have just refused,
+/// which stop before it.
 final class RichMediaSVGReferenceCoverageTests: XCTestCase {
     private static let ns = "xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'"
     /// A shape's size and paint: white, so that it shows through a mask.
@@ -117,6 +119,18 @@ final class RichMediaSVGReferenceCoverageTests: XCTestCase {
             + "<mask id='c'>\(closing)</mask>\(definitions)<rect width='5' height='5' mask='url(#a)'/>"
     }
 
+    /// The stops of the issue's drawing: opaque white, at offsets whose sum rounds past one.
+    private static let stops = "<stop offset='0.07' stop-color='#fff'/><stop offset='0.29' stop-color='#fff'/><stop offset='1' stop-color='#fff'/>"
+    /// The end points of a linear gradient that has no length.
+    private static let noLength = "x1='5' y1='5' x2='5' y2='5'"
+
+    /// A rectangle filled with `g`, a linear gradient of no length that holds the issue's stops,
+    /// after `definitions`. With a spread of `repeat` or `reflect` it is the issue's drawing: the
+    /// renderer ends the process as it paints the rectangle.
+    private func gradient(_ attributes: String = "", after definitions: String = "", fill: String = "fill='url(#g)'") -> String {
+        "\(definitions)<linearGradient id='g' \(Self.noLength) \(attributes)>\(Self.stops)</linearGradient><rect width='5' height='5' \(fill)/>"
+    }
+
     // MARK: Loops of masks and clip paths
 
     func testARingOfThreeOrMoreMasksOrClipPathsIsRefusedHoweverItIsLinked() throws {
@@ -187,6 +201,109 @@ final class RichMediaSVGReferenceCoverageTests: XCTestCase {
         // A chain with no loop is walked to its end, however long.
         let chain = (0..<200).map { "<linearGradient id='g\($0)'" + ($0 < 199 ? " href='#g\($0 + 1)'/>" : "><stop offset='0' stop-color='red'/><stop offset='1' stop-color='blue'/></linearGradient>") }.joined()
         XCTAssertNotNil(source(chain + "<rect width='5' height='5' fill='url(#g0)'/>"))
+    }
+
+    // MARK: Gradients that repeat
+
+    func testALinearGradientThatRepeatsOrReflectsIsRefused() throws {
+        // The renderer was shown to end the process on each of these.
+        let fatal: [(String, String)] = [
+            ("repeat", gradient("spreadMethod='repeat'")),
+            ("reflect", gradient("spreadMethod='reflect'")),
+            ("xlink:spreadMethod", gradient("xlink:spreadMethod='repeat'")),
+            ("xml:spreadMethod", gradient("xml:spreadMethod='reflect'")),
+            ("the first of two attributes", gradient("xlink:spreadMethod='repeat' spreadMethod='pad'")),
+            ("an attribute that a style contradicts", gradient("spreadMethod='repeat' style='spreadMethod:pad'")),
+            ("painted on a stroke", gradient("spreadMethod='repeat'", fill: "fill='none' stroke='url(#g)'")),
+            ("painted by a rule", gradient("spreadMethod='repeat'", after: "<style>rect{fill:url(#g)}</style>", fill: "")),
+            // The spread it does not state is that of the first gradient its href leads to that states one.
+            ("from a linear gradient", gradient("href='#b'", after: "<linearGradient id='b' spreadMethod='repeat'/>")),
+            ("from a radial gradient", gradient("href='#b'", after: "<radialGradient id='b' spreadMethod='reflect'/>")),
+            ("by xlink:href", gradient("xlink:href='#b'", after: "<linearGradient id='b' spreadMethod='repeat'/>")),
+            ("from one defined after it", "<linearGradient id='g' \(Self.noLength) href='#b'>\(Self.stops)</linearGradient><rect width='5' height='5' fill='url(#g)'/><radialGradient id='b' spreadMethod='repeat'/>"),
+            ("through another", gradient("href='#m'", after: "<radialGradient id='b' spreadMethod='repeat'/><linearGradient id='m' href='#b'/>")),
+            ("through five", gradient("href='#m1'", after: "<radialGradient id='b' spreadMethod='repeat'/><linearGradient id='m4' href='#b'/><radialGradient id='m3' href='#m4'/><linearGradient id='m2' xlink:href='#m3'/><radialGradient id='m1' href='#m2'/>")),
+            ("with its end points and stops", "<linearGradient id='b' \(Self.noLength) spreadMethod='repeat'>\(Self.stops)</linearGradient><linearGradient id='g' href='#b'/><rect width='5' height='5' fill='url(#g)'/>"),
+            ("from the last of two with one id", gradient("href='#b'", after: "<linearGradient id='b' spreadMethod='pad'/><linearGradient id='b' spreadMethod='repeat'/>")),
+            ("by xml:id", gradient("href='#b'", after: "<linearGradient xml:id='b' spreadMethod='repeat'/>")),
+            ("by href where xlink:href names another", gradient("xlink:href='#p' href='#b'", after: "<linearGradient id='b' spreadMethod='repeat'/><linearGradient id='p' spreadMethod='pad'/>")),
+        ]
+        for (name, body) in fatal { XCTAssertFalse(try passes(body), name) }
+
+        // The renderer draws these. Telling them from the ones above is its work: a gradient's
+        // length, which of the gradients on a walk it takes the spread from, which of two
+        // elements an id means. So they are refused with them.
+        let drawn: [(String, String)] = [
+            ("a gradient with a length", "<linearGradient id='g' x2='1' spreadMethod='repeat'><stop offset='0' stop-color='red'/><stop offset='1' stop-color='blue'/></linearGradient><rect width='5' height='5' fill='url(#g)'/>"),
+            ("stripes in the units of the drawing", "<linearGradient id='g' gradientUnits='userSpaceOnUse' x1='0' x2='2' spreadMethod='reflect'><stop offset='0' stop-color='red'/><stop offset='1' stop-color='blue'/></linearGradient><rect width='5' height='5' fill='url(#g)'/>"),
+            ("a gradient that paints nothing", gradient("spreadMethod='repeat'", fill: "")),
+            ("a gradient in definitions that nothing names", "<defs><linearGradient spreadMethod='reflect'/></defs><rect width='5' height='5'/>"),
+            ("the second of two attributes", gradient("spreadMethod='pad' xlink:spreadMethod='repeat'")),
+            ("its own pad before one that repeats", gradient("href='#b' spreadMethod='pad'", after: "<linearGradient id='b' spreadMethod='repeat'/>")),
+            ("a word the renderer does not know before one that repeats", gradient("href='#b' spreadMethod='tile'", after: "<radialGradient id='b' spreadMethod='repeat'/>")),
+            ("a pad on the walk before one that repeats", gradient("href='#m'", after: "<radialGradient id='b' spreadMethod='repeat'/><linearGradient id='m' href='#b' spreadMethod='pad'/>")),
+            ("the first of two with one id", gradient("href='#b'", after: "<linearGradient id='b' spreadMethod='repeat'/><linearGradient id='b' spreadMethod='pad'/>")),
+            ("a radial gradient that takes repeat from a linear one", "<linearGradient id='b' x2='1' spreadMethod='repeat'/><radialGradient id='g' href='#b'>\(Self.stops)</radialGradient><rect width='5' height='5' fill='url(#g)'/>"),
+            ("a linear gradient in another namespace", "<q:linearGradient xmlns:q='urn:q' id='g' \(Self.noLength) spreadMethod='repeat'>\(Self.stops)</q:linearGradient><rect width='5' height='5' fill='url(#g)'/>"),
+        ]
+        for (name, body) in drawn { XCTAssertFalse(try passes(body), name) }
+    }
+
+    func testGradientsTheRendererPadsAndRadialGradientsStillDraw() throws {
+        // Each of these was shown to draw: the renderer takes the linear gradient to pad, and paints its last stop.
+        let padded: [(String, String)] = [
+            ("pad", gradient("spreadMethod='pad'")),
+            ("no spreadMethod", gradient()),
+            ("a word the renderer does not know", gradient("spreadMethod='tile'")),
+            ("repeat in capitals", gradient("spreadMethod='REPEAT'")),
+            ("repeat after a space", gradient("spreadMethod=' repeat'")),
+            ("repeat before a space", gradient("spreadMethod='repeat '")),
+            ("inherit, under a group that says repeat", "<g spreadMethod='repeat'><linearGradient id='g' \(Self.noLength) spreadMethod='inherit'>\(Self.stops)</linearGradient></g><rect width='5' height='5' fill='url(#g)'/>"),
+            ("an empty value", gradient("spreadMethod=''")),
+            ("the attribute's name in lower case", gradient("spreadmethod='repeat'")),
+            ("the attribute in another namespace", "<linearGradient xmlns:q='urn:q' id='g' \(Self.noLength) q:spreadMethod='repeat'>\(Self.stops)</linearGradient><rect width='5' height='5' fill='url(#g)'/>"),
+            // It is not a presentation attribute: the renderer drops a declaration of it.
+            ("a style attribute", gradient("style='spreadMethod:repeat'")),
+            ("a type rule", gradient(after: "<style>linearGradient{spreadMethod:repeat}</style>")),
+            ("an id rule that is important", gradient(after: "<style>#g{spreadMethod:reflect !important}</style>")),
+            // Nor is it inherited, or taken from an element that is not a gradient.
+            ("repeat on a group, a stop and the shape", "<g spreadMethod='repeat'><linearGradient id='g' \(Self.noLength)><stop spreadMethod='repeat' offset='0.07' stop-color='#fff'/><stop offset='1' stop-color='#fff'/></linearGradient></g><rect width='5' height='5' fill='url(#g)' spreadMethod='repeat'/>"),
+            ("an href to a shape that says repeat", gradient("href='#b'", after: "<rect id='b' spreadMethod='repeat'/>")),
+            ("an href with no hash", gradient("href='b'", after: "<radialGradient id='b' spreadMethod='repeat'/>")),
+            ("an href in another namespace", "<radialGradient id='b' spreadMethod='repeat'/><linearGradient xmlns:q='urn:q' id='g' \(Self.noLength) q:href='#b'>\(Self.stops)</linearGradient><rect width='5' height='5' fill='url(#g)'/>"),
+            ("by xlink:href where href names another", "<radialGradient id='b' spreadMethod='repeat'/><linearGradient id='p'/><linearGradient id='g' \(Self.noLength) xlink:href='#b' href='#p'>\(Self.stops)</linearGradient><rect width='5' height='5' fill='url(#g)'/>"),
+        ]
+        for (name, body) in padded {
+            XCTAssertTrue(try passes(body), name)
+            XCTAssertNotNil(source(body), name)
+        }
+
+        // A radial gradient never takes the path that panics, whatever its spread and however little is left of it.
+        let radial: [(String, String)] = [
+            ("repeat", "r='0.5'"),
+            ("no radius", "r='0'"),
+            ("no radius, in the units of the drawing", "gradientUnits='userSpaceOnUse' cx='5' cy='5' r='0'"),
+            ("a radius below the renderer's tolerance", "gradientUnits='userSpaceOnUse' cx='5' cy='5' r='0.00001'"),
+            ("a focal circle that is the circle", "gradientUnits='userSpaceOnUse' cx='5' cy='5' fx='5' fy='5' r='3' fr='3'"),
+            ("a focal circle that is the circle, both no size", "r='0' fr='0'"),
+            ("a focal circle larger than the circle", "r='0.3' fr='0.6'"),
+            ("a focus on the circle", "gradientUnits='userSpaceOnUse' cx='5' cy='5' fx='8' fy='5' r='3'"),
+            ("a focus outside the circle", "gradientUnits='userSpaceOnUse' cx='5' cy='5' fx='20' fy='5' r='3'"),
+            ("two circles of one size apart", "gradientUnits='userSpaceOnUse' cx='5' cy='5' fx='2' fy='5' r='3' fr='3'"),
+            ("a transform that flattens it", "gradientTransform='scale(0)'"),
+        ]
+        for (name, attributes) in radial {
+            for spread in ["repeat", "reflect"] {
+                let body = "<radialGradient id='g' \(attributes) spreadMethod='\(spread)'>\(Self.stops)</radialGradient><rect width='5' height='5' fill='url(#g)'/>"
+                XCTAssertTrue(try passes(body), "radial, \(spread): \(name)")
+                XCTAssertNotNil(source(body), "radial, \(spread): \(name)")
+            }
+        }
+        // A radial gradient's spread is not that of a linear gradient it leads to: the walk goes one way.
+        let oneWay = "<linearGradient id='b' \(Self.noLength)>\(Self.stops)</linearGradient><radialGradient id='g' href='#b' spreadMethod='repeat'/>"
+            + "<rect width='5' height='5' fill='url(#g)' stroke='url(#b)'/>"
+        XCTAssertTrue(try passes(oneWay))
+        XCTAssertNotNil(source(oneWay))
     }
 
     // MARK: Chains
@@ -295,6 +412,8 @@ final class RichMediaSVGReferenceCoverageTests: XCTestCase {
             ("three clip paths in a ring, by a stylesheet", linked("clipPath", count: 3, .sheet)),
             ("a gradient walk into a loop", gradients(ring: 2, tail: 1)),
             ("a chain of 128 masks", linked("mask", count: 128, ring: false)),
+            ("a gradient of no length that repeats", gradient("spreadMethod='repeat'")),
+            ("a gradient that reflects through another", gradient("href='#b'", after: "<radialGradient id='b' spreadMethod='reflect'/>")),
         ]
         for (name, body) in refused {
             // Inline: the drawing's own title stands in for it.
@@ -344,5 +463,10 @@ final class RichMediaSVGReferenceCoverageTests: XCTestCase {
         XCTAssertFalse(try passes(linkedThroughAMarker("clipPath", count: 4_900)), "4,900 clip paths in a ring behind a marker")
         XCTAssertFalse(try passes(gradients(ring: 4_900, tail: 4_900)), "4,900 gradients leading into a loop of 4,900")
         XCTAssertNotNil(source(gradients(ring: 9_900, tail: 0)), "9,900 gradients in a loop of their own draw")
+        // A spread is looked for along every walk at once: each gradient here leads to the one that repeats.
+        let chain = (0..<4_900).map { "<linearGradient id='g\($0)' href='#g\($0 + 1)'/>" }.joined() + "<radialGradient id='g4900' spreadMethod='repeat'/>"
+        XCTAssertFalse(try passes(chain + "<rect width='5' height='5' fill='url(#g0)'/>"), "4,900 gradients that lead to one that repeats")
+        let loop = (0..<4_900).map { "<linearGradient id='r\($0)' href='#r\(($0 + 1) % 4_900)'\($0 == 2_450 ? " spreadMethod='reflect'" : "")/>" }.joined()
+        XCTAssertFalse(try passes(loop + "<rect width='5' height='5' fill='url(#r0)'/>"), "a loop of 4,900 gradients, one of which reflects")
     }
 }

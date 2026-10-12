@@ -47,8 +47,20 @@ stack, and a walk into a loop it did not begin in never returns. Neither is a pa
 `SVGReferenceScreen.swift` refuses those drawings first. It reads a `url(#…)` as svgtypes
 0.16.1 does (`funciri.rs`), a stylesheet and a `style` attribute as simplecss 0.2.2 does,
 step for step, and takes the elements that are drawn where they stand from
-`convert_element` in `usvg/parser/converter.rs`. Review it against those sources whenever
-the renderer is updated.
+`convert_element` in `usvg/parser/converter.rs`. It also refuses every linear gradient
+whose `spreadMethod` is `reflect` or `repeat`, and that one is a panic: tiny-skia 0.12.0
+paints such a gradient that has no length with the average of its stops
+(`average_gradient_color` in `shaders/linear_gradient.rs`) and unwraps a colour that
+rounding has carried past one. A gradient that pads paints its last stop there, and a
+radial gradient has no such path. Which gradients have no length is usvg's resolution of
+lengths to say (`usvg/parser/units.rs`), on coordinates it may take through `href`, and
+the screen does not reproduce it: the spread alone decides, read as `convert_spread_method`
+and `resolve_lg_attr` in `usvg/parser/paint_server.rs` read it, from an attribute only
+and through `href` from a gradient of either kind. So a repeating or reflecting linear
+gradient of any length is refused, which can be narrowed once a panic is caught at the C
+boundary (#231). usvg also writes a `spreadMethod` for the gradients of a COLR glyph
+(`usvg/text/colr.rs`), which no screen of the SVG sees; fonts reach it with their colour
+tables removed. Review the screen against those sources whenever the renderer is updated.
 
 The XCFramework is approximately 45 MiB before compression. `checksums.json`
 records the exact vendored archive hashes. `dependencies.json` identifies the
