@@ -15,6 +15,8 @@ final class SectionContentPropertyCoverageTests: XCTestCase {
         var word = 0, id = 0
         /// Words in document order: shown in the section, captured by a note, or neither.
         var shown: [Int] = [], noted: [String: [Int]] = [:]
+        /// For an endnote with no word of its own: the words of the footnotes nested in it.
+        var whole: [String: [Int]] = [:]
         var transforms = false
 
         struct Context {
@@ -122,15 +124,30 @@ final class SectionContentPropertyCoverageTests: XCTestCase {
                     noted.note = note
                     html += "<aside epub:type='footnote' id='\(note)'>" + block(noted) + "</aside>"
                 case 16 where context.note == nil && !context.hidden && !context.endnote:
-                    // An endnote stays in the flow and is captured too. It opens with a paragraph: a note that
-                    // opens with another note is its own case (`SectionContentNoteAnchorCoverageTests`).
+                    // An endnote stays in the flow and is captured too, without the footnotes nested in it
+                    // unless it has nothing else to show.
                     let note = nextID()
                     let from = word
                     var endnote = inner
                     endnote.endnote = true
-                    html += "<div epub:type='endnote' id='\(note)'><p>" + inline(endnote) + "</p>" + block(endnote) + "</div>"
-                    noted[note] = shown.filter { $0 > from }
+                    html += "<div epub:type='endnote' id='\(note)'>" + block(endnote) + "</div>"
+                    let own = shown.filter { $0 > from }
+                    if own.isEmpty { whole[note] = noted.values.flatMap { $0 }.filter { $0 > from }.sorted() }
+                    noted[note] = own
                 case 17: html += "<div hidden='' id='\(nextID())'>" + block(hidden) + "</div>"
+                case 22 where context.note == nil && !context.hidden && !context.endnote:
+                    // An endnote that holds only footnotes has nothing of its own, and shows them.
+                    let note = nextID()
+                    let from = word
+                    html += "<div epub:type='endnote' id='\(note)'>"
+                    for _ in 0..<(1 + random.next(2)) {
+                        var footnote = inner
+                        footnote.note = nextID()
+                        html += "<aside epub:type='footnote' id='\(footnote.note ?? "")'>" + block(footnote) + "</aside>"
+                    }
+                    html += "</div>"
+                    whole[note] = noted.values.flatMap { $0 }.filter { $0 > from }.sorted()
+                    noted[note] = []
                 case 18: html += "<hr id='\(nextID())'/>"
                 case 19:
                     let box = random.pick(["fl", "abs", "li", "in", "kt"])
@@ -176,8 +193,14 @@ final class SectionContentPropertyCoverageTests: XCTestCase {
         if text.report.withheld { violations.append("withheld") }
         // Characters: every word outside hidden content and footnotes is shown once, in document order.
         if Self.words(in: text.string.string) != generator.shown { violations.append("shown words \(Self.words(in: text.string.string)) are not \(generator.shown)") }
-        for (note, expected) in generator.noted where Self.words(in: text.notes[note]?.string ?? "") != expected {
-            violations.append("note \(note) holds \(Self.words(in: text.notes[note]?.string ?? "")), not \(expected)")
+        for (note, expected) in generator.noted {
+            let content = text.notes[note]?.string ?? "", held = Self.words(in: content)
+            // A note with nothing of its own, not even an image, shows the notes nested in it.
+            if held != expected, !(expected.isEmpty && held == generator.whole[note]) {
+                violations.append("note \(note) holds \(held), not \(expected)")
+            } else if held.isEmpty, generator.whole[note]?.isEmpty == false, content.allSatisfy(\.isWhitespace) {
+                violations.append("note \(note) shows nothing, though the notes nested in it hold \(generator.whole[note] ?? [])")
+            }
         }
         // Anchors: every id, in document order, never after the element's own first character.
         var previous = 0

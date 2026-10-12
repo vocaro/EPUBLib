@@ -125,6 +125,17 @@ The read is a stand-in. A test host loads no text accessibility for an in-proces
 tests ask for each paragraph's rectangle through `firstRect(for:)` on UIKit and
 `accessibilityFrame(for:)` on AppKit, and require that this laid the whole book out.
 
+Bar tests hold continuous scroll to its place when a bar shows or hides over a reader that runs
+under it, which changes the height of the visible area and not the reader's size.
+`CanvasHost(…, underBars: true)` puts the canvas under a navigation bar on iOS and under the
+title bar of a full-size content view on the Mac, and `setBar(shown:)` hides the one and gives
+the window a toolbar on the other. On the Mac nothing lays the canvas out when a toolbar changes
+the scroll view's insets ([#162](https://github.com/vocaro/EPUBLib/issues/162)), so the harness
+waits for the insets and asks for the layout. The session test uses the public reader with
+`ignoresSafeArea()`: under a `NavigationStack` whose bar it hides on iOS, and on the Mac in a
+window whose toolbar it shows and hides, each followed by a change of appearance, which lays the
+reader out. The bars are the system's own, in a test host; nothing is looked at on a screen.
+
 Highlight paint tests read the pixels the mounted reader's views last drew: none in the
 highlight's color before a search, the matches after it, and none again after Clear Search,
 with no reflow between. They cover both flows, one- and two-column spreads, dark appearance,
@@ -172,6 +183,11 @@ coverage does not substitute for hardware performance and accessibility testing.
 For real VoiceOver sessions, use the [VoiceOver testing process](voiceover-testing.md) and
 the isolated `Examples/VoiceOverVerification` reader. Its diagnostic speech probe is outside
 the local gate because it takes control of the user interface and changes VoiceOver state.
+`scripts/run-voiceover-simulator.py` runs that probe on simulators of its own, with no window
+and no sound, and takes over nothing: it records what a
+[simulator's VoiceOver](voiceover-testing.md#simulators) reads, in order and after a page
+turn. That VoiceOver activates nothing it reads, so page actions, the rotor and acceptance
+stay with the Mac and physical devices.
 
 ## Corpus runs
 

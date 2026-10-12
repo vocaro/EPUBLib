@@ -122,7 +122,7 @@ struct ComputedStyle: Equatable, Sendable {
     var positionRight: Length = .auto
     var positionBottom: Length = .auto
     var positionLeft: Length = .auto
-    /// Classified from specified absolute CSS lengths, never the reader's computed font size.
+    /// Classified from the specified CSS lengths, never the reader's computed font size.
     var positionTopIsOffscreen = false
     var positionLeftIsOffscreen = false
     /// Common zero-area clipping techniques for visually hidden positioned labels.
@@ -136,9 +136,14 @@ struct ComputedStyle: Equatable, Sendable {
 
     var isVisuallyHiddenPositionedBox: Bool {
         if clipsAllContent || clipsAllContentWithPath || isHidden { return true }
-        // Rendering must never change its source characters when the reader changes typography.
-        // Font-relative/viewport offsets therefore cannot participate in this hiding heuristic.
+        // Rendering must never change its source characters when the reader changes typography,
+        // so these flags come from the authored offsets and not from their computed lengths.
         return positionTopIsOffscreen || positionLeftIsOffscreen
+    }
+    /// Hidden from the page and kept for assistive technology: parked off screen or clipped to
+    /// nothing, which a browser does not draw and does read. `visibility: hidden` hides from both.
+    var isSpokenOnlyPositionedBox: Bool {
+        !isHidden && (clipsAllContent || clipsAllContentWithPath || positionTopIsOffscreen || positionLeftIsOffscreen)
     }
     /// A flex or grid container, which renders as a block; its in-flow children are blockified.
     var blockifiesChildren = false

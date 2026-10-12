@@ -97,6 +97,21 @@ final class ReaderVisualLineTests: XCTestCase {
         XCTAssertEqual(NSMaxRange(visible), section.string.length)
     }
 
+    /// A line that shows nothing (hidden labels alone, on a line of no height) is whole in the
+    /// viewport whenever the line after it is at the top. It is not on screen for that, and
+    /// counts only where the viewport reaches no other line.
+    func testALineThatShowsNothingCountsOnlyWhereNoOtherLineIsReached() {
+        let lines = [line(0, 2, x: 0, y: 100, height: 0.001), line(2, 30, x: 0, y: 100.001), line(32, 30, x: 0, y: 120.001),
+                     line(62, 1, x: 0, y: 140.001, height: 0.001), line(63, 30, x: 0, y: 140.002)]
+        let shows: (ReaderVisualLine) -> Bool = { $0.frame.height > 0.5 }
+        let viewport = CGRect(x: 0, y: 100, width: 300, height: 40.5)
+        XCTAssertEqual(ReaderVisualLine.sourceRange(mostlyWithin: viewport, in: lines), NSRange(location: 0, length: 63),
+                       "by their frames alone the lines of no height at the top and the bottom are in it")
+        XCTAssertEqual(ReaderVisualLine.sourceRange(mostlyWithin: viewport, in: lines, seen: shows), NSRange(location: 2, length: 60))
+        XCTAssertEqual(ReaderVisualLine.sourceRange(mostlyWithin: CGRect(x: 0, y: 99.5, width: 300, height: 0.5005), in: lines, seen: shows),
+                       NSRange(location: 0, length: 2), "nothing else is reached")
+    }
+
     /// A rest is accepted within a point of the top, and the line above ends where the rested
     /// one starts: a sliver of a line at either edge is in the viewport and not on screen.
     func testLinesShowingLessThanHalfAtAnEdgeAreNotMostlyInTheViewport() {

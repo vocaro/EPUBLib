@@ -134,23 +134,27 @@ extension StyleResolver {
                                          viewportHeight: bounded(value.vh, 1_000))
     }
 
-    /// A stable author-side decision: only absolute units can hide conventional off-screen
-    /// labels. Evaluating computed em/rem lengths here would make the section's text depend on
-    /// reader typography, invalidating cached ranges and changing a saved CFI's rendered offset.
-    private func isAbsoluteOffscreenOffset(_ length: CSSLength) -> Bool {
+    /// A stable author-side decision: the specified length alone hides a conventional off-screen
+    /// label, with an `em` or a `rem` counted as the 16 CSS pixels that media queries give it,
+    /// whatever the element's or the reader's font size. Evaluating computed em/rem lengths here
+    /// would make the section's text depend on reader typography, invalidating cached ranges and
+    /// changing a saved CFI's rendered offset. Percentages, viewport units and the units of a
+    /// face's own metrics say nothing about the screen by themselves and never hide.
+    private func isAuthoredOffscreenOffset(_ length: CSSLength) -> Bool {
+        func independent(_ unit: CSSUnit) -> Bool { unit.pixels != nil || unit == .number || unit == .em || unit == .rem }
         func independent(_ expression: CSSCalc) -> Bool {
             switch expression {
-            case .value(_, let unit): unit.pixels != nil || unit == .number
+            case .value(_, let unit): independent(unit)
             case .sum(let terms), .min(let terms), .max(let terms): terms.allSatisfy(independent)
             case .product(let term, _): independent(term)
             case .clamp(let low, let value, let high): independent(low) && independent(value) && independent(high)
             }
         }
-        let absolute: Bool = switch length {
-        case .value(_, let unit): unit.pixels != nil || unit == .number
+        let authored: Bool = switch length {
+        case .value(_, let unit): independent(unit)
         case .calc(let expression): independent(expression)
         }
-        guard absolute else { return false }
+        guard authored else { return false }
         return points(length, LengthContext(em: 16, rem: 16, scale: 1)) <= -1_000
     }
 
@@ -360,7 +364,7 @@ extension StyleResolver {
         case (.position, .position(let position)): style.position = position
         case (.top, _), (.right, _), (.bottom, _), (.left, _):
             let length: ComputedStyle.Length = if case .length(let l) = value { computed(l, own, points: StyleLimits.offset) } else { .auto }
-            let offscreen = if case .length(let specified) = value { isAbsoluteOffscreenOffset(specified) } else { false }
+            let offscreen = if case .length(let specified) = value { isAuthoredOffscreenOffset(specified) } else { false }
             switch property {
             case .top: style.positionTop = length; style.positionTopIsOffscreen = offscreen
             case .right: style.positionRight = length

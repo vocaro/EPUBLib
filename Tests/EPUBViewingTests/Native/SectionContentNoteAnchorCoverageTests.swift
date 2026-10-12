@@ -162,7 +162,8 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
         XCTAssertEqual(text.notes["n1"]?.string, "First.\nSecond.")
         XCTAssertEqual(text.notes["d1"]?.string, "First.\nSecond.")
         XCTAssertEqual(text.notes["p1"]?.string, "First.\nSecond.")
-        XCTAssertNil(text.notes["p2"])
+        // So does a later paragraph's: the aside is out of the flow, so a reference to `p2` has nothing else to show.
+        XCTAssertEqual(text.notes["p2"]?.string, "First.\nSecond.")
         XCTAssertEqual(S.link("1", in: text), .note(href: "OPS/one.xhtml#p1"))
     }
 
@@ -210,7 +211,7 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
             <section epub:type="endnotes"><ol><li epub:type="endnote"><p id="e3">In the flow.</p></li></ol></section>
             """)
         XCTAssertEqual(text.notes.mapValues(\.string), [
-            "d1": "1. First.\nSecond.", "p1": "1. First.\nSecond.", "a2": "2. Numbered.", "e3": "In the flow.",
+            "d1": "1. First.\nSecond.", "p1": "1. First.\nSecond.", "p2": "1. First.\nSecond.", "a2": "2. Numbered.", "e3": "In the flow.",
         ])
         // Footnotes leave the flow and endnotes stay in it, as they do with an id of their own.
         XCTAssertEqual(S.paragraphs(text), ["Claim1, again2.", "1.\tIn the flow."])
@@ -228,6 +229,402 @@ final class SectionContentNoteAnchorCoverageTests: XCTestCase {
             <aside epub:type="footnote" id="n"><p id="p2">Second.</p></aside>
             """)
         XCTAssertEqual(text.notes.mapValues(\.string), ["n": "First.", "p1": "First.", "p2": "Second."])
+    }
+
+    // MARK: Notes named by an id that is not on their first-child chain
+
+    func testAFootnoteNamedByALaterSiblingsIdIsCaptured() throws {
+        // The id is on the note's second element, after a rule: the aside is hidden, so the note must be there to show.
+        let text = try H.build("""
+            <p>Claim<a epub:type="noteref" href="#fn1">1</a>.</p><aside epub:type="footnote"><hr/><p id="fn1">The note text.</p></aside>
+            """)
+        XCTAssertEqual(S.link("1", in: text), .note(href: "OPS/one.xhtml#fn1"))
+        XCTAssertEqual(text.notes.mapValues(\.string), ["fn1": "—\nThe note text."])
+        XCTAssertEqual(text.string.string, "Claim1.")
+        S.assertTextMapContracts(text)
+    }
+
+    func testAFootnoteNamedByAnInlineAfterItsNumberIsCaptured() throws {
+        let text = try H.build("""
+            <p id="r">Claim<a epub:type="noteref" href="#fn1">1</a>, plainly<a href="#fn1">again</a>.</p>\
+            <aside epub:type="footnote"><p><sup><a href="#r">1</a></sup> <span id="fn1">One.</span></p></aside>
+            """)
+        XCTAssertEqual(text.notes.mapValues(\.string), ["fn1": "1 One."])
+        XCTAssertEqual(S.link("1", in: text), .note(href: "OPS/one.xhtml#fn1"))
+        // So does a link without the `noteref` type: nothing of a hidden footnote is in the flow to navigate to.
+        XCTAssertEqual(S.link("again", in: text), .note(href: "OPS/one.xhtml#fn1"))
+        // The number links back to the reference, not to the note, and stays a link.
+        let back = text.notes["fn1"]?.attribute(.link, at: 0, effectiveRange: nil) as? URL
+        XCTAssertEqual(back.flatMap(ReaderLink.init(url:)), .internal(href: "OPS/one.xhtml#r"))
+        XCTAssertEqual(text.string.string, "Claim1, plainlyagain.")
+    }
+
+    func testEveryIdInsideAFootnoteOutOfTheFlowNamesTheWholeNote() throws {
+        // Two paragraphs with an id each, an id deep in inline markup and one on an empty anchor.
+        let text = try H.build("""
+            <p>A<a epub:type="noteref" href="#fn1">1</a> B<a epub:type="noteref" href="#fn2">2</a> C<a role="doc-noteref" href="#deep">3</a> \
+            <a href="#">top</a></p>\
+            <aside epub:type="footnote"><p id="fn1">One.</p><p id="fn2">Two.</p>\
+            <blockquote><p>Three <em><b id="deep">deep</b></em><a id="mark"/><i id=""/>.</p></blockquote></aside>
+            """)
+        let whole = "One.\nTwo.\nThree deep."
+        XCTAssertEqual(text.notes.mapValues(\.string), ["fn1": whole, "fn2": whole, "deep": whole, "mark": whole])
+        for (word, id) in [("1", "fn1"), ("2", "fn2"), ("3", "deep")] {
+            XCTAssertEqual(S.link(word, in: text), .note(href: "OPS/one.xhtml#\(id)"), id)
+        }
+        // An empty id that is not on the note's leading chain names nothing: a link to `#` does not open the note
+        // that holds one. On the leading chain it is still a key (https://github.com/vocaro/EPUBLib/issues/284).
+        XCTAssertEqual(S.link("top", in: text), .internal(href: "OPS/one.xhtml#"))
+        // The section is as it was: the note is out of the flow and its ids anchor where it stood.
+        XCTAssertEqual(text.string.string, "A1 B2 C3 top")
+        for id in ["fn1", "fn2", "deep", "mark"] { XCTAssertEqual(text.anchors[id], text.string.length, id) }
+        S.assertTextMapContracts(text)
+    }
+
+    func testIdsInsideANestedNoteNameThatNoteAlone() throws {
+        // The nested note has no id of its own and opens with a rule: its inner ids still name it, not the note around it.
+        let text = try H.build("""
+            <aside epub:type="footnote"><p id="o1">Outer.</p><div epub:type="footnote"><hr/><p id="i1">Inner <b id="i2">bold</b>.</p></div>\
+            <p id="o2">More.</p></aside>
+            """)
+        XCTAssertEqual(text.notes.mapValues(\.string), [
+            "o1": "Outer.\nMore.", "o2": "Outer.\nMore.", "i1": "—\nInner bold.", "i2": "—\nInner bold.",
+        ])
+    }
+
+    func testANestedNoteThatNoIdNamesIsPartOfTheNoteAroundIt() throws {
+        // No reference can open a note without an id anywhere in it, so it is not left out of the note it is nested
+        // in. A named note nested in it is still a note of its own.
+        let text = try H.build("""
+            <p>Text</p><aside epub:type="footnote" id="fn1"><p epub:type="footnote">Text of the inner note.</p></aside>\
+            <aside epub:type="footnote" id="fn2"><p>Outer.</p><div epub:type="footnote"><p>Unnamed.</p>\
+            <aside epub:type="footnote" id="fn3">Named, deeper.</aside></div><p>Rest.</p></aside>\
+            <div epub:type="footnote" id="d1"><p>In the flow.</p><aside epub:type="footnote">Out of it.</aside></div>
+            """)
+        XCTAssertEqual(text.notes.mapValues(\.string), [
+            "fn1": "Text of the inner note.", "fn2": "Outer.\nUnnamed.\nRest.", "fn3": "Named, deeper.",
+            "d1": "In the flow.\nOut of it.",
+        ])
+        // In the flow a footnote aside is hidden whether or not anything names it.
+        XCTAssertEqual(S.paragraphs(text), ["Text", "In the flow."])
+    }
+
+    func testANoteWithNothingOfItsOwnShowsTheNotesNestedInIt() throws {
+        // A note that is only another note (two elements marking one note, or a wrapper round several) would be
+        // captured as empty, and its reference would open an empty popover.
+        let text = try H.build("""
+            <p id="r">Text<a epub:type="noteref" href="#fn1">1</a></p>\
+            <aside epub:type="footnote" id="fn1"><div role="doc-footnote" id="inner"><p>The note.</p></div></aside>\
+            <aside epub:type="footnote" id="fn2"> <a href="#r" epub:type="backlink">↩</a>\
+            <aside epub:type="footnote" id="a">First.</aside><aside epub:type="footnote" id="b">Second.</aside></aside>\
+            <aside epub:type="footnote" id="x"><aside epub:type="footnote" id="y"><aside epub:type="footnote" id="z">Deep.</aside></aside></aside>\
+            <aside epub:type="footnote" id="pic"><img src="picture.png" alt="Pic"/><aside epub:type="footnote" id="cap">Caption.</aside></aside>
+            """)
+        XCTAssertEqual(text.notes.mapValues(\.string), [
+            "fn1": "The note.", "inner": "The note.", "fn2": "First.\nSecond.", "a": "First.", "b": "Second.",
+            "x": "Deep.", "y": "Deep.", "z": "Deep.",
+            // A note with anything of its own, an image included, still leaves out the notes nested in it.
+            "pic": "[Pic]", "cap": "Caption.",
+        ])
+        XCTAssertEqual(S.link("1", in: text), .note(href: "OPS/one.xhtml#fn1"))
+    }
+
+    func testAnIdUsedTwiceNamesOneNote() throws {
+        // A note that carries the id itself or on a leading descendant comes before one that holds it elsewhere
+        // (`x`); among those, the first in the document (`y`). An element outside every note does not take the id
+        // from a note (`z`), though the id still anchors at that element.
+        let text = try H.build("""
+            <aside epub:type="footnote" id="a"><p>One.</p><p id="x">Two.</p></aside><aside epub:type="footnote" id="x">Three.</aside>\
+            <aside epub:type="footnote"><hr/><p id="y">Four.</p></aside><aside epub:type="footnote" id="b"><p>Five.</p><p id="y">Six.</p></aside>\
+            <p id="z">In the flow.</p><aside epub:type="footnote"><p>Seven.</p><p id="z">Eight.</p></aside>
+            """)
+        XCTAssertEqual(text.notes.mapValues(\.string), [
+            "a": "One.\nTwo.", "x": "Three.", "y": "—\nFour.", "b": "Five.\nSix.", "z": "Seven.\nEight.",
+        ])
+        XCTAssertEqual(text.anchors["z"], 0)
+    }
+
+    func testALinkInANoteToAnotherPartOfTheSameNoteIsNotALink() throws {
+        let text = try H.build("""
+            <p id="r">Text<a epub:type="noteref" href="#n1">1</a></p>\
+            <aside epub:type="footnote" id="n1"><p><a href="#n1">1.</a> See <a href="#later">below</a>, \
+            <a epub:type="noteref" href="#inner">the note within</a> and <a href="#r">back</a>.</p>\
+            <p id="later">Later.</p><aside epub:type="footnote" id="inner">Within.</aside></aside>
+            """)
+        let note = try XCTUnwrap(text.notes["n1"])
+        XCTAssertEqual(note.string, "1. See below, the note within and back.\nLater.")
+        func link(_ word: String) -> ReaderLink? {
+            (note.attribute(.link, at: (note.string as NSString).range(of: word).location, effectiveRange: nil) as? URL)
+                .flatMap(ReaderLink.init(url:))
+        }
+        // The note is shown whole, so a link to any id that names it leads nowhere new; one to a note nested in it,
+        // or out of it, is still a link.
+        XCTAssertNil(link("1."))
+        XCTAssertNil(link("below"))
+        XCTAssertEqual(link("the note within"), .note(href: "OPS/one.xhtml#inner"))
+        XCTAssertEqual(link("back"), .internal(href: "OPS/one.xhtml#r"))
+    }
+
+    func testNotesInTableCellsAndListItemsAreNamedByAnyIdInside() throws {
+        // With the table as tabbed rows, and drawn by the rich-content factory (its cells have a writer of their own).
+        for rich in [PlaceholderRichContent() as any RichContentFactory, BuilderRecordingRich(rendersTables: true)] {
+            let text = try H.build("""
+                <p>Text</p><table><tr><td>cell<aside epub:type="footnote"><p>Lead.</p><p id="t1">In a cell.</p></aside></td><td>other</td></tr></table>\
+                <ul><li>item<aside epub:type="footnote"><p>In an <span id="l1">item</span>.</p><p id="l2">Twice.</p></aside></li></ul>\
+                <aside epub:type="footnote" id="n1"><table><tr><td>Cell<aside epub:type="footnote">Unnamed in a cell.</aside></td>\
+                <td>Other<aside epub:type="footnote" id="n2">Named in a cell.</aside></td></tr></table></aside>
+                """, rich: rich)
+            XCTAssertEqual(text.notes["t1"]?.string, "Lead.\nIn a cell.")
+            XCTAssertEqual(text.notes["l1"]?.string, "In an item.\nTwice.")
+            XCTAssertEqual(text.notes["l2"]?.string, "In an item.\nTwice.")
+            XCTAssertEqual(text.notes["n2"]?.string, "Named in a cell.")
+            // A footnote that no id names, in a cell of a note's table, is part of that note; a named one is not.
+            let outer = try XCTUnwrap(text.notes["n1"]?.string)
+            XCTAssertTrue(outer.contains("Unnamed in a cell."), outer)
+            XCTAssertFalse(outer.contains("Named in a cell."), outer)
+            XCTAssertEqual(Set(text.notes.keys), ["t1", "l1", "l2", "n1", "n2"])
+            XCTAssertFalse(text.string.string.contains("In a cell."))
+        }
+    }
+
+    func testANoteInTheFlowIsNamedOnlyByItsLeadingIds() throws {
+        // The endnote can be read where it is, so a reference to its second paragraph finds no note and navigates
+        // there (`NativeSession` navigates when a note link has no note), as it did before a hidden footnote took
+        // every id inside it.
+        let text = try H.build("""
+            <p>Claim<a epub:type="noteref" href="#e1b">1</a>, plainly<a href="#e1b">again</a>.</p>\
+            <section epub:type="endnotes"><ol><li epub:type="endnote"><p>First.</p><p id="e1b">Second.</p></li>\
+            <li id="e2"><p>Not a note.</p><p id="e2b">Its second.</p></li></ol></section>\
+            <div epub:type="note" id="o"><p>Outer.</p><div epub:type="note"><p>Lead.</p><p id="i">Inner.</p></div></div>
+            """)
+        // A note nested in a note in the flow, with no leading id, is named by nothing: it is part of the note around it.
+        XCTAssertEqual(text.notes.mapValues(\.string), ["o": "Outer.\nLead.\nInner."])
+        XCTAssertEqual(S.paragraphs(text), ["Claim1, plainlyagain.", "1.\tFirst.", "Second.", "2.\tNot a note.", "Its second.",
+                                            "Outer.", "Lead.", "Inner."])
+        XCTAssertEqual(text.anchors["e1b"], H.location(of: "Second.", in: text))
+        XCTAssertEqual(S.link("1", in: text), .note(href: "OPS/one.xhtml#e1b"))
+        // A link without the `noteref` type to a note's child was a note link already, and still is.
+        XCTAssertEqual(S.link("again", in: text), .note(href: "OPS/one.xhtml#e1b"))
+        S.assertTextMapContracts(text)
+    }
+
+    func testAReferenceIntoANoteElementInTheFlowThatHoldsSeveralNotesFindsNoNoteAndNavigates() throws {
+        // An endnotes page marked up as one note. Every item can be read where it is, so a reference to the
+        // seventeenth navigates to it rather than opening all thirty from the top.
+        let items = (1...30).map { "<li id=\"n\($0)\"><p>Endnote \($0).</p></li>" }.joined()
+        let paragraphs = (1...30).map { "<p id=\"n\($0)\">Endnote \($0).</p>" }.joined()
+        // With each shape: the paragraph the reference goes to, and whether a link without the `noteref` type is a
+        // note link too (when the item is a child of the note element).
+        let shapes: [(markup: String, item: String, plainIsNoteLink: Bool)] = [
+            ("<section epub:type=\"rearnote\"><h2>Notes</h2><ol>\(items)</ol></section>", "17.\tEndnote 17.", false),
+            ("<div class=\"footnotes\" epub:type=\"footnote\">\(paragraphs)</div>", "Endnote 17.", true),
+            ("<aside epub:type=\"endnote\">\(paragraphs)</aside>", "Endnote 17.", true),
+            ("<section role=\"doc-endnote\"><ol>\(items)</ol></section>", "17.\tEndnote 17.", false),
+            ("<ol epub:type=\"endnote\">\(items)</ol>", "17.\tEndnote 17.", true),
+            ("<section epub:type=\"endnotes endnote\"><ol>\(items)</ol></section>", "17.\tEndnote 17.", false),
+        ]
+        for (markup, item, plainIsNoteLink) in shapes {
+            let text = try H.build("<p>Claim<a epub:type=\"noteref\" href=\"#n17\">ref</a>, and <a href=\"#n17\">also</a>.</p>" + markup)
+            // No id but the first item's names the element. That one is on its leading chain and still opens the
+            // whole element, unless a heading comes first (https://github.com/vocaro/EPUBLib/issues/284).
+            XCTAssertTrue(Set(text.notes.keys).isSubset(of: ["n1"]), "\(text.notes.keys.sorted()) in \(markup)")
+            XCTAssertEqual(S.link("ref", in: text), .note(href: "OPS/one.xhtml#n17"), markup)
+            XCTAssertEqual(S.link("also", in: text), plainIsNoteLink ? .note(href: "OPS/one.xhtml#n17") : .internal(href: "OPS/one.xhtml#n17"), markup)
+            XCTAssertEqual(text.anchors["n17"], H.location(of: item, in: text), markup)
+            XCTAssertEqual(S.paragraphs(text).filter { $0.hasSuffix("Endnote 17.") }, [item], markup)
+        }
+    }
+
+    func testALaterIdNamesANoteExactlyWhenTheFlowLeavesTheNoteOut() throws {
+        // Every kind of note element, each with an id on its second paragraph only. The writer decides which are out
+        // of the flow, and those are the ones a later id names: what is hidden can be shown, what is not navigates.
+        let kinds = ["aside epub:type='footnote'", "aside epub:type='note'", "aside epub:type='rearnote'", "div role='doc-footnote'",
+                     "aside epub:type='footnote' role='doc-endnote'", "aside epub:type='endnote'", "div role='doc-endnote'",
+                     "div epub:type='footnote'", "section epub:type='rearnote'", "li epub:type='footnote'", "aside epub:type='sidebar'"]
+        func notes(_ wrap: (String) -> String) -> String {
+            kinds.enumerated().map { index, kind in
+                wrap("<\(kind)><p>Lead \(index).</p><p id='k\(index)'>Later \(index).</p></\(kind.prefix { $0 != " " })>")
+            }.joined()
+        }
+        // In the body, in an endnotes container (where every note stays in the flow) and in a footnote (where none does).
+        let text = try H.build(notes { $0 } + "<section epub:type='endnotes'>" + notes { $0.replacingOccurrences(of: "id='k", with: "id='e") }
+            + "</section><aside epub:type='footnote'>" + notes { $0.replacingOccurrences(of: "id='k", with: "id='f") } + "</aside>")
+        var hidden = 0
+        for prefix in ["k", "e", "f"] {
+            for index in kinds.indices {
+                let id = "\(prefix)\(index)"
+                let element = try XCTUnwrap(text.document.element(id: id))
+                let shown = text.map.spans.contains { $0.node > element.order && $0.node <= element.subtreeEnd }
+                XCTAssertEqual(text.notes[id] != nil, !shown, "\(id): \(kinds[index])")
+                if !shown { hidden += 1; XCTAssertTrue(text.notes[id]?.string.contains("Later \(index).") == true, id) }
+            }
+        }
+        // The four footnote kinds in the body, and everything in the footnote.
+        XCTAssertEqual(hidden, 4 + kinds.count)
+
+        // The twelfth kind is the exception: a table part typed as a footnote. A table drawn as a grid shows the part
+        // whatever its type, and the ids are settled without knowing how its table will be shown, so a later id names
+        // the part only where a footnote around it is hidden. This factory draws no table, so in the body the writer
+        // leaves the part out all the same, and its later id names nothing there (doc/native-viewer.md, Footnotes).
+        let parts = Self.tableParts.map(\.name)
+        func tables(_ prefix: String) -> String { parts.map { Self.table(typing: $0, later: prefix + $0, deep: prefix + $0 + "d") }.joined() }
+        let tabled = try H.build(tables("k") + "<section epub:type='endnotes'>" + tables("e") + "</section><aside epub:type='footnote'>"
+            + tables("f") + "</aside>")
+        for (prefix, expected) in [("k", "hidden, unnamed"), ("e", "shown, unnamed"), ("f", "hidden, named")] {
+            for part in parts {
+                let id = prefix + part
+                let element = try XCTUnwrap(tabled.document.element(id: id))
+                let shown = tabled.map.spans.contains { $0.node > element.order && $0.node <= element.subtreeEnd }
+                // A column holds nothing to show, in the flow or out of it.
+                let columns = prefix == "e" && (part == "colgroup" || part == "col")
+                XCTAssertEqual("\(shown ? "shown" : "hidden"), \(tabled.notes[id] != nil ? "named" : "unnamed")",
+                               columns ? "hidden, unnamed" : expected, "\(id): \(part) typed as a footnote")
+            }
+        }
+    }
+
+    // MARK: Table parts typed as footnotes
+
+    /// The elements a table is made of, which the table builder lays out by name (`TableContent`). With each: where a
+    /// table drawn as a grid shows the later text of `table(typing:)`, and whether a link without the `noteref` type
+    /// to the later element is a note link (when that element is a child of the part).
+    private static let tableParts: [(name: String, shown: String, plainIsNoteLink: Bool)] = [
+        ("td", "in a cell", true), ("th", "in a cell", true), ("tr", "in a cell", true), ("tbody", "in a cell", false),
+        ("thead", "in a cell", false), ("tfoot", "in a cell", false), ("caption", "in the flow", true),
+        ("colgroup", "nowhere", true), ("col", "nowhere", true),
+    ]
+
+    /// A table of two columns with one part typed as a footnote. Inside that part an id is on an element after its
+    /// first (`later`) and on one inside that element (`deep`): neither is on the part's leading chain.
+    private static func table(typing part: String, later: String = "later", deep: String = "deep") -> String {
+        let blocks = "<p>Lead.</p><p id='\(later)'>Later <b id='\(deep)'>deep</b>.</p>"
+        let cells = "<td>Lead.</td><td id='\(later)'>Later <b id='\(deep)'>deep</b>.</td>"
+        let plain = "<tr><td>a</td><td>b</td></tr>"
+        switch part {
+        case "td", "th": return "<table><tr><td>1.</td><\(part) role='doc-footnote'>\(blocks)</\(part)></tr></table>"
+        case "tr": return "<table><tr role='doc-footnote'>\(cells)</tr></table>"
+        case "tbody": return "<table><tbody role='doc-footnote'><tr>\(cells)</tr></tbody></table>"
+        case "thead": return "<table><thead role='doc-footnote'><tr>\(cells)</tr></thead><tbody>\(plain)</tbody></table>"
+        case "tfoot": return "<table><tbody>\(plain)</tbody><tfoot role='doc-footnote'><tr>\(cells)</tr></tfoot></table>"
+        case "caption": return "<table><caption role='doc-footnote'>\(blocks)</caption>\(plain)</table>"
+        case "colgroup": return "<table><colgroup role='doc-footnote'><col/><col id='\(later)'><i id='\(deep)'/></col></colgroup>\(plain)</table>"
+        default: return "<table><col role='doc-footnote'><i/><i id='\(later)'><b id='\(deep)'/></i></col><col/>\(plain)</table>"
+        }
+    }
+
+    /// What a reference into a table meets: where the table shows `phrase`, the ids the section's notes are under, and
+    /// the kind of link each word is.
+    private func facts(_ text: SectionText, showing phrase: String, links words: [String]) -> [String] {
+        let inCell = TableCoverage.tables(in: text.string).contains { $0.cells.contains { $0.content.string.contains(phrase) } }
+        let shown = inCell ? "in a cell" : text.string.string.contains(phrase) ? "in the flow" : "nowhere"
+        return ["shown \(shown)", "keys " + text.notes.keys.sorted().joined(separator: " ")] + words.map { word in
+            switch S.link(word, in: text) {
+            case .note(let href)?: "\(word): note link to \(href)"
+            case .internal(let href)?: "\(word): internal link to \(href)"
+            case .external(let href)?: "\(word): external link to \(href)"
+            case nil: "\(word): no link"
+            }
+        }
+    }
+
+    func testAReferenceIntoATableCellOrRowGroupTypedAsAFootnoteFindsNoNoteAndNavigates() throws {
+        // The table builder draws a grid's parts without asking whether one is a footnote, so the typed cell is on the
+        // page and a reference to its second paragraph navigates to the table (`NativeSession` navigates when a note
+        // link has no note), as it did before a hidden footnote took every id inside it.
+        let cell = try S.styled("""
+            <p>Claim<a epub:type="noteref" href="#n17">noteref</a>, <a href="#n17">plain</a>.</p>\
+            <table><tr><td>17.</td><td role="doc-footnote"><p>Lead of the cell.</p><p id="n17">Endnote number 17 here.</p></td></tr></table>
+            """)
+        XCTAssertEqual(facts(cell, showing: "Endnote number 17 here.", links: ["noteref", "plain"]), [
+            "shown in a cell", "keys ", "noteref: note link to OPS/one.xhtml#n17", "plain: note link to OPS/one.xhtml#n17",
+        ])
+
+        // An endnotes table whose row group is typed as one footnote. Only the first row's id, on the group's leading
+        // chain, names the group; a reference to the seventeenth or the thirtieth row navigates to the table rather
+        // than opening all thirty from the top, and a plain link to a cell of a row is an internal link.
+        let rows = (1...30).map { "<tr id=\"n\($0)\"><td>\($0).</td><td id=\"c\($0)\">Endnote number \($0) here.</td></tr>" }.joined()
+        let group = try S.styled("""
+            <p>Claim<a epub:type="noteref" href="#n17">seventeenth</a>, <a epub:type="noteref" href="#n30">thirtieth</a>, \
+            <a href="#n17">plain</a>, <a href="#c17">cell</a>.</p><table><tbody role="doc-footnote">\(rows)</tbody></table>
+            """)
+        XCTAssertEqual(facts(group, showing: "Endnote number 17 here.", links: ["seventeenth", "thirtieth", "plain", "cell"]), [
+            "shown in a cell", "keys n1", "seventeenth: note link to OPS/one.xhtml#n17", "thirtieth: note link to OPS/one.xhtml#n30",
+            "plain: note link to OPS/one.xhtml#n17", "cell: internal link to OPS/one.xhtml#c17",
+        ])
+    }
+
+    func testALaterIdInATablePartTypedAsAFootnoteNamesNothingHoweverItsTableIsShown() throws {
+        // With every part a table is made of: no id past the part's leading ones is a key, and the links are the ones
+        // a note that stays in the flow gets. A link deeper than a child of the part is an internal link.
+        let references = "<p>Claim<a epub:type='noteref' href='#later'>noteref</a>, <a href='#later'>plain</a>, <a href='#deep'>deeper</a>.</p>"
+        for (part, shown, plainIsNoteLink) in Self.tableParts {
+            let expected = ["keys ", "noteref: note link to OPS/one.xhtml#later",
+                            "plain: \(plainIsNoteLink ? "note" : "internal") link to OPS/one.xhtml#later",
+                            "deeper: internal link to OPS/one.xhtml#deep"]
+            let body = references + Self.table(typing: part)
+            // Drawn as a grid by the table builder, the part is on the page.
+            XCTAssertEqual(facts(try S.styled(body), showing: "Later", links: ["noteref", "plain", "deeper"]), ["shown " + shown] + expected, part)
+            // As tabbed rows, where no table is drawn, the writer leaves the part out. Its later ids name nothing
+            // there either: the ids do not depend on how the table is shown.
+            XCTAssertEqual(facts(try H.build(body), showing: "Later", links: ["noteref", "plain", "deeper"]), ["shown nowhere"] + expected, part)
+        }
+        // So too in a table of one column, which flows as text.
+        let column = "<table><tr><td role='doc-footnote'><p>Lead.</p><p id='later'>Later <b id='deep'>deep</b>.</p></td></tr></table>"
+        XCTAssertEqual(facts(try S.styled(references + column), showing: "Later", links: ["noteref", "plain", "deeper"]), [
+            "shown nowhere", "keys ", "noteref: note link to OPS/one.xhtml#later", "plain: note link to OPS/one.xhtml#later",
+            "deeper: internal link to OPS/one.xhtml#deep",
+        ])
+    }
+
+    func testAFootnoteInsideATablePartAndATablePartWithItsOwnIdAreNamedAsBefore() throws {
+        // What is inside a typed part is counted as anywhere else. A footnote `aside` in a typed cell is hidden by the
+        // writer, which renders the cell's content, and takes every id inside it; the cell's own later id names nothing.
+        let nested = try S.styled("""
+            <p>Text</p><table><tr><td>1.</td><td role="doc-footnote"><p>Cell lead.</p>\
+            <aside epub:type="footnote"><p>Aside lead.</p><p id="a2">Aside later.</p></aside><p id="c2">Cell later.</p></td></tr></table>
+            """)
+        XCTAssertEqual(nested.notes.mapValues(\.string), ["a2": "Aside lead.\nAside later."])
+        XCTAssertEqual(TableCoverage.tables(in: nested.string).first?.cells.map(\.text), ["1.", "Cell lead. Cell later."])
+
+        // A part that carries an id of its own, or on a leading descendant, is a note under that id as it always was:
+        // each typed row opens alone. An id further into a row names nothing.
+        let rows = try S.styled("""
+            <p>Text</p><table><tr role="doc-footnote" id="r1"><td>1.</td><td>The first note.</td></tr>\
+            <tr role="doc-footnote"><td id="r2">2.</td><td id="r2b">The second note.</td></tr></table>
+            """)
+        XCTAssertEqual(rows.notes.mapValues { $0.string.split(whereSeparator: \.isWhitespace).joined(separator: " ") },
+                       ["r1": "1. The first note.", "r2": "2. The second note."])
+
+        // Inside a footnote that is hidden, a typed part is hidden with it, like any note there, and takes its later ids.
+        let hidden = try S.styled("<p>Text</p><aside epub:type='footnote' id='fn'>" + Self.table(typing: "td") + "</aside>")
+        XCTAssertEqual(hidden.notes["later"]?.string, "Lead.\nLater deep.")
+        XCTAssertEqual(hidden.notes["deep"]?.string, "Lead.\nLater deep.")
+    }
+
+    func testAPlainLinkToAnythingInsideAHiddenFootnoteShowsTheNote() throws {
+        let text = try H.build("""
+            <p>See <a href="#deep">deep</a>, <a href="#within">within</a> and <a href="#flow">flow</a>.</p>\
+            <aside epub:type="footnote"><p>A note with <em><span id="deep">a deep target</span></em>.</p>\
+            <div epub:type="endnote"><p>An endnote <b id="within">within</b> it.</p></div></aside>\
+            <aside epub:type="endnote"><p>In the flow, <b id="flow">deep</b>.</p></aside>
+            """)
+        XCTAssertEqual(S.link("deep", in: text), .note(href: "OPS/one.xhtml#deep"))
+        // A note nested in a hidden footnote is hidden with it.
+        XCTAssertEqual(S.link("within", in: text), .note(href: "OPS/one.xhtml#within"))
+        // A note in the flow has somewhere to go: a plain link deep into it navigates, as before.
+        XCTAssertEqual(S.link("flow", in: text), .internal(href: "OPS/one.xhtml#flow"))
+        XCTAssertEqual(text.notes.mapValues(\.string), [
+            "deep": "A note with a deep target.", "within": "An endnote within it.", "flow": "In the flow, deep.",
+        ])
+        XCTAssertEqual(S.paragraphs(text), ["See deep, within and flow.", "In the flow, deep."])
+    }
+
+    func testAFootnoteWithNoIdAnywhereInItStaysHiddenAndUncaptured() throws {
+        // Nothing can refer to it. A footnote `aside` is out of the flow whether or not anything does
+        // (doc/native-viewer.md, Footnotes).
+        let text = try H.build("<p>x</p><aside epub:type='footnote'><p>Unnamed.</p><aside epub:type='footnote'>Nested.</aside></aside><p>y</p>")
+        XCTAssertEqual(S.paragraphs(text), ["x", "y"])
+        XCTAssertTrue(text.notes.isEmpty)
     }
 
     // MARK: Anchors
