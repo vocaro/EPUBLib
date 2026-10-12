@@ -761,6 +761,51 @@ The Mac runner's transcript is plain text and needs no export.
   XCTest's view of the columns agreed. A phrase is cut at 64 characters, so an iPad line
   shows its first seven words. No page action, rotor action or landscape turn was performed
   by VoiceOver there; see the section.
+- On 2026-10-12 the hidden-labels section and the section of pictures were read at 17 points
+  after an image with an empty `alt` was left out of what VoiceOver is given and an image with
+  no `alt` lost its made-up name. Nobody listened, no workstation was used and no physical
+  device: the iPhone and iPad here are the [simulator lane](#simulators)'s, which establishes
+  what VoiceOver reads and not that it can activate anything.
+  On an iPhone 17 Pro and an iPad Air 13-inch (M4) simulator (iOS 27.0, Xcode 27.0), moving
+  forward from the Bookmark control. Hidden labels, in pages and in continuous scroll, at
+  `1213dd0`: "Parked title heading", "By the parked author.", "Shown opening words.", "Clipped
+  words in the line.", "Shown closing words.", "Parked link to the target Link", "Shown last
+  words."; the "Book Image" that came after the author is gone. Pictures, in pages (the iPad
+  at `0819ce1`; the iPhone, whose first page ends at "Described jump", at `1213dd0` with Next
+  Page between its two pages) and in continuous scroll at `1213dd0`: "Pictures and their
+  words", "Undescribed picture", "Image", "stands here.", "Decoration  passed over.", "Bare
+  jump:", "Link Image", "Jump with decoration Link", "Described jump Link Image", "Titled
+  decoration  passed over.", "Titled picture", "Square with a title of its own Image",
+  "stands here.", "Last words about pictures.". "Image" and "Link Image" alone are
+  VoiceOver's words for the traits: those elements have no label. In continuous scroll on the
+  iPad, read on from the hidden labels, VoiceOver went from the twenty-ninth line after the
+  table to the scroll bar, as in [#339](https://github.com/vocaro/EPUBLib/issues/339); the
+  pictures were read there with the reader opened at their section.
+  On the Mac: GitHub's hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1
+  `26A434`, Xcode 27.0), a window 600 points wide, at `81b9401`, runs 38321044607 (pages) and
+  38321046784 (continuous scroll). The labels' page is twelve `ax:next` steps in and the
+  pictures' first page twenty; the pictures take two pages there. Hidden labels by line:
+  "Parked title heading By the parked author. ", "Shown opening words.  Clipped words in the
+  line. Shown closing w", "Parked link to the target Shown last words."; by word: "Parked
+  title heading", "By the parked author.", a step with no phrase, "Shown", "opening",
+  "words.", "Clipped words in the line.", and on as before. The step with no phrase is
+  VoiceOver's cursor crossing the image's character, where "Book image image" was said before.
+  Pictures by line: "Pictures and their words", "Undescribed picture  image  stands here.",
+  "Decoration   passed over.", "Bare jump:  image ", " Jump with decoration", "Described jump
+  image ", "Titled decoration   passed over.", and on their second page (run 38319634156, at
+  `55b16e0`) "Titled picture  Square with a title of its own image  stands her", "Last words
+  about pictures.", "end of text". By word: "Undescribed", "picture", "image", "stands",
+  "here.", "Decoration", a step with no phrase, "passed", "over.", "Bare", "jump:", "image", a
+  step with no phrase, "Jump", "with", "decoration", "Described jump image", "Titled",
+  "decoration", a step with no phrase, "passed". Continuous scroll gave the same lines, the
+  labels' after "This is the end of the numbered paragraph." and the pictures' at the end of
+  the book. No transcript has the word "link": on the Mac "Parked link to the target", "Jump
+  with decoration" and the linked images are read as text and images. At `55b16e0`, before
+  an image without words lost its help text, run 38319737879 heard it as "Undescribed picture
+  Double-click or choose Inspect Image to enl": VoiceOver reads the help of an element that
+  has no label in the label's place.
+  Not heard: VoiceOver activating the link that is an image without a name, which needs a
+  device; a note's popover or a table cell with an image in it.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).

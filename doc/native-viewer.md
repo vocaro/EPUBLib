@@ -167,9 +167,14 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   images without a name, and so does a screen of decoration alone in continuous scroll,
   where a picture keeps its element while VoiceOver's cursor is on it. On Mac the text
   area is itself the element and its keys turn the page, so decoration is always passed
-  over. Not read: `role="presentation"`, `aria-hidden` and `aria-label` on an image. An
+  over: its character stays in the text area's value with no element of its own, VoiceOver
+  says nothing for it by line or in Read All, and moving by word its cursor takes one step
+  across it for which no phrase was recorded. An image without words has no help text on
+  Mac, where VoiceOver reads the help of an element without a label in the label's place.
+  Not read: `role="presentation"`, `aria-hidden` and `aria-label` on an image. An
   image in a table cell is read by its words in the cell's text, and one without words is
-  not announced there.
+  not announced there. In a note's popover on iPhone and iPad the text is read by UIKit's
+  own elements, which were not heard with an image in them.
 - **Image inspection.** Double-click or double-tap an unlinked book image to inspect it in a separate
   native zoomable scroll surface, including images drawn inside table cells. On Mac, images
   also offer an Inspect Image context-menu action; UIKit supplies an attachment action and
