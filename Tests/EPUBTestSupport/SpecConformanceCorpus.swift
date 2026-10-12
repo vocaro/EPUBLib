@@ -34,6 +34,10 @@ public enum SpecConformanceCorpus {
         /// Contents hrefs, flattened in document order.
         case tocTargets([String])
         // The built sections.
+        /// The phrase is in the section's rendered text. The extraction run
+        /// (`SpecConformanceW3CCorpusExtractionTests`) looks for it in the section's extracted text
+        /// too, so it holds only the book's own characters. Text the reader generates, such as the
+        /// marks around a `q` or a list marker, goes in `renderedInOrder` or `notRendered`.
         case rendered(Int, String)
         case notRendered(Int, String)
         /// Phrases met in this order reading the linear sections one after another.

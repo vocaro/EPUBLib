@@ -69,10 +69,12 @@ public struct EPUBPublication: Sendable {
             // Bytes with no end record where one can be, or with one whose comment they cut
             // short, are no archive. ZIPFoundation says so only after looking for a record at
             // every offset in them, and then never lets go of them (`ArchiveEndRecord`).
-            guard data.withUnsafeBytes(ArchiveEndRecord.readableOffset(in:)) != nil else {
+            guard let length = data.withUnsafeBytes(ArchiveEndRecord.archiveLength(in:)) else {
                 throw Archive.ArchiveError.missingEndOfCentralDirectoryRecord
             }
-            archive = try Archive(data: ZIP64ZeroValues.inlined(in: data), accessMode: .read)
+            // The archive may end before the bytes do. ZIPFoundation is given no more than the
+            // archive, in the same memory, and so does not look through what follows it.
+            archive = try Archive(data: ZIP64ZeroValues.inlined(in: data.prefix(length)), accessMode: .read)
         }
         catch { throw EPUBPublicationError.invalidArchive(String(describing: error)) }
         // The bytes this archive reads, whatever it was made from.
@@ -90,8 +92,12 @@ public struct EPUBPublication: Sendable {
                 throw EPUBPublicationError.invalidArchive("Duplicate path: \(path)")
             }
             guard paths.count <= limits.entryCount else { throw EPUBPublicationError.limitExceeded("entry count") }
-            guard entry.uncompressedSize <= UInt64(limits.resourceBytes),
-                  entry.uncompressedSize <= UInt64(limits.expandedBytes - total) else {
+            // An entry that declares more than a limit allows is refused before it is read,
+            // unless it is compressed. A compressed entry is not read by its declared size,
+            // which may be wrong either way with its data whole: a deflated one is held to the
+            // limits below, by what it inflates to, and one in any other method is not read.
+            guard entry.isCompressed || (entry.uncompressedSize <= UInt64(limits.resourceBytes)
+                                         && entry.uncompressedSize <= UInt64(limits.expandedBytes - total)) else {
                 throw EPUBPublicationError.limitExceeded(path)
             }
             if entry.type == .directory { continue }
