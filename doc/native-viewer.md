@@ -545,8 +545,9 @@ A label hidden in one of those ways (parked off screen, or clipped with a zero-a
 of its words. The character takes no room and draws nothing. VoiceOver reads the words for
 it where the box stands in the document; a selection or a copy that spans it carries them,
 and an occurrence found in them is a search result at that place. It stands in a line that
-holds something, because a text view's own accessibility reads such lines: VoiceOver in
-continuous scroll on iOS skipped a label given a line of no height to itself. Inside a line
+holds something, because a text view's own accessibility reads such lines: with UIKit's
+paragraph elements, which continuous scroll on iOS had then and a note's popover has still,
+VoiceOver skipped a label given a line of no height to itself. Inside a line
 it stands where the box does, and the line's white space collapses across it as across any
 box taken out of the flow. Between blocks it opens the line of the content that follows, in
 whatever block that is, so it is read just before that content and on its page; a block
@@ -764,9 +765,7 @@ Go: the native viewer is the bundled engine.
   A layout disclosure accompanies books using these box styles. Common positioned accessibility
   labels hidden with zero-area `clip: rect(...)`, `clip-path: inset(50%)` or
   top/left offsets of -1,000 CSS pixels or less (16 to the `em` or `rem`, so `-62.5em`) are
-  not drawn and are read by VoiceOver where they stand (one that opens a section before a
-  table or a float has a line of no height to itself, which VoiceOver in continuous scroll on
-  iOS may pass over); percentage and viewport
+  not drawn and are read by VoiceOver where they stand; percentage and viewport
   offsets remain visible unless explicitly hidden or clipped. A box parked that far to the
   left that reaches back on screen, with a `right` offset or a great width, is hidden with
   the rest. A hidden heading is read as plain text, as a shown one is, and an image without
