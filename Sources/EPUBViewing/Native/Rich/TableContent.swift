@@ -332,15 +332,14 @@ enum TableContent {
         var arrangement = arrange(anonymous: false)
         guard arrangement.writtenColumns > 1 else { return nil }
         if arrangement.skippedAnonymous { arrangement = arrange(anonymous: true) }
-        var placed = arrangement.placed
-        let rows = arrangement.rows, rowElements = arrangement.rowElements
-        let columnCount = placed.map { $0.column + $0.columnSpan }.max() ?? 0
-        for index in placed.indices where placed[index].reaches {
-            let taken = arrangement.occupied[placed[index].row]
-            var end = placed[index].column + 1
+        let columnCount = arrangement.placed.map { $0.column + $0.columnSpan }.max() ?? 0
+        for index in arrangement.placed.indices where arrangement.placed[index].reaches {
+            let cell = arrangement.placed[index], taken = arrangement.occupied[cell.row]
+            var end = cell.column + 1
             while end < columnCount, end >= taken.count || !taken[end] { end += 1 }
-            placed[index].columnSpan = end - placed[index].column
+            arrangement.placed[index].columnSpan = end - cell.column
         }
+        let placed = arrangement.placed, rows = arrangement.rows, rowElements = arrangement.rowElements
         // The grid gives up on these cells; their content follows it.
         var overflow: [NSAttributedString] = []
         if !arrangement.leftOut.isEmpty {
