@@ -532,6 +532,156 @@ final class RichMediaSVGCopyBoundsCoverageTests: XCTestCase {
         XCTAssertFalse(isWithinLimits(bomb))
     }
 
+    // MARK: The CSS the check reads
+
+    /// The check reads a stylesheet and a `style` attribute several times, once for each thing it
+    /// looks for, and charges every reading to the step budget: a step for every 64 bytes read,
+    /// counted over all the readings together. The steps of ordinary CSS are pinned here, reading
+    /// by reading, so that a reading added or made twice shows as a count.
+    func testEveryReadingOfCSSIsCharged() throws {
+        XCTAssertEqual(SVGContent.cssBytesPerStep, 64)
+        let rect = "<rect width='1' height='1'/>"
+        // A hundred rules: 1,400 bytes, 800 of them in the rules' bodies.
+        let sheet = String(repeating: "rect{fill:red}", count: 100)
+        var result = verdict(svg("", rect, pre: "<style>\(sheet)</style>"))
+        XCTAssertEqual(result.copies, 3)
+        XCTAssertEqual(result.steps, 2 + (1_400 + 1_400 + 800) / 64,
+                       "the root and the rect; the sheet read to tell whether it is kept, and for its rules, and each rule's body for its declarations")
+        result = verdict(svg(gradient(stops: 2), rect, pre: "<style>\(sheet)</style>"))
+        XCTAssertEqual(result.steps, 2 + (1_400 + 1_400 + 800 + 1_400) / 64, "and once more for its paints where there is a gradient to paint with")
+        result = verdict(svg("", rect, pre: "<style>\(sheet)@import 'x';</style>"))
+        XCTAssertEqual(result.copies, 0)
+        XCTAssertEqual(result.steps, 1_412 / 64, "a sheet that is stripped whole is read to tell that, and no more; with nothing to charge, nothing is walked")
+
+        // A `style` attribute of 900 bytes: read for a decoration, for its paints and whether it
+        // declares a dash array, and for its values.
+        let style = String(repeating: "fill:red;", count: 100)
+        result = verdict(svg("", "<rect width='1' height='1' style='\(style)'/>"))
+        XCTAssertEqual(result.steps, 2 + 3 * 900 / 64)
+        // And a fourth time for its longest declaration where it declares one: 1,900 bytes.
+        let dashed = String(repeating: "stroke-dasharray:1;", count: 100)
+        result = verdict(svg("", "<path d='M0 0h1' style='\(dashed)'/>"))
+        XCTAssertEqual(result.copies, 18, "the longest declaration, `stroke-dasharray:1`")
+        XCTAssertEqual(result.steps, 2 + 4 * 1_900 / 64)
+
+        // The text of a `<style>` inside a `<style>` is the text of both, and is read for both.
+        result = verdict(svg("", rect, pre: "<style><style>\(sheet)</style></style>"))
+        XCTAssertEqual(result.copies, 3)
+        XCTAssertEqual(result.steps, 2 + 2 * (1_400 + 1_400 + 800) / 64)
+
+        // The readings spend from the walk's budget, and stop when that is gone.
+        result = verdict(svg("", rect, pre: "<style>\(sheet)</style>"), stepBudget: 10)
+        XCTAssertFalse(result.withinLimits, "the reading refuses when the budget runs out")
+        XCTAssertEqual(result.steps, 1_400 / 64, "at the first reading: no other is made, and nothing is walked")
+        result = verdict(svg("", "<rect width='1' height='1' style='\(style)'/>"), stepBudget: 10)
+        XCTAssertFalse(result.withinLimits)
+        XCTAssertEqual(result.steps, 2 + 900 / 64, "the root and the rect, and the first reading of its style")
+    }
+
+    /// A `style` attribute's longest declaration bounds every dash array the attribute declares.
+    /// It was once found again for each declaration whose name ends in `dasharray`, so the screen
+    /// read the attribute once for each: 4,000 of them, 40 KB, took it five seconds, and 20,000
+    /// two minutes. It is now found once. The steps are asserted, under a budget that a reading
+    /// for each declaration would spend many times over (2,000 readings of 20,000 bytes are
+    /// 625,000 steps): were that to come back, these would be refused at the budget and fail, and
+    /// not run on.
+    func testAStyleAttributeIsReadOnceForItsDashArrays() throws {
+        for (declaration, longest) in [("dasharray:", nil), ("stroke-dasharray:1 2;", 20)] as [(String, Int?)] {
+            for count in [500, 1_000, 2_000] {
+                let style = String(repeating: declaration, count: count)
+                let bytes = style.utf8.count
+                let drawing = svg("", "<path d='M0 0h1' style='\(style)'/>")
+                let result = verdict(drawing, stepBudget: 4_000)
+                XCTAssertTrue(result.withinLimits, "\(count) of `\(declaration)`")
+                XCTAssertEqual(result.copies, longest ?? bytes, "the path's dash array is bounded by the longest declaration, as it was")
+                XCTAssertEqual(result.steps, 2 + 4 * bytes / 64, "the root and the path, and four readings of the \(bytes) bytes whatever they declare")
+                XCTAssertTrue(isWithinLimits(drawing), "the whole screen passes it, as it did before the copies were counted")
+            }
+        }
+        let style = String(repeating: "dasharray:", count: 1_000)
+        let stopped = verdict(svg("", "<path d='M0 0h1' style='\(style)'/>"), stepBudget: 100)
+        XCTAssertFalse(stopped.withinLimits, "the reading refuses when the budget runs out")
+        XCTAssertEqual(stopped.steps, 2 + style.utf8.count / 64, "at the first reading")
+    }
+
+    /// A declaration can open a comment where the scan for the end of its rule read a string. In
+    /// `a{";fill:/*"}` the rule ends at its `}`, and to the scan of its declarations `fill` opens a
+    /// comment that nothing closes: the value is charged as far as the comment runs, to the end of
+    /// the sheet. Every rule of a sheet can open one, and each once read the rest of the sheet to
+    /// find the end: 4,000 rules, 32 KB, took the screen two seconds, and 22,000 most of a minute.
+    /// The end is now found once and kept. What each rule is charged is as it was; the steps are
+    /// asserted, under a budget that a reading for each rule would spend many times over.
+    func testACommentOpenedInEveryRuleIsReadToItsEndOnce() throws {
+        let rect = "<rect width='5' height='5'/>"
+        for rules in [500, 1_000, 2_000] {
+            // Thirteen bytes a rule, ten of them its body; the first rule's `/*` is nine bytes in.
+            let sheet = String(repeating: "a{\";fill:/*\"}", count: rules)
+            let bytes = sheet.utf8.count
+            let drawing = svg("", rect, pre: "<style>\(sheet)</style>")
+            var result = verdict(drawing, stepBudget: 4_000)
+            XCTAssertTrue(result.withinLimits, "\(rules) rules")
+            XCTAssertEqual(result.copies, bytes - 9, "the first rule's `fill`, from its `/*` to the end of the sheet, as it was")
+            XCTAssertEqual(result.steps, 2 + (2 * bytes + 10 * rules + bytes - 12) / 64,
+                           "the root and the rect; the sheet read twice, each body once, and the first rule's comment to the end of the sheet")
+            XCTAssertTrue(isWithinLimits(drawing), "the whole screen passes it, as it did before the copies were counted")
+
+            // A value that runs to the end of the sheet ends before the sheet's trailing white
+            // space, which each rule once read back over: that too is found once.
+            result = verdict(svg("", rect, pre: "<style>\(sheet)\(String(repeating: " ", count: 4_000))</style>"), stepBudget: 4_000)
+            XCTAssertTrue(result.withinLimits)
+            XCTAssertEqual(result.copies, bytes - 9, "the white space that ends the sheet is no part of the value")
+            XCTAssertEqual(result.steps, 2 + (2 * (bytes + 4_000) + 10 * rules + bytes + 4_000 - 12 + 4_000) / 64,
+                           "the white space is read with the sheet, by the comment, and once more to find where it begins")
+
+            // A comment opened where a declaration would begin declares nothing, and ends the same way.
+            let bare = String(repeating: "a{\";/*\"}", count: rules)
+            result = verdict(svg("", rect, pre: "<style>\(bare)</style>"), stepBudget: 4_000)
+            XCTAssertTrue(result.withinLimits)
+            XCTAssertEqual(result.copies, 0)
+            XCTAssertEqual(result.steps, (2 * bare.utf8.count + 5 * rules + bare.utf8.count - 7) / 64, "nothing to charge, so nothing is walked")
+        }
+
+        // A comment that a later `*/` closes ends there, for every rule that opens one before it.
+        let closed = String(repeating: "a{\";fill:/*\"}", count: 100) + "*/rect{fill:red}"
+        var result = verdict(svg("", rect, pre: "<style>\(closed)</style>"), stepBudget: 1_000)
+        XCTAssertEqual(result.copies, 1_302 - 9, "from the first rule's `/*` to the `*/` that closes it")
+        XCTAssertEqual(result.steps, 2 + (2 * 1_316 + 100 * 10 + 8 + 1_300 - 11) / 64)
+
+        // A string is read to its end in the same way. In `a{x/*;fill:"*/}` the rule scan reads a
+        // comment, and to the scan of its declarations `fill` opens a string, which ends at the
+        // quote in the next rule, sixteen bytes on; the last rule's runs to the end of the sheet.
+        let strings = String(repeating: "a{x/*;fill:\"*/}", count: 100)
+        result = verdict(svg("", rect, pre: "<style>\(strings)</style>"), stepBudget: 1_000)
+        XCTAssertEqual(result.copies, 16)
+        XCTAssertEqual(result.steps, 2 + (2 * 1_500 + 100 * 12 + 99 * 14 + 3) / 64, "each string read once, fourteen bytes to the next quote")
+
+        let stopped = verdict(svg("", rect, pre: "<style>\(String(repeating: "a{\";fill:/*\"}", count: 1_000))</style>"), stepBudget: 100)
+        XCTAssertFalse(stopped.withinLimits, "the reading refuses when the budget runs out")
+        XCTAssertEqual(stopped.steps, 13_000 / 64, "at the first reading")
+    }
+
+    /// What an element is to the walk is told from its name, which is read once for each element
+    /// and not once for each time a `<use>` draws it: nothing charges a name's bytes, so a name of
+    /// any length must cost a step of the walk no more than a short one. Only the counts can be
+    /// asserted here; they are the same for a long name as for a short.
+    func testAnElementIsToldFromItsNameOnce() throws {
+        func tree(_ name: String) -> String {
+            var definitions = "<g id='t0' fill='red'><\(name)/><rect width='1' height='1'/></g>"
+            for level in 1...6 {
+                definitions += "<g id='t\(level)'><use xlink:href='#t\(level - 1)'/><use xlink:href='#t\(level - 1)'/></g>"
+            }
+            return svg(definitions, "<use xlink:href='#t6'/>")
+        }
+        let short = verdict(tree("a"))
+        let long = verdict(tree(String(repeating: "a", count: 20_000)))
+        XCTAssertTrue(long.withinLimits)
+        XCTAssertEqual(long.copies, short.copies)
+        XCTAssertEqual(long.steps, short.steps, "the steps are the walk's, whatever the names are")
+        // The root; 127 uses, each visited and followed; the 127 groups they lead to; and in each
+        // of the 64 groups at the leaves, the named element and a rect.
+        XCTAssertEqual(long.steps, 1 + 127 * 2 + 127 + 64 * 2)
+    }
+
     // MARK: Ordinary drawings are unaffected
 
     /// A path's long `d`, a `points` list, a `transform`, an embedded `data:` image and a long but

@@ -44,6 +44,18 @@ enum SVGContent {
     /// so for the values named here. A stylesheet's declarations are charged only in part
     /// (`styleSheetCopyBytes`), and what they cost the renderer is not held to this ceiling (#282).
     static let maximumSharedCopies = 8 * 1024 * 1024
+    /// Bytes of CSS that `copyVerdict` reads for one step of its budget. It reads a stylesheet and
+    /// a `style` attribute several times, once for each thing it looks for, and charges every
+    /// reading, so that a reading made once for each declaration or each rule, where one for the
+    /// text will do, spends the budget and is refused, and does not run on. A text is read eight
+    /// times at most (`styleSheetCopyBytes` counts them), so the CSS of an SVG takes an eighth of
+    /// its bytes in steps at most, where elements of as many bytes would take a sixteenth to
+    /// walk: were all that `maximumExpandedBytes` allows CSS, and all of it read eight times, that
+    /// would be `markerStepBudget` and no more. An SVG within the expansion limit so cannot
+    /// spend the budget by its CSS, as it cannot by its elements. The exception is a `<style>`
+    /// inside a `<style>`: its text is the text of both and is read for both, so a sheet that
+    /// stands in many is read many times over, and can.
+    static let cssBytesPerStep = 64
     /// Shapes whose vertices can carry a marker, and whose geometry the renderer builds.
     private static let markerableShapes: Set<String> = ["path", "line", "polyline", "polygon", "rect", "circle", "ellipse"]
     /// All that a `<marker>` may hold.
@@ -488,7 +500,8 @@ enum SVGContent {
     /// The verdict on what the renderer copies per painted shape, with the copies counted and the
     /// steps the check took, so a test can assert both instead of timing the check: one step for
     /// each gradient whose stops are looked for through its `href`, each element the walk visits
-    /// and each `<use>` it follows.
+    /// and each `<use>` it follows, and one for every `cssBytesPerStep` bytes of CSS it reads, in
+    /// all the readings it makes of each stylesheet and each `style` attribute.
     typealias CopyVerdict = (withinLimits: Bool, copies: Int, steps: Int)
 
     /// What an element asks of the shapes below it, each of which is inherited: the stops of the
@@ -559,11 +572,26 @@ enum SVGContent {
     /// A `<switch>` draws one alternative but the walk charges every one, a sound over-charge. A
     /// mask's content is drawn once here, not once per element that references the mask (#220); a
     /// gradient inherited from above a mask onto the mask's content is not charged.
+    ///
+    /// The check's own work is held to `stepBudget`, and an SVG that spends it is refused: the
+    /// gradients looked up, the elements walked, and the CSS read, by the byte, so that none of
+    /// the three can be made to cost more than the budget allows whatever the SVG holds.
     static func copyVerdict(_ svg: ContentNode, nodes: [ContentNode], ids: [String: [ContentNode]],
                             stepBudget: Int = markerStepBudget) -> CopyVerdict {
         var steps = 0
         func step() -> Bool {
             steps += 1
+            return steps <= stepBudget
+        }
+        // Each reading of CSS text is charged as it is made, a step for every `cssBytesPerStep`
+        // bytes, the odd bytes carried to the next reading: false once the budget is spent, and
+        // nothing more is charged then, as nothing more is to be read.
+        var bytesNotCharged = 0
+        func read(_ bytes: Int) -> Bool {
+            guard steps <= stepBudget else { return false }
+            bytesNotCharged += bytes
+            steps += bytesNotCharged / cssBytesPerStep
+            bytesNotCharged %= cssBytesPerStep
             return steps <= stepBudget
         }
 
@@ -651,11 +679,22 @@ enum SVGContent {
         // A `<style>` `serialize` strips whole (an `@import`, or a `url()` that leaves the document,
         // which makes it unsafe) reaches no element: it is dropped here too, so the screen on this
         // tree agrees with the screen on the serialized bytes, from which that stylesheet is gone.
-        let sheets = nodes.filter { $0.name == "style" }.map(\.textContent).filter(serializeKeepsSheet)
-        let sheetBytes = sheets.map(styleSheetCopyBytes).max() ?? 0
+        // A stylesheet is read once to tell whether it is kept, by `styleSheetCopyBytes` as that
+        // says, and once more for its paints where there is a gradient to paint with.
+        var sheets: [String] = []
+        var sheetBytes = 0
+        for node in nodes where node.name == "style" {
+            let sheet = node.textContent
+            guard read(sheet.utf8.count) else { return (false, 0, steps) }
+            guard serializeKeepsSheet(sheet) else { continue }
+            guard let bytes = styleSheetCopyBytes(sheet, read: read) else { return (false, 0, steps) }
+            sheetBytes = max(sheetBytes, bytes)
+            sheets.append(sheet)
+        }
         var sheetStops = 0
         if largestGradient > 0 {
             for sheet in sheets {
+                guard read(sheet.utf8.count) else { return (false, 0, steps) }
                 declarations(in: sheet) { property, reference in
                     if property.contains(.paint) { sheetStops = max(sheetStops, stops(reference)) }
                 }
@@ -677,10 +716,35 @@ enum SVGContent {
         }
         guard chargeable else { return (true, 0, steps) }
 
-        // Rules 1 to 3: what one element's attributes and `style` declare. Each element is read
-        // once, however often a `<use>` draws it, and kept by its place in the SVG.
-        var elements = [Copied?](repeating: nil, count: svg.subtreeEnd - svg.order + 1)
-        func element(_ node: ContentNode) -> Copied {
+        // What an element is to the walk, told from its name. The name is read once for each
+        // element, however often a `<use>` draws it and whatever its length: nothing charges a
+        // name's bytes, so a step of the walk must not read them again.
+        enum Kind { case shape, text, use, undrawn, other }
+        var kinds = [Kind?](repeating: nil, count: svg.subtreeEnd - svg.order + 1)
+        func kind(_ node: ContentNode) -> Kind {
+            if let known = kinds[node.order - svg.order] { return known }
+            let kind: Kind = switch node.name {
+            case "text": .text
+            case "use": .use
+            case let name where markerableShapes.contains(name): .shape
+            case let name where unrendered.contains(name): .undrawn
+            default: .other
+            }
+            kinds[node.order - svg.order] = kind
+            return kind
+        }
+
+        // Rules 1 to 3: what one element's attributes and `style` declare, with the elements a
+        // `<use>` draws and the characters of a `<text>` run. Each element is read once, however
+        // often a `<use>` draws it, and kept by its place in the SVG.
+        struct Element {
+            var copied = Copied()
+            var kind = Kind.other
+            var targets: [ContentNode] = []
+            var characters = 0
+        }
+        var elements = [Element?](repeating: nil, count: svg.subtreeEnd - svg.order + 1)
+        func element(_ node: ContentNode) -> Element {
             if let known = elements[node.order - svg.order] { return known }
             var copied = Copied()
             for attribute in node.attributes {
@@ -696,37 +760,54 @@ enum SVGContent {
                 case "font-variation-settings": copied.variationBytes = max(copied.variationBytes, attribute.value.utf8.count)
                 case "text-decoration": copied.decorated = copied.decorated || namesDecoration(attribute.value)
                 case "style":
-                    if namesDecoration(attribute.value) { copied.decorated = true }
-                    declarations(in: attribute.value) { property, reference in
-                        // A paint declaration names fill or stroke indistinguishably here; charged to
-                        // both, as a declaration never lowers the charge.
-                        if property.contains(.paint) {
-                            copied.fillStops = max(copied.fillStops, stops(reference))
-                            copied.strokeStops = max(copied.strokeStops, stops(reference))
+                    // The declaration list is read four times at most: for a decoration, for the
+                    // paints and whether a dash array is declared, for the longest declaration
+                    // where one is, and for the values. Each reading is charged as it is made, and
+                    // none is made once the budget is spent: the walk then stops at this element.
+                    let style = attribute.value
+                    let bytes = style.utf8.count
+                    if read(bytes), namesDecoration(style) { copied.decorated = true }
+                    var dashed = false
+                    if read(bytes) {
+                        declarations(in: style) { property, reference in
+                            // A paint declaration names fill or stroke indistinguishably here; charged to
+                            // both, as a declaration never lowers the charge.
+                            if property.contains(.paint) {
+                                copied.fillStops = max(copied.fillStops, stops(reference))
+                                copied.strokeStops = max(copied.strokeStops, stops(reference))
+                            }
+                            if property.contains(.dash) { dashed = true }
                         }
-                        if property.contains(.dash) { copied.dashBytes = max(copied.dashBytes, longestDeclaration(attribute.value)) }
                     }
-                    forEachStyleDeclaration(attribute.value) { property, valueBytes in
-                        if property == "font-variation-settings" { copied.variationBytes = max(copied.variationBytes, valueBytes) }
-                        else if property == "font-family" { copied.familyBytes = max(copied.familyBytes, valueBytes) }
-                        else if reparsedProperties.contains(property) { copied.reparseBytes += valueBytes }
+                    // The list's longest declaration bounds every dash array in it, so it is found
+                    // once for the list and not once for each dash declaration.
+                    if dashed, read(bytes) { copied.dashBytes = max(copied.dashBytes, longestDeclaration(style)) }
+                    if read(bytes) {
+                        forEachStyleDeclaration(style) { property, valueBytes in
+                            if property == "font-variation-settings" { copied.variationBytes = max(copied.variationBytes, valueBytes) }
+                            else if property == "font-family" { copied.familyBytes = max(copied.familyBytes, valueBytes) }
+                            else if reparsedProperties.contains(property) { copied.reparseBytes += valueBytes }
+                        }
                     }
                 default:
                     if reparsedProperties.contains(attribute.name) { copied.reparseBytes += attribute.value.utf8.count }
                 }
             }
-            elements[node.order - svg.order] = copied
-            return copied
+            var element = Element(copied: copied, kind: kind(node))
+            if element.kind == .use, let id = fragment(node) { element.targets = ids[id] ?? [] }
+            if element.kind == .text { element.characters = textCharacters(node) }
+            elements[node.order - svg.order] = element
+            return element
         }
 
         var copies = 0
-        /// Charges the shape or text at `node`, whose inherited values are `here`.
-        func charge(_ node: ContentNode, _ here: Copied) -> Bool {
+        /// Charges the shape or text that `element` is, whose inherited values are `here`.
+        func charge(_ element: Element, _ here: Copied) -> Bool {
             let fillStops = max(here.fillStops, sheetStops), strokeStops = max(here.strokeStops, sheetStops)
             let reparse = here.reparseBytes / 64
-            if markerableShapes.contains(node.name) {
+            if element.kind == .shape {
                 copies += fillStops + strokeStops + here.dashBytes + sheetBytes + reparse
-            } else if node.name == "text" {
+            } else if element.kind == .text {
                 // A run resolves its style once and clones it for each of its spans, at most one span
                 // per character. A long inherited value re-parses to a small resolved value that
                 // clones cheaply (measured: a padded `fill`, `stroke`, `stroke-width` or
@@ -741,21 +822,22 @@ enum SVGContent {
                 let dashCopies = here.decorated ? 4 : 1
                 let perSpan = 4 * (fillStops + strokeStops) + dashCopies * here.dashBytes + here.familyBytes
                     + here.variationBytes / 8 + sheetBytes
-                copies += textCharacters(node) * perSpan
+                copies += element.characters * perSpan
             }
             return copies <= maximumSharedCopies
         }
         func walk(_ node: ContentNode, above: Copied, depth: Int) -> Bool {
             guard step(), depth <= maximumDepth else { return false }
+            let element = element(node)
             var here = above
-            here.raise(to: element(node))
-            guard charge(node, here) else { return false }
-            if node.name == "text" { return true } // Its spans are charged; its children draw nothing.
-            let targets = node.name == "use" ? fragment(node).flatMap { ids[$0] } ?? [] : []
-            for target in targets {
+            here.raise(to: element.copied)
+            // Reading the element's `style` is charged too, and may have spent the budget.
+            guard steps <= stepBudget, charge(element, here) else { return false }
+            if element.kind == .text { return true } // Its spans are charged; its children draw nothing.
+            for target in element.targets {
                 guard step(), walk(target, above: here, depth: depth + 1) else { return false }
             }
-            for child in node.children where child.isElement && !unrendered.contains(child.name) {
+            for child in node.children where child.isElement && kind(child) != .undrawn {
                 guard walk(child, above: here, depth: depth + 1) else { return false }
             }
             return true
@@ -763,7 +845,7 @@ enum SVGContent {
         guard walk(svg, above: Copied(), depth: 0) else { return (false, copies, steps) }
         // A mask's content is drawn where the mask is used; charge it once, from no inherited paint.
         for mask in nodes where mask.name == "mask" {
-            for child in mask.children where child.isElement && !unrendered.contains(child.name) {
+            for child in mask.children where child.isElement && kind(child) != .undrawn {
                 guard walk(child, above: Copied(), depth: 1) else { return (false, copies, steps) }
             }
         }
@@ -883,9 +965,23 @@ enum SVGContent {
     /// about 750 MB; one of as many empty groups, matched by its rule, is charged nothing and costs
     /// it hundreds of megabytes too. Both pass without this charge as well. Bounding that means
     /// deciding which rules can match which elements, and is left to #282.
-    private static func styleSheetCopyBytes(_ css: String) -> Int {
+    ///
+    /// The sheet is read twice here: once for its rules, and each rule's body once more for its
+    /// declarations. A declaration can open a comment or a string that the first reading took
+    /// otherwise (`a{";fill:/*"}`: one string to the first, a comment to the second), which then
+    /// ends wherever its end is, past the rule and perhaps at the end of the sheet. What it is
+    /// charged is the value as far as that, so the end is found as before, and `DeclarationScan`
+    /// keeps where it was found: every rule of a sheet can open one, and each would otherwise read
+    /// the rest of the sheet again. Each reading is charged through `read`, which is false once the
+    /// budget is spent, and the result is then nil. With the reading that tells whether the sheet
+    /// is kept and the one for its paints, a sheet is read eight times at most: those two, the two
+    /// here, and once each at most for the comments, the strings in each kind of quote and the
+    /// white space at its end that `DeclarationScan` reads.
+    private static func styleSheetCopyBytes(_ css: String, read: (Int) -> Bool) -> Int? {
         let bytes = Array(css.utf8)
         let n = bytes.count
+        guard read(n) else { return nil }
+        var scan = DeclarationScan()
         var index = 0
         var longest = 0
         while index < n {
@@ -902,9 +998,12 @@ enum SVGContent {
             guard index < n, bytes[index] == UInt8(ascii: "{") else { if index < n { index += 1 }; continue }
             let bodyStart = index + 1
             index = skipBlock(bytes, index)
-            forEachDeclaration(bytes, bodyStart..<max(bodyStart, index - 1)) { property, valueBytes in
+            let body = bodyStart..<max(bodyStart, index - 1)
+            forEachDeclaration(bytes, body, &scan) { property, valueBytes in
                 if copiedStyleProperties.contains(property) { longest = max(longest, valueBytes) }
             }
+            guard read(body.count + scan.bytesRead) else { return nil }
+            scan.bytesRead = 0
         }
         return longest
     }
@@ -913,20 +1012,94 @@ enum SVGContent {
     /// a `style` attribute's declaration list.
     private static func forEachStyleDeclaration(_ css: String, _ body: (String, Int) -> Void) {
         let bytes = Array(css.utf8)
-        forEachDeclaration(bytes, bytes.indices, body)
+        var scan = DeclarationScan()
+        forEachDeclaration(bytes, bytes.indices, &scan, body)
+    }
+
+    /// Where the comments and strings end that `forEachDeclaration` has read in one text, kept from
+    /// one range of the text to the next. A comment or a string that a declaration opens is read to
+    /// its end wherever that is, and when that is past the range the scan of the range is over. The
+    /// next range can open another that ends at the same place, and so can every range after it:
+    /// each end is found once, and what `endOfComment` and `endOfString` would give is given from
+    /// here, exactly, for every comment and string opened before it. The ranges come in order, so a
+    /// scan that has to be made starts past the end the last one found, and all that are made read
+    /// the text once at most for comments and once for strings in each kind of quote.
+    private struct DeclarationScan {
+        /// The last scans made for the end of a comment, of a string in double quotes and of one in
+        /// single quotes: the byte each began at, after the opening `/*` or quote, and the byte it
+        /// stopped at, which is the closing `*/` or quote, or is at the end of the text.
+        private var comment: (from: Int, stop: Int)?
+        private var doubleQuoted: (from: Int, stop: Int)?
+        private var singleQuoted: (from: Int, stop: Int)?
+        /// Where the white space that ends the text begins.
+        private var tail: Int?
+        /// Bytes the scans made here have read since this was last set to zero, for a caller that
+        /// charges them.
+        var bytesRead = 0
+
+        /// What `SVGContent.endOfComment` gives. A scan that began at or before this one, and
+        /// stopped at or after where this one begins, passed no `*/` that this one could stop at:
+        /// both stop at the same byte.
+        mutating func endOfComment(_ bytes: [UInt8], _ index: Int) -> Int {
+            var cursor = index + 2
+            if let comment, comment.from <= cursor, cursor <= comment.stop {
+                cursor = comment.stop
+            } else {
+                let from = cursor
+                while cursor + 1 < bytes.count, !(bytes[cursor] == UInt8(ascii: "*") && bytes[cursor + 1] == UInt8(ascii: "/")) { cursor += 1 }
+                comment = (from, cursor)
+                bytesRead += cursor - from
+            }
+            return min(cursor + 2, bytes.count)
+        }
+
+        /// What `SVGContent.endOfString` gives. An earlier scan for the same quote that stopped at
+        /// or after where this one begins did not stop at this string's opening quote, so it took
+        /// that quote as escaped and went on from the byte after it, where this one begins: both
+        /// stop at the same byte, escapes and all.
+        mutating func endOfString(_ bytes: [UInt8], _ index: Int) -> Int {
+            let quote = bytes[index]
+            let known = quote == UInt8(ascii: "\"") ? doubleQuoted : singleQuoted
+            var cursor = index + 1
+            if let known, known.from <= cursor, cursor <= known.stop {
+                cursor = known.stop
+            } else {
+                let from = cursor
+                while cursor < bytes.count, bytes[cursor] != quote { cursor += bytes[cursor] == UInt8(ascii: "\\") ? 2 : 1 }
+                if quote == UInt8(ascii: "\"") { doubleQuoted = (from, cursor) } else { singleQuoted = (from, cursor) }
+                bytesRead += min(cursor, bytes.count) - from
+            }
+            return min(cursor + 1, bytes.count)
+        }
+
+        /// Where a value that runs to the end of the text ends once its trailing white space is
+        /// dropped, and no earlier than `low`. A comment or a string that nothing closes runs to
+        /// the end of the text from every range that opens one.
+        mutating func endOfValue(_ bytes: [UInt8], from low: Int) -> Int {
+            if tail == nil {
+                var start = bytes.count
+                while start > 0, bytes[start - 1] <= 0x20 { start -= 1 }
+                tail = start
+                bytesRead += bytes.count - start
+            }
+            return max(low, tail ?? low)
+        }
     }
 
     /// Calls `body` with the lowercased name and trimmed value byte length of each `name: value`
     /// declaration in `range` of `bytes`. A `;` inside a string, comment or parentheses does not end
     /// a declaration, and the value's leading and trailing white space is dropped, as simplecss drops
     /// it before storing the value: a value padded with white space costs the renderer nothing.
-    private static func forEachDeclaration(_ bytes: [UInt8], _ range: Range<Int>, _ body: (String, Int) -> Void) {
+    /// A comment or a string still open at the end of `range` is read to its own end, past it, and
+    /// the value is counted that far; `scan` keeps the ends found, for the next range of the text.
+    private static func forEachDeclaration(_ bytes: [UInt8], _ range: Range<Int>, _ scan: inout DeclarationScan,
+                                           _ body: (String, Int) -> Void) {
         var index = range.lowerBound
         let end = range.upperBound
         while index < end {
             while index < end, bytes[index] <= 0x20 || bytes[index] == UInt8(ascii: ";") { index += 1 }
             if index < end, bytes[index] == UInt8(ascii: "/"), index + 1 < end, bytes[index + 1] == UInt8(ascii: "*") {
-                index = endOfComment(bytes, index); continue
+                index = scan.endOfComment(bytes, index); continue
             }
             let nameStart = index
             while index < end, bytes[index] != UInt8(ascii: ":"), bytes[index] != UInt8(ascii: ";"),
@@ -938,8 +1111,8 @@ enum SVGContent {
             let valueStart = index
             while index < end {
                 let byte = bytes[index]
-                if byte == UInt8(ascii: "\"") || byte == UInt8(ascii: "'") { index = endOfString(bytes, index); continue }
-                if byte == UInt8(ascii: "/"), index + 1 < end, bytes[index + 1] == UInt8(ascii: "*") { index = endOfComment(bytes, index); continue }
+                if byte == UInt8(ascii: "\"") || byte == UInt8(ascii: "'") { index = scan.endOfString(bytes, index); continue }
+                if byte == UInt8(ascii: "/"), index + 1 < end, bytes[index + 1] == UInt8(ascii: "*") { index = scan.endOfComment(bytes, index); continue }
                 if byte == UInt8(ascii: "(") || byte == UInt8(ascii: "[") { depth += 1 }
                 else if byte == UInt8(ascii: ")") || byte == UInt8(ascii: "]") { depth = max(0, depth - 1) }
                 else if depth == 0, byte == UInt8(ascii: ";") || byte == UInt8(ascii: "{") || byte == UInt8(ascii: "}") { break }
@@ -947,7 +1120,8 @@ enum SVGContent {
             }
             var low = valueStart, high = index
             while low < high, bytes[low] <= 0x20 { low += 1 }
-            while high > low, bytes[high - 1] <= 0x20 { high -= 1 }
+            if low < high, high == bytes.count { high = scan.endOfValue(bytes, from: low) }
+            else { while high > low, bytes[high - 1] <= 0x20 { high -= 1 } }
             if !name.isEmpty { body(name, high - low) }
         }
     }
