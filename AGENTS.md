@@ -16,6 +16,10 @@ Drive iOS simulators headlessly, with `xcrun simctl` and `xcodebuild`.
 - Install, launch and capture with `simctl install`, `simctl launch` and
   `simctl io <device> screenshot`. Tests run with
   `xcodebuild -destination "platform=iOS Simulator,id=<device>"`.
+- A filtered run can succeed having run nothing. When the names given to `-only-testing:`
+  match no test, `xcodebuild` still ends with `** TEST SUCCEEDED **` and status 0. Read the
+  `Executed N tests` line of every filtered run. In zsh a list of names held in one variable
+  is passed as one argument, which matches nothing: hold them in an array.
 - VoiceOver runs in a simulator too. `scripts/run-voiceover-simulator.py` records what it
   reads on simulators of its own, muted; [VoiceOver testing](doc/voiceover-testing.md#simulators)
   says what that does and does not establish.
@@ -23,6 +27,24 @@ Drive iOS simulators headlessly, with `xcrun simctl` and `xcodebuild`.
   (in the Claude desktop app, the iOS Simulator tool) unless the owner has asked to watch.
   Such a tool asks him to approve each device, and a test device is new on every run, so he
   is asked every time.
+
+## Mac VoiceOver sessions
+
+Run a Mac VoiceOver speech session on GitHub's hosted runner, not on this machine. On the
+Mac a session takes the keyboard focus for its whole length, which stops the owner and every
+other session.
+
+- Start one with `gh workflow run voiceover-mac.yml` and fetch its transcript with
+  `gh run download`; [VoiceOver testing](doc/voiceover-testing.md#hosted-mac-sessions) has the
+  inputs. It takes about five minutes, several can run at once, and at a fixed pause its
+  transcript is acceptance evidence for the Mac.
+- Ask the owner before any session on this Mac, and only for what a runner cannot do:
+  someone listening, or stepping by hand.
+- Never run the workflow's preparation commands here (`defaults write`, `launchctl bootout`,
+  `displayplacer`). They are for a disposable runner.
+- Keep the workflow on `runs-on: xcode-27`. A larger runner is billed even in a public
+  repository; `gh api repos/vocaro/EPUBLib/actions/runs/<run>/timing` should report
+  `"billable": {}`.
 
 ## Test corpora
 
