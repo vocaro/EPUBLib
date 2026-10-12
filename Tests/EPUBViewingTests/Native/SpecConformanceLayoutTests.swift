@@ -265,8 +265,11 @@ import UIKit
         try await reader.wait("its location") { session.lastLocation?.bookmark?.value.hasPrefix("epubcfi(/6/6!") == true }
         let location = try XCTUnwrap(session.lastLocation)
         XCTAssertEqual(location.href, "EPUB/refrain.xhtml")
-        let first = try XCTUnwrap(SpineCFIs(publication: session.publication).resolve(try XCTUnwrap(location.bookmark).value))
-        XCTAssertEqual(first.spineIndex, 2)
+        XCTAssertEqual(try SpineCFIs(publication: session.publication).resolve(try XCTUnwrap(location.bookmark).value)?.spineIndex, 2)
+        // Progression is by section byte size: the third itemref's share of the book, not the second's.
+        let sizes = try session.publication.spine.map { Double(try session.publication.data(for: $0.resource).count) }
+        let share = (sizes[0] + sizes[1]) / sizes.reduce(0, +)...(sizes[0] + sizes[1] + sizes[2]) / sizes.reduce(0, +)
+        XCTAssertTrue(share.contains(try XCTUnwrap(location.progression)), "\(String(describing: location.progression)) in \(share)")
         let stored = try JSONDecoder().decode(EPUBLocation.self, from: JSONEncoder().encode(location))
         for flow in [EPUBReadingFlow.paginated, .scrolled] {
             try await session.send(.style(.init(flow: flow)))
@@ -278,7 +281,7 @@ import UIKit
                 return flow == .paginated ? visible.start == start : visible.start <= start && start < visible.end
             }
             try await reader.wait("its location in \(flow)") { session.lastLocation?.bookmark?.value.hasPrefix("epubcfi(/6/6!") == true }
-            XCTAssertEqual(session.lastLocation?.progression ?? 0, try XCTUnwrap(location.progression), accuracy: 0.05, "\(flow)")
+            XCTAssertTrue(share.contains(try XCTUnwrap(session.lastLocation?.progression)), "\(flow): \(String(describing: session.lastLocation?.progression)) in \(share)")
         }
         XCTAssertTrue(reader.notices.isEmpty, "\(reader.notices)")
     }
