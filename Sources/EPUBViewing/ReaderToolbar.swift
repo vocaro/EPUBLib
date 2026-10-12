@@ -66,7 +66,8 @@ public struct EPUBReaderControlStrip<Extras: View>: View {
                 HStack { items }
                 VStack(alignment: .leading) { items }
             }
-            if let error = controls.commandError {
+            // The strip's own search field already states a search it refused.
+            if let error = groups.contains(.search) ? controls.commandErrorBesideSearchFeedback : controls.commandError {
                 HStack {
                     Text(error).foregroundStyle(.red)
                     Button("Dismiss error") { controls.dismissError() }
@@ -93,6 +94,7 @@ public struct EPUBReaderControl: View {
     private let group: EPUBReaderControlGroup
     private let inlineSearch: Bool
     @State private var showingSearch = false
+    @Environment(\.horizontalSizeClass) private var sizeClass
     public init(controls: EPUBReaderControls, group: EPUBReaderControlGroup, inlineSearch: Bool = false) {
         self.controls = controls; self.group = group; self.inlineSearch = inlineSearch
     }
@@ -108,6 +110,10 @@ public struct EPUBReaderControl: View {
                         Button("Search", systemImage: "magnifyingglass") { showingSearch = true }
                             .popover(isPresented: $showingSearch) {
                                 EPUBSearchField(controls: controls, onDismiss: { showingSearch = false }).padding()
+                                    // From a compact width the pane is a sheet, which centres what it
+                                    // is given: the field then jumped to the top when results arrived
+                                    // and back to the middle on Clear Search.
+                                    .frame(maxHeight: sizeClass == .compact ? .infinity : nil, alignment: .top)
                             }
                     }
                 }
@@ -289,7 +295,7 @@ private struct EPUBSearchField: View {
                 Button("Clear Search") { controls.clearSearch(); focused = true }
             }
             feedback.font(.callout)
-            if let error = controls.commandError { Text(error).foregroundStyle(.red).font(.callout) }
+            if let error = controls.commandErrorBesideSearchFeedback { Text(error).foregroundStyle(.red).font(.callout) }
             EPUBSearchResultPane(controls: controls, onDismiss: onDismiss)
         }
         // A search pane was just opened to type in. The inline field is always on screen: taking
