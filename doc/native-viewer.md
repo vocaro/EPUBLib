@@ -344,6 +344,17 @@ as they did.
   draw the finished layout at the old offset, a chapter away, at the next scroll, so while the
   view has not moved since it was last read, the reader first scrolls by as much as the first
   visible line has moved.
+  On Mac, VoiceOver enters a text view at its insertion point, which a read-only view does not
+  draw and replaced text leaves at its end: the end of the book. New text starts with it at
+  its first line, and the scroll view's is kept on the first line on screen. A move the reader
+  makes itself (a shown position, a scroll step, rebuilt text) puts it there, as a page turn
+  does for a column; after other scrolling it follows only while it is where the reader last
+  put it, so one placed by a click or by VoiceOver, which scrolls the view as it reads, stays.
+  A selection is never moved, and nothing is scrolled. Each such move also posts a layout
+  change naming the text view: without it VoiceOver, back in a text it had left, returns to
+  its own previous cursor and scrolls the view there. On iOS VoiceOver reads the text view's
+  own elements, from the book's first paragraph when it moves in from the controls
+  ([#301](https://github.com/vocaro/EPUBLib/issues/301)).
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
@@ -379,8 +390,23 @@ The native CSS subset wraps prose beside left/right floated figures, text and ar
 then restores the full column below the box. Auto-width text floats use their content width,
 including narrow drop caps. Horizontal margins and padding reserve space around the native
 glyph column. `clear: left`, `right` and `both` move subsequent prose below the
-requested float side. Sized `inline-block` text fits after its prefix when space permits,
-and following prose wraps beside the box without overwriting the prefix.
+requested float side.
+
+A sized `inline-block` is set on its block's line. It starts where the text or the box before
+it ends, a space after it where the source has white space between the two, and at the start
+of the block's next line when the one it would be on is full. A box that opens its block takes
+the block's `text-indent`, and a block that sets its lines from the right fills them from the
+right. A run of such boxes is therefore a row that wraps as words do: the rows of asterisks
+that mark an omission, an initial in a box of fixed width before the rest of its word. The
+text after the run goes on from its last box, on the same line where that line has 48 points
+left, and the block that follows starts below the run's last row. A box's own horizontal
+margins, borders and padding stand between it and its neighbours. Each box is still a
+paragraph of its own in the text, so characters, offsets and CFIs are what they were.
+
+Three things about a row differ from a browser. Its boxes are aligned by their tops, not
+their baselines, and prose beside a box taller than a line wraps beside it as beside a float.
+A row starts at its line's start edge whatever the block's `text-align`. And lines fill in
+turn, where a browser that honours `text-wrap: pretty` evens the rows out.
 
 Absolute callouts honor `top`, `right`, `bottom`, `left` and `inset` within their nearest
 positioned ancestor, including a top inset that places them before their source location.
@@ -412,6 +438,16 @@ float's edge, its margin underneath it
 ([#63](https://github.com/vocaro/EPUBLib/issues/63),
 [#150](https://github.com/vocaro/EPUBLib/issues/150)). TextKit breaks a justified paragraph's
 lines a little differently where the container places them; their edges are the same.
+
+The boxes' places are planned for the whole of that text, and TextKit lays out only what is
+on screen: far into a book in continuous scroll it estimates the height of everything above,
+so a line can be screens from where the plan has it. The container therefore wraps each
+planned paragraph against the plan from where that paragraph's own first line is laid out,
+and takes text past the plan's end to be below every box; a point is found the same way,
+from the fragment laid out under it. Prose keeps clear of the boxes beside it wherever the
+book is opened, and is not pushed aside by boxes that are nowhere near. A line that starts
+exactly where a box ends is clear of it
+([#147](https://github.com/vocaro/EPUBLib/issues/147)).
 
 A `.disclosure` explains that box layouts may be simplified. Sticky positioning, negative
 relative vertical offsets, arbitrary overlap and `z-index`, and page-pinned or repeating fixed
@@ -617,7 +653,9 @@ Go: the native viewer is the bundled engine.
   visible unless explicitly hidden or clipped. Standard Ebooks' title pages are such a case:
   the heading and byline they park at `left: -999em` are shown above the title image that
   repeats them ([#63](https://github.com/vocaro/EPUBLib/issues/63)). General clipping and arbitrary offscreen
-  geometry are unsupported. Unsized inline-blocks remain inline. Ordinary percentage margins,
+  geometry are unsupported. Unsized inline-blocks remain inline. Sized ones in a row are
+  aligned by their tops and from their line's start edge, not by `vertical-align` or the
+  block's `text-align`. Ordinary percentage margins,
   padding and text indents resolve against the live containing content width, including
   constrained flow-box ancestors, and recalculate at resize. Mixed-unit CSS calculations
   and `min`/`max`/`clamp` branch selection still use the nominal media-query viewport;
@@ -707,6 +745,35 @@ Go: the native viewer is the bundled engine.
     `context-fill` or `context-stroke` on a shape whose own fill or stroke is a gradient.
 
   The renderer draws no marker on a shape inside a `<clipPath>`, so none is counted there.
+
+  References between a drawing's elements are held to what the renderer can follow, and an
+  SVG past any of these shows its fallback text with the `svg` disclosure too. The renderer
+  follows a `mask`, a `clip-path` and a `<use>` by calling itself, on a stack whose end is
+  the end of the process, and it guards against loops only in part. So references count
+  toward the depth limit: a chain of nesting, `<use>`, `mask` and `clip-path` may be 64
+  levels deep in all, a mask or clip path one level and its content the next, which lets 31
+  masks in a chain through their content draw and refuses 32. More than two masks or clip
+  paths that lead back to each other are refused: the renderer unlinks a loop of one and of
+  two, which still draw, and misses a longer one. A gradient whose `href` leads into a loop
+  of two or more gradients that it is not one of is refused, since the renderer would walk
+  that loop for ever; a loop that nothing outside it leads into, and a gradient that names
+  itself, end and still draw. A linear gradient whose `spreadMethod` is `reflect` or
+  `repeat` is refused as well, whether it states the spread or takes it through `href` from
+  another gradient, linear or radial. The renderer panics on such a gradient that has no
+  length, when the average of its stops rounds past one, and telling which gradients have no
+  length would mean reproducing the renderer's resolution of lengths: units, percentages,
+  coordinates taken through `href`. So the spread alone decides. A linear gradient that
+  repeats or reflects shows fallback text at any length, painted or not, and so does one
+  whose `href` can reach a gradient that does, even past one that pads. A linear gradient
+  that pads, or whose `spreadMethod` is absent or not a value the renderer knows, still
+  draws, and so does a radial gradient of any spread. A reference is found wherever the
+  renderer takes one from: an attribute, a `style` attribute, a rule of a stylesheet in the
+  drawing, read as the renderer's own CSS parser reads it, or `inherit`, behind a marker
+  included. More is assumed than the renderer follows where telling the two apart would
+  mean doing its work: a rule is taken to apply to every element its last compound selector
+  could match, a declaration counts even where another overrides it, and an `id` that
+  several elements share names them all.
+
   Embedded raster images are capped at 4 megapixels each and 16 megapixels in total.
   Output is capped at 4,096 pixels on its long side and 16 megapixels, reduced further for
   isolated layers to fit the raster working-memory budget. SVG text uses outline fonts;
