@@ -38,6 +38,21 @@ appearance would, whatever the system setting, pass the argument after `-XCTest`
 xcrun xctest -XCTest All -NSRequiresAquaSystemAppearance YES .build/debug/EPUBViewingTests.xctest
 ```
 
+A Mac whose "Show scroll bars" setting is automatic shows overlay scroll bars with a trackpad and
+legacy ones while a mouse is attached, and a legacy scroll bar takes its width from continuous
+scroll's column ([Layout](native-viewer.md#layout)). A canvas test of where lines sit across that
+column says which kind it means with `CanvasHost.setScrollBars` (`ReaderCanvasFixtures.swift`),
+which holds the scroll view to it: AppKit gives every scroll view the preferred kind again when
+the preference changes, and a process on a Mac with a mouse learns its preference a moment after
+it starts. `BoxAlignmentCanvasTests.testShippedStandardEbooksPagesKeepTheirPlaceInContinuousScroll`
+runs under both kinds. To run a Mac bundle as a machine with a mouse would, or as one without,
+whatever is attached and with no setting changed:
+
+```sh
+xcrun xctest -XCTest All -AppleShowScrollBars Always .build/debug/EPUBViewingTests.xctest
+xcrun xctest -XCTest All -AppleShowScrollBars WhenScrolling .build/debug/EPUBViewingTests.xctest
+```
+
 ## Coverage
 
 Parser tests cover EPUB 2/3 structure, navigation, landmarks and page lists, resource access, identity, limits,
