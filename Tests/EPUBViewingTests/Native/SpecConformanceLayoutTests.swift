@@ -334,6 +334,52 @@ import UIKit
         XCTAssertTrue(reader.notices.isEmpty, "\(reader.notices)")
     }
 
+    /// RS 10 (optional behaviours) as doc/native-viewer.md decides them (Footnotes): a reference
+    /// shows the whole note in place whichever element of the note it names, a later paragraph
+    /// or a span after the note's number included, and a note that is only another note shows
+    /// that note. A footnote `aside` is out of the flow, so the reference has nothing else to show.
+    func testAReferenceToAnyElementOfAFootnoteShowsTheWholeNoteInPlace() async throws {
+        var book = Book()
+        book.add("one", body: """
+            <p id="ref">A later paragraph<a epub:type="noteref" href="#later">1</a>, a numbered note<a epub:type="noteref" href="#text">2</a>, \
+            a plain link<a href="#deep">3</a>, a wrapped note<a epub:type="noteref" href="#wrapper">4</a> \
+            and a note in another document<a epub:type="noteref" href="two.xhtml#far">5</a>.</p>
+            <aside epub:type="footnote"><p id="first">First paragraph.</p><p id="later">Later paragraph.</p></aside>
+            <aside epub:type="footnote"><p><sup><a href="#ref">2</a></sup> <span id="text">Numbered note.</span></p></aside>
+            <aside epub:type="footnote"><p>A note with <em><span id="deep">a deep target</span></em>.</p></aside>
+            <aside epub:type="footnote" id="wrapper"><div role="doc-footnote" id="inner"><p>Wrapped note.</p></div></aside>
+            """ + Book.prose(30))
+        book.add("two", body: "<p>Second.</p><aside epub:type=\"footnote\"><p>Kept elsewhere.</p><p id=\"far\">Its second paragraph.</p></aside>")
+        let reader = try mount(book)
+        try await reader.waitUntilReady()
+        let session = reader.session, section = try XCTUnwrap(session.book.section(0)), canvas = try XCTUnwrap(session.canvas)
+        XCTAssertFalse(section.specText.contains("paragraph."), "the footnotes are out of the flow")
+        func shownNote() -> String? {
+            #if os(macOS)
+            let controller = (canvas.presentedNote as? NSPopover)?.contentViewController as? ReaderNoteViewController
+            #else
+            let controller = canvas.presentedNote as? ReaderNoteViewController
+            #endif
+            return controller?.textView.contentStorage.textStorage?.string
+        }
+        let before = session.visibleRange
+        let expected = [("1,", "one.xhtml#later", "First paragraph.\nLater paragraph."), ("2,", "one.xhtml#text", "2 Numbered note."),
+                        ("3,", "one.xhtml#deep", "A note with a deep target."), ("4 and", "one.xhtml#wrapper", "Wrapped note."),
+                        ("5.", "two.xhtml#far", "Kept elsewhere.\nIts second paragraph.")]
+        for (phrase, id, note) in expected {
+            let link = try XCTUnwrap(section.specLink(phrase))
+            XCTAssertEqual(link, .note(href: "EPUB/\(id)"))
+            session.canvas(canvas, didActivate: link, at: ReaderTextPosition(section: 0, offset: section.specLocation(phrase)),
+                           rect: CGRect(x: 100, y: 100, width: 20, height: 20))
+            try await reader.wait("the note named by #\(id)") { shownNote() == note }
+        }
+        XCTAssertEqual(session.visibleRange, before, "showing a note moves nothing")
+        XCTAssertTrue(reader.notices.isEmpty, "\(reader.notices)")
+        #if os(macOS)
+        (canvas.presentedNote as? NSPopover)?.close()
+        #endif
+    }
+
     /// A reading position saved as an EPUB CFI (EPUB CFI 1.1; doc/native-viewer.md "Engine
     /// identity and bookmarks") names the same place after a round trip through storage, a
     /// navigation elsewhere and a change of flow.
