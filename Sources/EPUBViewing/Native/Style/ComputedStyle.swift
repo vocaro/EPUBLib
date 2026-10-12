@@ -140,6 +140,11 @@ struct ComputedStyle: Equatable, Sendable {
         // so these flags come from the authored offsets and not from their computed lengths.
         return positionTopIsOffscreen || positionLeftIsOffscreen
     }
+    /// Hidden from the page and kept for assistive technology: parked off screen or clipped to
+    /// nothing, which a browser does not draw and does read. `visibility: hidden` hides from both.
+    var isSpokenOnlyPositionedBox: Bool {
+        !isHidden && (clipsAllContent || clipsAllContentWithPath || positionTopIsOffscreen || positionLeftIsOffscreen)
+    }
     /// A flex or grid container, which renders as a block; its in-flow children are blockified.
     var blockifiesChildren = false
     /// The flex and grid values the native layout aligns items by (`ReaderAlignmentLayout`).

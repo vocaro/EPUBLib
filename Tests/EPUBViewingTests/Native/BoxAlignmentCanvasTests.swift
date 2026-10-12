@@ -208,13 +208,15 @@ import UIKit
     }
 
     /// Standard Ebooks' compatible build in one continuous scroll view. Its title page is an
-    /// image, its heading and byline hidden off to the left; the chapter here floats an initial,
+    /// image, its heading and byline hidden off to the left and kept for VoiceOver on lines of
+    /// no height; the chapter here floats an initial,
     /// so the whole book has box geometry and the text container places every line. The flex
     /// pages must sit where they do on pages of their own, which have none (#63).
     func testShippedStandardEbooksPagesKeepTheirPlaceInContinuousScroll() async throws {
         let prose = String(repeating: "<p>A paragraph of ordinary reading text for pagination.</p>", count: 60)
         let title = try H.build(F.shippedTitleBody, css: F.shippedCSS, files: ["titlepage.png": RichFixture.image(width: 1400, height: 340)])
-        XCTAssertEqual(title.string.string, "\u{FFFC}", "the title page is its image alone")
+        XCTAssertEqual(title.string.drawnString, "\u{FFFC}", "the title page draws its image alone")
+        XCTAssertEqual(title.string.spokenLabels, ["An Aligned Book", "By Test Author."])
         XCTAssertFalse(title.report.flowBoxesReflowed, "a hidden heading is not a box")
         let texts = [title, try H.build(F.shippedDedicationBody, css: F.shippedCSS),
                      try H.build(F.shippedEpigraphBody, css: F.shippedCSS),

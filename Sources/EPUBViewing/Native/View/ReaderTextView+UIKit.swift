@@ -191,8 +191,10 @@ final class ReaderTextView: UITextView {
                 let element = ReaderPageAccessibilityElement(view: self, range: range, url: url)
                 element.accessibilityLabel = plainText(in: range)
                 var traits: UIAccessibilityTraits = url == nil ? .staticText : .link
+                // A hidden label is words the page does not show, not a picture.
+                let isSpoken = attachment is SpokenLabelAttachment
                 if attachment != nil {
-                    traits.insert(.image)
+                    if !isSpoken { traits.insert(.image) }
                     if let image = attachment as? ReaderImageAttachment {
                         element.accessibilityLabel = image.alt.isEmpty ? "Book image" : image.alt
                     }
@@ -202,8 +204,11 @@ final class ReaderTextView: UITextView {
                     }
                 }
                 element.accessibilityTraits = traits
-                let frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
-                element.accessibilityFrameInContainerSpace = (frame.isNull ? line.frame : frame)
+                var frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
+                if frame.isNull { frame = line.frame }
+                // It takes no room; a point where it stands lets VoiceOver rest on it.
+                if isSpoken { frame.size = CGSize(width: max(frame.width, 1), height: max(frame.height, 1)) }
+                element.accessibilityFrameInContainerSpace = frame
                     .offsetBy(dx: containerOrigin.x, dy: containerOrigin.y).intersection(bounds)
                 elements.append(element)
             }

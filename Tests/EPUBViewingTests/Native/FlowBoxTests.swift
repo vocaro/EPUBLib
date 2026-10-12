@@ -70,7 +70,7 @@ import UIKit
                        "Reader typography changes formatting, never mapped characters")
     }
 
-    func testConventionalHiddenPositionedLabelsStayHidden() throws {
+    func testConventionalHiddenPositionedLabelsAreNotDrawn() throws {
         let body = """
             <p>Visible caption.</p>
             <span id="offscreen">Duplicate offscreen caption.</span>
@@ -98,11 +98,17 @@ import UIKit
         let publication = try StyleTestSupport.publication(section: StyleTestSupport.xhtml(body: body, css: css))
         let section = SectionBuilder.build(SectionBuildRequest(publication: publication, spineIndex: 0,
             typography: .init(fontSize: 16), fonts: FontRegistry(publication: publication), rich: NativeRichContent()))
-        XCTAssertEqual(section.string.string, "Visible caption.\nSlightly offset callout.\nUnclipped callout.\nRestored unclipped callout.\nInvalid clipping stays visible.\nNext paragraph.")
+        XCTAssertEqual(section.string.drawnString, "Visible caption.\nSlightly offset callout.\nUnclipped callout.\nRestored unclipped callout.\nInvalid clipping stays visible.\nNext paragraph.")
+        // What is parked or clipped away is kept for assistive technology, on a line of no height;
+        // `visibility: hidden` and `display: none` hide from that too.
+        XCTAssertEqual(section.string.spokenLabels, ["Duplicate offscreen caption.", "Duplicate clipped caption.", "Duplicate clipped path caption."])
         BuilderHarness.assertMapRoundTrips(section)
-        for id in ["offscreen", "rect", "inset", "hidden", "none"] {
-            XCTAssertEqual(section.anchors[id], section.anchors["visible"])
+        let labels = ("Visible caption.\n" as NSString).length
+        for (index, id) in ["offscreen", "rect", "inset"].enumerated() {
+            XCTAssertEqual(section.anchors[id], labels + index, "\(id) is its own label")
+            XCTAssertTrue(section.string.attribute(.attachment, at: labels + index, effectiveRange: nil) is SpokenLabelAttachment)
         }
+        for id in ["hidden", "none"] { XCTAssertEqual(section.anchors[id], section.anchors["visible"]) }
     }
 
     func testHiddenLabelClassificationNeverChangesMappedTextWithReaderTypography() throws {
@@ -162,11 +168,11 @@ import UIKit
                            "Font relative calculation offset.", "Inherited font relative offset.", "Reset offscreen label."] {
                 XCTAssertTrue(section.string.string.contains(phrase), "Font size \(fontSize): \(phrase)")
             }
-            for phrase in ["Absolute offscreen label.", "Absolute calculation offscreen label.",
-                           "Inherited absolute offscreen label.", "Clipped font relative label.", "Far font relative label.",
-                           "Far root relative label.", "Far font relative calculation label.", "Inherited far font relative label."] {
-                XCTAssertFalse(section.string.string.contains(phrase), "Font size \(fontSize): \(phrase)")
-            }
+            let hidden = ["Absolute offscreen label.", "Absolute calculation offscreen label.",
+                          "Inherited absolute offscreen label.", "Clipped font relative label.", "Far font relative label.",
+                          "Far root relative label.", "Far font relative calculation label.", "Inherited far font relative label."]
+            for phrase in hidden { XCTAssertFalse(section.string.string.contains(phrase), "Font size \(fontSize): \(phrase)") }
+            XCTAssertEqual(section.string.spokenLabels.sorted(), hidden.sorted(), "each is kept for assistive technology at \(fontSize) points")
             let range = (section.string.string as NSString).range(of: "After labels.")
             let start = try XCTUnwrap(section.map.position(at: range.location, in: section.document))
             let end = try XCTUnwrap(section.map.endPosition(at: NSMaxRange(range), in: section.document))

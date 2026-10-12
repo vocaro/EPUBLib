@@ -29,6 +29,12 @@ import AppKit
 /// - Floats, positioned callouts and sized inline-blocks keep separate source paragraphs and
 ///   symbolic constraints. The native layout resolves wrapping and positions at viewport size;
 ///   oversized or complex boxes remain pageable in-flow text with the same exact map.
+/// - A positioned box hidden from the page but not from assistive technology (parked off screen
+///   or clipped to nothing) is a `SpokenLabelAttachment` for each block of its text: a character
+///   that takes no room. In a line it stands where the box does and the line's white space
+///   collapses across it. Between blocks it has a paragraph of no height against the paragraph
+///   after it, which the paragraphs around it do not see: their gap, first line and marker are
+///   theirs as before, and a gap or forced break that would open the later one opens the label.
 /// - Every rendered character from the DOM is mapped (`TextMap`); generated text is not.
 final class SectionWriter {
     enum Mode: Equatable {
@@ -91,6 +97,16 @@ final class SectionWriter {
     private var isolates: [Isolate] = []
     private var collectingRubyBase = false
     private var rubyBaseStart: Int?
+
+    /// Hidden labels waiting for their place: before the next content of the line they are in,
+    /// or a paragraph of their own when their block has no more content.
+    private var pendingSpoken: [SpokenLabel] = []
+    /// The first of the hidden labels' own paragraphs that stand before the next paragraph with
+    /// nothing of the flow between: after the flow's last paragraph, or after a forced page break.
+    private var spokenRun: Int?
+    /// One of them took that break, so the gap is kept below it as at the top of any page.
+    private var spokenTookPageBreak = false
+    private var spokenAttributes: Int?
 
     private var stack: [Entry] = []
     /// `ResourceReference.resolve` by href (nil: not in the archive); books repeat their links.
@@ -257,7 +273,9 @@ final class SectionWriter {
         // Common visually hidden labels must not become visible duplicate text when their
         // positioned geometry is replaced by normal flow. Actual callouts remain selectable.
         if style.isOutOfFlow, !state.isFixedLayout, style.isVisuallyHiddenPositionedBox {
-            skip(node, registered: true); return
+            skip(node, registered: true)
+            speak(node, style: style, context: parent.context)
+            return
         }
         if style.requiresFlowBox, !node.isHTML("html"), !node.isHTML("body") {
             state.report.report.flowBoxesReflowed = true
@@ -506,6 +524,7 @@ final class SectionWriter {
     private func enterBlock(_ node: ContentNode, style: ComputedStyle, language: InlineLanguage) {
         if style.display == .listItem, pendingMarker != nil { openParagraph() } // An outer item's marker gets its own line.
         closeParagraph()
+        flushSpokenParagraphs()
         if !isNote {
             gap.add(resolve(style.margin.top))
             let inset = resolve(style.padding.top) + Self.width(style.border.top)
@@ -528,6 +547,7 @@ final class SectionWriter {
     private func exitBlock() {
         if let marker = pendingMarker, marker.frame == frames.count - 1 { openParagraph() } // An empty item still shows its marker.
         closeParagraph()
+        flushSpokenParagraphs()
         guard frames.count > 1 else { return }
         let frame = frames.removeLast()
         if frame.format.itemAlignment.close() { state.report.report.flexGridSimplified = true }
@@ -646,19 +666,29 @@ final class SectionWriter {
         if let previous = paragraphs.indices.last {
             buffer.append(CollectionOfOne(0x0A), attributes: paragraphs[previous].separatorAttributes)
             paragraph.start = buffer.count
-            if isNote { paragraphs[previous].spacingAfter = 0.4 * state.bodyStyle.fontSize }
+            // The gap is between this paragraph and the one before it in the flow. Hidden labels
+            // standing between them lie against this paragraph, below the gap: where the gap
+            // would be this paragraph's own (the section's first, or after a forced break), it
+            // is the first label's instead.
+            let flow = paragraphs.lastIndex { !$0.isSpoken }
+            if isNote { if let flow { paragraphs[flow].spacingAfter = 0.4 * state.bodyStyle.fontSize } }
             else if pendingPageBreak && isSection {
                 paragraph.spacingBefore = gapValue; paragraph.pageBreakBefore = true
                 paragraph.sizingBefore = dynamicGap
-            } else {
-                paragraphs[previous].spacingAfter = gapValue
-                paragraphs[previous].sizingAfter = dynamicGap
+            } else if let first = spokenRun, spokenTookPageBreak || flow == nil {
+                paragraphs[first].spacingBefore = gapValue
+                paragraphs[first].sizingBefore = dynamicGap
+            } else if let flow {
+                paragraphs[flow].spacingAfter = gapValue
+                paragraphs[flow].sizingAfter = dynamicGap
             }
         } else if !isNote {
             paragraph.spacingBefore = gapValue
             paragraph.sizingBefore = dynamicGap
         }
         pendingPageBreak = false
+        spokenRun = nil
+        spokenTookPageBreak = false
         if isSection {
             paragraph.keepsOwnNext = frames.contains { $0.keepWithNext }
             paragraph.keptTogetherBy = frames.firstIndex { $0.keepTogether }
@@ -680,6 +710,7 @@ final class SectionWriter {
             flushBreaks()
         }
         pendingBreaks.removeAll()
+        flushSpokenInline()
         paragraphOpen = false
         lineStart = true
         lastWasCollapsedSpace = false
@@ -688,7 +719,14 @@ final class SectionWriter {
 
     private func finish() -> Output {
         closeParagraph()
-        if !isNote, let last = paragraphs.indices.last {
+        flushSpokenParagraphs()
+        if !pendingSpoken.isEmpty { // A cell or a note that ends with a hidden label, or holds nothing else.
+            if paragraphs.isEmpty { openParagraph() }
+            flushSpokenInline()
+            closeParagraph()
+        }
+        // The section's trailing gap follows the flow's last paragraph, not a hidden label after it.
+        if !isNote, let last = paragraphs.lastIndex(where: { !$0.isSpoken }) ?? paragraphs.indices.last {
             paragraphs[last].spacingAfter = min(gap.value, Self.maximumGap)
             paragraphs[last].sizingAfter = sizingGap
         }
@@ -751,6 +789,13 @@ final class SectionWriter {
     }
 
     private func paragraphStyle(_ paragraph: Paragraph) -> NSParagraphStyle {
+        if paragraph.isSpoken {
+            var key = ParagraphStyleKey()
+            key.direction = paragraph.format.direction
+            key.spacingBefore = max(0, paragraph.spacingBefore)
+            key.maximumLineHeight = SpokenLabelAttachment.lineHeight
+            return styling.paragraphStyle(key)
+        }
         let format = paragraph.format
         var key = ParagraphStyleKey()
         if paragraph.blockUnit && paragraph.soleAttachment {
@@ -980,6 +1025,7 @@ final class SectionWriter {
         openParagraph()
         flushBreaks()
         flushSpace(next: next)
+        flushSpokenInline()
         for index in isolates.indices where !isolates[index].emitted {
             buffer.append(isolates[index].opener, attributes: isolates[index].attributes)
             isolates[index].emitted = true
@@ -1017,6 +1063,7 @@ final class SectionWriter {
         guard let space = pendingSpace else { return }
         pendingSpace = nil
         if space.segmentBreak, Self.removesSegmentBreak(between: lastScalar, and: next) { return }
+        flushSpokenInline(before: space.anchorSerial)
         flushAnchors(before: space.anchorSerial)
         let location = buffer.count
         buffer.append(CollectionOfOne(0x20), attributes: space.attributes)
@@ -1044,6 +1091,7 @@ final class SectionWriter {
     private func flushBreaks() {
         guard !pendingBreaks.isEmpty else { return }
         for pending in pendingBreaks {
+            flushSpokenInline(before: pending.anchorSerial)
             flushAnchors(before: pending.anchorSerial)
             let location = buffer.count
             buffer.append(CollectionOfOne(0x2028), attributes: pending.attributes)
@@ -1085,6 +1133,198 @@ final class SectionWriter {
         let count = pendingAnchors.firstIndex { $0.serial >= serial } ?? pendingAnchors.count
         for (id, _) in pendingAnchors.prefix(count) where anchors[id] == nil { anchors[id] = buffer.count }
         pendingAnchors.removeFirst(count)
+    }
+
+    // MARK: Hidden labels
+
+    /// Whether a hidden label between blocks gets a paragraph of its own. A table cell's and a
+    /// note's blocks are plain paragraphs, and a float or positioned box is measured by its
+    /// paragraphs, so there it joins the content after it.
+    private var spokenLabelsStandAlone: Bool {
+        isSection && flattenDepth == 0 && frames[frames.count - 1].format.boxes.isEmpty
+    }
+
+    /// What a visually hidden box keeps for assistive technology, placed where a browser reads
+    /// it. Nothing for a box `aria-hidden` hides from that too, or one with no words.
+    private func speak(_ node: ContentNode, style: ComputedStyle, context: InlineContext) {
+        guard style.isSpokenOnlyPositionedBox, node.attribute("aria-hidden") != "true" else { return }
+        let segments = spokenSegments(of: node, style: style)
+        guard !segments.isEmpty else { return }
+        var link = context.link
+        if link == nil, node.isHTML("a"),
+           let href = node.attribute("href") ?? node.attribute("href", namespace: ContentNamespace.xlink) {
+            link = self.link(for: node, href: href)
+        }
+        // Ids inside the box were registered before this serial; white space after it has a later one.
+        anchorSerial += 1
+        let serial = anchorSerial
+        anchorSerial += 1
+        let standsAlone = style.display.isBlockLevel && !paragraphOpen
+        for segment in segments {
+            pendingSpoken.append(SpokenLabel(attachment: SpokenLabelAttachment(text: segment.text, language: segment.language),
+                                             owner: segment.owner, link: link?.url, standsAlone: standsAlone, serial: serial))
+        }
+        if standsAlone { flushSpokenParagraphs() }
+    }
+
+    private struct SpokenSegment {
+        var text: String
+        var language: String?
+        /// The element whose text this is, or the first text node of a run that shares its
+        /// element with other blocks.
+        var owner: ContentNode
+    }
+
+    /// The words of a hidden box, one entry for each block of them: text nodes with their white
+    /// space collapsed, and the alternative text of what stands for text. Not what is hidden
+    /// from assistive technology too (`display: none`, `visibility: hidden`, `aria-hidden`),
+    /// nor ruby annotations or notes shown elsewhere.
+    private func spokenSegments(of root: ContentNode, style: ComputedStyle) -> [SpokenSegment] {
+        var segments: [SpokenSegment] = []
+        func collect(_ container: ContentNode, _ style: ComputedStyle, _ language: String?, _ depth: Int) {
+            var words = ""
+            var first: ContentNode?
+            let before = segments.count
+            func cut() {
+                let text = words.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+                words = ""
+                defer { first = nil }
+                guard !text.isEmpty, let first else { return }
+                // The box's first words stand for the box; a later run, after blocks of its own, for itself.
+                segments.append(SpokenSegment(text: text, language: language, owner: segments.count == before ? container : first))
+            }
+            func add(_ text: String, from node: ContentNode) {
+                guard !text.isEmpty else { return }
+                if first == nil { first = node }
+                words += text
+            }
+            func inline(_ node: ContentNode, _ style: ComputedStyle, _ depth: Int) {
+                for child in node.children {
+                    if child.isText {
+                        if !style.isHidden { add(child.text, from: child) }
+                        continue
+                    }
+                    guard child.isElement, child.attribute("aria-hidden") != "true",
+                          !(child.isHTML && (ContentSemantics.neverRendered.contains(child.name) || child.name == "rt" || child.name == "rp")),
+                          state.noteKind(child) == nil else { continue }
+                    let childStyle = state.style(child, style)
+                    guard childStyle.display != .none else { continue }
+                    if let text = Self.spokenEquivalent(of: child) {
+                        if !childStyle.isHidden { add(" \(text) ", from: child) }
+                    } else if depth >= Self.maximumSpokenDepth {
+                        if !childStyle.isHidden { add(" \(child.textContent) ", from: child) }
+                    } else if childStyle.display.isBlockLevel {
+                        cut()
+                        collect(child, childStyle, child.language ?? language, depth + 1)
+                    } else {
+                        inline(child, childStyle, depth + 1)
+                    }
+                }
+            }
+            inline(container, style, depth)
+            cut()
+        }
+        collect(root, style, root.language, 0)
+        return segments
+    }
+
+    /// Documents may nest 200 deep; a hidden label's blocks are read as plain text below this.
+    private static let maximumSpokenDepth = 24
+
+    /// The text of an element that stands for text or for nothing, nil for one read by its content.
+    private static func spokenEquivalent(of element: ContentNode) -> String? {
+        if element.isHTML {
+            switch element.name {
+            case "img", "input": return element.attribute("alt") ?? ""
+            case "br": return " "
+            case "hr", "audio", "video", "object", "embed", "iframe", "canvas", "select", "textarea": return ""
+            default: return nil
+            }
+        }
+        if element.name == "svg", element.namespace == ContentNamespace.svg || element.namespace.isEmpty {
+            return element.attribute("aria-label") ?? element.children.first { $0.name == "title" }?.textContent ?? ""
+        }
+        if element.name == "math", element.namespace == ContentNamespace.mathML || element.namespace.isEmpty {
+            return element.attribute("alttext") ?? element.textContent
+        }
+        return nil
+    }
+
+    private struct SpokenLabel {
+        let attachment: SpokenLabelAttachment
+        let owner: ContentNode
+        let link: URL?
+        /// A block-level box met between blocks: a line of its own.
+        let standsAlone: Bool
+        let serial: Int
+    }
+
+    /// Pending labels (those met before `serial`, when given) at this point of the open paragraph.
+    /// They are not content of the line: its white space collapses across them, as across any
+    /// box taken out of the flow, and they take the font already there.
+    private func flushSpokenInline(before serial: Int = .max, afterBlockContent attributes: Int? = nil) {
+        guard let first = pendingSpoken.first, first.serial < serial, let paragraph = paragraphs.last else { return }
+        let count = pendingSpoken.firstIndex { $0.serial >= serial } ?? pendingSpoken.count
+        var index = attributes ?? frameAttributes()
+        if attributes == nil, let run = buffer.runs.last, case .attributes(let last) = run.source,
+           run.location + run.length > paragraph.start { index = last }
+        // A label put after content that follows it in the document is out of the map's order:
+        // like generated text it is not mapped, and a position inside its box is that content.
+        for label in pendingSpoken.prefix(count) { appendSpoken(label, attributes: index, mapped: attributes == nil) }
+        pendingSpoken.removeFirst(count)
+    }
+
+    /// Pending labels between blocks, each block-level one in a paragraph of its own. The
+    /// paragraph has no height, lies against the paragraph after it and is kept with it; the
+    /// paragraphs around it are spaced, indented and marked as if it were not there
+    /// (`openParagraph`).
+    private func flushSpokenParagraphs() {
+        guard !pendingSpoken.isEmpty, !paragraphOpen, spokenLabelsStandAlone else { return }
+        let attributes = spokenAttributes ?? styling.intern([.font: PlatformFont.systemFont(ofSize: 1)])
+        spokenAttributes = attributes
+        var index = 0
+        while index < pendingSpoken.count {
+            var end = index + 1
+            // Labels met together in a line share one.
+            if !pendingSpoken[index].standsAlone { while end < pendingSpoken.count, !pendingSpoken[end].standsAlone { end += 1 } }
+            var paragraph = Paragraph(start: buffer.count, format: frames[frames.count - 1].format, indentsFirstLine: false,
+                                      separatorAttributes: attributes)
+            if let previous = paragraphs.indices.last {
+                buffer.append(CollectionOfOne(0x0A), attributes: paragraphs[previous].separatorAttributes)
+                paragraph.start = buffer.count
+            }
+            paragraph.isSpoken = true
+            paragraph.keepsOwnNext = true
+            paragraph.keepWithNext = true
+            if pendingPageBreak {
+                paragraph.pageBreakBefore = true
+                pendingPageBreak = false
+                spokenTookPageBreak = true
+                spokenRun = paragraphs.count
+            } else if spokenRun == nil {
+                spokenRun = paragraphs.count
+            }
+            // The boxes that open here have not begun: their first paragraph is still to come.
+            for frame in frames.indices where frames[frame].firstParagraph == paragraphs.count { frames[frame].firstParagraph += 1 }
+            paragraphs.append(paragraph)
+            for label in pendingSpoken[index..<end] { appendSpoken(label, attributes: attributes) }
+            index = end
+        }
+        pendingSpoken.removeAll()
+    }
+
+    private func appendSpoken(_ label: SpokenLabel, attributes: Int, mapped: Bool = true) {
+        flushAnchors(before: label.serial)
+        var dictionary = styling.dictionaries[attributes] as NSDictionary as? [NSAttributedString.Key: Any] ?? [:]
+        dictionary[.attachment] = label.attachment
+        dictionary[.link] = nil
+        let location = buffer.count
+        buffer.append(unit: NSAttributedString(string: "\u{FFFC}", attributes: dictionary), link: label.link)
+        // An element is a unit: every position inside it is the label. A text node stands for its run.
+        if mapped {
+            mapSpan(location: location, length: 1, node: label.owner, offset: 0,
+                    sourceLength: label.owner.isText ? label.owner.utf16Length : 0, exact: false)
+        }
     }
 
     /// Bidi isolation for an inline element's `dir`, `<bdi>` and `<bdo>`, as generated isolate
@@ -1174,6 +1414,10 @@ final class SectionWriter {
         guard result.length > 0 else { skip(node, registered: true); return }
         let block = (style.display.isBlockLevel || style.requiresFlowBox) && flattenDepth == 0
         if block { enterBlock(node, style: style, language: context.language) }
+        // Block content opens its own paragraph. A hidden label still waiting here has no line
+        // to itself (`spokenLabelsStandAlone`), so it closes that paragraph instead.
+        let waiting = block ? pendingSpoken : []
+        if block { pendingSpoken.removeAll() }
         let utf16 = Array(result.string.utf16)
         prepareForContent(next: Self.scalar(utf16, at: 0))
         let location = buffer.count
@@ -1223,6 +1467,10 @@ final class SectionWriter {
             trailing[.attachment] = nil
             trailing[.link] = nil
             paragraphs[paragraphs.count - 1].separatorAttributes = styling.intern(trailing)
+            if !waiting.isEmpty {
+                pendingSpoken.insert(contentsOf: waiting, at: 0)
+                flushSpokenInline(afterBlockContent: paragraphs[paragraphs.count - 1].separatorAttributes)
+            }
         }
         lineStart = false
         lastWasCollapsedSpace = false
@@ -1324,8 +1572,9 @@ private struct BlockFrame {
     let keepWithNext: Bool
     /// `break-inside: avoid`.
     let keepTogether: Bool
-    /// `paragraphs.count` when the box opened: its first paragraph gets `text-indent`.
-    let firstParagraph: Int
+    /// `paragraphs.count` when the box opened: its first paragraph gets `text-indent`. Later
+    /// when a hidden label's paragraph stands there.
+    var firstParagraph: Int
     var attributes: Int?
     let language: InlineLanguage
 
@@ -1364,6 +1613,8 @@ private struct Paragraph {
     var markerWidth: CGFloat?
     /// The flex or grid item holding the paragraph.
     var alignmentItem: ReaderAlignmentItem?
+    /// A hidden label's own paragraph, of no height and outside the flow (`flushSpokenParagraphs`).
+    var isSpoken = false
 
     init(start: Int, format: BlockFormat, indentsFirstLine: Bool, separatorAttributes: Int) {
         self.start = start; self.format = format; self.indentsFirstLine = indentsFirstLine
