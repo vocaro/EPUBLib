@@ -3,6 +3,7 @@ import EPUBCore
 import EPUBTestSupport
 import Foundation
 import XCTest
+import ZIPFoundation
 
 /// Where an archive's end record is looked for: no further back than the 65,557 bytes a record
 /// with the longest comment takes. ZIPFoundation looks through every byte, a seek and a read for
@@ -249,5 +250,99 @@ final class ArchiveEndRecordTests: XCTestCase {
         for name in files.keys { add(stub.count, at: try XCTUnwrap(Fixture.directoryOffset(of: name, in: data)) + 42) }
         add(stub.count, at: data.count - 22 + 16)
         try assertOpens(data, as: files, "offsets from the file's first byte")
+    }
+
+    // MARK: A record the bytes cut short
+
+    /// `count` zero bytes with a record at `offset` whose comment length is `comment`.
+    private func bytes(_ count: Int, recordAt offset: Int, comment: Int) -> Data {
+        var data = Data(count: count)
+        data.replaceSubrange(offset..<(offset + 4), with: signature)
+        data.replaceSubrange((offset + 20)..<(offset + 22), with: le(UInt16(comment)))
+        return data
+    }
+
+    func testARecordIsReadableWhenTheBytesHoldAllOfItsComment() {
+        func offset(_ data: Data) -> Int? { data.withUnsafeBytes(ArchiveEndRecord.offset(in:)) }
+        func readable(_ data: Data) -> Int? { data.withUnsafeBytes(ArchiveEndRecord.readableOffset(in:)) }
+        XCTAssertNil(readable(Data()))
+        XCTAssertNil(readable(Data(count: 100)), "no signature")
+        XCTAssertEqual(readable(bytes(22, recordAt: 0, comment: 0)), 0)
+        XCTAssertNil(readable(bytes(22, recordAt: 0, comment: 1)), "a comment of one byte, and none after the record")
+        XCTAssertEqual(readable(bytes(23, recordAt: 0, comment: 1)), 0)
+        XCTAssertEqual(readable(bytes(100, recordAt: 50, comment: 28)), 50, "a comment to the last byte")
+        XCTAssertEqual(readable(bytes(100, recordAt: 50, comment: 27)), 50, "a byte after the comment is passed over")
+        XCTAssertNil(readable(bytes(100, recordAt: 50, comment: 29)), "a byte short")
+        XCTAssertNil(readable(bytes(100, recordAt: 50, comment: 65_535)))
+        XCTAssertEqual(readable(bytes(65_557, recordAt: 0, comment: 65_535)), 0, "the longest comment")
+        XCTAssertNil(readable(bytes(65_556, recordAt: 0, comment: 65_535)))
+        // The last signature with room for a record is the one read, as ZIPFoundation reads it:
+        // a whole record before it does not stand in for one cut short.
+        var two = bytes(100, recordAt: 10, comment: 0)
+        two.replaceSubrange(60..<64, with: signature)
+        two.replaceSubrange(80..<82, with: le(UInt16(19)))
+        XCTAssertEqual(offset(two), 60)
+        XCTAssertNil(readable(two), "18 bytes after the record")
+        two.replaceSubrange(80..<82, with: le(UInt16(18)))
+        XCTAssertEqual(readable(two), 60)
+        // Offsets and lengths are those of a slice, whatever its indices.
+        let slice = bytes(100_000, recordAt: 90_000, comment: 4_978).dropFirst(1_000).dropLast(5_000)
+        XCTAssertEqual(slice.startIndex, 1_000)
+        XCTAssertEqual(readable(slice), 89_000)
+        XCTAssertNil(readable(slice.dropLast()))
+        XCTAssertEqual(offset(slice.dropLast()), 89_000)
+    }
+
+    // ZIPFoundation does not close the file it opens over bytes it then refuses, and that file
+    // keeps them (`ArchiveInputReleaseTests`), so opening asks it for an archive only of bytes
+    // it forecasts ZIPFoundation will make one of. The forecast is held here to what
+    // ZIPFoundation says. None of these is longer than a record reaches, further back than which
+    // opening does not look (above). Each refusal leaves its few bytes allocated.
+    func testZIPFoundationMakesAnArchiveOfBytesWithAReadableRecordAndOfNoOthers() throws {
+        let entries = Fixture.storedEntries(try Fixture.files())
+        let plain = Fixture.storedArchive(entries)
+        let commented = Fixture.storedArchive(entries, comment: Data("Packed for a test".utf8))
+        let wide = Fixture.storedArchive(entries, zip64: .everything)
+        let end = plain.count - 22
+        func stating(_ bytes: Data, at offset: Int, in data: Data) -> Data {
+            var data = data
+            data.replaceSubrange(offset..<(offset + bytes.count), with: bytes)
+            return data
+        }
+        var comment = Data(repeating: 0x20, count: 200)
+        comment.replaceSubrange(178..<182, with: signature)
+        var cases: [(name: String, bytes: Data, made: Bool)] = [
+            ("nothing", Data(), false), ("zeros", Data(count: 100), false),
+            ("21 bytes of a record", Data(signature) + Data(count: 17), false),
+            ("a record of no entries", Data(signature) + Data(count: 18), true),
+            ("a book", plain, true), ("a book with a comment", commented, true), ("an all-ZIP64 book", wide, true),
+            ("a book and bytes after it", plain + Data(count: 512), true),
+            ("a book with a comment and bytes after it", commented + Data(count: 512), true),
+            ("a book cut one byte short of its comment's end", Data(commented.dropLast()), false),
+            ("a book cut off after its record's 22 bytes", Data(commented.dropLast(17)), false),
+            ("a book cut off inside its record", Data(plain.dropLast(3)), false),
+            ("a comment length one more than the bytes after the record", stating(le(UInt16(1)), at: end + 20, in: plain), false),
+            ("an all-ZIP64 book with a comment length and no comment", stating(le(UInt16.max), at: wide.count - 2, in: wide), false),
+            ("a signature in a comment, 22 bytes from its end", Fixture.storedArchive(entries, comment: comment), false),
+            // What its initialiser does not read, or reads past, is no refusal of its own.
+            ("a directory past the end", stating(le(UInt32(0xFFFF_FFF0)), at: end + 16, in: plain), true),
+            ("more entries counted than there are", stating(le(UInt16.max), at: end + 10, in: plain), true),
+            ("a ZIP64 locator with no ZIP64 record before it", stating(Data([0x50, 0x4B, 0x06, 0x07]), at: end - 20, in: plain), true),
+            ("a ZIP64 record of a version before 4.5", stating(le(UInt16(44)), at: wide.count - 22 - 62, in: wide), true),
+            ("a ZIP64 record without its signature", stating(Data(count: 4), at: wide.count - 22 - 76, in: wide), true),
+        ]
+        // Every comment length about the 20 bytes that follow a record.
+        for length in 0...40 { cases.append(("a comment length of \(length) with 20 bytes after the record", bytes(62, recordAt: 20, comment: length), length <= 20)) }
+        for (name, bytes, made) in cases {
+            let readable = bytes.withUnsafeBytes(ArchiveEndRecord.readableOffset(in:)) != nil
+            XCTAssertEqual(readable, made, "\(name): the forecast")
+            do {
+                _ = try Archive(data: bytes, accessMode: .read)
+                XCTAssertTrue(made, "\(name): ZIPFoundation made an archive")
+            } catch {
+                XCTAssertEqual(error as? Archive.ArchiveError, .missingEndOfCentralDirectoryRecord, name)
+                XCTAssertFalse(made, "\(name): ZIPFoundation refused, and has kept the bytes")
+            }
+        }
     }
 }

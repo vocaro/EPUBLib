@@ -61,9 +61,10 @@ public struct EPUBPublication: Sendable {
               limits.xmlBytes > 0 else { throw EPUBPublicationError.limitExceeded("import limits") }
         let archive: Archive
         do {
-            // Bytes with no end record where one can be are no archive. ZIPFoundation says so
-            // only after looking for one at every offset in them (`ArchiveEndRecord`).
-            guard data.withUnsafeBytes(ArchiveEndRecord.offset(in:)) != nil else {
+            // Bytes with no end record where one can be, or with one whose comment they cut
+            // short, are no archive. ZIPFoundation says so only after looking for a record at
+            // every offset in them, and then never lets go of them (`ArchiveEndRecord`).
+            guard data.withUnsafeBytes(ArchiveEndRecord.readableOffset(in:)) != nil else {
                 throw Archive.ArchiveError.missingEndOfCentralDirectoryRecord
             }
             archive = try Archive(data: ZIP64ZeroValues.inlined(in: data), accessMode: .read)
