@@ -38,7 +38,8 @@ duplicate ZIP entries, symlinks, path separators and dot segments beside every s
 their `Character`, CRC corruption, malformed/deep/wide XML, UTF-16 entities, repeated,
 conflicting, absent, remote and differently cased manifest items, references that start at or climb past
 the container root or carry a query, padded mimetypes, containers that list another rendition first,
-entry names with a colon, contents entries that do not resolve, named character references and
+entry names with a colon, archives that other bytes follow, deflated entries whose directory
+misstates their sizes, contents entries that do not resolve, named character references and
 lower-case doctypes in navigation, control characters in navigation,
 cancellation after expansion starts, and exact IDPF/Adobe font deobfuscation vectors. The font
 tests check the XOR prefix and the untouched suffix against independently specified keys.
