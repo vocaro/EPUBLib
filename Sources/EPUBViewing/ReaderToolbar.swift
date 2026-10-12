@@ -72,9 +72,9 @@ public struct EPUBReaderControlStrip<Extras: View>: View {
     }
     public var body: some View {
         #if os(macOS)
-        // On a Mac a scroll view is a scroll area in the accessibility tree, a container
-        // round the strip's controls for VoiceOver to step into. Nothing raises a keyboard
-        // there and text is one size: only a window shorter than the strip is short of room.
+        // On a Mac a scroll view is a scroll area in the accessibility tree, one more
+        // container round the strip's controls. Nothing raises a keyboard there and text is
+        // one size: only a window shorter than the strip is short of room.
         stacked
         #else
         // One scroll view, whether or not the groups fit. A second arrangement to change to as
@@ -409,16 +409,17 @@ struct EPUBControlStripFit: Layout {
 /// A scroll view offers its content no height, and a label that does not fit its line then
 /// takes a second. In a stack that offers the strip an equal share with the reader the groups
 /// had less height than that and each label kept to one line: on an iPhone SE upright at the
-/// largest text size the strip was 340 points tall there, and is 401 with Appearance on two
-/// lines. So the groups are offered no height at all, and are as tall as they were.
+/// largest text size the strip was 340 points tall there, and would be 401 with Appearance on
+/// two lines. So the groups are offered no height at all, and are as tall as they were.
 ///
 /// The scroll view is a platform view: its edges are rounded to whole pixels, and its content
-/// is laid out in the width that leaves. A row of groups 385.4 points wide no longer fits a
-/// scroll view of 385⅓ and becomes a column, and a label a hair short of its width is cut
-/// short. So the groups are offered a point more than the scroll view has, wherever they are
-/// then no more than half a point wider than it, which is as much as the rounding takes.
-/// Groups that take the width they are offered, as those with a search field do, are offered
-/// what there is.
+/// is laid out in the width that leaves, which can be a fraction of a point less than the
+/// groups measure. A row of them then no longer fits and becomes a column, as one did in a
+/// scroll view of 385⅓ points, and a label a hair short of its width takes a second line or
+/// is cut short. So the groups are offered a point more than the scroll view has, wherever
+/// they are then no more than half a point wider than it, which is as much as the rounding
+/// takes. Groups that take the width they are offered, as those with a search field do, are
+/// offered what there is.
 struct EPUBControlStripGroups: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         guard let groups = subviews.first else { return .zero }
