@@ -11,6 +11,9 @@ final class ReaderTextView: UITextView {
     let isPageColumn: Bool
     var placement = ReaderTextPlacement()
     var flowSourceText: NSAttributedString?
+    /// The text shown has boxes resolved against the viewport (`refreshFlowBoxLayout`), so a
+    /// new viewport size lays all of it out anew.
+    var layoutFollowsViewport = false
     var tableInteraction: ReaderTableInteraction?
     var containsTableRows = false
     weak var canvas: ReaderCanvasView?
