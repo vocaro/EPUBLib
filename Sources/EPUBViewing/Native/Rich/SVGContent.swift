@@ -486,7 +486,9 @@ enum SVGContent {
     // MARK: Per-shape copies
 
     /// The verdict on what the renderer copies per painted shape, with the copies counted and the
-    /// steps the walk took, so a test can assert both instead of timing the check.
+    /// steps the check took, so a test can assert both instead of timing the check: one step for
+    /// each gradient whose stops are looked for through its `href`, each element the walk visits
+    /// and each `<use>` it follows.
     typealias CopyVerdict = (withinLimits: Bool, copies: Int, steps: Int)
 
     /// What an element asks of the shapes below it, each of which is inherited: the stops of the
@@ -526,7 +528,9 @@ enum SVGContent {
     ///  1. The renderer copies a gradient's stops into a fresh paint server for every shape it
     ///     paints by `fill` or `stroke`, directly or inherited, in an attribute or a `style`
     ///     declaration, through a gradient `href` chain, and through each `<use>`. Each shape is
-    ///     charged the stops of the gradient its fill names and those its stroke names.
+    ///     charged the stops of the gradient its fill names and those its stroke names. A gradient
+    ///     with no stops of its own is charged those its `href` chain leads to, at any length, or
+    ///     the most any gradient has where the chain meets an id that several gradients share.
     ///  2. The renderer stores a stroke's dash array for every stroked shape that has or inherits
     ///     one. Each shape is charged its dash-array bytes, an upper bound on its entries.
     ///  3. The renderer re-reads and re-parses the nearest ancestor's value of each inherited
@@ -540,9 +544,10 @@ enum SVGContent {
     ///     at-rule such as `@font-face`, which the renderer never applies to an element, is not
     ///     counted, nor is a `<style>` `serialize` strips whole), and the largest gradient any
     ///     stylesheet paints with, since the selectors are not evaluated. The declaration charge is
-    ///     a partial bound: one value, the longest, per painted shape. It does not bound what many
-    ///     declarations cost, or what a rule costs on the groups and `<use>` elements it matches;
-    ///     `styleSheetCopyBytes` says why, and #282 is where that is to be bounded.
+    ///     a partial bound: one value, the longest, per painted shape and per character of a text
+    ///     run. It does not bound what many declarations cost, or what a rule costs on the groups
+    ///     and `<use>` elements it matches; `styleSheetCopyBytes` says why, and #282 is where that
+    ///     is to be bounded.
     ///  5. `<text>` clones its resolved style for every span (at most one span per character): the
     ///     gradient stops its fill and stroke name, into the span and each of three text decorations
     ///     (four pairs); the dash array, into the span's stroke and, when the run is decorated, each
@@ -556,26 +561,78 @@ enum SVGContent {
     /// gradient inherited from above a mask onto the mask's content is not charged.
     static func copyVerdict(_ svg: ContentNode, nodes: [ContentNode], ids: [String: [ContentNode]],
                             stepBudget: Int = markerStepBudget) -> CopyVerdict {
-        // The stops of each gradient, by every id it has, following an `href` chain to the first
-        // gradient that holds stops as the renderer does, and the largest, for a reference not
-        // resolved to one gradient. The chain is bounded by depth, so a loop (#229) terminates.
-        var gradientStops: [String: Int] = [:]
-        var largestGradient = 0
-        func stopCount(_ gradient: ContentNode, depth: Int) -> Int {
-            guard depth <= maximumDepth else { return 0 }
-            let direct = gradient.elementChildren.reduce(0) { $0 + ($1.name == "stop" ? 1 : 0) }
-            if direct > 0 { return direct }
-            guard let id = fragment(gradient) else { return 0 }
-            var best = 0
-            for target in ids[id] ?? [] where target.name == "linearGradient" || target.name == "radialGradient" {
-                best = max(best, stopCount(target, depth: depth + 1))
-            }
-            return best
+        var steps = 0
+        func step() -> Bool {
+            steps += 1
+            return steps <= stepBudget
         }
-        for node in nodes where node.name == "linearGradient" || node.name == "radialGradient" {
-            let count = stopCount(node, depth: 0)
-            largestGradient = max(largestGradient, count)
-            for attribute in node.attributes where attribute.name == "id" {
+
+        // Rule 1's stops, for each gradient. The renderer paints with those of the first gradient
+        // that has a `<stop>`: the gradient itself, or else the one its `href` names, and so on
+        // from one to the next for as long as the chain is (usvg `paint_server.rs`,
+        // `find_gradient_with_stops`). An id that several elements share names the last of them
+        // (`svgtree/parse.rs`, where `doc.links` is filled). Which is last is not worked out
+        // here, so a gradient is charged by this rule:
+        //
+        //  - With stops of its own, those.
+        //  - With none, what the gradient its `href` names is charged, where one gradient alone
+        //    has that id: the chain is followed to its end, however long.
+        //  - With none, and an `href` to an id that several gradients share, the most stops any
+        //    gradient in the SVG has. Whichever of them the renderer takes, and wherever it goes
+        //    on to from there, it ends at a gradient of the SVG.
+        //  - With none, and an `href` no gradient answers to or a chain that comes back on
+        //    itself, no stops: the renderer finds none there either, and paints nothing.
+        //
+        // A gradient without stops so leads to one gradient at most, and what it is charged does
+        // not depend on where its chain was joined: each is read once and its count kept. That
+        // is one step for each, whatever the ids and the `href`s are, charged to the step budget
+        // with the walk's. An SVG within the node limit has no more than `maximumNodes` of them,
+        // a hundredth of the budget.
+        /// What an id names among the gradients.
+        enum Named { case one(ContentNode), several }
+        let gradients = nodes.filter { $0.name == "linearGradient" || $0.name == "radialGradient" }
+        var named: [String: Named] = [:]
+        var painted: [ObjectIdentifier: Int] = [:]
+        var largestGradient = 0
+        for gradient in gradients {
+            let own = gradient.children.reduce(0) { $0 + ($1.name == "stop" ? 1 : 0) }
+            if own > 0 { painted[ObjectIdentifier(gradient)] = own }
+            largestGradient = max(largestGradient, own)
+            for attribute in gradient.attributes where attribute.name == "id" {
+                switch named[attribute.value] {
+                case nil: named[attribute.value] = .one(gradient)
+                case .one(let other)? where other !== gradient: named[attribute.value] = .several
+                default: break
+                }
+            }
+        }
+        for gradient in gradients where painted[ObjectIdentifier(gradient)] == nil {
+            var chain: [ObjectIdentifier] = []
+            var count = 0
+            var next: ContentNode? = gradient
+            while let current = next {
+                let key = ObjectIdentifier(current)
+                // A gradient on this chain is kept as painting with no stops until the chain is
+                // read, so one met a second time, which is a loop, ends the chain with none.
+                if let known = painted[key] { count = known; break }
+                guard step() else { return (false, 0, steps) }
+                painted[key] = 0
+                chain.append(key)
+                switch fragment(current).flatMap({ named[$0] }) {
+                case .one(let target)?: next = target
+                case .several?: (count, next) = (largestGradient, nil)
+                case nil: next = nil
+                }
+            }
+            for key in chain { painted[key] = count }
+        }
+        // By every id a gradient has, and where several gradients share one, the most any of
+        // them paints with: a `fill` or a `stroke` is charged what the id it names has here, and
+        // one that is not read as naming one id, the largest gradient.
+        var gradientStops: [String: Int] = [:]
+        for gradient in gradients {
+            let count = painted[ObjectIdentifier(gradient)] ?? 0
+            for attribute in gradient.attributes where attribute.name == "id" {
                 gradientStops[attribute.value] = max(gradientStops[attribute.value] ?? 0, count)
             }
         }
@@ -618,7 +675,7 @@ enum SVGContent {
                 }
             }
         }
-        guard chargeable else { return (true, 0, 0) }
+        guard chargeable else { return (true, 0, steps) }
 
         // Rules 1 to 3: what one element's attributes and `style` declare. Each element is read
         // once, however often a `<use>` draws it, and kept by its place in the SVG.
@@ -663,11 +720,6 @@ enum SVGContent {
         }
 
         var copies = 0
-        var steps = 0
-        func step() -> Bool {
-            steps += 1
-            return steps <= stepBudget
-        }
         /// Charges the shape or text at `node`, whose inherited values are `here`.
         func charge(_ node: ContentNode, _ here: Copied) -> Bool {
             let fillStops = max(here.fillStops, sheetStops), strokeStops = max(here.strokeStops, sheetStops)
@@ -829,8 +881,8 @@ enum SVGContent {
     /// nothing. A 3.3 KB drawing whose rule holds 47 one-character declarations and matches some
     /// 250,000 rects drawn through `<use>` passes with a charge of 254,080 and costs the renderer
     /// about 750 MB; one of as many empty groups, matched by its rule, is charged nothing and costs
-    /// it more. Both pass without this charge as well. Bounding that means deciding which rules can
-    /// match which elements, and is left to #282.
+    /// it hundreds of megabytes too. Both pass without this charge as well. Bounding that means
+    /// deciding which rules can match which elements, and is left to #282.
     private static func styleSheetCopyBytes(_ css: String) -> Int {
         let bytes = Array(css.utf8)
         let n = bytes.count

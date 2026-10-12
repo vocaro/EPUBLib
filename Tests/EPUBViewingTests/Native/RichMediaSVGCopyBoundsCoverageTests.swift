@@ -429,6 +429,109 @@ final class RichMediaSVGCopyBoundsCoverageTests: XCTestCase {
         XCTAssertLessThan(result.steps, 10)
     }
 
+    // MARK: The stop lookup
+
+    /// `levels` ids in a chain: each is the id of `shared` gradients that have no stops and name the
+    /// next id by `href`, and the last of them names `g<levels>`, which `tail` may define. `rects`
+    /// rects are filled with the first.
+    private func chain(_ levels: Int, shared: Int = 1, tail: String = "", rects: Int = 1) -> String {
+        let links = (0..<levels).map { String(repeating: "<linearGradient id='g\($0)' href='#g\($0 + 1)'/>", count: shared) }.joined()
+        return svg(links + tail, String(repeating: "<rect width='1' height='1' fill='url(#g0)'/>", count: rects))
+    }
+
+    /// A gradient with no stops takes them through its `href`. The lookup once went from such a
+    /// gradient to every gradient that had the id it named, and from each of those to every gradient
+    /// with the next id: the work doubled with each link of a chain whose ids two gradients share,
+    /// so screening a file of 1.6 KB took ten seconds and one of 3 KB did not finish. Each gradient is
+    /// now read once, for one step. The steps are asserted, under a budget that such a lookup would
+    /// spend at once: were it to come back, these would fail and not hang.
+    func testGradientsThatShareIdsAreEachReadOnce() throws {
+        for (levels, shared) in [(20, 2), (12, 3), (40, 2), (64, 4)] {
+            let drawing = chain(levels, shared: shared)
+            let result = verdict(drawing, stepBudget: 1_000)
+            XCTAssertTrue(result.withinLimits, "\(levels) ids, each shared by \(shared) gradients")
+            XCTAssertEqual(result.copies, 0, "no gradient holds a stop")
+            XCTAssertEqual(result.steps, levels * shared + 2, "one step for each gradient, then the root and the rect")
+            XCTAssertTrue(isWithinLimits(drawing), "the whole screen passes it, as it did before the copies were counted")
+        }
+        // The lookup spends from the walk's budget, and stops when that is gone.
+        let stopped = verdict(chain(40, shared: 2), stepBudget: 50)
+        XCTAssertFalse(stopped.withinLimits, "the lookup refuses when the budget runs out")
+        XCTAssertEqual(stopped.steps, 51, "and stops there")
+    }
+
+    /// Gradients that share an id and name that same id lead to each other without end. The reference
+    /// screen (#229) refuses the drawing first, but the lookup ends on its own: an id that several
+    /// gradients share is not followed. One gradient that names itself is a loop of one.
+    func testGradientsThatNameTheIdTheyShareEndTheLookup() throws {
+        let rect = "<rect width='1' height='1' fill='url(#a)'/>"
+        var result = verdict(svg(String(repeating: "<linearGradient id='a' href='#a'/>", count: 2), rect), stepBudget: 1_000)
+        XCTAssertTrue(result.withinLimits)
+        XCTAssertEqual(result.copies, 0, "neither gradient holds a stop, and no other does")
+        XCTAssertEqual(result.steps, 2 + 2, "one step for each gradient, then the root and the rect")
+
+        result = verdict(svg("<linearGradient id='a' href='#a'/>", rect), stepBudget: 1_000)
+        XCTAssertTrue(result.withinLimits)
+        XCTAssertEqual(result.copies, 0)
+        XCTAssertEqual(result.steps, 1 + 2, "a gradient that names itself is read once")
+    }
+
+    /// Where a chain meets an id that several gradients share, the renderer goes on from the last of
+    /// them. Which is last is not worked out, so the gradient is charged the most stops any gradient
+    /// in the SVG has, which is never less: a chain of shared ids cannot hide the stops it ends in.
+    func testAnHrefToASharedIdIsChargedTheLargestGradient() throws {
+        // Forty ids, two gradients to each, and where the chain ends a gradient of 2,048 stops: the
+        // renderer paints every rect with those.
+        func drawing(_ rects: Int) -> String { chain(40, shared: 2, tail: gradient("g40", stops: 2_048), rects: rects) }
+        var result = verdict(drawing(4_096), stepBudget: 10_000)
+        XCTAssertTrue(result.withinLimits)
+        XCTAssertEqual(result.copies, 8 * 1024 * 1024, "each rect is charged the 2,048 stops the chain ends in")
+        XCTAssertEqual(result.steps, 80 + 1 + 4_096, "one step for each gradient without stops, then the root and the rects")
+        result = verdict(drawing(4_097), stepBudget: 10_000)
+        XCTAssertFalse(result.withinLimits, "one shape more is past the bound")
+        XCTAssertEqual(result.copies, 8 * 1024 * 1024 + 2_048)
+        XCTAssertFalse(isWithinLimits(drawing(4_097)))
+
+        // The most any gradient has, whether or not the gradients that share the id lead to it.
+        func copies(_ defs: String, fill: String) -> Int { verdict(svg(defs, "<rect width='1' height='1' fill='url(#\(fill))'/>")).copies }
+        let shared = "<linearGradient id='h' href='#a'/>" + gradient("a", stops: 2) + gradient("a", stops: 3) + gradient("big", stops: 5)
+        XCTAssertEqual(copies(shared, fill: "h"), 5, "an href to an id two gradients share: the largest gradient in the SVG")
+        XCTAssertEqual(copies(shared, fill: "a"), 3, "a fill that names the shared id: the most of the gradients that have it, as before")
+        // An id shared with an element that is no gradient names one gradient, and is followed to it:
+        // were the other element the last, the renderer would find no stops and paint nothing.
+        let mixed = "<linearGradient id='h' href='#a'/><rect id='a' width='1' height='1'/>" + gradient("a", stops: 3) + gradient("big", stops: 5)
+        XCTAssertEqual(copies(mixed, fill: "h"), 3)
+    }
+
+    /// A chain in which each id is one gradient's is followed link by link to the first gradient that
+    /// has stops, and charged exactly those, as it was before. It is followed at any length, as the
+    /// renderer follows it: the lookup once gave up 64 links along and charged nothing.
+    func testAnHrefChainOfUniqueIdsIsChargedTheStopsItLeadsTo() throws {
+        let rect = "<rect width='1' height='1' fill='url(#g0)'/>"
+        var result = verdict(chain(20, tail: gradient("g20", stops: 3)), stepBudget: 1_000)
+        XCTAssertEqual(result.copies, 3, "twenty links to a gradient of three stops")
+        XCTAssertEqual(result.steps, 20 + 2, "one step for each gradient without stops, then the root and the rect")
+        XCTAssertEqual(verdict(svg("<linearGradient id='g0' href='#g1'/>" + gradient("g1", stops: 2, "href='#g2'") + gradient("g2", stops: 5), rect)).copies, 2,
+                       "the first gradient on the chain that has stops, not the largest")
+        XCTAssertEqual(verdict(chain(20), stepBudget: 1_000).copies, 0, "a chain that ends at an id no gradient has leads to no stops")
+        XCTAssertEqual(verdict(svg("<linearGradient id='g0' href='#g1'/><rect id='g1' width='1' height='1'/>" + gradient("big", stops: 5), rect)).copies, 0,
+                       "nor does one that ends at an element that is no gradient")
+
+        // Fifty gradients that each lead into the chain do not each read it again.
+        let joined = (0..<50).map { "<linearGradient id='f\($0)' href='#g0'/>" }.joined()
+        result = verdict(chain(20, tail: gradient("g20", stops: 3) + joined), stepBudget: 1_000)
+        XCTAssertEqual(result.copies, 3)
+        XCTAssertEqual(result.steps, 50 + 20 + 2, "the chain is read once, and each gradient that joins it once")
+
+        // A chain longer than the depth limit is charged what it leads to.
+        result = verdict(chain(100, tail: gradient("g100", stops: 3)), stepBudget: 1_000)
+        XCTAssertEqual(result.copies, 3, "a hundred links to a gradient of three stops")
+        XCTAssertEqual(result.steps, 100 + 2)
+        let bomb = chain(100, tail: gradient("g100", stops: 2_048), rects: 4_097)
+        XCTAssertFalse(verdict(bomb).withinLimits, "2,048 stops copied for each of 4,097 rects, a hundred links away")
+        XCTAssertFalse(isWithinLimits(bomb))
+    }
+
     // MARK: Ordinary drawings are unaffected
 
     /// A path's long `d`, a `points` list, a `transform`, an embedded `data:` image and a long but
