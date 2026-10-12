@@ -14,7 +14,12 @@ separate application identifiers and a bundled synthetic EPUB. It opens the fixt
 without a file-picker interaction. The book contains `word0001` through `word1200` in one
 justified paragraph, a heading, an internal **Verification link**, and an image labeled
 **Blue verification square**. Its long paragraph retains the continuation context that
-originally exposed off-page text. Do not import private books for this check.
+originally exposed off-page text. A second section, **Hidden labels** (`OPS/labels.xhtml`),
+holds what a book hides from the page and keeps for assistive technology: a heading and a
+byline parked at `left: -999em` above an image without alternative text, words clipped to
+nothing inside a line, and a parked link. It also holds what a book hides from everyone: a
+`visibility: hidden` paragraph and an `aria-hidden` one. Do not import private books for
+this check.
 
 Use Xcode 27, OS 27, XcodeGen, Python 3, and a graphical Mac login. Select a signing team for
 the UI-test runners and physical-device app. Signed Mac UI tests worked in the initial
@@ -180,7 +185,9 @@ phrase after each. Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from t
 - `wait=SECONDS`, and `screenshot`, attached to the result bundle: what is on the glass,
   independent of every accessibility snapshot.
 
-`TEST_RUNNER_VOICEOVER_FONT_SIZE` sets the launch text size. `TEST_RUNNER_VOICEOVER_OFF=1`
+`TEST_RUNNER_VOICEOVER_FONT_SIZE` sets the launch text size, `TEST_RUNNER_VOICEOVER_HREF`
+opens a section other than the first (`OPS/labels.xhtml`) and
+`TEST_RUNNER_VOICEOVER_FLOW=scrolled` opens in continuous scroll. `TEST_RUNNER_VOICEOVER_OFF=1`
 leaves VoiceOver off, so the same steps are plain touches: use it to tell a VoiceOver failure
 from one of the reader's own. The probe stops when the reader is no longer in the foreground.
 Another session's tests on the same device bring their own app forward or switch VoiceOver
@@ -207,7 +214,12 @@ device, window size/orientation, font size and visible first/last numbered words
 4. Confirm heading order, the link's label/action and the image's spoken label.
 5. Resize or change typography, wait for the new layout, and repeat the boundary and ordering
    checks. On Mac verify corresponding value-change notifications and fresh text values.
-6. Restore all original VoiceOver/scripting settings and independently verify restoration.
+6. On the hidden-labels section, in pages and in continuous scroll: VoiceOver reads "Parked
+   title heading" and "By the parked author." before the image, "Clipped words in the line."
+   between the two shown sentences, and "Parked link to the target" as a link before "Shown
+   last words."; it never reads "Words nobody is given." or "Words kept from assistive
+   technology."; and a screenshot shows none of the hidden words.
+7. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
