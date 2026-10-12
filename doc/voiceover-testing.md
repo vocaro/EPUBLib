@@ -271,8 +271,8 @@ any of them go on side by side.
 With `advance_after` set to `0.5`, stepping took about a quarter of the time in four pairs of
 sessions, and 95 of 97 keys recorded the same first phrase as at the fixed pause. The hint that
 follows a move is cut short, and a phrase VoiceOver repeats is not recorded again. It suits
-exploring and walks across controls. The fixed pause stays the default; which pacing a
-transcript kept as evidence should use has not been decided.
+exploring and walks across controls. A transcript offered as acceptance evidence is recorded
+at a fixed pause; see [Acceptance and evidence](#acceptance-and-evidence).
 
 The job fails unless every session exits 0. `sessions.txt` in the download gives each
 session's outcome, transcript and command: 124 means the deadline was reached, 125 that the
@@ -410,6 +410,11 @@ one on a workstation is. Record its runner image and image version, such as `xco
 three, and the job's "Set up job" log prints the image. Everything else here applies to it
 unchanged. A hosted session that completes is no more an acceptance result than any other:
 read its transcript against the visible text. The iPhone and iPad still need physical devices.
+
+Record a Mac transcript offered as evidence at a fixed pause, the runner's default, on a
+workstation or hosted. `--advance-after` is for exploring: it cuts short whatever follows a
+key's first phrase, and in the paired sessions it once recorded a control's hint in place of
+its name. Run a failure first seen with it again at a fixed pause before reporting it.
 
 1. Capture the first spoken line upon entering each column, before advancing. The first
    numbered word must match that column's first visible word.
