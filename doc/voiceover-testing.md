@@ -259,8 +259,8 @@ did not create. `--steps`, `--font-size`, `--flow scrolled` and `--voiceover-off
 probe's settings above. Each simulator gets `simulator-TYPE-STAMP.transcript.txt` beside its
 log and result bundle in `.build/voiceover/results/`: the device, revision and steps, the
 probe's lines, then the result, with VoiceOver's state and the volume as `devicectl` reports
-them. The exit status is 0 only when every probe ran all its steps, passed and left VoiceOver
-off.
+them. The exit status is 0 only when every probe ran all its steps and passed, VoiceOver is
+off again and no simulator lost its mute.
 
 Four things went wrong in the first runs, and the runner and probe now allow for each:
 

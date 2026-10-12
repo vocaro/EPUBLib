@@ -6,7 +6,8 @@ it creates one simulator per --device, boots each without Simulator.app, mutes i
 probe on all of them at the same time, each under a deadline; see doc/voiceover-testing.md.
 Every simulator gets one transcript: the probe's steps and what VoiceOver said after each.
 The simulators are deleted afterwards whatever happened. This script never boots, changes or
-deletes a simulator it did not create, and never opens Simulator.app.
+deletes a simulator it did not create, and never opens Simulator.app. It exits 0 only when
+every probe ran all its steps and passed, VoiceOver is off again and no simulator lost its mute.
 """
 import argparse
 from datetime import datetime, timezone
@@ -155,8 +156,12 @@ def report(session):
             status = max(status, 1)
         else:
             lines.append("VOICEOVER off after the run")
-        unread = f", unread in {len(session.unread)} of its checks" if session.unread else ""
-        lines.append(f"VOLUME {state(session.udid, 'audio')['volume']} after the run{unread}")
+        volume = state(session.udid, "audio")["volume"]
+        unread = f"; {len(session.unread)} checks during it got no reading" if session.unread else ""
+        lines.append(f"VOLUME {volume} after the run{unread}")
+        # A simulator that was heard, or could have been, is not a clean run.
+        if volume != 0 or session.unmuted:
+            status = max(status, 1)
     except (RuntimeError, ValueError, KeyError) as error:
         lines.append(f"VOICEOVER state unknown: {error}")
         status = max(status, 1)
@@ -247,6 +252,8 @@ def main():
         while any(session.finished is None for session in sessions):
             time.sleep(1)
             for session in sessions:
+                # Every simulator, also one whose probe has ended: VoiceOver may be on after a crash.
+                keep_muted(session)
                 if session.finished is not None:
                     continue
                 if session.process.poll() is None:
@@ -264,7 +271,6 @@ def main():
                         subprocess.run(["pkill", "-f", f"simctl diagnose .*--udid={session.udid}"])
                 if session.process.poll() is not None:
                     session.finished = time.monotonic()
-                keep_muted(session)
     except RuntimeError as error:
         print(error)
         status = 125
