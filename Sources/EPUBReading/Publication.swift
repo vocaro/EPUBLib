@@ -512,15 +512,15 @@ private enum BrowserMarkup {
     ///   among its first four, is rewritten as text decoded in that encoding, if it decodes,
     ///   whatever its XML declaration says. The mark or those bytes are trusted for the whole
     ///   document. The parser stays in UTF-16 when the declaration names UTF-8, but can change
-    ///   after the declaration to another wide encoding it names, and a document made that way
-    ///   is rewritten wrongly: when its first 90 bytes are a UTF-16LE byte-order mark and a
-    ///   declaration naming `UTF-16BE` and the rest is UTF-16BE, bytes of the rest that spell
-    ///   `&pi;` in UTF-16LE are replaced, where the parser reads four other characters. This is
-    ///   known and left alone.
+    ///   after the declaration to another encoding it names, wide or not, and a document made
+    ///   that way can be rewritten wrongly: when its first 90 bytes are a UTF-16LE byte-order
+    ///   mark and a declaration naming `UTF-16BE` and the rest is UTF-16BE, bytes of the rest
+    ///   that spell `&pi;` in UTF-16LE are replaced, where the parser reads four other
+    ///   characters. This is known and left alone.
     /// - A document that starts with the four bytes of `<?xm` in EBCDIC is never rewritten. The
     ///   parser reads such a declaration as EBCDIC and can read what follows in an encoding it
-    ///   names, SCSU and HZ among them (a document that names UTF-8 this way it refuses). The
-    ///   name is not read here.
+    ///   names, SCSU and HZ among them (one that names UTF-8 it goes on reading as EBCDIC, so a
+    ///   document that continues in UTF-8 is refused). The name is not read here.
     /// - Any other is rewritten when `isASCIITransparent` says so, by its XML declaration read
     ///   as ASCII.
     static func asXML(_ data: Data) -> Data {
@@ -561,11 +561,12 @@ private enum BrowserMarkup {
     ///   listed encoding under a spelling that `asciiTransparentEncodings` lacks is answered no.
     ///
     /// Where the answer is no the document is parsed as it stands: one of HTML's named references
-    /// is dropped without an error under a DOCTYPE that names an external subset and is an error
-    /// otherwise, as a `DOCTYPE` keyword in another case is. A declaration that is not well
-    /// formed is not read here as the parser reads it, and the answer relies on the parser
-    /// refusing it. `XMLTree.parse` asks again for the bytes of its second attempt, in which a
-    /// space for a control character may have made such a declaration well formed.
+    /// is dropped without an error under a DOCTYPE that names an external subset, unless the
+    /// declaration says `standalone="yes"`, and is an error otherwise, as a `DOCTYPE` keyword in
+    /// another case is. A declaration that is not well formed is not read here as the parser
+    /// reads it, and the answer relies on the parser refusing it. `XMLTree.parse` asks again for
+    /// the bytes of its second attempt, in which a space for a control character may have made
+    /// such a declaration well formed.
     private static func isASCIITransparent(_ data: Data) -> Bool {
         guard !data.starts(with: [0x4C, 0x6F, 0xA7, 0x94]) else { return false } // `<?xm` in EBCDIC
         var bytes = ArraySlice(data.prefix(declarationLimit))

@@ -292,6 +292,12 @@ final class PackageMetadataCoverageTests: XCTestCase {
     func testTheDTDADoctypeNamesIsNotRead() throws {
         // A DTD on this disk declares a name of its own. Were the file ever read, its replacement
         // text would stand in the title, whatever a reference to that name reads as otherwise.
+        //
+        // This is no coverage of the reference rewrite: no change to the rewrite, or to how
+        // `XMLParser` is set up, can fail it. The parser does not read the file whatever it is
+        // told: with `shouldResolveExternalEntities` set, under each
+        // `externalEntityResolvingPolicy`, or with the file among its `allowedExternalEntityURLs`.
+        // The test trips only if the parser is replaced or something that loads DTDs is added.
         let directory = URL.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -484,10 +490,10 @@ final class PackageMetadataCoverageTests: XCTestCase {
     func testBytesThatSpellAReferenceAreLeftAloneAfterADeclarationWrittenInEBCDIC() throws {
         // The parser takes a document that starts with `<?xm` in EBCDIC to declare itself in that
         // encoding. It converts the first 45 bytes so, here the whole declaration, and decodes the
-        // rest in the encoding the declaration names: SCSU here, though a document that names
-        // UTF-8 this way is refused. The declaration is not one this package reads, so nothing
-        // after it is rewritten: in SCSU the `&` after the tag byte 0x05 belongs to one character,
-        // and `pi;` is text.
+        // rest in the encoding the declaration names: SCSU here (one that names UTF-8 it goes on
+        // reading as EBCDIC, so a document that continues in UTF-8 is refused). The declaration is
+        // not one this package reads, so nothing after it is rewritten: in SCSU the `&` after the
+        // tag byte 0x05 belongs to one character, and `pi;` is text.
         // `<?xml version="1.0" encoding="SCSU"`, eight spaces and `?>` in code page 037.
         let declaration: [UInt8] = [0x4C, 0x6F, 0xA7, 0x94, 0x93, 0x40, 0xA5, 0x85, 0x99, 0xA2, 0x89, 0x96, 0x95, 0x7E, 0x7F, 0xF1, 0x4B, 0xF0, 0x7F,
                                     0x40, 0x85, 0x95, 0x83, 0x96, 0x84, 0x89, 0x95, 0x87, 0x7E, 0x7F, 0xE2, 0xC3, 0xE2, 0xE4, 0x7F]

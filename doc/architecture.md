@@ -81,8 +81,8 @@ warnings, so this list is where they are disclosed:
   encryption.
 - **XML.** In the container, package, navigation and NCX documents, HTML's named character
   references (`&nbsp;`) and a `DOCTYPE` keyword in any case are read as a browser reads them in
-  content. Both are left as the parser finds them in a document, other than a UTF-16 or UTF-32
-  one, whose XML declaration is written in EBCDIC, names an encoding that is not on a fixed list
+  content. In a document that is not UTF-16 or UTF-32, both are left as the parser finds them
+  when its XML declaration is written in EBCDIC, names an encoding that is not on a fixed list
   of ASCII-compatible ones, or neither names one nor ends within the document's first 1,024
   bytes. A C0 control character XML forbids, copied from PDF text into a title, reads as a
   space in an ASCII-compatible document.
