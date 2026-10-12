@@ -411,8 +411,8 @@ at every text size, and `-62em` hides nothing at any, though it computes to more
 points from 17 points up. Percentage and viewport offsets, offsets in a face's own metrics
 (`ex`, `ch`) and calculations holding one remain visible unless explicitly clipped or hidden:
 a percentage is of a containing block of any width, and the viewport offset stylesheets use,
-`-100vw`, is the edge of the screen and not beyond it. This keeps rendered
-text and saved range offsets identical across reader font-size changes. General clipping,
+`-100vw`, is the edge of the screen and not beyond it. Reading the offset as written keeps
+rendered text and saved range offsets identical across reader font-size changes. General clipping,
 arbitrary offscreen geometry and transforms are outside this subset.
 Fixed-layout publications still reflow and report their existing fixed-layout disclosure; this
 subset does not implement fixed-page geometry.
