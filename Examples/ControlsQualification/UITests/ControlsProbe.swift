@@ -33,7 +33,8 @@ import XCUIAutomation
         app.launch()
         note("launch", app.launchArguments.joined(separator: " "))
         #if os(iOS)
-        // A simulator keeps the way up the last scenario left it: every scenario starts upright.
+        // A simulator keeps the way up the last scenario left it, and the host has launched that
+        // way: turn it upright before the first step, and say what was found.
         let found = XCUIDevice.shared.orientation
         XCUIDevice.shared.orientation = .portrait
         if found != .portrait { RunLoop.current.run(until: Date().addingTimeInterval(2)) }
@@ -115,7 +116,8 @@ import XCUIAutomation
             note(command, "iOS only")
             #endif
         case "type":
-            // `\n` presses Return on the keyboard that is showing.
+            // `\n` is Return as a hardware keyboard sends it, which can put the keyboard away under
+            // a field that keeps focus (issue 307). `tap=search` presses the keyboard's own key.
             app.typeText(argument.replacingOccurrences(of: "\\n", with: "\n"))
             note(command, argument)
             settle()
@@ -217,6 +219,7 @@ import XCUIAutomation
         case "status":
             note(command, statusLine())
         case "focus":
+            // On iOS, whether the keyboard is on screen and what has keyboard focus.
             note(command, focused())
         case "dump":
             dump(argument.isEmpty ? "tree" : argument)
@@ -433,21 +436,20 @@ import XCUIAutomation
             if named { lines.append(String(repeating: "  ", count: depth) + parts.joined(separator: " ")) }
             element.children.forEach { walk($0, depth + (named ? 1 : 0)) }
         }
-        var readings = ""
-        do {
-            let tree = try app.snapshot()
-            walk(tree, 0)
-            #if os(iOS)
-            readings = ", " + keyboardAndFocus(tree)
-            #endif
-        } catch { lines.append("SNAPSHOT FAILED \(error)") }
+        var tree: (any XCUIElementSnapshot)?
+        do { tree = try app.snapshot() } catch { lines.append("SNAPSHOT FAILED \(error)") }
+        if let tree { walk(tree, 0) }
         let file = String(format: "%02d-%@", step, name.replacingOccurrences(of: " ", with: "_"))
         if (try? Data(lines.joined(separator: "\n").utf8).write(to: out.appendingPathComponent(file + ".tree.txt"))) == nil {
             // Sandboxed out of the folder (the Mac): the runner takes the tree from the test log.
             for line in lines { print("QUALIFICATION-TREE \(file) | \(line)") }
         }
         try? Data(app.debugDescription.utf8).write(to: out.appendingPathComponent(file + ".raw.txt"))
-        note("dump", "\(file): \(lines.count) elements\(readings)")
+        #if os(iOS)
+        note("dump", "\(file): \(lines.count) elements, " + (tree.map(keyboardAndFocus) ?? "no tree"))
+        #else
+        note("dump", "\(file): \(lines.count) elements")
+        #endif
         screenshot(name)
     }
 
