@@ -91,6 +91,11 @@ import AppKit
     #if os(macOS)
     /// Where the reader last put the scroll view's insertion point (`placeScrollInsertionPoint`).
     private var placedScrollInsertionPoint: Int?
+    /// Posts an accessibility notification from an element. A test puts its own closure here to
+    /// see what an assistive client is told when a spread is installed.
+    var postAccessibilityNotification: @MainActor (Any, NSAccessibility.Notification, [NSAccessibility.NotificationUserInfoKey: Any]) -> Void = {
+        NSAccessibility.post(element: $0, notification: $1, userInfo: $2)
+    }
     #endif
 
     var wheelTurner = ReaderWheelPageTurner()
@@ -506,12 +511,16 @@ import AppKit
         }
         isApplyingSelection = false
         #if os(macOS)
-        // VoiceOver keeps a column's previous text and its own cursor in it across a value
-        // change it did not witness from inside that column. Naming the columns as changed
-        // elements makes it read the new page, from its first line.
+        // VoiceOver keeps a column's previous text across a value change it did not witness
+        // from inside that column; a layout change naming the columns makes it read the new
+        // page. It also keeps a text cursor of its own in a column it has left, and on coming
+        // back moves the insertion point there instead of entering at it, so it read on from
+        // the line it had reached on the page before. It gives that cursor up when the change
+        // is posted by the element that holds the columns, and keeps it when the window posts
+        // the same change (#337).
         if let window {
-            NSAccessibility.post(element: window, notification: .layoutChanged,
-                                 userInfo: [.uiElements: columns.filter { !$0.isHidden }])
+            postAccessibilityNotification(NSAccessibility.unignoredAncestor(of: self) ?? window, .layoutChanged,
+                                          [.uiElements: columns.filter { !$0.isHidden }])
         }
         #endif
         trimPaginators()
