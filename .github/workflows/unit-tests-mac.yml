@@ -146,7 +146,7 @@ jobs:
               result=1
               red=$((red + 1))
               # Each failed assertion, where `gh run view` and the pull request show it.
-              sed -n -E "s|^$GITHUB_WORKSPACE/([^:]+):([0-9]+): error: -\[[^.]+\.([^ ]+) ([^]]+)\] : (.*)$|::error file=\1,line=\2,title=\3.\4::\5|p" "$log" \
+              sed -n -E "s|^$GITHUB_WORKSPACE/([^:]+):([0-9]+): error: -\[[^.]+\.([^ ]+) ([^]]+)\] : (.*)$|::error file=\1,line=\2::\3.\4: \5|p" "$log" \
                 | awk 'NR <= 10'
               if [ "$failed" -eq 0 ]; then
                 echo "::error::swift test exited $status in pass $pass and named no failed test"

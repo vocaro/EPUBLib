@@ -15,6 +15,7 @@ sources, runs the Mac tests and the full test suite on dedicated iPhone 17 Pro a
 deleted on exit; existing devices are never selected or shut down. Agents working in the
 repository drive simulators the same way, headlessly ([notes for agents](../AGENTS.md)). iOS logs live in
 `.build/validation/`. `EPUB_SIM_RUNTIME` selects a different installed runtime by identifier.
+The Mac tests alone also run on a [hosted runner](#hosted-mac-tests), for a pull request and for `main`.
 
 For narrower checks:
 
@@ -52,6 +53,61 @@ whatever is attached and with no setting changed:
 xcrun xctest -XCTest All -AppleShowScrollBars Always .build/debug/EPUBViewingTests.xctest
 xcrun xctest -XCTest All -AppleShowScrollBars WhenScrolling .build/debug/EPUBViewingTests.xctest
 ```
+
+## Hosted Mac tests
+
+The [Mac unit tests workflow](../.github/workflows/unit-tests-mac.yml) runs `swift test` on
+GitHub's hosted `xcode-27` runner. Nothing else runs on that machine, so a result does not
+depend on what other worktrees are building, and the standard runner costs nothing in this
+public repository. A run starts for a pull request, which is tested as merged into its base,
+for a push to `main`, and by hand:
+
+```sh
+gh workflow run unit-tests-mac.yml --ref YOUR_BRANCH
+gh workflow run unit-tests-mac.yml --ref YOUR_BRANCH -f filter=ReaderCanvasViewTests -f repeat=20
+gh run list --workflow unit-tests-mac.yml --limit 3
+gh run watch RUN_ID --exit-status
+gh run view RUN_ID
+```
+
+A change to nothing but `doc/` and Markdown files starts no run. `--ref` chooses the branch
+whose workflow file is used, and that branch is tested unless the `ref` input names another.
+The inputs, all optional:
+
+- `ref`: a branch, a tag or a full commit SHA to build and test. The steps still come from the
+  `--ref` branch, so a commit older than this workflow can be tested, and two commits compared.
+- `filter`: the regular expression `swift test --filter` takes, such as `ReaderCanvasViewTests`
+  or `CFI`. Empty runs every test. A filter that matches no test fails the run.
+- `repeat`: the number of passes, 1 unless given. The tests are built once and run that many
+  times, each pass a new process. It is for a test that fails now and then: the runner is the
+  quiet machine that tells a test's own timing from a workstation's load.
+
+The job fails unless every pass exits 0, and no test is retried: a test that fails there
+failed on a machine doing nothing else. `gh run view RUN_ID` lists each failed assertion with
+its test, file and line, and a notice with the count of tests. The log has one line for each
+pass, `Pass 1 of 1: … tests, … failed, … skipped, … s, swift test exit …`, and after several
+passes the failed tests with the number of passes each failed in; the run's summary page has
+the same as a table.
+
+A job has forty minutes. On 2026-10-12 the build took two minutes and a pass of every test ten
+and a half, thirteen minutes for the run: 2,494 tests, 2,443 of XCTest's and 51 of Swift
+Testing's, with 52 skipped, most of them the opt-in [corpus runs](#corpus-runs). Fifty passes
+of `ReaderCanvasViewTests` took fourteen minutes. A pass is started only if one as long as the
+longest so far would end three minutes before the job's limit; otherwise the passes left are
+reported as not run, and the job fails. A new run for the same pull request, or by hand for
+the same ref, filter and count, cancels one still in progress. A run for `main` is not
+cancelled; of the runs waiting behind it only the newest is kept.
+
+A hosted run differs from the [local gate](#local-gate):
+
+- It runs the Mac tests only. The simulator suites, the module and documentation checks and
+  the sample builds are the gate's.
+- The runner has three processors and 7 GB of memory, and macOS and Xcode are the image's,
+  which the job prints before it builds: on 2026-10-12, macOS 27.0.1 (`26A434`) and Xcode 27.0.
+- Its scroll bars are overlay ones, which the job prints too. A test that says which kind it
+  means runs as it does anywhere; nothing there runs the whole bundle under legacy scroll
+  bars, as `-AppleShowScrollBars Always` does above.
+- It holds no corpora and no `epubcheck`, so the opt-in runs are skipped.
 
 ## Coverage
 
