@@ -12,7 +12,8 @@ bash scripts/check-all.sh
 The gate verifies module boundaries, compares documentation snippets with compiled Swift
 sources, runs the Mac tests and the full test suite on dedicated iPhone 17 Pro and iPad Air
 13-inch (M4) simulators, and builds both sample app targets. Test devices are created by UUID and
-deleted on exit; existing devices are never selected or shut down. iOS logs live in
+deleted on exit; existing devices are never selected or shut down. Agents working in the
+repository drive simulators the same way, headlessly ([notes for agents](../AGENTS.md)). iOS logs live in
 `.build/validation/`. `EPUB_SIM_RUNTIME` selects a different installed runtime by identifier.
 
 For narrower checks:
