@@ -239,6 +239,104 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
         }
     }
 
+    // MARK: A body end tag where the scan and libxml2 read differently (#235)
+
+    // libxml2 reads `</scriptx>` inside a script as an end tag that closes nothing and stays in
+    // the script; `<script / >` and `<script"q>` open one for it. The scan takes each for the end
+    // of the script or for no script, so it meets `</body` as text while libxml2 is still in the
+    // script. A body end tag with no ">" of its own runs to the next, the script's. Replacing it
+    // whole took the script's end tag with it and the script took the rest of the section.
+    func testABodyEndTagInsideAScriptDoesNotTakeTheScriptsEndTagWithIt() throws {
+        XCTAssertEqual(try recovered(page("<p>x</b><script>y</scriptx> a </body </script></p><p>visible</p>")).text, "x\nvisible")
+        XCTAssertEqual(try recovered(page("<p>x</b><script / >var s = \"</body\"</script></p><p>visible</p>")).text, "x\nvisible")
+    }
+
+    // The same in every spelling the review's matrix found it in: each element, each start tag
+    // libxml2 reads as that element, a body or root end tag that never closes before the
+    // element's own end tag, in a paragraph, in nested elements and on its own.
+    func testNoSpellingOfAScriptOrStyleLosesTheTextAfterIt() throws {
+        for element in ["script", "style"] {
+            for start in ["<\(element)>", "<\(element) type='x'>", "<\(element) / >", "<\(element)\"q>", "<\(element.uppercased())>"] {
+                for (content, end) in [("k</\(element)x> a </body ", "</\(element)>"), ("k</\(element)x> a </html ", "</\(element.uppercased())\n>"),
+                                       ("var s = \"</body\"", "</\(element)>"), ("a </body x='", "</\(element) >")] {
+                    for (open, close) in [("", ""), ("<p>", "</p>"), ("<div><span id='s'>", "</span></div>")] {
+                        let body = "<p>before</b></p>\(open)pre \(start)\(content)\(end) post\(close)<p id='n'>next</p>"
+                        let section = try recovered(page(body))
+                        XCTAssertTrue(section.text.hasPrefix("before\npre"), body)
+                        XCTAssertTrue(section.text.hasSuffix("\nnext"), "\(body) gave \(section.text.debugDescription)")
+                        XCTAssertEqual(section.anchors["n"]?.offset, section.text.utf8.count - 4, body)
+                    }
+                }
+            }
+        }
+    }
+
+    // Directly after a script's start tag libxml2 reads an end tag as an end tag, so `</body>`
+    // there closed the body and the paragraph after the script fell outside it.
+    func testABodyEndTagAtTheStartOfAScriptOrStyleDoesNotCloseTheBody() throws {
+        for raw in ["<script></body></script>", "<style></html></style>", "<script></BODY x></html\n></script>"] {
+            XCTAssertEqual(try recovered(page("<p>One</b></p>\(raw)<p>Two</p>")).text, "One\nTwo", raw)
+        }
+    }
+
+    // The bytes of a body end tag reach the declaration check, as they did before the tag was
+    // rewritten at all: a keyword inside one refuses the document.
+    func testADeclarationKeywordInsideABodyEndTagIsRefused() throws {
+        for end in ["</body <!ENTITY a \"b\">", "</html x='<!DOCTYPE html ['>", "</BODY <!attlist p q CDATA #IMPLIED>"] {
+            let publication = try book(page("<p>x</b></p>\(end)<p>y</p>"))
+            XCTAssertThrowsError(try publication.textSection(at: 0, recoversMalformedMarkup: true), end) {
+                XCTAssertEqual($0 as? EPUBTextExtractionError, .malformedContent(path), end)
+            }
+        }
+    }
+
+    // MARK: What a "<" kept as text brings into view (#235)
+
+    // HTML Standard, comment start state: ">" directly after "<!--" or "<!---" closes the comment
+    // (abrupt-closing-of-empty-comment). libxml2 reads on to the next "-->". It used to discard
+    // from a stray "<" through the next ">", which is this comment's own, and show what follows.
+    func testAnAbruptlyClosedCommentAfterAKeptLessThanSignHidesNothing() throws {
+        XCTAssertEqual(try recovered(page("<p>a</b> <<!--> b</p><p>c</p>")).text, "a < b\nc")
+        XCTAssertEqual(try recovered(page("<p>a</b> < 3 <!---> b</p><p>c --> d</p>")).text, "a < 3 b\nc --> d")
+        // Where no such sign precedes it, libxml2 hid the text to the next "-->" before as well.
+        XCTAssertEqual(try recovered(page("<p>a</b> <!--> b</p><p>c --> d</p>")).text, "a d")
+    }
+
+    // HTML Standard, "in body" insertion mode: a start tag "html" or "body" adds attributes, a
+    // start tag "head" is ignored, and the self-closing flag means nothing on any of them.
+    // libxml2 ignores such a tag where it is out of place and then lets its "/>" close the
+    // element that is open, the body included, so the rest of the section fell outside the body.
+    func testASelfClosingHTMLHeadOrBodyTagClosesNothing() throws {
+        XCTAssertEqual(try recovered(page("<p>One</b> < 3 <head/> more</p><p>Two</p>")).text, "One < 3\nmore\nTwo")
+        for tag in ["<head/>", "<html/>", "<body/>", "<BODY class='x'/>", "<html lang=\"en\" />", "<head\"x/>"] {
+            for body in ["<p>One</b></p>\(tag)more<p id='two'>Two</p>", "<p>One</b> <_x>\(tag)</p>more<p id='two'>Two</p>",
+                         "<div><p>One</b>\(tag)</p></div>more<p id='two'>Two</p>"] {
+                let section = try recovered(page(body))
+                XCTAssertTrue(section.text.hasPrefix("One"), body)
+                XCTAssertTrue(section.text.hasSuffix("more\nTwo"), "\(body) gave \(section.text.debugDescription)")
+                XCTAssertEqual(section.anchors["two"]?.offset, section.text.utf8.count - 3, body)
+            }
+        }
+    }
+
+    // Where such a tag is in its place it reads as it did: an empty head is an empty head, and
+    // the body keeps its attributes. A body or a root closed at once stays open like one closed
+    // early by its end tag, so what follows is read.
+    func testASelfClosingHeadOrBodyInItsPlaceKeepsTheDocument() throws {
+        let root = "<html xmlns='http://www.w3.org/1999/xhtml' xmlns:epub='http://www.idpf.org/2007/ops'>"
+        let emptyHead = try recovered("\(root)<head/><body id='b' epub:type='bodymatter'><p>x</b></p></body></html>")
+        XCTAssertNil(emptyHead.title)
+        XCTAssertEqual(emptyHead.text, "x")
+        XCTAssertEqual(emptyHead.anchors, ["b": EPUBTextMark(offset: 0, separator: 0)])
+        XCTAssertEqual(emptyHead.semanticTypes, ["bodymatter"])
+        let emptyBody = try recovered("\(root)<head><title>T</title></head><body id='b' epub:type='bodymatter'/><p>after</b></p></html>")
+        XCTAssertEqual(emptyBody.title, "T")
+        XCTAssertEqual(emptyBody.text, "after")
+        XCTAssertEqual(emptyBody.anchors, ["b": EPUBTextMark(offset: 0, separator: 0)])
+        XCTAssertEqual(emptyBody.semanticTypes, ["bodymatter"])
+        XCTAssertEqual(try recovered("<html/><p>after</b></p>").text, "after")
+    }
+
     // HTML Standard, "in body" insertion mode, U+0000: a parse error; the character is ignored.
     // doc/text-extraction.md: recovery "never yields partial text". Refusing the document would
     // also honour that; returning only what precedes the NUL does not.

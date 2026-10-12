@@ -86,11 +86,15 @@ Standard, a `<` that opens no tag stays text (`p < 0.05`, `a <_< b`): a tag open
 ASCII letter, `/`, `!` or `?`. A `<` that is the last byte of the file is the one exception. It
 stays the cut-off tag it may be, so it is not shown, and a file that is only `<` is
 `malformedContent`. Content after an early `</body>` or
-`</html>` stays in the body, as does a second document in the same file, and U+0000 is dropped
+`</html>` stays in the body, as does a second document in the same file, and a self-closing
+`<html/>`, `<head/>` or `<body/>` closes nothing either. U+0000 is dropped
 from text and read as U+FFFD inside tags, comments and scripts instead of ending the section
-there. Recovery
-conservatively rejects declaration keywords even inside comments or attribute values, any
-DOCTYPE internal subset, and unterminated CDATA or quoted attribute values.
+there. In other malformed markup the tree is libxml2's, which is not always the HTML Standard's:
+it can end a script or style at an end tag that directly follows the start tag, for example, and
+can read `<!-->` as a comment that is still open. Recovery
+conservatively rejects declaration keywords anywhere, even inside comments, attribute values or
+end tags, any DOCTYPE internal subset, an unterminated CDATA section, and a start tag's quoted
+attribute value that never ends.
 Unsafe declarations, exceeded limits, cancellation and well-formed documents without the expected
 XHTML structure remain errors. A parser halt at its built-in nesting cap returns
 `limitExceeded("depth")` instead of partial text, even with a larger caller limit; recovery is
