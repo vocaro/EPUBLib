@@ -241,6 +241,14 @@ import UIKit
             XCTAssertGreaterThan(lead, 100, "the box has space above its first line")
             return (top.minY - lead - visible.minY, ((top.minY + bottom.maxY) / 2 - visible.minY) / visible.height)
         }
+        /// The box that is `section` is on screen whole. Its first line need not be the visible
+        /// start: resting within a point of the top, a book with box geometry can read the line
+        /// above the box as that, as it can above any position.
+        func assertWholeBoxIsShown(_ section: Int, line: UInt = #line) throws {
+            let range = try XCTUnwrap(host.canvas.visibleRange)
+            XCTAssertLessThanOrEqual(range.start, ReaderTextPosition(section: section, offset: 0), line: line)
+            XCTAssertGreaterThanOrEqual(range.end, ReaderTextPosition(section: section, offset: texts[section].string.length), line: line)
+        }
         // Paging: back from the chapter over the epigraph to the dedication.
         host.canvas.show(ReaderTextPosition(section: 3, offset: 0), selecting: nil)
         host.layOut()
@@ -255,7 +263,7 @@ import UIKit
         var result = try box("For those", "to the last page", section: 1)
         XCTAssertEqual(result.top, 0, accuracy: 1.5, "the dedication's top edge is at the top of the visible area")
         XCTAssertEqual(result.middle, 0.49, accuracy: 0.01)
-        XCTAssertEqual(host.canvas.visibleRange?.start, ReaderTextPosition(section: 1, offset: 0))
+        try assertWholeBoxIsShown(1)
         // A resize keeps it so.
         for size in [CGSize(width: 420, height: 560), CGSize(width: 500, height: 700)] {
             host.resize(to: size)
@@ -292,7 +300,7 @@ import UIKit
         result = try box("A lantern in the window", "An Imagined Poet", section: 2)
         XCTAssertEqual(result.top, 0, accuracy: 1.5, "the epigraph's top edge is at the top of the visible area")
         XCTAssertEqual(result.middle, 0.49, accuracy: 0.01)
-        XCTAssertEqual(host.canvas.visibleRange?.start, ReaderTextPosition(section: 2, offset: 0))
+        try assertWholeBoxIsShown(2)
         // A box taller than the visible area: its top edge there could put the position off
         // screen, so every position in it rests its own line, the ones on its first screen too.
         for phrase in ["Line 45 of a box", "Line 5 of a box"] {

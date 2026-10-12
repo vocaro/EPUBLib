@@ -458,12 +458,11 @@ and the Mac run have no failure.
   ([limitations](native-viewer.md#limitations)).
 - Continuous scroll rests a box's top edge at the top for a position anywhere in the box only
   when the whole box fits the visible area ([Flows](#flows)). In a taller box a position rests
-  its own line, which scrolls away the space the box keeps above its text when the position is
-  not at the box's start. A container aligned only across the line or only by a gap, with no
-  `height` or `min-height`, is not a box for this: each of its positions rests its own line.
-  The rule holds for every position the reader shows, the one a resize or a setting change
-  keeps included: where the person has scrolled part of a one-screen box off the top, a
-  resize shows the box whole again, moving its lines down to where the box puts them.
+  its own line. A container aligned only across the line or only by a gap, with no `height` or
+  `min-height`, is not a box for this: each of its positions rests its own line. The rule
+  holds for every position the reader shows, the one a resize or a setting change keeps
+  included: where the person has scrolled part of a one-screen box off the top, a resize
+  shows the box whole again, moving its lines down to where the box puts them.
 - In a book with box geometry (every Standard Ebooks title, for its title page) a position
   can rest a fraction of a point below the top of the visible area, and continuous scroll then
   reads the line above it as the visible start. For a box rested by its top edge that line is
@@ -473,5 +472,7 @@ and the Mac run have no failure.
   dedication's box was 0.13 points low and the imprint's last line was reported, and after a
   resize the dedication was 19 points lower. This is not the alignment's: two of three
   ordinary positions tried in the same book did the same (0.23 and 0.14 points low, a line
-  lower after a resize), and [#164](https://github.com/vocaro/EPUBLib/issues/164) describes
-  the resize keeping the visible start. Not changed here.
+  lower after a resize); on the iPhone simulator a fixture's ordinary lines rested 0.03
+  points low and were read so, with this change and without it; and
+  [#164](https://github.com/vocaro/EPUBLib/issues/164) describes the resize keeping the
+  visible start. Not changed here.
