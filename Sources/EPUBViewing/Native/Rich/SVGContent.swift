@@ -40,7 +40,9 @@ enum SVGContent {
     /// byte stored, or 64 bytes re-parsed. The value is set from measurement, not tied to another
     /// limit: at this ceiling the renderer spends on the order of 110 MB or 0.35 s on the worst
     /// passing document (a 2,048-stop gradient on 4,096 shapes costs it about 110 MB and 0.3 s),
-    /// the same order the other limits allow. `copyVerdict` holds what an SVG can reach.
+    /// the same order the other limits allow. `copyVerdict` holds what an SVG can reach. That is
+    /// so for the values named here. A stylesheet's declarations are charged only in part
+    /// (`styleSheetCopyBytes`), and what they cost the renderer is not held to this ceiling (#282).
     static let maximumSharedCopies = 8 * 1024 * 1024
     /// Shapes whose vertices can carry a marker, and whose geometry the renderer builds.
     private static let markerableShapes: Set<String> = ["path", "line", "polyline", "polygon", "rect", "circle", "ellipse"]
@@ -518,7 +520,8 @@ enum SVGContent {
     /// Whether what the renderer copies per painted shape stays within `maximumSharedCopies`. The
     /// renderer is not modelled; each shape is charged the most that it or any ancestor, through
     /// every `<use>` that draws it, could ask for, so the count never falls below what the renderer
-    /// does. For a shape the markers do not count here:
+    /// does, except for a stylesheet's declarations, which rule 4 charges only in part. For a shape
+    /// the markers do not count here:
     ///
     ///  1. The renderer copies a gradient's stops into a fresh paint server for every shape it
     ///     paints by `fill` or `stroke`, directly or inherited, in an attribute or a `style`
@@ -536,7 +539,10 @@ enum SVGContent {
     ///     so each shape is charged the longest presentation declaration of any `<style>` (an
     ///     at-rule such as `@font-face`, which the renderer never applies to an element, is not
     ///     counted, nor is a `<style>` `serialize` strips whole), and the largest gradient any
-    ///     stylesheet paints with, since the selectors are not evaluated.
+    ///     stylesheet paints with, since the selectors are not evaluated. The declaration charge is
+    ///     a partial bound: one value, the longest, per painted shape. It does not bound what many
+    ///     declarations cost, or what a rule costs on the groups and `<use>` elements it matches;
+    ///     `styleSheetCopyBytes` says why, and #282 is where that is to be bounded.
     ///  5. `<text>` clones its resolved style for every span (at most one span per character): the
     ///     gradient stops its fill and stroke name, into the span and each of three text decorations
     ///     (four pairs); the dash array, into the span's stroke and, when the run is decorated, each
@@ -583,6 +589,8 @@ enum SVGContent {
 
         // Rule 4: the longest declaration the renderer copies from a stylesheet onto a matched
         // element, and the largest gradient any stylesheet paints with, taken to reach every shape.
+        // `sheetBytes` is that one value, charged once to each painted shape and each character of
+        // a text run: a partial bound on what a stylesheet costs (`styleSheetCopyBytes`, #282).
         // A `<style>` `serialize` strips whole (an `@import`, or a `url()` that leaves the document,
         // which makes it unsafe) reaches no element: it is dropped here too, so the screen on this
         // tree agrees with the screen on the serialized bytes, from which that stylesheet is gone.
@@ -808,6 +816,21 @@ enum SVGContent {
     /// at-rules (simplecss skips `@font-face`, `@media`, `@keyframes`, `@import`), so an embedded
     /// font's `src: url(data:…)` — never applied to any element — is not counted, and neither is a
     /// declaration of some other name, which the renderer drops.
+    ///
+    /// `copyVerdict` charges this one value, the longest, to each painted shape and to each character
+    /// of a text run, so that a single very long presentation value in a stylesheet cannot be copied
+    /// onto thousands of shapes for free. That is a partial bound, and not what a stylesheet costs
+    /// the renderer, which stores every presentation declaration of a matched rule, each as a string
+    /// of its own, on every element the rule matches (`write_declaration` and `insert_attribute` in
+    /// usvg `svgtree/parse.rs`). Its cost goes as declarations times matched elements, about 65
+    /// bytes for each as measured, even where every value is one character. So two things are not
+    /// bounded here: what many declarations cost, a rule of dozens being charged as a rule of one;
+    /// and what a rule costs on the groups and `<use>` elements it matches, which are charged
+    /// nothing. A 3.3 KB drawing whose rule holds 47 one-character declarations and matches some
+    /// 250,000 rects drawn through `<use>` passes with a charge of 254,080 and costs the renderer
+    /// about 750 MB; one of as many empty groups, matched by its rule, is charged nothing and costs
+    /// it more. Both pass without this charge as well. Bounding that means deciding which rules can
+    /// match which elements, and is left to #282.
     private static func styleSheetCopyBytes(_ css: String) -> Int {
         let bytes = Array(css.utf8)
         let n = bytes.count

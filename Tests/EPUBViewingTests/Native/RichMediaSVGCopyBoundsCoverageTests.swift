@@ -15,9 +15,10 @@ import XCTest
 /// `SVGContent.copyVerdict` counts these as the marker bound counts markers: each shape is charged
 /// the most that it or any ancestor, through every `<use>` that draws it, could ask for, so the
 /// count never falls below what the renderer does, and a drawing past `maximumSharedCopies` shows its
-/// fallback text with the same `svg` disclosure as the other limits. Every case asserts a verdict, a
-/// count or the step counter, never a time or a memory figure, which is machine-dependent (#62). An
-/// input that is refused is given to the check alone, never rendered.
+/// fallback text with the same `svg` disclosure as the other limits. A stylesheet's declarations are
+/// the exception, charged only in part (`testStylesheetValuesAreChargedPerShape`, #282). Every case
+/// asserts a verdict, a count or the step counter, never a time or a memory figure, which is
+/// machine-dependent (#62). An input that is refused is given to the check alone, never rendered.
 final class RichMediaSVGCopyBoundsCoverageTests: XCTestCase {
     private static let ns = "xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'"
 
@@ -202,9 +203,20 @@ final class RichMediaSVGCopyBoundsCoverageTests: XCTestCase {
     /// stylesheet paints with is taken to reach every shape, since the selectors are not evaluated.
     /// The renderer stores only the declaration's value (not `property:value`), only for a known
     /// presentation property, and only from an ordinary rule — never an at-rule.
+    ///
+    /// This charge is a partial bound, and the test is not proof of a full one. It keeps a single
+    /// very long value from being copied onto thousands of shapes for free. It does not bound what
+    /// many declarations cost, or what a rule costs on the groups and `<use>` elements it matches,
+    /// which is left to [#282](https://github.com/vocaro/EPUBLib/issues/282).
     func testStylesheetValuesAreChargedPerShape() throws {
         // Only the value the renderer stores (`red`, 3 bytes) is charged, not the whole `fill:red`.
         XCTAssertEqual(verdict(svg("", "<rect width='1' height='1'/>", pre: "<style>rect{fill:red}</style>")).copies, 3)
+        // The limit of the charge, pinned as a limit (#282): the renderer stores every presentation
+        // declaration of a matched rule on the element, three strings here, and the screen charges
+        // one value, the longest. A rule of several declarations of equal length is charged the same
+        // as a rule of one, so what many declarations cost the renderer is not bounded by this charge.
+        XCTAssertEqual(verdict(svg("", "<rect width='1' height='1'/>", pre: "<style>rect{fill:red;stroke:red;color:red}</style>")).copies, 3,
+                       "three declarations are charged as one: a partial bound, not what the renderer stores")
         // A stylesheet paint `url(#g)` could paint any shape by fill or stroke: both are charged.
         let sheet = verdict(svg(gradient(stops: 2), "<rect width='20' height='20'/>", pre: "<style>rect{fill:url(#g)}</style>"))
         XCTAssertEqual(sheet.copies, 2 + 2 + 7, "two stops for fill and for stroke, and the value `url(#g)`")

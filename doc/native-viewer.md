@@ -768,7 +768,9 @@ Go: the native viewer is the bundled engine.
   it allocate hundreds of megabytes or parse for most of a minute. Each is charged per shape, against
   a ceiling set from measurement (the worst passing drawing costs the renderer on the order of what
   the other limits allow); each shape is charged the most that it or any ancestor, through every
-  `<use>` that draws it, could ask for, so the count never falls below what the renderer does.
+  `<use>` that draws it, could ask for, so the count never falls below what the renderer does. A
+  stylesheet's declarations are the exception: they are charged only in part, as their entry below
+  says, and what they cost the renderer is not bounded.
   - A gradient's stops are copied into a fresh paint server for every shape it paints by `fill` or
     `stroke`, directly or inherited, in an attribute or a `style` declaration, through a gradient
     `href` chain, and through each `<use>`; each shape is charged the stops its fill names and those
@@ -779,12 +781,18 @@ Go: the native viewer is the bundled engine.
     `stroke` paint, the numbers (`stroke-width`, the opacities, `stroke-miterlimit`, offsets) and the
     keyword enumerations alike — is charged its bytes over 64, summed down the inheritance chain. A
     `style` value is counted with its white space trimmed, as the renderer trims it before storing.
-  - A stylesheet declaration the renderer applies is copied onto every element a rule matches, so
-    each shape is charged the longest presentation declaration's value of any `<style>`. An at-rule
-    such as `@font-face` is not counted: the renderer never applies it to an element, so an embedded
-    font a stylesheet carries in a `src: url(data:…)` does not count against a drawing, and ordinary
-    Illustrator, Inkscape, Figma and chart-library output that embeds a font renders as before. A
-    stylesheet that is stripped whole before rendering is not counted on either screening.
+  - A stylesheet is charged only in part, and what it costs the renderer is not bounded (#282). The
+    renderer stores every presentation declaration of a rule on every element the rule matches,
+    groups and `<use>` elements included, so its cost goes as declarations times matched elements.
+    Each painted shape is charged one value, the longest presentation declaration's of any
+    `<style>`, so that a single very long value cannot be copied onto thousands of shapes for free.
+    A rule of many declarations is charged as a rule of one, and what a rule costs on the groups
+    and `<use>` elements it matches is not charged, so a drawing of a few kilobytes can still pass
+    and cost the renderer hundreds of megabytes. An at-rule such as `@font-face` is not counted:
+    the renderer never applies it to an element, so an embedded font a stylesheet carries in a
+    `src: url(data:…)` does not count against a drawing, and ordinary Illustrator, Inkscape, Figma
+    and chart-library output that embeds a font renders as before. A stylesheet that is stripped
+    whole before rendering is not counted on either screening.
   - A `<text>` run clones its resolved style for every span (at most one span per character): the
     gradient stops its fill and stroke name, into the span and each of three text decorations; the
     dash array, into the span's stroke and, when the run is decorated, each decoration stroke; the
