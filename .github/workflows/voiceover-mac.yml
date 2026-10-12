@@ -37,10 +37,6 @@ on:
           Empty keeps the fixed pause. A number sends the next key that many seconds after a
           key's first new phrase.
         type: string
-  # Temporary, to prove the workflow before it is on the default branch.
-  push:
-    branches: [claude/determined-hamilton-88c4df]
-    paths: [.github/workflows/voiceover-mac.yml, scripts/run-voiceover-*.py]
 
 run-name: Mac VoiceOver, ${{ inputs.ref || github.ref_name }}, ${{ inputs.width || '1100' }} wide at ${{ inputs.text_size || '23' }} points
 
