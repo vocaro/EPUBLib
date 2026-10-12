@@ -15,19 +15,26 @@ concurrency:
 
 jobs:
   session:
-    name: Session (banner ${{ matrix.banner }}, ${{ matrix.pacing }})
+    name: Session (${{ matrix.layout }}, ${{ matrix.pacing }})
     # The standard label only: larger runners are billed even in a public repository.
     runs-on: xcode-27
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        # XCTest's Automation Running banner is restarted about every ten seconds on this
-        # image, and VoiceOver moves to an instance that survives. `removed` unloads its launch
-        # agent for the job; `as-is` leaves the image alone, for comparison.
-        banner: [removed, as-is]
         # The runner's fixed pause after each key, or --advance-after.
         pacing: [fixed, advance]
+        layout: [two-columns, one-column]
+        include:
+          # The documented windows and text sizes, and how far Next Page is from the last column.
+          - layout: two-columns
+            width: 1100
+            font: 23
+            lefts: 9
+          - layout: one-column
+            width: 600
+            font: 17
+            lefts: 8
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
       RESULTS: .build/voiceover/results
@@ -55,11 +62,6 @@ jobs:
           echo "Secure input: $(ioreg -l -w 0 -d 1 | grep -c kCGSSessionSecureInputPID)"
           echo "Frontmost: $(osascript -e 'tell application "System Events" to return bundle identifier of first application process whose frontmost is true' 2>&1)"
           echo "Processors: $(sysctl -n hw.ncpu), memory: $(($(sysctl -n hw.memsize) / 1073741824)) GB"
-          if [ "${{ matrix.banner }}-${{ matrix.pacing }}" = as-is-fixed ]; then
-            # Whether the screen, and with it the reader's window, could be made taller.
-            HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install displayplacer > /dev/null 2>&1
-            displayplacer list 2>&1 | head -n 60
-          fi
           exit 0
 
       - name: Prepare the runner for VoiceOver
@@ -68,18 +70,24 @@ jobs:
           defaults write com.apple.VoiceOverTraining doNotShowSplashScreen -bool true
           # Each VoiceOver command presses Control; the default shortcut offers Dictation for it.
           defaults write com.apple.HIToolbox AppleDictationAutoEnable -int 0
-          if [ "${{ matrix.banner }}" = removed ]; then
-            launchctl bootout "gui/$(id -u)/com.apple.dt.AutomationModeUI" || echo "bootout exit $?"
-            if launchctl print "gui/$(id -u)/com.apple.dt.AutomationModeUI" > /dev/null 2>&1; then
-              echo "The banner's launch agent is still loaded"
-            else
-              echo "The banner's launch agent is not loaded"
-            fi
+          # XCTest's Automation Running banner is restarted about every ten seconds on this
+          # image, and VoiceOver moves to an instance that survives. Unload its launch agent.
+          launchctl bootout "gui/$(id -u)/com.apple.dt.AutomationModeUI" || echo "bootout exit $?"
+          if launchctl print "gui/$(id -u)/com.apple.dt.AutomationModeUI" > /dev/null 2>&1; then
+            echo "The banner's launch agent is still loaded"
+          else
+            echo "The banner's launch agent is not loaded"
           fi
+          # The screen is 1024 by 768, too short for the documented 882 point window.
+          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install displayplacer xcodegen
+          screen=$(displayplacer list | awk '/^Persistent screen id:/ { print $4; exit }')
+          displayplacer "id:$screen res:1920x1080 hz:60 color_depth:7 enabled:true scaling:off origin:(0,0) degree:0" \
+            || echo "displayplacer exit $?"
+          sleep 2
+          echo "Screen: $(osascript -e 'tell application "Finder" to get bounds of window of desktop' 2>&1)"
 
       - name: Generate the project
         run: |
-          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install xcodegen
           python3 scripts/make-voiceover-fixture.py
           xcodegen generate --spec Examples/VoiceOverVerification/project.yml
           echo "Elapsed: $(($(date +%s) - JOB_START)) s"
@@ -101,17 +109,17 @@ jobs:
       - name: Run a speech session
         run: |
           set +e
-          # An entry line, a line move, a VoiceOver-activated Next Page, and the new first line,
-          # in the documented two-column window: Next Page is nine items left of the last column.
-          steps=(ax:width=1100 ax:next ax:lines ax:focus in line nextline out)
-          for _ in $(seq 9); do steps+=(left); done
+          # An entry line, two line moves, a VoiceOver-activated Next Page and the new first
+          # line. The first Control-Option-Down after entering repeats the entry line.
+          steps=(ax:width=${{ matrix.width }} ax:next ax:lines ax:focus in line nextline nextline out)
+          for _ in $(seq ${{ matrix.lefts }}); do steps+=(left); done
           steps+=("activate=Next Page" ax:lines)
           for _ in $(seq 8); do steps+=(right); done
           steps+=(in line)
           options=()
           [ "${{ matrix.pacing }}" = advance ] && options=(--advance-after 0.5)
 
-          open -na "$PWD/$READER" --args -SampleFlow paginated -SampleFontSize 23
+          open -na "$PWD/$READER" --args -SampleFlow paginated -SampleFontSize ${{ matrix.font }}
           sleep 8
           started=$(date +%s)
           python3 scripts/run-voiceover-mac.py --timeout 300 ${options[@]+"${options[@]}"} "${steps[@]}"
@@ -140,11 +148,11 @@ jobs:
           du -sh "$RESULTS"/* | sort -h | tail -n 5
           echo "Elapsed: $(($(date +%s) - JOB_START)) s"
 
-      - name: Upload the transcripts, logs and last screenshot
+      - name: Upload the transcript, logs and last screenshot
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: voiceover-banner-${{ matrix.banner }}-${{ matrix.pacing }}
+          name: voiceover-${{ matrix.layout }}-${{ matrix.pacing }}
           path: |
             .build/voiceover/results/*.txt
             .build/voiceover/results/*.log
@@ -153,14 +161,12 @@ jobs:
           retention-days: 5
           if-no-files-found: warn
 
-      - name: Upload the result bundles and every screenshot of a failed run
+      - name: Upload the result bundle of a failed run
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: voiceover-banner-${{ matrix.banner }}-${{ matrix.pacing }}-failure
-          path: |
-            .build/voiceover/results/*.xcresult
-            .build/voiceover/results/*.png
+          name: voiceover-${{ matrix.layout }}-${{ matrix.pacing }}-failure
+          path: .build/voiceover/results/*.xcresult
           include-hidden-files: true
           retention-days: 5
           if-no-files-found: warn
