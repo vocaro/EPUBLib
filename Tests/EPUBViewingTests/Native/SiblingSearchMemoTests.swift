@@ -26,6 +26,26 @@ final class SiblingSearchMemoTests: XCTestCase {
         for (selector, ids) in expected {
             XCTAssertEqual(try CSSSyntaxSupport.matched(selector, in: body), ids, selector)
         }
+        // A search that finds no match below an ancestor whose own search finds one. It fails
+        // for all siblings and no further, so the search up the ancestors goes on to the outer
+        // `div`. Answered as a complete failure, or remembered as one for the next element to
+        // ask, it ends that search at the inner `div` and the `i` is missed.
+        let paragraphs = String(repeating: "<p>x</p>", count: 10), spans = String(repeating: "<span>x</span>", count: 10)
+        let asker = { (id: String) in "<div><i id=\"\(id)\">x</i></div>" }
+        let below: [(selector: String, body: String, ids: [String])] = [
+            // The inner `div` is the twelfth child. Its search passes the `span` and stops at a
+            // `p` that fails for all siblings: no `h1` comes before it.
+            ("h1 ~ p ~ div i", "<h1>t</h1><p>x</p><div id=\"outer\">" + paragraphs + "<span>x</span><div id=\"inner\"><i id=\"t\">x</i></div></div>", ["t"]),
+            // The eleventh, and its search comes to the first child with nothing found.
+            ("h1 ~ div i", "<h1>t</h1><div id=\"outer\">" + paragraphs + "<div id=\"inner\"><i id=\"t\">x</i></div></div>", ["t"]),
+            // The same two searches, long enough to be kept, and then a second inner `div`
+            // that is answered from what was kept.
+            ("h1 ~ p ~ div i", "<h1>t</h1><p>x</p><div><p>x</p>" + spans + asker("t") + asker("u") + "</div>", ["t", "u"]),
+            ("h1 ~ div i", "<h1>t</h1><div>" + paragraphs + asker("t") + asker("u") + "</div>", ["t", "u"]),
+        ]
+        for (selector, body, ids) in below {
+            XCTAssertEqual(try CSSSyntaxSupport.matched(selector, in: body), ids, "\(selector) in \(body)")
+        }
     }
 
     func testMatchingEqualsTheWalkOverGeneratedDocumentsAndSelectors() throws {
