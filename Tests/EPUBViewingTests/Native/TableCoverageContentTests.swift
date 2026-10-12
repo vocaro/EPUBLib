@@ -471,4 +471,82 @@ final class TableCoverageContentTests: XCTestCase {
         XCTAssertLessThan(ruledLayout.columnWidths[0], 100)
         XCTAssertGreaterThan(ruledLayout.columnWidths[1], 190)
     }
+
+    // MARK: Measuring a cell that holds a table
+
+    /// A cell's widths are measured when its table is built, by string drawing, which sizes every
+    /// attachment in the cell. A row of a table in the cell is as wide as its line whatever the
+    /// table holds, so it is measured without laying that table out, and the cell asks for
+    /// exactly what it does with the rows themselves on the line: beside other content, under an
+    /// indent, at two indents, in either direction and several tables deep.
+    func testACellHoldingATableAsksForWhatItDoesWithTheTableLaidOut() throws {
+        let inner = "<table><tr><td>alpha</td><td>beta gamma</td></tr><tr><td>c</td><td>d</td></tr></table>"
+        for content in [
+            inner, "lead in \(inner) and out", "<p>A paragraph first.</p>\(inner)<p>And one after.</p>", "<blockquote>\(inner)</blockquote>",
+            "<blockquote>\(inner)</blockquote>\(inner)", "<ul><li>\(inner)</li><li>item</li></ul>", "<div dir='rtl'>\(inner)</div>",
+            "<div style='margin: 0 10% 0 3em'>\(inner)</div>",
+            "<table><caption>Cap</caption><tr><td>\(inner)</td><td><blockquote>\(inner)</blockquote></td></tr></table>",
+        ] {
+            let table = try TableCoverage.table("<table><tr><td>\(content)</td><td>x</td></tr></table>")
+            let cell = table.cells[0].content
+            XCTAssertFalse(TableCoverage.tables(in: cell).isEmpty, content)
+            let laidOut = cell.boundingRect(with: CGSize(width: 100_000, height: 100_000), options: [.usesLineFragmentOrigin], context: nil)
+            XCTAssertEqual(table.cells[0].maxContent, ceil(laidOut.width), content)
+            XCTAssertEqual(TableMeasure.maximumWidth(cell), ceil(laidOut.width), content)
+        }
+    }
+
+    /// String drawing leaves out the lines below the box it measures in, 100,000 points tall.
+    /// While a row was measured at the height of its table laid out, a table tall enough put
+    /// itself, or what followed it in the cell, out of the cell's width. A row measured without
+    /// a height never does: what a cell asks for does not depend on how tall its tables are.
+    func testWhatACellAsksForDoesNotDependOnTheHeightOfATableInIt() throws {
+        func asked(paragraphs: Int) throws -> CGFloat {
+            let tall = String(repeating: "<p style='font-size: 20em'>a</p>", count: paragraphs)
+            let table = try TableCoverage.table("<table><tr><td><p>lead</p><table><tr><td>\(tall)</td><td>b</td></tr></table></td><td>x</td></tr></table>")
+            let inner = try XCTUnwrap(TableCoverage.tables(in: table.cells[0].content).first)
+            // As string drawing sized it: on a line 100,000 points wide and a page of 800.
+            let height = TableRowAttachment(table: inner, row: 0).height(width: 100_000, viewportHeight: 800)
+            XCTAssertEqual(height > 100_000, paragraphs > 1, "\(paragraphs) paragraphs are \(height) points")
+            return table.cells[0].maxContent
+        }
+        XCTAssertEqual(try asked(paragraphs: 600), try asked(paragraphs: 1))
+    }
+
+    /// CPU seconds of this thread: unlike a wall clock, unaffected by other work on the machine.
+    private func threadSeconds() -> Double { Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1e9 }
+
+    /// Measuring a cell must not lay out the tables in it. Laying one out lays out every table
+    /// inside it again, at five scales when a row is taller than a page, so while string drawing
+    /// sized the rows themselves a long cell cost about four times as much to build for each
+    /// table around it: 400 short paragraphs took 0.1 s of CPU under one table, 4 s under four
+    /// and 49 s under six on the machine these tests were written on, and now take 0.05 s under
+    /// any number. Tables are grids eight deep, and content written outside a table's cells is
+    /// a cell too.
+    func testBuildingALongCellCostsNoMoreForEachTableAroundIt() throws {
+        let long = String(repeating: "<p>v1 v2</p>", count: 400)
+        for (name, innermost) in [("a cell", "<table><tr><td>w</td><td>\(long)</td></tr></table>"),
+                                  ("content outside the cells", "<table><tr><td>w</td><td>x</td></tr>\(long)</table>")] {
+            func seconds(under depth: Int) throws -> Double {
+                var markup = innermost
+                for level in 0..<depth { markup = "<table><tr><td>\(markup)</td><td>x\(level)</td></tr></table>" }
+                let publication = try TableCoverage.publication(markup)
+                return try (0..<3).map { _ in
+                    let start = threadSeconds()
+                    let section = TableCoverage.section(of: publication)
+                    let elapsed = threadSeconds() - start
+                    // A fallback to flowing text would cost nothing and prove nothing: every
+                    // level is a grid, and the innermost holds the long cell.
+                    var table = try XCTUnwrap(TableCoverage.tables(in: section.string).first)
+                    for _ in 0..<depth { table = try XCTUnwrap(TableCoverage.tables(in: table.cells[0].content).first) }
+                    XCTAssertEqual(table.cells.map(\.content.length).max(), 400 * 6 - 1, name)
+                    return elapsed
+                }.min() ?? 0
+            }
+            let shallow = try seconds(under: 1), deep = try seconds(under: 4)
+            // The three tables added hold one more word each, so the work is the same. Laying
+            // the tables out made it 47 times as much.
+            XCTAssertLessThan(deep, 4 * shallow, "\(name) under one table took \(shallow) s of CPU and under four \(deep) s")
+        }
+    }
 }
