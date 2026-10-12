@@ -17,19 +17,22 @@ final class ReaderBoxLayoutFragment: NSTextLayoutFragment {
     /// at it. It corrects no margin: it tells apart two things that lie far to either side of
     /// it in the sections generated to measure them, on macOS and on iOS.
     ///
-    /// - What rounding leaves when a box's margins take back its height: about half an ulp of
-    ///   how far down its section the page starts. That is 1e-12 or less within ten thousand
-    ///   points of a section's top and 2e-10 a million points down.
+    /// - What rounding leaves when a box's margins take back its height. `ReaderBoxLayout`
+    ///   computes the bottom margin as `cursor - (cursor + height)` where the box stands in
+    ///   its section, so what is left is counted in ulps of that depth: usually under one, and
+    ///   up to about twenty (7.1e-11 at 16,543 points down, 1.7e-9 at 904,000).
     /// - How far a page's first box was pushed down from where the page's text flows from,
-    ///   which a style sheet's lengths decide: a tenth of a point at the least, and mostly
-    ///   tens of points. TextKit lays a one-line fragment out correctly from up there, and
-    ///   does not once the frame before it is held at the top, so such a frame stays as it is
-    ///   (https://github.com/vocaro/EPUBLib/issues/242).
+    ///   which a style sheet's lengths decide: a tenth of a point at the least, with nothing
+    ///   between that and those residuals. TextKit lays a one-line fragment out correctly from
+    ///   up there, and does not once the frame before it is held at the top, so such a frame
+    ///   stays as it is (https://github.com/vocaro/EPUBLib/issues/242).
     ///
-    /// Rounding reaches this limit only on a page some ten billion points down its section,
-    /// which is then laid out as it would be without the limit. A box pushed down by less than
-    /// it is held at the top, and what follows stands that much lower, less than a millionth
-    /// of a point.
+    /// Twenty ulps reach the limit about 2.7e8 points down a section. Ordinary prose in the
+    /// 4 MiB a content document may have stays under about 6e7 even in 96-point type, and its
+    /// residual under about 2e-7, a fifth of the limit. A hostile section (a character a line
+    /// at 400 points and five times the line height) can reach about 8e9, where a page is at
+    /// worst laid out as it would be without the limit. A box pushed down by less than the
+    /// limit is held at the top, and what follows stands that much lower.
     static let roundingLimit: CGFloat = 1e-6
 
     /// TextKit starts the next fragment where this frame ends, and cannot lay out a fragment
@@ -37,9 +40,10 @@ final class ReaderBoxLayoutFragment: NSTextLayoutFragment {
     /// goes to the container's top, one over another. A box ends where it starts because its
     /// bottom margin takes back its lines' height, but TextKit reads the margins before it
     /// lays the lines out and adds them to the height in the container's coordinates, so the
-    /// sum comes to nothing only within rounding: a box that opens a page or a section could
-    /// end a few 1e-14 above the top. A frame that ends less than `roundingLimit` above the top
-    /// ends at it; one that ends further above it is left as it is.
+    /// sum comes to nothing only within rounding: a box that opens a section could end a few
+    /// 1e-14 above the top, and one that opens a page further down it by more. A frame that
+    /// ends less than `roundingLimit` above the top ends at it; one that ends further above it
+    /// is left as it is.
     override var layoutFragmentFrame: CGRect {
         var frame = super.layoutFragmentFrame
         let end = frame.origin.y + frame.size.height

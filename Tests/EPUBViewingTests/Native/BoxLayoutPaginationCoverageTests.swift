@@ -417,10 +417,10 @@ private final class BoxMarginFragments: NSObject, NSTextLayoutManagerDelegate {
     /// A page that opens with boxes is the section's own layout from the boxes down: no line
     /// over another, each line broken where the whole section breaks it and as far below the
     /// page's first. A box takes back its lines' height with a negative margin, which TextKit
-    /// adds to that height only to within rounding, a few 1e-14 either way with the text size
-    /// and how far down the section the box is. Where the sum fell short the paragraph after
-    /// the boxes started above the page's top and had all its lines on one row, so the boxes
-    /// are tried at many heights and sizes.
+    /// adds to that height only to within rounding: this near a section's top a few 1e-14
+    /// either way, with the text size and where the box stands. Where the sum fell short the
+    /// paragraph after the boxes started above the page's top and had all its lines on one
+    /// row, so the boxes are tried at many heights and sizes.
     func testAPageOpeningWithBoxesIsLaidOutAsTheSectionIsWhereverTheBoxesStand() throws {
         let small = CGSize(width: 180, height: 240)
         for (name, body, css) in pageOpeners {
@@ -527,10 +527,17 @@ private final class BoxMarginFragments: NSObject, NSTextLayoutManagerDelegate {
         XCTAssertGreaterThanOrEqual(rows.count, 4, "the second paragraph wraps")
         XCTAssertEqual(rows, rows.sorted()); XCTAssertEqual(Set(rows).count, rows.count, "its lines are in rows")
         assertLeftAlone([:], "no margins")
+        // The limit between a residual and a distance, from both sides: a frame that ends half
+        // of it above the top is held there, and one that ends twice it above is left alone.
+        // Both follow the constant, so its value is held here too: the one its measurements
+        // bear out.
+        let limit = ReaderBoxLayoutFragment.roundingLimit
+        XCTAssertEqual(limit, 1e-6, "see what `ReaderBoxLayoutFragment.roundingLimit` was measured against before changing it")
         for top: CGFloat in [0, 30] {
-            // What the sum of a box's margins and its height is out by: a few 1e-14 on a short
-            // page, more the further down a section the page starts.
-            for residual: CGFloat in [0, heights[0].ulp, 2.2e-14, 1.4e-11, 1e-9] {
+            // What the sum of a box's margins and its height is out by: a few 1e-14 at the head
+            // of a section and up to about twenty ulps of the depth further down it (7.1e-11 at
+            // 16,543 points, 1.7e-9 at 904,000). Half the limit is still taken for it.
+            for residual: CGFloat in [0, heights[0].ulp, 2.2e-14, 1.4e-11, 1e-9, limit / 2] {
                 let label = "a top margin of \(top) and \(residual) more than its height taken back"
                 let fragments = layout([starts[0]: (top, -(top + heights[0] + residual))])
                 XCTAssertEqual(fragments[0].lines.first ?? -1, top, accuracy: 1e-6, label)
@@ -540,8 +547,9 @@ private final class BoxMarginFragments: NSObject, NSTextLayoutManagerDelegate {
                 for (line, row) in zip(fragments[1].lines, rows) { XCTAssertEqual(line, row, accuracy: 1e-6, "its lines keep their rows: \(label)") }
                 XCTAssertEqual(fragments[2].frame.origin.y, heights[1], accuracy: 1e-6, label)
             }
-            // What a page's first box that was pushed down ends above the top by.
-            for distance: CGFloat in [0.5, 9.5, 13] {
+            // Twice the limit, then what a page's first box that was pushed down ends above the
+            // top by.
+            for distance: CGFloat in [limit * 2, 0.5, 9.5, 13] {
                 let label = "a top margin of \(top) and \(distance) more than its height taken back"
                 let margins = [starts[0]: (top: top, bottom: -(top + heights[0] + distance))]
                 assertLeftAlone(margins, label)
