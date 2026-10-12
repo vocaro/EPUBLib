@@ -383,11 +383,12 @@ import UIKit
     /// A box rested by its top edge stays there through changes of the visible height at the
     /// same column width. Its first line moves by the change in the space above it, and on the
     /// Mac the step that holds the first line on screen in place after a layout behind the view
-    /// took that for one and scrolled by as much (#313). That step asks whether the visible top
-    /// is exactly where it was, and the rest reaches the same place by arithmetic that differs
-    /// in the last bit from one height to another, so the defect came and went. Here 700 to
-    /// 560 showed it on 2026-10-12; 700 to 600 and to 650 move the line by 49 and 24.5 points,
-    /// which are exact in binary and so leave the arithmetic the same wherever the box is.
+    /// took that for one and scrolled by as much (#313). When this was found the step compared
+    /// the visible top with where it had been for equality, and the rest reaches the same place
+    /// by arithmetic that differs in the last bit from one height to another, so the defect
+    /// came and went. Here 700 to 560 showed it on 2026-10-12; 700 to 600 and to 650 move the
+    /// line by 49 and 24.5 points, which are exact in binary and so leave the arithmetic the
+    /// same wherever the box is.
     func testAChangeOfHeightAloneKeepsABoxRestedByItsTopEdgeAtTheTop() async throws {
         let prose = String(repeating: "<p>A paragraph of ordinary reading text for pagination.</p>", count: 60)
         let texts = [try H.build(F.shippedTitleBody, css: F.shippedCSS), try H.build(F.shippedDedicationBody, css: F.shippedCSS),

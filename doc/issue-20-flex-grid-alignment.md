@@ -496,11 +496,11 @@ and the Mac run have no failure.
   rested by its top edge above or below the top by the change in the space above its first
   line. The step that holds the first line on screen in place after a layout behind the view
   ([Layout](native-viewer.md#layout)) took the box's new height for one: the top edge rested
-  where it had, so the view had not moved, and the first line had. It asks whether the
-  visible top is exactly where it was, and the rest reaches the same place by arithmetic that
-  differs in the last bit from one height to another, so it happened on some resizes and not
-  others. The reader now forgets where that line stood whenever a new visible height resolves
-  the boxes again, as it does for a new column width
+  where it had, so the view had not moved, and the first line had. When this was found the
+  step compared the visible top with where it had been for equality, and the rest reaches the
+  same place by arithmetic that differs in the last bit from one height to another, so it
+  happened on some resizes and not others. The reader now forgets where that line stood
+  whenever a new visible height resolves the boxes again, as it does for a new column width
   ([#313](https://github.com/vocaro/EPUBLib/issues/313)). With the shipped pages in a canvas
   500 points wide, the dedication shown after the title page was 68.6 points low after the
   height went from 700 to 560, 49 after 700 to 600 and 24.5 after 700 to 650, with the title
