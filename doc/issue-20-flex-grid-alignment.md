@@ -534,7 +534,8 @@ and the Mac run have no failure.
 - A container holding a float or positioned box is left in block flow, and a section with
   both an aligned box and such boxes relies on the existing box geometry for the latter.
 - In continuous scroll a change of the visible height re-resolves the whole text's attributes
-  when it holds an aligned box, as it already does for percentage-sized paragraphs.
+  when it holds an aligned box, as it already does for percentage-sized paragraphs, and the
+  kept position is rested again afterwards.
 - `text-wrap: pretty` and `balance` are not laid out: lines break greedily, where WebKit evens
   them out. `hanging-punctuation` is not laid out: a quotation mark a browser hangs outside
   its block is inside it, which makes the block that much wider.
@@ -579,3 +580,29 @@ and the Mac run have no failure.
   dedication reported through seven changes of height. The resize keeping the visible start
   whether or not the person has scrolled is
   [#164](https://github.com/vocaro/EPUBLib/issues/164).
+- A bar shown or hidden over a reader that runs under it changes the visible height and not
+  the reader's size, and the boxes were then resolved for the new height with nothing resting
+  the kept position afterwards, as a resize does. On an iPhone 17 Pro simulator, through the
+  public reader under a `NavigationStack`'s bar, the fixture's epigraph stood 81 points below
+  the top of the visible area while the bar was hidden (24 above it under a canvas with the
+  bottom toolbar shown; 27.5 and 23.5 below with the shipped pages, with the title page's
+  last line as the visible start). On the Mac, with the reader under the title bar of a
+  full-size content view, a toolbar changed the scroll view's insets and the next layout of
+  the reader, which a change of appearance brings, drew the chapter: through the public
+  reader the epigraph was shown, then the dedication and then the chapter were reported as
+  the place, and a place in the chapter became one 17 paragraphs on. The reader now rests the
+  kept position again whenever a new visible height has resolved the boxes
+  ([Layout](native-viewer.md#layout), [#338](https://github.com/vocaro/EPUBLib/issues/338)):
+  the epigraph stays within a point of the top and is the place reported through four
+  changes of the bar on both, and so does a place in the chapter. UIKit reports the
+  scrolling of an inset change only once the change is over, so the rest made during it was
+  taken for the person's scroll, and the next bar change kept the visible start as read after
+  UIKit had moved the view for the bar: on an iPad Air simulator a paragraph shown was 38.6
+  points below the top after the bar had hidden twice. A report that finds the view where
+  the rest left it is now the reader's own. Measured in test hosts on
+  2026-10-12 and not looked at on a screen or a device. Two things follow. On iOS the line
+  being read in a book with such boxes moves to the top of the taller area when a bar hides,
+  where it stayed where it was on screen before, as it still does in a book with none. And
+  on the Mac the reader is still not laid out when a toolbar changes the insets
+  ([#162](https://github.com/vocaro/EPUBLib/issues/162)), so until something else lays it
+  out its boxes are resolved for the old height.

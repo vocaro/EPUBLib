@@ -102,6 +102,15 @@ import AppKit
     #if os(macOS)
     /// Where the reader last put the scroll view's insertion point (`placeScrollInsertionPoint`).
     private var placedScrollInsertionPoint: Int?
+    /// Posts an accessibility notification from an element. A test puts its own closure here to
+    /// see what an assistive client is told when a spread is installed.
+    var postAccessibilityNotification: @MainActor (Any, NSAccessibility.Notification, [NSAccessibility.NotificationUserInfoKey: Any]) -> Void = {
+        NSAccessibility.post(element: $0, notification: $1, userInfo: $2)
+    }
+    #else
+    /// The offset a rest for a new visible height left the scroll view at, until UIKit reports
+    /// the scrolling of that inset change (`scrollViewDidChangeAdjustedContentInset`).
+    var restedScrollOffset: CGFloat?
     #endif
 
     var wheelTurner = ReaderWheelPageTurner()
@@ -521,12 +530,16 @@ import AppKit
         }
         isApplyingSelection = false
         #if os(macOS)
-        // VoiceOver keeps a column's previous text and its own cursor in it across a value
-        // change it did not witness from inside that column. Naming the columns as changed
-        // elements makes it read the new page, from its first line.
+        // VoiceOver keeps a column's previous text across a value change it did not witness
+        // from inside that column; a layout change naming the columns makes it read the new
+        // page. It also keeps a text cursor of its own in a column it has left, and on coming
+        // back moves the insertion point there instead of entering at it, so it read on from
+        // the line it had reached on the page before. It gives that cursor up when the change
+        // is posted by the element that holds the columns, and keeps it when the window posts
+        // the same change (#337).
         if let window {
-            NSAccessibility.post(element: window, notification: .layoutChanged,
-                                 userInfo: [.uiElements: columns.filter { !$0.isHidden }])
+            postAccessibilityNotification(NSAccessibility.unignoredAncestor(of: self) ?? window, .layoutChanged,
+                                          [.uiElements: columns.filter { !$0.isHidden }])
         }
         #endif
         trimPaginators()
@@ -601,7 +614,7 @@ import AppKit
         if let retainedStart { anchor = retainedStart }
         scrollGeometry = (bounds, column.minX, column.width)
         withProgrammaticScroll { applyScrollGeometry(columnMinX: column.minX, width: column.width) }
-        updateScrollViewport()
+        updateScrollViewport(rest: false)
         if created { loadScrollContent() }
         scrollToAnchor()
         updateVisibleRange(force: created)
@@ -613,14 +626,25 @@ import AppKit
     /// width relays everything out anyway. Boxes are resolved against it again, which lays all
     /// the text out anew where there are any: a box that takes its height from the visible area
     /// moves its first line by the change in the space above it while its top edge stays, and
-    /// `settleScrollViewport` must not take that for a layout behind the view (#313).
-    func updateScrollViewport() {
-        guard let textView = scrollTextView, let geometry = scrollGeometry else { return }
+    /// `settleScrollViewport` must not take that for a layout behind the view (#313). Every
+    /// line below such a box moves with it, and until it is laid out again its place is an
+    /// estimate, so the kept position is then rested again as after a resize: a bar shown or
+    /// hidden over the reader changes the visible height and not the canvas's size (#338).
+    /// `rest` is false where the caller rests the position itself. True when it was rested.
+    @discardableResult func updateScrollViewport(rest: Bool = true) -> Bool {
+        guard let textView = scrollTextView, let geometry = scrollGeometry else { return false }
         let viewport = CGSize(width: geometry.width, height: max(0, scrollVisibleContainerRect.height))
-        if textView.readerContainer.viewportSize != viewport {
-            textView.readerContainer.viewportSize = viewport
-            if textView.refreshFlowBoxLayout() { scrollPlace = nil }
-        }
+        guard textView.readerContainer.viewportSize != viewport else { return false }
+        // The visible start is read from the layout the new height is about to replace.
+        let retainedStart = rest && anchorFollowsScroll && textView.layoutFollowsViewport ? scrollVisibleRange()?.start : nil
+        textView.readerContainer.viewportSize = viewport
+        guard textView.refreshFlowBoxLayout() else { return false }
+        scrollPlace = nil
+        guard rest else { return false }
+        if let retainedStart { anchor = retainedStart }
+        scrollToAnchor()
+        updateVisibleRange(force: false)
+        return true
     }
 
     private func tearDownScroll() {
@@ -817,14 +841,15 @@ import AppKit
     }
 
     /// The platform scroll view moved; reports the visible range at most every 150 ms. A move
-    /// that leaves the view where it was last read is the platform's, and nobody scrolled.
-    func scrollPositionDidChange() {
+    /// that leaves the view where it was last read is the platform's, and nobody scrolled; nor
+    /// has anybody when the platform reports the reader's own scroll late (`byReader`).
+    func scrollPositionDidChange(byReader: Bool = false) {
         let ordered = ReaderHighlight.drawingOrder(highlights)
         scrollTextView?.setTableHighlights(ordered)
         if let range = currentSelection?.range, range.start.tableCell != nil || range.end.tableCell != nil {
             _ = scrollTextView?.selectTableRange(range, reporting: false)
         }
-        guard !isScrollingProgrammatically, !scrollViewStandsWhereRead else { return }
+        guard !byReader, !isScrollingProgrammatically, !scrollViewStandsWhereRead else { return }
         anchorFollowsScroll = true
         guard !scrollReportPending else { return }
         scrollReportPending = true

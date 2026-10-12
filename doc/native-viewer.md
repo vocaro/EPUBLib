@@ -417,6 +417,26 @@ as they did.
   scroll the box off its rest by as much
   ([#313](https://github.com/vocaro/EPUBLib/issues/313)). A book with no box to resolve is
   not laid out again for a new height, and its place is held as before.
+  Every line below a box that follows the visible height moves with it, and its place is an
+  estimate until it is laid out again. So once the boxes are resolved for a new height the
+  reader rests the kept position again, as after a resize: the last one shown, or the visible
+  start, read from the layout the new height replaces, once the person has scrolled or AppKit
+  has moved the view by a point or more for a bar. A bar shown or hidden over a reader that
+  runs under it (a host's `ignoresSafeArea()`) changes the visible height and not the
+  reader's size. Without the rest an epigraph stood 81 points below the top on an iPhone
+  while the navigation bar was hidden, and on the Mac, after a toolbar was shown over a
+  full-size content view, the next layout drew another chapter, which the reader reported
+  ([#338](https://github.com/vocaro/EPUBLib/issues/338)). On iOS the rest puts the line being
+  read at the top of the taller area when a bar hides. UIKit reports the scrolling of an
+  inset change once the change is over, the reader's rest included. Where that report finds
+  the view as the rest left it, nobody has scrolled, and the position kept stays the one
+  rested: the visible start cannot be read then, because UIKit has moved the view for the
+  bar and the text under it is being laid out again. On an iPad a paragraph shown otherwise
+  ended 38.6 points below the top once the bar had hidden twice. A book with no box to
+  resolve is left as UIKit leaves it: when a bar hides, its text stays where it is on
+  screen. On the Mac nothing lays the reader out when a toolbar changes the insets
+  ([#162](https://github.com/vocaro/EPUBLib/issues/162)), so the boxes stay resolved for the
+  old height until something else does: a change of appearance, or a resize.
   On Mac, VoiceOver enters a text view at its insertion point, which a read-only view does not
   draw and replaced text leaves at its end: the end of the book. New text starts with it at
   its first line, and the scroll view's is kept on the first line on screen. A move the reader
@@ -461,6 +481,10 @@ as they did.
   accessibility text, line, style, frame and selection queries are bounded to the visible page.
   Installing a spread posts a value change for each column and a layout change naming the
   visible columns, without which VoiceOver can keep reading a column's previous page. The
+  layout change is posted by the element that holds the columns, the canvas's nearest
+  accessibility ancestor. Posted by the window, it left VoiceOver the text cursor it keeps in
+  a column it has left: after a page turn VoiceOver came back to the column at the offset it
+  had on the page before ([#337](https://github.com/vocaro/EPUBLib/issues/337)). The
   insertion point after a page's last character, and an offset an assistive client kept from
   a longer page, are on its last line.
   UIKit exposes visible line/run accessibility children with links, attachment labels and

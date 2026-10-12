@@ -125,6 +125,19 @@ The read is a stand-in. A test host loads no text accessibility for an in-proces
 tests ask for each paragraph's rectangle through `firstRect(for:)` on UIKit and
 `accessibilityFrame(for:)` on AppKit, and require that this laid the whole book out.
 
+Bar tests hold continuous scroll to its place when a bar shows or hides over a reader that runs
+under it, which changes the height of the visible area and not the reader's size.
+`CanvasHost(…, underBars: true)` puts the canvas under a navigation bar on iOS and under the
+title bar of a full-size content view on the Mac, and `setBar(shown:)` hides the one and gives
+the window a toolbar on the other. On the Mac nothing lays the canvas out when a toolbar changes
+the scroll view's insets ([#162](https://github.com/vocaro/EPUBLib/issues/162)), so the harness
+waits for the insets and asks for the layout. The session test uses the public reader with
+`ignoresSafeArea()`: under a `NavigationStack` whose bar it hides on iOS, and on the Mac in a
+window whose toolbar it shows and hides, each followed by a change of appearance, which lays the
+reader out. The bars are the system's own, in a test host; nothing is looked at on a screen.
+Each window's toolbar has an identifier of its own: toolbars that share one share their
+visibility across the windows of a process, so hiding one hides the next test's.
+
 Highlight paint tests read the pixels the mounted reader's views last drew: none in the
 highlight's color before a search, the matches after it, and none again after Clear Search,
 with no reflow between. They cover both flows, one- and two-column spreads, dark appearance,
