@@ -26,6 +26,19 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
    discloses that saved positions and highlights are unavailable for those sections.
    For that parser a `<` that opens no markup (`x < y`, `p <.05`) is kept as text, as HTML
    reads it; libxml2 alone discards what follows it.
+   That parser is given UTF-8, so an unclosed tag does not change a section's characters:
+   UTF-16 and UTF-32 are decoded first, told by the byte-order mark or NUL pattern the screen
+   tells them by, and any other encoding by the name in the XML declaration as the XML parser
+   reads it, with that parser's decoder. An HTML `<meta charset>` is not read, and a
+   declaration the XML parser rejects names nothing. A document that its declared encoding
+   cannot decode is read as UTF-8, with U+FFFD for what is not. Bytes that only a NUL tells
+   as UTF-16 or UTF-32, and that hold no markup once decoded, are not a document and are
+   withheld. What was decoded by a declared encoding is screened again, and what the parser
+   is given is held to the byte limit.
+   U+0000 does not end the section: it is left out of text and is U+FFFD in tags, comments
+   and the raw text of `script` and `style`, as HTML reads it.
+   A section whose file is cut off inside markup stays withheld, with its disclosure: the
+   screen refuses markup left open at the end of the input before either parser runs.
    `XMLSafety` refuses entity declarations first. No DTD or network access, depth and node limits.
 2. **Style** (`StyleResolver`, `CSSStyleSheet`, `FontRegistry`). A bounded CSS parser and
    cascade over a user-agent stylesheet, the book's archive-local stylesheets and `style`
