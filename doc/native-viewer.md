@@ -201,9 +201,42 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   whole table still resolve to that table; new cell ranges identify the selected characters.
   Interaction surfaces are mounted only for visible cells. Cell TextKit
   layouts and glyph metadata are retained for drawing in the table's bounded layout cache.
-- **Footnotes.** EPUB 3 `noteref` links show their note in a popover, whether they name the
-  note or an element that opens it, such as its first paragraph. Footnote `aside`s are
-  hidden from the flow; endnotes stay in place and also show in popovers.
+- **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
+  hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
+  in place and also show in popovers.
+  - A footnote hidden from the flow has nowhere else to be read, so a link may name it or
+    any element inside it (its first paragraph, a later one, the text after its number) and
+    the popover shows the whole note either way. A note inside such a footnote is hidden with
+    it and is named the same way.
+  - A note that stays in the flow is named by its own id and by the ids of its leading
+    descendants (its first child, and that one's): a link may name its first paragraph or
+    the number that opens it. A link to any other element inside it finds no note and
+    navigates to that element, which can be read where it is. An endnotes list marked as one
+    note is the case that matters: a reference to its seventeenth item goes to that item
+    rather than opening the whole list from the top.
+  - A table cell, row, row group, caption or column marked as a footnote
+    (`role="doc-footnote"`) is not hidden on that account: unless a hidden footnote is
+    around it, it is named as a note that stays in the flow. A table of two or more columns
+    is drawn as a grid, which shows such a part in its place whatever its role, so a link to
+    a later element inside it navigates to the table. A table of one column flows as text
+    and does leave the part out; a link to a later element inside it then finds nothing to
+    show. A footnote inside a cell is hidden as it is anywhere else.
+  - An id inside a note nested in another names the nested note alone, and that note is left
+    out of the outer note's popover. Two exceptions keep text from being lost: a nested note
+    that no id names, which nothing could open, is part of the note around it; and a note
+    with nothing of its own (two elements marking one note, or a wrapper around several)
+    shows the notes nested in it, two levels of them. Notes nested deeper in notes that hold
+    only one another are left out of the outer ones, so that such nesting cannot multiply the
+    work of building a section.
+  - An id used more than once names one note: one that carries it on its own element or a
+    leading descendant before a hidden one that holds it elsewhere, and otherwise the first
+    in the document.
+  - A link without the `noteref` type acts as one when it names a note or one of its
+    children, or anything inside a footnote hidden from the flow: it shows the note that id
+    names, and navigates where the id names none (a later child of a note that stays in the
+    flow). Deeper into a note that is in the flow it is an ordinary link and navigates.
+    Inside a popover, a link to the note being shown is plain text.
+  - A footnote `aside` with no id anywhere in it cannot be referred to and is not shown.
 - **Flex and grid.** TextKit lays a section out as one column of paragraphs, so the reader
   aligns the flex and grid layouts that keep that column: a column flex container, a one-column
   grid and a row flex container with a single item
@@ -311,6 +344,9 @@ as they did.
   is the column's width, set only when that changes, so a resize lays the text out once at most.
   On Mac, the column uses the actual scroll viewport's horizontal extent, including width
   reserved by a legacy scrollbar; a scrollbar preference change also recalculates wrapping.
+  A legacy scrollbar appears once the text is longer than the window, which is after the
+  column was first set, so the text is laid out again at the narrower width in the layout pass
+  that follows, before the scroll view is first drawn.
   A shown position's line rests at the top of the visible area, or the top edge of an aligned
   box around it that fits there ([Flex and grid alignment](#flex-and-grid-alignment)). Far
   from what is laid out, TextKit 2 only estimates where text is, and the viewport's layout
@@ -336,14 +372,20 @@ as they did.
   holds the area's middle, such as a long table row. When the area's middle is in a gap and
   that leaves no line, every line showing at all counts
   ([#305](https://github.com/vocaro/EPUBLib/issues/305)).
-  An assistive technology's read lays the whole text out behind the view: VoiceOver and a UI
+  An assistive technology's read can lay the whole text out behind the view: on Mac, and on
+  iOS before the scroll view listed only its lines on screen (below), VoiceOver and a UI
   test's snapshot ask where every paragraph is. That replaces the estimates the visible lines
   were placed by. UIKit goes on drawing the viewport's paragraphs where they were, over the
   place the finished layout gives other text, so the visible range is read from the paragraphs
   the viewport laid out, once it has been laid out again where the view stands. AppKit would
   draw the finished layout at the old offset, a chapter away, at the next scroll, so while the
   view has not moved since it was last read, the reader first scrolls by as much as the first
-  visible line has moved. A layout the reader makes itself is not one behind the view, and it
+  visible line has moved. AppKit moves the view itself, by a fraction of a point, when it
+  aligns the offset to the pixel grid at the scroll view's first display. A view within a point
+  of where it was last read has not moved and nobody has scrolled it: its first line is still
+  held, and the position kept is still the one shown, not the visible start
+  ([#302](https://github.com/vocaro/EPUBLib/issues/302)).
+  A layout the reader makes itself is not one behind the view, and it
   forgets where that line stood when it makes one: for new text, for a new column width, and
   when a new visible height (the window's, or the safe area's alone) resolves the book's
   boxes again. A box that takes its height from the visible area then moves its first line by
@@ -359,9 +401,32 @@ as they did.
   put it, so one placed by a click or by VoiceOver, which scrolls the view as it reads, stays.
   A selection is never moved, and nothing is scrolled. Each such move also posts a layout
   change naming the text view: without it VoiceOver, back in a text it had left, returns to
-  its own previous cursor and scrolls the view there. On iOS VoiceOver reads the text view's
-  own elements, from the book's first paragraph when it moves in from the controls
+  its own previous cursor and scrolls the view there.
+  On iOS, VoiceOver walks a text view's accessibility elements and, moving in from a control,
+  takes the first. UIKit's own are every paragraph of the book, so it took the book's first
+  paragraph and scrolled the reader back to it. The scroll view lists its lines instead, as a
+  page column does: the lines on screen, each with the links and attachments in it as elements
+  of their own, and each by the part of it inside the area the insets leave. UIKit scrolls a
+  line the cursor comes to until that area holds its frame and then 40 points further, and
+  the first line on screen is often cut by the top inset, so its whole frame would move the
+  reader as VoiceOver came in. While the cursor is on a line, the two lines before the screen
+  and the two after it are listed as well, and the two each side of the cursor's own line:
+  VoiceOver moves on to them, UIKit scrolls the one it lands on into view, and it reads on
+  through the book in either direction. Two, because from a line that was the first listed
+  when VoiceOver took it, it goes back to the control before the text whatever has been
+  listed before that line since. The cursor counts as in the text from the moment a line is
+  told it has it until UIKit's focus notification names something that is not one of the
+  view's lines, or VoiceOver is switched. A line left is told so, and a notification naming
+  only it is posted, before the next line is told it has the cursor; when either was taken
+  for the cursor leaving, the list shrank to the screen for a moment and VoiceOver stopped at
+  a line it had reached above the screen. A line keeps its element while it is listed or
+  under the cursor. Listing scrolls nothing and selects nothing
   ([#301](https://github.com/vocaro/EPUBLib/issues/301)).
+  One case is open. Straight after a menu closes, the contents menu on an iPad on its side
+  for one, VoiceOver can walk the lines it found on screen at that moment and no others: it
+  comes in at the first line, reads to the last that was on screen, and goes on to the scroll
+  bar ([#339](https://github.com/vocaro/EPUBLib/issues/339); [VoiceOver testing](voiceover-testing.md),
+  "Harness pitfalls and current results").
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
@@ -545,7 +610,9 @@ The following are the defaults. Host commands and accessibility actions stay ena
 - Keys (all flows): Left/Page Up previous, Right/Page Down/Space next, Shift-Space previous.
   In continuous scroll a page turn scrolls by one viewport less a line.
 - VoiceOver: page-turn actions via `accessibilityScrollAction` and the named "Next Page" and
-  "Previous Page" actions; text reads in order from the text views.
+  "Previous Page" actions; text reads in order from the text views. In continuous scroll it
+  starts at the first line on screen: on Mac at the insertion point kept there, on iOS at the
+  first of the lines the scroll view lists (see "Continuous scroll" under Layout).
 - Selection: native selection UI with the host's `EPUBSelectionAction` in the edit or context
   menu, no length cap. Dragging can extend a selection across a two-column spread in either
   reading direction. A located passage is selected in every visible column and remains

@@ -144,9 +144,9 @@ extension ReaderCanvasView: NSTextViewDelegate {
     /// the finished layout has at the old offset, a chapter away. While the view has not moved
     /// since it was last read, this scrolls it by as much as the first line on screen has moved.
     func settleScrollViewport() {
-        guard let place = scrollPlace, place.visibleTop == scrollVisibleContainerRect.minY,
+        guard let place = scrollPlace, scrollViewStandsWhereRead,
               let line = scrollTextView?.lineFrame(containing: place.location), abs(line.minY - place.lineTop) > 0.5 else { return }
-        scrollToContainerY(place.visibleTop + line.minY - place.lineTop)
+        scrollToContainerY(scrollVisibleContainerRect.minY + line.minY - place.lineTop)
         scrollPlace = (place.location, line.minY, scrollVisibleContainerRect.minY)
     }
 

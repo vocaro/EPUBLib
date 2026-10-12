@@ -88,6 +88,13 @@ import AppKit
     /// out itself (new text, a new column width, boxes resolved for a new visible height): its
     /// lines then move by the reader's own doing, not by a layout behind the view.
     var scrollPlace: (location: Int, lineTop: CGFloat, visibleTop: CGFloat)?
+    /// Whether the scroll view stands where it was last read, to within a point. AppKit aligns
+    /// the offset to the pixel grid when the clip view gets its layer, at the scroll view's first
+    /// display, which moves the view by less than that with no scroll by the person.
+    var scrollViewStandsWhereRead: Bool {
+        guard let place = scrollPlace else { return false }
+        return abs(scrollVisibleContainerRect.minY - place.visibleTop) < 1
+    }
     #if os(macOS)
     /// Where the reader last put the scroll view's insertion point (`placeScrollInsertionPoint`).
     private var placedScrollInsertionPoint: Int?
@@ -805,14 +812,15 @@ import AppKit
         isScrollingProgrammatically = wasScrolling
     }
 
-    /// The platform scroll view moved; reports the visible range at most every 150 ms.
+    /// The platform scroll view moved; reports the visible range at most every 150 ms. A move
+    /// that leaves the view where it was last read is the platform's, and nobody scrolled.
     func scrollPositionDidChange() {
         let ordered = ReaderHighlight.drawingOrder(highlights)
         scrollTextView?.setTableHighlights(ordered)
         if let range = currentSelection?.range, range.start.tableCell != nil || range.end.tableCell != nil {
             _ = scrollTextView?.selectTableRange(range, reporting: false)
         }
-        guard !isScrollingProgrammatically else { return }
+        guard !isScrollingProgrammatically, !scrollViewStandsWhereRead else { return }
         anchorFollowsScroll = true
         guard !scrollReportPending else { return }
         scrollReportPending = true
@@ -830,6 +838,17 @@ import AppKit
     /// shows less than half of is not on screen, so the line above a position resting a
     /// fraction of a point low (`anchorFrameIsVisible`) is not the visible start.
     private func scrollVisibleRange() -> ReaderTextRange? {
+        guard let textView = scrollTextView, let shown = scrollVisibleCharacters() else { return nil }
+        if let book = scrollBook {
+            return ReaderTextRange(start: book.position(at: shown.location), end: book.position(at: NSMaxRange(shown)))
+        }
+        guard let section = textView.placement.section else { return nil }
+        return ReaderTextRange(section: section, shown.location..<NSMaxRange(shown))
+    }
+
+    /// The characters of the lines in the visible area (not under the bars), in the scroll
+    /// view's own text.
+    func scrollVisibleCharacters() -> NSRange? {
         guard let textView = scrollTextView, scrollBook != nil || textView.placement.section != nil else { return nil }
         // The layout is what the view draws only once the viewport has settled on it.
         withProgrammaticScroll { settleScrollViewport() }
@@ -847,11 +866,7 @@ import AppKit
         #if os(macOS)
         scrollPlace = textView.lineFrame(containing: start).map { (start, $0.minY, rect.minY) }
         #endif
-        if let book = scrollBook {
-            return ReaderTextRange(start: book.position(at: start), end: book.position(at: end))
-        }
-        guard let section = textView.placement.section else { return nil }
-        return ReaderTextRange(section: section, start..<end)
+        return NSRange(location: start, length: end - start)
     }
 
     #if os(macOS)
@@ -861,7 +876,8 @@ import AppKit
     /// makes itself (`requested`) puts it at the visible start. After any other scrolling it
     /// follows only while it is where the reader last put it: one placed by a click, or by an
     /// assistive client that scrolls the view as it reads, stays there. A selection is never
-    /// moved. On iOS VoiceOver reads the text view's elements and enters at none.
+    /// moved. On iOS VoiceOver reads the text view's elements and enters at none: there the
+    /// scroll view lists its lines on screen (`ReaderTextView`).
     private func placeScrollInsertionPoint(at start: ReaderTextPosition, requested: Bool) {
         guard let textView = scrollTextView else { return }
         if textView.selectedRange.length == 0, requested || textView.selectedRange.location == placedScrollInsertionPoint {
