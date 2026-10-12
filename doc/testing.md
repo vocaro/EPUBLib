@@ -30,7 +30,12 @@ suite gives one result by day and in the evening. A test that needs a dark host 
 `ReaderTestWindow.pageControls.colorScheme`.
 `NativeSessionTests.testATestWindowKeepsItsReaderLightUntilTheTestAsksForDark` holds the harness
 to that: on the Mac under a dark appearance for its own process, and on iOS, where a test process
-cannot make its device dark, by the window's own style.
+cannot make its device dark, by the window's own style. To run a Mac bundle as a machine in light
+appearance would, whatever the system setting, pass the argument after `-XCTest`:
+
+```sh
+xcrun xctest -XCTest All -NSRequiresAquaSystemAppearance YES .build/debug/EPUBViewingTests.xctest
+```
 
 ## Coverage
 
