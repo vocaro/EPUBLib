@@ -11,7 +11,8 @@ import XCTest
 ///
 /// No assistive technology is driven here. The tests read the insertion point as VoiceOver does,
 /// through the text view's accessibility protocol, and move it as VoiceOver and a click do.
-/// VoiceOver on iOS reads the text view's elements and has no insertion point to enter at.
+/// VoiceOver on iOS reads the text view's elements and has no insertion point to enter at
+/// (`ScrolledAccessibilityLinesTests`).
 @MainActor final class ScrolledAccessibilityEntryTests: XCTestCase {
     private typealias Subject = (reader: SessionCoverageReader, canvas: ReaderCanvasView)
     private var readers: [SessionCoverageReader] = []

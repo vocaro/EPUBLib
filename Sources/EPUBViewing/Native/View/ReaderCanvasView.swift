@@ -829,6 +829,17 @@ import AppKit
     /// shows less than half of is not on screen, so the line above a position resting a
     /// fraction of a point low (`anchorFrameIsVisible`) is not the visible start.
     private func scrollVisibleRange() -> ReaderTextRange? {
+        guard let textView = scrollTextView, let shown = scrollVisibleCharacters() else { return nil }
+        if let book = scrollBook {
+            return ReaderTextRange(start: book.position(at: shown.location), end: book.position(at: NSMaxRange(shown)))
+        }
+        guard let section = textView.placement.section else { return nil }
+        return ReaderTextRange(section: section, shown.location..<NSMaxRange(shown))
+    }
+
+    /// The characters of the lines in the visible area (not under the bars), in the scroll
+    /// view's own text.
+    func scrollVisibleCharacters() -> NSRange? {
         guard let textView = scrollTextView, scrollBook != nil || textView.placement.section != nil else { return nil }
         // The layout is what the view draws only once the viewport has settled on it.
         withProgrammaticScroll { settleScrollViewport() }
@@ -846,11 +857,7 @@ import AppKit
         #if os(macOS)
         scrollPlace = textView.lineFrame(containing: start).map { (start, $0.minY, rect.minY) }
         #endif
-        if let book = scrollBook {
-            return ReaderTextRange(start: book.position(at: start), end: book.position(at: end))
-        }
-        guard let section = textView.placement.section else { return nil }
-        return ReaderTextRange(section: section, start..<end)
+        return NSRange(location: start, length: end - start)
     }
 
     #if os(macOS)
@@ -860,7 +867,8 @@ import AppKit
     /// makes itself (`requested`) puts it at the visible start. After any other scrolling it
     /// follows only while it is where the reader last put it: one placed by a click, or by an
     /// assistive client that scrolls the view as it reads, stays there. A selection is never
-    /// moved. On iOS VoiceOver reads the text view's elements and enters at none.
+    /// moved. On iOS VoiceOver reads the text view's elements and enters at none: there the
+    /// scroll view lists its lines on screen (`ReaderTextView`).
     private func placeScrollInsertionPoint(at start: ReaderTextPosition, requested: Bool) {
         guard let textView = scrollTextView else { return }
         if textView.selectedRange.length == 0, requested || textView.selectedRange.location == placedScrollInsertionPoint {
