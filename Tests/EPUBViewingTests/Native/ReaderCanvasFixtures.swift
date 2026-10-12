@@ -275,4 +275,16 @@ enum CanvasScrollBars: CaseIterable {
     func settle(_ milliseconds: Int = 300) async throws {
         try await Task.sleep(for: .milliseconds(milliseconds))
     }
+
+    /// Lets the canvas's settling run and returns the selection it has reported, waiting on
+    /// when it has reported none yet. The canvas reports 150 ms after the selection last
+    /// changed, and that can be later than a test's own wait: on a hosted runner with nothing
+    /// else to do, a 250 ms sleep read the recorder before the report in 17 of 50 runs of
+    /// `ReaderCanvasViewTests` (#268).
+    func reportedSelection(file: StaticString = #filePath, line: UInt = #line) async throws -> ReaderSelection {
+        try await settle()
+        let deadline = Date().addingTimeInterval(10)
+        while (recorder.selections.last ?? nil) == nil, Date() < deadline { try await settle(20) }
+        return try XCTUnwrap(recorder.selections.last ?? nil, "the canvas reported no selection", file: file, line: line)
+    }
 }
