@@ -30,6 +30,8 @@ import XCUIAutomation
         // `VOICEOVER_FLOW=scrolled` opens the book in continuous scroll.
         app.launchArguments = ["-SampleFlow", environment["VOICEOVER_FLOW"] ?? "paginated"]
         if let size = environment["VOICEOVER_FONT_SIZE"] { app.launchArguments += ["-SampleFontSize", size] }
+        // A section other than the first, such as the fixture's hidden labels (`OPS/labels.xhtml`).
+        if let href = environment["VOICEOVER_HREF"] { app.launchArguments += ["-SampleHref", href] }
         // `VOICEOVER_BOOK=paragraphs` opens the book of ordinary paragraphs.
         if let book = environment["VOICEOVER_BOOK"] { app.launchArguments += ["-VerificationBook", book] }
         app.launch()

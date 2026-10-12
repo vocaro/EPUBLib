@@ -95,6 +95,10 @@ import AppKit
         guard let place = scrollPlace else { return false }
         return abs(scrollVisibleContainerRect.minY - place.visibleTop) < 1
     }
+    /// The line of hidden labels standing at the top with the first line on screen, where
+    /// there is one (`scrollVisibleCharacters`): its location in the view's text. VoiceOver
+    /// starts there, so the labels are heard before what they stand over.
+    private var scrollEntry: Int?
     #if os(macOS)
     /// Where the reader last put the scroll view's insertion point (`placeScrollInsertionPoint`).
     private var placedScrollInsertionPoint: Int?
@@ -287,7 +291,11 @@ import AppKit
         let changed = range != visibleRange
         visibleRange = range
         #if os(macOS)
-        if configuration.flow == .scrolled { placeScrollInsertionPoint(at: range.start, requested: force) }
+        if configuration.flow == .scrolled {
+            let entry = scrollEntry.flatMap { location in scrollBook.map { $0.position(at: location) }
+                ?? ReaderTextPosition(section: range.start.section, offset: location) }
+            placeScrollInsertionPoint(at: entry ?? range.start, requested: force)
+        }
         #endif
         if force || changed { delegate?.canvas(self, didShow: range, sectionProgress: progress(of: range.start)) }
     }
@@ -789,15 +797,20 @@ import AppKit
             return
         }
         scrollToContainerY(frame().minY)
+        // A line of hidden labels alone has no height: where the offset is rounded to a pixel
+        // it is the first line at the top or just above it by chance. It is at the top when
+        // the first line that shows anything is the one after it, so lines are compared by
+        // that one, the target's too.
+        let goal = textView.firstShownLine(from: location)
         var climb: CGFloat = 0
         for _ in 0..<32 {
             let visible = scrollVisibleContainerRect
-            let shown = textView.lineBoundary(atContainerY: visible.minY, lineEnd: false)
+            let shown = textView.firstShownLine(from: textView.lineBoundary(atContainerY: visible.minY, lineEnd: false))
             if let updated = textView.line(containing: location) { line = updated }
-            if shown == line.range.location && anchorFrameIsVisible(frame()) { break }
-            if shown <= location && isScrolledToEnd && anchorFrameIsVisible(frame()) { break }
-            if shown <= location {
-                textView.ensureLayout(from: shown, through: location)
+            if shown == textView.firstShownLine(from: line.range.location) && anchorFrameIsVisible(frame()) { break }
+            if shown <= goal && isScrolledToEnd && anchorFrameIsVisible(frame()) { break }
+            if shown <= goal {
+                textView.ensureLayout(from: min(shown, location), through: max(shown, location))
                 guard let laidOut = textView.line(containing: location) else { break }
                 line = laidOut
                 scrollToContainerY(frame().minY)
@@ -805,7 +818,7 @@ import AppKit
             } else { // First the characters past the line at the shown text's density, and a screen.
                 let end = textView.lineBoundary(atContainerY: visible.maxY, lineEnd: true)
                 let charactersPerPoint = CGFloat(max(1, end - shown)) / max(1, visible.height)
-                climb = climb > 0 ? 2 * climb : CGFloat(shown - location) / charactersPerPoint + visible.height
+                climb = climb > 0 ? 2 * climb : CGFloat(shown - goal) / charactersPerPoint + visible.height
                 scrollToContainerY(visible.minY - climb)
             }
         }
@@ -843,7 +856,10 @@ import AppKit
     /// The first and last characters in the visible area (not under the bars): from the first
     /// line mostly below its top through the last mostly above its bottom. A line the area
     /// shows less than half of is not on screen, so the line above a position resting a
-    /// fraction of a point low (`anchorFrameIsVisible`) is not the visible start.
+    /// fraction of a point low (`anchorFrameIsVisible`) is not the visible start. Nor is a line
+    /// of hidden labels alone, which has no height and is in the area whenever the line after
+    /// it is at the top: a section holding nothing else would be the place reported for the
+    /// start of the one after it.
     private func scrollVisibleRange() -> ReaderTextRange? {
         guard let textView = scrollTextView, let shown = scrollVisibleCharacters() else { return nil }
         if let book = scrollBook {
@@ -867,13 +883,30 @@ import AppKit
             guard let shown = textView.mostlyVisibleCharacterRange(in: rect) else { return nil }
             start = shown.location; end = NSMaxRange(shown)
         } else {
-            start = textView.lineBoundary(atContainerY: rect.minY, lineEnd: false)
-            end = max(start, textView.lineBoundary(atContainerY: rect.maxY, lineEnd: true))
+            start = textView.firstShownLine(from: textView.lineBoundary(atContainerY: rect.minY, lineEnd: false))
+            end = max(start, textView.lastShownLine(upTo: textView.lineBoundary(atContainerY: rect.maxY, lineEnd: true)))
         }
         #if os(macOS)
         scrollPlace = textView.lineFrame(containing: start).map { (start, $0.minY, rect.minY) }
         #endif
+        // VoiceOver must not pass over hidden labels that stand at the top with the first
+        // line on screen: a hidden heading over a table.
+        var entry = start
+        while let labels = textView.hiddenLabelsAlone(at: entry - 1), let line = textView.lineFrame(containing: labels.location),
+              line.maxY >= rect.minY - 1 {
+            entry = labels.location
+        }
+        scrollEntry = entry == start ? nil : entry
         return NSRange(location: start, length: end - start)
+    }
+
+    /// The characters VoiceOver is given as on screen in continuous scroll: those of
+    /// `scrollVisibleCharacters`, from the hidden labels standing at the top with the first
+    /// line where there are any.
+    func scrollSpokenCharacters() -> NSRange? {
+        guard let shown = scrollVisibleCharacters() else { return nil }
+        guard let entry = scrollEntry, entry < shown.location else { return shown }
+        return NSRange(location: entry, length: NSMaxRange(shown) - entry)
     }
 
     #if os(macOS)

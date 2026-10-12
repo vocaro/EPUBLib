@@ -221,7 +221,7 @@ final class ReaderTextView: UITextView {
         let place = ScrollAccessibilityPlace(offset: contentOffset, size: bounds.size, content: contentSize,
                                              insets: adjustedContentInset, cursor: accessibilityCursor.map(ObjectIdentifier.init))
         if let cache = scrollAccessibilityCache, cache.place == place { return cache.elements }
-        guard let shown = canvas.scrollVisibleCharacters() else { return [] }
+        guard let shown = canvas.scrollSpokenCharacters() else { return [] }
         var listed = [shown]
         if let cursor = accessibilityCursor, let line = line(containing: cursor.range.location) {
             let screen = withLinesAround(shown), around = withLinesAround(line.range)
@@ -238,7 +238,10 @@ final class ReaderTextView: UITextView {
         // part of it in that area.
         let area = canvas.scrollVisibleContainerRect.offsetBy(dx: containerOrigin.x, dy: containerOrigin.y)
         for element in elements where NSIntersectionRange(element.range, shown).length > 0 {
-            let frame = element.accessibilityFrameInContainerSpace.intersection(area)
+            var frame = element.accessibilityFrameInContainerSpace
+            // Hidden labels standing at the top with the first line can be a fraction above it.
+            if frame.maxY <= area.minY { frame.origin.y = area.minY }
+            frame = frame.intersection(area)
             if !frame.isEmpty { element.accessibilityFrameInContainerSpace = frame }
         }
         scrollAccessibilityCache = (place, elements)
@@ -292,12 +295,17 @@ final class ReaderTextView: UITextView {
                 } else { runs.append((range, url, attachment)) }
             }
             for (range, url, attachment) in runs {
+                // The break after an attachment that ends its paragraph is a run of its own
+                // with nothing to say: no element, or VoiceOver stops on silence.
+                if attachment == nil, (storage.string as NSString).substring(with: range).allSatisfy(\.isWhitespace) { continue }
                 let element = existing.first { $0.range == range && $0.url == url }
                     ?? ReaderPageAccessibilityElement(view: self, range: range, url: url)
                 element.accessibilityLabel = plainText(in: range)
                 var traits: UIAccessibilityTraits = url == nil ? .staticText : .link
+                // A hidden label is words the page does not show, not a picture.
+                let isSpoken = attachment is SpokenLabelAttachment
                 if attachment != nil {
-                    traits.insert(.image)
+                    if !isSpoken { traits.insert(.image) }
                     if let image = attachment as? ReaderImageAttachment {
                         element.accessibilityLabel = image.alt.isEmpty ? "Book image" : image.alt
                     }
@@ -309,8 +317,11 @@ final class ReaderTextView: UITextView {
                 element.accessibilityTraits = traits
                 // A scroll view's bounds move with its content, and a line listed past the
                 // screen is outside them.
-                let frame = (segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) })
-                let placed = (frame.isNull ? line.frame : frame).offsetBy(dx: containerOrigin.x, dy: containerOrigin.y)
+                var frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
+                if frame.isNull { frame = line.frame }
+                // It takes no room; a point where it stands lets VoiceOver rest on it.
+                if isSpoken { frame.size = CGSize(width: max(frame.width, 1), height: max(frame.height, 1)) }
+                let placed = frame.offsetBy(dx: containerOrigin.x, dy: containerOrigin.y)
                 element.accessibilityFrameInContainerSpace = isPageColumn ? placed.intersection(bounds) : placed
                 elements.append(element)
             }

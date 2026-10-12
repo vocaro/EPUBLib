@@ -120,8 +120,8 @@ content.
 - `BoxAlignmentCanvasTests`: a mounted canvas in paginated flow with one and two columns and
   in continuous scroll, with navigation, page turns, selection, highlights and resizing.
   Tolerance 2.5 points: a visible line is placed to within a point.
-  The shipped pages in one continuous scroll view, whose title page and a floated initial give
-  the whole book box geometry: the verse, its attribution and the dedication sit where they do
+  The shipped pages in one continuous scroll view, where an initial floated in the chapter
+  gives the whole book box geometry: the verse, its attribution and the dedication sit where they do
   on pages of their own, at two sizes. In the same book, a view the person has moved to where
   half a point of the line above a shown position is on screen, or of a line at the bottom:
   that line is not the visible start or end, and a resize keeps the line shown at the top.
@@ -335,10 +335,19 @@ reader's window that was not granted.
    others 4.4 left.
 5. **Baselines.** Line boxes agree; the reader sets glyphs about a tenth of an em lower within
    one (1.8 points at 17, 2.8 at 28), as it does for all text.
-6. **Title pages show their hidden heading.** The reader's rule for off-screen labels takes
-   offsets in absolute units, so `left: -999em` leaves the eight headings and bylines visible
-   above the image that repeats them ([limitations](native-viewer.md#limitations)). Not
-   changed here.
+6. **Title pages showed their hidden heading; fixed afterwards.** The reader's rule for
+   off-screen labels took offsets in absolute units, so `left: -999em` left the eight headings
+   and bylines visible above the image that repeats them, and the headings "Imprint" and
+   "Colophon" above the logo in all ten. The rule now counts an `em` or a `rem` as 16 CSS
+   pixels ([floats and positioned boxes](native-viewer.md#floats-and-positioned-boxes)). Of
+   the ten titles' 724 sections, built at 12, 17 and 96 points, 28 changed: the 8 title pages,
+   which now draw their image alone, and the 10 imprints and 10 colophons, each drawn without
+   its heading. The hidden words are still in the text for VoiceOver, as characters that take
+   no room in the line of the image or logo ([hidden labels](native-viewer.md#floats-and-positioned-boxes)). No
+   other section's text changed, and none differs between the three sizes. Those headings
+   were also why every one of the ten emitted "Some floating, positioned or inline box
+   layouts may be simplified…"; nine no longer do, and *Tristram Shandy* does for its inline
+   blocks. The captures and counts elsewhere in this section were taken before that.
 7. **A row of sized inline blocks was scattered, and overlapped in continuous scroll; fixed
    since.** *Tristram Shandy* marks omissions with runs of asterisks, each in an inline block
    of fixed width, which a browser sets as rows inside the paragraph, and in chapter 8.13 puts
@@ -441,8 +450,11 @@ about how often shipped books emit it; the ten titles above are the only shipped
 
 ### Sections with boxes
 
-None of the ten floats anything. Their boxes are the headings that title pages, imprints and
-colophons position off to the left, and in *Tristram Shandy* sized inline blocks. The first
+None of the ten floats anything. Their boxes were the headings that title pages, imprints and
+colophons position off to the left, and in *Tristram Shandy* sized inline blocks. Since those
+headings are hidden (finding 6) they are no longer boxes: 8 sections of *Tristram Shandy* have
+box geometry and no section of the other nine, so in continuous scroll those nine are laid out
+without the text container placing their lines. The first
 pages of five such sections and of every title page were captured in pages and in continuous
 scroll on both simulators (160 captures). No line leaves its column or page. In 7 captures,
 all of *Tristram Shandy*'s asterisk rows, an asterisk and the prose after it overlapped
@@ -529,9 +541,6 @@ and the Mac run have no failure.
   its block is inside it, which makes the block that much wider.
 - Rules that a row draws with empty `::before` and `::after` flex items are not drawn, and
   that is not disclosed (*Tristram Shandy*, chapters 1.4 and 4.27).
-- A title page that parks its heading with a font-relative offset (`left: -999em`) shows it:
-  the reader's rule for off-screen labels takes absolute units
-  ([limitations](native-viewer.md#limitations)).
 - Continuous scroll rests a box's top edge at the top for a position anywhere in the box only
   when the whole box fits the visible area ([Flows](#flows)). In a taller box a position rests
   its own line. A container aligned only across the line or only by a gap, with no `height` or
@@ -539,7 +548,8 @@ and the Mac run have no failure.
   holds for every position the reader shows, the one a resize or a setting change keeps
   included: where the person has scrolled part of a one-screen box off the top, a resize
   shows the box whole again, moving its lines down to where the box puts them.
-- In a book with box geometry (every Standard Ebooks title, for its title page) a position
+- In a book with box geometry (when this was seen, every Standard Ebooks title, for the
+  headings its title page parks off screen; since finding 6 they are not boxes) a position
   can rest a fraction of a point below the top of the visible area, and a sliver of the line
   above it is then on screen. Continuous scroll counted every line the area showed at all in
   such a book, so that line was the visible start: for a box rested by its top edge the last

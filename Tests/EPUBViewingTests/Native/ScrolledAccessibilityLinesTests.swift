@@ -324,6 +324,41 @@ import XCTest
         XCTAssertEqual(view.index(ofAccessibilityElement: NSObject()), NSNotFound)
     }
 
+    /// A hidden heading over a table that opens a chapter is a line of hidden labels alone. It
+    /// has no height, so with the table at the top it is not the first line on screen, and
+    /// VoiceOver moving into the text still meets it first, at a place inside the reading area,
+    /// so nothing scrolls as it comes in.
+    func testHiddenLabelsStandingAtTheTopAreListedBeforeTheFirstLineOnScreen() async throws {
+        let prose = (1...40).map { "<p>p\($0) " + CanvasText.sentence(50, seed: $0) + "</p>" }.joined()
+        let table = "<table><tr><td>First cell</td><td>Second cell</td></tr><tr><td>Third cell</td><td>Fourth cell</td></tr></table>"
+        let reader = try SessionCoverageReader(try SessionCoverageBook.epub([
+            SessionCoverageBook.Section("front", "<h1>Front</h1>" + prose, title: "Front"),
+            SessionCoverageBook.Section("tables", "<h1 style='position: absolute; left: -999em'>Hidden table heading</h1>" + table + prose,
+                                        title: "Tables")]))
+        readers.append(reader)
+        reader.window?.resize(to: CGSize(width: 402, height: 874))
+        try await reader.settle()
+        try await reader.session.send(.navigate(href: reader.publication.spine[1].resource.href))
+        try await reader.wait("the second chapter") { reader.section == 1 }
+        try await reader.session.send(.style(EPUBReaderStyle(flow: .scrolled)))
+        try await reader.wait("the whole book in the scroll view") { reader.session.canvas?.scrollBook != nil }
+        try await reader.settle()
+        let canvas = try XCTUnwrap(reader.session.canvas), view = try XCTUnwrap(canvas.scrollTextView)
+        let book = try XCTUnwrap(canvas.scrollBook)
+        let labels = try XCTUnwrap(view.hiddenLabelsAlone(at: book.location(of: ReaderTextPosition(section: 1, offset: 0))),
+                                   "the chapter opens with a line of hidden labels alone")
+        XCTAssertEqual(canvas.visibleRange?.start, book.position(at: NSMaxRange(labels)), "the table's first row is the first line on screen")
+        let listed = try elements(of: view)
+        let first = try XCTUnwrap(listed.first)
+        XCTAssertEqual(first.accessibilityLabel, "Hidden table heading")
+        XCTAssertFalse(first.accessibilityTraits.contains(.image), "words, not a picture")
+        XCTAssertTrue(listed.dropFirst().first?.accessibilityLabel?.contains("First cell") ?? false,
+                      "then the row: \(listed.dropFirst().first?.accessibilityLabel ?? "nothing")")
+        let area = canvas.scrollVisibleContainerRect.offsetBy(dx: view.containerOrigin.x, dy: view.containerOrigin.y)
+        XCTAssertTrue(area.insetBy(dx: -0.01, dy: -0.01).contains(first.accessibilityFrameInContainerSpace),
+                      "\(first.accessibilityFrameInContainerSpace) in \(area)")
+    }
+
     func testANoteKeepsUIKitsOwnTextElements() {
         // A note's popover is a text view of its own, never scrolled by the reader: its text
         // starts at its first line, which is where UIKit's elements start.
