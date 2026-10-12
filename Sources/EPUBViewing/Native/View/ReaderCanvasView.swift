@@ -86,6 +86,10 @@ import AppKit
     /// the view's text, its top and the visible area's, in text container coordinates. AppKit's
     /// `settleScrollViewport` holds the line there.
     var scrollPlace: (location: Int, lineTop: CGFloat, visibleTop: CGFloat)?
+    #if os(macOS)
+    /// Where the reader last put the scroll view's insertion point (`placeScrollInsertionPoint`).
+    private var placedScrollInsertionPoint: Int?
+    #endif
 
     var wheelTurner = ReaderWheelPageTurner()
     var presentedNote: AnyObject?
@@ -269,6 +273,9 @@ import AppKit
         guard let range else { return }
         let changed = range != visibleRange
         visibleRange = range
+        #if os(macOS)
+        if configuration.flow == .scrolled { placeScrollInsertionPoint(at: range.start, requested: force) }
+        #endif
         if force || changed { delegate?.canvas(self, didShow: range, sectionProgress: progress(of: range.start)) }
     }
 
@@ -637,6 +644,9 @@ import AppKit
         textView.placement = content.placement
         scrollPlace = nil
         withProgrammaticScroll { textView.setContent(content.text) }
+        #if os(macOS)
+        placedScrollInsertionPoint = textView.selectedRange.location // New text starts with its own.
+        #endif
         isApplyingSelection = false
         // A carried native selection must fit the replacement section in full. Explicit locates
         // still keep their existing clipped-page semantics in `applyPendingSelection`.
@@ -824,6 +834,34 @@ import AppKit
         guard let section = textView.placement.section else { return nil }
         return ReaderTextRange(section: section, start..<end)
     }
+
+    #if os(macOS)
+    /// Keeps the scroll view's insertion point on the first line on screen. VoiceOver enters a
+    /// Mac text view at its insertion point, which a read-only view does not draw; new text
+    /// starts with it at its first line. As a page turn does for a column, a move the reader
+    /// makes itself (`requested`) puts it at the visible start. After any other scrolling it
+    /// follows only while it is where the reader last put it: one placed by a click, or by an
+    /// assistive client that scrolls the view as it reads, stays there. A selection is never
+    /// moved. On iOS VoiceOver reads the text view's elements and enters at none.
+    private func placeScrollInsertionPoint(at start: ReaderTextPosition, requested: Bool) {
+        guard let textView = scrollTextView else { return }
+        if textView.selectedRange.length == 0, requested || textView.selectedRange.location == placedScrollInsertionPoint {
+            let location = scrollBook?.location(of: start) ?? start.offset
+            placedScrollInsertionPoint = location
+            if textView.selectedRange.location != location {
+                isApplyingSelection = true
+                textView.selectedRange = NSRange(location: location, length: 0)
+                isApplyingSelection = false
+            }
+        }
+        // VoiceOver keeps its own cursor in a text area it has left, and on returning goes back
+        // to it, scrolling the view there. Naming the text view as changed, as for a spread's
+        // columns, makes it enter at the insertion point.
+        if requested, let window {
+            NSAccessibility.post(element: window, notification: .layoutChanged, userInfo: [.uiElements: [textView]])
+        }
+    }
+    #endif
 
     private func turnScrolledPage(forward: Bool) -> PageTurnResult {
         guard let textView = scrollTextView else { return .atBoundary }
