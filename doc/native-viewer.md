@@ -551,20 +551,35 @@ Go: the native viewer is the bundled engine.
   publisher corpus renders all 33 SVG resources, including six containing shadow filters
   ([verification](issue-53-svg-diagrams.md)). Rendering limits
   include 4 MiB of SVG, 10,000 nodes, depth 64 and 8 MiB of expanded local references.
-  Two amplifications the byte and node limits do not catch are bounded too: one `<text>`
-  run, whose layout is super-linear in its length, is held to 20,000 characters, and the
-  marker instances the renderer clones per path vertex are held to 100,000. The marker count
-  is an upper bound on what the renderer instantiates, for every document, computed within a
-  fixed step budget: it follows a marker-bearing shape through `<use>`, `<symbol>` and nested
-  `<svg>`, charges markers set by attribute, `style` or an evaluated stylesheet selector,
-  multiplies nested markers, counts each marker node's points (and a `<text>`'s characters) so a
-  point-heavy node is not undercounted, and resolves an unprefixed `href` ahead of `xlink:href`
-  as the renderer does. Where a sound count is not possible it refuses — a marker-bearing shape
-  inside a `<mask>` (the renderer redraws mask content per reference), `marker-mid` on an
-  elliptical arc whose flattened vertices the path text cannot bound, or a marker that draws an
-  `<image>` (re-rastered per instance) or a `<tref>` (text pulled from elsewhere). Markers inside
-  a `<clipPath>` are not drawn and so are ignored. An SVG past either amplification shows its
-  fallback text with the `svg` disclosure, as one past the node, depth or byte limits does.
+  Two amplifications the byte and node limits do not catch are bounded too, and an SVG past
+  either shows its fallback text with the `svg` disclosure, as one past the node, depth or
+  byte limits does. One `<text>` run, whose layout is super-linear in its length, is held to
+  20,000 characters, and an SVG that holds a `<tref>`, which SVG 2 removed and which draws
+  text from elsewhere in the document into a run, is refused. Markers, whose content the
+  renderer builds again at every vertex they are drawn at, are counted in the forms diagrams
+  use and refused in any other, rather than modelled.
+  - Supported: `marker-start`, `marker-mid` and `marker-end` as attributes, or those and
+    `marker` in a `style` attribute, on a shape or on a group around it, a `<use>` of it
+    included; and a `<marker>` that holds only `path`, `line`, `polyline`, `polygon`, `rect`,
+    `circle` and `ellipse`, with `<g>`, `<title>` and `<desc>`, painted with colors,
+    `currentColor`, `context-fill` or `context-stroke`. That is how Inkscape, Mermaid, D3 and
+    OmniGraffle write arrowheads and data points.
+  - Counted: each time a marker is drawn, one for each element in it, and one more for every
+    64 bytes of attributes an element has or inherits; a `marker-mid` is drawn at every
+    vertex, a vertex being a number in the path data or points. A drawing tool's arrowhead
+    counts ten to twenty with its attributes. An SVG may reach 100,000: some thousands of
+    arrowheads, or of data points on a line.
+  - Refused: a `<style>` sheet that holds a `url(#…)` in an SVG that has a `<marker>`, so a
+    marker given by a class (`.edge { marker-end: url(#arrow) }`) is to be given by attribute
+    instead; a marker property, or a `fill` or `stroke` that names a gradient, on a
+    `<marker>` or on an element that contains one; a `url(…)`, an `href` or a `filter` inside
+    a `<marker>`, and any other element there, such as `<use>`, `<image>`, `<text>` or a
+    nested `<svg>`; a shape that bears a marker inside a `<mask>`; `marker-mid` on a path
+    with an elliptical arc, or on a `circle`, `ellipse` or rounded `rect` whose radius is not
+    a plain number, and either of those inside a `<marker>`; and a marker that uses
+    `context-fill` or `context-stroke` on a shape whose own fill or stroke is a gradient.
+
+  The renderer draws no marker on a shape inside a `<clipPath>`, so none is counted there.
   Embedded raster images are capped at 4 megapixels each and 16 megapixels in total.
   Output is capped at 4,096 pixels on its long side and 16 megapixels, reduced further for
   isolated layers to fit the raster working-memory budget. SVG text uses outline fonts;

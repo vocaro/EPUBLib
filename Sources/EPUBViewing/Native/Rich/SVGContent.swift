@@ -24,21 +24,19 @@ enum SVGContent {
     /// descendants). Text layout is super-linear in the length of one run, so the document
     /// byte limit alone lets a single run cost minutes; a real label is far shorter.
     static let maximumTextRunCharacters = 20_000
-    /// Marker instances the renderer may build, counted by neither the node nor the expansion
-    /// limit: for every marker-bearing shape in the use-expanded tree, its vertices times the
-    /// draw operations of its `marker-mid` marker plus one per shape for `marker-start`/`-end`,
-    /// with nested markers multiplied. `markerInstancesAreBounded` holds this as a sound upper
-    /// bound within a step budget; about 45 MB of renderer working memory at the limit.
+    /// What the renderer may build for markers, which neither the node nor the expansion limit
+    /// counts: the renderer converts a marker's content again at every vertex it is drawn at.
+    /// The unit is one element of a marker's content, so a marker of ten elements drawn 10,000
+    /// times is at the limit. `markerVerdict` holds what an SVG can reach.
     static let maximumMarkerInstances = 100_000
-
+    /// Steps of the walk that counts marker instances: one for each element it visits and each
+    /// `<use>` it follows, in what is drawn and again in each mask. An SVG within
+    /// `maximumExpandedBytes`, at 32 bytes or more an element, cannot reach it.
+    static let markerStepBudget = 4 * (maximumExpandedBytes / 32)
     /// Shapes whose vertices can carry a marker, and whose geometry the renderer builds.
     private static let markerableShapes: Set<String> = ["path", "line", "polyline", "polygon", "rect", "circle", "ellipse"]
-    /// Local names of the marker properties (`marker` is the shorthand for all three).
-    private static let markerProperties: Set<String> = ["marker", "marker-start", "marker-mid", "marker-end"]
-    /// Graphic nodes that are one draw operation each when a marker instantiates them (`use` is
-    /// followed to its target instead of counted here).
-    private static let drawableShapes: Set<String> = ["path", "line", "polyline", "polygon", "rect", "circle", "ellipse",
-                                                       "text", "image"]
+    /// All that a `<marker>` may hold.
+    private static let markerContent: Set<String> = markerableShapes.union(["g", "title", "desc"])
 
     private static let graphics: Set<String> = ["rect", "circle", "ellipse", "line", "polyline", "polygon", "path",
                                                 "text", "use", "image", "foreignObject", "switch"]
@@ -80,6 +78,31 @@ enum SVGContent {
         // expanded target from the byte and marker counts.
         (element.attribute("href") ?? element.attribute("href", namespace: ContentNamespace.xlink))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The id a `<use>` names, read as the renderer reads it: after leading white space a `#`,
+    /// then all that precedes the first space. An id may end in other white space, so no more is
+    /// trimmed: a `<use>` whose target is not found here is one whose expansion is not counted.
+    static func fragment(_ element: ContentNode) -> String? {
+        guard let reference = element.attribute("href") ?? element.attribute("href", namespace: ContentNamespace.xlink) else { return nil }
+        let rest = reference.utf8.drop { $0 == 0x20 || $0 == 0x09 || $0 == 0x0A || $0 == 0x0D }
+        guard rest.first == UInt8(ascii: "#") else { return nil }
+        let id = String(decoding: rest.dropFirst().prefix { $0 != 0x20 }, as: UTF8.self)
+        return id.isEmpty ? nil : id
+    }
+
+    /// The elements a reference by id can mean. The renderer takes an element's id from its first
+    /// attribute named `id` in any namespace, and resolves a `<use>` to the first element with an
+    /// id but a marker property to the last. Every element with the id in any such attribute is
+    /// kept, so that whichever the renderer picks is counted.
+    static func elementsByID(_ nodes: [ContentNode]) -> [String: [ContentNode]] {
+        var ids: [String: [ContentNode]] = [:]
+        for node in nodes {
+            for attribute in node.attributes where attribute.name == "id" && ids[attribute.value]?.last !== node {
+                ids[attribute.value, default: []].append(node)
+            }
+        }
+        return ids
     }
 
     static func viewBox(_ svg: ContentNode) -> CGRect? {
@@ -135,19 +158,22 @@ enum SVGContent {
     /// Refuse expansion bombs before handing them to the renderer, including references in
     /// definitions. Cost follows `<use>` targets and is memoized without expanding a tree.
     static func isWithinRenderingLimits(_ svg: ContentNode, omittingFilters: Bool = false) -> Bool {
+        // The limits are read from this tree and the renderer parses the bytes for itself. Bytes
+        // that were not XML here were recovered as HTML, under an `html` root: a tree in which
+        // names keep their prefixes, and which is not the one the renderer would draw.
+        guard svg.name == "svg" else { return false }
         var nodes: [ContentNode] = []
-        var ids: [String: ContentNode] = [:]
         var valid = true
         func collect(_ node: ContentNode, depth: Int) {
             guard valid, depth <= maximumDepth, nodes.count < maximumNodes else { valid = false; return }
             nodes.append(node)
-            if let id = node.id, ids[id] == nil { ids[id] = node }
             for child in node.children { collect(child, depth: depth + 1) }
         }
         collect(svg, depth: 0)
         let refused: Set<String> = omittingFilters ? ["svg:pattern"] : ["svg:filter", "svg:pattern"]
         guard valid, unsupportedConstructs(svg).isDisjoint(with: refused) else { return false }
         guard textRunsAreBounded(nodes) else { return false }
+        let ids = elementsByID(nodes)
         var costs: [ObjectIdentifier: Int] = [:]
         var active = Set<ObjectIdentifier>()
         func cost(_ node: ContentNode, depth: Int) -> Int? {
@@ -157,11 +183,7 @@ enum SVGContent {
             guard active.insert(key).inserted else { return nil }
             defer { active.remove(key) }
             var total = 32 + node.text.utf8.count + node.attributes.reduce(0) { $0 + $1.value.utf8.count + $1.name.utf8.count }
-            if node.name == "use", let href = href(node), href.hasPrefix("#"), let target = ids[String(href.dropFirst())] {
-                guard let targetCost = cost(target, depth: depth + 1) else { return nil }
-                total += targetCost
-            }
-            for child in node.children {
+            for child in (node.name == "use" ? fragment(node).flatMap { ids[$0] } ?? [] : []) + node.children {
                 guard let childCost = cost(child, depth: depth + 1), childCost <= maximumExpandedBytes - total else { return nil }
                 total += childCost
             }
@@ -169,16 +191,18 @@ enum SVGContent {
             costs[key] = total
             return total
         }
-        // Marker accounting runs after the byte cost passes, so `<use>` expansion is already
-        // bounded (every instantiated node cost at least a few bytes), which bounds this walk.
-        guard cost(svg, depth: 0) != nil, markerInstanceCheck(svg, ids: ids).withinLimits else { return false }
-        return true
+        // Markers are counted once the byte cost passes: `<use>` expansion is then bounded, every
+        // element it draws having cost 32 bytes or more, and that bounds the walk that counts them.
+        return cost(svg, depth: 0) != nil && markerVerdict(svg, nodes: nodes, ids: ids).withinLimits
     }
 
     /// Whether every `<text>` element's run is within the per-run character bound. A run is the
     /// element's own text plus that of its `tspan`/`textPath` descendants, which the renderer
-    /// shapes as one super-linear unit; separate `<text>` elements stay roughly linear.
+    /// shapes as one super-linear unit; separate `<text>` elements stay roughly linear. A `<tref>`
+    /// adds to a run the text of an element elsewhere, which this count does not see: SVG 2 has
+    /// removed it, and an SVG that holds one is refused.
     private static func textRunsAreBounded(_ nodes: [ContentNode]) -> Bool {
+        guard !nodes.contains(where: { $0.name == "tref" }) else { return false }
         for node in nodes where node.name == "text" {
             var characters = 0
             func count(_ node: ContentNode) -> Bool {
@@ -194,475 +218,412 @@ enum SVGContent {
         return true
     }
 
-    /// A CSS simple selector this walk can evaluate: an optional element name (`nil` is the
-    /// universal `*`), class names and an id, with no combinator, attribute or pseudo part. A
-    /// selector outside this grammar is represented by `nil` and treated as matching every shape,
-    /// so a marker rule's charge stays an upper bound on what the renderer applies.
-    private struct SimpleSelector {
-        let name: String?
-        let classes: [String]
-        let id: String?
+    // MARK: Marker expansion
+
+    /// The verdict on an SVG's markers, with the instances counted and the steps the walk took, so a
+    /// test can assert both instead of timing the check.
+    typealias MarkerVerdict = (withinLimits: Bool, instances: Int, steps: Int)
+
+    /// What an element's own attributes ask of the shapes below it, each of which is inherited: the
+    /// size of the largest marker each marker property could name, whether its fill or stroke names
+    /// a paint server, and the bytes of its dash array. One element's declaration only ever raises
+    /// what another's set, never lowers it: a shape is charged the most that it or any ancestor
+    /// asks for, so a declaration the renderer ignores cannot hide one that it honours.
+    private struct Inherited {
+        var start = 0, mid = 0, end = 0
+        var paintServer = false
+        var dashBytes = 0
+        var marked: Bool { start > 0 || mid > 0 || end > 0 }
+
+        mutating func raise(to other: Inherited) {
+            start = max(start, other.start); mid = max(mid, other.mid); end = max(end, other.end)
+            paintServer = paintServer || other.paintServer
+            dashBytes = max(dashBytes, other.dashBytes)
+        }
     }
 
-    /// A `<style>` rule that sets a marker property, with its selector list (a `nil` entry matches
-    /// everything) and the marker ids it attaches to the mid and endpoint slots.
-    private struct MarkerStyleRule {
-        let selectors: [SimpleSelector?]
-        let mid: [String]
-        let end: [String]
+    /// What a property value can name: nothing, the element with one id, or an element not known.
+    private enum Reference: Equatable { case none, id(String), unknown }
+
+    /// The properties a declaration can set that this check reads.
+    private struct Property: OptionSet {
+        let rawValue: Int
+        static let start = Property(rawValue: 1), mid = Property(rawValue: 2), end = Property(rawValue: 4)
+        static let markers: Property = [.start, .mid, .end]
+        static let paint = Property(rawValue: 8), dash = Property(rawValue: 16)
     }
 
-    /// Whether the markers the drawing instantiates stay within the instance bound, by a count
-    /// that is an upper bound on what the renderer builds for *every* document and that runs within
-    /// a fixed step budget. Three properties hold by construction:
+    /// Whether the renderer's marker expansion stays within `maximumMarkerInstances`. The renderer
+    /// is not modelled. Markers are counted in the few forms a diagram uses, and an SVG that uses
+    /// them in any other form is refused:
     ///
-    ///  * **Sound.** Every way the renderer instantiates a subtree is followed or refused.
-    ///    Instance-multiplying references — `<use>`, and `<symbol>`/nested `<svg>` reached through
-    ///    it — are followed to their target, like `cost`. A marker-bearing shape inside a `<mask>`
-    ///    is refused, because the renderer re-draws a mask's content (markers included) once per
-    ///    referencing element; patterns are already refused, and markers inside a `<clipPath>` are
-    ///    not drawn, so clip paths are ignored. A marker-mid shape whose geometry the renderer
-    ///    flattens by radius rather than by text — an arc, `circle`, `ellipse` or rounded `rect` —
-    ///    is refused (see `vertexCount`). Counts never under-count: vertices are over-counted from
-    ///    numeric tokens, `marker-start`/`marker-end` count once per shape, a `<style>` selector
-    ///    that is not evaluated matches every shape, and every sum saturates at the bound.
-    ///  * **Bounded cost.** A step budget is charged for every node visited and every reference
-    ///    followed, and the walk refuses when it runs out. Each marker's expanded size is computed
-    ///    once (memoized), a shape with no vertices never forces its marker (or that marker's
-    ///    chain) to be evaluated, and sums saturate at the bound and stop early — so a cyclic or
-    ///    densely cross-referenced marker graph cannot multiply work. `cost` has already bounded
-    ///    the use-expanded tree to `maximumExpandedBytes`, so a document the byte limit accepts
-    ///    stays well under the budget; one that would exceed it is refused rather than run on.
-    ///  * **No ordinary diagram refused.** A stylesheet marker rule is charged only to the shapes
-    ///    its selector can match (type, class, id, universal and comma groups are evaluated), and a
-    ///    `marker-start`/`marker-end` rule is one instance per shape, never per vertex.
-    /// The marker-instance verdict together with the steps the bounded walk spent — one per node
-    /// visited, reference followed and rule or marker id examined. Exposed so a test can assert the
-    /// walk stays near-linear (no exponential recomputation) rather than timing it.
-    static func markerInstanceCheck(_ svg: ContentNode, ids: [String: ContentNode]) -> (withinLimits: Bool, steps: Int) {
-        var markersByID: [String: ContentNode] = [:]
-        var masks: [ContentNode] = []
-        var styles: [ContentNode] = []
-        func gather(_ node: ContentNode) {
-            switch node.name {
-            case "marker": if let id = node.id, markersByID[id] == nil { markersByID[id] = node }
-            case "mask": masks.append(node)
-            case "style": styles.append(node)
-            default: break
-            }
-            for child in node.elementChildren { gather(child) }
-        }
-        gather(svg)
-        guard !markersByID.isEmpty else { return (true, 0) }
+    ///  1. No stylesheet holds a `url(#…)`: a stylesheet names no marker, and nothing a marker or a
+    ///     shape that bears one could draw with.
+    ///  2. A shape's markers come from the `marker-start`, `marker-mid` and `marker-end` attributes
+    ///     and the `style` declarations, `marker` among them, of the shape and of its ancestors,
+    ///     those of each `<use>` that draws it included. The largest marker any of them names is
+    ///     charged: one declaration never lowers what another asks for.
+    ///  3. No `<marker>`, and no element one stands in, names a marker or a paint server, and
+    ///     nothing inside a `<marker>` holds a `url(…)`, an `href` or a `filter`: a marker's content
+    ///     bears no marker and draws nothing but itself.
+    ///  4. A `<marker>` holds only shapes, `<g>`, `<title>` and `<desc>`. `markerSize` is what one
+    ///     instance of it costs.
+    ///  5. No shape in a `<mask>` bears a marker: the renderer draws a mask's content again for
+    ///     every element that uses the mask. A `<clipPath>` draws no markers.
+    ///  6. A `circle`, an `ellipse` and a rounded `rect` have the vertices their radius allows. A
+    ///     path with an elliptical arc has a number its text does not bound: under `marker-mid`,
+    ///     or inside a `<marker>`, it is refused.
+    ///  7. One walk of what is drawn, following `<use>` as `cost` does, sums for each shape its
+    ///     vertices times its `marker-mid` size, and its `marker-start` and `marker-end` sizes,
+    ///     and one more for each of the three it draws with. The sum is held to
+    ///     `maximumMarkerInstances` and the walk to `markerStepBudget`.
+    ///
+    /// Two costs of an instance come from the shape it is drawn on, not from the marker. The
+    /// renderer copies the shape's dash array for each instance, so 64 bytes of dash array count
+    /// one more for each. And a marker painted with `context-fill` or `context-stroke` copies the
+    /// stops of the shape's paint server for each: with such a marker in the SVG, a shape whose
+    /// fill or stroke names a paint server bears no marker.
+    static func markerVerdict(_ svg: ContentNode, nodes: [ContentNode], ids: [String: [ContentNode]],
+                              stepBudget: Int = markerStepBudget) -> MarkerVerdict {
+        guard nodes.contains(where: { $0.name == "marker" }) else { return (true, 0, 0) }
+        let refused: MarkerVerdict = (false, 0, 0)
 
-        let ceiling = maximumMarkerInstances + 1
-        func clamp(_ value: Int) -> Int { value < 0 || value > ceiling ? ceiling : value }
-
-        let stepBudget = 8_000_000
-        var budget = stepBudget
-        var refused = false
-        @discardableResult func spend(_ amount: Int = 1) -> Bool {
-            budget -= amount
-            if budget < 0 { refused = true }
-            return !refused
+        // Rule 1. A stylesheet's other declarations name no element, so they set nothing this check
+        // reads but a dash array and a context paint, and those it takes to reach every element.
+        // Its longest declaration is taken to be an attribute of every element in a marker.
+        let sheets = nodes.filter { $0.name == "style" }.map(\.textContent)
+        guard !sheets.contains(where: namesElement) else { return refused }
+        let sheetDash = sheets.map(dashBytes).max() ?? 0
+        let sheetBytes = sheets.map(longestDeclaration).max() ?? 0
+        let contextPaint = sheets.contains { mentions($0, "context-") } || nodes.contains { node in
+            node.attributes.contains { ($0.name == "fill" || $0.name == "stroke" || $0.name == "style") && mentions($0.value, "context-") }
         }
 
-        let cssRules = styles.flatMap(markerStyleRules)
-
-        // Draw operations one instantiation of a marker produces, nested markers included. Marker
-        // content does not inherit the referencing shape's markers, so this is a property of the
-        // marker alone and is memoized; a value reached through a cut recursive-marker edge depends
-        // on the stack and is not. `markerStack` cuts recursion the way the renderer does.
-        var drawsByMarker: [ObjectIdentifier: Int] = [:]
-        var markerStack = Set<ObjectIdentifier>()
-        var useStack = Set<ObjectIdentifier>()
-        var cutCount = 0
-
-        func markerDraws(_ marker: ContentNode) -> Int {
-            let key = ObjectIdentifier(marker)
-            if let cached = drawsByMarker[key] { return cached }
-            if markerStack.contains(key) { cutCount += 1; return 0 } // recursive marker: the renderer skips it
-            guard spend() else { return ceiling }
-            markerStack.insert(key)
-            let before = cutCount
-            var total = 0
-            for child in marker.children where child.isElement && !unrendered.contains(child.name) {
-                total = clamp(total + expand(child, midIDs: [], endIDs: [], countDrawables: true, inMask: false, depth: 1))
-                if total >= ceiling || refused { break }
+        // Rule 4, and the part of rule 3 inside a marker: the size of each, by every id it has.
+        var sizes: [String: Int] = [:]
+        var largest = 0
+        func measure(_ node: ContentNode, above: Int) -> Bool {
+            guard node.name == "marker" else {
+                let bytes = above + attributeBytes(node)
+                return node.elementChildren.allSatisfy { measure($0, above: bytes) }
             }
-            markerStack.remove(key)
-            if cutCount == before { drawsByMarker[key] = total } // cacheable only when no cut was crossed
-            return clamp(total)
+            guard let size = markerSize(node, above: above) else { return false }
+            largest = max(largest, size)
+            for attribute in node.attributes where attribute.name == "id" {
+                sizes[attribute.value] = max(sizes[attribute.value] ?? 0, size)
+            }
+            return true
         }
-        func drawsForID(_ id: String) -> Int { markersByID[id].map(markerDraws) ?? 0 }
-        func maxDraws(_ list: [String]) -> Int {
-            var best = 0
-            var seen = Set<String>()
-            for id in list {
-                guard spend() else { return ceiling }
-                guard seen.insert(id).inserted else { continue }
-                best = max(best, drawsForID(id))
-                if best >= ceiling { return ceiling }
+        guard measure(svg, above: sheetBytes) else { return refused }
+        func size(_ reference: Reference) -> Int {
+            switch reference {
+            case .none: 0
+            case .id(let id): sizes[id] ?? 0
+            case .unknown: largest
             }
-            return best
         }
 
-        // Marker ids a node sets for the mid and endpoint slots, from its presentation attributes,
-        // its `style` attribute and the stylesheet rules that match it. Resolution to draw counts
-        // is deferred to the shapes that use them, so a zero-vertex shape never forces a referenced
-        // marker (hence its chain) to be evaluated.
-        func localMarkers(_ node: ContentNode) -> (mid: [String], end: [String]) {
-            var mid: [String] = [], end: [String] = []
-            for attribute in node.attributes where markerProperties.contains(attribute.name) {
-                guard let id = urlFragment(attribute.value) else { continue }
-                if attribute.name == "marker-mid" { mid.append(id) }
-                else if attribute.name == "marker-start" || attribute.name == "marker-end" { end.append(id) }
-                else { mid.append(id); end.append(id) }
-            }
-            if let style = node.attribute("style") {
-                let references = markerCSSReferences(style); mid += references.mid; end += references.end
-            }
-            if !cssRules.isEmpty {
-                let classes = Set(node.classNames)
-                let elementID = node.id
-                for rule in cssRules {
-                    guard spend() else { break }
-                    if ruleMatches(rule, name: node.name, id: elementID, classes: classes) { mid += rule.mid; end += rule.end }
+        // Rule 2: what one element's attributes and `style` declare. Each element is read once,
+        // however often a `<use>` draws it, and kept by its place in the SVG.
+        struct Element {
+            var own = Inherited()
+            var targets: [ContentNode] = []
+            /// Nil for a shape whose text does not bound them.
+            var vertices: Int? = 0
+            var isShape = false
+            var isDrawn = true
+        }
+        var elements = [Element?](repeating: nil, count: svg.subtreeEnd - svg.order + 1)
+        func element(_ node: ContentNode) -> Element {
+            if let known = elements[node.order - svg.order] { return known }
+            var element = Element()
+            for attribute in node.attributes {
+                var dashed = false
+                func declare(_ property: Property, _ reference: Reference) {
+                    let size = property.isDisjoint(with: .markers) ? 0 : size(reference)
+                    if property.contains(.start) { element.own.start = max(element.own.start, size) }
+                    if property.contains(.mid) { element.own.mid = max(element.own.mid, size) }
+                    if property.contains(.end) { element.own.end = max(element.own.end, size) }
+                    if property.contains(.paint), reference != .none { element.own.paintServer = true }
+                    if property.contains(.dash) { dashed = true }
                 }
-            }
-            return (mid, end)
-        }
-
-        // Marker instances (or, inside a marker, draw operations) `node`'s subtree produces,
-        // following `<use>` to its target, under the mid/endpoint marker ids inherited from
-        // ancestors (a local declaration overrides the inherited one, as the renderer resolves).
-        func expand(_ node: ContentNode, midIDs inMid: [String], endIDs inEnd: [String],
-                    countDrawables: Bool, inMask: Bool, depth: Int) -> Int {
-            guard spend(), depth <= maximumDepth else { refused = true; return ceiling }
-            let name = node.name
-            let own = localMarkers(node)
-            let midIDs = own.mid.isEmpty ? inMid : own.mid
-            let endIDs = own.end.isEmpty ? inEnd : own.end
-            var total = countDrawables ? markerDrawCost(node) : 0
-
-            if markerableShapes.contains(name), !midIDs.isEmpty || !endIDs.isEmpty {
-                let verts = vertexCount(node)
-                let midDraw = (!midIDs.isEmpty && verts > 0) ? maxDraws(midIDs) : 0
-                let endDraw = endIDs.isEmpty ? 0 : maxDraws(endIDs)
-                if midDraw > 0 || endDraw > 0 {
-                    if inMask { refused = true; return ceiling } // mask content is re-drawn per reference
-                    if midDraw > 0 { total = clamp(total + clamp(verts * midDraw)) }
-                    total = clamp(total + endDraw)
+                switch attribute.name {
+                case "style": declarations(in: attribute.value, declare)
+                case "marker": declare(.markers, reference(Array(attribute.value.utf8), from: 0))
+                case "marker-start": declare(.start, reference(Array(attribute.value.utf8), from: 0))
+                case "marker-mid": declare(.mid, reference(Array(attribute.value.utf8), from: 0))
+                case "marker-end": declare(.end, reference(Array(attribute.value.utf8), from: 0))
+                case "fill", "stroke": declare(.paint, reference(Array(attribute.value.utf8), from: 0))
+                case "stroke-dasharray": element.own.dashBytes = max(element.own.dashBytes, attribute.value.utf8.count)
+                default: break
                 }
+                if dashed { element.own.dashBytes = max(element.own.dashBytes, dashBytes(attribute.value)) }
             }
-            if total >= ceiling || refused { return clamp(total) }
+            element.isShape = markerableShapes.contains(node.name)
+            element.isDrawn = !unrendered.contains(node.name)
+            if element.isShape { element.vertices = vertices(node) }
+            if node.name == "use", let id = fragment(node) { element.targets = ids[id] ?? [] }
+            elements[node.order - svg.order] = element
+            return element
+        }
 
-            if name == "use", let href = href(node), href.hasPrefix("#"),
-               let target = ids[String(href.dropFirst())] {
-                let key = ObjectIdentifier(target)
-                if useStack.insert(key).inserted {
-                    total = clamp(total + expand(target, midIDs: midIDs, endIDs: endIDs,
-                                                 countDrawables: countDrawables, inMask: inMask, depth: depth + 1))
-                    useStack.remove(key)
+        // Rule 3 where each marker stands, and for rule 5 what each mask's content inherits.
+        var masks: [(mask: ContentNode, inherited: Inherited)] = []
+        func survey(_ node: ContentNode, above: Inherited) -> Bool {
+            var here = above
+            here.raise(to: element(node).own)
+            if node.name == "marker" { return !here.marked && !here.paintServer }
+            if node.name == "mask" { masks.append((node, here)) }
+            return node.elementChildren.allSatisfy { survey($0, above: here) }
+        }
+        guard survey(svg, above: Inherited()) else { return refused }
+
+        // Rule 7, and rule 5 for a mask's content.
+        var instances = 0
+        var steps = 0
+        func step() -> Bool {
+            steps += 1
+            return steps <= stepBudget
+        }
+        func walk(_ node: ContentNode, above: Inherited, inMask: Bool, depth: Int) -> Bool {
+            guard step(), depth <= maximumDepth else { return false }
+            let element = element(node)
+            var here = above
+            here.raise(to: element.own)
+            if here.marked, element.isShape {
+                guard !inMask, !(contextPaint && here.paintServer) else { return false }
+                // The renderer copies the shape's dash array for each instance it draws on it, and
+                // builds a group and a clip path for each marker property the shape draws with.
+                let dash = max(here.dashBytes, sheetDash) / 64
+                instances += (here.start > 0 ? here.start + dash + 1 : 0) + (here.end > 0 ? here.end + dash + 1 : 0)
+                if here.mid > 0 {
+                    guard let vertices = element.vertices, vertices <= maximumMarkerInstances / (here.mid + dash) else { return false }
+                    instances += vertices * (here.mid + dash) + 1
                 }
+                guard instances <= maximumMarkerInstances else { return false }
             }
-            for child in node.children where child.isElement {
-                // Definitions are instantiated only through a reference, a `<clipPath>` does not
-                // draw its markers, and patterns are refused; masks are examined separately. So the
-                // drawn walk descends only into drawn content.
-                if unrendered.contains(child.name) { continue }
-                total = clamp(total + expand(child, midIDs: midIDs, endIDs: endIDs,
-                                             countDrawables: countDrawables, inMask: inMask, depth: depth + 1))
-                if total >= ceiling || refused { break }
+            for target in element.targets {
+                guard step(), walk(target, above: here, inMask: inMask, depth: depth + 1) else { return false }
             }
-            return clamp(total)
+            return walk(in: node, above: here, inMask: inMask, depth: depth + 1)
         }
-
-        // The drawn tree: the marker instances the page builds, following `<use>`.
-        let total = expand(svg, midIDs: [], endIDs: [], countDrawables: false, inMask: false, depth: 0)
-
-        // The markers a `<mask>`'s content inherits come from the mask element's own ancestors
-        // (the renderer resolves `marker-*` up the static tree), not from the referencing element.
-        func inheritedMarkers(_ node: ContentNode) -> (mid: [String], end: [String]) {
-            var mid: [String] = [], end: [String] = []
-            var ancestor = node.parent
-            while let current = ancestor, mid.isEmpty || end.isEmpty {
-                let local = localMarkers(current)
-                if mid.isEmpty { mid = local.mid }
-                if end.isEmpty { end = local.end }
-                ancestor = current.parent
+        // Definitions are drawn only where a reference draws them, and a mask from where it stands.
+        func walk(in node: ContentNode, above: Inherited, inMask: Bool, depth: Int) -> Bool {
+            for child in node.children where child.isElement && element(child).isDrawn {
+                guard walk(child, above: above, inMask: inMask, depth: depth) else { return false }
             }
-            return (mid, end)
+            return true
         }
-
-        // Masks: the renderer re-draws a mask's content, markers included, once per referencing
-        // element, which the drawn walk does not multiply. A marker-bearing shape anywhere in a
-        // mask (reached through `<use>` or inherited from the mask's ancestors) is refused outright.
-        for mask in masks where !refused {
-            let inherited = inheritedMarkers(mask)
-            for child in mask.children where child.isElement && !unrendered.contains(child.name) {
-                _ = expand(child, midIDs: inherited.mid, endIDs: inherited.end, countDrawables: false, inMask: true, depth: 1)
-                if refused { break }
-            }
+        var within = walk(svg, above: Inherited(), inMask: false, depth: 0)
+        for (mask, inherited) in masks where within {
+            within = walk(in: mask, above: inherited, inMask: true, depth: 1)
         }
-
-        return (!refused && total <= maximumMarkerInstances, stepBudget - budget)
+        return (within, instances, steps)
     }
 
-    /// Convenience `markerInstanceCheck` that collects the id map itself, for tests.
-    static func markerInstanceCheck(_ svg: ContentNode) -> (withinLimits: Bool, steps: Int) {
-        var ids: [String: ContentNode] = [:]
+    /// `markerVerdict` for an SVG on its own, for tests.
+    static func markerVerdict(_ svg: ContentNode, stepBudget: Int = markerStepBudget) -> MarkerVerdict {
+        var nodes: [ContentNode] = []
         func collect(_ node: ContentNode) {
-            if let id = node.id, ids[id] == nil { ids[id] = node }
+            nodes.append(node)
             for child in node.elementChildren { collect(child) }
         }
         collect(svg)
-        return markerInstanceCheck(svg, ids: ids)
+        return markerVerdict(svg, nodes: nodes, ids: elementsByID(nodes), stepBudget: stepBudget)
     }
 
-    /// The marker-setting rules in one `<style>` element, or none when the renderer ignores the
-    /// element — a `type` other than `text/css`, which it does not honour.
-    private static func markerStyleRules(_ style: ContentNode) -> [MarkerStyleRule] {
-        if let type = style.attribute("type"),
-           type.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "text/css" { return [] }
-        return parseMarkerRules(style.textContent)
-    }
-
-    /// Top-level style rules that set a marker property, each paired with its parsed selector list.
-    /// At-rules such as `@media`, which the renderer ignores, are skipped with their whole block.
-    private static func parseMarkerRules(_ css: String) -> [MarkerStyleRule] {
-        let characters = Array(stripCSSComments(css))
-        let count = characters.count
-        var rules: [MarkerStyleRule] = []
-        var index = 0
-        while index < count {
-            var brace = index
-            while brace < count, characters[brace] != "{", characters[brace] != "}" { brace += 1 }
-            guard brace < count, characters[brace] == "{" else { break }
-            let prelude = String(characters[index..<brace]).trimmingCharacters(in: .whitespacesAndNewlines)
-            var depth = 1
-            var cursor = brace + 1
-            let blockStart = cursor
-            while cursor < count, depth > 0 {
-                if characters[cursor] == "{" { depth += 1 }
-                else if characters[cursor] == "}" { depth -= 1 }
-                cursor += 1
-            }
-            let blockEnd = depth == 0 ? cursor - 1 : cursor
-            if !prelude.hasPrefix("@") {
-                let references = markerCSSReferences(String(characters[blockStart..<blockEnd]))
-                if references.present {
-                    let selectors = prelude.split(separator: ",", omittingEmptySubsequences: false)
-                        .map { parseSimpleSelector(String($0)) }
-                    rules.append(MarkerStyleRule(selectors: selectors, mid: references.mid, end: references.end))
-                }
-            }
-            index = cursor
+    /// The size of a marker — what one instance of it costs the renderer, which converts the
+    /// marker's content afresh for each — or nil when it holds anything but plain shapes. Each
+    /// element in it counts one, and one more for every 32 vertices of its shape and every 64 bytes
+    /// of the attributes it has or inherits, `above` being those of the elements the marker
+    /// stands in: the renderer reads an inherited attribute again for every shape that inherits it.
+    private static func markerSize(_ marker: ContentNode, above: Int) -> Int? {
+        var size = attributeBytes(marker) / 64
+        func add(_ element: ContentNode, above: Int) -> Bool {
+            guard markerContent.contains(element.name), let vertices = vertices(element), !element.attributes.contains(where: {
+                $0.name == "href" || $0.name == "filter" || mentions($0.value, "url(")
+            }) else { return false }
+            let bytes = above + attributeBytes(element)
+            size += 1 + vertices / 32 + bytes / 64
+            return element.elementChildren.allSatisfy { add($0, above: bytes) }
         }
-        return rules
+        let bytes = above + attributeBytes(marker)
+        return marker.elementChildren.allSatisfy({ add($0, above: bytes) }) ? max(1, size) : nil
     }
 
-    /// A simple selector (`*`, a type, classes and an id, in any combination) parsed from one
-    /// comma-separated part, or `nil` for anything else — a descendant, combinator, attribute or
-    /// pseudo selector — which is then treated as matching every shape.
-    private static func parseSimpleSelector(_ raw: String) -> SimpleSelector? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return nil }
-        let unsupported: Set<Character> = [" ", "\t", "\n", "\r", ">", "+", "~", "[", "]", "(", ")", ":", ","]
-        if trimmed.contains(where: unsupported.contains) { return nil }
-        var name: String?
-        var classes: [String] = []
-        var id: String?
-        var token = ""
-        var kind: Character = "t"
-        func flush() {
-            guard !token.isEmpty else { return }
-            switch kind {
-            case ".": classes.append(token)
-            case "#": id = token
-            default: if token != "*" { name = token }
-            }
-            token = ""
-        }
-        for character in trimmed {
-            if character == "." || character == "#" { flush(); kind = character }
-            else { token.append(character) }
-        }
-        flush()
-        return SimpleSelector(name: name, classes: classes, id: id)
+    private static func attributeBytes(_ element: ContentNode) -> Int {
+        element.attributes.reduce(0) { $0 + $1.name.utf8.count + $1.value.utf8.count }
     }
 
-    /// Whether a stylesheet marker rule matches a node, from its precomputed name, id and class
-    /// set: any selector matches, an unevaluated selector (`nil`) matching everything.
-    private static func ruleMatches(_ rule: MarkerStyleRule, name: String, id: String?, classes: Set<String>) -> Bool {
-        for selector in rule.selectors {
-            guard let selector else { return true }
-            if let type = selector.name, type != name { continue }
-            if let selectorID = selector.id, selectorID != id { continue }
-            if !selector.classes.allSatisfy(classes.contains) { continue }
-            return true
+    /// Whether CSS text holds a `url(…)` that can name an element of the document.
+    private static func namesElement(_ css: String) -> Bool {
+        let bytes = Array(css.utf8)
+        for index in bytes.indices where bytes[index] | 0x20 == UInt8(ascii: "u") {
+            if holds("url(", bytes, at: index), reference(bytes, from: index) != .none { return true }
         }
         return false
     }
 
-    /// The marker url ids a block of CSS declarations attaches, split into mid-like (mid and the
-    /// `marker` shorthand) and endpoint (start, end), and whether any marker property is present
-    /// at all. Robust to the whitespace and comments the renderer accepts between the property
-    /// name and its colon; case-insensitive and ignoring escapes, both of which the renderer
-    /// does not honour, so this stays a superset of what it draws. Selectors are not evaluated.
-    private static func markerCSSReferences(_ css: String) -> (mid: [String], end: [String], present: Bool) {
-        let characters = Array(stripCSSComments(css))
-        func isIdentifier(_ character: Character) -> Bool { character.isLetter || character.isNumber || character == "-" || character == "_" }
-        var mid: [String] = [], end: [String] = [], present = false
-        var index = 0
-        while index < characters.count {
-            guard isIdentifier(characters[index]), index == 0 || !isIdentifier(characters[index - 1]) else { index += 1; continue }
-            var nameEnd = index
-            while nameEnd < characters.count, isIdentifier(characters[nameEnd]) { nameEnd += 1 }
-            let name = String(characters[index..<nameEnd]).lowercased()
-            var cursor = nameEnd
-            while cursor < characters.count, characters[cursor].isWhitespace { cursor += 1 }
-            guard cursor < characters.count, characters[cursor] == ":", markerProperties.contains(name) else { index = nameEnd; continue }
-            present = true
-            var valueEnd = cursor + 1
-            while valueEnd < characters.count, characters[valueEnd] != ";", characters[valueEnd] != "}", characters[valueEnd] != "{" { valueEnd += 1 }
-            if let id = urlFragment(String(characters[(cursor + 1)..<valueEnd])) {
-                // `marker` is the shorthand for start, mid and end, so it charges both slots.
-                if name == "marker-mid" { mid.append(id) }
-                else if name == "marker-start" || name == "marker-end" { end.append(id) }
-                else { mid.append(id); end.append(id) }
-            }
-            index = valueEnd
+    /// At least the bytes of any dash array CSS text declares: none when it names no dash array.
+    private static func dashBytes(_ css: String) -> Int {
+        mentions(css, "dasharray") ? longestDeclaration(css) : 0
+    }
+
+    /// At least the bytes of the longest value CSS text gives a property that the renderer reads in
+    /// full: the longest stretch between two of `;`, `{` and `}`, which no list of numbers, lengths
+    /// or transforms crosses.
+    private static func longestDeclaration(_ css: String) -> Int {
+        var longest = 0
+        var stretch = 0
+        for byte in css.utf8 {
+            stretch = byte == UInt8(ascii: ";") || byte == UInt8(ascii: "{") || byte == UInt8(ascii: "}") ? 0 : stretch + 1
+            longest = max(longest, stretch)
         }
-        return (mid, end, present)
+        return longest
     }
 
-    /// CSS with every `/* … */` comment replaced by a space, so a comment cannot hide a boundary.
-    private static func stripCSSComments(_ css: String) -> String {
-        guard css.contains("/*") else { return css }
-        var output = ""
-        var characters = Substring(css)
-        while let open = characters.range(of: "/*") {
-            output += characters[..<open.lowerBound]
-            output += " "
-            if let close = characters.range(of: "*/", range: open.upperBound..<characters.endIndex) {
-                characters = characters[close.upperBound...]
-            } else {
-                return output
+    /// An upper bound on the segments of a shape's geometry — the positions a `marker-mid` is drawn
+    /// at, and the points each instance of a marker's own shape stores — or nil when its text does
+    /// not bound them. Geometry is read from every attribute of the name, in any namespace, as the
+    /// renderer accepts more than one. Path data and points give at most one segment for each
+    /// number and one more for each close, after which the renderer starts a new subpath. A
+    /// `circle`, an `ellipse` and a rounded `rect` are flattened into a number of segments that
+    /// grows with the radius, bounded by `arcSegments`. A path with an elliptical arc is the one
+    /// whose segments nothing in its text bounds: the radius the renderer flattens it by depends
+    /// on where its end points fall.
+    private static func vertices(_ shape: ContentNode) -> Int? {
+        var numbers = 0
+        var closes = 0
+        var arc = false
+        var radius: Double? = 0
+        for attribute in shape.attributes {
+            switch attribute.name {
+            case "d", "points":
+                var dots = -1 // The dots in the run of digits and dots being read; -1 outside one.
+                for byte in attribute.value.utf8 {
+                    if byte == UInt8(ascii: ".") || (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte) {
+                        dots = max(dots, 0) + (byte == UInt8(ascii: ".") ? 1 : 0)
+                        continue
+                    }
+                    // Every number has a digit, and a run of digits and dots holds as many numbers
+                    // as it has dots, or one.
+                    if dots >= 0 { numbers += max(1, dots); dots = -1 }
+                    if byte == UInt8(ascii: "z") || byte == UInt8(ascii: "Z") { closes += 1 }
+                    if byte == UInt8(ascii: "a") || byte == UInt8(ascii: "A") { arc = true }
+                }
+                if dots >= 0 { numbers += max(1, dots) }
+            case "r", "rx", "ry":
+                // A length with a unit or a percentage is not bounded here.
+                radius = Double(attribute.value).flatMap { value in radius.map { max($0, abs(value)) } }
+            default: break
             }
-        }
-        return output + characters
-    }
-
-    /// The fragment id of the first `url(#…)` in a CSS value; nil for `none`, an external url or
-    /// anything else. Case-insensitive on `url(`; the id itself is kept verbatim.
-    private static func urlFragment(_ value: String) -> String? {
-        guard let start = value.range(of: "url(", options: .caseInsensitive) else { return nil }
-        let inside = value[start.upperBound...].drop { $0 == " " || $0 == "\t" || $0 == "\n" || $0 == "\"" || $0 == "'" }
-        guard inside.hasPrefix("#") else { return nil }
-        let id = inside.dropFirst().prefix { $0 != ")" && $0 != " " && $0 != "\t" && $0 != "\n" && $0 != "\"" && $0 != "'" }
-        return id.isEmpty ? nil : String(id)
-    }
-
-    /// An upper bound on the segments (hence the marker-mid positions, and the stored points) of a
-    /// shape's flattened geometry. Straight and Bezier path data over-counts safely: a line-to
-    /// pair, a cubic or a quadratic is one segment but several numeric tokens, and a
-    /// polyline/polygon point is one vertex but two tokens. A `circle`, `ellipse` or rounded
-    /// `rect` is flattened from elliptical arcs into a radius-dependent number of segments, bounded
-    /// here with `arcSegments` from the shape's radius. A path with an elliptical-arc command is
-    /// the one geometry whose segment count cannot be bounded from the text — the effective radius
-    /// depends on where the endpoints fall — so it is charged over the bound (refused).
-    private static func vertexCount(_ shape: ContentNode) -> Int {
-        let unbounded = maximumMarkerInstances + 1
-        func radius(_ names: [String]) -> Int {
-            var worst = 0
-            for name in names {
-                guard let text = shape.attribute(name) else { continue }
-                guard let value = Double(text) else { return unbounded } // units/percent: cannot bound
-                worst = max(worst, arcSegments(abs(value)))
-            }
-            return worst
         }
         switch shape.name {
-        case "path":
-            let data = shape.attribute("d") ?? ""
-            return pathHasArc(data) ? unbounded : numberCount(data)
-        case "polyline", "polygon": return numberCount(shape.attribute("points") ?? "")
+        case "path": return arc ? nil : numbers + closes
+        case "polyline", "polygon": return numbers
         case "line": return 2
-        case "rect":
-            guard shape.attribute("rx") != nil || shape.attribute("ry") != nil else { return 5 }
-            return clampToUnbounded(5 + radius(["rx", "ry"]))
-        case "circle": return max(5, radius(["r"]))
-        default: return max(5, radius(["rx", "ry"])) // ellipse
-        }
-    }
-
-    private static func clampToUnbounded(_ value: Int) -> Int {
-        value < 0 || value > maximumMarkerInstances ? maximumMarkerInstances + 1 : value
-    }
-
-    /// A sound upper bound on the cubic segments the renderer flattens a full ellipse of the given
-    /// radius into, over-estimating `kurbo`'s per-arc count (`n_err = max((11.163·r)^(1/6), 4)`,
-    /// tolerance 0.1, summed over four quarter arcs) with headroom.
-    private static func arcSegments(_ radius: Double) -> Int {
-        guard radius.isFinite else { return maximumMarkerInstances + 1 }
-        let nErr = max(pow(11.163 * radius, 1.0 / 6.0), 4.0)
-        guard nErr.isFinite, nErr < Double(maximumMarkerInstances) else { return maximumMarkerInstances + 1 }
-        return Int(nErr.rounded(.up)) + 8
-    }
-
-    /// Whether path data contains an elliptical-arc command. In path data the only letters are
-    /// commands and the `e`/`E` of an exponent, so any `a`/`A` is an arc.
-    private static func pathHasArc(_ data: String) -> Bool {
-        data.contains("a") || data.contains("A")
-    }
-
-    /// The instances one drawn copy of a marker drawable costs, in the bound's units, since the
-    /// renderer re-stores a marker's content at every vertex. A simple shape is one instance; a
-    /// point-heavy one (a long path or polyline, or a large-radius curve) costs in proportion to
-    /// its stored points, the divisor being the points whose storage equals one instance's fixed
-    /// overhead. A `<text>` costs one per character, because each glyph is laid out and outlined
-    /// afresh per instance (`maximumTextRunCharacters` bounds one run, but not its repetition). An
-    /// `<image>` is re-decoded and re-rastered per instance and escapes the total-pixel cap, so a
-    /// marker that draws one is refused — vector markers are the norm and this is not a diagram
-    /// construct we need to render.
-    private static func markerDrawCost(_ node: ContentNode) -> Int {
-        switch node.name {
-        case "image": return maximumMarkerInstances + 1
-        case "text": return containsTref(node) ? maximumMarkerInstances + 1 : max(1, node.textContent.unicodeScalars.count)
-        case let name where markerableShapes.contains(name): return clampToUnbounded(1 + vertexCount(node) / 32)
+        case "rect": return radius == 0 ? 5 : radius.flatMap(arcSegments).map { 5 + $0 }
+        case "circle", "ellipse": return radius.flatMap(arcSegments)
         default: return 0
         }
     }
 
-    /// Whether a subtree contains a `<tref>`, whose rendered text the renderer resolves from a
-    /// referenced element at parse time and so is absent from this tree.
-    private static func containsTref(_ node: ContentNode) -> Bool {
-        node.name == "tref" || node.elementChildren.contains(where: containsTref)
+    /// A sound upper bound on the cubic segments the renderer flattens a full ellipse of the given
+    /// radius into, over-estimating `kurbo`'s per-arc count (`n_err = max((11.163·r)^(1/6), 4)`,
+    /// tolerance 0.1, summed over four quarter arcs) with headroom; nil when there is none.
+    private static func arcSegments(_ radius: Double) -> Int? {
+        let nErr = max(pow(11.163 * radius, 1.0 / 6.0), 4.0)
+        guard nErr.isFinite, nErr < Double(maximumMarkerInstances) else { return nil }
+        return Int(nErr.rounded(.up)) + 8
     }
 
-    /// The count of numeric tokens in SVG coordinate data, over-counting rather than under.
-    private static func numberCount(_ value: String) -> Int {
-        var count = 0
-        var inNumber = false
-        var sawDot = false
-        var previous: Character = " "
-        for character in value {
-            if character.isNumber {
-                if !inNumber { count += 1; inNumber = true; sawDot = false }
-            } else if character == "." {
-                if inNumber, sawDot { count += 1 } else if !inNumber { count += 1; inNumber = true }
-                sawDot = true
-            } else if character == "e" || character == "E" {
-                // Part of the current number's exponent; never a token on its own.
-            } else if character == "+" || character == "-" {
-                if previous != "e", previous != "E" { count += 1; inNumber = true; sawDot = false }
-            } else {
-                inNumber = false; sawDot = false
-            }
-            previous = character
+    /// Calls `body` with every declaration in CSS text of a property this check reads, and what its
+    /// value can name. It reports each one the renderer's tokenizer can find and more, since nothing
+    /// is skipped: any run of name characters that ends in the property's name, in either case, and
+    /// is followed after white space by a colon, wherever it stands — in a string, a comment or
+    /// another declaration's value. The tokenizer can begin a name part way through such a run, as
+    /// it does after `!important`, but ends it where the run ends.
+    private static func declarations(in css: String, _ body: (Property, Reference) -> Void) {
+        let bytes = Array(css.utf8)
+        func isName(_ byte: UInt8) -> Bool {
+            byte == UInt8(ascii: "-") || byte == UInt8(ascii: "_") || (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte)
+                || (UInt8(ascii: "a")...UInt8(ascii: "z")).contains(byte | 0x20)
         }
-        return count
+        var index = 0
+        while index < bytes.count {
+            guard isName(bytes[index]) else { index += 1; continue }
+            let start = index
+            while index < bytes.count, isName(bytes[index]) { index += 1 }
+            var cursor = index
+            while cursor < bytes.count, bytes[cursor] <= 0x20 { cursor += 1 }
+            // A comment may stand before the colon; what follows it is then not read.
+            guard cursor < bytes.count, bytes[cursor] == UInt8(ascii: ":") || bytes[cursor] == UInt8(ascii: "/") else { continue }
+            func ends(_ name: StaticString) -> Bool {
+                index - start >= name.utf8CodeUnitCount && holds(name, bytes, at: index - name.utf8CodeUnitCount)
+            }
+            var property: Property = []
+            if ends("marker") { property = .markers }
+            if ends("marker-start") { property = .start }
+            if ends("marker-mid") { property = .mid }
+            if ends("marker-end") { property = .end }
+            if ends("fill") || ends("stroke") { property = .paint }
+            if ends("dasharray") { property = .dash }
+            if !property.isEmpty { body(property, bytes[cursor] == UInt8(ascii: ":") ? reference(bytes, from: cursor + 1) : .unknown) }
+        }
+    }
+
+    /// Whether `bytes` hold the ASCII `text` at `index`, letters compared without case. `text` is in
+    /// lower case.
+    private static func holds(_ text: StaticString, _ bytes: [UInt8], at index: Int) -> Bool {
+        guard index + text.utf8CodeUnitCount <= bytes.count else { return false }
+        return text.withUTF8Buffer { expected in
+            for offset in expected.indices {
+                let byte = bytes[index + offset]
+                guard ((UInt8(ascii: "A")...UInt8(ascii: "Z")).contains(byte) ? byte | 0x20 : byte) == expected[offset] else { return false }
+            }
+            return true
+        }
+    }
+
+    /// What a property value names, read from `index`. A value the renderer resolves begins, after
+    /// white space, `url(`, then white space, an optional quote and `#`. A value that does not names
+    /// nothing. One in the plain form `url(#id)` names that id. Any other is taken to name an
+    /// element not known: a quoted one, one after a comment, one whose id holds white space.
+    private static func reference(_ bytes: [UInt8], from index: Int) -> Reference {
+        var cursor = index
+        // More than the renderer skips, so that this never stops short of a `url(` it reaches.
+        func skipSpace() { while cursor < bytes.count, bytes[cursor] <= 0x20 || bytes[cursor] >= 0x80 { cursor += 1 } }
+        skipSpace()
+        if holds("/*", bytes, at: cursor) { return .unknown }
+        guard holds("url(", bytes, at: cursor) else { return .none }
+        cursor += 4
+        skipSpace()
+        guard cursor < bytes.count, bytes[cursor] != UInt8(ascii: "\""), bytes[cursor] != UInt8(ascii: "'") else { return .unknown }
+        guard bytes[cursor] == UInt8(ascii: "#") else { return .none }
+        let start = cursor + 1
+        cursor = start
+        func endsID(_ byte: UInt8) -> Bool {
+            switch byte {
+            case 0...0x20, UInt8(ascii: "\""), UInt8(ascii: "'"), UInt8(ascii: "("), UInt8(ascii: ")"), UInt8(ascii: "#"), UInt8(ascii: "\\"), UInt8(ascii: ";"): true
+            default: false
+            }
+        }
+        while cursor < bytes.count, !endsID(bytes[cursor]) { cursor += 1 }
+        guard cursor > start, cursor < bytes.count, bytes[cursor] == UInt8(ascii: ")") else { return .unknown }
+        return .id(String(decoding: bytes[start..<cursor], as: UTF8.self))
+    }
+
+    /// Whether `text` holds the ASCII `word`, letters compared without case. `word` is in lower
+    /// case and its first byte occurs nowhere else in it, so a failed match restarts at that byte.
+    private static func mentions(_ text: String, _ word: String) -> Bool {
+        let word = Array(word.utf8)
+        var matched = 0
+        for byte in text.utf8 {
+            let lowered = (UInt8(ascii: "A")...UInt8(ascii: "Z")).contains(byte) ? byte | 0x20 : byte
+            matched = lowered == word[matched] ? matched + 1 : (lowered == word[0] ? 1 : 0)
+            if matched == word.count { return true }
+        }
+        return false
     }
 
     /// The direct renderer entry point is also used by tests and inspection. Validate data
@@ -692,14 +653,15 @@ enum SVGContent {
     /// worst-case RGBA plus clip/mask alpha storage under 96 MiB. Plain paths/shapes still
     /// use the 4096-pixel ceiling.
     static func isolatedLayers(_ svg: ContentNode) -> Int {
-        var ids: [String: ContentNode] = [:]
+        var nodes: [ContentNode] = []
         var styledLayers = false
         func collect(_ node: ContentNode) {
-            if let id = node.id, ids[id] == nil { ids[id] = node }
+            nodes.append(node)
             if node.name == "style", node.textContent.range(of: "(?i)(opacity|clip-path|mask|mix-blend-mode|isolation)\\s*:", options: .regularExpression) != nil { styledLayers = true }
             for child in node.elementChildren { collect(child) }
         }
         collect(svg)
+        let ids = elementsByID(nodes)
         var cache: [ObjectIdentifier: Int] = [:]
         func count(_ node: ContentNode) -> Int {
             let key = ObjectIdentifier(node)
@@ -709,7 +671,7 @@ enum SVGContent {
                 node.attribute("style")?.range(of: "(?i)(opacity|clip-path|mask|mix-blend-mode|isolation)\\s*:", options: .regularExpression) != nil
             var result = isolates ? 1 : 0
             for child in node.elementChildren { result += count(child) }
-            if node.name == "use", let href = href(node), href.hasPrefix("#"), let target = ids[String(href.dropFirst())] { result += count(target) }
+            if node.name == "use", let id = fragment(node) { for target in ids[id] ?? [] { result += count(target) } }
             cache[key] = result
             return result
         }
