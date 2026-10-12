@@ -167,12 +167,13 @@ reader view had no height, so there was no page to tap to put the keyboard away.
 
 On iPhone and iPad the strip now scrolls its groups where it is offered less height than they
 need, and its field gives up focus when it submits a search, which puts the keyboard away. At
-`b5a3a4c` (iOS 27.0, built with Xcode 27.0), in twenty runs of the three simulators, the field
-was tapped, "lantern" searched, and the field tapped again to bring the keyboard back over the
-results. With the keyboard up the strip starts at the top of the safe area and ends at the
-status line, which is above the keyboard: it has 157 points on the iPhone 17 Pro on its side,
-148 on the iPhone SE, 263 on the iPad mini and 366 on the upright iPhone SE, to the nearest
-point. Top and bottom edges, before and after the search alike:
+`ef79633` (iOS 27.0, built with Xcode 27.0), in twenty runs of the three simulators, the field
+was tapped, "lantern" typed, the keyboard's own Search key touched, and the field tapped again
+to bring the keyboard back over the results. With the keyboard up the strip starts at the top
+of the safe area and ends at the status line, which is above the keyboard: it has 157 points
+on the iPhone 17 Pro on its side, 148 on the iPhone SE, 263 on the iPad mini and 366 on the
+upright iPhone SE, to the nearest point. Top and bottom edges, before and after the search
+alike:
 
 | Where | Text size | Page buttons | Field | Search | Clear Search |
 | --- | --- | --- | --- | --- | --- |
@@ -201,12 +202,16 @@ iPhone SE: the field and the menus keep a touch that starts on them. That is the
 synthetic touch; a finger was not tried. Beside the top safe area the strip scrolls under the
 status bar, as any scroll view does.
 
-After Return the keyboard was down in the tree taken three seconds later in all twenty runs,
-and tapping the field brought it back. In eighteen the strip was then whole with the page under
-it; the other two are the iPhones on their sides at the largest size, below. A tap on the
-strip's Search button put the keyboard away as Return does, and Clear Search brought it back
-with the field empty and in focus (iPhone 17 Pro upright). In the toolbar's search pane on the
-same iPhone the keyboard was still up after Return, as before.
+Three seconds after the keyboard's Search key was touched, the keyboard was down and nothing
+had keyboard focus, in all twenty runs; tapping the field brought both back. Return was a
+touch on that key because a Return typed by XCTest can leave the keyboard down by itself, under
+a field that still has focus ([#307](https://github.com/vocaro/EPUBLib/issues/307#issuecomment-6132965039)):
+at `b95ed53` the field read "Keyboard Focused" after it in every tree. In eighteen of the
+twenty the strip was then whole with the page under it; the other two are the iPhones on their
+sides at the largest size, below. A tap on the strip's Search button did as the key does, and
+Clear Search brought the keyboard back with the field empty and in focus (iPhone 17 Pro
+upright). In the toolbar's search pane on the same iPhone the keyboard was up and the field in
+focus after the key, as before.
 
 The screen can be too short without a keyboard. At the largest size with results the strip's
 groups are 402 points tall on the iPhone 17 Pro on its side and 403 on the iPhone SE, and the
@@ -214,7 +219,7 @@ strip has 361 and 354 points there. The page buttons are at y = 0 and the readin
 reached by scrolling, where the page buttons were at y = −25 on the iPhone SE before.
 
 Where the strip has the room it needs, nothing moved. The trees of the 33 states in which the
-strip was whole at `b95ed53` were compared, element by element, with those at `b5a3a4c`: before
+strip was whole at `b95ed53` were compared, element by element, with those at `ef79633`: before
 the field is tapped in each of that revision's fifteen runs (the five poses at `large`,
 `accessibility-medium` and the largest size), with the field tapped in ten and with the
 keyboard up after the search in eight. Every element has the frame it had, but for four on the
@@ -425,7 +430,7 @@ The simulator's text size was set to the largest accessibility size
 - **Search pane short of room.** With the keyboard up an iPhone on its side, a small iPhone
   upright and an iPad mini on its side leave the pane less than it needs at this size. What
   each shows is under [Defects found and fixed](#defects-found-and-fixed).
-- **The strip with its own keyboard up** (`b5a3a4c`, iOS 27.0, Xcode 27.0; an iPhone 17 Pro
+- **The strip with its own keyboard up** (`ef79633`, iOS 27.0, Xcode 27.0; an iPhone 17 Pro
   and an iPhone SE on their sides and upright and an iPad mini on its side, at `large`,
   `extra-extra-extra-large`, `accessibility-medium` and this size). Where the keyboard leaves
   the strip less height than its groups need, it scrolls them: on its side the iPhone 17 Pro
@@ -452,10 +457,11 @@ The simulator's text size was set to the largest accessibility size
   points tall. At this size the title takes two lines with the count under it, and those and
   the padding take 253 of the 284. One drag in the list's 31 points put the keyboard away; the
   popover then took 373 × 420 with the list 167 tall, and Close Search Results closed it.
-  Since #330 a search from the strip's field puts the keyboard away itself: at `b5a3a4c`, on
-  the iPad mini on its side at this size, Search Results tapped after the search opened with no
-  keyboard under it and the list 167 points tall. The keyboard is under the popover again only
-  if the field is tapped between the search and Search Results.
+  Since #330 a search from the strip's field puts the keyboard away itself: at `ef79633`, on
+  the iPad mini on its side at this size, Search Results tapped after the search opened a
+  popover of 360 × 433 with no keyboard under it and the list 167 points tall. The keyboard
+  is under the popover again only if the field is tapped between the search and Search
+  Results.
 - **iPhone Duo.** Not completed; see [Not verified](#not-verified).
 
 XCTest's accessibility audit ran on the opening screen and on the search pane at this size. For
