@@ -515,6 +515,10 @@ Described, not decided. None of these was changed.
 14. **The strip's Search Results list under the keyboard at the largest text size** is 31
     points tall in an iPad mini's popover on its side, less than a line of a row, where the
     search pane keeps its list 44. A drag in it puts the keyboard away and gives it 167.
+    Judged at the owner's request: the browser's layout stays as it is. Nothing is cut off,
+    and making its title row scroll would give up a Close Search Results that is always on
+    screen. What is out of place is a keyboard under a list that takes no typing, which is
+    item 12's question.
 
 ## Not verified
 
