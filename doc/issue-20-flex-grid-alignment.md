@@ -380,6 +380,48 @@ inside the subset, and emit nothing. Two more rows in *Tristram Shandy* (chapter
 4.27) are not disclosed: their only real item is text, which is placed, and the rules drawn by
 their empty `::before` and `::after` boxes are not drawn.
 
+The count was also made on the two corpora EPUBLib is verified with
+([corpus runs](testing.md#corpus-runs)), on 2026-10-12 at `45b8569`. Every publication was
+opened and every spine section built as `SpecConformanceW3CCorpusTests` and
+`EPUBCheckCorpusTests` build them, and each section's `SectionReport.flexGridSimplified` was
+read. No section in either corpus carries the disclosure.
+
+| Corpus | Publications | Opened | Sections | With the disclosure |
+| --- | --- | --- | --- | --- |
+| [w3c/epub-tests](https://github.com/w3c/epub-tests) at `54092b4`: its reading-system tests | 209 | 209 | 490 | none |
+| [w3c/epubcheck](https://github.com/w3c/epubcheck) fixtures at `0cc28fb`: whole publications | 482 | 456 | 524 | none |
+| The same fixtures: lone package documents, each in a minimal container | 345 | 314 | 335 | none |
+| The same fixtures: lone content documents, each in a minimal container | 269 | 269 | 269 | none |
+
+What does not open is refused by EPUBReading and has no sections. Of the sections built, the
+reader withholds 26 in the W3C tests and 7 in EPUBCheck's fixtures; a withheld section has no
+layout to disclose. The totals agree with the reports of the two corpus tests at the same
+revisions, and `EPUBCheckCorpusTests`, whose report lists each fixture's disclosures, lists
+this one for none. The W3C test's report does not list it, so the sections were counted by a
+test written for this with those tests' helpers (`SpecConformanceCorpus`, `EPUBCheckCorpus`),
+which is not kept.
+
+No publication emits the sentence, so there is none to judge. What the count shows is narrower
+than it looks, because these are conformance fixtures and next to none of them uses flexbox or
+grid. A search of both corpora's stylesheets and documents finds flexbox in two places and no
+grid:
+
+- **One flex rule in the W3C tests, inside the subset.** Seven layout tests
+  (`lay-pp-embedded-images`, `lay-pp-embedded-images-svg`, `lay-pp-images-mixed`, the three
+  `lay-roll-` tests of the same names and `xx-lay-roll-template`) share a stylesheet that
+  centres a page's one image: `figure { margin: 0; height: 100%; display: flex; align-items:
+  center; justify-content: center }`. That is a row with one item. All 38 sections with such
+  a figure are aligned and none is disclosed, which is right: nothing in them is meant to sit
+  side by side.
+- **Controls.** The same seven tests with a second image put in each figure, in memory,
+  disclose all 38 sections, and `Fixture.alignment()` counted the same way discloses its one
+  section of unsupported layouts.
+- **EPUBCheck's fixtures** have one stylesheet with flex rules (`css/flexbox.css`), a loose
+  file that belongs to no publication.
+
+So on these corpora the disclosure does not appear where it is not warranted. They say nothing
+about how often shipped books emit it; the ten titles above are the only shipped books counted.
+
 ### Sections with boxes
 
 None of the ten floats anything. Their boxes are the headings that title pages, imprints and
@@ -430,6 +472,7 @@ kept, for these reasons:
 | Simulators | iOS 27.0 (24A434); iPhone 17 Pro, iPad Air 13-inch (M4); created for this and deleted |
 | Devices | iPad Air 13-inch (M3) and iPhone 17 Pro Max, OS 27.2 (24B5099f); the verification reader at `d2951fb`, built with Xcode 27.0 (27A266a) |
 | Appearance | Light on both sides of every comparison. The simulators were set to light, and the reader's style and the web view were set to Light. The Mac was in Dark; its off-screen window and web view were set to Aqua and the reader's style to Light, and the sample app was launched with `-NSRequiresAquaSystemAppearance YES`, so its window was captured in light |
+| Disclosure count on the W3C corpora | `main` at `45b8569`; w3c/epub-tests at `54092b4` and w3c/epubcheck at `0cc28fb`, the pins of `scripts/fetch-corpora.sh`; macOS 27.0 (26A428), Xcode 27.1 (27A9269), Apple Swift 6.4 |
 | Tests | Mac suite at `4deb252` (the branch merged with `main` at `2187f80`): 2,321 tests, no failures. iPad Air 13-inch (M4) simulator at `2431b6a`: 2,140 tests, no failures. iPhone 17 Pro simulator at `2431b6a`: 2,140 tests, 2 failures, both time limits |
 
 The two iPhone failures were time limits (190 nested notes in 10 seconds, 11,205 elements
@@ -443,6 +486,9 @@ and the Mac run have no failure.
   at large text.
 - On physical devices: any title but *The Great Gatsby*, any size but 17 points, and the
   comparison with WebKit, which was made on the simulators and off screen on the Mac.
+- How often shipped books other than the ten titles emit the disclosure. The W3C corpora
+  hardly use flexbox or grid ([The disclosure](#the-disclosure)), and no other public
+  collection has been named for the count.
 
 ## Remaining boundaries
 
