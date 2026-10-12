@@ -440,7 +440,9 @@ Four things went wrong in the first runs, and the runner and probe now allow for
   again every second and at the end. A simulator whose `backboardd` restarts comes back at 60
   within six seconds, VoiceOver still on: it aborted once in some thirty rotations, in Metal,
   with VoiceOver on. The runner then mutes the simulator again and the transcript has an
-  `UNMUTED` line. This reads a setting. Nothing listens to the Mac.
+  `UNMUTED` line. A check that gets no answer in five seconds is a `VOLUME gave no reading`
+  line instead: a few in most runs, while xcodebuild starts its test, and two thirds of them
+  on a saturated Mac. This reads a setting. Nothing listens to the Mac.
 - **A VoiceOver that is on and silent.** On a newly booted simulator VoiceOver's first start
   took 40 to 60 seconds, by its own log waiting for the voice database, while XCTest's
   `enable()` returned in a few. On a Mac other sessions had saturated it took 170, and the
@@ -495,7 +497,9 @@ an event that VoiceOver keeps from the reader. The end of a `read` costs 3.3 sec
 `activate` or `rotate` a little over one after the gesture. The simulators are not the
 devices of the record: an iPhone 17 Pro shows 402 × 874 points and its pages hold fewer lines
 than the iPhone 17 Pro Max's. In landscape the sample's control strip stacks and leaves its
-reader one line at 17 points, so `visible` finds no numbered line on the first spread.
+reader one line at 17 points, so `visible` finds no numbered line on the first spread. All of
+this is the iOS 27.0 runtime. The 27.1 runtime of Xcode 27.1 offers only the iPhone Duo and
+was not compared.
 
 ## Acceptance and evidence
 
