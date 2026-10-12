@@ -675,25 +675,37 @@ Go: the native viewer is the bundled engine.
 
   The renderer also copies or re-reads some shared and inherited values once per painted shape,
   which neither the byte nor the node limit catches, so a file of a few hundred kilobytes can make
-  it allocate hundreds of megabytes or parse for most of a minute. Each is charged per shape, up to
-  a ceiling of the expansion limit; each shape is charged the most that it or any ancestor, through
-  every `<use>` that draws it, could ask for, so the count never falls below what the renderer does.
+  it allocate hundreds of megabytes or parse for most of a minute. Each is charged per shape, against
+  a ceiling set from measurement (the worst passing drawing costs the renderer on the order of what
+  the other limits allow); each shape is charged the most that it or any ancestor, through every
+  `<use>` that draws it, could ask for, so the count never falls below what the renderer does.
   - A gradient's stops are copied into a fresh paint server for every shape it paints by `fill` or
     `stroke`, directly or inherited, in an attribute or a `style` declaration, through a gradient
     `href` chain, and through each `<use>`; each shape is charged the stops its fill names and those
     its stroke names. A stylesheet that paints with a gradient is taken to reach every shape.
   - A stroke's dash array is stored for every stroked shape that has or inherits one; each shape is
     charged its dash-array bytes, an upper bound on its entries.
-  - A long inherited `fill` or `stroke` is re-parsed for every shape that inherits it; each shape is
-    charged its bytes over 64. A value in a `style` attribute or a stylesheet is already tokenized,
-    so only a long attribute value counts, but a stylesheet's longest declaration, copied onto every
-    element a rule matches, is charged to each shape.
-  - A `<text>` run copies its fill, stroke, three text decorations and font family for every span,
-    and a run has at most one span per character, so a run is charged its characters times those
-    copies. A gradient with a handful of stops on thousands of shapes, dashed strokes on a large
-    chart, and long but ordinary values (a path's `d`, a `points` list, a `transform`, an embedded
-    `data:` image, a normal `font-family`) stay well within the ceiling. A mask's content is charged
-    once, not once per element that references the mask (#220 covers that multiplication).
+  - Each inherited presentation value the renderer re-parses for every shape — the `fill` and
+    `stroke` paint, the numbers (`stroke-width`, the opacities, `stroke-miterlimit`, offsets) and the
+    keyword enumerations alike — is charged its bytes over 64, summed down the inheritance chain. A
+    `style` value is counted with its white space trimmed, as the renderer trims it before storing.
+  - A stylesheet declaration the renderer applies is copied onto every element a rule matches, so
+    each shape is charged the longest presentation declaration's value of any `<style>`. An at-rule
+    such as `@font-face` is not counted: the renderer never applies it to an element, so an embedded
+    font a stylesheet carries in a `src: url(data:…)` does not count against a drawing, and ordinary
+    Illustrator, Inkscape, Figma and chart-library output that embeds a font renders as before. A
+    stylesheet that is stripped whole before rendering is not counted on either screening.
+  - A `<text>` run clones its resolved style for every span (at most one span per character): the
+    gradient stops its fill and stroke name, into the span and each of three text decorations; the
+    dash array, into the span's stroke and, when the run is decorated, each decoration stroke; the
+    font family; and the `font-variation-settings`, the worst per-span copy, a list held per span and
+    again in the glyph cache. A long inherited value re-parses to a small resolved value the span
+    clones cheaply, so it is not charged per character. A gradient with a handful of stops on
+    thousands of shapes, dashed strokes on a large chart, a short variable-font axis list, and long
+    but ordinary values (a path's `d`, a `points` list, a `transform`, an embedded `data:` image, a
+    normal `font-family`) stay well within the ceiling. A `<switch>` draws one alternative but every
+    one is charged, a sound over-charge. A mask's content is charged once, not once per element that
+    references the mask (#220 covers that multiplication).
 
   Embedded raster images are capped at 4 megapixels each and 16 megapixels in total.
   Output is capped at 4,096 pixels on its long side and 16 megapixels, reduced further for

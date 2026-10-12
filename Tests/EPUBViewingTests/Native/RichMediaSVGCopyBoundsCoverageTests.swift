@@ -197,19 +197,29 @@ final class RichMediaSVGCopyBoundsCoverageTests: XCTestCase {
 
     // MARK: Rule 4: a stylesheet value copied onto every matched element
 
-    /// A stylesheet's longest declaration is copied onto every element a rule matches, and the
-    /// largest gradient a stylesheet paints with is taken to reach every shape, since the selectors
-    /// are not evaluated.
+    /// A stylesheet declaration the renderer applies is copied onto every element a rule matches, so
+    /// each shape is charged the longest such declaration's value, and the largest gradient a
+    /// stylesheet paints with is taken to reach every shape, since the selectors are not evaluated.
+    /// The renderer stores only the declaration's value (not `property:value`), only for a known
+    /// presentation property, and only from an ordinary rule — never an at-rule.
     func testStylesheetValuesAreChargedPerShape() throws {
-        // The longest declaration (here `fill:red`, 8 bytes) is charged to each shape.
-        XCTAssertEqual(verdict(svg("", "<rect width='1' height='1'/>", pre: "<style>rect{fill:red}</style>")).copies, 8)
+        // Only the value the renderer stores (`red`, 3 bytes) is charged, not the whole `fill:red`.
+        XCTAssertEqual(verdict(svg("", "<rect width='1' height='1'/>", pre: "<style>rect{fill:red}</style>")).copies, 3)
         // A stylesheet paint `url(#g)` could paint any shape by fill or stroke: both are charged.
         let sheet = verdict(svg(gradient(stops: 2), "<rect width='20' height='20'/>", pre: "<style>rect{fill:url(#g)}</style>"))
-        XCTAssertEqual(sheet.copies, 2 + 2 + 12, "two stops for fill and for stroke, and the declaration's 12 bytes")
+        XCTAssertEqual(sheet.copies, 2 + 2 + 7, "two stops for fill and for stroke, and the value `url(#g)`")
         XCTAssertTrue(renders(svg(gradient(stops: 2), "<rect width='20' height='20'/>", pre: "<style>rect{fill:url(#g)}</style>")),
                       "a two-stop gradient from a stylesheet on one rect renders")
+        // A declaration of a property the renderer does not apply is not stored on an element, so it
+        // is not charged; neither is a selector, however long.
+        XCTAssertEqual(verdict(svg("", "<rect width='1' height='1'/>",
+                                   pre: "<style>rect{--custom:" + String(repeating: "z", count: 20_000) + "}</style>")).copies, 0,
+                       "an unknown property the renderer drops is not charged")
+        XCTAssertEqual(verdict(svg("", "<rect width='1' height='1'/>",
+                                   pre: "<style>" + String(repeating: "z", count: 20_000) + " rect{fill:red}</style>")).copies, 3,
+                       "a long selector is not a value the renderer copies")
 
-        // A stylesheet with a long declaration copied onto thousands of shapes is refused.
+        // A stylesheet with a long presentation declaration copied onto thousands of shapes is refused.
         let long = "<style>rect{font-family:" + String(repeating: "z", count: 20_000) + "}</style>"
         let bomb = svg("", String(repeating: "<rect width='1' height='1'/>", count: 9_000), pre: long)
         XCTAssertFalse(verdict(bomb).withinLimits)
@@ -245,6 +255,116 @@ final class RichMediaSVGCopyBoundsCoverageTests: XCTestCase {
         XCTAssertEqual(text.report.unsupportedElements["svg"], 1)
     }
 
+    // MARK: Rule 5: font-variation-settings copied per span
+
+    /// `font-variation-settings` is parsed into a `Vec` the renderer stores for every span and clones
+    /// again for every glyph, the worst per-span copy, which the first version of this bound charged
+    /// nothing. Each `<text>` is charged its characters times its variation-settings bytes over 8.
+    func testVariationSettingsAreChargedPerSpan() throws {
+        func copies(_ body: String) -> Int { verdict(svg("", body)).copies }
+        // Ten bytes of settings on a three-character run: ten over eight, once per character.
+        XCTAssertEqual(copies("<text x='0' y='10' font-variation-settings='\"wght\" 700'>abc</text>"), 3)
+        XCTAssertEqual(copies("<g font-variation-settings='\"wght\" 700'><text x='0' y='10'>abc</text></g>"), 3, "inherited")
+        XCTAssertEqual(copies("<text x='0' y='10' style='font-variation-settings:&quot;wght&quot; 700'>abc</text>"), 3, "from a style attribute")
+        XCTAssertEqual(copies("<text x='0' y='10'>abc</text>"), 0, "no settings, nothing to copy")
+
+        // A short variable-font caption renders; thousands of axes on a long run do not.
+        XCTAssertTrue(renders(svg("", "<text x='0' y='20' font-size='10' font-variation-settings='&quot;wght&quot; 700,&quot;wdth&quot; 85'>Figure 1</text>")),
+                      "two axes on a short label is nothing")
+    }
+
+    func testVariationSettingsBombShowsFallbackAndDiscloses() throws {
+        // Five thousand axes on each of 2,000 per-character spans: the renderer allocates gigabytes.
+        let axes = String(repeating: "\"wght\" 700,", count: 5_000)
+        let run = String(repeating: "a", count: 2_000)
+        let xs = String(repeating: "0 ", count: 2_000)
+        let bomb = svg("", "<text x='\(xs)' y='10' font-size='4' font-variation-settings='\(axes)'>\(run)</text>")
+        let result = verdict(bomb)
+        XCTAssertFalse(result.withinLimits, "the variation-settings bytes over eight, per character, exceed the bound")
+        XCTAssertGreaterThan(result.copies, SVGContent.maximumSharedCopies)
+        XCTAssertFalse(isWithinLimits(bomb))
+        let (attachment, text) = try image("<p><img src='v.svg' alt='Weighted'/></p>", files: ["v.svg": Data(bomb.utf8)])
+        XCTAssertNil(attachment, "a variation bomb is not rendered")
+        XCTAssertEqual(text.richMediaPlain, "Weighted")
+        XCTAssertEqual(text.report.unsupportedElements["svg"], 1)
+    }
+
+    // MARK: Rule 5: the decoration dash
+
+    /// The renderer clones a text span's dash array into the span's own stroke and into each text
+    /// decoration it draws, so a decorated run copies the dash four times, an undecorated one once.
+    func testDecoratedTextDashIsChargedFourfold() throws {
+        func copies(_ body: String) -> Int { verdict(svg("", body)).copies }
+        let dash = "stroke='black' stroke-dasharray='1 1 1 1'" // seven bytes of dash array
+        XCTAssertEqual(copies("<text x='0' y='10' \(dash)>ab</text>"), 2 * 7, "undecorated: one copy per character")
+        XCTAssertEqual(copies("<text x='0' y='10' \(dash) text-decoration='underline overline line-through'>ab</text>"), 2 * 4 * 7,
+                       "the span's stroke and three decoration strokes: four copies per character")
+        XCTAssertEqual(copies("<g text-decoration='underline'><text x='0' y='10' \(dash)>ab</text></g>"), 2 * 4 * 7,
+                       "a decoration inherited from an ancestor counts")
+    }
+
+    func testDecoratedDashBombShowsFallbackAndDiscloses() throws {
+        // 2,000 dash entries on a 2,000-character run: within the bound undecorated, past it decorated.
+        let dash = String(repeating: "1 ", count: 2_000)
+        let run = String(repeating: "a", count: 2_000)
+        let xs = String(repeating: "0 ", count: 2_000)
+        func drawing(_ decoration: String) -> String {
+            svg("", "<text x='\(xs)' y='10' font-size='4' stroke='black' stroke-dasharray='\(dash)'\(decoration)>\(run)</text>")
+        }
+        XCTAssertTrue(verdict(drawing("")).withinLimits, "undecorated, one dash copy per character, within the bound")
+        let bomb = drawing(" text-decoration='underline overline line-through'")
+        XCTAssertFalse(verdict(bomb).withinLimits, "decorated, four dash copies per character, past it")
+        XCTAssertFalse(isWithinLimits(bomb))
+        let (attachment, text) = try image("<p><img src='d.svg' alt='Dashed'/></p>", files: ["d.svg": Data(bomb.utf8)])
+        XCTAssertNil(attachment)
+        XCTAssertEqual(text.richMediaPlain, "Dashed")
+        XCTAssertEqual(text.report.unsupportedElements["svg"], 1)
+    }
+
+    // MARK: An embedded font in a stylesheet is not charged against a drawing
+
+    /// A `@font-face` holds its font bytes in a `src: url(data:…)` declaration the renderer never
+    /// copies onto any drawn element (simplecss skips at-rules), and which `serialize` strips before
+    /// rendering. Charging it per shape refused ordinary Illustrator, Inkscape, Figma and chart
+    /// output that carries an embedded font; it must not.
+    func testEmbeddedFontInStylesheetIsNotChargedPerShape() throws {
+        // A 15 KB font (20 KB of base64) in a `@font-face`, used by 40 labels of about 500 characters.
+        // Charged per character it would be ten million copies; it is not charged at all.
+        let blob = Data(repeating: 0, count: 15_000).base64EncodedString()
+        let style = "<style>@font-face{font-family:'E';src:url(data:font/woff2;base64,\(blob))} text{font-family:'E'}</style>"
+        let labels = (0..<40).map { "<text x='4' y='\(12 + $0 * 9)' font-size='7'>Item label \($0)</text>" }.joined()
+        let drawing = "<svg \(Self.ns) width='300' height='420'>\(style)\(labels)</svg>"
+        let result = verdict(drawing)
+        XCTAssertEqual(result.copies, 0, "the embedded font's bytes reach no element and are not charged")
+        XCTAssertTrue(isWithinLimits(drawing), "an ordinary drawing with an embedded font is not refused")
+        XCTAssertTrue(renders(drawing), "and it renders, with the font stripped as on main")
+
+        // A stylesheet that paints with a real presentation declaration of the same size is refused:
+        // that value the renderer does copy onto every matched element.
+        let bomb = "<svg \(Self.ns) width='300' height='420'><style>text{stroke-width:\(String(repeating: "0", count: 20_000))1}</style>"
+            + (0..<400).map { "<text x='4' y='\($0)' font-size='7'>Label \($0)</text>" }.joined() + "</svg>"
+        XCTAssertFalse(verdict(bomb).withinLimits, "a 20 KB presentation value copied onto hundreds of runs is past the bound")
+        XCTAssertFalse(isWithinLimits(bomb))
+    }
+
+    /// The screen on the original tree and the screen on the serialized bytes agree: a stylesheet
+    /// `serialize` strips whole (its `url(data:…)` leaves the document) is not counted on either side,
+    /// so neither screening refuses the drawing for bytes the renderer never sees.
+    func testStrippedStylesheetIsNotChargedOnEitherScreening() throws {
+        let blob = Data(repeating: 0, count: 15_000).base64EncodedString()
+        let drawing = "<svg \(Self.ns) width='300' height='420'><style>@font-face{font-family:'E';src:url(data:font/woff2;base64,\(blob))} text{font-family:'E'}</style>"
+            + (0..<40).map { "<text x='4' y='\($0 * 9 + 12)' font-size='7'>Item label \($0)</text>" }.joined() + "</svg>"
+        XCTAssertEqual(verdict(drawing).copies, 0)
+        guard let root = parsed(drawing),
+              let serialized = SVGContent.serialize(root, resolve: { _ in nil }, publication: try EPUBPublication.open(data: Fixture.epub())),
+              let reparsed = try? ContentDocument.parse(serialized, path: "svg", limits: .init(bytes: SVGContent.maximumBytes, depth: SVGContent.maximumDepth, nodes: SVGContent.maximumNodes), asContent: false).root else {
+            return XCTFail("the embedded-font drawing should serialize")
+        }
+        XCTAssertFalse(serialized.contains("@font-face".data(using: .utf8)!), "serialize strips the stylesheet")
+        XCTAssertEqual(SVGContent.copyVerdict(reparsed).copies, 0, "the serialized bytes hold no stylesheet to charge")
+        XCTAssertTrue(SVGContent.isWithinRenderingLimits(reparsed), "and the second screening agrees with the first")
+    }
+
     // MARK: The walk
 
     /// The walk follows `<use>` as the expansion count does and charges one step for each element it
@@ -258,10 +378,11 @@ final class RichMediaSVGCopyBoundsCoverageTests: XCTestCase {
     }
 
     /// The walk stops at its step budget. An SVG within the expansion bound cannot reach the real
-    /// one, so a small one is given here.
+    /// one, so a small one is given here. The leaf is gradient-filled, so there is something to
+    /// charge and the walk runs rather than returning early.
     func testTheWalkStopsAtItsStepBudget() throws {
         XCTAssertEqual(SVGContent.markerStepBudget, 4 * (SVGContent.maximumExpandedBytes / 32))
-        var definitions = "<g id='t0'><rect width='1' height='1'/></g>"
+        var definitions = gradient(stops: 2) + "<g id='t0'><rect width='1' height='1' fill='url(#g)'/></g>"
         for level in 1...9 {
             definitions += "<g id='t\(level)'><use xlink:href='#t\(level - 1)'/><use xlink:href='#t\(level - 1)'/></g>"
         }
@@ -269,6 +390,20 @@ final class RichMediaSVGCopyBoundsCoverageTests: XCTestCase {
         XCTAssertTrue(verdict(tree).withinLimits)
         XCTAssertFalse(verdict(tree, stepBudget: 100).withinLimits, "the walk refuses when the budget runs out")
         XCTAssertEqual(verdict(tree, stepBudget: 100).steps, 101, "and stops there")
+    }
+
+    /// A drawing that copies nothing per shape — no gradient, dash, stylesheet, text or re-parsed
+    /// value — is not walked at all, however large its `<use>` expansion, so the screen's own cost
+    /// stays near the cheaper limits' instead of a second walk of the whole expansion.
+    func testNothingChargeableIsNotWalked() throws {
+        var definitions = "<g id='t0'><rect width='1' height='1'/></g>"
+        for level in 1...9 {
+            definitions += "<g id='t\(level)'><use xlink:href='#t\(level - 1)'/><use xlink:href='#t\(level - 1)'/></g>"
+        }
+        let result = verdict(svg(definitions, "<use xlink:href='#t9'/>"))
+        XCTAssertTrue(result.withinLimits)
+        XCTAssertEqual(result.copies, 0)
+        XCTAssertEqual(result.steps, 0, "the walk did not run")
     }
 
     /// A gradient `href` chain that loops back on itself terminates in the stop lookup, whatever the

@@ -34,16 +34,54 @@ enum SVGContent {
     /// `maximumExpandedBytes`, at 32 bytes or more an element, cannot reach it.
     static let markerStepBudget = 4 * (maximumExpandedBytes / 32)
     /// The copies of shared and inherited values the renderer makes per painted shape, which the
-    /// node and expansion limits do not count: a gradient's stops for each shape it paints, a
-    /// dash array for each stroked shape, and a long inherited `fill`/`stroke` re-parsed per shape.
-    /// A unit is roughly one stop copied or one byte re-read; this ceiling matches the expansion
-    /// limit, so at it the renderer spends memory and time on the order of what that limit allows.
-    /// `copyVerdict` holds what an SVG can reach.
-    static let maximumSharedCopies = maximumExpandedBytes
+    /// node and expansion limits do not count: a gradient's stops for each shape it paints, a dash
+    /// array for each stroked shape, a long inherited value re-parsed per shape, the variation
+    /// settings and font family a `<text>` copies per span. A unit is roughly one stop copied, one
+    /// byte stored, or 64 bytes re-parsed. The value is set from measurement, not tied to another
+    /// limit: at this ceiling the renderer spends on the order of 110 MB or 0.35 s on the worst
+    /// passing document (a 2,048-stop gradient on 4,096 shapes costs it about 110 MB and 0.3 s),
+    /// the same order the other limits allow. `copyVerdict` holds what an SVG can reach.
+    static let maximumSharedCopies = 8 * 1024 * 1024
     /// Shapes whose vertices can carry a marker, and whose geometry the renderer builds.
     private static let markerableShapes: Set<String> = ["path", "line", "polyline", "polygon", "rect", "circle", "ellipse"]
     /// All that a `<marker>` may hold.
     private static let markerContent: Set<String> = markerableShapes.union(["g", "title", "desc"])
+
+    /// The presentation properties the renderer stores as an attribute (the value string copied) on
+    /// every element a stylesheet rule matches (usvg `svgtree/parse.rs`, `write_declaration`: it keeps
+    /// a declaration only when its name is a presentation property, or the `marker`/`font` shorthands).
+    /// A declaration of any other name is dropped and never reaches an element, so it is not charged.
+    /// `filter` is left out: `serialize` strips filter declarations before the renderer parses them.
+    private static let copiedStyleProperties: Set<String> = [
+        "alignment-baseline", "baseline-shift", "background-color", "clip-path", "clip-rule", "color",
+        "color-interpolation", "color-interpolation-filters", "color-rendering", "direction", "display",
+        "dominant-baseline", "fill", "fill-opacity", "fill-rule", "flood-color", "flood-opacity",
+        "font", "font-family", "font-kerning", "font-optical-sizing", "font-size", "font-size-adjust",
+        "font-stretch", "font-style", "font-variant", "font-weight", "font-variation-settings",
+        "glyph-orientation-horizontal", "glyph-orientation-vertical", "image-rendering", "isolation",
+        "letter-spacing", "lighting-color", "marker", "marker-end", "marker-mid", "marker-start", "mask",
+        "mask-type", "mix-blend-mode", "opacity", "overflow", "paint-order", "shape-rendering",
+        "stop-color", "stop-opacity", "stroke", "stroke-dasharray", "stroke-dashoffset", "stroke-linecap",
+        "stroke-linejoin", "stroke-miterlimit", "stroke-opacity", "stroke-width", "text-anchor",
+        "text-decoration", "text-overflow", "text-rendering", "transform", "transform-origin",
+        "unicode-bidi", "vector-effect", "visibility", "white-space", "word-spacing", "writing-mode"]
+
+    /// The presentation properties the renderer re-reads and re-parses afresh for every shape that
+    /// inherits them (they are inheritable: usvg reads the nearest ancestor that sets each, once per
+    /// shape), so a long value on an ancestor is re-parsed as many times as there are shapes below it.
+    /// `fill`/`stroke` paint, numbers (`stroke-width`, opacities, `stroke-miterlimit`, offsets) and
+    /// keyword enumerations all belong here; `font-family`, `font-variation-settings` and
+    /// `stroke-dasharray` are left out because they are charged in full by their own terms.
+    private static let reparsedProperties: Set<String> = [
+        "clip-rule", "color", "color-interpolation", "color-interpolation-filters", "color-rendering",
+        "direction", "fill", "fill-opacity", "fill-rule", "font-kerning", "font-optical-sizing",
+        "font-size", "font-size-adjust", "font-stretch", "font-style", "font-variant", "font-weight",
+        "glyph-orientation-horizontal", "glyph-orientation-vertical", "image-rendering", "isolation",
+        "kerning", "letter-spacing", "marker", "marker-end", "marker-mid", "marker-start",
+        "mix-blend-mode", "paint-order", "shape-rendering", "stroke", "stroke-dashoffset",
+        "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-opacity", "stroke-width",
+        "text-anchor", "text-rendering", "vector-effect", "visibility", "white-space", "word-spacing",
+        "writing-mode", "background-color", "mask-type", "text-overflow", "unicode-bidi"]
 
     private static let graphics: Set<String> = ["rect", "circle", "ellipse", "line", "polyline", "polygon", "path",
                                                 "text", "use", "image", "foreignObject", "switch"]
@@ -447,23 +485,31 @@ enum SVGContent {
     /// steps the walk took, so a test can assert both instead of timing the check.
     typealias CopyVerdict = (withinLimits: Bool, copies: Int, steps: Int)
 
-    /// What an element's `fill`, `stroke` and `stroke-dasharray` ask of the shapes below it, each of
-    /// which is inherited: the stops of the gradient its fill or stroke could name, the bytes of its
-    /// dash array, the bytes of a `fill`/`stroke` the renderer re-parses for every shape, and the
-    /// bytes of a `font-family` text copies per span. One element's declaration only ever raises
-    /// what another's set, never lowers it (the marker bound's rule), so a declaration the renderer
-    /// ignores cannot hide one it honours.
+    /// What an element asks of the shapes below it, each of which is inherited: the stops of the
+    /// gradient its fill or stroke could name, the bytes of its dash array, the bytes of the
+    /// `font-family` and `font-variation-settings` a `<text>` copies per span, and the bytes of the
+    /// inherited presentation values the renderer re-parses for every shape. One element only ever
+    /// raises what another sets — a declaration the renderer ignores cannot hide one it honours —
+    /// except `reparseBytes`, which sums down the chain: the renderer re-parses the nearest ancestor
+    /// of each inherited property per shape, so distinct long values on distinct ancestors add up.
     private struct Copied {
         var fillStops = 0, strokeStops = 0
         var dashBytes = 0
-        var fillBytes = 0, strokeBytes = 0
         var familyBytes = 0
+        var variationBytes = 0
+        var reparseBytes = 0
+        /// Whether a `text-decoration` names a line: the renderer clones a text span's dash array into
+        /// each decoration stroke it draws, so a decorated run copies the dash more than an
+        /// undecorated one.
+        var decorated = false
 
         mutating func raise(to other: Copied) {
             fillStops = max(fillStops, other.fillStops); strokeStops = max(strokeStops, other.strokeStops)
             dashBytes = max(dashBytes, other.dashBytes)
-            fillBytes = max(fillBytes, other.fillBytes); strokeBytes = max(strokeBytes, other.strokeBytes)
             familyBytes = max(familyBytes, other.familyBytes)
+            variationBytes = max(variationBytes, other.variationBytes)
+            reparseBytes += other.reparseBytes
+            decorated = decorated || other.decorated
         }
     }
 
@@ -478,18 +524,28 @@ enum SVGContent {
     ///     charged the stops of the gradient its fill names and those its stroke names.
     ///  2. The renderer stores a stroke's dash array for every stroked shape that has or inherits
     ///     one. Each shape is charged its dash-array bytes, an upper bound on its entries.
-    ///  3. The renderer re-reads and re-parses an inherited `fill`/`stroke` for every shape that
-    ///     inherits it, and a `style` attribute and stylesheet value it has already tokenized is
-    ///     cheaper, so only a long attribute value is charged, as bytes over 64.
-    ///  4. A stylesheet value is copied onto every element a rule matches, so each shape is charged
-    ///     the longest declaration of any `<style>`, and the largest gradient any stylesheet names,
-    ///     since the selectors are not evaluated.
-    ///  5. `<text>` copies its fill, stroke, three text decorations and font family for every span,
-    ///     and a run has at most one span per character, so a `<text>` is charged its characters
-    ///     times four fill-and-stroke stop copies, its dash and family bytes, and the re-parse.
+    ///  3. The renderer re-reads and re-parses the nearest ancestor's value of each inherited
+    ///     presentation property for every shape that inherits it — `fill`/`stroke` paint, the
+    ///     numbers (`stroke-width`, the opacities, `stroke-miterlimit`, offsets) and the keyword
+    ///     enumerations alike. Each shape is charged the bytes of those values, summed down its
+    ///     chain, over 64. A `style` value is counted with its white space trimmed, as the renderer
+    ///     trims it before storing it, so a value padded with spaces costs nothing.
+    ///  4. A stylesheet declaration the renderer applies is copied onto every element a rule matches,
+    ///     so each shape is charged the longest presentation declaration of any `<style>` (an
+    ///     at-rule such as `@font-face`, which the renderer never applies to an element, is not
+    ///     counted, nor is a `<style>` `serialize` strips whole), and the largest gradient any
+    ///     stylesheet paints with, since the selectors are not evaluated.
+    ///  5. `<text>` clones its resolved style for every span (at most one span per character): the
+    ///     gradient stops its fill and stroke name, into the span and each of three text decorations
+    ///     (four pairs); the dash array, into the span's stroke and, when the run is decorated, each
+    ///     of three decoration strokes (so four copies, else one); the font family; and the variation
+    ///     settings. A run is charged its characters times those copies. A long inherited value
+    ///     re-parses to a small resolved value the span clones cheaply, so the re-parse of rule 3 is
+    ///     not charged per character.
     ///
-    /// A mask's content is drawn once here, not once per element that references the mask (#220);
-    /// a gradient inherited from above a mask onto the mask's content is not charged.
+    /// A `<switch>` draws one alternative but the walk charges every one, a sound over-charge. A
+    /// mask's content is drawn once here, not once per element that references the mask (#220); a
+    /// gradient inherited from above a mask onto the mask's content is not charged.
     static func copyVerdict(_ svg: ContentNode, nodes: [ContentNode], ids: [String: [ContentNode]],
                             stepBudget: Int = markerStepBudget) -> CopyVerdict {
         // The stops of each gradient, by every id it has, following an `href` chain to the first
@@ -523,11 +579,13 @@ enum SVGContent {
             }
         }
 
-        // Rule 4: a stylesheet's longest declaration, copied onto every matched element, and the
-        // largest gradient any stylesheet paints with, taken to reach every shape. The paint scan
-        // runs only when the SVG holds a gradient, the one case a stylesheet paint can amplify.
-        let sheets = nodes.filter { $0.name == "style" }.map(\.textContent)
-        let sheetBytes = sheets.map(longestDeclaration).max() ?? 0
+        // Rule 4: the longest declaration the renderer copies from a stylesheet onto a matched
+        // element, and the largest gradient any stylesheet paints with, taken to reach every shape.
+        // A `<style>` `serialize` strips whole (an `@import`, or a `url()` that leaves the document,
+        // which makes it unsafe) reaches no element: it is dropped here too, so the screen on this
+        // tree agrees with the screen on the serialized bytes, from which that stylesheet is gone.
+        let sheets = nodes.filter { $0.name == "style" }.map(\.textContent).filter(serializeKeepsSheet)
+        let sheetBytes = sheets.map(styleSheetCopyBytes).max() ?? 0
         var sheetStops = 0
         if largestGradient > 0 {
             for sheet in sheets {
@@ -536,6 +594,21 @@ enum SVGContent {
                 }
             }
         }
+
+        // Nothing is copied per shape unless the SVG holds a gradient, a chargeable stylesheet, a
+        // `<text>`, or an element carrying a value the renderer re-reads per shape. Without any of
+        // these the walk could only count zero, so it is skipped before it runs: a maximal `<use>`
+        // tree the cheaper limits already refuse is not walked a second time, and an ordinary
+        // use-heavy drawing that paints nothing per shape is not walked at all.
+        let chargeable = largestGradient > 0 || sheetBytes > 0 || nodes.contains { node in
+            node.name == "text" || node.attributes.contains { attribute in
+                switch attribute.name {
+                case "fill", "stroke", "stroke-dasharray", "font-family", "font-variation-settings", "style": true
+                default: reparsedProperties.contains(attribute.name)
+                }
+            }
+        }
+        guard chargeable else { return (true, 0, 0) }
 
         // Rules 1 to 3: what one element's attributes and `style` declare. Each element is read
         // once, however often a `<use>` draws it, and kept by its place in the SVG.
@@ -547,13 +620,16 @@ enum SVGContent {
                 switch attribute.name {
                 case "fill":
                     copied.fillStops = max(copied.fillStops, stops(reference(Array(attribute.value.utf8), from: 0)))
-                    copied.fillBytes = max(copied.fillBytes, attribute.value.utf8.count)
+                    copied.reparseBytes += attribute.value.utf8.count
                 case "stroke":
                     copied.strokeStops = max(copied.strokeStops, stops(reference(Array(attribute.value.utf8), from: 0)))
-                    copied.strokeBytes = max(copied.strokeBytes, attribute.value.utf8.count)
+                    copied.reparseBytes += attribute.value.utf8.count
                 case "stroke-dasharray": copied.dashBytes = max(copied.dashBytes, attribute.value.utf8.count)
                 case "font-family": copied.familyBytes = max(copied.familyBytes, attribute.value.utf8.count)
+                case "font-variation-settings": copied.variationBytes = max(copied.variationBytes, attribute.value.utf8.count)
+                case "text-decoration": copied.decorated = copied.decorated || namesDecoration(attribute.value)
                 case "style":
+                    if namesDecoration(attribute.value) { copied.decorated = true }
                     declarations(in: attribute.value) { property, reference in
                         // A paint declaration names fill or stroke indistinguishably here; charged to
                         // both, as a declaration never lowers the charge.
@@ -563,7 +639,13 @@ enum SVGContent {
                         }
                         if property.contains(.dash) { copied.dashBytes = max(copied.dashBytes, longestDeclaration(attribute.value)) }
                     }
-                default: break
+                    forEachStyleDeclaration(attribute.value) { property, valueBytes in
+                        if property == "font-variation-settings" { copied.variationBytes = max(copied.variationBytes, valueBytes) }
+                        else if property == "font-family" { copied.familyBytes = max(copied.familyBytes, valueBytes) }
+                        else if reparsedProperties.contains(property) { copied.reparseBytes += valueBytes }
+                    }
+                default:
+                    if reparsedProperties.contains(attribute.name) { copied.reparseBytes += attribute.value.utf8.count }
                 }
             }
             elements[node.order - svg.order] = copied
@@ -579,13 +661,24 @@ enum SVGContent {
         /// Charges the shape or text at `node`, whose inherited values are `here`.
         func charge(_ node: ContentNode, _ here: Copied) -> Bool {
             let fillStops = max(here.fillStops, sheetStops), strokeStops = max(here.strokeStops, sheetStops)
-            let parseBytes = (here.fillBytes + here.strokeBytes) / 64
+            let reparse = here.reparseBytes / 64
             if markerableShapes.contains(node.name) {
-                copies += fillStops + strokeStops + here.dashBytes + sheetBytes + parseBytes
+                copies += fillStops + strokeStops + here.dashBytes + sheetBytes + reparse
             } else if node.name == "text" {
-                // A run has at most one span per character; each copies fill, stroke and three
-                // decorations (four fill-and-stroke pairs) and the family, and re-parses the rest.
-                let perSpan = 4 * (fillStops + strokeStops) + here.dashBytes + here.familyBytes + sheetBytes + parseBytes
+                // A run resolves its style once and clones it for each of its spans, at most one span
+                // per character. A long inherited value re-parses to a small resolved value that
+                // clones cheaply (measured: a padded `fill`, `stroke`, `stroke-width` or
+                // `letter-spacing` on a 20,000-character run stays near the floor), so it is not
+                // charged per character. What is cloned in full is charged: the stops of the gradient
+                // its fill and stroke name, copied into the span and each of the three text
+                // decorations (four pairs); the dash array, cloned into the span's stroke and each of
+                // those three decoration strokes (four copies); the font family; and the variation
+                // settings, the worst per-span copy — a `Vec` held per span and again in the glyph
+                // cache — so a byte of them is charged more than a re-parsed byte. A stylesheet value
+                // copied onto the element is charged per character too.
+                let dashCopies = here.decorated ? 4 : 1
+                let perSpan = 4 * (fillStops + strokeStops) + dashCopies * here.dashBytes + here.familyBytes
+                    + here.variationBytes / 8 + sheetBytes
                 copies += textCharacters(node) * perSpan
             }
             return copies <= maximumSharedCopies
@@ -681,6 +774,156 @@ enum SVGContent {
             longest = max(longest, stretch)
         }
         return longest
+    }
+
+    /// Whether `serialize` keeps a stylesheet rather than stripping it whole. It strips one that is
+    /// unsafe (holds a backslash, or a `url()` that leaves the document) or holds an `@import`, and
+    /// the renderer then never sees those bytes, so this check — the same condition, by a single byte
+    /// scan so a maximal stylesheet is screened cheaply — keeps the screen on this tree in step with
+    /// the screen on the serialized bytes, from which such a stylesheet is gone.
+    private static func serializeKeepsSheet(_ css: String) -> Bool {
+        let bytes = Array(css.utf8)
+        let n = bytes.count
+        var index = 0
+        while index < n {
+            let byte = bytes[index]
+            if byte == UInt8(ascii: "\\") { return false }
+            if byte == UInt8(ascii: "@"), holds("@import", bytes, at: index) { return false }
+            if byte | 0x20 == UInt8(ascii: "u"), holds("url(", bytes, at: index) {
+                var cursor = index + 4
+                while cursor < n, bytes[cursor] == UInt8(ascii: " ") || bytes[cursor] == UInt8(ascii: "\"") || bytes[cursor] == UInt8(ascii: "'") { cursor += 1 }
+                if cursor >= n || bytes[cursor] != UInt8(ascii: "#") { return false }
+            }
+            index += 1
+        }
+        return true
+    }
+
+    /// The most bytes a single declaration the renderer copies from a `<style>` sheet onto a matched
+    /// element can hold: the longest trimmed value of a presentation-property declaration in an
+    /// ordinary rule. The renderer (usvg `svgtree/parse.rs`) applies a rule's declaration to an
+    /// element only when its name is a presentation property (`copiedStyleProperties`); it skips
+    /// at-rules (simplecss skips `@font-face`, `@media`, `@keyframes`, `@import`), so an embedded
+    /// font's `src: url(data:…)` — never applied to any element — is not counted, and neither is a
+    /// declaration of some other name, which the renderer drops.
+    private static func styleSheetCopyBytes(_ css: String) -> Int {
+        let bytes = Array(css.utf8)
+        let n = bytes.count
+        var index = 0
+        var longest = 0
+        while index < n {
+            let byte = bytes[index]
+            if byte <= 0x20 { index += 1; continue }
+            if byte == UInt8(ascii: "/"), index + 1 < n, bytes[index + 1] == UInt8(ascii: "*") { index = endOfComment(bytes, index); continue }
+            if byte == UInt8(ascii: "@") { index = skipAtRule(bytes, index); continue }
+            // A rule set: a selector list up to `{`, then the declarations up to the matching `}`.
+            while index < n, bytes[index] != UInt8(ascii: "{"), bytes[index] != UInt8(ascii: "}") {
+                if bytes[index] == UInt8(ascii: "\"") || bytes[index] == UInt8(ascii: "'") { index = endOfString(bytes, index); continue }
+                if bytes[index] == UInt8(ascii: "/"), index + 1 < n, bytes[index + 1] == UInt8(ascii: "*") { index = endOfComment(bytes, index); continue }
+                index += 1
+            }
+            guard index < n, bytes[index] == UInt8(ascii: "{") else { if index < n { index += 1 }; continue }
+            let bodyStart = index + 1
+            index = skipBlock(bytes, index)
+            forEachDeclaration(bytes, bodyStart..<max(bodyStart, index - 1)) { property, valueBytes in
+                if copiedStyleProperties.contains(property) { longest = max(longest, valueBytes) }
+            }
+        }
+        return longest
+    }
+
+    /// Calls `body` with the lowercased name and the trimmed value byte length of each declaration in
+    /// a `style` attribute's declaration list.
+    private static func forEachStyleDeclaration(_ css: String, _ body: (String, Int) -> Void) {
+        let bytes = Array(css.utf8)
+        forEachDeclaration(bytes, bytes.indices, body)
+    }
+
+    /// Calls `body` with the lowercased name and trimmed value byte length of each `name: value`
+    /// declaration in `range` of `bytes`. A `;` inside a string, comment or parentheses does not end
+    /// a declaration, and the value's leading and trailing white space is dropped, as simplecss drops
+    /// it before storing the value: a value padded with white space costs the renderer nothing.
+    private static func forEachDeclaration(_ bytes: [UInt8], _ range: Range<Int>, _ body: (String, Int) -> Void) {
+        var index = range.lowerBound
+        let end = range.upperBound
+        while index < end {
+            while index < end, bytes[index] <= 0x20 || bytes[index] == UInt8(ascii: ";") { index += 1 }
+            if index < end, bytes[index] == UInt8(ascii: "/"), index + 1 < end, bytes[index + 1] == UInt8(ascii: "*") {
+                index = endOfComment(bytes, index); continue
+            }
+            let nameStart = index
+            while index < end, bytes[index] != UInt8(ascii: ":"), bytes[index] != UInt8(ascii: ";"),
+                  bytes[index] != UInt8(ascii: "{"), bytes[index] != UInt8(ascii: "}") { index += 1 }
+            guard index < end, bytes[index] == UInt8(ascii: ":") else { if index < end { index += 1 }; continue }
+            let name = String(decoding: bytes[nameStart..<index], as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            index += 1
+            var depth = 0
+            let valueStart = index
+            while index < end {
+                let byte = bytes[index]
+                if byte == UInt8(ascii: "\"") || byte == UInt8(ascii: "'") { index = endOfString(bytes, index); continue }
+                if byte == UInt8(ascii: "/"), index + 1 < end, bytes[index + 1] == UInt8(ascii: "*") { index = endOfComment(bytes, index); continue }
+                if byte == UInt8(ascii: "(") || byte == UInt8(ascii: "[") { depth += 1 }
+                else if byte == UInt8(ascii: ")") || byte == UInt8(ascii: "]") { depth = max(0, depth - 1) }
+                else if depth == 0, byte == UInt8(ascii: ";") || byte == UInt8(ascii: "{") || byte == UInt8(ascii: "}") { break }
+                index += 1
+            }
+            var low = valueStart, high = index
+            while low < high, bytes[low] <= 0x20 { low += 1 }
+            while high > low, bytes[high - 1] <= 0x20 { high -= 1 }
+            if !name.isEmpty { body(name, high - low) }
+        }
+    }
+
+    /// The index just past the `/* … */` comment whose `/*` is at `index`.
+    private static func endOfComment(_ bytes: [UInt8], _ index: Int) -> Int {
+        var cursor = index + 2
+        while cursor + 1 < bytes.count, !(bytes[cursor] == UInt8(ascii: "*") && bytes[cursor + 1] == UInt8(ascii: "/")) { cursor += 1 }
+        return min(cursor + 2, bytes.count)
+    }
+
+    /// The index just past the quoted string whose opening quote is at `index`.
+    private static func endOfString(_ bytes: [UInt8], _ index: Int) -> Int {
+        let quote = bytes[index]
+        var cursor = index + 1
+        while cursor < bytes.count {
+            if bytes[cursor] == UInt8(ascii: "\\") { cursor += 2; continue }
+            if bytes[cursor] == quote { return cursor + 1 }
+            cursor += 1
+        }
+        return bytes.count
+    }
+
+    /// The index past an at-rule beginning at `index` (`@`): just after its `{ … }` block, or just
+    /// after its terminating `;`, as simplecss skips an unsupported at-rule.
+    private static func skipAtRule(_ bytes: [UInt8], _ index: Int) -> Int {
+        var cursor = index
+        let n = bytes.count
+        while cursor < n {
+            let byte = bytes[cursor]
+            if byte == UInt8(ascii: "\"") || byte == UInt8(ascii: "'") { cursor = endOfString(bytes, cursor); continue }
+            if byte == UInt8(ascii: "/"), cursor + 1 < n, bytes[cursor + 1] == UInt8(ascii: "*") { cursor = endOfComment(bytes, cursor); continue }
+            if byte == UInt8(ascii: ";") { return cursor + 1 }
+            if byte == UInt8(ascii: "{") { return skipBlock(bytes, cursor) }
+            cursor += 1
+        }
+        return cursor
+    }
+
+    /// The index just past the `{ … }` block whose `{` is at `index`, matching nested braces.
+    private static func skipBlock(_ bytes: [UInt8], _ index: Int) -> Int {
+        var cursor = index
+        let n = bytes.count
+        var depth = 0
+        while cursor < n {
+            let byte = bytes[cursor]
+            if byte == UInt8(ascii: "\"") || byte == UInt8(ascii: "'") { cursor = endOfString(bytes, cursor); continue }
+            if byte == UInt8(ascii: "/"), cursor + 1 < n, bytes[cursor + 1] == UInt8(ascii: "*") { cursor = endOfComment(bytes, cursor); continue }
+            if byte == UInt8(ascii: "{") { depth += 1 }
+            else if byte == UInt8(ascii: "}") { depth -= 1; if depth == 0 { return cursor + 1 } }
+            cursor += 1
+        }
+        return cursor
     }
 
     /// An upper bound on the segments of a shape's geometry — the positions a `marker-mid` is drawn
@@ -822,6 +1065,12 @@ enum SVGContent {
         }
         guard end > start, cursor < bytes.count, bytes[cursor] == UInt8(ascii: ")") else { return .unknown }
         return .id(String(decoding: bytes[start..<end], as: UTF8.self))
+    }
+
+    /// Whether a `text-decoration` value names a line the renderer draws (`underline`, `overline` or
+    /// `line-through`), each of which carries its own stroke that clones the span's dash array.
+    private static func namesDecoration(_ value: String) -> Bool {
+        mentions(value, "underline") || mentions(value, "overline") || mentions(value, "line-through")
     }
 
     /// Whether `text` holds the ASCII `word`, letters compared without case. `word` is in lower
