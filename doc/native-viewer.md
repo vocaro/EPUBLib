@@ -185,7 +185,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   place. Nonlinear sections stay out of it, as page turns step over them; navigating to one
   shows it on its own. A book with no linear section keeps every section in both: it scrolls
   and pages through from end to end, where foliate-js stopped at the end of the first section
-  ([#159](https://github.com/vocaro/EPUBLib/issues/159)).
+  ([#159](https://github.com/vocaro/EPUBLib/issues/159)), and each then counts toward
+  progression by its size, where foliate-js weighed them all nothing
+  ([#232](https://github.com/vocaro/EPUBLib/issues/232)).
 - **Content language.** A narrow reading of EPUB Reading Systems 3.3 §3.7, which says a
   reading system "MUST NOT assume either the language or the base direction" of a content
   document from the package (owner decision, 2026-10-11,
@@ -452,7 +454,8 @@ change of the current match, and nil when a clear, another query, a failure, a c
 `.relocated` reports the opening position (the text start, see Decisions). `.relocated`
 carries the section href, overall progression (by section byte size, as foliate-js computed it),
 the table-of-contents title for the position, the page-list entries it shows (see Decisions)
-and the visible range's CFIs. A selection's `.selectionChanged` event and host selection action
+and the visible range's CFIs. A nonlinear section counts nothing toward progression unless no
+section is linear (see Decisions). A selection's `.selectionChanged` event and host selection action
 carry the same complete passage: `text` omits nonlinear sections, and `location.rangeBookmarks`
 preserves all included documents. Its `page` names the entry in effect at its start and `pages`
 includes the entries it spans, omitting nonlinear pages. Save the entire `EPUBLocation` and pass

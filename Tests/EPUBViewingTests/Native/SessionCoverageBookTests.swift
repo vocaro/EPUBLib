@@ -62,13 +62,23 @@ import XCTest
         }
     }
 
-    func testProgressionOfASingleSectionIsItsOwnFractionAndOfABookWithNoLinearSectionIsUnknown() throws {
+    /// `NativeProgress`: "A book with no linear section keeps all of them in the reading order
+    /// (`NativeBook.isOmitted`), so each weighs its size."
+    func testProgressionOfASingleSectionIsItsOwnFractionAndABookWithNoLinearSectionWeighsEverySection() throws {
         let single = NativeProgress(publication: try EPUBPublication.open(data: SessionCoverageBook.epub([Section("only", "<p>Alone.</p>")])))
         for fraction in [0, 0.125, 0.5, 1] { XCTAssertEqual(single.progression(section: 0, fraction: fraction), fraction) }
         let nonlinear = try EPUBPublication.open(data: SessionCoverageBook.epub([
-            Section("a", "<p>First.</p>", linear: false), Section("b", "<p>Second.</p>", linear: false),
+            Section("a", "<p>First.</p>", linear: false), Section("b", "<p>Second, and longer.</p>", linear: false),
         ]))
-        XCTAssertNil(NativeProgress(publication: nonlinear).progression(section: 0, fraction: 0.5), "nothing weighs anything")
+        let sizes = try nonlinear.spine.map { Double(try nonlinear.data(for: $0.resource).count) }
+        let total = sizes[0] + sizes[1]
+        XCTAssertNotEqual(sizes[0], sizes[1])
+        let progress = NativeProgress(publication: nonlinear)
+        XCTAssertEqual(progress.progression(section: 0, fraction: 0), 0, "the book's start is exactly 0")
+        XCTAssertEqual(try XCTUnwrap(progress.progression(section: 0, fraction: 0.5)), sizes[0] / 2 / total, accuracy: 1e-12)
+        XCTAssertEqual(try XCTUnwrap(progress.progression(section: 1, fraction: 0)), sizes[0] / total, accuracy: 1e-12)
+        XCTAssertEqual(try XCTUnwrap(progress.progression(section: 1, fraction: 0.25)), (sizes[0] + sizes[1] / 4) / total, accuracy: 1e-12)
+        XCTAssertEqual(progress.progression(section: 1, fraction: 1), 1, "the book's end is exactly 1")
     }
 
     // MARK: Contents titles
