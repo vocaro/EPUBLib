@@ -84,8 +84,17 @@ import AppKit
     private var scrollReportPending = false
     /// Where the first line on screen stood when the scroll view was last read: its location in
     /// the view's text, its top and the visible area's, in text container coordinates. AppKit's
-    /// `settleScrollViewport` holds the line there.
+    /// `settleScrollViewport` holds the line there. Forgotten whenever the reader lays the text
+    /// out itself (new text, a new column width, boxes resolved for a new visible height): its
+    /// lines then move by the reader's own doing, not by a layout behind the view.
     var scrollPlace: (location: Int, lineTop: CGFloat, visibleTop: CGFloat)?
+    /// Whether the scroll view stands where it was last read, to within a point. AppKit aligns
+    /// the offset to the pixel grid when the clip view gets its layer, at the scroll view's first
+    /// display, which moves the view by less than that with no scroll by the person.
+    var scrollViewStandsWhereRead: Bool {
+        guard let place = scrollPlace else { return false }
+        return abs(scrollVisibleContainerRect.minY - place.visibleTop) < 1
+    }
     #if os(macOS)
     /// Where the reader last put the scroll view's insertion point (`placeScrollInsertionPoint`).
     private var placedScrollInsertionPoint: Int?
@@ -593,13 +602,16 @@ import AppKit
 
     /// Keeps the viewport attachments size against current, the visible height included (it
     /// changes with the safe area alone). Text already laid out keeps its size; a new column
-    /// width relays everything out anyway.
+    /// width relays everything out anyway. Boxes are resolved against it again, which lays all
+    /// the text out anew where there are any: a box that takes its height from the visible area
+    /// moves its first line by the change in the space above it while its top edge stays, and
+    /// `settleScrollViewport` must not take that for a layout behind the view (#313).
     func updateScrollViewport() {
         guard let textView = scrollTextView, let geometry = scrollGeometry else { return }
         let viewport = CGSize(width: geometry.width, height: max(0, scrollVisibleContainerRect.height))
         if textView.readerContainer.viewportSize != viewport {
             textView.readerContainer.viewportSize = viewport
-            textView.refreshFlowBoxLayout()
+            if textView.refreshFlowBoxLayout() { scrollPlace = nil }
         }
     }
 
@@ -791,14 +803,15 @@ import AppKit
         isScrollingProgrammatically = wasScrolling
     }
 
-    /// The platform scroll view moved; reports the visible range at most every 150 ms.
+    /// The platform scroll view moved; reports the visible range at most every 150 ms. A move
+    /// that leaves the view where it was last read is the platform's, and nobody scrolled.
     func scrollPositionDidChange() {
         let ordered = ReaderHighlight.drawingOrder(highlights)
         scrollTextView?.setTableHighlights(ordered)
         if let range = currentSelection?.range, range.start.tableCell != nil || range.end.tableCell != nil {
             _ = scrollTextView?.selectTableRange(range, reporting: false)
         }
-        guard !isScrollingProgrammatically else { return }
+        guard !isScrollingProgrammatically, !scrollViewStandsWhereRead else { return }
         anchorFollowsScroll = true
         guard !scrollReportPending else { return }
         scrollReportPending = true
