@@ -84,12 +84,15 @@ warnings, so this list is where they are disclosed:
   href. A landmark or page that does not resolve is left out.
 - **Archive.** The last end record in the file decides which archive is read, so bytes after a book
   are passed over, however many, when they hold no end record's signature: a page a download was
-  wrapped in. Another archive after the book ends in one: that archive is read, or the file is
-  refused. Where more bytes follow than a comment could hold, the archive is taken to end with the
-  comment of that last record and is read as it would be with nothing after it. The identity and
-  `archiveData` are the whole file's either way. An archive that has other bytes before it as well,
-  and more than 65,535 after it, is not looked for. A deflated entry is read by its stream and held
-  to its checksum: an uncompressed size its directory misstates is not believed, nor is a
+  wrapped in. Another archive after the book ends in one, and that record is followed with its
+  offsets counted from the file's first byte. An archive written with such offsets is read in the
+  book's place. One whose offsets count from its own first byte sends the reading into the book
+  before it: the file is refused unless a directory lies there, as it does when the same file is
+  run on twice. Where more bytes follow than a comment could hold, the archive is taken to end with
+  the comment of that last record and is read as it would be with nothing after it. The identity
+  and `archiveData` are the whole file's either way. An archive that has other bytes before it as
+  well, and more than 65,535 after it, is not looked for. A deflated entry is read by its stream
+  and held to its checksum: an uncompressed size its directory misstates is not believed, nor is a
   compressed size that runs past the end of the archive, and the limits count what the entry
   inflates to. The book is still refused when that compressed size is 2^63 bytes or more, or when a
   data descriptor follows the entry and the misstated size places it past the end.
