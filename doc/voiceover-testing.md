@@ -338,7 +338,22 @@ The Mac runner's transcript is plain text and needs no export.
   first item its cursor stayed on the window's resize control in a simulator. The iPad
   refused UI automation twice that day ("Timed out while enabling automation mode") and ran
   half an hour later with nothing changed from the Mac. Not heard: what VoiceOver voices for
-  the attachment character before a label in continuous scroll, and a Mac.
+  the attachment character before a label in continuous scroll on iOS.
+- The same day the section was heard on a Mac: GitHub's hosted `xcode-27` runner (image
+  `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), through the Mac VoiceOver workflow
+  of [#322](https://github.com/vocaro/EPUBLib/pull/322), at `d010812`, in a window 600 points
+  wide at 17 points. The section is the book's last: fourteen `ax:next` steps reach its page,
+  and in continuous scroll `textend` puts VoiceOver on "Link target reached", three lines
+  above it. In pages, on entering: "In text Parked title heading By the parked author. Book
+  image im", the 64 characters the probe records. By line: "Parked title heading By the
+  parked author. Book image image", "Shown opening words. Clipped words in the line. Shown
+  closing w", "Parked link to the target Shown last words.", "end of text". By word each
+  label is one stop: "Parked title heading", "By the parked author.", "Book image image",
+  "Shown", "opening", "words.", "Clipped words in the line.", "Shown", "closing", "words.",
+  "Parked link to the target", "Shown", "last", "words.". In continuous scroll the lines
+  after "This is the end of the numbered paragraph." were the same three, and Read All gave
+  them in order, a sentence at a time. Neither label hidden from everyone is in any
+  transcript. Nobody listened, and no workstation was used.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
