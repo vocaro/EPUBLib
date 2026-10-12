@@ -278,7 +278,7 @@ unchanged until he has.
 | --- | --- |
 | Before | `main` at `5dbdedf` |
 | After | this branch at `2431b6a` (the fix merged with `main` at `864cf18`); the Mac pages at `ccc29a1`, the same library sources |
-| Mac | macOS 27.0 (26A428), Xcode 27.1 (27A9269), Apple Swift 6.4 |
+| Mac | macOS 27.0 (26A428). Xcode 27.1 (27A9269), Apple Swift 6.4, for the captures and the Mac suite; Xcode 27.0 (27A266a), the default of `scripts/test-ios.sh`, for the simulator suites |
 | Simulators | iOS 27.0 (24A434); iPhone 17 Pro, iPad Air 13-inch (M4); created for this and deleted |
 | Tests | Mac suite at `aa15514` (the branch merged with `main` at `ef7f52b`): 2,262 tests, no failures. iPad Air 13-inch (M4) simulator at `2431b6a`: 2,140 tests, no failures. iPhone 17 Pro simulator at `2431b6a`: 2,140 tests, 2 failures, both time limits |
 
