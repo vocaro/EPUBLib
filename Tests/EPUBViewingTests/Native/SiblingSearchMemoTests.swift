@@ -110,6 +110,163 @@ final class SiblingSearchMemoTests: XCTestCase {
         return (decisions, differing, dearer, matches, inLongRuns, tested)
     }
 
+    // MARK: Kinds of failure
+
+    func testEveryFailureIsOfTheWalksKindWhicheverElementAskedFirst() throws {
+        // Forty children, a `b` the twenty-first, nothing titled. The last child's search comes
+        // to the `b`, which fails completely, and that is kept. The fifteenth child's search
+        // has no `b` before it: the walk fails for all siblings, and so must a memo that knows
+        // of a complete failure further on.
+        let forty = "<div id=\"d\">" + (1...40).map { $0 == 21 ? "<b>x</b>" : "<i id=\"c\($0)\"><u id=\"u\($0)\">x</u></i>" }.joined() + "</div>"
+        let document = try ContentDocument.parse(Data(StyleTestSupport.xhtml(body: forty).utf8), path: "OPS/one.xhtml")
+        let facts = ElementFacts(document)
+        let selector = try XCTUnwrap(CSSSyntaxSupport.selectors("[title] b ~ i u")?.first)
+        let node = { (id: String) in document.element(id: id)!.order }
+        let walk = SelectorMatcher(document: document, facts: facts)
+        XCTAssertEqual(walk.match(selector, node("c40"), from: 1), .failsCompletely)
+        XCTAssertEqual(walk.match(selector, node("c15"), from: 1), .failsAllSiblings)
+        let memo = SiblingSearchMemo()
+        let matcher = SelectorMatcher(document: document, facts: facts, siblingSearches: memo)
+        let key = SiblingSearchMemo.Key(selector: ObjectIdentifier(try XCTUnwrap(selector.identity)), compound: 2, parent: Int32(node("d")))
+        XCTAssertEqual(matcher.match(selector, node("c40"), from: 1), .failsCompletely)
+        XCTAssertEqual(memo.known(key), .init(complete: 21))
+        XCTAssertEqual(matcher.match(selector, node("c15"), from: 1), .failsAllSiblings, "A complete failure after the element is not the element's")
+        XCTAssertEqual(memo.known(key), .init(complete: 21, clear: 14))
+        XCTAssertEqual(matcher.match(selector, node("c30"), from: 1), .failsCompletely)
+        XCTAssertEqual(matcher.match(selector, node("c12"), from: 1), .failsAllSiblings)
+        XCTAssertEqual(memo.known(key), .init(complete: 21, clear: 14), "Neither needed a walk")
+        let other = SiblingSearchMemo()
+        XCTAssertEqual(SelectorMatcher(document: document, facts: facts, siblingSearches: other).match(selector, node("c23"), from: 1), .failsCompletely)
+        XCTAssertEqual(other.known(key), .init(), "A walk of two siblings is not worth keeping")
+
+        // Those children with one element in four asking before the rest, then their kin, then
+        // documents and selectors of every shape: at every compound of every selector, every
+        // element is to every memo what it is to the walk.
+        var generator = Generator(state: 341)
+        let family = [
+            "[title] b ~ i u", "[title] b ~ i", "b ~ i u", "[title] > b ~ i u", "h6 ~ b ~ i u", "h6 + b ~ i u", "i + b ~ i u",
+            "[title] b ~ i ~ i u", "[title] i ~ b ~ i u", "[title] b ~ b ~ i u", "[title] b ~ i + i u", "section b ~ i > u",
+            ":not([title]) > b ~ i u", "[title] b:nth-child(n+20) ~ i u", "[title] :is(h6 ~ b) ~ i u",
+        ].map { CSSSyntaxSupport.selectors($0)![0] }
+        var counts = KindComparison()
+        try compareKinds(body: forty, selectors: family, firsts: 21, generator: &generator, into: &counts)
+        for _ in 0..<6 { try compareKinds(body: generator.run(count: 40), selectors: family, firsts: 4, generator: &generator, into: &counts) }
+        for shape in 0..<4 {
+            let css = (0..<20).map { _ in generator.rule() }.joined(separator: "\n")
+            let index = CSSRuleIndex(sheets: [CSSStyleSheet.parse(css, path: "OPS/one.xhtml")], dark: false)
+            try compareKinds(body: generator.body(shape: shape), selectors: index.entries.map(\.selector), firsts: 0, generator: &generator, into: &counts)
+        }
+        XCTAssertEqual(counts.differing, 0, "Results of another kind than the walk's")
+        XCTAssertEqual(counts.untrue, 0, "Entries that say what the walk's results do not")
+        XCTAssertEqual(counts.disordered, 0, "Results of the walk in an order no entry allows for")
+        // Not vacuous: searches from past the direct walk end in each way, and entries of each kind are read back.
+        XCTAssertGreaterThan(counts.compared, 1_500_000)
+        for kind in [SelectorMatcher.Result.matches, .failsAllSiblings, .failsCompletely] {
+            XCTAssertGreaterThan(counts.searches[kind, default: 0], 20_000, "\(kind)")
+        }
+        XCTAssertGreaterThan(counts.matched, 500)
+        XCTAssertGreaterThan(counts.complete, 500)
+        XCTAssertGreaterThan(counts.entries - counts.matched - counts.complete, 500)
+    }
+
+    /// What holding memos to the walk counted.
+    private struct KindComparison {
+        var compared = 0, differing = 0
+        /// The results compared that were `~` searches from an element past the direct walk, by the walk's kind.
+        var searches: [SelectorMatcher.Result: Int] = [:]
+        /// Entries read back from the memos, those with a match and with a complete failure, and those untrue of the document.
+        var entries = 0, matched = 0, complete = 0, untrue = 0
+        /// Children whose result from the walk breaks the order `SiblingSearchMemo.Known` relies on.
+        var disordered = 0
+    }
+
+    /// Every element of a document at every compound of every selector, through a new memo of
+    /// four shapes in each of several orders: from the first element to the last, the last to
+    /// the first, in no order, from the last third on, and with each of up to `firsts` elements
+    /// asking before the rest. Each result is held to the walk's, and afterwards each entry of
+    /// the memo to the walk's results for the children it speaks of.
+    private func compareKinds(body: String, selectors: [CSSComplexSelector], firsts: Int, generator: inout Generator,
+                              into counts: inout KindComparison) throws {
+        let document = try ContentDocument.parse(Data(StyleTestSupport.xhtml(body: body).utf8), path: "OPS/one.xhtml")
+        let facts = ElementFacts(document)
+        let elements = document.nodes.filter(\.isElement).map(\.order)
+        let walk = SelectorMatcher(document: document, facts: facts)
+        // `[selector][compound][node]`
+        let expected = selectors.map { selector in
+            selector.compounds.indices.map { level in
+                var row = [SelectorMatcher.Result](repeating: .failsLocally, count: document.nodes.count)
+                for element in elements { row[element] = walk.match(selector, element, from: level) }
+                return row
+            }
+        }
+        var children: [Int32: [Int]] = [:]
+        for element in elements where facts.parents[element] >= 0 { children[facts.parents[element], default: []].append(element) }
+        // After a match only matches and local failures, after a complete failure only complete and local ones.
+        for results in expected.joined() {
+            for siblings in children.values {
+                var settled: SelectorMatcher.Result?
+                for kind in siblings.map({ results[$0] }) where kind != .failsLocally {
+                    if let settled, kind != settled { counts.disordered += 1 }
+                    if kind != .failsAllSiblings { settled = kind }
+                }
+            }
+        }
+        let forwards = Array(elements.indices), third = elements.count / 3
+        var shuffled = forwards
+        for position in shuffled.indices.dropFirst().reversed() { shuffled.swapAt(position, generator.below(position + 1)) }
+        var orders = [forwards, forwards.reversed(), shuffled, Array(forwards[(2 * third)...] + forwards[..<(2 * third)])]
+        if firsts > 0 { orders += stride(from: elements.count - 1, through: 0, by: -max(1, elements.count / firsts)).map { [$0] + forwards } }
+        let shapes: [(directWalk: Int32, capacity: Int)] = [(8, 1 << 16), (0, 1 << 16), (0, 3), (3, 40)]
+        for shape in shapes {
+            for order in orders {
+                let memo = SiblingSearchMemo(directWalk: shape.directWalk, capacity: shape.capacity)
+                let matcher = SelectorMatcher(document: document, facts: facts, siblingSearches: memo)
+                for position in order {
+                    let element = elements[position]
+                    for (number, selector) in selectors.enumerated() {
+                        for level in selector.compounds.indices {
+                            let kind = matcher.match(selector, element, from: level), walked = expected[number][level][element]
+                            counts.compared += 1
+                            if level < selector.combinators.count, selector.combinators[level] == .subsequentSibling,
+                               facts.positions[element] - 1 > shape.directWalk {
+                                counts.searches[walked, default: 0] += 1
+                            }
+                            guard kind != walked else { continue }
+                            if counts.differing == 0 {
+                                XCTFail("Direct walk \(shape.directWalk), capacity \(shape.capacity), from \(order.prefix(3)): compound \(level) of selector \(number) at node \(element) is \(kind), to the walk \(walked), in\n\(body)")
+                            }
+                            counts.differing += 1
+                        }
+                    }
+                }
+                for (number, selector) in selectors.enumerated() {
+                    guard let identity = selector.identity else { continue }
+                    for level in selector.compounds.indices.dropFirst() where selector.combinators[level - 1] == .subsequentSibling {
+                        for (parent, siblings) in children {
+                            let known = memo.known(.init(selector: ObjectIdentifier(identity), compound: Int32(level), parent: parent))
+                            guard known != .init() else { continue }
+                            let kinds = siblings.map { expected[number][level][$0] }
+                            counts.entries += 1
+                            if known.match > 0 { counts.matched += 1 }
+                            if known.complete > 0 { counts.complete += 1 }
+                            let isTrue = max(known.match, known.complete, known.clear) <= kinds.count
+                                && (known.match == 0 || kinds[Int(known.match) - 1] == .matches)
+                                && (known.complete == 0 || kinds[Int(known.complete) - 1] == .failsCompletely)
+                                && !kinds.prefix(Int(known.clear)).contains { $0 == .matches || $0 == .failsCompletely }
+                            guard !isTrue else { continue }
+                            if counts.untrue == 0 {
+                                XCTFail("Direct walk \(shape.directWalk), capacity \(shape.capacity), from \(order.prefix(3)): \(known) for compound \(level) of selector \(number) under node \(parent), whose children are \(kinds), in\n\(body)")
+                            }
+                            counts.untrue += 1
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: Cost
+
     /// The compounds tested in finding the rules that match every element of a document, in
     /// document order or in `order` of the elements' places in it, and how many rules matched.
     private func cost(body: String, css: String, order: [Int]? = nil, memos: [SiblingSearchMemo?]) throws -> [(tested: Int, matched: Int)] {
@@ -167,11 +324,25 @@ final class SiblingSearchMemoTests: XCTestCase {
         XCTAssertGreaterThan(forwards[0].tested, 1_000_000)
         XCTAssertLessThan(forwards[1].tested, 4_100)
         // From the last of the 1,005 elements to the first, then scattered: 7,919 shares no factor with 1,005.
-        for order in [Array((0..<1_005).reversed()), (0..<1_005).map { $0 * 7_919 % 1_005 }] {
+        let orders = [Array((0..<1_005).reversed()), (0..<1_005).map { $0 * 7_919 % 1_005 }]
+        for order in orders {
             XCTAssertEqual(Set(order).count, 1_005)
             let found = try cost(body: body, css: css, order: order, memos: [SiblingSearchMemo()])
             XCTAssertEqual(found[0].matched, 1_000)
             XCTAssertLessThan(found[0].tested, 6_100)
+        }
+        // And once where the search fails completely: every paragraph's walk ends at the `h1`,
+        // which is in nothing titled. The first to come to it keeps that, and each of the rest
+        // tests itself and the sibling before it: 2,000, and at most 1,000 more for the first.
+        let titled = "[title] h1 ~ p { clear: both }"
+        let failing = try cost(body: body, css: titled, memos: [nil, SiblingSearchMemo()])
+        XCTAssertEqual(failing.map(\.matched), [0, 0])
+        XCTAssertGreaterThan(failing[0].tested, 500_000)
+        XCTAssertLessThan(failing[1].tested, 2_100)
+        for order in orders {
+            let found = try cost(body: body, css: titled, order: order, memos: [SiblingSearchMemo()])
+            XCTAssertEqual(found[0].matched, 0)
+            XCTAssertLessThan(found[0].tested, 3_100)
         }
     }
 
@@ -183,12 +354,15 @@ final class SiblingSearchMemoTests: XCTestCase {
         memo.record(.init(clear: 9), for: key(1))
         memo.record(.init(clear: 5), for: key(1))
         XCTAssertEqual(memo.known(key(1)), .init(clear: 9), "A thread that walked fewer children does not undo one that walked more")
-        memo.record(.init(match: 40, clear: 7, completely: true), for: key(1))
-        XCTAssertEqual(memo.known(key(1)), .init(match: 40, clear: 9, completely: true))
-        memo.record(.init(match: 30, clear: 20), for: key(1))
-        memo.record(.init(match: 35), for: key(1))
-        XCTAssertEqual(memo.known(key(1)), .init(match: 30, clear: 20, completely: true), "The earliest match, and a complete failure stays one")
-        memo.record(.init(clear: 2), for: key(2))
+        memo.record(.init(complete: 40, clear: 7), for: key(1))
+        XCTAssertEqual(memo.known(key(1)), .init(complete: 40, clear: 9))
+        memo.record(.init(complete: 30, clear: 20), for: key(1))
+        memo.record(.init(complete: 35), for: key(1))
+        XCTAssertEqual(memo.known(key(1)), .init(complete: 30, clear: 20), "The earliest complete failure")
+        memo.record(.init(match: 40, clear: 2), for: key(2))
+        memo.record(.init(match: 30), for: key(2))
+        memo.record(.init(match: 35, clear: 1), for: key(2))
+        XCTAssertEqual(memo.known(key(2)), .init(match: 30, clear: 2), "And the earliest match")
         XCTAssertEqual(memo.known(key(1)).clear, 20, "Two entries fit")
         memo.record(.init(clear: 3), for: key(3))
         XCTAssertEqual([1, 2, 3].map { memo.known(key($0)).clear }, [0, 0, 3], "A third makes room by forgetting the rest")
@@ -249,6 +423,16 @@ private struct Generator {
     ]
 
     // MARK: Documents
+
+    /// The kin of forty children with one `b` among them: a run of `i` holding a `u`, with a
+    /// `b` here and there and an `h6` now and then, in a `div` that is titled one time in three
+    /// and lies in something titled one time in four.
+    mutating func run(count: Int) -> String {
+        let rate = pick([3, 8, 20])
+        let children = (0..<count).map { _ in chance(rate) ? "<b>x</b>" : chance(3) ? "<h6>x</h6>" : "<i><u>x</u></i>" }.joined()
+        let run = "<div\(chance(33) ? " title=\"t\"" : "")>" + children + "</div>"
+        return chance(25) ? "<section title=\"t\">" + run + "</section>" : run
+    }
 
     private mutating func open(_ name: String) -> String {
         var text = "<\(name)"
