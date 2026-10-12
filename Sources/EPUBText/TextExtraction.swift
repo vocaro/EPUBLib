@@ -524,7 +524,7 @@ private enum HTMLRecoverySource {
                 while index < bytes.count, !matches(bytes, close, at: index) {
                     if bytes[index] == 0 {
                         output.append(contentsOf: replacement)
-                    } else if bytes[index] == 0x2F, bytes[index - 1] == 0x3C, names(bytes, "BODY", at: index + 1) || names(bytes, "HTML", at: index + 1) {
+                    } else if bytes[index] == 0x2F, bytes[index - 1] == 0x3C, names(bytes, body, at: index + 1) || names(bytes, root, at: index + 1) {
                         output.append(contentsOf: Array("/.".utf8)) // </
                     } else {
                         output.append(bytes[index])
@@ -578,14 +578,14 @@ private enum HTMLRecoverySource {
         if closing {
             // libxml2 ends an end tag at the first `>`, quoted or not, and so acts on a
             // `</body>` in another end tag's quoted value.
-            let structure = names(bytes, "BODY", at: nameStart) || names(bytes, "HTML", at: nameStart) ? Structure.bodyOrRootEnd : nil
+            let structure = names(bytes, body, at: nameStart) || names(bytes, root, at: nameStart) ? Structure.bodyOrRootEnd : nil
             return (bytes[index...].firstIndex(of: 0x3E).map { $0 + 1 } ?? bytes.count, nil, structure)
         }
         var selfClosing = false // libxml2 closes `<script/>` at once; no raw text follows.
         while index < bytes.count {
             if bytes[index] == 0x3E { // >
                 guard selfClosing else { return (index + 1, rawText, nil) }
-                let empty: [(String, Structure)] = [("HTML", .emptyRoot), ("HEAD", .emptyHead), ("BODY", .emptyBody)]
+                let empty: [([UInt8], Structure)] = [(root, .emptyRoot), (head, .emptyHead), (body, .emptyBody)]
                 return (index + 1, nil, bytes[index - 1] == 0x2F ? empty.first { names(bytes, $0.0, at: nameStart) }?.1 : nil) // />
             }
             if bytes[index] == 0x2F { selfClosing = true; index += 1; continue }
@@ -610,12 +610,14 @@ private enum HTMLRecoverySource {
         return (bytes.count, rawText, nil)
     }
 
+    private static let root = Array("HTML".utf8), head = Array("HEAD".utf8), body = Array("BODY".utf8)
+
     /// Whether libxml2 reads the tag name at `position` as `name` (uppercase, for `matches`). It
     /// ends a name at the first byte that is not an ASCII letter or digit, `:`, `-`, `_` or `.`,
     /// so `</body"x>` is `</body>` to it and `<head"x/>` is `<head/>`.
-    private static func names(_ bytes: [UInt8], _ name: String, at position: Int) -> Bool {
-        let token = Array(name.utf8), next = position + token.count
-        guard matches(bytes, token, at: position) else { return false }
+    private static func names(_ bytes: [UInt8], _ name: [UInt8], at position: Int) -> Bool {
+        let next = position + name.count
+        guard matches(bytes, name, at: position) else { return false }
         guard next < bytes.count else { return true }
         let byte = bytes[next]
         return !((byte | 0x20 >= 0x61 && byte | 0x20 <= 0x7A) || (byte >= 0x30 && byte <= 0x39) || [0x3A, 0x2D, 0x5F, 0x2E].contains(byte))
