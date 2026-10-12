@@ -335,13 +335,34 @@ reader's window that was not granted.
    offsets in absolute units, so `left: -999em` leaves the eight headings and bylines visible
    above the image that repeats them ([limitations](native-viewer.md#limitations)). Not
    changed here.
-7. **A row of sized inline blocks is scattered, and overlapped in continuous scroll.**
-   *Tristram Shandy* marks omissions with runs of asterisks, each in an inline block five ems
-   wide, which a browser sets as rows inside the paragraph. The reader puts each block a line
-   lower than the last. In paging the prose after them wraps round each one, breaking words
-   across the gaps; in continuous scroll it is drawn over them (chapters 5.37, 6.34 and 9.20).
-   Rendered off screen on the Mac this is identical at `main`: the same positions and the same
-   overlaps. It is outside flex and grid and is not changed here.
+7. **A row of sized inline blocks was scattered, and overlapped in continuous scroll; fixed
+   since.** *Tristram Shandy* marks omissions with runs of asterisks, each in an inline block
+   of fixed width, which a browser sets as rows inside the paragraph, and in chapter 8.13 puts
+   the initial of each word of an alphabet in such a block. At `main` the reader put each block
+   a line lower than the last. In paging the prose after them wrapped round each one, breaking
+   words across the gaps; in continuous scroll it was drawn over them (chapters 5.37, 6.34 and
+   9.20). There were two causes. The planner placed an inline block after the last line of the
+   paragraph before it, which for a block following another is that block's one glyph, not its
+   box, so each landed inside the one before and was dropped below it; a block that opened a
+   paragraph was placed after the previous paragraph's last line for the same reason. And in
+   continuous scroll the boxes' places are planned for the whole book while TextKit only
+   estimates the height of the text above the screen: at chapter 5.37 a line was 5,232 points
+   from where the plan had it, so the prose never met the boxes beside it. The writer now
+   records where each block sits on its paragraph's line, the planner sets a run along that
+   line and wraps it, and the text container wraps each paragraph against the plan from where
+   that paragraph is laid out ([native viewer](native-viewer.md#floats-and-positioned-boxes)).
+
+   Captured before (`main` at `71bf8ce`) and after on the iPad Air 13-inch (M4) and iPhone 17
+   Pro simulators (iOS 27.0, 17 points, a 720-point and a 374-point column), in paging and in
+   continuous scroll, for chapters 5.37, 6.34, 8.13 and 9.20 and for the fixture of
+   `Fixture.inlineRows()`. Before, the marks of 5.37 were on nine lines on the iPad, and in
+   continuous scroll 8 pairs of lines overlapped there, 29 in 6.34 and 34 in 9.20 (8 and 36 on
+   the iPhone, where 6.34's marks are below the screen). After, no two lines overlap in any of
+   the 24 captures. Beside WebKit showing the same document with `text-wrap: wrap`, every mark
+   is within 0.1 points of WebKit's, across and down, and the prose that follows each run
+   starts within 0.4 points of WebKit's. As the books ship, with `text-wrap: pretty`, WebKit
+   evens a run's rows out (eleven marks and nine where the reader has twelve and eight); the
+   number of rows was the same in every capture.
 8. **Ordinary sections in continuous scroll** rest their first line at the top, so a
    half-title page's 3em margin is above the screen where WebKit, showing that document alone,
    has it on screen. That is the existing rule for positions that do not start an aligned box.
@@ -374,8 +395,8 @@ None of the ten floats anything. Their boxes are the headings that title pages, 
 colophons position off to the left, and in *Tristram Shandy* sized inline blocks. The first
 pages of five such sections and of every title page were captured in pages and in continuous
 scroll on both simulators (160 captures). No line leaves its column or page. In 7 captures,
-all of *Tristram Shandy*'s asterisk rows, an asterisk and the prose after it overlap
-(finding 7); the title pages and the imprint have no overlap.
+all of *Tristram Shandy*'s asterisk rows, an asterisk and the prose after it overlapped
+(finding 7, fixed since); the title pages and the imprint have no overlap.
 
 ### The four choices
 
