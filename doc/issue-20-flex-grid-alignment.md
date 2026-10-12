@@ -125,6 +125,8 @@ content.
   on pages of their own, at two sizes. In the same book, a view the person has moved to where
   half a point of the line above a shown position is on screen, or of a line at the bottom:
   that line is not the visible start or end, and a resize keeps the line shown at the top.
+  The dedication shown from its top edge stays there, and stays the place reported, through
+  seven changes of the window's height at the same width.
 - `BoxAlignmentSessionTests`: the fixture book through the public commands in both flows:
   disclosure, href navigation, located and selected passage, saved highlight, restore, and the
   same CFIs in either flow.
@@ -536,15 +538,19 @@ and the Mac run have no failure.
   dedication reached by turning back and changing flow is reported as the dedication. The
   fixture's lines were read the same way on the simulators before (asked 1835, reported 1794
   on the iPhone), and the tests that allowed for it name the visible start again.
-- On the Mac a change of the window's height at the same column width can leave a box rested
-  by its top edge above or below the top by the change in the space above its first line.
-  The step that holds the first line on screen in place after a layout behind the view
-  ([Layout](native-viewer.md#layout)) takes the box's new height for one. In *The Great
-  Gatsby* at 1,000 points wide the dedication was 98 points low after the height went from
-  1,000 to 800, with a position in the imprint reported, and 98 points high after 800 to
-  1,000, on some resizes and not others; a change of width shows the box whole again. This is
-  older than the change above, and can now happen where a box that had rested a fraction low
-  used to sit one line down after a resize instead
-  ([#313](https://github.com/vocaro/EPUBLib/issues/313)). The resize keeping the visible start
+- On the Mac a change of the window's height at the same column width could leave a box
+  rested by its top edge above or below the top by the change in the space above its first
+  line. The step that holds the first line on screen in place after a layout behind the view
+  ([Layout](native-viewer.md#layout)) took the box's new height for one: the top edge rested
+  where it had, so the view had not moved, and the first line had. When this was found the
+  step compared the visible top with where it had been for equality, and the rest reaches the
+  same place by arithmetic that differs in the last bit from one height to another, so it
+  happened on some resizes and not others. The reader now forgets where that line stood
+  whenever a new visible height resolves the boxes again, as it does for a new column width
+  ([#313](https://github.com/vocaro/EPUBLib/issues/313)). With the shipped pages in a canvas
+  500 points wide, the dedication shown after the title page was 68.6 points low after the
+  height went from 700 to 560, 49 after 700 to 600 and 24.5 after 700 to 650, with the title
+  page's last line reported each time; it now stays within a point of the top with the
+  dedication reported through seven changes of height. The resize keeping the visible start
   whether or not the person has scrolled is
   [#164](https://github.com/vocaro/EPUBLib/issues/164).
