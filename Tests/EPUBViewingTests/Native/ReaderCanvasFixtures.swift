@@ -276,15 +276,24 @@ enum CanvasScrollBars: CaseIterable {
         try await Task.sleep(for: .milliseconds(milliseconds))
     }
 
-    /// Lets the canvas's settling run and returns the selection it has reported, waiting on
-    /// when it has reported none yet. The canvas reports 150 ms after the selection last
-    /// changed, and that can be later than a test's own wait: on a hosted runner with nothing
-    /// else to do, a 250 ms sleep read the recorder before the report in 17 of 50 runs of
-    /// `ReaderCanvasViewTests` (#268).
-    func reportedSelection(file: StaticString = #filePath, line: UInt = #line) async throws -> ReaderSelection {
+    /// Lets the canvas's settling run and waits on, up to ten seconds, for `condition`. The canvas
+    /// reports a selection 150 ms after it last changed, and that can be later than a test's own
+    /// wait: on a hosted runner with nothing else to do, a 250 ms sleep read the recorder before
+    /// the report in 17 of 50 runs of `ReaderCanvasViewTests` (#268).
+    private func settle(until condition: () -> Bool) async throws {
         try await settle()
         let deadline = Date().addingTimeInterval(10)
-        while (recorder.selections.last ?? nil) == nil, Date() < deadline { try await settle(20) }
+        while !condition(), Date() < deadline { try await settle(20) }
+    }
+
+    /// Settles until the canvas has reported the selection it holds, or that it holds none.
+    func settleSelection() async throws {
+        try await settle(until: { (recorder.selections.last ?? nil) == canvas.currentSelection })
+    }
+
+    /// Settles until the canvas has reported a selection, and returns it.
+    func reportedSelection(file: StaticString = #filePath, line: UInt = #line) async throws -> ReaderSelection {
+        try await settle(until: { (recorder.selections.last ?? nil) != nil })
         return try XCTUnwrap(recorder.selections.last ?? nil, "the canvas reported no selection", file: file, line: line)
     }
 }
