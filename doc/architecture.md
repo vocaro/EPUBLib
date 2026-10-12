@@ -42,13 +42,13 @@ bytes does not execute document content. XML expansion and external entity resol
 actual DTD syntax from comments, CDATA, processing instructions and quoted identifiers; it decodes
 UTF-16/32 input before inspecting markup.
 
-A safe archive path is relative and made of names separated by single `/`: no name is empty, `.`
-or `..`, and the path holds no backslash, colon or NUL. Entry names, the rootfile path and the
-path of every resolved reference are held to that. Paths and references are read by Unicode
-scalar, as an archive and a file system read them, not by `Character`: a `/`, `\`, `:`, `#` or `.`
-followed by a combining mark, variation selector or joiner, or preceded by a prepended mark such
-as U+0600, is still that separator or dot. So `../` followed by U+0301 and a name is refused
-wherever `../` and the name alone is, and `a/` followed by U+0301 and `b` is the name `a` and a
+A path the reader keeps is relative and made of names separated by single `/`: no name is empty,
+`.` or `..`, and the path holds no backslash or NUL. Entry names, the rootfile path and the path
+of every resolved reference are held to that. A delimiter in a path or a reference is found as
+its byte, as an archive and a file system read it, not by `Character`: a `/`, `\`, `:`, `#`, `?`
+or `.` followed by a combining mark, variation selector or joiner, or preceded by a prepended
+mark such as U+0600, is still that delimiter or dot. So `../` followed by U+0301 and a name is
+read as `../` and the name alone is, and `a/` followed by U+0301 and `b` is the name `a` and a
 second name that begins with the mark. Paths are compared as Swift strings, by canonical
 equivalence, so a name's precomposed and decomposed forms are one path: an entry answers to a
 reference in either normalization form, and two entry names equal after normalization are

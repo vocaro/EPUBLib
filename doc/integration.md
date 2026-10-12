@@ -140,21 +140,28 @@ Navigation items and emitted locations also carry encoded hrefs. Decode neither 
 
 A host that writes a resource to disk may join its `path` to a directory of its own. The `path` of
 every resource of an opened publication is relative; its names are separated by single `/`, none
-of them is empty, `.` or `..`, and it holds no backslash, colon or NUL. That is true of the path's
-Unicode scalars, and so of the bytes a file system is given, whatever combining marks, variation
+of them is empty, `.` or `..`, and it holds no backslash or NUL. That is true of the path's
+UTF-8 bytes, which are what a file system is given, whatever combining marks, variation
 selectors or joiners a name carries. Pass the path whole to `URL` or `FileManager`, or split it at
 `/` in its `unicodeScalars` or `utf8` view: by `Character`, which `split(separator:)`, `hasPrefix`
 and `contains` compare on a `String` (as Foundation's `components(separatedBy:)` does, and
-`range(of:)` unless told `.literal`), a `/` followed by a combining mark is not a `/`.
+`range(of:)` unless told `.literal`), a `/` followed by a combining mark is not a `/`. Inspect a
+path in those views too, not through a `URL` made from it: `URL.pathComponents` drops a U+FEFF
+that opens a name, and so reports `..` for U+FEFF followed by `..`, while the file system is
+given the name whole.
 
 The names themselves are the book's. The host still decides what to do with a name that begins
-with a dot or holds control characters, with names its platform reserves, alters or does not
-allow (Windows device names, a closing dot or space), with two paths its file system holds equal
-(they may differ only in case), with a file and a folder of one name and with length limits. It
-keeps symbolic links out of the destination, and checks a path again after any conversion of its
-own: compatibility normalization and legacy code pages turn other characters into `/`, `\`, `.`
-and `:`. A `path` is the manifest's spelling of the name. It equals the archive entry's name as a
-Swift string, which is canonical equivalence, and need not match it byte for byte.
+with a dot or holds control characters or a colon (a book's file names may hold one, and to
+Windows it marks a drive or a stream of another file), with names its platform reserves, alters
+or does not allow (Windows device names, a closing dot or space, and zero-width and other
+default-ignorable characters, which a file system may pass over when it compares names, so that
+dots beside them are `.` or `..` to it), with two paths its file system holds equal (they may
+differ only in case), with a file and a folder of one name and with length limits. It keeps
+symbolic links out of the destination, and checks a path again after any conversion of its own:
+compatibility normalization and legacy code pages turn other characters into `/`, `\`, `.` and
+`:`. A `path` is the manifest's spelling of the name, or the entry's own where the two differ
+only in case. It equals the archive entry's name as a Swift string, which is canonical
+equivalence, and need not match it byte for byte.
 
 To store a position, encode `EPUBLocation` using `JSONEncoder`. On reopen, compare its publication
 ID and send `.restore(location)` only when bookmarks are supported. Compare a stored bookmark with
