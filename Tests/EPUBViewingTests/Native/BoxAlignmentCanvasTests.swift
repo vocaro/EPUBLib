@@ -264,6 +264,26 @@ import UIKit
             XCTAssertEqual(result.top, 0, accuracy: 1.5, "\(size)")
             XCTAssertEqual(result.middle, 0.49, accuracy: 0.01, "\(size)")
         }
+        // The person scrolls the box's first line off the top (not through the canvas). The
+        // position a resize keeps is then the visible start, inside the box, and the resize
+        // shows the box whole again.
+        let scroll = try XCTUnwrap(host.canvas.scrollTextView), book = try XCTUnwrap(host.canvas.scrollBook)
+        let second = ReaderTextPosition(section: 1, offset: H.range("who read", in: texts[1]).location)
+        let delta = try XCTUnwrap(scroll.lineFrame(containing: book.location(of: second))).minY - host.canvas.scrollVisibleContainerRect.minY
+        #if os(macOS)
+        let clip = try XCTUnwrap(host.canvas.scrollContainer as? NSScrollView).contentView
+        clip.scroll(to: NSPoint(x: 0, y: clip.bounds.minY + delta))
+        try XCTUnwrap(clip.enclosingScrollView).reflectScrolledClipView(clip)
+        #else
+        scroll.contentOffset.y += delta
+        #endif
+        try await host.settle()
+        XCTAssertEqual(host.canvas.visibleRange?.start, second, "the second line is at the top")
+        host.resize(to: CGSize(width: 460, height: 640))
+        try await host.settle()
+        result = try box("For those", "to the last page", section: 1)
+        XCTAssertEqual(result.top, 0, accuracy: 1.5)
+        XCTAssertEqual(result.middle, 0.49, accuracy: 0.01)
         // A position on a line in the middle of the epigraph, as a search result has.
         let third = H.range("And every road", in: texts[2]).location
         host.canvas.show(ReaderTextPosition(section: 2, offset: third), selecting: nil)
