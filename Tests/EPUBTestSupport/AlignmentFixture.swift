@@ -71,7 +71,8 @@ public extension Fixture {
         /// `epub|type`, margins are longhands, `text-align: left` replaces `initial`, a verse
         /// line is a block `span` with a hanging indent, and the rule separating items is only
         /// there when a page has several. The title page hides its heading and byline far to
-        /// the left of an image of the same words; half-title pages are plain centred headings.
+        /// the left of an image of the same words, as the imprint and the colophon hide their
+        /// heading beside a logo; half-title pages are plain centred headings.
         public static let shippedCSS = """
             @charset "utf-8";
             @namespace epub "http://www.idpf.org/2007/ops";
@@ -86,7 +87,20 @@ public extension Fixture {
             b, strong{ font-variant: small-caps; font-weight: normal; }
             section{ display: block; }
             section.epub-type-contains-word-titlepage h1,
-            section.epub-type-contains-word-titlepage p{ left: -999em; position: absolute; }
+            section.epub-type-contains-word-titlepage p,
+            section.epub-type-contains-word-colophon h2,
+            section.epub-type-contains-word-imprint h2{ left: -999em; position: absolute; }
+            section.epub-type-contains-word-titlepage img{
+                display: block; margin-top: 3em; margin-right: auto; margin-bottom: auto; margin-left: auto; width: 100%;
+            }
+            section.epub-type-contains-word-colophon, section.epub-type-contains-word-imprint{ text-align: center; }
+            section.epub-type-contains-word-colophon header,
+            section.epub-type-contains-word-imprint header{ line-height: 0; margin-top: 3em; }
+            img.epub-type-contains-word-z3998-publisher-logo{ max-width: 25%; width: 220px; }
+            section.epub-type-contains-word-colophon p, section.epub-type-contains-word-imprint p{
+                margin-top: 1em; margin-right: auto; margin-bottom: 0; margin-left: auto; text-indent: 0;
+            }
+            section.epub-type-contains-word-imprint p{ font-size: smaller; text-align: justify; width: 75%; }
             .epub-type-contains-word-z3998-verse p{ text-align: left; text-indent: 0; }
             .epub-type-contains-word-z3998-verse p > span{ display: block; padding-left: 1em; text-indent: -1em; }
             .epub-type-contains-word-z3998-verse p > span + br{ display: none; }
@@ -124,9 +138,20 @@ public extension Fixture {
             }
             """
 
+        /// The title page, whose image is `titlepage.png` beside the document (1400 by 340
+        /// pixels as shipped).
         public static let shippedTitleBody = """
             <section class="epub-type-contains-word-titlepage" id="titlepage" epub:type="titlepage">\
-            <h1 epub:type="title">An Aligned Book</h1><p>By <b>Test Author</b>.</p></section>
+            <h1 epub:type="title">An Aligned Book</h1><p>By <b>Test Author</b>.</p>\
+            <img alt="" src="titlepage.png"/></section>
+            """
+
+        /// The imprint, whose logo is `logo.png` beside the document (220 by 140 pixels as shipped).
+        public static let shippedImprintBody = """
+            <section class="epub-type-contains-word-imprint" id="imprint" epub:type="imprint">\
+            <header><h2 epub:type="title">Imprint</h2>\
+            <img alt="The publisher's logo." class="epub-type-contains-word-z3998-publisher-logo" src="logo.png"/></header>\
+            <p id="notice">This edition was made for a test and is free of copyright.</p></section>
             """
 
         public static let shippedEpigraphBody = """

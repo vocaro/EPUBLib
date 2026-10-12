@@ -118,22 +118,34 @@ import UIKit
             <div id="inheritedAbsolute"><span id="absoluteChild">Inherited absolute offscreen label.</span></div>
             <span id="initial">Reset offscreen label.</span>
             <span id="clippedRelative">Clipped font relative label.</span>
+            <span id="farEm">Far font relative label.</span>
+            <span id="farRem">Far root relative label.</span>
+            <span id="farCalc">Far font relative calculation label.</span>
+            <div id="inheritedFar"><span id="farChild">Inherited far font relative label.</span></div>
             <p id="end">After labels.</p>
             """
+        // An em or a rem counts as 16 pixels whatever the size: 62 of them are 992 pixels and stay
+        // visible at 96 points, where they compute to the 1,000-point limit; 63 are 1,008 and stay
+        // hidden at 12 points, where a quarter-size em makes them 189.
         let css = """
             span { position:absolute; }
-            #em { left:-64em; }
-            #rem { top:-64rem; }
-            #mixed { left:calc(-9999px + 2em); }
-            #relativeCalc { top:calc(-32em * 2); }
+            #em { left:-62em; }
+            #rem { top:-62rem; }
+            #mixed { left:calc(-9999px + 50%); }
+            #relativeCalc { top:calc(-31em * 2); }
             #absolute { left:-9999px; }
             #absoluteCalc { top:calc(-1200px + 100px); }
-            #inheritedRelative { left:-64em; font-size:2em; }
+            #inheritedRelative { left:-62em; font-size:2em; }
             #relativeChild { left:inherit; }
             #inheritedAbsolute { top:calc(-9999px + 100px); font-size:2em; }
             #absoluteChild { top:inherit; }
             #initial { left:-9999px; left:initial; }
-            #clippedRelative { left:-64em; clip:rect(0,0,0,0); }
+            #clippedRelative { left:-62em; clip:rect(0,0,0,0); }
+            #farEm { left:-999em; }
+            #farRem { top:-63rem; }
+            #farCalc { left:calc(-999em - 10px); }
+            #inheritedFar { left:-63em; font-size:0.25em; }
+            #farChild { left:inherit; }
             """
         let publication = try StyleTestSupport.publication(section: StyleTestSupport.xhtml(body: body, css: css))
         let spine = try SpineCFIs(publication: publication)
@@ -151,7 +163,8 @@ import UIKit
                 XCTAssertTrue(section.string.string.contains(phrase), "Font size \(fontSize): \(phrase)")
             }
             for phrase in ["Absolute offscreen label.", "Absolute calculation offscreen label.",
-                           "Inherited absolute offscreen label.", "Clipped font relative label."] {
+                           "Inherited absolute offscreen label.", "Clipped font relative label.", "Far font relative label.",
+                           "Far root relative label.", "Far font relative calculation label.", "Inherited far font relative label."] {
                 XCTAssertFalse(section.string.string.contains(phrase), "Font size \(fontSize): \(phrase)")
             }
             let range = (section.string.string as NSString).range(of: "After labels.")

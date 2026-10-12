@@ -371,11 +371,16 @@ lines a little differently where the container places them; their edges are the 
 A `.disclosure` explains that box layouts may be simplified. Sticky positioning, negative
 relative vertical offsets, arbitrary overlap and `z-index`, and page-pinned or repeating fixed
 boxes are outside the supported subset. Conventional positioned, visually hidden accessibility
-labels remain omitted to avoid visible duplicate text. The offscreen heuristic recognizes only
-absolute-unit top/left offsets of -1,000 CSS pixels or less, including calculations containing
-only absolute units; it is evaluated from
-author values independently of reader typography. Font-relative, percentage, viewport and
-mixed-unit offsets remain visible unless explicitly clipped or hidden. This keeps rendered
+labels remain omitted to avoid visible duplicate text. The offscreen heuristic recognizes
+top/left offsets of -1,000 CSS pixels or less as the book wrote them, an `em` or a `rem`
+counting as 16 pixels (`-62.5em`), including calculations in those units alone. That is the em
+media queries are given, not the element's font size or the reader's: `left: -999em`, where
+Standard Ebooks parks the heading of a title page beside an image of the same words, hides it
+at every text size, and `-62em` hides nothing at any, though it computes to more than 1,000
+points from 17 points up. Percentage and viewport offsets, offsets in a face's own metrics
+(`ex`, `ch`) and calculations holding one remain visible unless explicitly clipped or hidden:
+a percentage is of a containing block of any width, and the viewport offset stylesheets use,
+`-100vw`, is the edge of the screen and not beyond it. This keeps rendered
 text and saved range offsets identical across reader font-size changes. General clipping,
 arbitrary offscreen geometry and transforms are outside this subset.
 Fixed-layout publications still reflow and report their existing fixed-layout disclosure; this
@@ -561,11 +566,12 @@ Go: the native viewer is the bundled engine.
   in reading order without clipping text. Sticky positioning, negative relative vertical
   offsets, arbitrary overlap/`z-index` and page-pinned or repeating fixed boxes are unsupported.
   A layout disclosure accompanies books using these box styles. Common positioned accessibility
-  labels hidden with zero-area `clip: rect(...)`, `clip-path: inset(50%)`, visibility or large negative
-  top/left offsets in absolute units stay omitted; font-relative or mixed-unit offsets remain
-  visible unless explicitly hidden or clipped. Standard Ebooks' title pages are such a case:
-  the heading and byline they park at `left: -999em` are shown above the title image that
-  repeats them ([#63](https://github.com/vocaro/EPUBLib/issues/63)). General clipping and arbitrary offscreen
+  labels hidden with zero-area `clip: rect(...)`, `clip-path: inset(50%)`, visibility or
+  top/left offsets of -1,000 CSS pixels or less (16 to the `em` or `rem`, so `-62.5em`) stay
+  omitted, and a position saved inside one opens at what follows it; percentage and viewport
+  offsets remain visible unless explicitly hidden or clipped. A box parked that far to the
+  left that reaches back on screen, with a `right` offset or a great width, is omitted with
+  the rest. General clipping and arbitrary offscreen
   geometry are unsupported. Unsized inline-blocks remain inline. Ordinary percentage margins,
   padding and text indents resolve against the live containing content width, including
   constrained flow-box ancestors, and recalculate at resize. Mixed-unit CSS calculations

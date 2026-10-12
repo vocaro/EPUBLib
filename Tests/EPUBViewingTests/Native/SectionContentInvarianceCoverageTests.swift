@@ -80,15 +80,17 @@ final class SectionContentInvarianceCoverageTests: XCTestCase {
     }
 
     func testFontRelativeMediaQueriesOffsetsAndBoxesDoNotMakeCharactersDependOnFontSize() throws {
-        // Media queries see a nominal viewport with a 16px em, and only absolute offsets hide a positioned label.
+        // Media queries see a nominal viewport with a 16px em, and the offset that hides a positioned label counts
+        // an em as the same 16px: neither looks at the reader's size.
         try assertInvariant("""
             <p>Start <span class="wide">wide</span> <span class="narrow">narrow</span> <span class="tall">tall</span>.</p>
-            <p>Labels <span class="em">em-offscreen</span> <span class="px">px-offscreen</span> <span class="clip">clipped</span>.</p>
+            <p>Labels <span class="em">em-offscreen</span> <span class="near">em-near</span> <span class="px">px-offscreen</span> \
+            <span class="clip">clipped</span>.</p>
             <div class="box"><p>Boxed <span class="ib">inline block</span> text.</p></div><p class="vw">viewport</p>
             """, css: """
             @media (min-width: 30em) { .wide { display: none } } @media (max-width: 30em) { .narrow { display: none } }
             @media (min-height: 60em) { .tall { display: none } }
-            .em { position: absolute; left: -999em } .px { position: absolute; left: -9999px }
+            .em { position: absolute; left: -999em } .near { position: absolute; left: -62em } .px { position: absolute; left: -9999px }
             .clip { position: absolute; clip: rect(0 0 0 0); width: 1px; height: 1px; overflow: hidden }
             .box { position: relative; width: 20em; min-height: 10em; margin: 0 auto } .ib { display: inline-block; width: 5em }
             .vw { font-size: 5vw; margin-left: calc(10% + 2em) }

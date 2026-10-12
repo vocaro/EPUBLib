@@ -226,10 +226,15 @@ column and for continuous scroll, 1200 by 800 for two columns): 108 captures.
    others 4.4 left.
 5. **Baselines.** Line boxes agree; the reader sets glyphs about a tenth of an em lower within
    one (1.8 points at 17, 2.8 at 28), as it does for all text.
-6. **Title pages show their hidden heading.** The reader's rule for off-screen labels takes
-   offsets in absolute units, so `left: -999em` leaves the eight headings and bylines visible
-   above the image that repeats them ([limitations](native-viewer.md#limitations)). Not
-   changed here.
+6. **Title pages showed their hidden heading; fixed afterwards.** The reader's rule for
+   off-screen labels took offsets in absolute units, so `left: -999em` left the eight headings
+   and bylines visible above the image that repeats them, and the headings "Imprint" and
+   "Colophon" above the logo in all ten. The rule now counts an `em` or a `rem` as 16 CSS
+   pixels ([floats and positioned boxes](native-viewer.md#floats-and-positioned-boxes)). Of
+   the ten titles' 724 sections, built at 12, 17 and 96 points, 28 changed: the 8 title pages,
+   now their image alone, and the 10 imprints and 10 colophons, each without its heading. No
+   other section's text changed, and none differs between the three sizes. The captures and
+   counts elsewhere in this section were taken before that.
 7. **A row of sized inline blocks is scattered, and overlapped in continuous scroll.**
    *Tristram Shandy* marks omissions with runs of asterisks, each in an inline block five ems
    wide, which a browser sets as rows inside the paragraph. The reader puts each block a line
@@ -255,8 +260,11 @@ Mac this ran on, so the larger qualification corpus was not counted.
 
 ### Sections with boxes
 
-None of the ten floats anything. Their boxes are the headings that title pages, imprints and
-colophons position off to the left, and in *Tristram Shandy* sized inline blocks. The first
+None of the ten floats anything. Their boxes were the headings that title pages, imprints and
+colophons position off to the left, and in *Tristram Shandy* sized inline blocks. Since those
+headings are hidden (finding 6) they are no longer boxes: 8 sections of *Tristram Shandy* have
+box geometry and no section of the other nine, so in continuous scroll those nine are laid out
+without the text container placing their lines. The first
 pages of five such sections and of every title page were captured in pages and in continuous
 scroll on both simulators (160 captures). No line leaves its column or page. In 7 captures,
 all of *Tristram Shandy*'s asterisk rows, an asterisk and the prose after it overlap
@@ -318,6 +326,3 @@ and the Mac run have no failure.
   its block is inside it, which makes the block that much wider.
 - Rules that a row draws with empty `::before` and `::after` flex items are not drawn, and
   that is not disclosed (*Tristram Shandy*, chapters 1.4 and 4.27).
-- A title page that parks its heading with a font-relative offset (`left: -999em`) shows it:
-  the reader's rule for off-screen labels takes absolute units
-  ([limitations](native-viewer.md#limitations)).

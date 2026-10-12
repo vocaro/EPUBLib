@@ -226,23 +226,27 @@ import UIKit
 
     // MARK: Visually hidden labels
 
-    /// `doc/native-viewer.md`: "absolute-unit top/left offsets of -1,000 CSS pixels or less,
-    /// including calculations containing only absolute units"; zero-area `clip: rect(...)` and
-    /// `clip-path: inset(50%)`. Everything else stays visible.
+    /// `doc/native-viewer.md`: "top/left offsets of -1,000 CSS pixels or less as the book wrote
+    /// them, an `em` or a `rem` counting as 16 pixels (`-62.5em`), including calculations in
+    /// those units alone"; zero-area `clip: rect(...)` and `clip-path: inset(50%)`. Everything
+    /// else stays visible.
     func testHiddenLabelHeuristicAtItsDocumentedBoundaries() throws {
         let hidden = ["left:-1000px", "top:-1000px", "left:-1000.5px", "left:-9999px", "left:calc(-1000px)", "left:calc(-500px - 500px)",
                       "left:calc(-250px * 4)", "left:-750pt", "left:-11in", "left:-1e9px", "inset:-2000px auto auto auto",
+                      "left:-999em", "top:-999rem", "left:-62.5em", "top:-62.5rem", "left:calc(-999px - 1em)", "left:calc(-50em - 200px)",
                       "clip:rect(0 0 0 0)", "clip:rect(0, 0, 0, 0)", "clip:rect(1px, 1px, 1px, 1px)", "clip:rect(0px 0px 0px 0px)",
                       "clip-path:inset(50%)", "clip-path:inset(100%)", "visibility:hidden"]
-        let visible = ["left:-999px", "left:-999.99px", "top:-999px", "left:-999em", "top:-999rem", "left:calc(-999px - 1em)",
+        let visible = ["left:-999px", "left:-999.99px", "top:-999px", "left:-62.49em", "top:-62rem", "left:calc(-50em - 199px)",
+                       "left:-999ex", "left:-999ch", "left:calc(-999em - 1%)", "top:-999vh",
                        "left:calc(-2000px + 50%)", "left:-200%", "left:-500vw", "right:-9999px", "bottom:-9999px", "left:-749pt",
+                       "right:-999em", "margin-left:-999em",
                        "margin-left:-9999px", "clip:rect(0, 0, 1px, 1px)", "clip:rect(auto, auto, auto, auto)", "clip-path:inset(49%)",
                        "clip-path:none", "left:1000px"]
         func build(_ declarations: [String], fontSize: CGFloat) throws -> SectionText {
             try H.build(declarations.enumerated().map { "<span class='x' style='\($1)'>Label\($0).</span>" }.joined() + "<p>Visible end.</p>",
                         css: H.reset + ".x { position:absolute }", fontSize: fontSize)
         }
-        for fontSize: CGFloat in [12, 16, 40] {
+        for fontSize: CGFloat in [12, 17, 96] {
             XCTAssertEqual(try build(hidden, fontSize: fontSize).string.string, "Visible end.", "every one of these is hidden at \(fontSize) points")
             let shown = try build(visible, fontSize: fontSize)
             for (index, declaration) in visible.enumerated() {
@@ -262,6 +266,48 @@ import UIKit
         // A float or an inline-block with the same offsets is not positioned at all.
         let floated = try H.build("<span class='x'>Label.</span><p>End.</p>", css: H.reset + ".x { float:left; left:-9999px }")
         XCTAssertTrue(floated.string.string.contains("Label."))
+    }
+
+    /// Standard Ebooks parks a title page's heading and byline, and the heading of an imprint or
+    /// a colophon, at `left: -999em` for assistive technology, beside an image of the same words.
+    /// The page is that image under its three-em margin at every text size, with the same
+    /// characters, and a position saved in the heading opens at the image.
+    func testStandardEbooksTitlePageAndImprintShowTheirImageWithoutTheHiddenHeadingAtEveryTextSize() throws {
+        typealias F = Fixture.Alignment
+        let files = ["titlepage.png": RichFixture.image(width: 1400, height: 340), "logo.png": RichFixture.image(width: 220, height: 140)]
+        let notice = "This edition was made for a test and is free of copyright."
+        var first: (title: SectionText, imprint: SectionText)?
+        for fontSize: CGFloat in [12, 17, 96] {
+            let title = try H.build(F.shippedTitleBody, css: F.shippedCSS, fontSize: fontSize, files: files)
+            let imprint = try H.build(F.shippedImprintBody, css: F.shippedCSS, fontSize: fontSize, files: files)
+            XCTAssertEqual(title.string.string, "\u{FFFC}", "the title page is its image alone at \(fontSize) points")
+            XCTAssertEqual(imprint.string.string, "\u{FFFC}\n" + notice, "the imprint is its logo and its text at \(fontSize) points")
+            for section in [title, imprint] {
+                XCTAssertTrue(section.string.attribute(.attachment, at: 0, effectiveRange: nil) is ReaderImageAttachment)
+                XCTAssertFalse(section.report.flowBoxesReflowed, "a hidden heading is not a box, so nothing is disclosed")
+                BuilderHarness.assertMapRoundTrips(section)
+            }
+            // The image opens the page, where the heading and byline used to stand above it.
+            let (paginator, pages) = H.pages(title, size: size, "\(fontSize)")
+            XCTAssertEqual(pages.count, 1, "\(fontSize)")
+            XCTAssertEqual(pages[0].topSpacing, 3 * fontSize, accuracy: 0.5, "`margin-top: 3em` at \(fontSize) points")
+            let image = try XCTUnwrap(H.pageView(paginator, page: pages[0]).segmentFrames(for: NSRange(location: 0, length: 1)).first)
+            XCTAssertEqual(image.minY, 0, accuracy: 0.5, "\(fontSize)")
+            XCTAssertEqual(image.width, size.width, accuracy: 0.5, "`width: 100%` at \(fontSize) points")
+            // A position inside the hidden heading or byline is the first thing shown after it.
+            let page = try XCTUnwrap(title.document.element(id: "titlepage"))
+            let words = title.document.nodes[page.order...page.subtreeEnd].filter(\.isText)
+            XCTAssertEqual(words.map(\.text), ["An Aligned Book", "By ", "Test Author", "."])
+            for text in words { XCTAssertEqual(title.map.location(of: DOMPosition(text, 1)), 0, "\(text.text) at \(fontSize) points") }
+            XCTAssertEqual(title.anchors["titlepage"], 0)
+            XCTAssertEqual(imprint.anchors["notice"], 2)
+            if let first {
+                for (section, baseline) in [(title, first.title), (imprint, first.imprint)] {
+                    XCTAssertEqual(section.map, baseline.map, "the same map at \(fontSize) points")
+                    XCTAssertEqual(section.anchors, baseline.anchors, "the same anchors at \(fontSize) points")
+                }
+            } else { first = (title, imprint) }
+        }
     }
 
     // MARK: Inline-block
