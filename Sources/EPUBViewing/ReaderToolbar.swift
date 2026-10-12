@@ -250,7 +250,7 @@ private struct EPUBContentsItems: View {
     }
 }
 
-private struct EPUBSearchField: View {
+struct EPUBSearchField: View {
     @Bindable var controls: EPUBReaderControls
     var onDismiss: (() -> Void)? = nil
     @FocusState private var focused: Bool
