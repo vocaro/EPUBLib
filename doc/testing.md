@@ -88,6 +88,13 @@ bindings, canvas and child focus, selection chords, live iOS recognizer disablin
 pass-through and reset, zero/invalid/asymmetric/overlapping zones, RTL, resizing, fold exclusion,
 both reading flows, host commands and iOS VoiceOver page turns with direct input disabled.
 
+Scrolled-read tests hold continuous scroll to the text on screen after the whole book has been
+laid out behind the scroll view, as VoiceOver and a UI test's snapshot do when they ask where
+every paragraph is: scroll steps, a place scrolled to by hand, and the change back to pages.
+The read is a stand-in. A test host loads no text accessibility for an in-process query, so the
+tests ask for each paragraph's rectangle through `firstRect(for:)` on UIKit and
+`accessibilityFrame(for:)` on AppKit, and require that this laid the whole book out.
+
 Highlight paint tests read the pixels the mounted reader's views last drew: none in the
 highlight's color before a search, the matches after it, and none again after Clear Search,
 with no reflow between. They cover both flows, one- and two-column spreads, dark appearance,
