@@ -122,7 +122,9 @@ content.
   Tolerance 2.5 points: a visible line is placed to within a point.
   The shipped pages in one continuous scroll view, whose title page and a floated initial give
   the whole book box geometry: the verse, its attribution and the dedication sit where they do
-  on pages of their own, at two sizes.
+  on pages of their own, at two sizes. In the same book, a view the person has moved to where
+  half a point of the line above a shown position is on screen, or of a line at the bottom:
+  that line is not the visible start or end, and a resize keeps the line shown at the top.
 - `BoxAlignmentSessionTests`: the fixture book through the public commands in both flows:
   disclosure, href navigation, located and selected passage, saved highlight, restore, and the
   same CFIs in either flow.
@@ -378,17 +380,6 @@ inside the subset, and emit nothing. Two more rows in *Tristram Shandy* (chapter
 4.27) are not disclosed: their only real item is text, which is placed, and the rules drawn by
 their empty `::before` and `::after` boxes are not drawn.
 
-The qualification corpus is not kept with the repository, and `EPUBLIB_CORPUS` is not set on
-the Mac this ran on. With the owner's agreement the count was made, on 2026-10-12 at `376d94f`,
-on the books the [first qualification](native-viewer.md#qualification) describes, as they are
-on that Mac now: StudyWright's shelf sources (`pipeline/shelf/sources`, 55 EPUBs and 21 more
-under `native-candidates`) and the exports of the PDF review set by PDFReflowLib and two other
-converters (`blind-check-359/exports` in the PDFReflowLib measurements: 91, 92 and 91 EPUBs).
-Of the 350 files, EPUBReading opens 347 (the others have an empty spine, an image over the
-import limit and a cut-short archive), and every one of their 27,731 sections was built as
-`NativeCorpusQualificationTests` builds them. None carries the disclosure. The same count on
-the ten titles above gives the three named there.
-
 ### Sections with boxes
 
 None of the ten floats anything. Their boxes are the headings that title pages, imprints and
@@ -485,15 +476,29 @@ and the Mac run have no failure.
   included: where the person has scrolled part of a one-screen box off the top, a resize
   shows the box whole again, moving its lines down to where the box puts them.
 - In a book with box geometry (every Standard Ebooks title, for its title page) a position
-  can rest a fraction of a point below the top of the visible area, and continuous scroll then
-  reads the line above it as the visible start. For a box rested by its top edge that line is
-  the last one of the section before, so that section is the position reported; and on the
-  Mac, where a resize keeps the visible start, the text then moves down one line. Seen in
-  *The Great Gatsby* through the reader's commands, off screen: after the change of flow the
-  dedication's box was 0.13 points low and the imprint's last line was reported, and after a
-  resize the dedication was 19 points lower. This is not the alignment's: two of three
-  ordinary positions tried in the same book did the same (0.23 and 0.14 points low, a line
-  lower after a resize); on the iPhone simulator a fixture's ordinary lines rested 0.03
-  points low and were read so, with this change and without it; and
-  [#164](https://github.com/vocaro/EPUBLib/issues/164) describes the resize keeping the
-  visible start. Not changed here.
+  can rest a fraction of a point below the top of the visible area, and a sliver of the line
+  above it is then on screen. Continuous scroll counted every line the area showed at all in
+  such a book, so that line was the visible start: for a box rested by its top edge the last
+  line of the section before, which was then the position reported, and on the Mac, where a
+  resize keeps the visible start, the text moved down one line. It now counts a line when the
+  visible area holds its middle, as in a book without box geometry
+  ([Layout](native-viewer.md#layout), [#305](https://github.com/vocaro/EPUBLib/issues/305)).
+  Where a position rests is unchanged. In *The Great Gatsby* through the reader's commands,
+  off screen, two ordinary positions rested 0.23 and 0.14 points low: before the change the
+  line above each was reported and the asked-for line was 23.5 points below the top after a
+  resize; after it the asked-for line is reported and a resize leaves it at the top. The
+  dedication reached by turning back and changing flow is reported as the dedication. The
+  fixture's lines were read the same way on the simulators before (asked 1835, reported 1794
+  on the iPhone), and the tests that allowed for it name the visible start again.
+- On the Mac a change of the window's height at the same column width can leave a box rested
+  by its top edge above or below the top by the change in the space above its first line.
+  The step that holds the first line on screen in place after a layout behind the view
+  ([Layout](native-viewer.md#layout)) takes the box's new height for one. In *The Great
+  Gatsby* at 1,000 points wide the dedication was 98 points low after the height went from
+  1,000 to 800, with a position in the imprint reported, and 98 points high after 800 to
+  1,000, on some resizes and not others; a change of width shows the box whole again. This is
+  older than the change above, and can now happen where a box that had rested a fraction low
+  used to sit one line down after a resize instead
+  ([#313](https://github.com/vocaro/EPUBLib/issues/313)). The resize keeping the visible start
+  whether or not the person has scrolled is
+  [#164](https://github.com/vocaro/EPUBLib/issues/164).
