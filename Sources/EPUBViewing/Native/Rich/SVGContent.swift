@@ -582,30 +582,40 @@ enum SVGContent {
 
     /// What a property value names, read from `index`. A value the renderer resolves begins, after
     /// white space, `url(`, then white space, an optional quote and `#`. A value that does not names
-    /// nothing. One in the plain form `url(#id)` names that id. Any other is taken to name an
-    /// element not known: a quoted one, one after a comment, one whose id holds white space.
+    /// nothing. One in the plain form `url(#id)`, or quoted as a browser writes it, `url("#id")`,
+    /// names that id. Any other is taken to name an element not known: one after a comment, one
+    /// with white space inside it, one whose id holds a quote or a parenthesis.
     private static func reference(_ bytes: [UInt8], from index: Int) -> Reference {
         var cursor = index
         // More than the renderer skips, so that this never stops short of a `url(` it reaches.
         func skipSpace() { while cursor < bytes.count, bytes[cursor] <= 0x20 || bytes[cursor] >= 0x80 { cursor += 1 } }
+        func isQuote(_ byte: UInt8) -> Bool { byte == UInt8(ascii: "\"") || byte == UInt8(ascii: "'") }
         skipSpace()
         if holds("/*", bytes, at: cursor) { return .unknown }
         guard holds("url(", bytes, at: cursor) else { return .none }
         cursor += 4
         skipSpace()
-        guard cursor < bytes.count, bytes[cursor] != UInt8(ascii: "\""), bytes[cursor] != UInt8(ascii: "'") else { return .unknown }
-        guard bytes[cursor] == UInt8(ascii: "#") else { return .none }
+        guard cursor < bytes.count else { return .unknown }
+        let quote = isQuote(bytes[cursor]) ? bytes[cursor] : nil
+        if quote != nil { cursor += 1 }
+        guard cursor < bytes.count, bytes[cursor] == UInt8(ascii: "#") else { return quote == nil ? .none : .unknown }
         let start = cursor + 1
         cursor = start
         func endsID(_ byte: UInt8) -> Bool {
             switch byte {
-            case 0...0x20, UInt8(ascii: "\""), UInt8(ascii: "'"), UInt8(ascii: "("), UInt8(ascii: ")"), UInt8(ascii: "#"), UInt8(ascii: "\\"), UInt8(ascii: ";"): true
-            default: false
+            case 0...0x20, UInt8(ascii: "("), UInt8(ascii: ")"), UInt8(ascii: "#"), UInt8(ascii: "\\"), UInt8(ascii: ";"): true
+            default: isQuote(byte)
             }
         }
         while cursor < bytes.count, !endsID(bytes[cursor]) { cursor += 1 }
-        guard cursor > start, cursor < bytes.count, bytes[cursor] == UInt8(ascii: ")") else { return .unknown }
-        return .id(String(decoding: bytes[start..<cursor], as: UTF8.self))
+        let end = cursor
+        if let quote {
+            // The renderer trims white space of any kind from the end of a quoted id.
+            guard cursor < bytes.count, bytes[cursor] == quote, bytes[start..<end].allSatisfy({ $0 < 0x80 }) else { return .unknown }
+            cursor += 1
+        }
+        guard end > start, cursor < bytes.count, bytes[cursor] == UInt8(ascii: ")") else { return .unknown }
+        return .id(String(decoding: bytes[start..<end], as: UTF8.self))
     }
 
     /// Whether `text` holds the ASCII `word`, letters compared without case. `word` is in lower

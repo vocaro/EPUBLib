@@ -363,9 +363,9 @@ final class RichMediaSVGBoundsCoverageTests: XCTestCase {
         }
     }
 
-    /// A value in the plain form `url(#id)` names the marker with that id. Any other value that
-    /// begins `url(` and can name an element is charged the largest marker in the SVG, and a
-    /// value that names none is charged nothing.
+    /// A value in the plain form `url(#id)`, or quoted as a browser writes a style, names the
+    /// marker with that id. Any other value that begins `url(` and can name an element is charged
+    /// the largest marker in the SVG, and a value that names none is charged nothing.
     func testWhatAMarkerValueNames() throws {
         let markers = marker("a") + marker("b", rects: 5)
         func count(_ value: String) -> Int {
@@ -374,9 +374,13 @@ final class RichMediaSVGBoundsCoverageTests: XCTestCase {
         XCTAssertEqual(count("url(#a)"), 2)
         XCTAssertEqual(count("url(#b)"), 6)
         XCTAssertEqual(count("  url(#a)"), 2, "white space before it")
-        for value in ["url('#a')", "url( #a )", "url(#a&#9;)", "url(#a", "/**/url(#a)"] {
+        XCTAssertEqual(count("url('#a')"), 2, "quoted")
+        XCTAssertEqual(count("url(&quot;#a&quot;)"), 2, "as a browser serializes a style")
+        for value in ["url( '#a' )", "url('#a)", "url('#a&quot;)", "url(' #a')", "url( #a )", "url(#a&#9;)", "url(#a", "/**/url(#a)", "url('#a)b')",
+                      "url('#a&#160;')"] {
             XCTAssertEqual(count(value), 6, "\(value) is charged the largest")
         }
+        XCTAssertEqual(count("url(#a&#160;)"), 0, "unquoted, a no-break space is part of the id, and no marker has it")
         for value in ["none", "inherit", "url(#nothing)", "url(other.svg#a)", "url(data:x)", "a", ""] {
             XCTAssertEqual(count(value), 0, "\(value) names no marker")
         }
