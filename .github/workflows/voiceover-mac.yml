@@ -96,8 +96,9 @@ jobs:
           {
             echo "Commit: $(git rev-parse HEAD)"
             echo "Harness: $GITHUB_SHA"
-            echo "Image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
+            echo "Image: xcode-27 $RUNNER_ARCH (${ImageOS:-unknown}) ${ImageVersion:-unknown}"
             echo "System: $(sw_vers -productName) $(sw_vers -productVersion) $(sw_vers -buildVersion)"
+            csrutil status 2>&1 | head -n 1
             echo "Xcode: $(xcodebuild -version | tr '\n' ' ')"
             echo "Processors: $(sysctl -n hw.ncpu), memory: $(($(sysctl -n hw.memsize) / 1073741824)) GB"
           } | tee "$RESULTS/runner.txt"
@@ -111,7 +112,8 @@ jobs:
           defaults write com.apple.HIToolbox AppleDictationAutoEnable -int 0
           # XCTest's Automation Running banner is killed and restarted about every ten seconds
           # on this image, and VoiceOver moves to an instance that survives. Unload its launch
-          # agent; `launchctl disable` does not stop it.
+          # agent; `launchctl disable` does not stop it. This works because the runner has
+          # System Integrity Protection disabled; with it engaged macOS refuses.
           launchctl bootout "gui/$(id -u)/com.apple.dt.AutomationModeUI" || echo "bootout: exit $?"
           if launchctl print "gui/$(id -u)/com.apple.dt.AutomationModeUI" > /dev/null 2>&1; then
             echo "::error::The Automation Running banner's launch agent is still loaded"
