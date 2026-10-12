@@ -384,7 +384,8 @@ as they did.
   One case is open. Straight after a menu closes, the contents menu on an iPad on its side
   for one, VoiceOver can walk the lines it found on screen at that moment and no others: it
   comes in at the first line, reads to the last that was on screen, and goes on to the scroll
-  bar ([VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current results").
+  bar ([#339](https://github.com/vocaro/EPUBLib/issues/339); [VoiceOver testing](voiceover-testing.md),
+  "Harness pitfalls and current results").
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never

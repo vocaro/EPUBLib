@@ -385,7 +385,8 @@ The Mac runner's transcript is plain text and needs no export.
   menu closed and to walk those while its cursor stays on them. Posting a layout change,
   with no element or with the line under the cursor, did not change that in the simulator;
   a page-scrolled notification made VoiceOver skip lines; giving it new elements for the
-  same lines once its cursor had moved on made it lose its place. It is not resolved.
+  same lines once its cursor had moved on made it lose its place. It is not resolved
+  ([#339](https://github.com/vocaro/EPUBLib/issues/339)).
 - In the simulator, UIKit scrolled the line VoiceOver's cursor came to until the area inside
   the scroll view's insets held its frame, and then until the line was 40 points below the
   top of that area or about 120 above its bottom. A line that was the first listed when
