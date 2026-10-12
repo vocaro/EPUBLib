@@ -335,7 +335,9 @@ as they did.
   makes itself (a shown position, a scroll step, rebuilt text) puts it there, as a page turn
   does for a column; after other scrolling it follows only while it is where the reader last
   put it, so one placed by a click or by VoiceOver, which scrolls the view as it reads, stays.
-  A selection is never moved, and nothing is scrolled. On iOS VoiceOver reads the text view's
+  A selection is never moved, and nothing is scrolled. Each such move also posts a layout
+  change naming the text view: without it VoiceOver, back in a text it had left, returns to
+  its own previous cursor and scrolls the view there. On iOS VoiceOver reads the text view's
   own elements.
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS

@@ -839,14 +839,22 @@ import AppKit
     /// assistive client that scrolls the view as it reads, stays there. A selection is never
     /// moved. On iOS VoiceOver reads the text view's elements and enters at none.
     private func placeScrollInsertionPoint(at start: ReaderTextPosition, requested: Bool) {
-        guard let textView = scrollTextView, textView.selectedRange.length == 0,
-              requested || textView.selectedRange.location == placedScrollInsertionPoint else { return }
-        let location = scrollBook?.location(of: start) ?? start.offset
-        placedScrollInsertionPoint = location
-        guard textView.selectedRange.location != location else { return }
-        isApplyingSelection = true
-        textView.selectedRange = NSRange(location: location, length: 0)
-        isApplyingSelection = false
+        guard let textView = scrollTextView else { return }
+        if textView.selectedRange.length == 0, requested || textView.selectedRange.location == placedScrollInsertionPoint {
+            let location = scrollBook?.location(of: start) ?? start.offset
+            placedScrollInsertionPoint = location
+            if textView.selectedRange.location != location {
+                isApplyingSelection = true
+                textView.selectedRange = NSRange(location: location, length: 0)
+                isApplyingSelection = false
+            }
+        }
+        // VoiceOver keeps its own cursor in a text area it has left, and on returning goes back
+        // to it, scrolling the view there. Naming the text view as changed, as for a spread's
+        // columns, makes it enter at the insertion point.
+        if requested, let window {
+            NSAccessibility.post(element: window, notification: .layoutChanged, userInfo: [.uiElements: [textView]])
+        }
     }
     #endif
 

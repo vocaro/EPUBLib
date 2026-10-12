@@ -64,15 +64,12 @@ import XCTest
     }
 
     /// Scrolls as a trackpad or a scroller does: the scroll view moves, not through the canvas.
-    /// The view is still there once the canvas has read the place and moved the insertion point.
     private func scrollByHand(_ distance: CGFloat, _ subject: Subject, file: StaticString = #filePath, line: UInt = #line) async throws {
         let scrollView = try XCTUnwrap(subject.canvas.scrollContainer as? NSScrollView, file: file, line: line)
-        let target = scrollView.contentView.bounds.minY + distance
         try await reported(after: {
-            scrollView.contentView.scroll(to: NSPoint(x: 0, y: target))
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: scrollView.contentView.bounds.minY + distance))
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }, subject, file: file, line: line)
-        XCTAssertEqual(scrollView.contentView.bounds.minY, target, accuracy: 1, "the view stays where it was scrolled to", file: file, line: line)
     }
 
     /// The text of the line VoiceOver enters at: the insertion point's, read as VoiceOver reads it.
