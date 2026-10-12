@@ -183,7 +183,8 @@ enum SVGContent {
             guard active.insert(key).inserted else { return nil }
             defer { active.remove(key) }
             var total = 32 + node.text.utf8.count + node.attributes.reduce(0) { $0 + $1.value.utf8.count + $1.name.utf8.count }
-            for child in (node.name == "use" ? fragment(node).flatMap { ids[$0] } ?? [] : []) + node.children {
+            let targets = node.name == "use" ? fragment(node).flatMap { ids[$0] } ?? [] : []
+            for child in targets + node.children {
                 guard let childCost = cost(child, depth: depth + 1), childCost <= maximumExpandedBytes - total else { return nil }
                 total += childCost
             }
@@ -264,7 +265,7 @@ enum SVGContent {
     ///     those of each `<use>` that draws it included. The largest marker any of them names is
     ///     charged: one declaration never lowers what another asks for.
     ///  3. No `<marker>`, and no element one stands in, names a marker or a paint server, and
-    ///     nothing inside a `<marker>` holds a `url(…)`, an `href` or a `filter`: a marker's content
+    ///     nothing inside a `<marker>` holds a `url(…)`, an `href` or a filter: a marker's content
     ///     bears no marker and draws nothing but itself.
     ///  4. A `<marker>` holds only shapes, `<g>`, `<title>` and `<desc>`. `markerSize` is what one
     ///     instance of it costs.
@@ -288,12 +289,11 @@ enum SVGContent {
         guard nodes.contains(where: { $0.name == "marker" }) else { return (true, 0, 0) }
         let refused: MarkerVerdict = (false, 0, 0)
 
-        // Rule 1. A stylesheet's other declarations name no element, so they set nothing this check
-        // reads but a dash array and a context paint, and those it takes to reach every element.
-        // Its longest declaration is taken to be an attribute of every element in a marker.
+        // Rule 1. What else a stylesheet declares names no element, and is taken to reach every
+        // element: a context paint, and its longest declaration as an attribute of each element in
+        // a marker and as the dash array of each shape that bears one.
         let sheets = nodes.filter { $0.name == "style" }.map(\.textContent)
         guard !sheets.contains(where: namesElement) else { return refused }
-        let sheetDash = sheets.map(dashBytes).max() ?? 0
         let sheetBytes = sheets.map(longestDeclaration).max() ?? 0
         let contextPaint = sheets.contains { mentions($0, "context-") } || nodes.contains { node in
             node.attributes.contains { ($0.name == "fill" || $0.name == "stroke" || $0.name == "style") && mentions($0.value, "context-") }
@@ -357,7 +357,7 @@ enum SVGContent {
                 case "stroke-dasharray": element.own.dashBytes = max(element.own.dashBytes, attribute.value.utf8.count)
                 default: break
                 }
-                if dashed { element.own.dashBytes = max(element.own.dashBytes, dashBytes(attribute.value)) }
+                if dashed { element.own.dashBytes = max(element.own.dashBytes, longestDeclaration(attribute.value)) }
             }
             element.isShape = markerableShapes.contains(node.name)
             element.isDrawn = !unrendered.contains(node.name)
@@ -394,7 +394,7 @@ enum SVGContent {
                 guard !inMask, !(contextPaint && here.paintServer) else { return false }
                 // The renderer copies the shape's dash array for each instance it draws on it, and
                 // builds a group and a clip path for each marker property the shape draws with.
-                let dash = max(here.dashBytes, sheetDash) / 64
+                let dash = max(here.dashBytes, sheetBytes) / 64
                 instances += (here.start > 0 ? here.start + dash + 1 : 0) + (here.end > 0 ? here.end + dash + 1 : 0)
                 if here.mid > 0 {
                     guard let vertices = element.vertices, vertices <= maximumMarkerInstances / (here.mid + dash) else { return false }
@@ -441,7 +441,7 @@ enum SVGContent {
         var size = attributeBytes(marker) / 64
         func add(_ element: ContentNode, above: Int) -> Bool {
             guard markerContent.contains(element.name), let vertices = vertices(element), !element.attributes.contains(where: {
-                $0.name == "href" || $0.name == "filter" || mentions($0.value, "url(")
+                $0.name == "href" || $0.name == "filter" || mentions($0.value, "url(") || mentions($0.value, "filter")
             }) else { return false }
             let bytes = above + attributeBytes(element)
             size += 1 + vertices / 32 + bytes / 64
@@ -464,14 +464,9 @@ enum SVGContent {
         return false
     }
 
-    /// At least the bytes of any dash array CSS text declares: none when it names no dash array.
-    private static func dashBytes(_ css: String) -> Int {
-        mentions(css, "dasharray") ? longestDeclaration(css) : 0
-    }
-
     /// At least the bytes of the longest value CSS text gives a property that the renderer reads in
-    /// full: the longest stretch between two of `;`, `{` and `}`, which no list of numbers, lengths
-    /// or transforms crosses.
+    /// full, a dash array among them: the longest stretch between two of `;`, `{` and `}`, which
+    /// no list of numbers, lengths or transforms crosses.
     private static func longestDeclaration(_ css: String) -> Int {
         var longest = 0
         var stretch = 0

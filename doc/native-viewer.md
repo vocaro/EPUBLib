@@ -607,9 +607,10 @@ Go: the native viewer is the bundled engine.
     OmniGraffle write arrowheads and data points.
   - Counted: each time a marker is drawn, one for each element in it, and one more for every
     64 bytes of attributes an element has or inherits; a `marker-mid` is drawn at every
-    vertex, a vertex being a number in the path data or points. A drawing tool's arrowhead
-    counts ten to twenty with its attributes. An SVG may reach 100,000: some thousands of
-    arrowheads, or of data points on a line.
+    vertex, a vertex being a number in the path data or points. A dash array of 64 bytes or
+    more on the shape that bears the marker, and a stylesheet declaration as long, add to each.
+    A drawing tool's arrowhead counts ten to twenty with its attributes. An SVG may reach
+    100,000: some thousands of arrowheads, or of data points on a line.
   - Refused: a `<style>` sheet that holds a `url(#…)` in an SVG that has a `<marker>`, so a
     marker given by a class (`.edge { marker-end: url(#arrow) }`) is to be given by attribute
     instead; a marker property, or a `fill` or `stroke` that names a gradient, on a

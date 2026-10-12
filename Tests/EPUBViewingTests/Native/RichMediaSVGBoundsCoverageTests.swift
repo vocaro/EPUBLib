@@ -190,7 +190,7 @@ final class RichMediaSVGBoundsCoverageTests: XCTestCase {
         func uses(_ count: Int, _ reference: String = "xlink:href='#g'") -> String {
             svg(marker(rects: 100) + shape, String(repeating: "<use \(reference)/>", count: count))
         }
-        var result = verdict(uses(3))
+        let result = verdict(uses(3))
         XCTAssertEqual(result.instances, 3 * 1_001, "each use draws the shape, and its markers, again")
         XCTAssertEqual(result.steps, 1 + 3 * 4, "the root, then for each use: the use, the reference, the group and the path")
         XCTAssertTrue(verdict(uses(99)).withinLimits)
@@ -451,7 +451,8 @@ final class RichMediaSVGBoundsCoverageTests: XCTestCase {
             XCTAssertFalse(holding(content).withinLimits, content)
         }
         for attributes in ["fill='url(#g)'", "stroke='url(#g)'", "style='fill:url(#g)'", "clip-path='url(#c)'", "mask='url(#k)'",
-                           "style='mask : URL( \"#k\" )'", "xlink:fill='url(#g)'", "xlink:href='#r'", "href='#r'", "xlink:filter='blur(1)'"] {
+                           "style='mask : URL( \"#k\" )'", "xlink:fill='url(#g)'", "xlink:href='#r'", "href='#r'", "xlink:filter='blur(1)'",
+                           "style='fill:red !importantfilter:blur(1)'"] {
             XCTAssertFalse(holding("<rect width='1' height='1' \(attributes)/>").withinLimits, attributes)
             XCTAssertFalse(holding("<g \(attributes)><rect width='1' height='1'/></g>").withinLimits, "on a group: \(attributes)")
         }
