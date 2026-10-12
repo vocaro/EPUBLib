@@ -32,6 +32,8 @@ import XCUIAutomation
         if let size = environment["VOICEOVER_FONT_SIZE"] { app.launchArguments += ["-SampleFontSize", size] }
         // A section other than the first, such as the fixture's hidden labels (`OPS/labels.xhtml`).
         if let href = environment["VOICEOVER_HREF"] { app.launchArguments += ["-SampleHref", href] }
+        // `VOICEOVER_BOOK=paragraphs` opens the book of ordinary paragraphs.
+        if let book = environment["VOICEOVER_BOOK"] { app.launchArguments += ["-VerificationBook", book] }
         app.launch()
         let snapshots = true
         #endif
@@ -107,19 +109,36 @@ import XCUIAutomation
                     record("moveForward", speech)
                     if repeated >= 3 { break }
                 }
+            case "forward", "backward":
+                // A counted number of moves, where `read` would go on through a whole book.
+                for _ in 0..<(Int(parts.last ?? "") ?? 1) {
+                    if parts[0] == "forward" { record("moveForward", try voiceOver.moveForward()) }
+                    else { record("moveBackward", try voiceOver.moveBackward()) }
+                }
             case "visible":
-                // The numbered lines XCTest sees in each column, to compare with the speech.
+                // The numbered lines XCTest sees in each column, to compare with the speech. In
+                // continuous scroll a line listed below or above the window is counted apart.
                 var lines: [(label: String, frame: CGRect)] = []
                 func collect(_ element: any XCUIElementSnapshot) {
-                    if element.label.contains("word0") || element.label.contains("word1") { lines.append((element.label, element.frame)) }
+                    if element.label.range(of: "word[01]|p[0-9]{3}w", options: .regularExpression) != nil {
+                        lines.append((element.label, element.frame))
+                    }
                     element.children.forEach(collect)
                 }
                 collect(try app.snapshot())
-                let window = app.windows.firstMatch.frame.size
+                let window = app.windows.firstMatch.frame
+                func words(_ label: String?) -> String {
+                    let all = (label ?? "").split(whereSeparator: \.isWhitespace)
+                    return all.count > 8 ? all.prefix(4).joined(separator: " ") + " … " + all.suffix(2).joined(separator: " ") : all.joined(separator: " ")
+                }
                 note("visible", "window \(Int(window.width))x\(Int(window.height)), \(lines.count) numbered lines")
                 for (column, x) in Set(lines.map { ($0.frame.minX / 100).rounded() }).sorted().enumerated() {
-                    let ordered = lines.filter { ($0.frame.minX / 100).rounded() == x }.sorted { $0.frame.minY < $1.frame.minY }
-                    note("visible", "column \(column): \(ordered.count) lines, first \(ordered.first?.label ?? ""), last \(ordered.last?.label ?? "")")
+                    let listed = lines.filter { ($0.frame.minX / 100).rounded() == x }.sorted { $0.frame.minY < $1.frame.minY }
+                    let ordered = listed.filter { $0.frame.maxY > window.minY && $0.frame.minY < window.maxY }
+                    let outside = listed.count == ordered.count ? "" : " (and \(listed.count - ordered.count) outside the window: "
+                        + "first \(words(listed.first?.label)) at y \(Int(listed.first?.frame.minY ?? 0)), "
+                        + "last \(words(listed.last?.label)) at y \(Int(listed.last?.frame.minY ?? 0)))"
+                    note("visible", "column \(column): \(ordered.count) lines, first \(words(ordered.first?.label)), last \(words(ordered.last?.label))\(outside)")
                 }
             case "touch", "activate", "doubletap":
                 // A touch moves VoiceOver to the item under it; a double tap then activates that item.
@@ -137,16 +156,28 @@ import XCUIAutomation
                 element.doubleTap()
                 RunLoop.current.run(until: Date().addingTimeInterval(2))
                 heard("activated")
+            case "point":
+                // A touch at a place in the window, as fractions of its width and height
+                // (`point=0.5:0.4`): whatever is drawn there, listed or not.
+                let offsets = (parts.last ?? "").split(separator: ":").compactMap { Double($0) }
+                guard offsets.count == 2 else { XCTFail("point=X:Y"); continue }
+                app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: offsets[0], dy: offsets[1])).tap()
+                heard(step)
             case "flick":
                 // One finger up or down steps through VoiceOver's rotor: for a line, its actions.
                 // On an iPhone in landscape only the upward flick registers.
-                switch parts.last {
-                case "up": app.swipeUp(velocity: .fast)
-                case "down": app.swipeDown(velocity: .fast)
-                case "left": app.swipeLeft(velocity: .fast)
-                default: app.swipeRight(velocity: .fast)
+                // `flick=right*12` repeats it: VoiceOver's own next and previous item.
+                let flick = (parts.last ?? "").split(separator: "*").map(String.init)
+                for _ in 0..<(flick.count > 1 ? Int(flick[1]) ?? 1 : 1) {
+                    switch flick.first {
+                    case "up": app.swipeUp(velocity: .fast)
+                    case "down": app.swipeDown(velocity: .fast)
+                    case "left": app.swipeLeft(velocity: .fast)
+                    default: app.swipeRight(velocity: .fast)
+                    }
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+                    heard("flick=\(flick.first ?? "")")
                 }
-                heard(step)
             case "wait":
                 RunLoop.current.run(until: Date().addingTimeInterval(Double(parts.last ?? "") ?? 1))
             case "screenshot":

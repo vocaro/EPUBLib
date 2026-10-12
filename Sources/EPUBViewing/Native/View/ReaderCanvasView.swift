@@ -95,10 +95,11 @@ import AppKit
         guard let place = scrollPlace else { return false }
         return abs(scrollVisibleContainerRect.minY - place.visibleTop) < 1
     }
-    #if os(macOS)
     /// The line of hidden labels standing at the top with the first line on screen, where
-    /// there is one (`scrollVisibleRange`): its location in the view's text.
+    /// there is one (`scrollVisibleCharacters`): its location in the view's text. VoiceOver
+    /// starts there, so the labels are heard before what they stand over.
     private var scrollEntry: Int?
+    #if os(macOS)
     /// Where the reader last put the scroll view's insertion point (`placeScrollInsertionPoint`).
     private var placedScrollInsertionPoint: Int?
     #endif
@@ -781,15 +782,20 @@ import AppKit
             return
         }
         scrollToContainerY(frame().minY)
+        // A line of hidden labels alone has no height: where the offset is rounded to a pixel
+        // it is the first line at the top or just above it by chance. It is at the top when
+        // the first line that shows anything is the one after it, so lines are compared by
+        // that one, the target's too.
+        let goal = textView.firstShownLine(from: location)
         var climb: CGFloat = 0
         for _ in 0..<32 {
             let visible = scrollVisibleContainerRect
-            let shown = textView.lineBoundary(atContainerY: visible.minY, lineEnd: false)
+            let shown = textView.firstShownLine(from: textView.lineBoundary(atContainerY: visible.minY, lineEnd: false))
             if let updated = textView.line(containing: location) { line = updated }
-            if shown == line.range.location && anchorFrameIsVisible(frame()) { break }
-            if shown <= location && isScrolledToEnd && anchorFrameIsVisible(frame()) { break }
-            if shown <= location {
-                textView.ensureLayout(from: shown, through: location)
+            if shown == textView.firstShownLine(from: line.range.location) && anchorFrameIsVisible(frame()) { break }
+            if shown <= goal && isScrolledToEnd && anchorFrameIsVisible(frame()) { break }
+            if shown <= goal {
+                textView.ensureLayout(from: min(shown, location), through: max(shown, location))
                 guard let laidOut = textView.line(containing: location) else { break }
                 line = laidOut
                 scrollToContainerY(frame().minY)
@@ -797,7 +803,7 @@ import AppKit
             } else { // First the characters past the line at the shown text's density, and a screen.
                 let end = textView.lineBoundary(atContainerY: visible.maxY, lineEnd: true)
                 let charactersPerPoint = CGFloat(max(1, end - shown)) / max(1, visible.height)
-                climb = climb > 0 ? 2 * climb : CGFloat(shown - location) / charactersPerPoint + visible.height
+                climb = climb > 0 ? 2 * climb : CGFloat(shown - goal) / charactersPerPoint + visible.height
                 scrollToContainerY(visible.minY - climb)
             }
         }
@@ -839,6 +845,17 @@ import AppKit
     /// it is at the top: a section holding nothing else would be the place reported for the
     /// start of the one after it.
     private func scrollVisibleRange() -> ReaderTextRange? {
+        guard let textView = scrollTextView, let shown = scrollVisibleCharacters() else { return nil }
+        if let book = scrollBook {
+            return ReaderTextRange(start: book.position(at: shown.location), end: book.position(at: NSMaxRange(shown)))
+        }
+        guard let section = textView.placement.section else { return nil }
+        return ReaderTextRange(section: section, shown.location..<NSMaxRange(shown))
+    }
+
+    /// The characters of the lines in the visible area (not under the bars), in the scroll
+    /// view's own text.
+    func scrollVisibleCharacters() -> NSRange? {
         guard let textView = scrollTextView, scrollBook != nil || textView.placement.section != nil else { return nil }
         // The layout is what the view draws only once the viewport has settled on it.
         withProgrammaticScroll { settleScrollViewport() }
@@ -855,20 +872,25 @@ import AppKit
         }
         #if os(macOS)
         scrollPlace = textView.lineFrame(containing: start).map { (start, $0.minY, rect.minY) }
-        // VoiceOver enters at the insertion point, and must not pass over hidden labels that
-        // stand at the top with the first line on screen: a hidden heading over a table.
+        #endif
+        // VoiceOver must not pass over hidden labels that stand at the top with the first
+        // line on screen: a hidden heading over a table.
         var entry = start
         while let labels = textView.hiddenLabelsAlone(at: entry - 1), let line = textView.lineFrame(containing: labels.location),
               line.maxY >= rect.minY - 1 {
             entry = labels.location
         }
         scrollEntry = entry == start ? nil : entry
-        #endif
-        if let book = scrollBook {
-            return ReaderTextRange(start: book.position(at: start), end: book.position(at: end))
-        }
-        guard let section = textView.placement.section else { return nil }
-        return ReaderTextRange(section: section, start..<end)
+        return NSRange(location: start, length: end - start)
+    }
+
+    /// The characters VoiceOver is given as on screen in continuous scroll: those of
+    /// `scrollVisibleCharacters`, from the hidden labels standing at the top with the first
+    /// line where there are any.
+    func scrollSpokenCharacters() -> NSRange? {
+        guard let shown = scrollVisibleCharacters() else { return nil }
+        guard let entry = scrollEntry, entry < shown.location else { return shown }
+        return NSRange(location: entry, length: NSMaxRange(shown) - entry)
     }
 
     #if os(macOS)
@@ -878,7 +900,8 @@ import AppKit
     /// makes itself (`requested`) puts it at the visible start. After any other scrolling it
     /// follows only while it is where the reader last put it: one placed by a click, or by an
     /// assistive client that scrolls the view as it reads, stays there. A selection is never
-    /// moved. On iOS VoiceOver reads the text view's elements and enters at none.
+    /// moved. On iOS VoiceOver reads the text view's elements and enters at none: there the
+    /// scroll view lists its lines on screen (`ReaderTextView`).
     private func placeScrollInsertionPoint(at start: ReaderTextPosition, requested: Bool) {
         guard let textView = scrollTextView else { return }
         if textView.selectedRange.length == 0, requested || textView.selectedRange.location == placedScrollInsertionPoint {
