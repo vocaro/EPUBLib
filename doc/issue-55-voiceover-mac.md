@@ -122,8 +122,8 @@ VoiceOver keeps a text cursor of its own in a column it has left. The case: inte
 column, move down two lines, stop interacting, move to a page button, activate it, come back
 and interact again. On `740c073` VoiceOver then set the column's insertion point to the offset
 it had on the page before (`SELECTION`) and read from that line, where the new page's first
-line was expected. With the fix (`6c8068d`, and `97635e7` once `main` was merged into it) it
-sets none and reads the first line:
+line was expected. With the fix (`6c8068d`, then `97635e7` and `a745cde` as `main` was merged
+into it) it sets none and reads the first line:
 
 | Layout and turn | New page | `740c073` | With the fix |
 | --- | --- | --- | --- |
@@ -132,10 +132,10 @@ sets none and reads the first line:
 | 23 pt, two columns, left, Previous Page | `word0093–word0160` | `72,0`, "In text word0101 word0102 word0103 word0104" | "In text word0093 word0094 word0095 word0096" |
 | 17 pt, one column, Next Page | `word0172–word0285` | `108,0`, "In text word0179 word0180 word0181 word0182 word0183 word0184 wo" | "In text word0172 word0173 word0174 word0175 word0176 word0177 wo" |
 | 17 pt, one column, Previous Page | `word0055–word0171` | `126,0`, "In text word0067 word0068 word0069 word0070 word0071 word0072" | "In text word0055 word0056 word0057 word0058 word0059 word0060" |
+| 23 pt, two columns, left, Next Page pressed natively from one item away | `word0229–word0296` | `72,0`, "In text word0237 word0238 word0239 word0240" | "In text word0229 word0230 word0231 word0232" |
 | 23 pt, two columns, left, Larger Text from one item away | `word0071–word0127` | `72,0`, "In text word0079 word0080 word0081" | "In text word0071 word0072 word0073 word0074" |
 
-Exploratory sessions at the faster pacing heard the same with VoiceOver one item away from the
-column and with the button pressed natively instead of by VoiceOver.
+So it took neither VoiceOver's own activation of the button nor a walk across the controls.
 
 A cursor resting on the column during the turn is another matter, and unchanged: after `out`
 and then Page Down, or a native press of Next Page, both commits set `72,0` and said "In text
