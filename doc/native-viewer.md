@@ -311,16 +311,19 @@ as they did.
   is the column's width, set only when that changes, so a resize lays the text out once at most.
   On Mac, the column uses the actual scroll viewport's horizontal extent, including width
   reserved by a legacy scrollbar; a scrollbar preference change also recalculates wrapping.
-  A shown position's line rests at the top of the visible area. Far from what is laid out,
-  TextKit 2 only estimates where text is, and the viewport's layout estimates differently, so a
-  long jump checks which line the top shows: from text before the position, it lays out through
-  the position in one run and scrolls to its now exact line; from text past it, it climbs above
-  it first ([#13](https://github.com/vocaro/EPUBLib/issues/13)). A resize keeps the line holding
-  the position (the last one shown, or the visible start once the person has scrolled) at the
-  top, through any number of resizes in quick succession. A bounded correction loop verifies
-  that the requested line actually reaches the visible top, allowing a visible line at the
-  document's end when scrolling is clamped. If estimates cannot align it, or TextKit 2 lays
-  that line over other text, the text is loaded afresh and the position shown again
+  A shown position's line rests at the top of the visible area, or the top edge of an aligned
+  box around it that fits there ([Flex and grid alignment](#flex-and-grid-alignment)). Far
+  from what is laid out, TextKit 2 only estimates where text is, and the viewport's layout
+  estimates differently, so a long jump checks which line the top shows: from text before the
+  position, it lays out through the position in one run and scrolls to its now exact line;
+  from text past it, it climbs above it first
+  ([#13](https://github.com/vocaro/EPUBLib/issues/13)). A resize keeps the line holding the
+  position (the last one shown, or the visible start once the person has scrolled), or that
+  box's top edge, at the top, through any number of resizes in quick succession. A bounded
+  correction loop verifies that the requested line actually reaches the visible top, allowing
+  a visible line at the document's end when scrolling is clamped. If estimates cannot align
+  it, or TextKit 2 lays that line over other text, the text is loaded afresh and the position
+  shown again
   ([#12](https://github.com/vocaro/EPUBLib/issues/12), [#41](https://github.com/vocaro/EPUBLib/issues/41)).
   An assistive technology's read lays the whole text out behind the view: VoiceOver and a UI
   test's snapshot ask where every paragraph is. That replaces the estimates the visible lines
@@ -451,9 +454,15 @@ changes.
   on the page.
 - **Continuous scroll.** The viewport is the visible reading area, as for images sized in
   `vh`: a `min-height: 98vh` section takes about one screen and its content sits in the middle
-  of it. Heights follow the visible area when it changes. A position that starts an aligned
-  box (a navigation to its section, a restored location) rests the box's top edge at the top
-  of the visible area, not its first line, so the box is shown as composed. A box that opens
+  of it. Heights follow the visible area when it changes. A position in an aligned box that
+  fits the visible area rests the box's top edge at the top of that area, not the position's
+  line, so the box is shown as composed: a navigation to its section, a restored location or a
+  search result inside it, and the end of its section, where turning back to its page in
+  paging leaves the position before a change to continuous scroll. The box is the run of
+  consecutive paragraphs tagged with the same supported container that has a `height` or
+  `min-height`, the outermost one that fits where they nest, and it fits when its top edge is
+  no further from the bottom of its last line than the visible area is tall. A position in a
+  taller box rests its own line, which the box's top edge could put off screen. A box that opens
   the scrolled text has its space restored as its first fragment's top margin, since TextKit
   drops the spacing before a document's first paragraph.
 

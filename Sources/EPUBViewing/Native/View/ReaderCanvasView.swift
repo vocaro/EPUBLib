@@ -682,11 +682,12 @@ import AppKit
         anchorFollowsScroll = false
     }
 
-    /// Scrolls the line holding the anchor to the top; false when TextKit puts other text
-    /// there, or refinement did not bring the target into the viewport.
+    /// Scrolls the line holding the anchor to the top, or the top edge of the aligned box
+    /// around it when the box fits the visible area (`restLocation`); false when TextKit puts
+    /// other text there, or refinement did not bring the target into the viewport.
     @discardableResult private func scrollToAnchorLine() -> Bool {
         guard let textView = scrollTextView, let anchor else { return true }
-        let location: Int
+        var location: Int
         if let book = scrollBook {
             location = book.location(of: anchor)
         } else if textView.placement.section == anchor.section {
@@ -695,6 +696,10 @@ import AppKit
         if scrollBook == nil, location >= textView.textLength {
             withProgrammaticScroll { scrollToContainerY(.greatestFiniteMagnitude) }
             return true
+        }
+        // The anchor itself is kept, so the choice is made again at every size.
+        if anchor.tableCell == nil {
+            location = textView.restLocation(for: location, fitting: scrollVisibleContainerRect.height)
         }
         withProgrammaticScroll { scrollLineToTop(containing: location, in: textView) }
         if anchor.tableCell != nil, var cell = tableAnchorFrame(for: anchor) {
