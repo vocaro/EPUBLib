@@ -191,7 +191,7 @@ struct WriterArchiveCoverageTests {
     // A `Character` holds a "/", "\", ":" or "." together with a combining mark, variation
     // selector or joiner after it, so read that way "EPUB/../" + U+0301 + "a" is a safe path and
     // was written as an entry of that name (https://github.com/vocaro/EPUBLib/issues/181).
-    @Test func entryPathsAreCheckedByScalarWhateverMarkFollowsASeparatorOrDot() async throws {
+    @Test func entryPathsAreCheckedWhateverMarkFollowsASeparatorOrDot() async throws {
         let directory = try WriterCoverage.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let mime = Entry(path: "mimetype", fileURL: try WriterCoverage.mimetype(in: directory))

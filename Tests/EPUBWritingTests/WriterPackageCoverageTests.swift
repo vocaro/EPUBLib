@@ -317,7 +317,7 @@ struct WriterPackageCoverageTests {
     // selector or joiner after it, so read that way "EPUB/../" + U+0301 + "x.xhtml" is a safe
     // path under EPUB/, and was written into the manifest as "../%CC%81x.xhtml"
     // (https://github.com/vocaro/EPUBLib/issues/181).
-    @Test func resourcePathsAreCheckedByScalarWhateverMarkFollowsASeparatorOrDot() {
+    @Test func resourcePathsAreCheckedWhateverMarkFollowsASeparatorOrDot() {
         for m in WriterCoverage.clusteringMarks {
             for path in ["EPUB/../\(m)x.xhtml", "EPUB/a/../../\(m)x.xhtml", "EPUB/./\(m)x.xhtml", "EPUB//\(m)x.xhtml", "EPUB/a\\\(m)b.xhtml",
                          "EPUB/a:\(m)b.xhtml", "/\(m)EPUB/x.xhtml", "EPUB\(m)/x.xhtml", "\(m)EPUB/x.xhtml", "EPUB/x\u{600}/..", "EPUB/x\u{600}/"] {
@@ -335,7 +335,7 @@ struct WriterPackageCoverageTests {
     }
 
     @Test func aResourceWhoseNameBeginsWithAMarkIsWrittenUnderThatNameAndReadsBack() async throws {
-        // By scalar "EPUB/" + U+0301 + "x.xhtml" is a file in EPUB/, as it is to the reader.
+        // By its bytes "EPUB/" + U+0301 + "x.xhtml" is a file in EPUB/, as it is to the reader.
         for m in WriterCoverage.clusteringMarks {
             let e = WriterCoverage.escapingNonASCII(m)
             let marked = EPUBResource(id: "m", path: "EPUB/\(m)x.xhtml", mediaType: "application/xhtml+xml")

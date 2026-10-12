@@ -71,7 +71,7 @@ final class SpineCFIsTests: XCTestCase {
 
     /// A separator or dot segment of `full-path` is one whatever mark follows it, here as to the
     /// publication (https://github.com/vocaro/EPUBLib/issues/181).
-    func testARootfilePathIsReadByScalarWhereAMarkFollowsASeparatorOrDotSegment() throws {
+    func testARootfilePathIsReadWhereAMarkFollowsASeparatorOrDotSegment() throws {
         for mark in Fixture.clusteringMarks {
             let folder = "Books/\(mark)x/"
             let book = try files(in: folder, spineID: "s")

@@ -167,9 +167,9 @@ final class CSSSyntaxStylesheetLoadingCoverageTests: XCTestCase {
     }
 
     /// A `Character` holds a "/", "\", "?" or "#" together with a combining mark, variation
-    /// selector or joiner after it; a reference is read by scalar, as the archive's paths are
+    /// selector or joiner after it; a reference is read by its bytes, as the archive's paths are
     /// (https://github.com/vocaro/EPUBLib/issues/181).
-    func testAStyleReferenceIsReadByScalarWhateverMarkFollowsItsSeparators() throws {
+    func testAStyleReferenceIsReadWhateverMarkFollowsItsSeparators() throws {
         let base = "OPS/css/main.css"
         func path(_ reference: String) -> [Unicode.Scalar]? {
             guard case .local(let path) = StyleReference(reference, relativeTo: base) else { return nil }
@@ -181,8 +181,14 @@ final class CSSSyntaxStylesheetLoadingCoverageTests: XCTestCase {
             XCTAssertEqual(path("fonts/a.otf?\(mark)v=2#iefix"), Array("OPS/css/fonts/a.otf".unicodeScalars), mark.debugDescription)
             XCTAssertEqual(path("../\(mark)a.css"), Array("OPS/\(mark)a.css".unicodeScalars), mark.debugDescription)
             XCTAssertEqual(path("x/../\(mark)a.css?\(mark)"), Array("OPS/css/\(mark)a.css".unicodeScalars), mark.debugDescription)
-            // Refused as the same reference is without the mark.
-            for reference in ["../../../\(mark)a.css", "/\(mark)a.css", "a\\\(mark)b.css", "./a:\(mark)b.css", "?\(mark)", "#\(mark)a"] {
+            // Read as the same reference is without the mark. One that climbs past the container
+            // root or opens with a slash starts at the root (https://github.com/vocaro/EPUBLib/issues/84),
+            // and a colon is a character of the name (https://github.com/vocaro/EPUBLib/issues/171).
+            XCTAssertEqual(path("../../../\(mark)a.css"), Array("\(mark)a.css".unicodeScalars), mark.debugDescription)
+            XCTAssertEqual(path("/\(mark)a.css"), Array("\(mark)a.css".unicodeScalars), mark.debugDescription)
+            XCTAssertEqual(path("./a:\(mark)b.css"), Array("OPS/css/a:\(mark)b.css".unicodeScalars), mark.debugDescription)
+            // A backslash names no entry, and nor does a query or a fragment with no path before it.
+            for reference in ["a\\\(mark)b.css", "?\(mark)", "#\(mark)a"] {
                 XCTAssertEqual(StyleReference(reference, relativeTo: base), .invalid, reference.debugDescription)
             }
         }

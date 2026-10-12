@@ -235,8 +235,8 @@ final class ContainerDocumentCoverageTests: XCTestCase {
 
     // A `Character` holds a "/", "\", ":" or "." together with a mark, selector or joiner after
     // it, so read that way "../" + U+0301 + "book.opf" has no dot segment and no separator. An
-    // archive and a file system read scalars (https://github.com/vocaro/EPUBLib/issues/181).
-    func testARootfilePathIsReadByScalarWhateverMarkFollowsItsSeparatorsAndDots() throws {
+    // archive and a file system read bytes (https://github.com/vocaro/EPUBLib/issues/181).
+    func testARootfilePathIsReadWhateverMarkFollowsItsSeparatorsAndDots() throws {
         for m in Fixture.clusteringMarks {
             let e = Fixture.escapingNonASCII(m)
             // A package document whose name, or whose folder's, begins with the mark: named as a
@@ -246,6 +246,10 @@ final class ContainerDocumentCoverageTests: XCTestCase {
                 ("OPS/", "\(m)book.opf", "OPS/./\(m)book.opf"), ("OPS/", "\(m)book.opf", "OPS%2F\(e)book.opf"), ("\(m)OPS/", "book.opf", "\(m)OPS/book.opf"),
                 ("a/\(m)b/", "book.opf", "a/c/../\(m)b/book.opf"), ("50% off/", "\(m)book.opf", "50% off/\(m)book.opf"),
                 ("50% off/\(m)x/", "book.opf", "50% off/\(m)x/book.opf"),
+                // A colon is a character of the name (https://github.com/vocaro/EPUBLib/issues/171):
+                // escaped and written out, and where it reads as a scheme and so only as written.
+                ("OPS/a:\(m)b/", "book.opf", "OPS/a%3A\(e)b/book.opf"), ("OPS/a:\(m)b/", "book.opf", "OPS/a:\(m)b/book.opf"),
+                ("c:\(m)/", "book.opf", "c:\(m)/book.opf"),
             ]
             for (folder, package, fullPath) in cases {
                 let book = try EPUBPublication.open(data: relocated(to: folder, package: package, fullPath: fullPath))
@@ -254,13 +258,16 @@ final class ContainerDocumentCoverageTests: XCTestCase {
                                [folder + "one.xhtml", folder + "two.xhtml"].map { Array($0.unicodeScalars) }, fullPath.debugDescription)
                 XCTAssertEqual(book.tableOfContents.first?.href.flatMap(\.removingPercentEncoding), folder + "one.xhtml#start", fullPath.debugDescription)
             }
-            // Neither reading takes these: out of the container, an opening or doubled slash, a
-            // backslash or a colon, as a URL and where a "%" leaves only the path as written.
+            // Neither reading takes these: out of the container, an opening or doubled slash or
+            // a backslash, as a URL and where a "%" leaves only the path as written.
             for fullPath in ["../\(m)OPS/book.opf", "OPS/../../\(m)OPS/book.opf", "/\(m)OPS/book.opf", "OPS//\(m)book.opf", "OPS\\\(m)book.opf",
-                             "OPS/a:\(m)book.opf", "50% off/../\(m)book.opf", "50% off/./\(m)book.opf", "50% off//\(m)book.opf", "50% off\\\(m)book.opf"] {
+                             "50% off/../\(m)book.opf", "50% off/./\(m)book.opf", "50% off//\(m)book.opf", "50% off\\\(m)book.opf"] {
                 assertOpening(try Fixture.packageVariant(container: container("<rootfiles><rootfile full-path=\"\(fullPath)\"/></rootfiles>")),
                               throws: .invalidXML("container rootfile"), fullPath.debugDescription)
             }
+            // A path with a colon is one, and here names no entry.
+            assertOpening(try Fixture.packageVariant(container: container("<rootfiles><rootfile full-path=\"OPS/a:\(m)book.opf\"/></rootfiles>")),
+                          throws: .missingResource("OPS/a:\(m)book.opf"), m.debugDescription)
         }
     }
 

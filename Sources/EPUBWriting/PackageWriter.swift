@@ -35,8 +35,9 @@ public enum EPUBPackageWriter {
                                  spine: [EPUBSpineItem], contents: [EPUBNavigationItem],
                                  pages: [EPUBNavigationItem] = [], stylesheet: String? = nil) throws -> [Document] {
         guard !spine.isEmpty else { throw EPUBWritingError.invalidPublication("empty spine") }
-        // By scalar, as `ResourceReference` reads a path: a mark after the "/" joins its `Character`.
-        func inPackage(_ path: String) -> Bool { path.unicodeScalars.starts(with: "EPUB/".unicodeScalars) }
+        // By byte, as `ResourceReference` reads a path: as a `Character`, the "/" before a
+        // combining mark is another character, and no prefix of the path is "EPUB/".
+        func inPackage(_ path: String) -> Bool { path.utf8.starts(with: "EPUB/".utf8) }
         var ids: Set<String> = ["nav"]
         var paths: Set<String> = ["EPUB/nav.xhtml", "EPUB/package.opf", "META-INF/container.xml", "mimetype"]
         for resource in resources {
@@ -56,7 +57,7 @@ public enum EPUBPackageWriter {
             guard inPackage(value), paths.contains(path), inPackage(path) else {
                 throw EPUBWritingError.invalidPublication("navigation references an undeclared resource: \(value)")
             }
-            return String(value.unicodeScalars.dropFirst(5))
+            return String(decoding: value.utf8.dropFirst(5), as: UTF8.self)
         }
         func items(_ entries: [EPUBNavigationItem]) throws -> String {
             try entries.map { entry in
