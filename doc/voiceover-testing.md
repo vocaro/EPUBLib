@@ -14,7 +14,12 @@ separate application identifiers and a bundled synthetic EPUB. It opens the fixt
 without a file-picker interaction. The book contains `word0001` through `word1200` in one
 justified paragraph, a heading, an internal **Verification link**, and an image labeled
 **Blue verification square**. Its long paragraph retains the continuation context that
-originally exposed off-page text. Do not import private books for this check.
+originally exposed off-page text. A second bundled book, opened with
+`-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
+ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
+twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
+of the book is a few screens from the start of its last chapter. Do not import private books
+for this check.
 
 Use Xcode 27, OS 27, XcodeGen, Python 3, and a graphical Mac login. Select a signing team for
 the UI-test runners and physical-device app. Signed Mac UI tests worked in the initial
@@ -184,8 +189,39 @@ point can be followed beside the speech.
 paragraph is visible from its first character while any of it is on screen, and VoiceOver's
 first and last visible word, and a text cursor it brings back into view, go by that. The text
 area's lines are the whole book's, so a `STATE` read is slow in a long book; the fixture has
-269 at this size. On a simulator or device, `TEST_RUNNER_VOICEOVER_FLOW=scrolled` opens the
-fixture in continuous scroll.
+269 at this size.
+
+On an iPhone or iPad VoiceOver walks the scroll view's accessibility elements instead, and the
+reader lists the lines on screen, with two more each side while VoiceOver's cursor is in the
+text. Run the probe (see "Physical iPhone and iPad") in that flow, on the book of ordinary
+paragraphs, by adding to its command:
+
+```sh
+TEST_RUNNER_VOICEOVER_FLOW=scrolled TEST_RUNNER_VOICEOVER_BOOK=paragraphs \
+TEST_RUNNER_VOICEOVER_FONT_SIZE=17 \
+TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wait=2,visible,screenshot,forward=9,visible,screenshot,forward=30,visible,backward=44,visible,screenshot'
+```
+
+1. Two scroll steps end in the middle of a paragraph. The first `visible` gives the first and
+   last lines on screen; nothing above or below them is listed.
+2. Eight moves forward from Scroll Forward cross the sample's other controls and the ninth
+   enters the text. Its phrase is the first line on screen, not `w01` of that line's
+   paragraph, and the screenshot after it shows the same lines as the one before: coming in
+   scrolled nothing.
+3. The second `visible` counts four more lines, two each side of the screen, and says how
+   many are outside the window.
+4. The moves forward give every line once, in order, while the view follows; the moves back
+   pass the line VoiceOver came in at and go on above it. A phrase repeated, a line missing,
+   or a control's name among them is a failure.
+5. `backward=1` straight after coming in returns to the control before the text. A touch on
+   a control (`touch=Bookmark`) takes the cursor out, and `visible` then lists the lines on
+   screen alone; the next move forward comes in at the first of them.
+6. `activate=Contents,activate=Chapter two` moves the reader with the cursor on a control, and
+   `point=0.5:0.8` touches a line directly: VoiceOver reads the line under the finger.
+
+Drive at least one session with `flick=right*20` and `flick=left*30` in place of `forward`
+and `backward`: those are VoiceOver's own gestures for the next and previous item, where the
+others are the test service's moves. They take about six seconds each under XCTest.
 
 ## Hosted Mac sessions
 
@@ -328,21 +364,29 @@ The probe launches the reader and performs the comma-separated steps, recording 
 phrase after each. Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 
 - `read`: move forward until VoiceOver repeats itself at the end of the screen.
+- `forward=COUNT`, `backward=COUNT`: that many moves to the next or previous item, where
+  `read` would go on through a whole book in continuous scroll.
 - `visible`: the window size and each column's first and last numbered lines as XCTest sees
-  them, to compare with the speech.
+  them, to compare with the speech. Lines listed above or below the window, as in continuous
+  scroll while the cursor is in the text, are counted apart.
 - `touch=LABEL`: touch the first item whose label begins with LABEL. Under VoiceOver a touch
   moves its cursor there; `touch=word` is the first numbered line.
 - `activate=LABEL`: touch the item, then double-tap, which is VoiceOver's activation.
+- `point=X:Y`: touch a place in the window, as fractions of its width and height, whatever is
+  listed there.
 - `flick=down`, `flick=up`: one finger steps through the rotor. With the cursor on a line it
   offers the line's actions, Next Page first; `doubletap=LABEL` on that same line then
   performs the chosen one without moving the cursor. On an iPhone in landscape only the
   upward flick registered, which reaches the same actions.
+- `flick=right`, `flick=left`: VoiceOver's next and previous item; `flick=right*12` repeats it.
 - `rotate=landscape`, `rotate=portrait`: an iPad shows two columns in landscape and one in
   portrait. End a session in the orientation it started in.
 - `wait=SECONDS`, and `screenshot`, attached to the result bundle: what is on the glass,
   independent of every accessibility snapshot.
 
-`TEST_RUNNER_VOICEOVER_FONT_SIZE` sets the launch text size. `TEST_RUNNER_VOICEOVER_OFF=1`
+`TEST_RUNNER_VOICEOVER_FONT_SIZE` sets the launch text size, `TEST_RUNNER_VOICEOVER_FLOW=scrolled`
+opens the book in continuous scroll and `TEST_RUNNER_VOICEOVER_BOOK=paragraphs` opens the
+book of ordinary paragraphs. `TEST_RUNNER_VOICEOVER_OFF=1`
 leaves VoiceOver off, so the same steps are plain touches: use it to tell a VoiceOver failure
 from one of the reader's own. The probe stops when the reader is no longer in the foreground.
 Another session's tests on the same device bring their own app forward or switch VoiceOver
@@ -449,10 +493,52 @@ The Mac runner's transcript is plain text and needs no export.
   600-point window entered at "In text word0072 word0073 word0074 word0075 word0076" after two
   Scroll Forward steps, as on the workstation. With the banner's launch agent left loaded on
   purpose, one session of four heard "application Automation Running" and was stopped.
-- On an iPhone simulator, through XCTest's VoiceOver service and not by ear, moving forward
-  from the controls into the text of continuous scroll went to the book's first paragraph and
-  scrolled the reader back to it, three screens up
-  ([#301](https://github.com/vocaro/EPUBLib/issues/301)).
+- On 2026-10-12, continuous scroll on a physical iPhone 17 Pro Max (iOS 27.2, 440 × 956,
+  17 points) and iPad Air 13-inch (iPadOS 27.2, 23 points), the book of ordinary paragraphs,
+  through XCTest's VoiceOver service with VoiceOver switched on for each session; its phrases
+  were recorded and nobody listened. Before the scroll view listed its lines, two Scroll
+  Forward steps on the iPhone left `p003w01` to `p008w40` on screen, and the ninth move
+  forward from Scroll Forward gave "C hapter one", then the whole of `p001`, with the reader
+  back at the top of the book ([#301](https://github.com/vocaro/EPUBLib/issues/301)).
+  With the lines listed, on the iPhone: after two steps the first line of the reading area
+  was `p005w21 … p005w25`, the fifth of its paragraph, and the ninth move gave that line; the
+  screenshots before and after it differ only in VoiceOver's cursor. `backward=1` returned to
+  Bookmark. Twenty-eight moves forward and forty back gave every line once and in order, the
+  view following, back past the line VoiceOver came in at to `p004w01`. After
+  `activate=Contents,activate=Chapter two` the fifth move from Contents gave "Chapter two",
+  twenty-four more read on past the last line that had been on screen, and thirty back
+  passed the heading into the chapter before. A touch on Bookmark left the twenty lines on
+  screen listed alone, `point=0.5:0.8` gave the line under it, and twenty-two `flick=right`
+  and twenty-eight `flick=left` read on and back as the service's moves had.
+  On the iPad upright (1024 × 1366): after two steps the ninth move gave `p010w15 … p010w21`,
+  the third line of its paragraph and the first of the reading area; forty-four moves
+  forward and sixty back gave every line once and in order. In the first book at 23 points
+  the lines read "Page boundary verification", "Verification link Link", ". Image:", "Blue
+  verification square Image", and after three steps the ninth move gave `word0550 …
+  word0555`, the first on screen.
+- The same day, on the iPad on its side (1366 × 1024), straight after
+  `activate=Contents,activate=Chapter two`: the fifth move gave "Chapter two" and seventeen
+  more the lines down to `p043w36 … p043w40`, the last that had been on screen when the
+  menu closed. The next gave "Vertical scroll bar" and the one after the sample's footer;
+  the lines after `p043w40`, listed by then, were passed over. Moving back from there gave
+  the lines in order to "Chapter two", then three of them a second time, then went on above
+  the heading without a gap. An iPhone 17 Pro simulator (iOS 27.0) does the same after any
+  menu closes, even when the chapter chosen is the one on screen, and reads on, as the
+  devices did, when VoiceOver comes into the text after a step of the reader's own or
+  without a menu having closed. VoiceOver appears to keep the elements it found when the
+  menu closed and to walk those while its cursor stays on them. Posting a layout change,
+  with no element or with the line under the cursor, did not change that in the simulator;
+  a page-scrolled notification made VoiceOver skip lines; giving it new elements for the
+  same lines once its cursor had moved on made it lose its place. It is not resolved
+  ([#339](https://github.com/vocaro/EPUBLib/issues/339)).
+- In the simulator, UIKit scrolled the line VoiceOver's cursor came to until the area inside
+  the scroll view's insets held its frame, and then until the line was 40 points below the
+  top of that area or about 120 above its bottom. A line that was the first listed when
+  VoiceOver took it led back to the control before the text on the next move back, though
+  lines had been listed before it since; and when the list shrank to the screen between the
+  two halves of a move, VoiceOver stopped at a line it had reached above the screen.
+- Not done on a device: a larger text size, VoiceOver's three-finger scroll and its read-all
+  gesture, which XCTest cannot make, a book whose lines hold floats or tables, and listening.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).

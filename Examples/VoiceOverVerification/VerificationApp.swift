@@ -3,7 +3,9 @@ import SwiftUI
 /// Isolates the synthetic book and preferences from the normal reader sample.
 @main struct VoiceOverVerificationApp: App {
     init() {
-        if let book = Bundle.main.url(forResource: "sample", withExtension: "epub") {
+        // `-VerificationBook paragraphs` opens the book of ordinary paragraphs instead.
+        let name = UserDefaults.standard.string(forKey: "VerificationBook") ?? "sample"
+        if let book = Bundle.main.url(forResource: name, withExtension: "epub") {
             UserDefaults.standard.register(defaults: ["SampleBook": book.path, "SampleFlow": "paginated"])
         }
     }
