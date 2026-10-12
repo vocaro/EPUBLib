@@ -504,6 +504,24 @@ private final class XMLTree: NSObject, XMLParserDelegate {
 /// whose declared encoding does not: in ISO-2022-JP, HZ or SCSU the bytes of `&pi;` may be parts
 /// of other characters.
 private enum BrowserMarkup {
+    /// `data` rewritten, or as it stands: decided for the bytes given, those one parse attempt
+    /// starts from, in one of three ways.
+    ///
+    /// - A document `wide` takes for UTF-16 or UTF-32, by a byte-order mark or by the NUL bytes
+    ///   among its first four, is rewritten as text decoded in that encoding, if it decodes,
+    ///   whatever its XML declaration says. The mark or those bytes are trusted for the whole
+    ///   document. The parser stays in UTF-16 when the declaration names UTF-8, but can change
+    ///   after the declaration to another wide encoding it names, and a document made that way
+    ///   is rewritten wrongly: when its first 90 bytes are a UTF-16LE byte-order mark and a
+    ///   declaration naming `UTF-16BE` and the rest is UTF-16BE, bytes of the rest that spell
+    ///   `&pi;` in UTF-16LE are replaced, where the parser reads four other characters. This is
+    ///   known and left alone.
+    /// - A document that starts with the four bytes of `<?xm` in EBCDIC is never rewritten. The
+    ///   parser reads such a declaration as EBCDIC and can read what follows in an encoding it
+    ///   names, SCSU and HZ among them (a document that names UTF-8 this way it refuses). The
+    ///   name is not read here.
+    /// - Any other is rewritten when `isASCIITransparent` says so, by its XML declaration read
+    ///   as ASCII.
     static func asXML(_ data: Data) -> Data {
         guard case let (encoding, mark)? = wide(data) else { return isASCIITransparent(data) ? rewrite(data) ?? data : data }
         guard let text = String(data: data.dropFirst(mark), encoding: encoding),
@@ -529,6 +547,24 @@ private enum BrowserMarkup {
     /// character, by its XML declaration read as ASCII: one that names no encoding is UTF-8, and
     /// one that names an encoding must name a listed one. A declaration written in EBCDIC, and
     /// one whose encoding or end is not within `declarationLimit` bytes, may name any.
+    ///
+    /// The answer relies on three things:
+    ///
+    /// - The parser takes such a document's encoding from its declaration, whatever bytes
+    ///   follow, and reads UTF-8 when there is no declaration or no `encoding` in it. The
+    ///   declaration is read here at the document's first byte, or after a UTF-8 byte-order
+    ///   mark.
+    /// - Only the document's first `declarationLimit` bytes are read. A declaration that shows
+    ///   neither an `encoding` nor its end in them is answered no, whatever it goes on to name.
+    /// - An encoding is known by the spelling of its name, but for the case of ASCII letters. A
+    ///   listed encoding under a spelling that `asciiTransparentEncodings` lacks is answered no.
+    ///
+    /// Where the answer is no the document is parsed as it stands: one of HTML's named references
+    /// is dropped without an error under a DOCTYPE that names an external subset and is an error
+    /// otherwise, as a `DOCTYPE` keyword in another case is. A declaration that is not well
+    /// formed is not read here as the parser reads it, and the answer relies on the parser
+    /// refusing it. `XMLTree.parse` asks again for the bytes of its second attempt, in which a
+    /// space for a control character may have made such a declaration well formed.
     private static func isASCIITransparent(_ data: Data) -> Bool {
         guard !data.starts(with: [0x4C, 0x6F, 0xA7, 0x94]) else { return false } // `<?xm` in EBCDIC
         var bytes = ArraySlice(data.prefix(declarationLimit))
