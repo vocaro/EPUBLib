@@ -347,6 +347,19 @@ final class ArchiveEndRecordTests: XCTestCase {
         XCTAssertEqual(book.archiveData, bytes)
     }
 
+    func testASliceOfLargerDataThatIsABookAndOtherBytesAfterItOpens() throws {
+        // A slice keeps its parent's indices, which are not offsets into it. The archive's length
+        // is a count from the slice's first byte, and ZIPFoundation is given that many bytes: the
+        // bytes before the index of that number are the archive without its last 5,000, and so
+        // without its record.
+        let files = try Fixture.files()
+        let plain = Fixture.storedArchive(Fixture.storedEntries(files))
+        let slice = (Data(count: 5_000) + plain + Data(count: 70_000)).dropFirst(5_000)
+        XCTAssertEqual(slice.startIndex, 5_000)
+        XCTAssertEqual(slice.withUnsafeBytes(ArchiveEndRecord.archiveLength(in:)), plain.count, "the record is found by looking further back")
+        try assertOpens(slice, as: files)
+    }
+
     /// `count` zero bytes that begin as an archive does, with a record at each of `offsets`
     /// whose comment length is `comment`.
     private func led(_ count: Int, recordsAt offsets: [Int], comment: Int) -> Data {

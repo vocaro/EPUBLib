@@ -85,6 +85,7 @@ enum ArchiveEndRecord {
     /// byte alone, with a comparison wherever it is found, is no quicker over text and takes
     /// seconds over bytes that are mostly that one.
     static func lastSignature(in bytes: UnsafeRawBufferPointer, before end: Int) -> Int? {
+        precondition(end <= bytes.count - 8, "The eight bytes after `end` are read")
         func word(_ offset: Int) -> UInt64 { UInt64(littleEndian: bytes.loadUnaligned(fromByteOffset: offset, as: UInt64.self)) }
         var block = end - 8
         if block >= 0 {

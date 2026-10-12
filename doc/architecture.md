@@ -82,14 +82,17 @@ warnings, so this list is where they are disclosed:
   when there is exactly one.
 - **Contents.** An entry whose href does not resolve keeps its title and children, without an
   href. A landmark or page that does not resolve is left out.
-- **Archive.** Bytes after the archive, however many, are passed over: a page a download was
-  wrapped in, another file run on after the book. Where more of them follow than a comment could
-  hold, the archive is taken to end with the comment of the last end record in the file and is
-  read as it would be with nothing after it. The identity and `archiveData` are the whole file's
-  either way. An archive that has other bytes before it as well, and more than 65,535 after it,
-  is not looked for. A deflated entry is read by its stream and held to its checksum: an
-  uncompressed size its directory misstates, or a compressed size that runs past the end of the
-  archive, is not believed, and the limits count what the entry inflates to.
+- **Archive.** The last end record in the file decides which archive is read, so bytes after a book
+  are passed over, however many, when they hold no end record's signature: a page a download was
+  wrapped in. Another archive after the book ends in one: that archive is read, or the file is
+  refused. Where more bytes follow than a comment could hold, the archive is taken to end with the
+  comment of that last record and is read as it would be with nothing after it. The identity and
+  `archiveData` are the whole file's either way. An archive that has other bytes before it as well,
+  and more than 65,535 after it, is not looked for. A deflated entry is read by its stream and held
+  to its checksum: an uncompressed size its directory misstates is not believed, nor is a
+  compressed size that runs past the end of the archive, and the limits count what the entry
+  inflates to. The book is still refused when that compressed size is 2^63 bytes or more, or when a
+  data descriptor follows the entry and the misstated size places it past the end.
 - **Container.** White space around the mimetype's media type and a byte-order mark before it are
   ignored. A rootfile that is not typed as a package document is passed over for the first that
   is. An entry name may hold a colon, as it may the other characters OCF forbids.
