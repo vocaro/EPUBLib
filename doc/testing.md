@@ -183,6 +183,11 @@ coverage does not substitute for hardware performance and accessibility testing.
 For real VoiceOver sessions, use the [VoiceOver testing process](voiceover-testing.md) and
 the isolated `Examples/VoiceOverVerification` reader. Its diagnostic speech probe is outside
 the local gate because it takes control of the user interface and changes VoiceOver state.
+`scripts/run-voiceover-simulator.py` runs that probe on simulators of its own, with no window
+and no sound, and takes over nothing: it records what a
+[simulator's VoiceOver](voiceover-testing.md#simulators) reads, in order and after a page
+turn. That VoiceOver activates nothing it reads, so page actions, the rotor and acceptance
+stay with the Mac and physical devices.
 
 ## Corpus runs
 

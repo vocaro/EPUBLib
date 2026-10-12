@@ -37,8 +37,10 @@ final class SectionWriter {
         /// A table cell or caption for a rich-content factory: no map.
         case detached
         /// A note's content for showing in place: no map, blocks flattened to plain paragraphs.
-        /// `ids` are the ids the note is captured under.
-        case note(ids: Set<String>)
+        /// `ids` are the ids the note is captured under. `depth` is how deep in notes captured
+        /// on their own (`SectionBuildState.noteDepth`) the content goes: the note's own depth,
+        /// or further for a note with nothing else to show.
+        case note(ids: Set<String>, depth: Int)
     }
 
     struct Output {
@@ -60,6 +62,8 @@ final class SectionWriter {
     private var isSection: Bool { mode == .section }
     private var recordsMap: Bool { !isNote }
     private var isNote: Bool { if case .note = mode { true } else { false } }
+    /// Whether a note's writer left out a note nested in it.
+    private(set) var leftOutNote = false
 
     private var buffer = TextBuffer()
     private var map = TextMap()
@@ -248,11 +252,18 @@ final class SectionWriter {
         if style.writingMode != .horizontalTB { state.report.report.verticalWritingFlattened = true }
         if isSection, node.isHTML("body") { state.bodyStyle = style }
         register(node)
-        if let kind = state.noteKind(node) {
+        if state.noteKind(node) != nil {
             if isSection { state.captureNote(node) }
-            // A note's content leaves out the notes nested in it: each is a note of its own.
-            if isNote { return }
-            if kind == .footnote { skip(node, registered: true); return }
+            if case .note(_, let depth) = mode {
+                // A note's content leaves out the notes nested in it that are captured on their
+                // own, below the depth it goes to. One that no id names is captured nowhere
+                // else: it is part of this note.
+                if state.isNamedNote(node), state.noteDepth(of: node) > depth { leftOutNote = true; return }
+            } else if state.isHiddenFootnote(node), !state.isCapturingNote || state.isNamedNote(node) {
+                // A footnote is shown only in place of its reference. In a cell of a note's
+                // table, one that no id names is part of that note, as it is outside the table.
+                skip(node, registered: true); return
+            }
         }
         guard style.display != .none, style.display != .tableColumn, style.display != .tableColumnGroup else {
             skip(node, registered: true); return
@@ -494,11 +505,15 @@ final class SectionWriter {
         let parts = resolved.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
         let path = String(parts[0]).removingPercentEncoding ?? String(parts[0])
         let fragment = parts.count == 2 ? String(parts[1]).removingPercentEncoding ?? String(parts[1]) : nil
-        // The note's own number.
-        if case .note(let ids) = mode, path == document.path, let fragment, ids.contains(fragment) { return nil }
+        // The note's own number, or another link to the note it is in.
+        if case .note(let ids, _) = mode, path == document.path, let fragment, ids.contains(fragment) { return nil }
         if ContentSemantics.isNoteReference(element) { return .note(href: resolved) }
+        // A plain link to a note or its child is a note link; so is one to anything inside a
+        // footnote hidden from the flow (`isInsideHiddenFootnote`), where there is nothing to
+        // navigate to.
         if path == document.path, let fragment, let target = document.element(id: fragment),
-           state.noteKind(target) != nil || target.parent.flatMap(state.noteKind) != nil {
+           state.noteKind(target) != nil || target.parent.flatMap(state.noteKind) != nil
+            || (!fragment.isEmpty && state.isInsideHiddenFootnote(target)) {
             return .note(href: resolved)
         }
         return .internal(href: resolved)

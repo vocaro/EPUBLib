@@ -201,9 +201,42 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   whole table still resolve to that table; new cell ranges identify the selected characters.
   Interaction surfaces are mounted only for visible cells. Cell TextKit
   layouts and glyph metadata are retained for drawing in the table's bounded layout cache.
-- **Footnotes.** EPUB 3 `noteref` links show their note in a popover, whether they name the
-  note or an element that opens it, such as its first paragraph. Footnote `aside`s are
-  hidden from the flow; endnotes stay in place and also show in popovers.
+- **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
+  hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
+  in place and also show in popovers.
+  - A footnote hidden from the flow has nowhere else to be read, so a link may name it or
+    any element inside it (its first paragraph, a later one, the text after its number) and
+    the popover shows the whole note either way. A note inside such a footnote is hidden with
+    it and is named the same way.
+  - A note that stays in the flow is named by its own id and by the ids of its leading
+    descendants (its first child, and that one's): a link may name its first paragraph or
+    the number that opens it. A link to any other element inside it finds no note and
+    navigates to that element, which can be read where it is. An endnotes list marked as one
+    note is the case that matters: a reference to its seventeenth item goes to that item
+    rather than opening the whole list from the top.
+  - A table cell, row, row group, caption or column marked as a footnote
+    (`role="doc-footnote"`) is not hidden on that account: unless a hidden footnote is
+    around it, it is named as a note that stays in the flow. A table of two or more columns
+    is drawn as a grid, which shows such a part in its place whatever its role, so a link to
+    a later element inside it navigates to the table. A table of one column flows as text
+    and does leave the part out; a link to a later element inside it then finds nothing to
+    show. A footnote inside a cell is hidden as it is anywhere else.
+  - An id inside a note nested in another names the nested note alone, and that note is left
+    out of the outer note's popover. Two exceptions keep text from being lost: a nested note
+    that no id names, which nothing could open, is part of the note around it; and a note
+    with nothing of its own (two elements marking one note, or a wrapper around several)
+    shows the notes nested in it, two levels of them. Notes nested deeper in notes that hold
+    only one another are left out of the outer ones, so that such nesting cannot multiply the
+    work of building a section.
+  - An id used more than once names one note: one that carries it on its own element or a
+    leading descendant before a hidden one that holds it elsewhere, and otherwise the first
+    in the document.
+  - A link without the `noteref` type acts as one when it names a note or one of its
+    children, or anything inside a footnote hidden from the flow: it shows the note that id
+    names, and navigates where the id names none (a later child of a note that stays in the
+    flow). Deeper into a note that is in the flow it is an ordinary link and navigates.
+    Inside a popover, a link to the note being shown is plain text.
+  - A footnote `aside` with no id anywhere in it cannot be referred to and is not shown.
 - **Flex and grid.** TextKit lays a section out as one column of paragraphs, so the reader
   aligns the flex and grid layouts that keep that column: a column flex container, a one-column
   grid and a row flex container with a single item

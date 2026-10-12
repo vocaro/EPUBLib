@@ -140,6 +140,52 @@ final class SectionContentRobustnessCoverageTests: XCTestCase {
         XCTAssertEqual(S.paragraphs(text).count, 3_000)
     }
 
+    func testNotesHoldingOnlyOtherNotesWalkTheirContentAFixedNumberOfTimes() throws {
+        // A note with nothing of its own is rendered a second time with the notes nested in it, `wholeNoteDepth`
+        // levels of them. 190 notes, each holding only the next, around 1,000 elements. The styles computed for those
+        // elements count the times they are walked, the same on any machine, and the count grows neither with the
+        // nesting nor with what else the document holds (cheap elements in front, which a bound that is a share of
+        // the document would count).
+        let open = (0..<190).map { "<aside epub:type='footnote' id='n\($0)'>" }.joined(), close = String(repeating: "</aside>", count: 190)
+        let depth = SectionBuildState.wholeNoteDepth
+        // Content that shows is walked for its own note and for each of the `depth` notes around it. Content that
+        // shows nothing, beside an empty note, leaves its own note with nothing too, which walks it once more.
+        let contents: [(inner: String, walks: Int, shown: Int)] = [
+            (String(repeating: "<p class='w'>w</p>", count: 1_000), 1 + depth, depth + 1),
+            (String(repeating: "<p class='w' hidden=''>h</p>", count: 1_000) + "<aside epub:type='footnote' id='e'/>", 2 + depth, 0),
+        ]
+        for (inner, walks, shown) in contents {
+            for padding in [0, 10_000] {
+                var styled = 0
+                let document = try H.document("<p>Text" + String(repeating: "<i/>", count: padding) + "</p>" + open + inner + close)
+                let text = H.build(document: document, rules: [(".w", { _ in styled += 1 })])
+                XCTAssertEqual(styled, walks * 1_000, "\(padding) elements in front")
+                XCTAssertEqual(text.string.string, "Text")
+                XCTAssertEqual(Set(text.notes.keys).subtracting(["e"]), Set((0..<190).map { "n\($0)" }))
+                // The innermost notes show the content; the ones further out stay empty.
+                XCTAssertEqual((0..<190).filter { text.notes["n\($0)"]?.length != 0 }, Array((190 - shown)..<190), "\(padding) elements in front")
+            }
+        }
+    }
+
+    func testNotesHoldingOnlyOtherNotesTakeNothingFromTheNotesThemselves() throws {
+        // What a note with nothing of its own repeats of the notes nested in it comes from a budget of its own. 190
+        // such notes are captured before the note of 300,000 units they hold, which is still whole, and all are keys.
+        let open = (0..<190).map { "<aside epub:type='footnote' id='n\($0)'>" }.joined(), close = String(repeating: "</aside>", count: 190)
+        let chain = H.build(document: try H.document(open + "<p>" + String(repeating: "word ", count: 60_000) + "</p>" + close))
+        XCTAssertEqual(chain.notes.count, 190)
+        XCTAssertEqual((0..<190).filter { chain.notes["n\($0)"]?.length == 299_999 }, Array((189 - SectionBuildState.wholeNoteDepth)..<190))
+        // Sixteen notes marked by two elements each, 200,000 units a note: more than one budget would hold of the
+        // notes and of what their outer elements repeat of them together.
+        let words = String(repeating: "word ", count: 40_000)
+        let pairs = H.build(document: try H.document((0..<16).map {
+            "<aside epub:type='footnote' id='a\($0)'><div role='doc-footnote' id='b\($0)'><p>\(words)</p></div></aside>"
+        }.joined()))
+        XCTAssertLessThan(SectionBuildState.maximumNoteLength, 32 * 199_999)
+        XCTAssertEqual(pairs.notes.count, 32)
+        XCTAssertEqual(pairs.notes.values.map(\.length), Array(repeating: 199_999, count: 32))
+    }
+
     func testThousandsOfListItemsAndNestedQuotes() throws {
         let items = (0..<5_000).map { "<li value='\($0 * 7)'><q>item <q>\($0)</q></q></li>" }.joined()
         let text = try timed("<ol>\(items)</ol>")
