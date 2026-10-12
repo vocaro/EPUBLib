@@ -32,6 +32,14 @@ import XCUIAutomation
         app.launchArguments = lines("args.txt")
         app.launch()
         note("launch", app.launchArguments.joined(separator: " "))
+        #if os(iOS)
+        // A simulator keeps the way up the last scenario left it: every scenario starts upright.
+        let found = XCUIDevice.shared.orientation
+        XCUIDevice.shared.orientation = .portrait
+        if found != .portrait { RunLoop.current.run(until: Date().addingTimeInterval(2)) }
+        let name = Self.orientations.first { $0.value == found }?.key ?? "unknown (\(found.rawValue))"
+        note("orientation", "portrait, found \(name), window \(frame(app.windows.firstMatch.frame))")
+        #endif
         let status = app.descendants(matching: .any)["qualification.status"]
         note("ready", status.waitForExistence(timeout: 60) ? statusLine() : "NO STATUS LINE")
         for line in lines("steps.txt") {
@@ -167,9 +175,7 @@ import XCUIAutomation
             settle()
         case "rotate":
             #if os(iOS)
-            let orientations: [String: UIDeviceOrientation] = ["portrait": .portrait, "landscape": .landscapeLeft,
-                                                               "landscapeRight": .landscapeRight, "upsideDown": .portraitUpsideDown]
-            XCUIDevice.shared.orientation = orientations[argument] ?? .portrait
+            XCUIDevice.shared.orientation = Self.orientations[argument] ?? .portrait
             #endif
             RunLoop.current.run(until: Date().addingTimeInterval(2))
             note(command, "\(argument), window \(frame(app.windows.firstMatch.frame))")
@@ -327,9 +333,51 @@ import XCUIAutomation
     }
 
     private func focused() -> String {
+        #if os(iOS)
+        guard let tree = try? app.snapshot() else { return "SNAPSHOT FAILED" }
+        return keyboardAndFocus(tree)
+        #else
         let element = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
         return element.exists ? describe(element) : "nothing reports focus"
+        #endif
     }
+
+    #if os(iOS)
+    private static let orientations: [String: UIDeviceOrientation] = ["portrait": .portrait, "landscape": .landscapeLeft,
+                                                                      "landscapeRight": .landscapeRight, "upsideDown": .portraitUpsideDown]
+
+    /// Whether the keyboard is on screen and what has keyboard focus: two readings of one tree,
+    /// because the keyboard can be down under a field that still has focus (issue 307). The
+    /// keyboard is up when its `inputView` lies inside the first window.
+    private func keyboardAndFocus(_ tree: any XCUIElementSnapshot) -> String {
+        var window: CGRect?
+        var keyboard = "keyboard down", focus = "nothing has keyboard focus"
+        func walk(_ element: any XCUIElementSnapshot) {
+            if window == nil, element.elementType == .window { window = element.frame.insetBy(dx: -0.5, dy: -0.5) }
+            if element.identifier == "inputView", !element.frame.isEmpty, window?.contains(element.frame) == true {
+                keyboard = "keyboard up \(frame(element.frame))"
+            }
+            switch Self.keyboardFocus(element) {
+            case true?:
+                var parts = ["keyboard focus on", Self.name(element.elementType), "\"\(element.label)\""]
+                if let value = element.value, !"\(value)".isEmpty { parts.append("value=\"\(value)\"") }
+                focus = (parts + [frame(element.frame)]).joined(separator: " ")
+            case nil: focus = "KEYBOARD FOCUS NOT READABLE"
+            default: break
+            }
+            element.children.forEach(walk)
+        }
+        walk(tree)
+        return keyboard + ", " + focus
+    }
+
+    /// XCTest's own mark on the element being typed into, the "Keyboard Focused" of its raw tree.
+    /// `hasFocus` reports nothing on iOS. Nil when this XCTest's snapshots do not carry the mark.
+    private static func keyboardFocus(_ element: any XCUIElementSnapshot) -> Bool? {
+        guard let object = element as? NSObject, object.responds(to: NSSelectorFromString("hasKeyboardFocus")) else { return nil }
+        return object.value(forKey: "hasKeyboardFocus") as? Bool
+    }
+    #endif
 
     private func frame(_ rect: CGRect) -> String {
         "(\(Int(rect.minX)),\(Int(rect.minY)) \(Int(rect.width))x\(Int(rect.height)))"
@@ -378,21 +426,28 @@ import XCUIAutomation
             if !element.isEnabled { parts.append("DISABLED") }
             if element.isSelected { parts.append("SELECTED") }
             #if os(iOS)
-            if element.hasFocus { parts.append("FOCUS") }
+            if element.hasFocus || Self.keyboardFocus(element) == true { parts.append("FOCUS") }
             #endif
             parts.append(frame(element.frame))
             let named = parts.count > 2 || ![.other, .group].contains(element.elementType)
             if named { lines.append(String(repeating: "  ", count: depth) + parts.joined(separator: " ")) }
             element.children.forEach { walk($0, depth + (named ? 1 : 0)) }
         }
-        do { walk(try app.snapshot(), 0) } catch { lines.append("SNAPSHOT FAILED \(error)") }
+        var readings = ""
+        do {
+            let tree = try app.snapshot()
+            walk(tree, 0)
+            #if os(iOS)
+            readings = ", " + keyboardAndFocus(tree)
+            #endif
+        } catch { lines.append("SNAPSHOT FAILED \(error)") }
         let file = String(format: "%02d-%@", step, name.replacingOccurrences(of: " ", with: "_"))
         if (try? Data(lines.joined(separator: "\n").utf8).write(to: out.appendingPathComponent(file + ".tree.txt"))) == nil {
             // Sandboxed out of the folder (the Mac): the runner takes the tree from the test log.
             for line in lines { print("QUALIFICATION-TREE \(file) | \(line)") }
         }
         try? Data(app.debugDescription.utf8).write(to: out.appendingPathComponent(file + ".raw.txt"))
-        note("dump", "\(file): \(lines.count) elements")
+        note("dump", "\(file): \(lines.count) elements\(readings)")
         screenshot(name)
     }
 
