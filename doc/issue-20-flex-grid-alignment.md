@@ -201,6 +201,37 @@ rendering: the epigraph of *The Great Gatsby* has the same five lines, 23.5 poin
 ink within 3 points of the recorded glyph extents once the wider window's 50 points are taken
 off, and the dedication sits 23.5 points lower in continuous scroll than in paging in both.
 
+### The Mac app, operated
+
+The owner asked for the Mac app to be used, not only captured. On 2026-10-12 the sample app
+(built at `8100232`, light appearance, a window of 1,000 by 1,000 points, *The Great Gatsby* at
+17 points) was operated through its own controls: accessibility presses, pointer events and
+keys delivered to its window while another app stayed frontmost. Positions are ink measured in
+window captures.
+
+- **Scrolling.** Scroll Forward and Scroll Backward, and Page Down and Page Up, move through
+  the dedication, the epigraph and the half-title page with every line where the captures have
+  it: the epigraph's lines start and end at the same points as in the 700-point window, 150
+  points further right.
+- **Selecting.** A double click selects the word under the pointer and a drag selects from
+  where it starts to where it ends, in the epigraph in continuous scroll and in a column: the
+  highlight covers those words and no others.
+- **Turning pages.** In paging the 1,000-point window has two columns. Previous Page and Next
+  Page show the dedication, the epigraph and the half-title page each alone in the left column
+  and chapter 1 across both.
+- **The contents.** Choosing Epigraph from the Contents menu in continuous scroll rests the
+  box's top edge at the top: nothing shows above the epigraph's first line, which is 291.5
+  points below the top of the reading area.
+- **Resizing.** With the dedication shown in continuous scroll, making the window 200 points
+  shorter moves its lines up 98 points, half of 98% of the change, and making it 200 points
+  taller again puts them back exactly.
+- **Changing flow.** Switching from continuous scroll to paging keeps the page being read.
+  Switching from paging to continuous scroll on the dedication's page rests the box's top edge
+  at the top when the page was reached by navigation. When it was reached by turning back from
+  the pages after it, the reader's position is the end of the section, and the dedication's
+  last line rests at the top of the reading area with the dedication's blank space scrolled
+  away. See [Remaining boundaries](#remaining-boundaries).
+
 ### What was found
 
 1. **Continuous scroll misplaced every centred page; fixed.** A text with a float, a
@@ -283,8 +314,18 @@ which a browser sets side by side and the reader sets one under another, so the 
 warranted in every one. The other seven titles use flex only for epigraphs and dedications,
 inside the subset, and emit nothing. Two more rows in *Tristram Shandy* (chapters 1.4 and
 4.27) are not disclosed: their only real item is text, which is placed, and the rules drawn by
-their empty `::before` and `::after` boxes are not drawn. `EPUBLIB_CORPUS` is not set on the
-Mac this ran on, so the larger qualification corpus was not counted.
+their empty `::before` and `::after` boxes are not drawn.
+
+The qualification corpus is not kept with the repository, and `EPUBLIB_CORPUS` is not set on
+the Mac this ran on. With the owner's agreement the count was made, on 2026-10-12 at `376d94f`,
+on the books the [first qualification](native-viewer.md#qualification) describes, as they are
+on that Mac now: StudyWright's shelf sources (`pipeline/shelf/sources`, 55 EPUBs and 21 more
+under `native-candidates`) and the exports of the PDF review set by PDFReflowLib and two other
+converters (`blind-check-359/exports` in the PDFReflowLib measurements: 91, 92 and 91 EPUBs).
+Of the 350 files, EPUBReading opens 347 (the others have an empty spine, an image over the
+import limit and a cut-short archive), and every one of their 27,731 sections was built as
+`NativeCorpusQualificationTests` builds them. None carries the disclosure. The same count on
+the ten titles above gives the three named there.
 
 ### Sections with boxes
 
@@ -295,15 +336,35 @@ scroll on both simulators (160 captures). No line leaves its column or page. In 
 all of *Tristram Shandy*'s asterisk rows, an asterisk and the prose after it overlapped
 (finding 7, fixed since); the title pages and the imprint have no overlap.
 
-### Choices awaiting the owner
+### The four choices
 
 Four decisions described under [Flows](#flows) and in the
-[native viewer](native-viewer.md#flex-and-grid-alignment) were made without review: the
-viewport height in continuous scroll is the live visible reading area; a position that starts
-an aligned box rests the box's top edge at the top; a box is at most one viewport, so
-`min-height: 150vh` behaves as `100vh`; and a one-page epigraph leaves the second column of a
-spread empty. Each was captured with a plain description for the owner to judge; they are
-unchanged until he has.
+[native viewer](native-viewer.md#flex-and-grid-alignment) were made without review. Each was
+captured on the iPhone and iPad simulators and on the Mac with a plain description of what is
+on screen. On 2026-10-12 the owner, shown them, called them minor cosmetic matters he had no
+strong feelings about and left the judgement to the agent that ran this check. All four are
+kept, for these reasons:
+
+- **The viewport height in continuous scroll is the visible reading area.** A full-page
+  dedication or epigraph then takes one visible screen with its text in the middle, which is
+  what the book asks for: where the engines break lines alike, the block's top and middle are
+  within 0.2 points of WebKit's on the simulators. It is also the viewport images already use.
+  The cost is that a box is resolved again when a host shows or hides a bar: when a 54-point
+  bar hides, the box grows by 53 points and the text of a dedication on screen moves 26. A
+  fixed height would
+  hold the text still but leave the box taller than the screen, and its text off centre,
+  whenever a bar shows.
+- **A position that starts an aligned box rests the box's top edge at the top.** The page is
+  then seen as it was composed, as in paging. Resting the first line there instead would put a
+  centred dedication at the top of the screen with all of its blank space below. The last lines
+  of the section before show in the top margin, as they do above any position.
+- **A box is at most one viewport, so `min-height: 150vh` behaves as `100vh`.** In paging the
+  cap keeps a box and its text on one page with no blank page after it. In continuous scroll
+  the box is half a screen shorter than WebKit makes it, all of it blank space. None of the ten
+  titles asks for more than one viewport.
+- **A one-page epigraph leaves the second column of a spread empty.** That is the paging rule
+  for every section (a section starts a spread), not something the alignment added. Changing
+  it would repaginate every book with a short section, which is outside this check.
 
 ### Environment
 
@@ -324,12 +385,7 @@ and the Mac run have no failure.
 ### Not verified
 
 - No physical iPhone or iPad.
-- Use of the Mac app by hand: on the Mac's screen the sample app was captured without being
-  made active, so nothing there was clicked, typed or scrolled, and its pages were not compared
-  with WebKit.
 - No VoiceOver session.
-- The larger qualification corpus (`EPUBLIB_CORPUS`), which is not configured on this Mac.
-- The four choices above, which are the owner's to judge.
 
 ## Remaining boundaries
 
@@ -355,3 +411,9 @@ and the Mac run have no failure.
 - A title page that parks its heading with a font-relative offset (`left: -999em`) shows it:
   the reader's rule for off-screen labels takes absolute units
   ([limitations](native-viewer.md#limitations)).
+- Continuous scroll rests a box's top edge at the top only for a position at the box's start.
+  A position further into the box rests its own line there, which scrolls the box's blank
+  space away. That is how a dedication looks after it was reached in paging by turning back
+  from the pages after it (the position is then the end of its section) and the flow is
+  changed to continuous scroll: its last line is at the top of the reading area. Scrolling, or
+  choosing the section from the contents, shows it as composed.
