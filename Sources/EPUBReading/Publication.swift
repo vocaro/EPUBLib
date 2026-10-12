@@ -11,6 +11,12 @@ import libxml2
 /// Opening validates ZIP paths, declared sizes, CRCs and actual expanded sizes before returning.
 public struct EPUBPublication: Sendable {
     public let id: String
+    /// The first `dc:title` that has a value and, in document order, every `dc:creator`,
+    /// `dc:language` and `dc:identifier` that has one. A value is the element's text with each
+    /// run of ASCII whitespace read as one space and none left at either end, so one its
+    /// authoring tool wrapped and indented is one line; other white space, a no-break space
+    /// among it, is kept inside and at the ends of a value that holds anything else, and an
+    /// element that holds nothing but white space of any kind has no value.
     public let metadata: EPUBMetadata
     /// The manifest's items whose files the archive holds. A remote item is never fetched and is
     /// left out, as is a font obfuscated with a key the package does not give.
@@ -18,13 +24,17 @@ public struct EPUBPublication: Sendable {
     public let spine: [EPUBSpineItem]
     /// The navigation document's `toc` or, without that document, the NCX's `navMap`. An entry
     /// whose href does not resolve inside the archive keeps its title and children, without an href.
+    /// A title is the text of the entry's link or heading, or of its `navLabel`, read as a
+    /// metadata value is: ASCII whitespace stripped from its ends and collapsed, and empty, its
+    /// entry kept, when the text is nothing but white space of any kind.
     public let tableOfContents: [EPUBNavigationItem]
     /// The navigation document's `landmarks` in order or, when it lists none, the OPF `guide`'s
-    /// references. Entries whose href does not resolve inside the archive are left out.
+    /// references. Entries whose href does not resolve inside the archive are left out. A title
+    /// is the link's text read as a contents title is, or a guide reference's `title` as written.
     public let landmarks: [EPUBLandmark]
     /// The navigation document's `page-list` in order, `hidden` or not, or, when it lists none,
     /// the NCX's `pageList`. nil when the book lists no page. Entries whose href does not resolve
-    /// inside the archive are left out.
+    /// inside the archive are left out. A label is read as a contents title is.
     public let pageList: [EPUBPageListEntry]?
     public let cover: EPUBResource?
     /// The direction pages advance in; `default` leaves it to the reading system.
@@ -69,10 +79,12 @@ public struct EPUBPublication: Sendable {
             // Bytes with no end record where one can be, or with one whose comment they cut
             // short, are no archive. ZIPFoundation says so only after looking for a record at
             // every offset in them, and then never lets go of them (`ArchiveEndRecord`).
-            guard data.withUnsafeBytes(ArchiveEndRecord.readableOffset(in:)) != nil else {
+            guard let length = data.withUnsafeBytes(ArchiveEndRecord.archiveLength(in:)) else {
                 throw Archive.ArchiveError.missingEndOfCentralDirectoryRecord
             }
-            archive = try Archive(data: ZIP64ZeroValues.inlined(in: data), accessMode: .read)
+            // The archive may end before the bytes do. ZIPFoundation is given no more than the
+            // archive, in the same memory, and so does not look through what follows it.
+            archive = try Archive(data: ZIP64ZeroValues.inlined(in: data.prefix(length)), accessMode: .read)
         }
         catch { throw EPUBPublicationError.invalidArchive(String(describing: error)) }
         // The bytes this archive reads, whatever it was made from.
@@ -90,8 +102,12 @@ public struct EPUBPublication: Sendable {
                 throw EPUBPublicationError.invalidArchive("Duplicate path: \(path)")
             }
             guard paths.count <= limits.entryCount else { throw EPUBPublicationError.limitExceeded("entry count") }
-            guard entry.uncompressedSize <= UInt64(limits.resourceBytes),
-                  entry.uncompressedSize <= UInt64(limits.expandedBytes - total) else {
+            // An entry that declares more than a limit allows is refused before it is read,
+            // unless it is compressed. A compressed entry is not read by its declared size,
+            // which may be wrong either way with its data whole: a deflated one is held to the
+            // limits below, by what it inflates to, and one in any other method is not read.
+            guard entry.isCompressed || (entry.uncompressedSize <= UInt64(limits.resourceBytes)
+                                         && entry.uncompressedSize <= UInt64(limits.expandedBytes - total)) else {
                 throw EPUBPublicationError.limitExceeded(path)
             }
             if entry.type == .directory { continue }
@@ -149,7 +165,7 @@ public struct EPUBPublication: Sendable {
             let encryption = try xml("META-INF/encryption.xml")
             let identifiers = metadataNode?.children.filter { $0.name == "identifier" } ?? []
             let unique = identifiers.first { $0.attribute("id") == opf.attribute("unique-identifier") }
-            let identifier = unique?.text ?? ""
+            let identifier = unique?.keyText ?? ""
             for encrypted in encryption.descendants("EncryptedData") {
                 guard let algorithm = encrypted.descendants("EncryptionMethod").first?.attribute("Algorithm"),
                       let uri = encrypted.descendants("CipherReference").first?.attribute("URI"),
@@ -170,7 +186,7 @@ public struct EPUBPublication: Sendable {
                 case "http://ns.adobe.com/pdf/enc#RC":
                     // The key is the package's UUID: the unique identifier or, where that is
                     // not one, the first identifier that is.
-                    guard let uuid = ([unique].compactMap { $0 } + identifiers).lazy.compactMap({ uuidBytes($0.text) }).first else {
+                    guard let uuid = ([unique].compactMap { $0 } + identifiers).lazy.compactMap({ uuidBytes($0.keyText) }).first else {
                         contents[path] = nil
                         undecoded.insert(path)
                         if !isFont(mediaType: nil, path: path) { unproven.insert(path) }
@@ -399,7 +415,32 @@ private final class XMLNode {
     let attributes: [AttributeName: String]
     var children: [XMLNode] = []
     var content = ""
-    var text: String { content.trimmingCharacters(in: .whitespacesAndNewlines) }
+    /// The element's value or label: its text and that of everything inside it, with each run of
+    /// ASCII whitespace (tab, line feed, form feed, carriage return, space) read as one space and
+    /// none left at either end. EPUB Reading Systems 3.3 §5.3 requires that of Dublin Core and
+    /// `meta` values, and it is how a browser renders a navigation label. White space outside
+    /// ASCII, a no-break or an ideographic space, is the author's character and stays wherever
+    /// it is in a value that holds anything else. A value of nothing but white space of any kind
+    /// (Foundation's `whitespacesAndNewlines`, the set `keyText` trims, by scalar) is empty: a
+    /// lone no-break space is a tool's placeholder, and no host can show one. ASCII whitespace
+    /// is read by byte, not by `Character`: a space is one whatever mark follows it, and the
+    /// mark stays.
+    var text: String {
+        guard !content.unicodeScalars.allSatisfy(CharacterSet.whitespacesAndNewlines.contains) else { return "" }
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(content.utf8.count)
+        var gap = false
+        for byte in content.utf8 {
+            if byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0C || byte == 0x0D { gap = !bytes.isEmpty; continue }
+            if gap { bytes.append(0x20); gap = false }
+            bytes.append(byte)
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+    /// The content without the white space of any kind at its ends: the identifier a font
+    /// obfuscation key is made from. What a key leaves out is its algorithm's rule, not the one
+    /// a value is read by, so a key does not start from `text`.
+    var keyText: String { content.trimmingCharacters(in: .whitespacesAndNewlines) }
     init(_ name: String, _ attributes: [AttributeName: String]) { self.name = name; self.attributes = attributes }
     /// The value of an attribute by local name; `namespace` nil matches an attribute in no namespace.
     func attribute(_ local: String, namespace: String? = nil) -> String? {

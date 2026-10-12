@@ -34,6 +34,17 @@ public extension Fixture {
     static let clusteringMarks = ["\u{301}", "\u{338}", "\u{20E3}", "\u{FE0F}", "\u{E0100}", "\u{200C}", "\u{200D}", "\u{1F3FB}", "\u{93E}",
                                   "\u{94D}", "\u{3099}", "\u{E0020}"]
 
+    /// White space outside ASCII, each of it in Foundation's `whitespacesAndNewlines`: a no-break,
+    /// an ideographic and an em space, a next line, a line separator and a zero-width space.
+    static let spacesOutsideASCII = ["\u{A0}", "\u{3000}", "\u{2003}", "\u{85}", "\u{2028}", "\u{200B}"]
+
+    /// A metadata value or a label that is nothing but white space, as a document writes it:
+    /// each of `spacesOutsideASCII` alone, a no-break and a zero-width space as references (the
+    /// placeholder some tools write), and white space of several kinds together, ASCII among
+    /// it, in an element, a CDATA section and beside a comment.
+    static let valuesOfOnlyWhiteSpace = spacesOutsideASCII + ["&#160;", "&nbsp;", "&#x200B;", " \u{A0}\n", "\u{A0}\t\u{3000} \u{200B}",
+                                                              "&#x3000;&#9;&#x2003;", "<i>\u{A0}</i> <![CDATA[\u{3000}\n]]><!-- none -->"]
+
     /// `text` with each byte outside ASCII percent-encoded, as a resolved reference writes it.
     static func escapingNonASCII(_ text: String) -> String {
         text.utf8.map { $0 < 0x80 ? String(UnicodeScalar($0)) : String(format: "%%%02X", $0) }.joined()

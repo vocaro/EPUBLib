@@ -58,6 +58,25 @@ struct WriterPackageCoverageTests {
         #expect(try nav(documents).named("a").map(\.text) == [clean, clean])
     }
 
+    // doc/writing.md: no value is normalized by the writer, and a reader normalizes what it
+    // reads. This package's strips and collapses the ASCII whitespace of a metadata value or a
+    // label (EPUB Reading Systems 3.3 §5.3) and keeps other white space, so a value given with
+    // a tab, a line end or spaces at its ends is in the document as given and is read back as
+    // its words between single spaces. What the writer should write for such a value is
+    // https://github.com/vocaro/EPUBLib/issues/254.
+    @Test func whiteSpaceIsWrittenAsGivenAndReadBackStrippedAndCollapsed() async throws {
+        let given = "  A\tLong\n   Title \u{A0} of  Two\u{3000}Lines\u{A0}\n", read = "A Long Title \u{A0} of Two\u{3000}Lines\u{A0}"
+        let facts = EPUBPackageMetadata(metadata: .init(title: given, authors: [given], languages: ["en"]), identifier: given,
+                                        modificationDate: WriterCoverage.date)
+        let documents = try generate(facts, contents: [.init(title: given, href: "EPUB/one.xhtml")], pages: [.init(title: given, href: "EPUB/one.xhtml")])
+        let package = try opf(documents)
+        for name in ["dc:title", "dc:creator", "dc:identifier"] { expectScalars(package.named(name).map(\.text), [given], name) }
+        expectScalars(try nav(documents).named("a").map(\.text), [given, given], "labels")
+        let publication = try await reopened(documents)
+        expectScalars([publication.metadata.title] + publication.metadata.authors + publication.metadata.identifiers, [read, read, read], "metadata read back")
+        expectScalars(publication.tableOfContents.map(\.title) + (publication.pageList ?? []).map(\.label), [read, read], "labels read back")
+    }
+
     @Test func navigationLabelsAndFragmentsAreEscapedExactlyOnce() async throws {
         let contents: [EPUBNavigationItem] = [
             .init(title: "Tom & Jerry <i>", href: "EPUB/one.xhtml#a&b"),
