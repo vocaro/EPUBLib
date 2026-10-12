@@ -453,22 +453,35 @@ private enum SourceEncoding {
 ///   before an ASCII letter, `/`, `!` or `?` and nowhere else: `_`, `:` and `.` start a name
 ///   for libxml2, and prose such as `a <_< b` would open an element. A `<` that ends the input
 ///   stays the cut-off tag it may be.
-/// - End tags that libxml2 reads as `</body>` or `</html>` are given a name that no open
-///   element has (`</.body>`: no `<.` reaches libxml2 as a start tag that stays open), and
-///   libxml2 passes over them as over any end tag that closes nothing. In HTML they close
+/// - End tags that libxml2 reads as `</body>` or `</html>` are given another name (`</.body>`),
+///   and libxml2 passes over them as over any end tag that closes nothing. In HTML they close
 ///   nothing and later content stays in the body; libxml2 pops the element and builds that
 ///   content outside the body, where the walk does not read it. Every byte of the tag stays:
 ///   one with no `>` of its own runs to the next, which may be that of a script's end tag, and
 ///   a declaration keyword inside one is still refused. The same is done in script and style
 ///   content, where it changes nothing unless libxml2 has left the script and reads an end tag.
+///   Nothing the scan reads as a start tag has such a name: a `<.` in text is escaped, and the
+///   `<.html …/>` below is empty. libxml2 can still read one out of what was copied as a script
+///   or a quoted value, and the end tag then closes that element, not the body.
 /// - Start tags that libxml2 reads as `<html/>`, `<head/>` or `<body/>` are kept from closing
-///   anything. Where such a tag is out of place, as it is anywhere after text, libxml2 ignores
-///   the tag and then lets its `/>` close whatever element is open, the body included. The head
-///   is written with its end tag, the body without the `/`, as content after `</body>` stays in
-///   the body, and the root as the empty element `<.html/>`, which is nothing to the walk.
+///   anything else. Where such a tag is out of place, as it is anywhere after text, libxml2
+///   ignores the tag and then lets its `/>` close whatever element is open, the body included.
+///   The body is written without the `/`, as content after `</body>` stays in the body. The head
+///   and the root are written with their end tags (`<html … ></html>`): libxml2 passes over the
+///   end tag of a start tag it has ignored. Where a root belongs, that opens and closes one as
+///   `<html/>` did, and libxml2 builds what follows in a root it implies. A root tag whose last
+///   quote is missing (`lang="en>`) runs to the `/>` of a `<meta/>` and is read that way, with
+///   its head and body. libxml2 puts the implied root inside the first, where the walk finds no
+///   body, unless a comment, a processing instruction or a DOCTYPE came first, so a root that
+///   begins the document gets an empty comment in front. Inside markup this scan does not
+///   follow, libxml2 may not read the start tag and the end tag would close the root; the root
+///   is renamed there (`<.html …/>`), an empty element that is nothing to the walk.
 /// - `<!-->` and `<!--->` become `<!---->` where a `<` kept as text brings them into view.
 ///   HTML closes the comment there and libxml2 reads on to the next `-->`, but libxml2 used to
 ///   skip from such a sign through the next `>`, the comment's own, and showed what follows.
+///   Reading on, the scan may meet a CDATA section or a quoted value that never ends in what
+///   it used to copy as comment. Such a section is scanned again with these comments left as
+///   they are, not refused.
 /// - U+0000, where libxml2 ends its input, is dropped from text and CDATA, as HTML ignores it
 ///   in body text, and becomes U+FFFD in markup, as HTML reads it there. Markup is whatever is
 ///   copied unchanged, and anything from a `<` copied as is to the next `>`, so that dropping a
@@ -479,10 +492,23 @@ private enum SourceEncoding {
 private enum HTMLRecoverySource {
     static func prepare(_ data: Data) -> Data? {
         let bytes = [UInt8](data)
+        var scanned = scan(bytes, closingAbruptComments: true)
+        if scanned.output == nil, scanned.closedComment { scanned = scan(bytes, closingAbruptComments: false) }
+        guard let output = scanned.output else { return nil }
+        return hasDeclarations(output) ? nil : Data(output)
+    }
+
+    /// The rewritten bytes, or `nil` for a CDATA section or a start tag's quoted value that never
+    /// ends, and whether a `<!-->` or `<!--->` was closed on the way.
+    private static func scan(_ bytes: [UInt8], closingAbruptComments: Bool) -> (output: [UInt8]?, closedComment: Bool) {
         var output = [UInt8](); output.reserveCapacity(bytes.count)
         let cdataOpen = Array("<![CDATA[".utf8), cdataClose = Array("]]>".utf8)
         let commentOpen = Array("<!--".utf8), commentClose = Array("-->".utf8)
         let replacement: [UInt8] = [0xEF, 0xBF, 0xBD] // U+FFFD
+        // Where libxml2 starts reading: past a byte-order mark and the white space it skips.
+        var start = starts(bytes, byteOrderMark, at: 0) ? byteOrderMark.count : 0
+        while start < bytes.count, [0x20, 0x09, 0x0A, 0x0D].contains(bytes[start]) { start += 1 }
+        var closedComment = false
         // From a `<` copied as is (`<!`, `</`, `<?`) to the next `>`, libxml2 may be in a
         // declaration, a processing instruction or a tag that this scan does not follow.
         var inMarkup = false
@@ -498,19 +524,22 @@ private enum HTMLRecoverySource {
         }
         var index = 0
         while index < bytes.count {
-            if bytes[index] == 0x3C, exposed, let abrupt = ["<!-->", "<!--->"].first(where: { starts(bytes, Array($0.utf8), at: index) }) {
-                inMarkup = false; exposed = false
-                output.append(contentsOf: Array("<!---->".utf8)); index += abrupt.utf8.count
+            if closingAbruptComments, bytes[index] == 0x3C, exposed, let abrupt = abruptComments.first(where: { starts(bytes, $0, at: index) }) {
+                inMarkup = false; exposed = false; closedComment = true
+                output.append(contentsOf: emptyComment); index += abrupt.count
             } else if bytes[index] == 0x3C, starts(bytes, commentOpen, at: index) {
                 guard let end = find(bytes, commentClose, from: index + commentOpen.count) else {
                     copyMarkup(index..<bytes.count); break
                 }
                 copyMarkup(index..<end + commentClose.count); index = end + commentClose.count
             } else if bytes[index] == 0x3C, let tag = tag(bytes, at: index) {
-                guard let end = tag.end else { return nil }
+                guard let end = tag.end else { return (nil, closedComment) }
                 switch tag.structure {
                 case .bodyOrRootEnd?: output.append(contentsOf: Array("</.".utf8)); copyMarkup(index + 2..<end)
-                case .emptyRoot?: output.append(contentsOf: Array("<.".utf8)); copyMarkup(index + 1..<end)
+                case .emptyRoot? where inMarkup: output.append(contentsOf: Array("<.".utf8)); copyMarkup(index + 1..<end)
+                case .emptyRoot?:
+                    if index == start { output.append(contentsOf: emptyComment) }
+                    copyMarkup(index..<end - 2); output.append(contentsOf: Array(" ></html>".utf8))
                 case .emptyHead?: copyMarkup(index..<end - 2); output.append(contentsOf: Array(" ></head>".utf8))
                 case .emptyBody?: copyMarkup(index..<end - 2); output.append(contentsOf: Array(" >".utf8))
                 case nil: copyMarkup(index..<end)
@@ -532,7 +561,7 @@ private enum HTMLRecoverySource {
                     index += 1
                 }
             } else if bytes[index] == 0x3C, starts(bytes, cdataOpen, at: index) {
-                guard let end = find(bytes, cdataClose, from: index + cdataOpen.count) else { return nil }
+                guard let end = find(bytes, cdataClose, from: index + cdataOpen.count) else { return (nil, closedComment) }
                 for byte in bytes[(index + cdataOpen.count)..<end] {
                     switch byte {
                     case 0x26: output.append(contentsOf: Array("&amp;".utf8))
@@ -556,7 +585,7 @@ private enum HTMLRecoverySource {
                 index += 1
             }
         }
-        return hasDeclarations(output) ? nil : Data(output)
+        return (output, closedComment)
     }
 
     /// A tag that libxml2 would let close the body or the root: an end tag it reads as `</body>`
@@ -611,6 +640,8 @@ private enum HTMLRecoverySource {
     }
 
     private static let root = Array("HTML".utf8), head = Array("HEAD".utf8), body = Array("BODY".utf8)
+    private static let abruptComments = [Array("<!-->".utf8), Array("<!--->".utf8)], emptyComment = Array("<!---->".utf8)
+    private static let byteOrderMark: [UInt8] = [0xEF, 0xBB, 0xBF]
 
     /// Whether libxml2 reads the tag name at `position` as `name` (uppercase, for `matches`). It
     /// ends a name at the first byte that is not an ASCII letter or digit, `:`, `-`, `_` or `.`,

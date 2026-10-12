@@ -311,6 +311,22 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
         XCTAssertEqual(try recovered(page("<p>a</b> <!--> b</p><p>c --> d</p>")).text, "a d")
     }
 
+    // With the comment closed, the scan reads what follows it, which it used to copy as comment.
+    // A CDATA section or a quoted attribute value there that never ends refused a section that
+    // was read before. The comment is then left as it is, for libxml2 to read to its "-->".
+    func testAnAbruptlyClosedCommentBeforeAnUnterminatedSectionOrValueRefusesNothing() throws {
+        XCTAssertEqual(try recovered(page("<p>a</b> < <!--> b <![CDATA[c</p><p>d</p>")).text, "a <")
+        XCTAssertEqual(try recovered(page("<p>a</b> < <!---> b <p title='c</p><p>d</p>")).text, "a <")
+        XCTAssertEqual(try recovered(page("<p>a</b> < <!--> b <![CDATA[c</p><p>d --> e</p>")).text, "a < e")
+        // A CDATA section that ends is read, and one outside any comment is still refused.
+        XCTAssertEqual(try recovered(page("<p>a</b> < <!--> b <![CDATA[c]]></p><p>d</p>")).text, "a < b c\nd")
+        for body in ["<p>a</b> < b <![CDATA[c</p><p>d</p>", "<p>a</b> < b <p title='c</p><p>d</p>"] {
+            XCTAssertThrowsError(try book(page(body)).textSection(at: 0, recoversMalformedMarkup: true), body) {
+                XCTAssertEqual($0 as? EPUBTextExtractionError, .malformedContent(path), body)
+            }
+        }
+    }
+
     // HTML Standard, "in body" insertion mode: a start tag "html" or "body" adds attributes, a
     // start tag "head" is ignored, and the self-closing flag means nothing on any of them.
     // libxml2 ignores such a tag where it is out of place and then lets its "/>" close the
@@ -329,8 +345,8 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
     }
 
     // Where such a tag is in its place it reads as it did: an empty head is an empty head, and
-    // the body keeps its attributes. A body or a root closed at once stays open like one closed
-    // early by its end tag, so what follows is read.
+    // the body keeps its attributes. A body closed at once stays open like one closed early by
+    // its end tag, so what follows is read.
     func testASelfClosingHeadOrBodyInItsPlaceKeepsTheDocument() throws {
         let root = "<html xmlns='http://www.w3.org/1999/xhtml' xmlns:epub='http://www.idpf.org/2007/ops'>"
         let emptyHead = try recovered("\(root)<head/><body id='b' epub:type='bodymatter'><p>x</b></p></body></html>")
@@ -343,7 +359,81 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
         XCTAssertEqual(emptyBody.text, "after")
         XCTAssertEqual(emptyBody.anchors, ["b": EPUBTextMark(offset: 0, separator: 0)])
         XCTAssertEqual(emptyBody.semanticTypes, ["bodymatter"])
+    }
+
+    // A root start tag that has lost the closing quote of its last attribute runs to the "/>" of
+    // the first empty element after it, so libxml2 reads `<html …/>`: it closes the root at once
+    // and builds the head and the body in a root it implies. Written as an element of another
+    // name, the tag opened no root; libxml2 implied a root and a body in front of it, the title
+    // became prose and the body's own start tag was dropped with its id.
+    func testARootTagThatRunsToALaterEmptyElementKeepsItsTitleAndItsBody() throws {
+        let document = "<html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"en><head><meta charset=\"utf-8\"/><title>T</title></head><body id=\"b\"><p>x</p></body></html>"
+        // libxml2 builds the implied root beside the first one only after a processing instruction,
+        // a DOCTYPE or a comment. Where the root begins the document it would go inside it, where
+        // the walk finds no body, and the section was refused before #226.
+        for prolog in ["<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n", "<!DOCTYPE html>\n", "<!-- c -->", "", " \n", "\u{FEFF}"] {
+            let section = try recovered(prolog + document)
+            XCTAssertEqual(section.title, "T", prolog.debugDescription)
+            XCTAssertEqual(section.text, "x", prolog.debugDescription)
+            XCTAssertEqual(section.anchors, ["b": EPUBTextMark(offset: 0, separator: 0)], prolog.debugDescription)
+        }
+        let chapter = try recovered("""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE html>
+            <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en" lang="en>
+            <head>
+            <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+            <title>Chapter 1</title>
+            <link rel="stylesheet" type="text/css" href="style.css"/>
+            </head>
+            <body id="ch1" epub:type="bodymatter">
+            <h1 id="h">Chapter 1</h1>
+            <p>It was a dark night.</p>
+            </body>
+            </html>
+            """)
+        XCTAssertEqual(chapter.title, "Chapter 1")
+        XCTAssertEqual(chapter.text, "Chapter 1\nIt was a dark night.")
+        XCTAssertEqual(chapter.anchors, ["ch1": EPUBTextMark(offset: 0, separator: 0), "h": EPUBTextMark(offset: 0, separator: 0)])
+        XCTAssertEqual(chapter.headings, [EPUBTextHeading(mark: EPUBTextMark(offset: 0, separator: 0), text: "Chapter 1")])
+        // The prefix was declared on the root that closed, so `epub:type` names no type here.
+        XCTAssertEqual(chapter.semanticTypes, [])
+        // The same with the root's own ">" missing, and with nothing but the tag before the body.
+        let unclosed = try recovered("<?xml version=\"1.0\"?>\n<html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"en\"\n<head/>\n<body id=\"b\"><p>x</p></body></html>")
+        XCTAssertEqual(unclosed.text, "x")
+        XCTAssertEqual(unclosed.anchors, ["b": EPUBTextMark(offset: 0, separator: 0)])
+        let bare = try recovered("<html lang='en'/><head><title>T</title></head><body id='b'><p>after</b></p></body></html>")
+        XCTAssertEqual(bare.title, "T")
+        XCTAssertEqual(bare.text, "after")
+        XCTAssertEqual(bare.anchors, ["b": EPUBTextMark(offset: 0, separator: 0)])
         XCTAssertEqual(try recovered("<html/><p>after</b></p>").text, "after")
+    }
+
+    // Out of place, the tag is passed over whole. It closes nothing and is no element, so it
+    // gives the body neither an id nor a type, and it does not start the body ahead of the
+    // body's own start tag, whose attributes would then be dropped. In the head its "/>" used
+    // to close the head, and the title after it was not a title.
+    func testASelfClosingRootTagOutOfPlaceIsPassedOver() throws {
+        let inText = try recovered(page("<p>One</b> <html id='r' epub:type='frontmatter'/> more</p><p>Two</p>"))
+        XCTAssertEqual(inText.text, "One more\nTwo")
+        XCTAssertEqual(inText.anchors, [:])
+        XCTAssertEqual(inText.semanticTypes, [])
+        let root = "<html xmlns='http://www.w3.org/1999/xhtml' xmlns:epub='http://www.idpf.org/2007/ops'>"
+        for document in ["\(root)<head><title>T</title></head><html lang='en'/><body id='b' epub:type='bodymatter'><p>x</b></p></body></html>",
+                         "\(root)<html id='r'/><head><title>T</title></head><body id='b' epub:type='bodymatter'><p>x</b></p></body></html>",
+                         "\(root)<head><html/><title>T</title></head><body id='b' epub:type='bodymatter'><p>x</b></p></body></html>"] {
+            let section = try recovered(document)
+            XCTAssertEqual(section.title, "T", document)
+            XCTAssertEqual(section.text, "x", document)
+            XCTAssertEqual(section.anchors, ["b": EPUBTextMark(offset: 0, separator: 0)], document)
+            XCTAssertEqual(section.semanticTypes, ["bodymatter"], document)
+        }
+        // libxml2 reads a processing instruction or a declaration to the next ">", the tag's own,
+        // and never sees the tag. An end tag written after it would close the root.
+        XCTAssertEqual(try recovered(page("<p>x</b> <?pi <html/> y</p><p>z</p>")).text, "x y\nz")
+        XCTAssertEqual(try recovered(page("<p>x</b> <!x <html lang='en'/> y</p><p>z</p>")).text, "x y\nz")
+        // After "</" and a space libxml2 does read the tag, and it still closes nothing.
+        XCTAssertEqual(try recovered(page("<p>x</b> </ <html lang='en'/> y</p><p>z</p>")).text, "x y\nz")
     }
 
     // HTML Standard, "in body" insertion mode, U+0000: a parse error; the character is ignored.
