@@ -52,15 +52,51 @@ public struct EPUBReaderToolbar: ToolbarContent {
 
 /// An embedded alternative. At narrow widths groups stack vertically, including host items,
 /// preserving text size and search focus without clipping controls into a horizontal scroller.
+///
+/// On iPhone and iPad the strip is as tall as its groups wherever it is offered that much, and
+/// scrolls them where it is not: its own search field raises the keyboard over a stack that
+/// holds the strip with the reader. It has a layout priority of 1, so that such a stack offers
+/// it the height it needs before the views beside it. Padding or a frame applied to the strip
+/// hides that priority from the stack: set it again after them. On a Mac the strip is as tall
+/// as its groups whatever it is offered.
 public struct EPUBReaderControlStrip<Extras: View>: View {
     private let controls: EPUBReaderControls
     private let groups: [EPUBReaderControlGroup]
     private let extras: Extras
+    #if !os(macOS)
+    @State private var fits = false
+    #endif
     public init(controls: EPUBReaderControls, groups: [EPUBReaderControlGroup] = EPUBReaderControlGroup.allCases,
                 @ViewBuilder extras: () -> Extras) {
         self.controls = controls; self.groups = groups; self.extras = extras()
     }
     public var body: some View {
+        #if os(macOS)
+        // On a Mac a scroll view is a scroll area in the accessibility tree, a container
+        // round the strip's controls for VoiceOver to step into. Nothing raises a keyboard
+        // there and text is one size: only a window shorter than the strip is short of room.
+        stacked
+        #else
+        // One scroll view, whether or not the groups fit. A second arrangement to change to as
+        // the keyboard comes up would be a second field, without the focus that raised it.
+        EPUBControlStripFit {
+            ScrollView(.vertical) { EPUBControlStripGroups { stacked } }
+                .scrollBounceBehavior(.basedOnSize)
+                // With the room they need the groups neither move under a drag nor are clipped,
+                // as before the strip could scroll: a control may draw past its own edge.
+                .scrollDisabled(fits)
+                .scrollClipDisabled(fits)
+                .scrollIndicatorsFlash(trigger: fits)
+                // Beside a safe area the scroll view reaches into it, and holds its content clear
+                // of it with an inset.
+                .onScrollGeometryChange(for: Bool.self) {
+                    $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom - $0.containerSize.height < 1
+                } action: { fits = $1 }
+        }
+        .layoutPriority(1)
+        #endif
+    }
+    private var stacked: some View {
         VStack(alignment: .leading) {
             ViewThatFits(in: .horizontal) {
                 HStack { items }
@@ -254,6 +290,17 @@ struct EPUBSearchField: View {
     @Bindable var controls: EPUBReaderControls
     var onDismiss: (() -> Void)? = nil
     @FocusState private var focused: Bool
+    /// Whether the field has focus once a search is submitted. A search pane's does, and so
+    /// does the inline field on a Mac. On iPhone and iPad the inline field gives it up, which
+    /// puts the keyboard away: the keyboard covers the page the search is about to show, and
+    /// where the strip fills what the keyboard leaves there is no page to tap to dismiss it.
+    private var keepsFocusAfterSearch: Bool {
+        #if os(macOS)
+        true
+        #else
+        onDismiss != nil
+        #endif
+    }
     var body: some View {
         VStack(alignment: .leading) {
             HStack {
@@ -265,6 +312,7 @@ struct EPUBSearchField: View {
                         controls.submitSearch()
                         // UIKit ends editing on Return. Restore focus after that submission
                         // has settled, without moving focus to the reading surface.
+                        guard keepsFocusAfterSearch else { return }
                         Task { @MainActor in
                             await Task.yield()
                             focused = true
@@ -272,7 +320,7 @@ struct EPUBSearchField: View {
                     }
                     .accessibilityLabel("Search in book")
                     .frame(minWidth: 140, idealWidth: 220)
-                Button("Search", systemImage: "magnifyingglass") { controls.submitSearch(); focused = true }
+                Button("Search", systemImage: "magnifyingglass") { controls.submitSearch(); focused = keepsFocusAfterSearch }
                     .labelStyle(.iconOnly).help("Search")
                 if let onDismiss {
                     Button("Close Search", systemImage: "xmark") {
@@ -328,6 +376,65 @@ struct EPUBSearchField: View {
             if !found { Text("No matches") }
         case .failed(_, let error): Text(error.message).foregroundStyle(.red)
         }
+    }
+}
+
+/// Makes the control strip, which is one scroll view of its groups, as tall as the groups
+/// wherever it is offered that much and no taller than it is offered, so that the groups scroll
+/// only where they do not fit.
+///
+/// A scroll view takes the size it is offered. Offered no height, it answers with the size of
+/// its content at the width offered, and that width is the strip's too: a strip with nothing in
+/// it that takes the width offered, as one without its search field, stays as wide as its groups.
+///
+/// Groups that are over by less than a point are given their own height, so that a height a
+/// host rounded does not make them scroll.
+struct EPUBControlStripFit: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let scroller = subviews.first else { return .zero }
+        let groups = scroller.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        guard let height = proposal.height, groups.height - height >= 1 else { return groups }
+        return CGSize(width: groups.width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
+    }
+}
+
+/// Holds the strip's groups inside its scroll view, which is exactly as wide as they are, and
+/// offers them what a scroll view does not.
+///
+/// A scroll view offers its content no height, and a label that does not fit its line then
+/// takes a second. In a stack that offers the strip an equal share with the reader the groups
+/// had less height than that and each label kept to one line: on an iPhone SE upright at the
+/// largest text size the strip was 340 points tall there, and is 401 with Appearance on two
+/// lines. So the groups are offered no height at all, and are as tall as they were.
+///
+/// The scroll view is a platform view: its edges are rounded to whole pixels, and its content
+/// is laid out in the width that leaves. A row of groups 385.4 points wide no longer fits a
+/// scroll view of 385⅓ and becomes a column, and a label a hair short of its width is cut
+/// short. So the groups are offered a point more than the scroll view has, wherever they are
+/// then no more than half a point wider than it, which is as much as the rounding takes.
+/// Groups that take the width they are offered, as those with a search field do, are offered
+/// what there is.
+struct EPUBControlStripGroups: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let groups = subviews.first else { return .zero }
+        return groups.sizeThatFits(offer(proposal.width, to: groups))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let groups = subviews.first else { return }
+        let width = offer(proposal.width ?? bounds.width, to: groups).width
+        groups.place(at: bounds.origin, proposal: ProposedViewSize(width: width, height: bounds.height))
+    }
+
+    private func offer(_ width: CGFloat?, to groups: LayoutSubview) -> ProposedViewSize {
+        // Asked for their ideal size, the groups have no width to wrap a label in.
+        guard let width else { return .unspecified }
+        let roomier = ProposedViewSize(width: width + 1, height: 0)
+        return groups.sizeThatFits(roomier).width <= width + 0.5 ? roomier : ProposedViewSize(width: width, height: 0)
     }
 }
 
