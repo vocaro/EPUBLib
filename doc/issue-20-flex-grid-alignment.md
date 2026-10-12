@@ -287,8 +287,9 @@ kept, for these reasons:
   dedication or epigraph then takes one visible screen with its text in the middle, which is
   what the book asks for: where the engines break lines alike, the block's top and middle are
   within 0.2 points of WebKit's on the simulators. It is also the viewport images already use.
-  The cost is that a box is resolved again when a host shows or hides a bar: the box grows by
-  the bar's 53 points and the text of a dedication on screen moves 26. A fixed height would
+  The cost is that a box is resolved again when a host shows or hides a bar: when a 54-point
+  bar hides, the box grows by 53 points and the text of a dedication on screen moves 26. A
+  fixed height would
   hold the text still but leave the box taller than the screen, and its text off centre,
   whenever a bar shows.
 - **A position that starts an aligned box rests the box's top edge at the top.** The page is
