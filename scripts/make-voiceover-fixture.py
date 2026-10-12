@@ -69,8 +69,11 @@ files = {'mimetype': 'application/epub+zip',
 files["OPS/body.xhtml"] = files["OPS/body.xhtml"].replace(
     "NUMBERED_WORDS", " ".join(f"word{i:04d}" for i in range(1, 1201)))
 # More than a screen of lines, so that the section's first line can be shown at the top.
-files["OPS/table.xhtml"] = files["OPS/table.xhtml"].replace(
-    "LINES_AFTER", "".join(f"<p>Line {i:02d} after the table.</p>" for i in range(1, 61)))
+lines_after = [f"<p>Line {i:02d} after the table.</p>" for i in range(1, 61)]
+# A second table between shown lines, on the section's first page, its last cell a link.
+lines_after.insert(2, '<table><tr><td>Fifth cell</td><td>Sixth cell</td></tr><tr><td>Seventh cell</td><td>'
+                      '<a href="body.xhtml#link-target">Eighth cell link</a></td></tr></table>')
+files["OPS/table.xhtml"] = files["OPS/table.xhtml"].replace("LINES_AFTER", "".join(lines_after))
 
 # A second book of ordinary paragraphs, for continuous scroll: chapters of forty, forty and six
 # paragraphs, each of forty numbered words ("p017w23" is the seventeenth paragraph's

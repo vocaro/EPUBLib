@@ -22,8 +22,9 @@ byline parked at `left: -999em` above an image without alternative text, words c
 nothing inside a line, and a parked link. It also holds what a book hides from everyone: a
 `visibility: hidden` paragraph and an `aria-hidden` one. A third, **Hidden heading over a
 table** (`OPS/table.xhtml`), opens with a parked heading and then a table, so the heading is
-hidden labels alone on a line of no height, and goes on for more than a screen. A second
-bundled book, opened with
+hidden labels alone on a line of no height. A second table stands between shown lines on the
+section's first page, its last cell a link, and the section goes on for more than a screen. A
+second bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
