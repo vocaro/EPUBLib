@@ -1,8 +1,31 @@
 import EPUBCore
 import EPUBReading
 import EPUBTestSupport
+import SwiftUI
 import XCTest
 @testable import EPUBViewing
+
+#if os(iOS)
+@MainActor @Observable private final class HostBars {
+    var hidden = false
+}
+
+/// A host that runs the reader under its navigation bar and hides the bar, as a reading app
+/// does on a tap.
+private struct ReaderUnderABar: View {
+    let session: any EPUBReaderSession
+    let bars: HostBars
+    var body: some View {
+        NavigationStack {
+            EPUBReaderView(session: session)
+                .ignoresSafeArea()
+                .navigationTitle("An Aligned Book")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar(bars.hidden ? .hidden : .visible, for: .navigationBar)
+        }
+    }
+}
+#endif
 
 /// The alignment fixture book through the public reader: navigation, location, search,
 /// selection, highlights and restoring are the same in both flows as for any other book.
@@ -102,5 +125,77 @@ import XCTest
         XCTAssertEqual(first.minY - lead, visible.minY, accuracy: 1.5, "the box's top edge is at the top of the visible area")
         XCTAssertEqual((first.minY + last.maxY) / 2 - visible.minY, 0.49 * visible.height, accuracy: 2.5, "its lines are in the middle")
         XCTAssertEqual(session.readerState?.status.location?.href, "OPS/epigraph.xhtml")
+    }
+
+    /// A host that runs the reader under its bars changes the height of the reading area, and
+    /// not the reader's size, when a bar comes or goes: the navigation bar of a
+    /// `NavigationStack` on iOS, and on the Mac a window's toolbar over a full-size content
+    /// view. There nothing lays the reader out for the bar (#162), and its next change of
+    /// appearance does. The epigraph stood 81 points low on an iPhone while the bar was hidden,
+    /// and on the Mac the reader showed and reported the dedication, then the chapter (#338).
+    func testABarOverTheReaderKeepsTheEpigraphShownAndReportedInContinuousScroll() async throws {
+        let publication = try EPUBPublication.open(data: Fixture.alignment())
+        let session = try XCTUnwrap(try NativeEngine().makeSession(publication: publication, selectionAction: nil) { _ in } as? NativeSession)
+        #if os(macOS)
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 500, height: 700), styleMask: [.titled, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.keepLightAppearance()
+        window.contentView = NSHostingView(rootView: EPUBReaderView(session: session).ignoresSafeArea())
+        window.setContentSize(CGSize(width: 500, height: 700))
+        window.orderFront(nil)
+        defer { session.close(); window.close(); window.contentView = nil }
+        #else
+        let bars = HostBars()
+        let window = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first.map { UIWindow(windowScene: $0) }
+            ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.keepLightAppearance()
+        window.rootViewController = UIHostingController(rootView: ReaderUnderABar(session: session, bars: bars))
+        window.makeKeyAndVisible()
+        defer { session.close(); window.isHidden = true; window.rootViewController = nil }
+        #endif
+        try await wait("the whole book") { session.readerState?.status.lifecycle == .ready && session.book.isComplete }
+        var style = EPUBReaderStyle(fontSize: 17, appearance: .light, flow: .scrolled)
+        try await session.send(.style(style))
+        try await wait("continuous scroll") { session.book.isComplete && session.canvas?.scrollBook != nil }
+        // The title page first, so that the text above the epigraph is laid out.
+        try await session.send(.navigate(href: "OPS/titlepage.xhtml"))
+        try await wait("the title page") { session.visibleRange?.start == ReaderTextPosition(section: 0, offset: 0) }
+        let epigraph = ReaderTextPosition(section: 1, offset: 0)
+        try await session.send(.navigate(href: "OPS/epigraph.xhtml"))
+        try await wait("the epigraph") { session.visibleRange?.start == epigraph }
+        let canvas = try XCTUnwrap(session.canvas)
+        /// How far the epigraph's top edge is below the top of the visible area.
+        func boxTop() throws -> CGFloat {
+            let view = try XCTUnwrap(canvas.scrollTextView), location = try XCTUnwrap(canvas.scrollBook).location(of: epigraph)
+            let line = try XCTUnwrap(view.lineFrame(containing: location))
+            return view.anchorFrame(of: line, at: location).minY - canvas.scrollVisibleContainerRect.minY
+        }
+        XCTAssertEqual(try boxTop(), 0, accuracy: 1.5, "shown")
+        XCTAssertGreaterThan(canvas.safeAreaInsets.top, 10, "the reader runs under the bar")
+        let size = canvas.bounds.size
+        for change in 1...4 {
+            let before = canvas.scrollVisibleContainerRect.height
+            #if os(macOS)
+            if window.toolbar == nil {
+                window.toolbar = NSToolbar(identifier: "org.epublib.tests.alignment-session.\(UUID().uuidString)")
+            } else { window.toolbar?.isVisible.toggle() }
+            try await wait("the insets after change \(change)") { abs(canvas.scrollVisibleContainerRect.height - before) > 20 }
+            style.appearance = style.appearance == .dark ? .light : .dark
+            try await session.send(.style(style))
+            try await wait("the appearance after change \(change)") {
+                guard session.book.isComplete, let view = canvas.scrollTextView else { return false }
+                return abs(view.readerContainer.viewportSize.height - canvas.scrollVisibleContainerRect.height) < 0.5
+            }
+            #else
+            bars.hidden.toggle()
+            try await wait("the bar after change \(change)") { abs(canvas.scrollVisibleContainerRect.height - before) > 20 }
+            #endif
+            try await Task.sleep(for: .milliseconds(500))
+            XCTAssertEqual(canvas.bounds.size, size, "the reader keeps its size, change \(change)")
+            XCTAssertEqual(try boxTop(), 0, accuracy: 1.5, "the epigraph's top edge after \(change) change(s) of the bar")
+            XCTAssertEqual(session.visibleRange?.start, epigraph, "after \(change) change(s)")
+            XCTAssertEqual(session.readerState?.status.location?.href, "OPS/epigraph.xhtml", "after \(change) change(s)")
+        }
     }
 }
