@@ -244,12 +244,10 @@ import UIKit
             XCTAssertGreaterThan(lead, 100, "the box has space above its first line")
             return (top.minY - lead - visible.minY, ((top.minY + bottom.maxY) / 2 - visible.minY) / visible.height)
         }
-        /// The box that is `section` is on screen whole. Its first line need not be the visible
-        /// start: resting within a point of the top, a book with box geometry can read the line
-        /// above the box as that, as it can above any position.
+        /// The box that is `section` is on screen whole, and its first line is the visible start.
         func assertWholeBoxIsShown(_ section: Int, line: UInt = #line) throws {
             let range = try XCTUnwrap(host.canvas.visibleRange)
-            XCTAssertLessThanOrEqual(range.start, ReaderTextPosition(section: section, offset: 0), line: line)
+            XCTAssertEqual(range.start, ReaderTextPosition(section: section, offset: 0), line: line)
             XCTAssertGreaterThanOrEqual(range.end, ReaderTextPosition(section: section, offset: texts[section].string.length), line: line)
         }
         // Paging: back from the chapter over the epigraph to the dedication.
@@ -275,13 +273,12 @@ import UIKit
             XCTAssertEqual(result.top, 0, accuracy: 1.5, "\(size)")
             XCTAssertEqual(result.middle, 0.49, accuracy: 0.01, "\(size)")
         }
-        // The person scrolls the box's first line off the top (not through the canvas), to a
-        // little way into the second. The position a resize keeps is then the visible start,
-        // inside the box, and the resize shows the box whole again.
+        // The person scrolls the box's first line off the top (not through the canvas). The
+        // position a resize keeps is then the visible start, inside the box, and the resize
+        // shows the box whole again.
         let scroll = try XCTUnwrap(host.canvas.scrollTextView), book = try XCTUnwrap(host.canvas.scrollBook)
         let second = ReaderTextPosition(section: 1, offset: H.range("who read", in: texts[1]).location)
-        let line = try XCTUnwrap(scroll.lineFrame(containing: book.location(of: second)))
-        let delta = line.minY + 0.3 * line.height - host.canvas.scrollVisibleContainerRect.minY
+        let delta = try XCTUnwrap(scroll.lineFrame(containing: book.location(of: second))).minY - host.canvas.scrollVisibleContainerRect.minY
         #if os(macOS)
         let clip = try XCTUnwrap(host.canvas.scrollContainer as? NSScrollView).contentView
         clip.scroll(to: NSPoint(x: 0, y: clip.bounds.minY + delta))
@@ -290,7 +287,7 @@ import UIKit
         scroll.contentOffset.y += delta
         #endif
         try await host.settle()
-        XCTAssertEqual(host.canvas.visibleRange?.start, second, "the second line is the first on screen")
+        XCTAssertEqual(host.canvas.visibleRange?.start, second, "the second line is at the top")
         host.resize(to: CGSize(width: 460, height: 640))
         try await host.settle()
         result = try box("For those", "to the last page", section: 1)
@@ -312,13 +309,82 @@ import UIKit
             try await host.settle()
             let line = try frame(phrase, section: 4, of: texts, in: host.canvas)
             XCTAssertEqual(line.minY, try visibleArea(of: host.canvas).minY, accuracy: 1.5, "\(phrase): the position's own line")
-            // Resting within a point of the top, a book with box geometry can read the line
-            // above as the visible start, as for any position in it.
-            let shown = try XCTUnwrap(host.canvas.visibleRange?.start)
-            XCTAssertEqual(shown.section, 4)
-            XCTAssertLessThanOrEqual(shown.offset, far, phrase)
-            XCTAssertGreaterThan(shown.offset, far - 45, "\(phrase): no earlier than the line above")
+            XCTAssertEqual(host.canvas.visibleRange?.start, ReaderTextPosition(section: 4, offset: far), phrase)
         }
+    }
+
+    /// A rest is accepted within a point of the top, and the line above a rested one ends where
+    /// it starts. In a book with box geometry the canvas reads the lines on screen from their
+    /// frames, so a view standing half a point high shows a sliver of the line above. That line
+    /// is not the visible start, which a resize keeps, and a sliver of a line at the bottom is
+    /// not the visible end. The chapter floats an initial, which gives the book its box geometry:
+    /// the title page's parked heading is a hidden label and no box.
+    func testALineShowingASliverIsNotTheVisibleStartOrEndInABookWithBoxGeometry() async throws {
+        let prose = (0..<60).map { "<p>Paragraph \($0) of ordinary reading text, long enough to wrap onto a second line of the column.</p>" }.joined()
+        let texts = [try H.build(F.shippedTitleBody, css: F.shippedCSS), try H.build(F.shippedDedicationBody, css: F.shippedCSS),
+                     try H.build(F.shippedEpigraphBody, css: F.shippedCSS),
+                     try H.build("<h2>Chapter</h2><p><span style='float: left; font-size: 3em'>T</span>he chapter opens here.</p>" + prose,
+                                 css: F.shippedCSS)]
+        let source = FakeCanvasSource(texts.map(\.string))
+        source.book = CanvasText.book(texts.map(\.string))
+        let host = CanvasHost(source, size: CGSize(width: 500, height: 700), configuration: .init(flow: .scrolled))
+        defer { host.close() }
+        // The title page first, so that its last line, the one above the dedication, is laid out.
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        host.layOut()
+        try await host.settle()
+        let canvas = host.canvas, view = try XCTUnwrap(canvas.scrollTextView), book = try XCTUnwrap(canvas.scrollBook)
+        XCTAssertTrue(view.readerContainer.hasNonlinearGeometry, "the book has box geometry")
+        /// Scrolls as the person does, not through the canvas.
+        func scrollByHand(_ delta: CGFloat) throws {
+            #if os(macOS)
+            let clip = try XCTUnwrap(canvas.scrollContainer as? NSScrollView).contentView
+            clip.scroll(to: NSPoint(x: clip.bounds.minX, y: clip.bounds.minY + delta))
+            try XCTUnwrap(clip.enclosingScrollView).reflectScrolledClipView(clip)
+            #else
+            view.contentOffset.y += delta
+            #endif
+        }
+        func paragraph(_ index: Int) -> ReaderTextPosition {
+            ReaderTextPosition(section: 3, offset: H.range("Paragraph \(index) of ordinary", in: texts[3]).location)
+        }
+        /// Where continuous scroll rests `position`: its line, or its box from the top edge.
+        func rest(_ position: ReaderTextPosition) throws -> CGRect {
+            let location = book.location(of: position)
+            return view.anchorFrame(of: try XCTUnwrap(view.lineFrame(containing: location)), at: location)
+        }
+        // The dedication rests its box's top edge, below the title page's last line; a
+        // paragraph rests its first line, below the last line of the paragraph before.
+        for position in [ReaderTextPosition(section: 1, offset: 0), paragraph(7), paragraph(31)] {
+            canvas.show(position, selecting: nil)
+            try await host.settle()
+            XCTAssertEqual(canvas.visibleRange?.start, position, "rested")
+            // Up to where half a point of the line above shows, whatever the rest left of it.
+            try scrollByHand(try rest(position).minY - 0.5 - canvas.scrollVisibleContainerRect.minY)
+            try await host.settle()
+            let above = try XCTUnwrap(view.lineFrame(containing: book.location(of: position) - 1))
+            let sliver = above.maxY - canvas.scrollVisibleContainerRect.minY
+            XCTAssertGreaterThan(sliver, 0, "the line above \(position) shows")
+            XCTAssertLessThan(sliver, 1, "by less than the point a rest is accepted within")
+            XCTAssertEqual(canvas.visibleRange?.start, position, "a sliver of the line above is not the visible start")
+            // The person has scrolled, so a resize keeps the visible start: the same line. The
+            // width changes too: on the Mac a change of height alone can leave a box rested by
+            // its top edge off by the change in its space above the first line (#313).
+            for size in [CGSize(width: 420, height: 560), CGSize(width: 500, height: 700)] {
+                host.resize(to: size)
+                try await host.settle()
+                XCTAssertEqual(try rest(position).minY, canvas.scrollVisibleContainerRect.minY, accuracy: 1.5, "\(position) at \(size)")
+                XCTAssertEqual(canvas.visibleRange?.start, position, "\(size)")
+            }
+        }
+        // The bottom: to where half a point of a paragraph's first line shows there.
+        let last = paragraph(44)
+        try scrollByHand(try rest(last).minY + 0.5 - canvas.scrollVisibleContainerRect.maxY)
+        try await host.settle()
+        let sliver = canvas.scrollVisibleContainerRect.maxY - (try rest(last)).minY
+        XCTAssertGreaterThan(sliver, 0, "the paragraph's first line shows")
+        XCTAssertLessThan(sliver, 1)
+        XCTAssertEqual(canvas.visibleRange?.end, last, "the visible end is the end of the line before")
     }
 
     /// The same in a book without box geometry, where TextKit places the lines: a flex box, a
