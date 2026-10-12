@@ -199,6 +199,46 @@ final class ContainerArchiveCoverageTests: XCTestCase {
         }
     }
 
+    // A `Character` holds a "/", "\", ":" or "." together with a combining mark, variation
+    // selector or joiner after it, so read that way "../" + U+0301 + "x" is one harmless name. An
+    // archive and a file system read bytes (https://github.com/vocaro/EPUBLib/issues/181).
+    func testAnEntryNameIsCheckedWhateverMarkFollowsItsSeparatorsAndDots() throws {
+        let entries = Fixture.storedEntries(try Fixture.files())
+        for m in Fixture.clusteringMarks {
+            for name in ["../\(m)x", "OPS/../\(m)x", "OPS/../../\(m)x", "./\(m)x", "OPS/./\(m)x", "/\(m)x", "OPS//\(m)x", "OPS\\\(m)x", "..\\\(m)x"] {
+                assertOpening(Fixture.storedArchive(entries + [Fixture.StoredEntry(name, "x")]), throws: .unsafePath(name), name.debugDescription)
+            }
+        }
+        // A prepended mark takes the separator after it into its `Character`. The last is a
+        // file's name to ZIPFoundation, which looks for a closing "/" by `Character`.
+        for name in ["OPS/x\u{600}/..", "OPS\u{600}/../x", "OPS/x\u{600}/./y", "OPS/x\u{600}//y", "OPS/x\u{600}\\y", "OPS/x\u{600}/"] {
+            assertOpening(Fixture.storedArchive(entries + [Fixture.StoredEntry(name, "x")]), throws: .unsafePath(name), name.debugDescription)
+        }
+        // A colon is a character of a name that is read, beside a mark as anywhere else
+        // (https://github.com/vocaro/EPUBLib/issues/171). Each such entry answers to its own name.
+        let colons = Fixture.clusteringMarks.flatMap { ["OPS/a:\($0)x", "C:\($0)/x"] } + ["OPS/x\u{600}:y"]
+        let book = try EPUBPublication.open(data: Fixture.storedArchive(entries + colons.map { Fixture.StoredEntry($0, $0) }))
+        for name in colons { XCTAssertEqual(try book.data(at: name), Data(name.utf8), name.debugDescription) }
+    }
+
+    func testAnEntryWhoseNameBeginsWithAMarkIsAFileOfThatNameInItsFolder() throws {
+        // By its bytes "OPS/" + U+0301 + "x.css" is a file in OPS: not OPS/x.css, nor x.css in a
+        // folder named "OPS" + U+0301. Dots and a mark are a name. Each answers to its own name.
+        for m in Fixture.clusteringMarks {
+            let names = ["OPS/\(m)x.css", "OPS/x.css", "OPS\(m)/x.css", "\(m)x.css", "OPS/.\(m)", "OPS/..\(m)", "OPS/\(m)/\(m)"]
+            var entries = Fixture.storedEntries(try Fixture.files())
+            // Folders, told by a closing slash and by a Unix mode.
+            entries.append(Fixture.StoredEntry("OPS/\(m)a/"))
+            entries.append(Fixture.StoredEntry("OPS/\(m)b/", versionMadeBy: 3 << 8 | 20, externalAttributes: 0o040755 << 16))
+            entries.append(Fixture.StoredEntry("OPS/c\u{600}/", versionMadeBy: 3 << 8 | 20, externalAttributes: 0o040755 << 16))
+            entries += names.map { Fixture.StoredEntry($0, $0) }
+            let book = try EPUBPublication.open(data: Fixture.storedArchive(entries))
+            for name in names { XCTAssertEqual(try book.data(at: name), Data(name.utf8), name.debugDescription) }
+            XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"])
+            XCTAssertThrowsError(try book.data(at: "OPS/\(m)a/"))
+        }
+    }
+
     // MARK: Entry names and the language-encoding flag
 
     // A name that is well-formed UTF-8 is read as UTF-8 whether or not general-purpose bit 11
@@ -378,6 +418,40 @@ final class ContainerArchiveCoverageTests: XCTestCase {
         }
         for name in ["OPS/a/\u{301}../x.css", "OPS/..\u{301}/x.css", "OPS/.\u{301}/x.css", "OPS/a\\\u{301}x.css", "OPS/a:\u{301}x.css", "OPS/a/\u{301}"] {
             XCTAssertEqual(outcome(name, flags: 0), outcome(name, flags: 0x0800), name.debugDescription)
+        }
+    }
+
+    func testANameWithAMarkBesideASeparatorIsCheckedWithAndWithoutTheFlag() throws {
+        // The two rules together. A name without the flag is read as UTF-8, so it can hold a mark
+        // beside a separator as a flagged one can, and either is checked by its bytes
+        // (https://github.com/vocaro/EPUBLib/issues/181). CC 81 is U+0301, which joins the
+        // character before it; D8 80 is U+0600, which joins the one after.
+        let refused: [(String, [UInt8])] = [
+            ("OPS/../\u{301}x.css", Array("OPS/../".utf8) + [0xCC, 0x81] + Array("x.css".utf8)),
+            ("OPS/a\u{600}/../x.css", Array("OPS/a".utf8) + [0xD8, 0x80] + Array("/../x.css".utf8)),
+            ("OPS/a\\\u{301}x.css", Array("OPS/a\\".utf8) + [0xCC, 0x81] + Array("x.css".utf8)),
+        ]
+        // A mark that opens a name after a real separator hides nothing: the first is a file in
+        // OPS. A colon is a character of a name that is read, before a mark as anywhere else
+        // (https://github.com/vocaro/EPUBLib/issues/171).
+        let kept: [(String, [UInt8])] = [
+            ("OPS/\u{301}x.css", Array("OPS/".utf8) + [0xCC, 0x81] + Array("x.css".utf8)),
+            ("OPS/a:\u{301}x.css", Array("OPS/a:".utf8) + [0xCC, 0x81] + Array("x.css".utf8)),
+        ]
+        for flags: UInt16 in [0, 0x0800] {
+            for (name, bytes) in refused {
+                XCTAssertEqual(Array(name.utf8), bytes, name.debugDescription)
+                assertOpening(try book(adding: [entry(named: bytes, "a{}", flags: flags)]), throws: .unsafePath(name),
+                              "\(name.debugDescription), flags \(flags)")
+            }
+            let book = try EPUBPublication.open(data: self.book(adding: kept.map { entry(named: $0.1, $0.0, flags: flags) }))
+            for (name, bytes) in kept {
+                XCTAssertEqual(Array(name.utf8), bytes, name.debugDescription)
+                XCTAssertEqual(try book.data(at: name), Data(name.utf8), "\(name.debugDescription), flags \(flags)")
+            }
+            XCTAssertThrowsError(try book.data(at: "OPS/x.css"), "flags \(flags)")
+            XCTAssertThrowsError(try book.data(at: "OPS/a:x.css"), "flags \(flags)")
+            XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"], "flags \(flags)")
         }
     }
 

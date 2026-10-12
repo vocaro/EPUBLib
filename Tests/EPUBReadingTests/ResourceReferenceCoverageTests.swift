@@ -265,4 +265,369 @@ final class ResourceReferenceCoverageTests: XCTestCase {
             XCTAssertEqual(try ResourceReference.resolve(resource.href, relativeTo: "root.opf"), href, "an href resolves to itself from the root")
         }
     }
+
+    // MARK: Separators and dots beside a mark
+
+    // A `Character` is an extended grapheme cluster, so a "/", "\", ":", "#" or "." shares its
+    // `Character` with a mark, selector or joiner after it and a prepended mark before it. Read
+    // that way "../" + U+0301 + "x" is one name: no segment of it is "..", and it holds no "/".
+    // An archive and a file system read bytes (https://github.com/vocaro/EPUBLib/issues/181).
+
+    /// Every scalar `String` takes into the `Character` of a "/" before it (`after`), and every
+    /// scalar that takes a "/" after it into its own (`before`), found by asking `String`.
+    /// Unicode has thousands of the first and dozens of the second. With fewer, a test that
+    /// loops over them would try little or nothing and pass, so the run stops here instead.
+    private static let clustering: (after: [Unicode.Scalar], before: [Unicode.Scalar]) = {
+        var after: [Unicode.Scalar] = [], before: [Unicode.Scalar] = []
+        for value in UInt32(0)...0x10FFFF {
+            guard let scalar = Unicode.Scalar(value) else { continue }
+            if "/\(scalar)".count == 1 { after.append(scalar) }
+            if "\(scalar)/".count == 1 { before.append(scalar) }
+        }
+        precondition(after.count > 2_000 && before.count > 20,
+                     "String joins \(after.count) scalars to a \"/\" before them and \(before.count) to one after them")
+        return (after, before)
+    }()
+
+    /// What a path that is read is held to, checked on its UTF-8 bytes, which are what an archive
+    /// stores and a file system is handed: no empty, "." or ".." segment, so no leading or closing
+    /// "/", and no backslash or NUL. A colon is read (https://github.com/vocaro/EPUBLib/issues/171).
+    private func isReadableAsBytes(_ path: String) -> Bool {
+        let bytes = Array(path.utf8)
+        return !bytes.isEmpty && !bytes.contains { $0 == 0x5C || $0 == 0 }
+            && bytes.split(separator: 0x2F, omittingEmptySubsequences: false).allSatisfy {
+                !$0.isEmpty && !$0.elementsEqual([0x2E]) && !$0.elementsEqual([0x2E, 0x2E])
+            }
+    }
+
+    /// What a path about to be written is held to: as one that is read, and no colon.
+    private func isSafeAsBytes(_ path: String) -> Bool { isReadableAsBytes(path) && !path.utf8.contains(0x3A) }
+
+    private func escaped(_ text: String) -> String {
+        text.utf8.map { $0 < 0x80 ? String(UnicodeScalar($0)) : String(format: "%%%02X", $0) }.joined()
+    }
+
+    private func scalars(_ text: String?) -> [String]? { text?.unicodeScalars.map { String($0.value, radix: 16) } }
+
+    func testTheScalarsThatJoinASeparatorsCharacterAreTheMarksSelectorsAndJoiners() {
+        let (after, before) = Self.clustering
+        let joined = Set(after)
+        // Every combining mark with a combining class, enclosing mark, variation selector, emoji
+        // modifier and join control is among them, with the spacing marks of Indic scripts.
+        for value in UInt32(0)...0x10FFFF {
+            guard let scalar = Unicode.Scalar(value) else { continue }
+            let properties = scalar.properties
+            if properties.canonicalCombiningClass != .notReordered || properties.generalCategory == .enclosingMark
+                || properties.isVariationSelector || properties.isEmojiModifier || properties.isJoinControl {
+                XCTAssertTrue(joined.contains(scalar), "U+" + String(value, radix: 16))
+            }
+        }
+        for scalar in ["\u{301}", "\u{338}", "\u{36F}", "\u{489}", "\u{20DD}", "\u{20E3}", "\u{FE00}", "\u{FE0F}", "\u{E0100}", "\u{200C}", "\u{200D}",
+                       "\u{1F3FB}", "\u{93E}", "\u{94D}", "\u{E31}", "\u{3099}", "\u{FF9E}", "\u{E0020}"] as [Unicode.Scalar] {
+            XCTAssertTrue(joined.contains(scalar), "U+" + String(scalar.value, radix: 16))
+        }
+        // Hangul jamo, regional indicators and emoji join only their own kind.
+        for scalar in ["\u{1161}", "\u{11A8}", "\u{1F1EF}", "\u{1F600}", "a", "\u{E9}"] as [Unicode.Scalar] { XCTAssertFalse(joined.contains(scalar)) }
+        // Prepended marks, as the Arabic number sign, take what follows them.
+        let prepended = Set(before)
+        XCTAssertTrue(before.contains("\u{600}") && before.contains("\u{6DD}") && before.contains("\u{110BD}"))
+        XCTAssertTrue(before.allSatisfy { $0.value > 0x7F } && prepended.isDisjoint(with: joined))
+        // The other separators and the dot are joined by the same scalars and by no other, so
+        // every scalar is asked of each; a NUL by none.
+        let followed = ["\\", ":", ".", "#", "?", "%"], preceded = ["\\", ":", ".", "#"]
+        var wrong: [String] = []
+        for value in UInt32(0)...0x10FFFF {
+            guard let scalar = Unicode.Scalar(value) else { continue }
+            for other in followed where ("\(other)\(scalar)".count == 1) != joined.contains(scalar) { wrong.append(other + " U+" + String(value, radix: 16)) }
+            for other in preceded where ("\(scalar)\(other)".count == 1) != prepended.contains(scalar) { wrong.append("U+" + String(value, radix: 16) + " " + other) }
+        }
+        XCTAssertEqual(wrong.count, 0, wrong.prefix(20).joined(separator: ", "))
+        for scalar in after { XCTAssertEqual("\0\(scalar)".count, 2, "U+" + String(scalar.value, radix: 16)) }
+        for scalar in before { XCTAssertEqual("\(scalar)\0".count, 2, "U+" + String(scalar.value, radix: 16)) }
+    }
+
+    func testNoMarkHidesASeparatorOrADotSegmentFromThePathCheck() {
+        var wrong: [String] = []
+        // `readable` is what a path that is read is held to. One about to be written is held to
+        // that and to having no colon, which `colon` says this path has.
+        func expect(_ readable: Bool, _ path: String, directory: Bool = false, colon: Bool = false) {
+            let safe = readable && !colon
+            guard ResourceReference.isReadablePath(path, directory: directory) != readable || ResourceReference.isSafePath(path, directory: directory) != safe
+                || (!directory && (isReadableAsBytes(path) != readable || isSafeAsBytes(path) != safe)) else { return }
+            wrong.append((directory ? "directory " : "") + path.debugDescription)
+        }
+        for scalar in Self.clustering.after {
+            let m = String(scalar)
+            // A ".." or "." segment, an empty one (opening, or between two slashes), a backslash, a NUL.
+            for path in ["../\(m)x", "a/../\(m)x", "./\(m)x", "a/./\(m)x", "/\(m)x", "/\(m)", "a//\(m)x", "a\\\(m)b", "\\\(m)", "a\0\(m)b", "a:\(m)/../b"] {
+                expect(false, path)
+            }
+            // A colon is one before a mark too: read, and refused in a path about to be written.
+            for path in ["a:\(m)b", "C:\(m)/x", ":\(m)"] { expect(true, path, colon: true) }
+            // Two names, the second beginning with the mark; and a name of dots and the mark, which
+            // is no dot segment to anything that reads bytes.
+            for path in ["a/\(m)b", "a/\(m)", "\(m)", "\(m)x/\(m)y", ".\(m)", "..\(m)", "a/.\(m)/b", "a/..\(m)/b", "a.\(m)b", "a..\(m)"] { expect(true, path) }
+            expect(true, "a/\(m)/", directory: true)
+            expect(true, "a/\(m)", directory: true)
+            for path in ["a//\(m)/", "../\(m)/", "a/./\(m)/", "/\(m)/", "a\\\(m)/"] { expect(false, path, directory: true) }
+        }
+        for scalar in Self.clustering.before {
+            let m = String(scalar)
+            for path in ["a\(m)/..", "\(m)/../x", "a\(m)/./x", "a\(m)/.", "a\(m)/", "a\(m)//x", "a\(m)\\b"] { expect(false, path) }
+            for path in ["a\(m):b", "\(m):"] { expect(true, path, colon: true) }
+            for path in ["\(m)/x", "a\(m)/b", "a/\(m).", "\(m)..", "a/\(m)../b", "\(m)"] { expect(true, path) }
+            expect(true, "a\(m)/", directory: true)
+            expect(false, "a\(m)//", directory: true)
+        }
+        XCTAssertEqual(wrong.count, 0, wrong.prefix(20).joined(separator: ", "))
+    }
+
+    func testAReferenceIsResolvedWhateverMarkFollowsItsSeparatorsAndDots() throws {
+        var wrong: [String] = []
+        func resolve(_ href: String, strict: Bool = false) -> String? { try? ResourceReference.resolve(href, relativeTo: base, strict: strict) }
+        for scalar in Self.clustering.after {
+            let m = String(scalar), e = escaped(m)
+            let resolved = [
+                // Dot segments, written out and escaped, before a name that begins with the mark.
+                "../\(m)x": "OPS/\(e)x", "../../\(m)x": "\(e)x", "a/../\(m)x": "OPS/text/\(e)x", "./\(m)x": "OPS/text/\(e)x",
+                "a/./\(m)x": "OPS/text/a/\(e)x", "..%2F\(m)x": "OPS/\(e)x", "..%2f\(e)x": "OPS/\(e)x", "%2E%2E/\(e)x": "OPS/\(e)x",
+                // Two names, and an empty segment dropped as between any two slashes.
+                "a/\(m)x": "OPS/text/a/\(e)x", "a/\(e)x": "OPS/text/a/\(e)x", "a//\(m)x": "OPS/text/a/\(e)x",
+                // Dots and the mark are a name.
+                ".\(m)/x": "OPS/text/.\(e)/x", "..\(m)/x": "OPS/text/..\(e)/x",
+                // A fragment that begins with the mark.
+                "ch2.xhtml#\(m)x": "OPS/text/ch2.xhtml#\(e)x", "#\(m)x": "OPS/text/ch1.xhtml#\(e)x", "../\(m)x#\(m)": "OPS/\(e)x#\(e)",
+            ]
+            for (href, expected) in resolved {
+                let result = resolve(href)
+                if result != expected || resolve(href, strict: true) != expected || (try? ResourceReference.resolve(expected, relativeTo: "root.opf")) != expected {
+                    wrong.append("\(href.debugDescription) resolved to \(result ?? "an error")")
+                }
+            }
+            // What reading forgives, with the mark as without it. A reference that climbs past
+            // the container root or opens with a slash starts at the root
+            // (https://github.com/vocaro/EPUBLib/issues/84); a colon outside a scheme is a
+            // character of the name and a query is dropped
+            // (https://github.com/vocaro/EPUBLib/issues/171). One about to be written is refused.
+            let forgiven = ["../../../\(m)x": "\(e)x", "..%2F..%2F..%2F\(m)x": "\(e)x", "/\(m)x": "\(e)x", "%2F\(m)x": "\(e)x",
+                            "./a:\(m)b": "OPS/text/a%3A\(e)b", "a/b%3A\(m)c": "OPS/text/a/b%3A\(e)c", "ch2.xhtml?\(m)q": "OPS/text/ch2.xhtml"]
+            for (href, expected) in forgiven {
+                let result = resolve(href)
+                if result != expected || (try? ResourceReference.resolve(expected, relativeTo: "root.opf")) != expected {
+                    wrong.append("\(href.debugDescription) resolved to \(result ?? "an error")")
+                }
+                if let result = resolve(href, strict: true) { wrong.append("\(href.debugDescription) to be written resolved to \(result)") }
+            }
+            // Refused either way: a backslash, written out or escaped, and a scheme.
+            for href in ["a\\\(m)b", "a%5C\(m)b", "c:\(m)/x"] {
+                if let result = resolve(href) ?? resolve(href, strict: true) { wrong.append("\(href.debugDescription) resolved to \(result)") }
+            }
+            // A folder of the base whose name begins with the mark is one of its segments.
+            if (try? ResourceReference.resolve("../x", relativeTo: "a/\(m)b/c.opf")) != "a/x" || (try? ResourceReference.resolve("x", relativeTo: "a/\(m)b/c.opf")) != "a/\(e)b/x"
+                || (try? ResourceReference.resolve("", relativeTo: "a/\(m)b")) != "a/\(e)b" {
+                wrong.append("from a base under a folder named U+\(String(scalar.value, radix: 16))")
+            }
+        }
+        for scalar in Self.clustering.before {
+            let m = String(scalar), e = escaped(m)
+            let resolved = ["a\(m)/../x": "OPS/text/x", "\(m)/../../x": "OPS/x", "a\(m)/./x": "OPS/text/a\(e)/x", "a\(m)/x": "OPS/text/a\(e)/x",
+                            "ch2.xhtml\(m)#x": "OPS/text/ch2.xhtml\(e)#x"]
+            for (href, expected) in resolved where resolve(href) != expected || resolve(href, strict: true) != expected {
+                wrong.append("\(href.debugDescription) resolved to \(resolve(href) ?? "an error")")
+            }
+            // Forgiven when read and refused when written, as above; a backslash, refused either way.
+            for (href, expected) in ["\(m)/../../../../x": "x", "./a\(m):b": "OPS/text/a\(e)%3Ab"] {
+                if resolve(href) != expected { wrong.append("\(href.debugDescription) resolved to \(resolve(href) ?? "an error")") }
+                if let result = resolve(href, strict: true) { wrong.append("\(href.debugDescription) to be written resolved to \(result)") }
+            }
+            if let result = resolve("a\(m)\\b") ?? resolve("a\(m)\\b", strict: true) { wrong.append("a backslash after U+\(String(scalar.value, radix: 16)) resolved to \(result)") }
+        }
+        XCTAssertEqual(wrong.count, 0, wrong.prefix(20).joined(separator: ", "))
+    }
+
+    func testAKeycapEmojiIsItsBaseCharacterToAReferenceAndPartOfANameInAPath() throws {
+        // A keycap is "#", "*" or a digit, then U+FE0F and U+20E3: one `Character`. Unescaped in
+        // a reference its "#" begins the fragment, as any "#" does and as a browser reads it;
+        // escaped, or in an archive path, it is part of the name.
+        let hash = "#\u{FE0F}\u{20E3}", star = "*\u{FE0F}\u{20E3}", marks = "%EF%B8%8F%E2%83%A3"
+        XCTAssertEqual(hash.count, 1)
+        XCTAssertEqual(try ResourceReference.resolve("icons/\(hash).png", relativeTo: base), "OPS/text/icons#\(marks).png")
+        XCTAssertEqual(try ResourceReference.resolve("icons/%23\(marks).png", relativeTo: base), "OPS/text/icons/%23\(marks).png")
+        XCTAssertEqual(try ResourceReference.resolve("icons/\(star).png#\(star)", relativeTo: base), "OPS/text/icons/*\(marks).png#*\(marks)")
+        XCTAssertEqual(try ResourceReference.resolve("1\u{FE0F}\u{20E3}/./x", relativeTo: base), "OPS/text/1\(marks)/x")
+        for path in ["icons/\(hash).png", "\(hash)/\(star)", "1\u{FE0F}\u{20E3}"] { XCTAssertTrue(ResourceReference.isSafePath(path), path) }
+        // A rootfile path written that way is no URL of the entry, and names it as written.
+        let entry = "\(hash)/book.opf"
+        XCTAssertEqual(scalars(ResourceReference.rootfilePath(entry, isEntry: { $0.unicodeScalars.elementsEqual(entry.unicodeScalars) })), scalars(entry))
+    }
+
+    func testNoMarkMakesARootfilePathNameAnEntryOutsideTheContainerInEitherReading() {
+        // Whatever the archive holds: the path returned is the one read as the package document.
+        let always: (String) -> Bool = { _ in true }
+        var wrong: [String] = []
+        for scalar in Self.clustering.after {
+            let m = String(scalar), e = escaped(m)
+            // As a URL, resolved within the container; as written, where a "%" makes it no URL.
+            for (fullPath, expected) in ["OPS/\(m)book.opf": "OPS/\(m)book.opf", "OPS/\(e)book.opf": "OPS/\(m)book.opf", "OPS/x/../\(m)book.opf": "OPS/\(m)book.opf",
+                                         "OPS/./\(m)book.opf": "OPS/\(m)book.opf", "\(m)OPS/book.opf": "\(m)OPS/book.opf", "50% off/\(m)book.opf": "50% off/\(m)book.opf"] {
+                let path = ResourceReference.rootfilePath(fullPath, isEntry: always)
+                if scalars(path) != scalars(expected) { wrong.append("\(fullPath.debugDescription) named \(path?.debugDescription ?? "nothing")") }
+            }
+            // A colon is a character of the name (https://github.com/vocaro/EPUBLib/issues/171):
+            // as a URL where no scheme ends at it, and as written where one would or a "%" is bare.
+            for fullPath in ["OPS/a:\(m)book.opf", "c:\(m)/book.opf", "50% off/a:\(m)book.opf"] {
+                let path = ResourceReference.rootfilePath(fullPath, isEntry: always)
+                if scalars(path) != scalars(fullPath) { wrong.append("\(fullPath.debugDescription) named \(path?.debugDescription ?? "nothing")") }
+            }
+            // A rootfile path is not read past what a manifest href is: it names nothing.
+            for fullPath in ["../\(m)book.opf", "OPS/../../\(m)book.opf", "/\(m)OPS/book.opf", "OPS//\(m)book.opf", "OPS\\\(m)book.opf",
+                             "50% off/../\(m)book.opf", "50% off/./\(m)book.opf", "/\(m)50% off/book.opf", "50% off//\(m)book.opf", "50% off\\\(m)book.opf"] {
+                if let path = ResourceReference.rootfilePath(fullPath, isEntry: always) { wrong.append("\(fullPath.debugDescription) named \(path.debugDescription)") }
+            }
+        }
+        for scalar in Self.clustering.before {
+            let m = String(scalar)
+            for fullPath in ["OPS/book.opf/x\(m)/..", "OPS/book.opf\(m)/", "OPS\(m)\\book.opf", "50% off/x\(m)/..", "50% off/book.opf\(m)/"] {
+                if let path = ResourceReference.rootfilePath(fullPath, isEntry: always) { wrong.append("\(fullPath.debugDescription) named \(path.debugDescription)") }
+            }
+        }
+        XCTAssertEqual(wrong.count, 0, wrong.prefix(20).joined(separator: ", "))
+    }
+
+    func testNoReferenceBuiltFromSeparatorsDotsAndMarksEscapesOrPassesAsAPathItsBytesAreNot() throws {
+        let pieces = ["a", "b.xhtml", "..", ".", "/", "\\", ":", "#", "?", "%2F", "%2E", "%5C", "%3A", "%23", "\0", "\u{301}", "\u{FE0F}", "\u{200D}",
+                      "\u{20E3}", "\u{1F3FB}", "\u{93E}", "\u{600}", "%CC%81", "%D8%80"]
+        let fewer = ["a", "..", ".", "/", "\\", ":", "#", "%2F", "\u{301}", "\u{200D}", "\u{600}"]
+        var hrefs = pieces
+        for first in pieces { for second in pieces { hrefs.append(first + second) } }
+        for first in pieces { for second in pieces { for third in pieces { hrefs.append(first + second + third) } } }
+        for first in fewer { for second in fewer { for third in fewer { for fourth in fewer { hrefs.append(first + second + third + fourth) } } } }
+        // Whether a resolved reference is printable ASCII that resolves to itself from the root
+        // and names a path its bytes pass as: one that is read, or one about to be written.
+        func holds(_ result: String, written: Bool) -> Bool {
+            guard let path = result.utf8.split(separator: 0x23, maxSplits: 1, omittingEmptySubsequences: false).first.flatMap({ String($0)?.removingPercentEncoding }) else { return false }
+            return (written ? isSafeAsBytes(path) : isReadableAsBytes(path)) && result.utf8.allSatisfy { $0 > 0x20 && $0 < 0x7F }
+                && (try? ResourceReference.resolve(result, relativeTo: "root.opf", strict: written)) == result
+        }
+        var resolved = 0, refused = 0, written = 0, readable = 0, safe = 0
+        for href in hrefs {
+            XCTAssertEqual(ResourceReference.isReadablePath(href), isReadableAsBytes(href), href.debugDescription)
+            XCTAssertEqual(ResourceReference.isSafePath(href), isSafeAsBytes(href), href.debugDescription)
+            readable += ResourceReference.isReadablePath(href) ? 1 : 0
+            safe += ResourceReference.isSafePath(href) ? 1 : 0
+            if let path = ResourceReference.rootfilePath(href, isEntry: { _ in true }) {
+                XCTAssertTrue(isReadableAsBytes(path), "\(href.debugDescription) as a rootfile path named \(path.debugDescription)")
+            }
+            for base in ["OPS/text/ch1.xhtml", "root.opf", "a/\u{301}b/c\u{600}/d.opf"] {
+                var read: String?
+                do { read = try ResourceReference.resolve(href, relativeTo: base) } catch {
+                    XCTAssertEqual(error as? EPUBPublicationError, .unsafePath(href), href.debugDescription)
+                }
+                if let read {
+                    resolved += 1
+                    if !holds(read, written: false) { XCTFail("\(href.debugDescription) from \(base) resolved to \(read.debugDescription)") }
+                } else { refused += 1 }
+                // About to be written, it resolves to what it does when read, or is refused.
+                if let strict = try? ResourceReference.resolve(href, relativeTo: base, strict: true) {
+                    written += 1
+                    if strict != read || !holds(strict, written: true) { XCTFail("\(href.debugDescription) from \(base) to be written resolved to \(strict.debugDescription)") }
+                }
+            }
+        }
+        XCTAssertGreaterThan(resolved, 10_000)
+        XCTAssertGreaterThan(refused, 10_000)
+        XCTAssertGreaterThan(written, 10_000)
+        XCTAssertGreaterThan(safe, 1_000)
+        XCTAssertGreaterThan(readable, safe, "some of the paths hold a colon and nothing else a path may not")
+    }
+
+    func testDotsBesideADefaultIgnorableCharacterAreAName() {
+        // Decided on https://github.com/vocaro/EPUBLib/issues/205: a segment of dots and
+        // default-ignorable characters is a name the reader accepts, and the host's to judge
+        // (doc/integration.md), whether or not the character joins a dot's `Character`.
+        var wrong: [String] = [], count = 0
+        for value in UInt32(0)...0x10FFFF {
+            guard let scalar = Unicode.Scalar(value), scalar.properties.isDefaultIgnorableCodePoint else { continue }
+            count += 1
+            let z = String(scalar), e = escaped(z)
+            for (name, written) in ["\(z)..": "\(e)..", "..\(z)": "..\(e)", ".\(z).": ".\(e).", "\(z).": "\(e).", ".\(z)": ".\(e)"] {
+                for path in [name, "a/\(name)/b", "a/\(name)"]
+                where !ResourceReference.isReadablePath(path) || !ResourceReference.isSafePath(path) || !isSafeAsBytes(path) {
+                    wrong.append(path.debugDescription)
+                }
+                // In a reference it is a segment like any other: nothing is stepped out of.
+                for strict in [false, true] where (try? ResourceReference.resolve("\(name)/x", relativeTo: base, strict: strict)) != "OPS/text/\(written)/x" {
+                    wrong.append("\(name.debugDescription) in a reference\(strict ? " about to be written" : "")")
+                }
+            }
+        }
+        XCTAssertGreaterThan(count, 4_000, "U+FEFF, the zero-width space and joiners, the variation selectors and tags among them")
+        XCTAssertEqual(wrong.count, 0, wrong.prefix(20).joined(separator: ", "))
+    }
+
+    func testNamesInAnyScriptAndEitherNormalizationFormAreReadAsTheyWere() throws {
+        // A mark, selector or joiner inside a name belongs to the name: an accent composed and
+        // decomposed, emoji of several scalars, right-to-left and East Asian text, Hangul in
+        // syllables and in jamo, an Indic conjunct and Thai.
+        let names = ["caf\u{E9}", "cafe\u{301}", "A\u{30A}ngstro\u{308}m", "\u{1F469}\u{200D}\u{1F4BB}", "\u{1F44D}\u{1F3FD}", "\u{1F1EF}\u{1F1F5}",
+                     "1\u{FE0F}\u{20E3}", "\u{2764}\u{FE0F}", "\u{627}\u{644}\u{643}\u{62A}\u{627}\u{628}", "\u{5E1}\u{5B5}\u{5E4}\u{5B6}\u{5E8}",
+                     "\u{65E5}\u{672C}\u{8A9E}", "\u{304B}\u{3099}", "\u{D55C}\u{AE00}", "\u{1112}\u{1161}\u{11AB}", "\u{915}\u{94D}\u{937}", "\u{E19}\u{E49}\u{E33}"]
+        for name in names {
+            let e = escaped(name)
+            for path in [name, "OPS/\(name)/\(name).xhtml", "\(name).\(name)", ".\(name)", "\(name)..", "\(name)/...", "\(name) \(name)/#\(name)?%"] {
+                XCTAssertTrue(ResourceReference.isSafePath(path), path.debugDescription)
+                XCTAssertTrue(ResourceReference.isSafePath(path + "/", directory: true), path.debugDescription)
+            }
+            for path in ["\(name)/", "/\(name)", "\(name)//\(name)", "../\(name)", "\(name)/../\(name)", "\(name)/..", "./\(name)", "\(name)/./\(name)",
+                         "\(name)/.", "\(name)\\\(name)", "\(name)\0"] {
+                XCTAssertFalse(ResourceReference.isReadablePath(path), path.debugDescription)
+                XCTAssertFalse(ResourceReference.isSafePath(path), path.debugDescription)
+                XCTAssertEqual(isReadableAsBytes(path), false, path.debugDescription)
+            }
+            // A colon is read, and refused in a path about to be written.
+            XCTAssertTrue(ResourceReference.isReadablePath("\(name):\(name)"), name)
+            XCTAssertFalse(ResourceReference.isSafePath("\(name):\(name)"), name)
+            let cases = [
+                "\(name).xhtml": "OPS/text/\(e).xhtml", "\(e).xhtml": "OPS/text/\(e).xhtml", "./\(name)/\(name).xhtml": "OPS/text/\(e)/\(e).xhtml",
+                "../\(name)/../\(name).css": "OPS/\(e).css", "../../\(name)": e, "\(name)/./\(name)/../x": "OPS/text/\(e)/x",
+                "\(name)//\(name)": "OPS/text/\(e)/\(e)", "\(name).xhtml#\(name)": "OPS/text/\(e).xhtml#\(e)", "#\(name)": "OPS/text/ch1.xhtml#\(e)",
+                "\(name)%2F\(name)": "OPS/text/\(e)/\(e)", "\(name)/%2E%2E/x": "OPS/text/x",
+            ]
+            for (href, expected) in cases {
+                XCTAssertEqual(try ResourceReference.resolve(href, relativeTo: base), expected, href.debugDescription)
+                XCTAssertEqual(try ResourceReference.resolve(expected, relativeTo: "root.opf"), expected, href.debugDescription)
+            }
+            XCTAssertEqual(try ResourceReference.resolve("../x", relativeTo: "\(name)/\(name)/\(name).opf"), "\(e)/x", name)
+            XCTAssertEqual(try ResourceReference.resolve("", relativeTo: "\(name)/\(name).opf"), "\(e)/\(e).opf", name)
+            // Read past, and refused in a reference about to be written: a step above the root
+            // and an opening slash (https://github.com/vocaro/EPUBLib/issues/84), a colon and a
+            // query (https://github.com/vocaro/EPUBLib/issues/171).
+            let forgiven = ["../../../\(name)": e, "/\(name)": e, "./\(name):\(name)": "OPS/text/\(e)%3A\(e)", "\(name).xhtml?\(name)": "OPS/text/\(e).xhtml"]
+            for (href, expected) in forgiven {
+                XCTAssertEqual(try ResourceReference.resolve(href, relativeTo: base), expected, href.debugDescription)
+                XCTAssertThrowsError(try ResourceReference.resolve(href, relativeTo: base, strict: true), href.debugDescription) {
+                    XCTAssertEqual($0 as? EPUBPublicationError, .unsafePath(href), href.debugDescription)
+                }
+            }
+            // A backslash and an authority are refused either way.
+            for href in ["\(name)\\\(name)", "//\(name)/x"] {
+                for strict in [false, true] {
+                    XCTAssertThrowsError(try ResourceReference.resolve(href, relativeTo: base, strict: strict), href.debugDescription) {
+                        XCTAssertEqual($0 as? EPUBPublicationError, .unsafePath(href), href.debugDescription)
+                    }
+                }
+            }
+            // A rootfile path, by its URL reading and as written.
+            let entry = "\(name)/\(name).opf"
+            for fullPath in [entry, "\(e)/\(e).opf", "./\(name)/x/../\(name).opf", "\(name)%2F\(name).opf"] {
+                XCTAssertEqual(scalars(ResourceReference.rootfilePath(fullPath, isEntry: { $0.unicodeScalars.elementsEqual(entry.unicodeScalars) })),
+                               scalars(entry), fullPath.debugDescription)
+            }
+            let written = "\(name) 100%/\(name)#1.opf"
+            XCTAssertEqual(scalars(ResourceReference.rootfilePath(written, isEntry: { $0.unicodeScalars.elementsEqual(written.unicodeScalars) })), scalars(written))
+            for fullPath in ["../\(name).opf", "/\(name).opf", "\(name)/", "\(name)//\(name).opf", "\(name)\\\(name).opf", "\(name)/.."] {
+                XCTAssertNil(ResourceReference.rootfilePath(fullPath, isEntry: { _ in true }), fullPath.debugDescription)
+            }
+        }
+    }
 }
