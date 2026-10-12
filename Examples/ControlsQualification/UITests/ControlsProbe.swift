@@ -42,6 +42,14 @@ import XCUIAutomation
     }
 
     private func perform(_ command: String, _ argument: String) {
+        #if os(macOS)
+        // Synthesized keys and clicks go to whatever is in front. Another session's window or a
+        // system dialog there must not receive them: stop acting until the host is frontmost again.
+        if ["tap", "forcetap", "tapbegins", "tapxy", "type", "key", "swipe", "scrolllist", "resize"].contains(command),
+           app.state != .runningForeground {
+            return note(command, "SKIPPED \(argument): the host is not the frontmost application")
+        }
+        #endif
         switch command {
         case "tap", "forcetap":
             // `forcetap` touches the element's centre even when XCTest calls it unhittable.

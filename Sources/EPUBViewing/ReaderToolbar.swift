@@ -94,7 +94,6 @@ public struct EPUBReaderControl: View {
     private let group: EPUBReaderControlGroup
     private let inlineSearch: Bool
     @State private var showingSearch = false
-    @Environment(\.horizontalSizeClass) private var sizeClass
     public init(controls: EPUBReaderControls, group: EPUBReaderControlGroup, inlineSearch: Bool = false) {
         self.controls = controls; self.group = group; self.inlineSearch = inlineSearch
     }
@@ -110,10 +109,10 @@ public struct EPUBReaderControl: View {
                         Button("Search", systemImage: "magnifyingglass") { showingSearch = true }
                             .popover(isPresented: $showingSearch) {
                                 EPUBSearchField(controls: controls, onDismiss: { showingSearch = false }).padding()
-                                    // From a compact width the pane is a sheet, which centres what it
-                                    // is given: the field then jumped to the top when results arrived
-                                    // and back to the middle on Clear Search.
-                                    .frame(maxHeight: sizeClass == .compact ? .infinity : nil, alignment: .top)
+                                    // As a sheet the pane is offered the whole height and was centred
+                                    // in it: the field jumped to the top when results arrived and back
+                                    // to the middle on Clear Search. A popover keeps its ideal size.
+                                    .frame(maxHeight: .infinity, alignment: .top)
                             }
                     }
                 }
