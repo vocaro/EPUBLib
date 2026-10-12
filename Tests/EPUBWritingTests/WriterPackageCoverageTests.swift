@@ -85,6 +85,154 @@ struct WriterPackageCoverageTests {
         #expect(publication.spine == [.init(resource: odd)])
     }
 
+    // MARK: Escaping beside a mark
+
+    // A `Character`, and the composed character sequence Foundation's string search matches by,
+    // holds an "&", "<", ">" or quote together with a combining mark, variation selector or
+    // joiner after it. Searched for that way, "<" + U+0338 (a decomposed "≮") holds no "<", and
+    // it was written as it stood (https://github.com/vocaro/EPUBLib/issues/203).
+
+    /// Records each of `read` that is not its `given` scalar for scalar: `==` on `String` holds
+    /// canonically equivalent texts equal, and a text read back in the other normalization form
+    /// would pass it.
+    private func expectScalars(_ read: [String?], _ given: [String], _ what: String, sourceLocation: SourceLocation = #_sourceLocation) {
+        func hex(_ text: String?) -> String { text.map { $0.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: " ") } ?? "nothing" }
+        #expect(read.count == given.count, "\(what)", sourceLocation: sourceLocation)
+        let wrong = zip(read, given).filter { read, given in read.map { !$0.unicodeScalars.elementsEqual(given.unicodeScalars) } ?? true }
+        #expect(wrong.isEmpty, "\(what): \(wrong.count) differ, the first given as [\(hex(wrong.first?.1))] and read as [\(hex(wrong.first?.0 ?? nil))]",
+                sourceLocation: sourceLocation)
+    }
+    private func titles(_ items: [EPUBNavigationItem]) -> [String] { items.flatMap { [$0.title] + titles($0.children) } }
+    /// `id`, or `plain` where the writer refuses it. An ID that is no XML name is the caller's to
+    /// choose, as above, and what the writer accepts it must escape; one it came to refuse
+    /// (https://github.com/vocaro/EPUBLib/issues/96) it would not write.
+    private func accepted(_ id: String, or plain: String) -> String {
+        let resource = EPUBResource(id: id, path: one.path, mediaType: one.mediaType)
+        do { _ = try generate(resources: [resource], spine: [.init(resource: resource)]); return id } catch { return plain }
+    }
+
+    @Test func markupCharactersFollowedByAMarkAreEscapedInEveryTextValueAndReadBackScalarForScalar() async throws {
+        // The issue's three; a "]]>", which text may not hold, closed by such a ">"; quotes; a "<"
+        // between a prepended mark and a combining one; and one text in both normalization
+        // forms, each of which must come back in the form it went in.
+        let texts = ["a <\u{338} b", "A &\u{301} B", "<\u{FE0F}b>", "c ]]>\u{338} d", "\"\u{301}q\" '\u{308}s'", "n \u{600}<\u{338} m",
+                     "a \u{226E} b e\u{301} \u{E9} a <\u{338} b"]
+        for text in texts {
+            let facts = EPUBPackageMetadata(metadata: .init(title: text, authors: [text, "Second " + text], languages: ["en"]), identifier: text,
+                                            modificationDate: WriterCoverage.date, summary: text, keywords: [text, "Second " + text])
+            let contents = [EPUBNavigationItem(title: text, href: "EPUB/one.xhtml", children: [.init(title: "Nested " + text, href: "EPUB/one.xhtml#n")]),
+                            .init(title: "Unlinked " + text, children: [.init(title: "Last", href: "EPUB/one.xhtml")])]
+            let documents = try generate(facts, contents: contents, pages: [.init(title: text, href: "EPUB/one.xhtml")])
+            // Well-formed, and to an XML parser the text that was given.
+            let package = try opf(documents), navigation = try nav(documents)
+            for name in ["dc:title", "dc:identifier", "dc:description"] { expectScalars(package.named(name).map(\.text), [text], name) }
+            for name in ["dc:creator", "dc:subject"] { expectScalars(package.named(name).map(\.text), [text, "Second " + text], name) }
+            expectScalars(navigation.named("a").map(\.text), [text, "Nested " + text, "Last", text], "links")
+            expectScalars(navigation.named("span").map(\.text), ["Unlinked " + text], "headings")
+            // And to this package's reader.
+            let publication = try await reopened(documents)
+            expectScalars([publication.metadata.title] + publication.metadata.identifiers, [text, text], "title and identifier read back")
+            expectScalars(publication.metadata.authors, [text, "Second " + text], "authors read back")
+            expectScalars(titles(publication.tableOfContents), titles(contents), "contents read back")
+            expectScalars((publication.pageList ?? []).map(\.label), [text], "pages read back")
+        }
+    }
+
+    // A quote left as it stood ends its attribute value where the mark begins.
+    @Test func quotesAndMarkupCharactersFollowedByAMarkAreEscapedInEveryAttributeValue() async throws {
+        for m in WriterCoverage.clusteringMarks {
+            let value = "q\"\(m)a'\(m)l<\(m)g>\(m)e&\(m)"
+            let odd = EPUBResource(id: accepted("i" + value, or: "c"), path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml", properties: ["p" + value])
+            let data = EPUBResource(id: accepted("d" + value, or: "d"), path: "EPUB/data.bin", mediaType: "application/x-odd;" + value)
+            let fragment = "a&\(m)b'\(m)"
+            let documents = try generate(WriterCoverage.facts(languages: [value]), resources: [odd, data], spine: [.init(resource: odd)],
+                                          contents: [.init(title: "Start", href: "EPUB/one.xhtml#" + fragment)])
+            let package = try opf(documents), navigation = try nav(documents)
+            let items = package.named("item")
+            expectScalars(items.map { $0.attributes["id"] }, ["nav", odd.id, data.id], "id \(m.debugDescription)")
+            expectScalars(items.map { $0.attributes["media-type"] }, ["application/xhtml+xml", odd.mediaType, data.mediaType], "media-type \(m.debugDescription)")
+            expectScalars(items.dropLast().map { $0.attributes["properties"] }, ["nav", "p" + value], "properties \(m.debugDescription)")
+            expectScalars(package.named("itemref").map { $0.attributes["idref"] }, [odd.id], "idref \(m.debugDescription)")
+            let html = try #require(navigation.elements.first)
+            expectScalars([html.attributes["xml:lang"], html.attributes["lang"]], [value, value], "lang \(m.debugDescription)")
+            // No apostrophe is the writer's own, so none is left in what it wrote.
+            for path in ["EPUB/package.opf", "EPUB/nav.xhtml"] {
+                #expect(!(try WriterCoverage.document(path, in: documents)).unicodeScalars.contains("'"), "\(path) \(m.debugDescription)")
+            }
+            let publication = try await reopened(documents, content: [odd.path: WriterCoverage.xhtml("<p>Text</p>"), data.path: Data([0])])
+            let resources = Array(publication.resources.dropFirst())
+            expectScalars(resources.map(\.id) + publication.spine.map(\.resource.id), [odd.id, data.id, odd.id], "ids read back \(m.debugDescription)")
+            expectScalars(resources.map(\.mediaType), [odd.mediaType, data.mediaType], "media types read back \(m.debugDescription)")
+            expectScalars(resources.flatMap(\.properties), ["p" + value], "properties read back \(m.debugDescription)")
+            expectScalars(publication.metadata.languages, [value], "language read back \(m.debugDescription)")
+            // The reader gives a target with what is outside ASCII escaped.
+            #expect(publication.tableOfContents.map(\.href) == ["EPUB/one.xhtml#" + WriterCoverage.escapingNonASCII(fragment)], "\(m.debugDescription)")
+        }
+    }
+
+    @Test func everyScalarThatJoinsAMarkupCharactersCharacterLeavesItEscapedAndReadsBack() async throws {
+        let (after, before, unjoined) = WriterCoverage.joiningMarkup
+        // Unicode has thousands of the first and dozens of the second. With fewer, the loop below
+        // would try little or nothing and pass.
+        try #require(after.count > 2_000 && before.count > 20,
+                     "String joins \(after.count) scalars to a markup character before them and \(before.count) to one after them")
+        #expect(unjoined.isEmpty, "\(unjoined.prefix(8).map { String($0.value, radix: 16) })")
+        #expect(WriterCoverage.clusteringMarks.allSatisfy { after.contains($0.unicodeScalars.first!) })
+        #expect(before.contains("\u{600}") && before.contains("\u{110BD}") && Set(before).isDisjoint(with: after))
+        /// Each markup character with `scalar` joined to it, the ">" closing a "]]>" where it can.
+        func text(_ scalar: Unicode.Scalar, follows: Bool) -> String {
+            var text = String.UnicodeScalarView("x".unicodeScalars)
+            for character in WriterCoverage.markup {
+                if follows, character == ">" { text.append(contentsOf: "]]".unicodeScalars) }
+                if !follows { text.append(scalar) }
+                text.append(character)
+                if follows { text.append(scalar) }
+            }
+            text.append("y")
+            return String(text)
+        }
+        let cases = after.map { text($0, follows: true) } + before.map { text($0, follows: false) }
+        var written = 0
+        for start in stride(from: 0, to: cases.count, by: 256) {
+            // One book for each run of scalars: each text as an author, a subject and a label, and
+            // all of them together as every value there is one of.
+            let texts = Array(cases[start..<min(start + 256, cases.count)]), all = texts.joined(separator: " ")
+            let first = "from U+" + String((after + before)[start].value, radix: 16)
+            let marked = EPUBResource(id: accepted("i" + all, or: "c"), path: "EPUB/one.xhtml", mediaType: "application/xhtml+xml", properties: ["p" + texts.joined()])
+            let data = EPUBResource(id: accepted("d" + all, or: "d"), path: "EPUB/data.bin", mediaType: "application/x-odd;" + all)
+            let facts = EPUBPackageMetadata(metadata: .init(title: all, authors: texts, languages: [all]), identifier: all,
+                                            modificationDate: WriterCoverage.date, summary: all, keywords: texts)
+            let documents = try generate(facts, resources: [marked, data], spine: [.init(resource: marked)],
+                                          contents: texts.map { .init(title: $0, href: "EPUB/one.xhtml") }, pages: texts.map { .init(title: $0, href: "EPUB/one.xhtml") })
+            // Well-formed, and to an XML parser the values that were given.
+            let package = try opf(documents), navigation = try nav(documents)
+            for name in ["dc:title", "dc:identifier", "dc:description", "dc:language"] { expectScalars(package.named(name).map(\.text), [all], "\(name) \(first)") }
+            for name in ["dc:creator", "dc:subject"] { expectScalars(package.named(name).map(\.text), texts, "\(name) \(first)") }
+            let items = Array(package.named("item").dropFirst())
+            expectScalars(items.map { $0.attributes["id"] } + package.named("itemref").map { $0.attributes["idref"] }, [marked.id, data.id, marked.id], "id \(first)")
+            expectScalars(items.map { $0.attributes["media-type"] }, [marked.mediaType, data.mediaType], "media-type \(first)")
+            expectScalars([items.first?.attributes["properties"]], ["p" + texts.joined()], "properties \(first)")
+            let html = try #require(navigation.elements.first)
+            expectScalars([html.attributes["xml:lang"], html.attributes["lang"]], [all, all], "lang \(first)")
+            expectScalars(navigation.named("a").map(\.text), texts + texts, "labels \(first)")
+            for path in ["EPUB/package.opf", "EPUB/nav.xhtml"] {
+                #expect(!(try WriterCoverage.document(path, in: documents)).unicodeScalars.contains("'"), "\(path) \(first)")
+            }
+            // And to this package's reader.
+            let publication = try await reopened(documents, content: [marked.path: WriterCoverage.xhtml("<p>Text</p>"), data.path: Data([0])])
+            expectScalars([publication.metadata.title] + publication.metadata.identifiers + publication.metadata.languages, [all, all, all], "metadata read back \(first)")
+            expectScalars(publication.metadata.authors, texts, "authors read back \(first)")
+            expectScalars(publication.tableOfContents.map(\.title), texts, "contents read back \(first)")
+            expectScalars((publication.pageList ?? []).map(\.label), texts, "pages read back \(first)")
+            let resources = Array(publication.resources.dropFirst())
+            expectScalars(resources.map(\.id) + publication.spine.map(\.resource.id), [marked.id, data.id, marked.id], "ids read back \(first)")
+            expectScalars(resources.map(\.mediaType), [marked.mediaType, data.mediaType], "media types read back \(first)")
+            expectScalars(resources.flatMap(\.properties), ["p" + texts.joined()], "properties read back \(first)")
+            written += texts.count
+        }
+        #expect(written == after.count + before.count)
+    }
+
     // MARK: Package structure
 
     @Test func documentsNameTheirPathsRootfileVersionAndUniqueIdentifier() throws {
@@ -310,6 +458,51 @@ struct WriterPackageCoverageTests {
             #expect(throws: EPUBWritingError.invalidPublication("duplicate or invalid resource: EPUB/one.xhtml"), "\(id)") {
                 try generate(resources: [resource], spine: [.init(resource: resource)], contents: [])
             }
+        }
+    }
+
+    // A `Character` holds a "/", "\", ":" or "." together with a combining mark, variation
+    // selector or joiner after it, so read that way "EPUB/../" + U+0301 + "x.xhtml" is a safe
+    // path under EPUB/, and was written into the manifest as "../%CC%81x.xhtml"
+    // (https://github.com/vocaro/EPUBLib/issues/181).
+    @Test func resourcePathsAreCheckedWhateverMarkFollowsASeparatorOrDot() {
+        for m in WriterCoverage.clusteringMarks {
+            for path in ["EPUB/../\(m)x.xhtml", "EPUB/a/../../\(m)x.xhtml", "EPUB/./\(m)x.xhtml", "EPUB//\(m)x.xhtml", "EPUB/a\\\(m)b.xhtml",
+                         "EPUB/a:\(m)b.xhtml", "/\(m)EPUB/x.xhtml", "EPUB\(m)/x.xhtml", "\(m)EPUB/x.xhtml", "EPUB/x\u{600}/..", "EPUB/x\u{600}/"] {
+                let resource = EPUBResource(id: "x", path: path, mediaType: "application/xhtml+xml")
+                #expect(throws: EPUBWritingError.invalidPublication("duplicate or invalid resource: \(path)"), "\(path.debugDescription)") {
+                    try generate(resources: [resource], spine: [.init(resource: resource)], contents: [])
+                }
+            }
+            // A target that leaves the package, or the archive, behind such a separator.
+            for href in ["EPUB/../\(m)x.xhtml", "EPUB/../\(m)EPUB/one.xhtml", "../\(m)x.xhtml", "/\(m)EPUB/one.xhtml", "EPUB\\\(m)one.xhtml"] {
+                #expect(throws: (any Error).self, "contents \(href.debugDescription)") { try generate(contents: [.init(title: "t", href: href)]) }
+                #expect(throws: (any Error).self, "stylesheet \(href.debugDescription)") { try generate(stylesheet: href) }
+            }
+        }
+    }
+
+    @Test func aResourceWhoseNameBeginsWithAMarkIsWrittenUnderThatNameAndReadsBack() async throws {
+        // By its bytes "EPUB/" + U+0301 + "x.xhtml" is a file in EPUB/, as it is to the reader.
+        for m in WriterCoverage.clusteringMarks {
+            let e = WriterCoverage.escapingNonASCII(m)
+            let marked = EPUBResource(id: "m", path: "EPUB/\(m)x.xhtml", mediaType: "application/xhtml+xml")
+            let nested = EPUBResource(id: "n", path: "EPUB/a/\(m)y.css", mediaType: "text/css")
+            #expect(marked.href == "EPUB/\(e)x.xhtml")
+            // A target as the resource's href spells it, and written out.
+            let contents = [EPUBNavigationItem(title: "Escaped", href: marked.href + "#\(e)top"),
+                            EPUBNavigationItem(title: "Written", href: "EPUB/\(m)x.xhtml#\(m)top")]
+            let documents = try generate(resources: [marked, nested], spine: [.init(resource: marked)], contents: contents, stylesheet: "EPUB/a/\(m)y.css")
+            #expect(try opf(documents).named("item").map { $0.attributes["href"] } == ["nav.xhtml", "\(e)x.xhtml", "a/\(e)y.css"])
+            let links = try nav(documents).named("a").compactMap { $0.attributes["href"] }
+            #expect(links.map { Array($0.unicodeScalars) } == ["\(e)x.xhtml#\(e)top", "\(m)x.xhtml#\(m)top"].map { Array($0.unicodeScalars) }, "\(m.debugDescription)")
+            #expect(try nav(documents).named("link").map { $0.attributes["href"] } == ["a/\(m)y.css"])
+            let publication = try await reopened(documents, content: [marked.path: WriterCoverage.xhtml("<p>Marked</p>"), nested.path: Data("a{}".utf8)])
+            #expect(publication.spine.map { Array($0.resource.path.unicodeScalars) } == [Array(marked.path.unicodeScalars)], "\(m.debugDescription)")
+            #expect(Array(publication.resources.dropFirst()) == [marked, nested])
+            #expect(publication.tableOfContents.map(\.href) == ["EPUB/\(e)x.xhtml#\(e)top", "EPUB/\(e)x.xhtml#\(e)top"])
+            #expect(try publication.data(for: nested) == Data("a{}".utf8))
+            #expect(try publication.textSection(at: 0).text == "Marked")
         }
     }
 

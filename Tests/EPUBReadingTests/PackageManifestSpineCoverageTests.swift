@@ -74,6 +74,119 @@ final class PackageManifestSpineCoverageTests: XCTestCase {
         XCTAssertEqual(book.spine[1].resource.href, "OPS/two.xhtml")
     }
 
+    // A `Character` holds a "/", "\", ":" or "." together with a mark, selector or joiner after
+    // it, so read that way "../" + U+0301 + "x.css" has no dot segment and no separator. An
+    // archive and a file system read bytes (https://github.com/vocaro/EPUBLib/issues/181).
+    func testAManifestHrefIsResolvedWhateverMarkFollowsItsSeparatorsAndDots() throws {
+        for m in Fixture.clusteringMarks {
+            let e = Fixture.escapingNonASCII(m)
+            // Within the container: dot segments resolve and the name begins with the mark.
+            let cases: [(href: String, path: String)] = [
+                ("../\(m)x.css", "\(m)x.css"), ("./\(m)x.css", "OPS/\(m)x.css"), ("a/../\(m)x.css", "OPS/\(m)x.css"), ("a/\(m)x.css", "OPS/a/\(m)x.css"),
+                ("a//\(m)x.css", "OPS/a/\(m)x.css"), ("..%2F\(e)y.css", "\(m)y.css"), ("\(e)z.css#\(m)top", "OPS/\(m)z.css"),
+            ]
+            var items = "", files: [String: Data?] = [:]
+            for (index, item) in cases.enumerated() {
+                items += "<item id=\"i\(index)\" href=\"\(item.href)\" media-type=\"text/css\"/>"
+                files[item.path] = Data(item.path.utf8)
+            }
+            let book = try book(items: items, adding: files)
+            for (index, item) in cases.enumerated() {
+                let resource = try XCTUnwrap(book.resources.first { $0.id == "i\(index)" }, item.href.debugDescription)
+                XCTAssertEqual(Array(resource.path.unicodeScalars), Array(item.path.unicodeScalars), item.href.debugDescription)
+                XCTAssertEqual(resource.href, Fixture.escapingNonASCII(item.path), item.href.debugDescription)
+                XCTAssertEqual(try book.data(for: resource), Data(item.path.utf8), item.href.debugDescription)
+            }
+            // Read as the same href is without the mark. One that climbs past the container root
+            // or opens with a slash starts at the root (https://github.com/vocaro/EPUBLib/issues/84),
+            // and a colon is a character of the name (https://github.com/vocaro/EPUBLib/issues/171).
+            for (href, path) in [("../../\(m)x.css", "\(m)x.css"), ("/\(m)x.css", "\(m)x.css"), ("./a:\(m)x.css", "OPS/a:\(m)x.css")] {
+                let book = try self.book(items: "<item id=\"x\" href=\"\(href)\" media-type=\"text/css\"/>", adding: [path: Data(path.utf8)])
+                let resource = try XCTUnwrap(book.resources.first { $0.id == "x" }, href.debugDescription)
+                XCTAssertEqual(Array(resource.path.unicodeScalars), Array(path.unicodeScalars), href.debugDescription)
+                XCTAssertEqual(try book.data(for: resource), Data(path.utf8), href.debugDescription)
+            }
+            // A backslash names no file, and still refuses the book.
+            let href = "a\\\(m)x.css"
+            assertOpening(try self.book(items: "<item id=\"x\" href=\"\(href)\" media-type=\"text/css\"/>"), throws: .unsafePath(href), href.debugDescription)
+        }
+    }
+
+    func testAResourcePathJoinedToAFolderNamesAFileInsideIt() throws {
+        // doc/integration.md: "A host that writes a resource to disk may join its `path` to a
+        // directory of its own." Here every separator, dot and colon of the hrefs has a mark
+        // after it, and two of them start at or climb past the container root.
+        var items = "", files: [String: Data?] = [:]
+        let kinds = 8
+        for (index, m) in Fixture.clusteringMarks.enumerated() {
+            let hrefs = ["../\(m)x\(index).css", "./\(m)x\(index).css", "a/../\(m)x\(index)/..\(m)", ".\(m)x\(index)/\(m)x", "b//\(m)x\(index)",
+                         "../../../\(m)y\(index)/..\(m)", "/\(m)z\(index).css", "./c:\(m)x\(index)"]
+            XCTAssertEqual(hrefs.count, kinds)
+            for (kind, href) in hrefs.enumerated() {
+                items += "<item id=\"i\(index)-\(kind)\" href=\"\(href)\" media-type=\"text/css\"/>"
+                let path = try XCTUnwrap(ResourceReference.resolve(href, relativeTo: "OPS/book.opf").removingPercentEncoding)
+                files[path] = Data(path.utf8)
+            }
+        }
+        let book = try book(items: items, adding: files)
+        XCTAssertEqual(book.resources.count, 4 + kinds * Fixture.clusteringMarks.count)
+        let outer = URL.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let folder = outer.appending(path: "book", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: outer) }
+        for resource in book.resources {
+            let bytes = Array(resource.path.utf8)
+            // No "." or ".." segment, no empty one and so no leading "/", no backslash and no NUL.
+            // A path that fails is not written: it might name a file outside the folder.
+            guard !bytes.contains(where: { $0 == 0x5C || $0 == 0 }),
+                  bytes.split(separator: 0x2F, omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0 != [0x2E] && $0 != [0x2E, 0x2E] }) else {
+                XCTFail(resource.path.debugDescription)
+                continue
+            }
+            let file = folder.appending(path: resource.path, directoryHint: .notDirectory)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try book.data(for: resource).write(to: file)
+        }
+        // Nothing lies beside the folder, and each file is where its path says, under it.
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outer.path), ["book"])
+        let written = try XCTUnwrap(FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey])).compactMap { $0 as? URL }
+            .filter { try $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true }
+        XCTAssertEqual(written.count, book.resources.count)
+        for resource in book.resources {
+            XCTAssertEqual(try Data(contentsOf: folder.appending(path: resource.path, directoryHint: .notDirectory)), try book.data(for: resource),
+                           resource.path.debugDescription)
+        }
+    }
+
+    func testManifestAndContentsHrefsNameFilesInAnyScriptAndEitherNormalizationForm() throws {
+        // A mark, selector or joiner inside a name belongs to it: an accent composed and
+        // decomposed, emoji of several scalars, right-to-left and East Asian text, Hangul in
+        // syllables and in jamo, an Indic conjunct and Thai.
+        let names = ["caf\u{E9}", "nai\u{308}ve", "\u{1F469}\u{200D}\u{1F4BB}", "\u{1F44D}\u{1F3FD}", "\u{1F1EF}\u{1F1F5}", "1\u{FE0F}\u{20E3}",
+                     "\u{627}\u{644}\u{643}\u{62A}\u{627}\u{628}", "\u{5E1}\u{5B5}\u{5E4}\u{5B6}\u{5E8}", "\u{65E5}\u{672C}\u{8A9E}", "\u{304B}\u{3099}",
+                     "\u{D55C}\u{AE00}", "\u{1112}\u{1161}\u{11AB}", "\u{915}\u{94D}\u{937}", "\u{E19}\u{E49}\u{E33}"]
+        var items = "", links = "", files: [String: Data?] = [:]
+        for (index, name) in names.enumerated() {
+            let path = "OPS/\(name)/\(name).xhtml", written = "\(name)/\(name).xhtml"
+            // Written out in one item and escaped in the next.
+            items += "<item id=\"n\(index)\" href=\"\(index % 2 == 0 ? written : Fixture.escapingNonASCII(written))\" \(xhtml)/>"
+            links += "<li><a href=\"./\(name)/x/../\(name).xhtml#\(name)\">\(index)</a></li>"
+            files[path] = Data(path.utf8)
+        }
+        let book = try EPUBPublication.open(data: Fixture.packageVariant(
+            opf: { $0.replacingOccurrences(of: "<manifest>", with: "<manifest>" + items) },
+            nav: { _ in Fixture.navigationDocument("<nav epub:type=\"toc\"><ol>\(links)</ol></nav>") }, adding: files))
+        XCTAssertEqual(book.tableOfContents.count, names.count)
+        for (index, name) in names.enumerated() {
+            let path = "OPS/\(name)/\(name).xhtml", e = Fixture.escapingNonASCII(name)
+            let resource = try XCTUnwrap(book.resources.first { $0.id == "n\(index)" }, name)
+            XCTAssertEqual(Array(resource.path.unicodeScalars), Array(path.unicodeScalars), name)
+            XCTAssertEqual(resource.href, "OPS/\(e)/\(e).xhtml", name)
+            XCTAssertEqual(try book.data(for: resource), Data(path.utf8), name)
+            XCTAssertEqual(try book.data(at: path), Data(path.utf8), name)
+            XCTAssertEqual(book.tableOfContents[index].href, "OPS/\(e)/\(e).xhtml#\(e)", name)
+        }
+    }
+
     func testOneFileUnderTwoManifestIdsIsTwoResources() throws {
         let book = try book(items: "<item id=\"again\" href=\"./one.xhtml\" \(xhtml)/>",
                             spine: "<spine><itemref idref=\"again\"/><itemref idref=\"two\"/><itemref idref=\"one\"/></spine>")

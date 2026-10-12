@@ -17,6 +17,9 @@ import Foundation
 /// in text but stay a reference in raw text, and where libxml2 ends raw text cannot be told
 /// from the bytes alone: directly after the start tag, the end tag of any element then open
 /// ends it (`<p><style></p>`).
+///
+/// The bytes are UTF-8: `HTMLSourceEncoding` has decoded any other encoding. A sign before a
+/// NUL opens nothing either, and `HTMLNullCharacters` then reads the NUL.
 enum HTMLStraySigns {
     /// The bytes to parse, and the placeholder that stands for a sign in them: `nil` when
     /// nothing was replaced and `data` is returned as it is. The result is `nil` when the bytes
@@ -54,15 +57,15 @@ enum HTMLStraySigns {
         var index = start
         while let sign = bytes[index...].firstIndex(of: 0x3C) {
             guard sign + 1 < bytes.count else { return sign }
-            let next = bytes[sign + 1]
-            // A NUL here ends the parser's input. It is as far as that parser, told the bytes
-            // are UTF-8, reads of UTF-16 or UTF-32 text, which is left as it was.
-            if next == 0 { return nil }
-            let opensMarkup = (next | 0x20 >= 0x61 && next | 0x20 <= 0x7A) || next == 0x2F || next == 0x21 || next == 0x3F // / ! ?
-            if !opensMarkup { return sign }
+            if !opensMarkup(before: bytes[sign + 1]) { return sign }
             index = sign + 1
         }
         return nil
+    }
+
+    /// Whether a `<` before `next` opens markup: an ASCII letter, `/`, `!` or `?`.
+    static func opensMarkup(before next: UInt8) -> Bool {
+        (next | 0x20 >= 0x61 && next | 0x20 <= 0x7A) || next == 0x2F || next == 0x21 || next == 0x3F
     }
 
     /// One of U+FDD0 to U+FDEF, which Unicode keeps for a program's own use, that `bytes` holds
