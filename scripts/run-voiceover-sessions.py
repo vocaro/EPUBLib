@@ -112,7 +112,7 @@ def main():
     args = parser.parse_args()
     options, launch, lists = settings()
     for number, steps in enumerate(lists, 1):
-        print(f"Session {number}: {shlex.join(launch)}; {shlex.join(options + steps)}")
+        print(f"Session {number}: {shlex.join(launch)}; {shlex.join(options + steps)}", flush=True)
     if args.check:
         return 0
     RESULTS.mkdir(parents=True, exist_ok=True)
@@ -123,7 +123,8 @@ def main():
         timeout = 300 if args.until is None else min(300, int(args.until - time.time()) - 45)
         if timeout < 60:
             failures += 1
-            outcome = transcript = "not run: the job's time was used up"
+            outcome, transcript = "not run, because the job's time was used up", "no transcript"
+            summary += [f"Session {number}: {outcome}", ""]
         else:
             print(f"::group::Session {number}", flush=True)
             fresh_reader(launch)
