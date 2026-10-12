@@ -88,6 +88,13 @@ import AppKit
     /// out itself (new text, a new column width, boxes resolved for a new visible height): its
     /// lines then move by the reader's own doing, not by a layout behind the view.
     var scrollPlace: (location: Int, lineTop: CGFloat, visibleTop: CGFloat)?
+    /// Whether the scroll view stands where it was last read, to within a point. AppKit aligns
+    /// the offset to the pixel grid when the clip view gets its layer, at the scroll view's first
+    /// display, which moves the view by less than that with no scroll by the person.
+    var scrollViewStandsWhereRead: Bool {
+        guard let place = scrollPlace else { return false }
+        return abs(scrollVisibleContainerRect.minY - place.visibleTop) < 1
+    }
     #if os(macOS)
     /// Where the reader last put the scroll view's insertion point (`placeScrollInsertionPoint`).
     private var placedScrollInsertionPoint: Int?
@@ -796,14 +803,15 @@ import AppKit
         isScrollingProgrammatically = wasScrolling
     }
 
-    /// The platform scroll view moved; reports the visible range at most every 150 ms.
+    /// The platform scroll view moved; reports the visible range at most every 150 ms. A move
+    /// that leaves the view where it was last read is the platform's, and nobody scrolled.
     func scrollPositionDidChange() {
         let ordered = ReaderHighlight.drawingOrder(highlights)
         scrollTextView?.setTableHighlights(ordered)
         if let range = currentSelection?.range, range.start.tableCell != nil || range.end.tableCell != nil {
             _ = scrollTextView?.selectTableRange(range, reporting: false)
         }
-        guard !isScrollingProgrammatically else { return }
+        guard !isScrollingProgrammatically, !scrollViewStandsWhereRead else { return }
         anchorFollowsScroll = true
         guard !scrollReportPending else { return }
         scrollReportPending = true
