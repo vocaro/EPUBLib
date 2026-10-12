@@ -16,6 +16,9 @@ Drive iOS simulators headlessly, with `xcrun simctl` and `xcodebuild`.
 - Install, launch and capture with `simctl install`, `simctl launch` and
   `simctl io <device> screenshot`. Tests run with
   `xcodebuild -destination "platform=iOS Simulator,id=<device>"`.
+- VoiceOver runs in a simulator too. `scripts/run-voiceover-simulator.py` records what it
+  reads on simulators of its own, muted; [VoiceOver testing](doc/voiceover-testing.md#simulators)
+  says what that does and does not establish.
 - Do not open a live simulator view or any tool that takes control of a simulator's screen
   (in the Claude desktop app, the iOS Simulator tool) unless the owner has asked to watch.
   Such a tool asks him to approve each device, and a test device is new on every run, so he
