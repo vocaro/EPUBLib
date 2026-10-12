@@ -22,8 +22,9 @@ struct SectionText: @unchecked Sendable {
     /// element's start (the section's end when nothing follows).
     let anchors: [String: Int]
     /// Footnote and endnote content for showing a note in place, under every `id` that names the
-    /// note: its own and those of the elements inside it, apart from the ones inside a note
-    /// nested in it (`SectionBuildState.captureNote` has the rule).
+    /// note: its own and those of its leading descendants and, for a footnote hidden from the
+    /// flow and the notes inside one, those of every other element inside it, apart from the
+    /// ones inside a note nested in it (`SectionBuildState.captureNote` has the rule).
     let notes: [String: NSAttributedString]
     /// `<head><title>`, whitespace-normalized; nil when absent or empty.
     let title: String?

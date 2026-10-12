@@ -201,26 +201,34 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   whole table still resolve to that table; new cell ranges identify the selected characters.
   Interaction surfaces are mounted only for visible cells. Cell TextKit
   layouts and glyph metadata are retained for drawing in the table's bounded layout cache.
-- **Footnotes.** EPUB 3 `noteref` links show their note in a popover. The link may name the
-  note or any element inside it (its first paragraph, a later one, the text after its
-  number), and the popover shows the whole note either way: a `noteref` is "a reference to a
-  note", and the rest of a footnote has nowhere else to be read. Thorium and foliate-js show
-  only the element named. Footnote `aside`s are hidden from the flow, whether or not anything
-  refers to them; endnotes stay in place and also show in popovers.
+- **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
+  hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
+  in place and also show in popovers.
+  - A footnote hidden from the flow has nowhere else to be read, so a link may name it or
+    any element inside it (its first paragraph, a later one, the text after its number) and
+    the popover shows the whole note either way. A note inside such a footnote is hidden with
+    it and is named the same way.
+  - A note that stays in the flow is named by its own id and by the ids of its leading
+    descendants (its first child, and that one's): a link may name its first paragraph or
+    the number that opens it. A link to any other element inside it finds no note and
+    navigates to that element, which can be read where it is. An endnotes list marked as one
+    note is the case that matters: a reference to its seventeenth item goes to that item
+    rather than opening the whole list from the top.
   - An id inside a note nested in another names the nested note alone, and that note is left
     out of the outer note's popover. Two exceptions keep text from being lost: a nested note
-    with no id anywhere in it, which nothing could open, is part of the note around it; and a
-    note with nothing of its own (two elements marking one note, or a wrapper around several)
-    shows the notes nested in it.
+    that no id names, which nothing could open, is part of the note around it; and a note
+    with nothing of its own (two elements marking one note, or a wrapper around several)
+    shows the notes nested in it, two levels of them. Notes nested deeper in notes that hold
+    only one another are left out of the outer ones, so that such nesting cannot multiply the
+    work of building a section.
   - An id used more than once names one note: one that carries it on its own element or a
-    leading descendant (a first child, and that one's) before one that holds it elsewhere,
-    and otherwise the first in the document.
+    leading descendant before a hidden one that holds it elsewhere, and otherwise the first
+    in the document.
   - A link without the `noteref` type shows a note when it names the note or one of its
     children, or anything inside a footnote hidden from the flow; deeper into a note that
     is in the flow, it navigates. Inside a popover, a link to the note being shown is plain
     text.
-  - A footnote `aside` with no id anywhere in it cannot be referred to and is not shown, as
-    in Apple Books, Thorium and Foliate.
+  - A footnote `aside` with no id anywhere in it cannot be referred to and is not shown.
 - **Flex and grid.** TextKit lays a section out as one column of paragraphs, so the reader
   aligns the flex and grid layouts that keep that column: a column flex container, a one-column
   grid and a row flex container with a single item

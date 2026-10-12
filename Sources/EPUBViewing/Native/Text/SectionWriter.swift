@@ -37,9 +37,10 @@ final class SectionWriter {
         /// A table cell or caption for a rich-content factory: no map.
         case detached
         /// A note's content for showing in place: no map, blocks flattened to plain paragraphs.
-        /// `ids` are the ids the note is captured under. `whole` keeps the notes nested in it
-        /// that are captured on their own, for a note with nothing else to show.
-        case note(ids: Set<String>, whole: Bool)
+        /// `ids` are the ids the note is captured under. `depth` is how deep in notes captured
+        /// on their own (`SectionBuildState.noteDepth`) the content goes: the note's own depth,
+        /// or further for a note with nothing else to show.
+        case note(ids: Set<String>, depth: Int)
     }
 
     struct Output {
@@ -248,13 +249,14 @@ final class SectionWriter {
         if style.writingMode != .horizontalTB { state.report.report.verticalWritingFlattened = true }
         if isSection, node.isHTML("body") { state.bodyStyle = style }
         register(node)
-        if let kind = state.noteKind(node) {
+        if state.noteKind(node) != nil {
             if isSection { state.captureNote(node) }
-            if case .note(_, let whole) = mode {
+            if case .note(_, let depth) = mode {
                 // A note's content leaves out the notes nested in it that are captured on their
-                // own. One that no id names is captured nowhere else: it is part of this note.
-                if !whole, state.isNamedNote(node) { leftOutNote = true; return }
-            } else if kind == .footnote, !state.isCapturingNote || state.isNamedNote(node) {
+                // own, below the depth it goes to. One that no id names is captured nowhere
+                // else: it is part of this note.
+                if state.isNamedNote(node), state.noteDepth(of: node) > depth { leftOutNote = true; return }
+            } else if state.isHiddenFootnote(node), !state.isCapturingNote || state.isNamedNote(node) {
                 // A footnote is shown only in place of its reference. In a cell of a note's
                 // table, one that no id names is part of that note, as it is outside the table.
                 skip(node, registered: true); return
