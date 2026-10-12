@@ -74,7 +74,6 @@ final class TableCoverageModelTests: XCTestCase {
     /// than that; a title row written with a large `colspan` to span "everything" still has to
     /// show its text.
     func testACellSpanningMoreColumnsThanTheReaderLaysOutKeepsItsText() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/139")
         for span in [TableModel.maximumColumns + 1, 1000, 100_000] {
             let text = try plain("<table><tr><td colspan='\(span)'>Quarterly totals</td></tr><tr><td>North</td><td>South</td></tr></table>")
             XCTAssertTrue(text.contains("Quarterly totals"), "colspan=\(span) rendered \(text.debugDescription)")
@@ -282,7 +281,6 @@ final class TableCoverageModelTests: XCTestCase {
     /// parsed as XML, which performs no tree repair, so such markup reaches the renderer as
     /// written and browsers show its content.
     func testContentInATableOutsideItsRowsAndCellsIsStillShown() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/139")
         let cellInTable = try plain("<table><tr><td>A</td><td>B</td></tr><td>Cell without a row</td></table>")
         XCTAssertTrue(cellInTable.contains("Cell without a row"), cellInTable.debugDescription)
         let cellInGroup = try plain("<table><tbody><tr><td>A</td><td>B</td></tr><td>Cell in a group</td></tbody></table>")
@@ -303,7 +301,6 @@ final class TableCoverageModelTests: XCTestCase {
     /// CSS 2.2 §17.2: "All elements with 'display: table-caption' must be rendered", and §17.4
     /// places every caption box in the table wrapper.
     func testEveryCaptionIsShown() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/139")
         let text = try plain("<table><caption>Table 4</caption><caption>Source: field notes</caption><tr><td>A</td><td>B</td></tr></table>")
         XCTAssertTrue(text.contains("Table 4"), text.debugDescription)
         XCTAssertTrue(text.contains("Source: field notes"), text.debugDescription)

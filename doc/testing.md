@@ -28,8 +28,14 @@ A window that mounts a reader for a test calls `keepLightAppearance()` (`ReaderT
 so a reader whose style is System opens light on a Mac or simulator in dark appearance, and the
 suite gives one result by day and in the evening. A test that needs a dark host sets
 `ReaderTestWindow.pageControls.colorScheme`.
-`NativeSessionTests.testAMountedReaderIsLightOnADarkMachineUntilTheTestAsksForDark` holds the
-harness to that with a dark appearance for its own process.
+`NativeSessionTests.testATestWindowKeepsItsReaderLightUntilTheTestAsksForDark` holds the harness
+to that: on the Mac under a dark appearance for its own process, and on iOS, where a test process
+cannot make its device dark, by the window's own style. To run a Mac bundle as a machine in light
+appearance would, whatever the system setting, pass the argument after `-XCTest`:
+
+```sh
+xcrun xctest -XCTest All -NSRequiresAquaSystemAppearance YES .build/debug/EPUBViewingTests.xctest
+```
 
 ## Coverage
 
