@@ -13,8 +13,9 @@ import Foundation
 /// Nor does ZIPFoundation close the file it opens over bytes it then refuses, and that file
 /// keeps them: every such refusal costs the process the size of what it was offered, for good.
 /// It refuses bytes it finds no signature in and bytes whose record gives a comment longer than
-/// what follows it, and no others. Opening refuses both first (`readableOffset(in:)`), so
-/// ZIPFoundation is given only bytes it makes an archive of, which closes that file when it goes.
+/// what follows it, and none for anything else in them. Opening refuses both first
+/// (`readableOffset(in:)`), so ZIPFoundation is given only bytes it makes an archive of, which
+/// closes that file when it goes.
 enum ArchiveEndRecord {
     /// The length of a record with the longest comment.
     static let maximumLength = 22 + 65_535
