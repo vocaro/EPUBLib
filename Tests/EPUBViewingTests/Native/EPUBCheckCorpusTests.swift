@@ -151,6 +151,7 @@ import XCTest
         }
         let fonts = FontRegistry(publication: publication)
         var report = SectionReport()
+        var flexGridSections = 0
         for index in publication.spine.indices {
             let resource = publication.spine[index].resource
             if resource.mediaType != "application/xhtml+xml" { outcome.foreignSpineItems.append("\(resource.path) (\(resource.mediaType))") }
@@ -173,6 +174,7 @@ import XCTest
             }
             if section.report.recoveredAsHTML { outcome.recoveredAsHTML.append(resource.path) }
             if section.report.cfiUnavailable { outcome.cfiUnavailable.append(resource.path) }
+            if section.report.flexGridSimplified { flexGridSections += 1 }
             outcome.mapViolations += mapViolations(section)
             report.formUnion(section.report)
         }
@@ -183,6 +185,7 @@ import XCTest
             "stylesTruncated": report.stylesTruncated ? 1 : 0, "fixedLayoutReflowed": report.fixedLayoutReflowed ? 1 : 0,
             "verticalWritingFlattened": report.verticalWritingFlattened ? 1 : 0,
             "flowBoxesReflowed": report.flowBoxesReflowed ? 1 : 0, "flexGridSimplified": report.flexGridSimplified ? 1 : 0,
+            "flexGridSimplifiedSections": flexGridSections,
         ].filter { $0.value != 0 }
         return outcome
     }

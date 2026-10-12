@@ -108,28 +108,37 @@ func state(showLines: Bool = false) {
     log("STATE WINDOW \(Int(window.width))x\(Int(window.height)) TEXTCOUNT \(texts.count)")
     for (index, text) in texts.enumerated() {
         let all = lines(text), selection = range(attribute(text, kAXSelectedTextRangeAttribute))
+        // The line VoiceOver enters at is the insertion point's, by the text's own account.
+        let entry = (attribute(text, kAXInsertionPointLineNumberAttribute) as? Int).flatMap { all.indices.contains($0) ? all[$0].text : nil }
+        let visible = range(attribute(text, kAXVisibleCharacterRangeAttribute))
         log("STATE TEXT \(index) WIDTH \(Int(size(text).width)) CHARS \(attribute(text, kAXNumberOfCharactersAttribute) as? Int ?? -1)"
-            + " LINES \(all.count) SELECTION \(selection.map { "\($0.location),\($0.length)" } ?? "none") VALUE \(shortValue(text))")
+            + " LINES \(all.count) SELECTION \(selection.map { "\($0.location),\($0.length)" } ?? "none")"
+            + " VISIBLE \(visible.map { "\($0.location),\($0.length)" } ?? "none") ENTRY \(entry.map { String($0.prefix(40)) } ?? "none") VALUE \(shortValue(text))")
         guard showLines else { continue }
         for (line, entry) in all.enumerated() { log("LINE \(index).\(line) RANGE \(entry.range.location),\(entry.range.length) TEXT \(entry.text)") }
     }
 }
 func settle(_ seconds: Double) { RunLoop.current.run(until: Date().addingTimeInterval(seconds)) }
-func press(_ role: String, _ label: String) -> Bool {
+func press(_ role: String, _ labels: String...) -> Bool {
     // Identify controls by label or help; indexes change with the layout.
-    guard let element = elements(role).first(where: {
-        string($0, kAXDescriptionAttribute) == label || string($0, kAXTitleAttribute) == label || string($0, kAXHelpAttribute).hasPrefix(label)
-    }) else { log("MISSING \(role) \(label)"); return false }
-    log("PRESS \(label) STATUS \(AXUIElementPerformAction(element, kAXPressAction as CFString).rawValue)")
-    return true
+    for label in labels {
+        guard let element = elements(role).first(where: {
+            string($0, kAXDescriptionAttribute) == label || string($0, kAXTitleAttribute) == label || string($0, kAXHelpAttribute).hasPrefix(label)
+        }) else { continue }
+        log("PRESS \(label) STATUS \(AXUIElementPerformAction(element, kAXPressAction as CFString).rawValue)")
+        return true
+    }
+    log("MISSING \(role) \(labels.joined(separator: " or "))")
+    return false
 }
 func perform(_ step: String) {
     log("STEP \(step)")
     let parts = step.split(separator: "=").map(String.init)
     var pause = 3.0 // A resize or typography change repaginates after it ends.
     switch parts.first {
-    case "next": _ = press(kAXButtonRole, "Next Page")
-    case "previous": _ = press(kAXButtonRole, "Previous Page")
+    // In continuous scroll the page buttons step a screen and are named for that.
+    case "next": _ = press(kAXButtonRole, "Next Page", "Scroll Forward")
+    case "previous": _ = press(kAXButtonRole, "Previous Page", "Scroll Backward")
     case "larger", "smaller":
         // The menu tracks events until an item is chosen, so its press may report a timeout.
         if press(kAXMenuButtonRole, "Appearance") {

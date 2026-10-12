@@ -83,6 +83,8 @@ final class ReaderAlignmentContainer: @unchecked Sendable {
     }
 
     var isRightToLeft: Bool { style.direction == .rtl }
+    /// The box has a height of its own to align within: a `height` or a `min-height`.
+    var hasHeight: Bool { style.height != .auto || style.minHeight != .auto }
 
     fileprivate func anonymousItem() -> ReaderAlignmentItem {
         if let anonymous { return anonymous }
@@ -117,7 +119,6 @@ final class ReaderAlignmentContainer: @unchecked Sendable {
         if hasReordering, itemCount > 1 { isSimplified = true }
         if hasTooDeepNesting { isSimplified = true }
         guard layout != .block else { return }
-        let hasHeight = style.height != .auto || style.minHeight != .auto
         let hasGap = layout == .stack && itemCount > 1 && alignment.rowGap != .zero
         hasEffect = hasHeight || hasGap || hasItemAlignment || containerSide != .start
         // Floats and positioned boxes have their own geometry, which alignment cannot measure.
@@ -275,7 +276,8 @@ final class ReaderAlignmentParagraph: NSObject, @unchecked Sendable {
 
 extension NSAttributedString.Key {
     /// A `ReaderAlignmentParagraph` on each paragraph inside a flex or grid container that the
-    /// native layout aligns. Source text only: pages and resolved text do not carry it.
+    /// native layout aligns. Resolved text keeps it, which is how continuous scroll finds the
+    /// box around a position (`ReaderAlignmentLayout.boxes`); a page's text does not carry it.
     static let readerAlignment = NSAttributedString.Key("org.epublib.alignment")
     /// On the first character of an aligned box's first paragraph, in resolved text: the points
     /// between the box's top edge and that line (alignment's space and the box's top padding and

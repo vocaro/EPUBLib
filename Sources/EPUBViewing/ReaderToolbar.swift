@@ -291,15 +291,33 @@ struct EPUBSearchField: View {
                 }
             }
             if onDismiss != nil {
-                Button("Clear Search") { controls.clearSearch(); focused = true }
-            }
-            feedback.font(.callout)
-            if let error = controls.commandErrorBesideSearchFeedback { Text(error).foregroundStyle(.red).font(.callout) }
-            EPUBSearchResultPane(controls: controls, onDismiss: onDismiss)
+                // The pane has what its sheet or popover leaves above the keyboard. Clear Search
+                // and the match navigator grow with the text, and on an iPhone on its side they
+                // outgrow that with no list at all. A sheet or popover centres content taller
+                // than itself, which cut the field and Close Search off the top: what does not
+                // fit under them scrolls there instead.
+                EPUBSearchPaneFit(popoverRoom: EPUBSearchResultPane.popoverListRoom(controls)) {
+                    ViewThatFits(in: .vertical) {
+                        VStack(alignment: .leading) { belowField }
+                        ScrollView {
+                            VStack(alignment: .leading) { belowField }.frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .scrollDismissesKeyboard(.immediately)
+                    }
+                }
+            } else { belowField }
         }
         // A search pane was just opened to type in. The inline field is always on screen: taking
         // focus as it appears raised the keyboard over the book as soon as it opened.
         .task { if onDismiss != nil { focused = true } }
+    }
+    @ViewBuilder private var belowField: some View {
+        if onDismiss != nil {
+            Button("Clear Search") { controls.clearSearch(); focused = true }
+        }
+        feedback.font(.callout)
+        if let error = controls.commandErrorBesideSearchFeedback { Text(error).foregroundStyle(.red).font(.callout) }
+        EPUBSearchResultPane(controls: controls, onDismiss: onDismiss)
     }
     @ViewBuilder private var feedback: some View {
         switch controls.status?.search ?? .idle {
