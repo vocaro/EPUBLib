@@ -264,6 +264,19 @@ import XCUIAutomation
                     if !wanted.isEmpty, phrase.localizedCaseInsensitiveContains(wanted) { found = true; break }
                 }
                 if !found { note(step, "MISSING") }
+            case "listen":
+                // What VoiceOver goes on to say about the item under its cursor. A step records
+                // one phrase, and a label that ends with its paragraph's break ends the phrase:
+                // "Heading" and "Actions available" come after it.
+                let until = Date().addingTimeInterval(Double(parts.last ?? "") ?? 3)
+                var last = events.last?["utterance"] ?? ""
+                while Date() < until {
+                    if let phrase = try? voiceOver.currentSpeech().utterance, phrase != last {
+                        last = phrase
+                        note("listen", phrase)
+                    }
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+                }
             case "wait":
                 RunLoop.current.run(until: Date().addingTimeInterval(Double(parts.last ?? "") ?? 1))
             case "screenshot":

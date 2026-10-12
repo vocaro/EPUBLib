@@ -173,6 +173,135 @@ import UIKit
                            "each heading once, whole, at \(size)")
         }
     }
+
+    // MARK: The Headings rotor
+
+    /// The item the view's Headings rotor gives with VoiceOver's cursor on `element` (on none of
+    /// the view's lines when nil), as VoiceOver asks when a finger flicks down or up.
+    private func rotorHeading(from element: UIAccessibilityElement?, in view: ReaderTextView, forward: Bool) throws -> UIAccessibilityElement? {
+        let rotor = try XCTUnwrap(view.accessibilityCustomRotors?.first { $0.systemRotorType == .heading }, "the view gives VoiceOver its Headings rotor")
+        let predicate = UIAccessibilityCustomRotorSearchPredicate()
+        predicate.searchDirection = forward ? .next : .previous
+        predicate.currentItem = UIAccessibilityCustomRotorItemResult(targetElement: element ?? view, targetRange: nil)
+        return rotor.itemSearchBlock(predicate)?.targetElement as? UIAccessibilityElement
+    }
+
+    func testTheHeadingsRotorMovesAmongThePagesHeadingsOneStopForEach() throws {
+        let (_, _, view) = try shownPage()
+        let elements = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+        // The title, the second heading's first words, the hidden one, the deepest.
+        let stops = [elements[0], elements[2], elements[5], elements[7]]
+        for (index, stop) in stops.enumerated() {
+            let next = try rotorHeading(from: stop, in: view, forward: true)
+            XCTAssertTrue(next === (index + 1 < stops.count ? stops[index + 1] : nil), "after \(read(stop)): \(next.map(read) ?? "none")")
+            let previous = try rotorHeading(from: stop, in: view, forward: false)
+            XCTAssertTrue(previous === (index > 0 ? stops[index - 1] : nil), "before \(read(stop)): \(previous.map(read) ?? "none")")
+        }
+        // From a line that is no heading, and from inside a heading: its link, its last words.
+        XCTAssertTrue(try rotorHeading(from: elements[1], in: view, forward: true) === elements[2])
+        XCTAssertTrue(try rotorHeading(from: elements[1], in: view, forward: false) === elements[0])
+        for inside in [elements[3], elements[4]] {
+            XCTAssertTrue(try rotorHeading(from: inside, in: view, forward: true) === elements[5], "the next heading, not the rest of this one")
+            XCTAssertTrue(try rotorHeading(from: inside, in: view, forward: false) === elements[0], "the one before, not its own first words")
+        }
+        // With the cursor on none of the lines: from before the first, or after the last.
+        XCTAssertTrue(try rotorHeading(from: nil, in: view, forward: true) === elements[0])
+        XCTAssertTrue(try rotorHeading(from: nil, in: view, forward: false) === elements[7])
+        XCTAssertTrue(zip(elements, try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])).allSatisfy { $0 === $1 },
+                      "a page that holds the heading asked for is not shown again")
+    }
+
+    func testTheHeadingsRotorTurnsToThePageOfTheBooksNextHeading() throws {
+        let section = try chapter()
+        let second = try H.build("<h1>The chapter after</h1><p>\(CanvasText.sentence(120, seed: 7))</p><h2>Its last heading</h2><p>End.</p>", css: Self.css)
+        let source = FakeCanvasSource([section.string, second.string])
+        let host = CanvasHost(source, size: CGSize(width: 320, height: 560))
+        hosts.append(host)
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        host.layOut()
+        func column() throws -> ReaderTextView { try XCTUnwrap(host.canvas.textViews.first) }
+        var cursor = try XCTUnwrap(try XCTUnwrap(column().accessibilityElements as? [UIAccessibilityElement]).first)
+        XCTAssertEqual(read(cursor), "heading 1 A chapter title long enough to take two lines of a narrow page column")
+        // Forward through the book: each move shows the page that holds the heading it gives.
+        var heard: [String] = [], places: [ReaderTextPosition] = []
+        while let next = try rotorHeading(from: cursor, in: try XCTUnwrap(cursor.accessibilityContainer as? ReaderTextView), forward: true) {
+            let view = try XCTUnwrap(next.accessibilityContainer as? ReaderTextView)
+            XCTAssertTrue(try column() === view, "\(read(next)) is on the page now shown")
+            XCTAssertNotEqual(view.index(ofAccessibilityElement: next), NSNotFound)
+            XCTAssertTrue(view.bounds.insetBy(dx: -1, dy: -1).contains(next.accessibilityFrameInContainerSpace), read(next))
+            heard.append(read(next))
+            places.append(ReaderTextPosition(section: try XCTUnwrap(view.placement.section), offset: view.placement.offset))
+            cursor = next
+            XCTAssertLessThan(heard.count, 20)
+        }
+        XCTAssertEqual(heard, ["heading 2 Second level", "heading 3 Third level\u{2028}on two lines", "heading 4 Fourth level",
+                               "heading 1 The chapter after", "heading 2 Its last heading"])
+        XCTAssertEqual(places.map(\.section), [0, 0, 0, 1, 1])
+        XCTAssertTrue(zip(places, places.dropFirst()).allSatisfy { $0.section < $1.section || $0.offset <= $1.offset }, "onward through the book")
+        XCTAssertGreaterThan(places[0].offset, 0, "the second heading is on a later page than the first")
+        XCTAssertEqual(host.recorder.shown.last?.range.start.section, 1, "the reader reports the place it was taken to")
+        // And back to the first page of the first chapter.
+        var back: [String] = []
+        while let previous = try rotorHeading(from: cursor, in: try XCTUnwrap(cursor.accessibilityContainer as? ReaderTextView), forward: false) {
+            back.append(read(previous))
+            cursor = previous
+            XCTAssertLessThan(back.count, 20)
+        }
+        XCTAssertEqual(back, ["heading 1 The chapter after", "heading 4 Fourth level", "heading 3 Third level\u{2028}on two lines",
+                              "heading 2 Second level", "heading 1 A chapter title long enough to take two lines of a narrow page column"])
+        XCTAssertEqual(try column().placement.section, 0)
+        XCTAssertEqual(try column().placement.offset, 0)
+    }
+
+    func testTheHeadingsRotorFindsNoneInAChapterThatIsNotBuiltYet() throws {
+        let section = try H.build("<h1>Only heading</h1><p>Words.</p>", css: Self.css)
+        let host = CanvasHost(FakeCanvasSource([section.string, nil]), size: CGSize(width: 320, height: 560))
+        hosts.append(host)
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        host.layOut()
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        let first = try XCTUnwrap(try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement]).first)
+        XCTAssertNil(try rotorHeading(from: first, in: view, forward: true))
+        XCTAssertEqual(view.placement.section, 0, "and the reader stays where it is")
+        XCTAssertTrue(try rotorHeading(from: nil, in: view, forward: true) === first)
+    }
+
+    func testTheHeadingsRotorScrollsToTheBooksNextHeadingInContinuousScroll() async throws {
+        let reader = try SessionCoverageReader(try SessionCoverageBook.chapters())
+        readers.append(reader)
+        reader.window?.resize(to: CGSize(width: 402, height: 874))
+        try await reader.settle()
+        try await reader.session.send(.style(EPUBReaderStyle(flow: .scrolled)))
+        try await reader.wait("the whole book in the scroll view") { reader.session.canvas?.scrollBook != nil }
+        try await reader.settle()
+        let canvas = try XCTUnwrap(reader.session.canvas), view = try XCTUnwrap(canvas.scrollTextView)
+        var cursor = try XCTUnwrap(try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement]).first)
+        XCTAssertEqual(read(cursor), "heading 1 First Chapter")
+        // Each chapter's heading is many screens from the one before.
+        var heard: [String] = [], sections: [Int] = []
+        while let next = try rotorHeading(from: cursor, in: view, forward: true) {
+            let area = canvas.scrollVisibleContainerRect.offsetBy(dx: view.containerOrigin.x, dy: view.containerOrigin.y).insetBy(dx: -1_000, dy: -1)
+            XCTAssertTrue(area.contains(next.accessibilityFrameInContainerSpace), "\(read(next)) is on screen at \(next.accessibilityFrameInContainerSpace) in \(area)")
+            XCTAssertNotEqual(view.index(ofAccessibilityElement: next), NSNotFound)
+            // The lines around the place the cursor left are still listed before it.
+            let top = try XCTUnwrap(view.line(containing: try XCTUnwrap(canvas.scrollSpokenCharacters()).location))
+            XCTAssertEqual(view.plainText(in: top.range), next.accessibilityLabel, "at the top of the screen")
+            heard.append(read(next))
+            sections.append(try XCTUnwrap(canvas.visibleRange).start.section)
+            // VoiceOver's cursor goes to what it is given.
+            next.accessibilityElementDidBecomeFocused()
+            cursor = next
+            XCTAssertLessThan(heard.count, 10)
+        }
+        XCTAssertEqual(heard, ["heading 1 Second Chapter", "heading 1 Third Chapter"])
+        XCTAssertEqual(sections, [2, 3])
+        let previous = try XCTUnwrap(try rotorHeading(from: cursor, in: view, forward: false))
+        XCTAssertEqual(read(previous), "heading 1 Second Chapter")
+        XCTAssertEqual(canvas.visibleRange?.start.section, 2)
+        // A note's popover keeps UIKit's own elements and rotors.
+        let note = ReaderNoteViewController(text: CanvasText.body("A note."), dark: false, width: 300)
+        XCTAssertNil(note.textView.accessibilityCustomRotors)
+    }
     #else
     /// The levels VoiceOver is given in the rich text of `range`, each with the words it is on.
     private func levels(in view: ReaderTextView, _ range: NSRange) throws -> [String] {

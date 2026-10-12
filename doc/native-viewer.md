@@ -666,12 +666,25 @@ The following are the defaults. Host commands and accessibility actions stay ena
   level, whole however many lines it takes; a link or an image in it is still its own
   element, a heading too. A page gives the part of a heading it shows. In continuous scroll
   a heading keeps one element whichever of its lines are on screen, listed by the part of it
-  in the reading area. VoiceOver's Headings rotor moves among the headings listed: the
-  page's, or the screen's in continuous scroll.
+  in the reading area. VoiceOver says "Heading" after the words; it was not heard to say the
+  level it is given (iOS 27.0). Its own Headings rotor moves among the elements it is given,
+  and a page or a screen holds few of a book's headings, so each text view gives VoiceOver
+  that rotor itself (`UIAccessibilityCustomRotor`, system type heading): a move by heading
+  goes to the next heading listed, one stop for a heading in several elements, and past the
+  page or the screen to the next heading of the book, which the reader turns or scrolls to
+  as it does for a link. A section that is not built yet ends the search, and so does the
+  end of the book: VoiceOver then says "Heading not found".
   On Mac a text area has no elements for its lines, so the heading's characters carry its
   level (`AXHeadingLevel`) in the rich text an assistive client reads, and each text view
-  gives VoiceOver a Headings rotor that names each heading by its words and moves to it: a
-  page column's holds its page's headings, the scroll view's the whole book's.
+  gives VoiceOver a Headings rotor (`NSAccessibilityCustomRotor`). VoiceOver's move to the
+  next heading goes by it, and its rotor lists the headings, each by its words and level:
+  VoiceOver reads a heading's words on moving to it and was not heard to say the level it
+  is given in the text (macOS 27.0.1), so the list is where a listener hears it. A page
+  column's rotor holds its page's headings and the scroll view's the whole book's: in paging
+  on Mac a move by heading stops at the page. VoiceOver lists a rotor's items by asking for
+  the one after an item that is nowhere (no element, the first character and none of it),
+  which begins with the first heading; taken as a place in the text it passed over a
+  heading that opens the text.
   Not marked for VoiceOver: a heading inside a table, whose cells are read as cells, and on
   iPhone and iPad a heading inside a note's popover, which keeps UIKit's own elements.
 - Selection: native selection UI with the host's `EPUBSelectionAction` in the edit or context

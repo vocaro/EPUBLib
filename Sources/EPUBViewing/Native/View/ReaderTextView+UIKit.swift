@@ -23,6 +23,10 @@ final class ReaderTextView: UITextView {
     private var accessibilityCursor: ReaderPageAccessibilityElement?
     private var imageGestureDelegate: ReaderImageGestureDelegate?
     private var selectionGestureDelegate: ReaderSpreadSelectionGestureDelegate?
+    /// VoiceOver's Headings rotor for the lines this view lists.
+    private lazy var headingRotor = UIAccessibilityCustomRotor(systemType: .heading) { [weak self] predicate in
+        self?.heading(for: predicate)
+    }
 
     init(pageColumn: Bool) {
         (contentStorage, readerLayoutManager, readerContainer) = Self.makeTextKitStack()
@@ -190,6 +194,54 @@ final class ReaderTextView: UITextView {
         return elements.firstIndex { $0.range == kept.range && $0.url == kept.url } ?? NSNotFound
     }
 
+    // VoiceOver's own Headings rotor moves among the elements it is given, and a page or a
+    // screen holds few of a book's headings: past the last of them it finds none. So the lines'
+    // container gives VoiceOver that rotor itself, and goes on to the book's next heading.
+    override var accessibilityCustomRotors: [UIAccessibilityCustomRotor]? {
+        get { listsLines ? [headingRotor] : super.accessibilityCustomRotors }
+        set { super.accessibilityCustomRotors = newValue }
+    }
+
+    /// The heading after or before the item under VoiceOver's cursor: the next one listed, as
+    /// its own rotor finds it, and past the page or the screen the book's next, which the
+    /// reader turns or scrolls to. A heading in several elements, around a link, is one stop.
+    private func heading(for predicate: UIAccessibilityCustomRotorSearchPredicate) -> UIAccessibilityCustomRotorItemResult? {
+        guard let canvas else { return nil }
+        let forward = predicate.searchDirection == .next
+        let listed = lineAccessibilityElements
+        let cursor = predicate.currentItem.targetElement as? ReaderPageAccessibilityElement
+        let index = cursor.flatMap { cursor in
+            listed.firstIndex { $0 === cursor } ?? listed.firstIndex { $0.range == cursor.range && $0.url == cursor.url }
+        }
+        // With the cursor on none of these lines, the search begins before the first or after the last.
+        let rest = forward ? listed[((index ?? -1) + 1)...] : listed[..<(index ?? listed.count)]
+        let own = index.flatMap { listed[$0].heading }
+        func result(_ element: ReaderPageAccessibilityElement) -> UIAccessibilityCustomRotorItemResult {
+            UIAccessibilityCustomRotorItemResult(targetElement: element, targetRange: nil)
+        }
+        if forward, let next = rest.first(where: { $0.heading != nil && $0.heading !== own }) { return result(next) }
+        if !forward, let previous = rest.last(where: { $0.heading != nil && $0.heading !== own }) {
+            // Its first element listed, where its words begin.
+            return result(rest.first { $0.heading === previous.heading } ?? previous)
+        }
+        // Past what is listed: after the last character listed, or before the first.
+        guard let first = listed.first, let last = listed.last,
+              let edge = canvas.position(at: forward ? NSMaxRange(last.range) - 1 : first.range.location, in: self),
+              let target = canvas.heading(from: edge, forward: forward) else { return nil }
+        func shown() -> ReaderPageAccessibilityElement? {
+            for view in canvas.textViews {
+                guard let local = canvas.localRange(of: ReaderTextRange(section: target.section, target.offset..<(target.offset + 1)), in: view)
+                else { continue }
+                if let element = view.lineAccessibilityElements.first(where: { NSLocationInRange(local.location, $0.range) }) { return element }
+            }
+            return nil
+        }
+        // It can be in the spread's other column already; otherwise the reader goes to it.
+        if let element = shown() { return result(element) }
+        canvas.show(target, selecting: nil)
+        return shown().map(result)
+    }
+
     /// A page column and the canvas's scroll view list their lines; a note keeps UIKit's elements.
     private var listsLines: Bool { isPageColumn || isCanvasScrollView }
 
@@ -329,6 +381,7 @@ final class ReaderTextView: UITextView {
                     }
                 }
                 element.accessibilityLabel = label
+                element.heading = heading
                 if let heading {
                     traits.insert(.header)
                     // VoiceOver takes a heading's level from its label's attributes; 0 is none.
@@ -430,6 +483,8 @@ private struct ScrollAccessibilityPlace: Equatable {
     weak var view: ReaderTextView?
     let range: NSRange
     let url: URL?
+    /// The book's heading this element reads, or reads part of.
+    var heading: ReaderHeading?
 
     init(view: ReaderTextView, range: NSRange, url: URL?) {
         self.view = view
