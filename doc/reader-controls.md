@@ -107,13 +107,14 @@ chapter titles can be ambiguous. Nested children appear in submenus and parent l
 selectable. An empty contents menu says “No contents available”; entries without links are disabled.
 
 Search sends commands only on Return or the Search button. Typing does not search, and no
-keyboard shortcut is installed that could intercept editing keys. On a Mac, and in a search
-pane everywhere, Search and Clear retain focus in the field. On iPhone and iPad the strip's
-inline field gives its focus up when Return or its Search button submits a search, which puts
-the keyboard away: it would cover the page the search shows, and where the strip fills what
-the keyboard leaves there is no page to tap to dismiss it. Clear Search there returns focus to
-the field, to type again. A search pane's field takes focus when the pane opens; the strip's
-inline field does not when it appears, so opening a book raises no keyboard over it.
+keyboard shortcut is installed that could intercept editing keys. On a Mac, Search and Clear
+retain focus in the field. On iPhone and iPad the field gives its focus up when Return or its
+Search button submits a search, in the strip and in a search pane alike, which puts the
+keyboard away: it would cover the page or the results the search shows, and where the strip
+fills what the keyboard leaves there is no page to tap to dismiss it. Clear Search there
+returns focus to the field, to type again. A search pane's field takes focus when the pane
+opens; the strip's inline field does not when it appears, so opening a book raises no keyboard
+over it.
 Whitespace-only submission clears highlights. The native engine rejects
 empty normalized queries and queries longer than 512 Swift characters, reports errors, and
 emits `.searchChanged(.searching(query:))`, then `.completed(query:hasMatches:)` after the

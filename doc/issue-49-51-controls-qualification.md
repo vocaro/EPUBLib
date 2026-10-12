@@ -210,8 +210,17 @@ at `b95ed53` the field read "Keyboard Focused" after it in every tree. In eighte
 twenty the strip was then whole with the page under it; the other two are the iPhones on their
 sides at the largest size, below. A tap on the strip's Search button did as the key does, and
 Clear Search brought the keyboard back with the field empty and in focus (iPhone 17 Pro
-upright). In the toolbar's search pane on the same iPhone the keyboard was up and the field in
-focus after the key, as before.
+upright).
+
+The search pane's field has the same rule, by the owner's second answer. At `bc83557` on the
+iPhone 17 Pro, a touch on the keyboard's Search key in the pane left the keyboard down and
+nothing with keyboard focus. Upright at the default size the sheet's list is then 480 points
+tall. On its side at the largest size the field is at y = 18 and Close Search at y = 22 with
+Clear Search, the navigator and the list, 95 points tall, all on screen, where they scrolled
+in the 49 points over the keyboard until a drag put it away. The pane's own Search button did
+as the key does, and Clear Search brought the keyboard back with the field in focus. On an
+iPad Air upright the popover is 372 × 446 after the key with its list 320 points tall, as it
+was with the keyboard up, and Clear Search brought the keyboard back there too.
 
 The screen can be too short without a keyboard. At the largest size with results the strip's
 groups are 402 points tall on the iPhone 17 Pro on its side and 403 on the iPhone SE, and the
@@ -288,7 +297,9 @@ count at "2 of 14", and the next step showed 3, not the match nearest the page. 
 in the list (the ninth, then the fourteenth after scrolling to it) showed that result and
 closed the sheet; reopened, the pane still held the query and "9 of 14". Close Search left the
 query, the highlights and the current match; Clear Search emptied the field and ended the
-search with the pane still open.
+search with the pane still open. Since [#330](https://github.com/vocaro/EPUBLib/issues/330) a
+search from the pane's field puts the keyboard away, as one from the strip's does: item 12 of
+[For the owner to judge](#for-the-owner-to-judge).
 
 After each of these the current match was on screen in paging, drawn orange against the other
 matches' yellow. In continuous scroll, with the pane opened and closed around each step,
@@ -617,9 +628,10 @@ Described, not decided. None of these was changed.
     focus; a tap on the page dismissed it, and at larger text sizes on an iPhone on its side
     the strip filled what the keyboard left, with no page to tap. Decided by the owner on
     2026-10-12 ([#330](https://github.com/vocaro/EPUBLib/issues/330)): on iPhone and iPad
-    Return puts the keyboard away, and the Mac keeps focus in the field as before. The strip's
-    Search button does as Return does, Clear Search returns focus to the field, to type again,
-    and a search pane's field keeps its focus; those three follow from his answer and were not
+    Return puts the keyboard away, and the Mac keeps focus in the field as before. Asked the
+    same day whether the search pane's field should do the same, he answered "yes, same rule
+    for the pane". The Search button of either field does as Return does, and Clear Search
+    returns focus to the field, to type again; those two follow from his answers and were not
     put to him. While the reader types, before any search, the keyboard is up and the strip
     scrolls; a drag on it does not put the keyboard away.
 13. **The page label after a search.** On a first page that starts before the book's first
