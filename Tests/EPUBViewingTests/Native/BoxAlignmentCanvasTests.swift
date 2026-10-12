@@ -385,9 +385,21 @@ import UIKit
                 let origin = view.containerOrigin
                 return view.convert(host.canvas.scrollVisibleContainerRect.offsetBy(dx: origin.x, dy: origin.y), to: host.canvas)
             }
+            // A page has no scroll bar, and a legacy one takes its width from the scroll column,
+            // which then stands 8.5 points left of a page's and wraps sooner. The comparison is
+            // of columns the same width, whichever scroll bar this Mac prefers, or comes to
+            // prefer while the reader settles (#302).
+            func keepThePagesColumn() {
+                #if os(macOS)
+                (host.canvas.scrollContainer as? NSScrollView)?.scrollerStyle = .overlay
+                host.layOut()
+                #endif
+            }
+            keepThePagesColumn()
             host.canvas.show(ReaderTextPosition(section: 2, offset: 0), selecting: nil)
             host.layOut()
             try await host.settle()
+            keepThePagesColumn()
             let scroll = try XCTUnwrap(host.canvas.scrollTextView)
             XCTAssertNotNil(host.canvas.scrollBook)
             XCTAssertTrue(scroll.readerContainer.hasNonlinearGeometry, "the book has box geometry")
@@ -410,6 +422,7 @@ import UIKit
             // The dedication: centred lines in a centred paragraph.
             host.canvas.show(ReaderTextPosition(section: 1, offset: 0), selecting: nil)
             try await host.settle()
+            keepThePagesColumn()
             visible = try visibleArea()
             for phrase in dedication {
                 let line = try frame(phrase, section: 1, of: texts, in: host.canvas), page = try XCTUnwrap(paged[phrase])
