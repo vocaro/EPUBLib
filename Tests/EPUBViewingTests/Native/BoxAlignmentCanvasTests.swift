@@ -434,6 +434,39 @@ import UIKit
         }
     }
 
+    /// A title page that holds hidden labels alone is a line of no height above the section
+    /// after it, and inside the visible area whenever that section is at the top. It is not
+    /// the place the reader reports, where TextKit places the lines and where the reader does
+    /// (an initial floated in the chapter). On the Mac it is where VoiceOver enters, at the
+    /// insertion point, so the labels are heard before the chapter.
+    func testASectionOfHiddenLabelsAloneIsNotTheVisibleStartOfTheSectionAfterIt() async throws {
+        let prose = String(repeating: "<p>A paragraph of ordinary reading text for pagination.</p>", count: 60)
+        for initial in ["T", "<span style='float: left; font-size: 3em'>T</span>"] {
+            let texts = [try H.build(F.shippedTitleBody, css: F.shippedCSS),
+                         try H.build("<h2>Chapter</h2><p>\(initial)he chapter opens here.</p>" + prose, css: F.shippedCSS)]
+            XCTAssertEqual(texts[0].string.spokenLabels, ["An Aligned Book", "By Test Author."])
+            XCTAssertEqual(texts[0].string.drawnString, "", "the title page draws nothing")
+            let source = FakeCanvasSource(texts.map(\.string))
+            source.book = CanvasText.book(texts.map(\.string))
+            let host = CanvasHost(source, size: CGSize(width: 500, height: 700), configuration: .init(flow: .scrolled))
+            defer { host.close() }
+            let title = ReaderTextPosition(section: 0, offset: 0), chapter = ReaderTextPosition(section: 1, offset: 0)
+            for shown in [title, chapter, title] {
+                host.canvas.show(shown, selecting: nil)
+                host.layOut()
+                try await host.settle()
+                let view = try XCTUnwrap(host.canvas.scrollTextView)
+                XCTAssertEqual(view.readerContainer.hasNonlinearGeometry, initial.count > 1)
+                XCTAssertEqual(host.canvas.visibleRange?.start, chapter, "shown at \(shown), box geometry \(initial.count > 1)")
+                #if os(macOS)
+                if shown == title {
+                    XCTAssertEqual(view.selectedRange, NSRange(location: 0, length: 0), "VoiceOver enters at the hidden labels")
+                }
+                #endif
+            }
+        }
+    }
+
     /// The same in a book without box geometry, where TextKit places the lines: a flex box, a
     /// grid, and the box that opens the text, whose space above its first line TextKit drops.
     func testChangingToScrollOnAPageTurnedBackToShowsItsBoxAsComposed() async throws {

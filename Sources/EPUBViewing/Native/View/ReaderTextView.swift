@@ -40,12 +40,16 @@ struct ReaderVisualLine {
     /// (`ReaderTextView.lineBoundary`). A shown position rests within a point of the top, and
     /// the line above it ends where it starts, so that line can show a sliver; it is not on
     /// screen for that. When `rect`'s middle is in a gap and it mostly shows no line, every
-    /// line it shows at all counts.
-    static func sourceRange(mostlyWithin rect: CGRect, in lines: [Self]) -> NSRange? {
-        let shown = lines.filter {
+    /// line it shows at all counts. A line that is not `seen` counts only when no other does:
+    /// one that holds hidden labels alone has no height and shows nothing
+    /// (`ReaderTextView.hiddenLabelsAlone`). Only the lines `rect` reaches are asked.
+    static func sourceRange(mostlyWithin rect: CGRect, in lines: [Self], seen: (Self) -> Bool = { _ in true }) -> NSRange? {
+        let reached = lines.filter { $0.range.length > 0 && !$0.frame.intersection(rect).isEmpty && seen($0) }
+        let shown = reached.filter {
             (rect.minY <= $0.frame.midY && $0.frame.midY <= rect.maxY) || ($0.frame.minY <= rect.midY && rect.midY <= $0.frame.maxY)
         }
-        return sourceRange(intersecting: rect, in: shown) ?? sourceRange(intersecting: rect, in: lines)
+        return sourceRange(intersecting: rect, in: shown) ?? sourceRange(intersecting: rect, in: reached)
+            ?? sourceRange(intersecting: rect, in: lines)
     }
 
     /// Source extrema of the visual row nearest Y, rather than a hit at the column's left edge.
@@ -317,7 +321,41 @@ extension ReaderTextView {
     /// The source envelope of the lines the viewport mostly shows
     /// (`ReaderVisualLine.sourceRange(mostlyWithin:in:)`): what is on screen to a reader.
     func mostlyVisibleCharacterRange(in rect: CGRect) -> NSRange? {
-        ReaderVisualLine.sourceRange(mostlyWithin: rect, in: visualLines())
+        ReaderVisualLine.sourceRange(mostlyWithin: rect, in: visualLines()) { hiddenLabelsAlone(at: $0.range.location) == nil }
+    }
+
+    /// The paragraph holding `location` when it holds hidden labels and nothing else
+    /// (`SpokenLabelAttachment`): one line, which has no height and shows nothing. It is in the
+    /// visible area whenever the line after it is at the top, and is not the first line on
+    /// screen for that. Read from the text alone: nothing is laid out for it.
+    func hiddenLabelsAlone(at location: Int) -> NSRange? {
+        guard let storage = contentStorage.textStorage, location >= 0, location < storage.length else { return nil }
+        let text = storage.string as NSString
+        let paragraph = text.paragraphRange(for: NSRange(location: location, length: 0))
+        guard storage.attribute(.attachment, at: paragraph.location, effectiveRange: nil) is SpokenLabelAttachment else { return nil }
+        var alone = true
+        storage.enumerateAttribute(.attachment, in: paragraph) { value, run, stop in
+            if value is SpokenLabelAttachment { return }
+            if value != nil || text.rangeOfCharacter(from: CharacterSet.newlines.inverted, range: run).location != NSNotFound {
+                alone = false; stop.pointee = true
+            }
+        }
+        return alone ? paragraph : nil
+    }
+
+    /// `location` moved past the lines from it on that hold hidden labels alone.
+    func firstShownLine(from location: Int) -> Int {
+        var location = location
+        while let labels = hiddenLabelsAlone(at: location) { location = NSMaxRange(labels) }
+        return location
+    }
+
+    /// `location`, the end of a line, moved back before the lines ending there that hold hidden
+    /// labels alone.
+    func lastShownLine(upTo location: Int) -> Int {
+        var location = location
+        while let labels = hiddenLabelsAlone(at: location - 1) { location = labels.location }
+        return location
     }
 
     /// The fragment the viewport last laid out at container `y`: the one the view draws there.

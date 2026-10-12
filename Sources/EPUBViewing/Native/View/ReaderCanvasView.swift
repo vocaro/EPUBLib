@@ -89,6 +89,9 @@ import AppKit
     /// lines then move by the reader's own doing, not by a layout behind the view.
     var scrollPlace: (location: Int, lineTop: CGFloat, visibleTop: CGFloat)?
     #if os(macOS)
+    /// The line of hidden labels standing at the top with the first line on screen, where
+    /// there is one (`scrollVisibleRange`): its location in the view's text.
+    private var scrollEntry: Int?
     /// Where the reader last put the scroll view's insertion point (`placeScrollInsertionPoint`).
     private var placedScrollInsertionPoint: Int?
     #endif
@@ -276,7 +279,11 @@ import AppKit
         let changed = range != visibleRange
         visibleRange = range
         #if os(macOS)
-        if configuration.flow == .scrolled { placeScrollInsertionPoint(at: range.start, requested: force) }
+        if configuration.flow == .scrolled {
+            let entry = scrollEntry.flatMap { location in scrollBook.map { $0.position(at: location) }
+                ?? ReaderTextPosition(section: range.start.section, offset: location) }
+            placeScrollInsertionPoint(at: entry ?? range.start, requested: force)
+        }
         #endif
         if force || changed { delegate?.canvas(self, didShow: range, sectionProgress: progress(of: range.start)) }
     }
@@ -819,7 +826,10 @@ import AppKit
     /// The first and last characters in the visible area (not under the bars): from the first
     /// line mostly below its top through the last mostly above its bottom. A line the area
     /// shows less than half of is not on screen, so the line above a position resting a
-    /// fraction of a point low (`anchorFrameIsVisible`) is not the visible start.
+    /// fraction of a point low (`anchorFrameIsVisible`) is not the visible start. Nor is a line
+    /// of hidden labels alone, which has no height and is in the area whenever the line after
+    /// it is at the top: a section holding nothing else would be the place reported for the
+    /// start of the one after it.
     private func scrollVisibleRange() -> ReaderTextRange? {
         guard let textView = scrollTextView, scrollBook != nil || textView.placement.section != nil else { return nil }
         // The layout is what the view draws only once the viewport has settled on it.
@@ -832,11 +842,19 @@ import AppKit
             guard let shown = textView.mostlyVisibleCharacterRange(in: rect) else { return nil }
             start = shown.location; end = NSMaxRange(shown)
         } else {
-            start = textView.lineBoundary(atContainerY: rect.minY, lineEnd: false)
-            end = max(start, textView.lineBoundary(atContainerY: rect.maxY, lineEnd: true))
+            start = textView.firstShownLine(from: textView.lineBoundary(atContainerY: rect.minY, lineEnd: false))
+            end = max(start, textView.lastShownLine(upTo: textView.lineBoundary(atContainerY: rect.maxY, lineEnd: true)))
         }
         #if os(macOS)
         scrollPlace = textView.lineFrame(containing: start).map { (start, $0.minY, rect.minY) }
+        // VoiceOver enters at the insertion point, and must not pass over hidden labels that
+        // stand at the top with the first line on screen: a hidden heading over a table.
+        var entry = start
+        while let labels = textView.hiddenLabelsAlone(at: entry - 1), let line = textView.lineFrame(containing: labels.location),
+              line.maxY >= rect.minY - 1 {
+            entry = labels.location
+        }
+        scrollEntry = entry == start ? nil : entry
         #endif
         if let book = scrollBook {
             return ReaderTextRange(start: book.position(at: start), end: book.position(at: end))

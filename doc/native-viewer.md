@@ -490,7 +490,12 @@ open its own paragraph (a table's rows, a float, a positioned box) the label end
 paragraph before instead, and a label after a section's last content ends that. Only a
 section that opens with labels before such content, or holds nothing else, gives them a
 paragraph of their own: a line of no height against the paragraph after it, which is spaced
-and indented as the section's first. The page is laid out exactly as it is without the
+and indented as the section's first. In continuous scroll that line is inside the visible
+area whenever the line after it is at the top, and it is never the first or last line on
+screen for the place the reader reports: a title page holding nothing else would be the
+place reported for the start of the section after it. On the Mac the insertion point, where
+VoiceOver enters, goes on such a line while it stands at the top, so the labels are heard
+before what they stand over. The page is laid out exactly as it is without the
 label. What a label says is its text with white space collapsed and the alternative text of
 images and formulas in it, without the parts that `display: none`, `visibility: hidden` or
 `aria-hidden="true"` hide and without ruby annotations. It keeps the language it declares
