@@ -258,11 +258,14 @@ struct ElementFacts: Sendable {
 // MARK: - Selector matching
 
 /// What matching in one document has learned about `~` searches, so that an element in a long
-/// run of siblings does not test every sibling before it again. `a ~ b` holds at an element
-/// exactly when some earlier sibling matches `a`, so for one `~` combinator and one parent this
-/// holds how many of the parent's leading element children have been tested against the
-/// selector to the combinator's left, and the first that matched. Each child is then tested
-/// once for a combinator, not once for every sibling after it.
+/// run of siblings does not test every sibling before it again. For `a ~ b` the matcher walks
+/// back from an element over its earlier siblings until one's result is not a local failure,
+/// and that result is the answer. For one `~` combinator and one parent this holds what such
+/// walks found: a child that matched, how many of the leading children hold no match, and
+/// whether a child failed completely. Each is true of the document whichever elements asked
+/// and in whatever order, and each only grows. A walk goes back no further than the children
+/// known to hold no match, so it tests no sibling that the walk alone would not, and the
+/// children of a long run are walked once.
 final class SiblingSearchMemo: Sendable {
     struct Key: Hashable {
         /// Of the selector's `identity`, which lives as long as the rule index that is matched.
@@ -272,42 +275,62 @@ final class SiblingSearchMemo: Sendable {
         let parent: Int32
     }
 
-    struct Progress {
-        /// Index among the parent's children of the next node to test.
-        var next: Int32 = 0
-        /// Element children tested so far.
-        var tested: Int32 = 0
-        /// 1-based position among element children of the first that matched, or 0.
-        var first: Int32 = 0
+    /// Positions are 1-based among the parent's element children.
+    struct Known: Equatable {
+        /// A child that matched, the earliest found, or 0. Every element after it matches: a
+        /// sibling that fails for all siblings has no match before it, so none follows a match
+        /// and the walk from any later element stops at one.
+        var match: Int32 = 0
+        /// None of the children at `1 ... clear` matches: a walk came down to them, or stopped
+        /// above them at a child that fails for all siblings, and so has no match before it.
+        var clear: Int32 = 0
+        /// A child failed completely: no earlier sibling of it matches, and nothing above them
+        /// does, which the parent's children share. A search here that finds no match then
+        /// fails completely too. The walk answers so when the child it stops at failed
+        /// completely; where it answers less, this only ends the searches around this one
+        /// sooner. It is never less than the walk's answer: no child that fails only for all
+        /// siblings comes after one that failed completely.
+        var completely = false
     }
 
     /// An element with no more earlier siblings than this walks them: that costs less than a
-    /// lookup, and a parent of few children then needs no entry.
+    /// lookup, and a parent of few children then needs no entry. Nor is one made for a walk
+    /// that ends within this many siblings, short of those known to hold no match.
     let directWalk: Int32
     /// Room is made for an entry beyond this many by forgetting them all, which bounds the
-    /// memory (under 4 MB). A search that was forgotten tests its parent's leading children
-    /// again, so more searches than this under way at once cost what the walk does.
+    /// memory (about 4 MB). A search that was forgotten is walked from the asking element as it
+    /// would be with no memo, so more searches than this under way at once cost what the walk
+    /// does.
     let capacity: Int
-    private let entries = Mutex<[Key: Progress]>([:])
+    private let entries = Mutex<[Key: Known]>([:])
 
     init(directWalk: Int32 = 8, capacity: Int = 1 << 16) {
         self.directWalk = directWalk; self.capacity = capacity
     }
 
-    func progress(_ key: Key) -> Progress { entries.withLock { $0[key] } ?? Progress() }
+    func known(_ key: Key) -> Known { entries.withLock { $0[key] } ?? Known() }
 
-    /// Keeps whichever of `progress` and what is held has gone further: two threads on one
-    /// search find the same.
-    func record(_ progress: Progress, for key: Key) {
+    /// Adds what a walk found to what is held, which another thread may have added to since the
+    /// walk read it: the earlier match, the longer run of children with no match, and a
+    /// complete failure from either.
+    func record(_ found: Known, for key: Key) {
         entries.withLock { entries in
-            if let held = entries[key] {
-                if held.tested < progress.tested { entries[key] = progress }
+            guard var held = entries[key] else {
+                if entries.count >= capacity { entries.removeAll(keepingCapacity: true) }
+                entries[key] = found
                 return
             }
-            if entries.count >= capacity { entries.removeAll(keepingCapacity: true) }
-            entries[key] = progress
+            if found.match > 0, held.match == 0 || found.match < held.match { held.match = found.match }
+            if found.clear > held.clear { held.clear = found.clear }
+            if found.completely { held.completely = true }
+            entries[key] = held
         }
     }
+}
+
+/// The compounds a matcher has tested: what matching cost, whatever the machine.
+final class SelectorTally {
+    var compounds = 0
 }
 
 /// Right-to-left selector matching with WebKit's pruning of descendant and sibling searches.
@@ -316,6 +339,8 @@ struct SelectorMatcher {
     let facts: ElementFacts
     /// nil: every `~` walks the siblings before the element.
     var siblingSearches: SiblingSearchMemo?
+    /// Set by tests that hold matching to a cost.
+    var tally: SelectorTally?
 
     private enum Result { case matches, failsLocally, failsAllSiblings, failsCompletely }
 
@@ -344,13 +369,17 @@ struct SelectorMatcher {
             guard sibling >= 0 else { return .failsAllSiblings }
             return match(selector, sibling, from: index + 1)
         case .subsequentSibling:
+            var sibling = Int(facts.previousElements[element])
             let position = facts.positions[element]
             if let memo = siblingSearches, let identity = selector.identity, position - 1 > memo.directWalk {
+                // The previous sibling settles the search wherever the walk is quickest, and then
+                // nothing is looked up.
+                let result = match(selector, sibling, from: index + 1)
+                if result != .failsLocally { return result }
                 let key = SiblingSearchMemo.Key(selector: ObjectIdentifier(identity), compound: Int32(index + 1),
                                                 parent: facts.parents[element])
-                return anyChild(before: position, matches: selector, key, memo) ? .matches : .failsAllSiblings
+                return walk(on: sibling, at: position - 1, selector, key, memo)
             }
-            var sibling = Int(facts.previousElements[element])
             while sibling >= 0 {
                 let result = match(selector, sibling, from: index + 1)
                 if result != .failsLocally { return result }
@@ -360,28 +389,43 @@ struct SelectorMatcher {
         }
     }
 
-    /// Whether one of the first `position - 1` element children of `key.parent` matches
-    /// `selector` from `key.compound` leftwards. The walk above answers the same: a result it
-    /// stops at short of a match says that no earlier sibling matches either. Children are
-    /// tested from the first, and only those that no earlier call reached.
-    private func anyChild(before position: Int32, matches selector: CSSComplexSelector, _ key: SiblingSearchMemo.Key,
-                          _ memo: SiblingSearchMemo) -> Bool {
-        var progress = memo.progress(key)
-        if progress.first > 0 { return progress.first < position }
-        guard progress.tested < position - 1 else { return false }
-        let children = document.nodes[Int(key.parent)].children
-        while progress.tested < position - 1 {
-            let child = children[Int(progress.next)]
-            progress.next += 1
-            guard child.isElement else { continue }
-            progress.tested += 1
-            if match(selector, child.order, from: Int(key.compound)) == .matches { progress.first = progress.tested; break }
+    /// What the walk above returns once `sibling`, the child of `key.parent` at `position`, has
+    /// failed locally, by the tests it would go on to make in the same order: back to the first
+    /// sibling whose result is not a local failure. Only what `memo` knows the outcome of is
+    /// left out. After a known match the answer is a match, and the walk ends where it comes
+    /// to the children known to hold none.
+    private func walk(on sibling: Int, at position: Int32, _ selector: CSSComplexSelector,
+                      _ key: SiblingSearchMemo.Key, _ memo: SiblingSearchMemo) -> Result {
+        var known = memo.known(key)
+        if known.match > 0, known.match < position { return .matches }
+        let clear = known.clear
+        guard position > clear else { return known.completely ? .failsCompletely : .failsAllSiblings }
+        var sibling = Int(facts.previousElements[sibling])
+        var at = position - 1
+        var result = Result.failsLocally
+        while at > clear {
+            result = match(selector, sibling, from: Int(key.compound))
+            if result != .failsLocally { break }
+            sibling = Int(facts.previousElements[sibling])
+            at -= 1
         }
-        memo.record(progress, for: key)
-        return progress.first > 0
+        // A walk as short as a direct one, ending above the children known to hold no match,
+        // costs less repeated than kept.
+        let kept = at == clear || position - at >= memo.directWalk
+        if result == .matches {
+            known.match = at
+        } else {
+            // It stopped at a sibling with no match before it, or came to those known to hold none.
+            known.clear = position
+            if result == .failsCompletely { known.completely = true }
+            result = known.completely ? .failsCompletely : .failsAllSiblings
+        }
+        if kept { memo.record(known, for: key) }
+        return result
     }
 
     private func matches(_ compound: CSSCompoundSelector, _ element: Int) -> Bool {
+        tally?.compounds += 1
         let node = document.nodes[element]
         switch compound.namespace {
         case .any: break
