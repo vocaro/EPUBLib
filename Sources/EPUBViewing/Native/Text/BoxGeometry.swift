@@ -579,7 +579,9 @@ enum ReaderBoxLayout {
         let hasTerminator = measured.length > 1 && (measured.string as NSString).character(at: measured.length - 1) == 0x0A
         if hasTerminator { measured.deleteCharacters(in: NSRange(location: measured.length - 1, length: 1)) }
         container.paragraphText = measured
-        manager.textContainer = container; storage.attributedString = measured
+        manager.textContainer = container
+        container.deliverIndents(for: storage)
+        storage.attributedString = measured
         var height: CGFloat = 0
         var paragraphs: [ReaderBoxGeometry.Paragraph] = []
         manager.enumerateTextLayoutFragments(from: storage.documentRange.location, options: [.ensuresLayout]) { fragment in
