@@ -16,7 +16,7 @@ public enum SpecConformanceCorpus {
     /// What a section report discloses.
     public enum Disclosure: String, Sendable, CaseIterable {
         case fixedLayout, verticalWriting, scripts, remoteResources, unsupportedElements, unreadableResources
-        case withheld, positionsUnavailable, mathFallback
+        case withheld, positionsUnavailable, mathFallback, flexGrid
     }
 
     public enum Check: Sendable, Equatable {
@@ -105,7 +105,12 @@ public enum SpecConformanceCorpus {
     /// The expected outcome of a test id. An id the table does not list falls to its family's
     /// decision, else to "opens and every section builds".
     public static func expectation(for id: String) -> Expectation {
-        if let listed = listed[id] { return listed }
+        var expectation = listed[id] ?? family(of: id)
+        if centredFigures.contains(id) { expectation.checks.append(.notDisclosed(.flexGrid)) }
+        return expectation
+    }
+
+    private static func family(of id: String) -> Expectation {
         if id.hasPrefix("mol-") {
             return Expectation("epub-rs#sec-media-overlays", outOfScope: mediaOverlays)
         }
@@ -120,6 +125,15 @@ public enum SpecConformanceCorpus {
         }
         return Expectation("unlisted", note: "not in this table: only opening and building are checked")
     }
+
+    /// Tests whose stylesheet (`EPUB/texts/fixed.css`) centres a page's one image with
+    /// `figure { height: 100%; display: flex; align-items: center; justify-content: center }`.
+    /// A row with one item is inside the supported subset (doc/issue-20-flex-grid-alignment.md),
+    /// so the figure is aligned and nothing is disclosed.
+    private static let centredFigures: Set<String> = [
+        "lay-pp-embedded-images", "lay-pp-embedded-images-svg", "lay-pp-images-mixed",
+        "lay-roll-embedded-images", "lay-roll-embedded-images-svg", "lay-roll-images-mixed", "xx-lay-roll-template",
+    ]
 
     private static let passIfOpens = Check.rendered(0, "Test passes if the EPUB opens.")
     private static let fallbackShown = "Test passes if you see this text."
