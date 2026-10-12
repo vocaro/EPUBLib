@@ -99,8 +99,8 @@ import UIKit
         let section = SectionBuilder.build(SectionBuildRequest(publication: publication, spineIndex: 0,
             typography: .init(fontSize: 16), fonts: FontRegistry(publication: publication), rich: NativeRichContent()))
         XCTAssertEqual(section.string.drawnString, "Visible caption.\nSlightly offset callout.\nUnclipped callout.\nRestored unclipped callout.\nInvalid clipping stays visible.\nNext paragraph.")
-        // What is parked or clipped away is kept for assistive technology, on a line of no height;
-        // `visibility: hidden` and `display: none` hide from that too.
+        // What is parked or clipped away is kept for assistive technology, in the line of the
+        // content after it; `visibility: hidden` and `display: none` hide from that too.
         XCTAssertEqual(section.string.spokenLabels, ["Duplicate offscreen caption.", "Duplicate clipped caption.", "Duplicate clipped path caption."])
         BuilderHarness.assertMapRoundTrips(section)
         let labels = ("Visible caption.\n" as NSString).length

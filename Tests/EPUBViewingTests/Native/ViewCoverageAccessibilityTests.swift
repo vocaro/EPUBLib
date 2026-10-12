@@ -47,7 +47,7 @@ import UIKit
             <p>Words <span class="sr">unseen</span> after.</p><p><a class="sr" href="two.xhtml">Skip to chapter two</a>End.</p>
             """, css: BoxLayoutHarness.reset + ".sr { position:absolute; left:-999em } img { display:block; width:120px }",
             files: ["title.png": RichFixture.image(width: 240, height: 80)])
-        XCTAssertEqual(section.string.string, "\u{FFFC}\n\u{FFFC}\nWords \u{FFFC}after.\n\u{FFFC}End.")
+        XCTAssertEqual(section.string.string, "\u{FFFC}\u{FFFC}\nWords \u{FFFC}after.\n\u{FFFC}End.")
         let host = host([section.string])
         return (section, host, try XCTUnwrap(host.canvas.textViews.first))
     }
@@ -64,8 +64,8 @@ import UIKit
             read.append("\(range.location) \(isText ? "text" : "image") \((isText ? element.accessibilityValue() as? String : element.accessibilityLabel()) ?? "")")
             if isText { XCTAssertNil(element.accessibilityLabel(), "its words are its value, said once") }
         }
-        XCTAssertEqual(read, ["0 text The Hidden Title", "2 image Book image", "10 text unseen", "18 text Skip to chapter two"])
-        XCTAssertEqual(view.visibleText, "The Hidden Title\n\nWords unseen after.\nSkip to chapter two End.", "what Copy takes from the page")
+        XCTAssertEqual(read, ["0 text The Hidden Title", "1 image Book image", "9 text unseen", "17 text Skip to chapter two"])
+        XCTAssertEqual(view.visibleText, "The Hidden Title\nWords unseen after.\nSkip to chapter two End.", "what Copy takes from the page")
     }
     #else
     func testAHiddenLabelIsATextElementWhereItStands() throws {
@@ -83,11 +83,11 @@ import UIKit
             XCTAssertFalse(frame.isNull || frame.isEmpty, "\(element.accessibilityLabel ?? "")")
             XCTAssertTrue(view.bounds.insetBy(dx: -1, dy: -1).contains(frame), "\(element.accessibilityLabel ?? ""): \(frame)")
         }
-        XCTAssertLessThanOrEqual(elements[0].accessibilityFrameInContainerSpace.maxY, elements[1].accessibilityFrameInContainerSpace.minY + 1,
-                                 "the heading's label lies against the image it names")
+        XCTAssertEqual(elements[0].accessibilityFrameInContainerSpace.midY, elements[1].accessibilityFrameInContainerSpace.midY, accuracy: 60,
+                       "the heading's label is in the line of the image it names")
         XCTAssertTrue(elements[5].accessibilityActivate(), "a hidden link is followed like any other")
         XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/two.xhtml"))
-        XCTAssertEqual(view.accessibilityValue, "The Hidden Title\n\nWords unseen after.\nSkip to chapter two End.")
+        XCTAssertEqual(view.accessibilityValue, "The Hidden Title\nWords unseen after.\nSkip to chapter two End.")
     }
     #endif
 

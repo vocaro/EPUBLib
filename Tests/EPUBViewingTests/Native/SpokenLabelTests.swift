@@ -64,7 +64,7 @@ import UIKit
         XCTAssertEqual(with.map(\.text), without.map(\.text), "the same lines", file: file, line: line)
         XCTAssertEqual(with.map(\.page), without.map(\.page), "on the same pages", file: file, line: line)
         for (a, b) in zip(with, without) {
-            // A label's own line is a thousandth of a point tall.
+            // A line labels have to themselves is a thousandth of a point tall.
             for (x, y) in [(a.frame.minX, b.frame.minX), (a.frame.minY, b.frame.minY), (a.frame.width, b.frame.width),
                            (a.frame.height, b.frame.height)] {
                 XCTAssertEqual(x, y, accuracy: 0.25, "\(a.text) on page \(a.page + 1): \(a.frame) and \(b.frame)", file: file, line: line)
@@ -165,17 +165,18 @@ import UIKit
 
     // MARK: Between blocks
 
-    func testALabelBetweenBlocksHasALineOfNoHeightAndTheBlocksLieAsWithoutIt() throws {
+    func testALabelBetweenBlocksOpensTheLineOfWhatFollowsAndTheBlocksLieAsWithoutIt() throws {
         let files = ["title.png": RichFixture.image(width: 300, height: 90)]
         for (body, css, labels) in [
             // Margins collapse between the paragraphs around it.
             ("<p class='a'>One.</p><h2 class='sr'>Hidden heading</h2><p class='b'>Two.</p><p>Three.</p>",
              ".a { margin-bottom:30px } .b { margin-top:20px }", ["Hidden heading"]),
-            // The section's leading gap is above it and the paragraph it precedes.
+            // The section's leading gap is above the paragraph it opens.
             ("<h1 class='sr'>Title</h1><p class='sr'>By someone.</p><p class='b'>First.</p><p>Second.</p>", ".b { margin-top:40px }",
              ["Title", "By someone."]),
+            // A block image stays alone on its line as far as layout goes: centred, under its margin.
             ("<h1 class='sr'>Title</h1><img alt='' src='title.png'/><p>After the image.</p>", "img { display:block; margin:48px auto 0; width:50% }", ["Title"]),
-            // A box's first paragraph is still its first: `text-indent` and a list item's marker.
+            // A box's first line is still its first: `text-indent` and a list item's marker.
             ("<p class='i'><span class='sr' style='display:block'>Label</span>An indented first line of a paragraph that runs on for a while.</p><p class='i'>Another.</p>",
              ".i { text-indent:2em }", ["Label"]),
             ("<ol><li><p class='sr'>Hidden in the item</p>Item text</li><li><span class='sr'>Inline</span> second item</li></ol>",
@@ -187,28 +188,66 @@ import UIKit
             // Several blocks of a hidden box, and a label that ends the section.
             ("<p>Shown.</p><div class='sr'><p>One.</p><p>Two.</p></div><p>Also shown.</p><p class='sr'>The end</p>", "p { margin:12px 0 }",
              ["One.", "Two.", "The end"]),
-            // Before a table and inside a float.
-            ("<h2 class='sr'>Table of values</h2><table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table><p>After.</p>", "",
-             ["Table of values"]),
-            // A float is measured by its paragraphs, so in one a label joins the content after it:
-            // text, or block content, which it then follows.
+            // In a float it opens the float's own line, text or image.
             ("<div class='f'><p class='sr'>Float label</p>Float words.</div><p>\(H.prose)</p>", ".f { float:left; width:120px }", ["Float label"]),
             ("<div class='f'><p class='sr'>Figure label</p><img alt='' src='title.png' style='display:block; width:60px'/></div><p>\(H.prose)</p>",
+             ".f { float:left; width:120px }", ["Figure label"]),
+            // A table's rows, a float and a floated image open their own paragraphs: the label
+            // ends the paragraph before them.
+            ("<p>Before the table.</p><h2 class='sr'>Table of values</h2><table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table><p>After.</p>",
+             "", ["Table of values"]),
+            ("<p>Before the figure.</p><p class='sr'>Figure label</p><img alt='' src='title.png' class='f'/><p>\(H.prose)</p>",
              ".f { float:left; width:120px }", ["Figure label"]),
         ] {
             try assertLaidOutAsWithoutItsLabels(body, css: css, labels: labels, files: files)
         }
-        // Each block-level label is a paragraph by itself; labels met together in a line share one.
-        let section = try H.build("<p id='a'>One.</p><h2 id='h' class='sr'>Heading</h2><span class='sr'>x</span><span class='clip'>y</span><p id='b'>Two.</p>",
+        // Labels wait for the content after them and open its line, each a character of no width.
+        var section = try H.build("<p id='a'>One.</p><h2 id='h' class='sr'>Heading</h2><span class='sr'>x</span><span class='clip'>y</span><p id='b'>Two.</p>",
                                   css: H.reset + Self.hide)
-        XCTAssertEqual(section.string.string, "One.\n\u{FFFC}\n\u{FFFC}\u{FFFC}\nTwo.")
-        XCTAssertEqual(section.string.readerPlainText(), "One.\nHeading\nx y\nTwo.")
+        XCTAssertEqual(section.string.string, "One.\n\u{FFFC}\u{FFFC}\u{FFFC}Two.")
+        XCTAssertEqual(section.string.readerPlainText(), "One.\nHeading x y Two.")
         XCTAssertEqual(section.anchors["h"], 5)
-        XCTAssertEqual(section.anchors["b"], 10)
-        let style = try XCTUnwrap(section.string.attribute(.paragraphStyle, at: 5, effectiveRange: nil) as? NSParagraphStyle)
+        XCTAssertEqual(section.anchors["b"], 8)
+        // Before a table they end the paragraph before it, and after the last content its paragraph.
+        section = try H.build("<p>One.</p><h2 class='sr'>Table</h2><table><tr><td>a</td><td>b</td></tr></table><p>Two.</p><p class='sr'>The end</p>",
+                              css: H.reset + Self.hide)
+        XCTAssertEqual(section.string.string, "One.\u{FFFC}\n\u{FFFC}\nTwo.\u{FFFC}")
+        XCTAssertTrue(section.string.attribute(.attachment, at: 6, effectiveRange: nil) is TableRowAttachment)
+        XCTAssertEqual(section.string.spokenLabels, ["Table", "The end"])
+    }
+
+    /// With no line to stand in, labels have a paragraph of no height that the paragraph after
+    /// them does not see: a section that opens with them before a table or a float, and a
+    /// section of nothing else.
+    func testLabelsWithNoLineToStandInHaveALineOfNoHeight() throws {
+        let files = ["title.png": RichFixture.image(width: 300, height: 90)]
+        for (body, css, labels) in [
+            ("<h2 class='sr'>Table of values</h2><p class='sr'>In two columns.</p><table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table><p>After.</p>",
+             "table { margin-top:30px }", ["Table of values", "In two columns."]),
+            ("<p class='sr'>Figure label</p><img alt='' src='title.png' class='f'/><p>\(H.prose)</p>", ".f { float:left; width:120px }", ["Figure label"]),
+            ("<section class='c'><p class='sr'>Before a break</p><table><tr><td>a</td><td>b</td></tr></table></section>", ".c { break-before:page; margin-top:20px }",
+             ["Before a break"]),
+        ] {
+            try assertLaidOutAsWithoutItsLabels(body, css: css, labels: labels, files: files)
+        }
+        var section = try H.build("<h2 id='h' class='sr'>Table</h2><span class='clip'>of values</span><table id='t'><tr><td>a</td><td>b</td></tr></table><p>After.</p>",
+                                  css: H.reset + Self.hide)
+        XCTAssertEqual(section.string.string, "\u{FFFC}\u{FFFC}\n\u{FFFC}\nAfter.")
+        XCTAssertEqual(section.string.readerPlainText().prefix(16), "Table of values\n")
+        XCTAssertEqual(section.anchors["h"], 0)
+        XCTAssertEqual(section.anchors["t"], 3)
+        let style = try XCTUnwrap(section.string.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
         XCTAssertEqual(style.maximumLineHeight, SpokenLabelAttachment.lineHeight)
-        XCTAssertEqual(style.paragraphSpacing + style.paragraphSpacingBefore, 0)
-        XCTAssertEqual(section.string.attribute(.readerKeepWithNext, at: 5, effectiveRange: nil) as? Bool, true, "it stays with what it precedes")
+        XCTAssertEqual(style.paragraphSpacing, 0)
+        XCTAssertEqual(section.string.attribute(.readerKeepWithNext, at: 0, effectiveRange: nil) as? Bool, true, "it stays with what it precedes")
+        // A section that is hidden labels and nothing else.
+        section = try H.build("<h1 id='h' class='sr'>Only a title</h1><p class='sr'>and a byline</p>", css: H.reset + Self.hide)
+        XCTAssertEqual(section.string.string, "\u{FFFC}\u{FFFC}")
+        XCTAssertEqual(section.string.readerPlainText(), "Only a title and a byline")
+        let (_, pages) = H.pages(section, size: size)
+        XCTAssertEqual(pages.count, 1)
+        XCTAssertLessThan(pages[0].height, 0.1, "a page with nothing on it")
+        BuilderHarness.assertMapRoundTrips(section)
     }
 
     func testAHiddenBoxInAnAlignedContainerLeavesItsItemsWhereTheyWere() throws {
@@ -222,11 +261,11 @@ import UIKit
         let section = try assertLaidOutAsWithoutItsLabels(body, css: F.shippedCSS, labels: ["Dedication", "A second hidden line"],
                                                           size: CGSize(width: 400, height: 640))
         XCTAssertFalse(section.report.flexGridSimplified)
-        // The box is still one run of paragraphs, the labels' lines among them: a position
+        // The box is still one run of paragraphs, the labels in their lines: a position
         // anywhere in it finds the whole box (`ReaderAlignmentLayout.boxes`).
         let whole = NSRange(location: 0, length: section.string.length)
-        XCTAssertEqual(section.string.string, "\u{FFFC}\nFor those\u{2028}who read\n\u{FFFC}\nto the last page")
-        for location in [0, 4, 20, 22, section.string.length - 1] {
+        XCTAssertEqual(section.string.string, "\u{FFFC}For those\u{2028}who read\n\u{FFFC}to the last page")
+        for location in [0, 4, 19, 20, section.string.length - 1] {
             XCTAssertEqual(ReaderAlignmentLayout.boxes(in: section.string, around: location), [whole], "from \(location)")
         }
         // A row of sized inline blocks goes on across a hidden box between two of them.
@@ -260,10 +299,10 @@ import UIKit
         XCTAssertGreaterThan(pages.count, 3)
         for index in stride(from: 5, through: 40, by: 5) {
             let label = try XCTUnwrap(section.anchors["h\(index)"]), paragraph = try XCTUnwrap(section.anchors["p\(index)"])
-            XCTAssertEqual(paragraph, label + 2)
+            XCTAssertEqual(paragraph, label + 1, "the label opens its paragraph's line")
             let page = try XCTUnwrap(pages.firstIndex { NSLocationInRange(label, $0.range) })
             XCTAssertTrue(NSLocationInRange(paragraph, pages[page].range), "heading \(index) is on the page of its paragraph")
-            // The gap above them is the earlier paragraph's, so a page that opens at the label opens flush.
+            // The gap above it is the earlier paragraph's, so a page that opens at the label opens flush.
             if pages[page].range.location == label { XCTAssertEqual(pages[page].topSpacing, 0, "page \(page + 1)") }
         }
     }
@@ -285,7 +324,7 @@ import UIKit
         }
     }
 
-    func testALabelInATableCellOrANoteJoinsItsContentWithoutALineOfItsOwn() throws {
+    func testALabelInATableCellOrANoteStandsInItsContent() throws {
         let table = try H.build("<table><tr><th><p class='sr'>Column heading</p>A</th><td>b<span class='clip'>hidden in a cell</span></td></tr></table>",
                                 css: H.reset + Self.hide)
         let spoken = table.string.readerPlainText()
@@ -296,7 +335,7 @@ import UIKit
             """, css: H.reset + Self.hide)
         let note = try XCTUnwrap(noted.notes["n"])
         XCTAssertEqual(note.spokenLabels, ["Note", "Its hidden close"])
-        XCTAssertEqual(note.drawnString, "The note's words.", "a note's paragraphs are plain: the labels join them")
+        XCTAssertEqual(note.drawnString, "The note's words.")
         XCTAssertEqual(note.readerPlainText(), "Note The note's words. Its hidden close")
         XCTAssertEqual(noted.string.spokenLabels, [], "the note itself is shown in its popover, not in the page")
     }

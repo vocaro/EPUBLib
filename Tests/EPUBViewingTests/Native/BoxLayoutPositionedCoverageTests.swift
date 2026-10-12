@@ -276,7 +276,7 @@ import UIKit
     /// Standard Ebooks parks a title page's heading and byline, and the heading of an imprint or
     /// a colophon, at `left: -999em` for assistive technology, beside an image of the same words.
     /// The page draws that image under its three-em margin at every text size and keeps the
-    /// words for VoiceOver on lines of no height, with the same characters at every size.
+    /// words for VoiceOver in the image's line, with the same characters at every size.
     func testStandardEbooksTitlePageAndImprintDrawTheirImageAndKeepTheHiddenHeadingAtEveryTextSize() throws {
         typealias F = Fixture.Alignment
         let files = ["titlepage.png": RichFixture.image(width: 1400, height: 340), "logo.png": RichFixture.image(width: 220, height: 140)]
@@ -287,12 +287,12 @@ import UIKit
             let imprint = try H.build(F.shippedImprintBody, css: F.shippedCSS, fontSize: fontSize, files: files)
             XCTAssertEqual(title.string.drawnString, "\u{FFFC}", "the title page draws its image alone at \(fontSize) points")
             XCTAssertEqual(title.string.spokenLabels, ["An Aligned Book", "By Test Author."], "\(fontSize)")
-            XCTAssertEqual(title.string.string, "\u{FFFC}\n\u{FFFC}\n\u{FFFC}", "the heading, the byline and the image, at \(fontSize) points")
+            XCTAssertEqual(title.string.string, "\u{FFFC}\u{FFFC}\u{FFFC}", "the heading, the byline and the image, at \(fontSize) points")
             XCTAssertEqual(imprint.string.drawnString, "\u{FFFC}\n" + notice, "the imprint draws its logo and its text at \(fontSize) points")
             XCTAssertEqual(imprint.string.spokenLabels, ["Imprint"], "\(fontSize)")
-            XCTAssertEqual(title.string.readerPlainText(), "An Aligned Book\nBy Test Author.\n", "what VoiceOver and Copy get")
-            XCTAssertEqual(imprint.string.readerPlainText(), "Imprint\nThe publisher's logo.\n" + notice)
-            for (section, image) in [(title, 4), (imprint, 2)] {
+            XCTAssertEqual(title.string.readerPlainText(), "An Aligned Book By Test Author.", "what VoiceOver and Copy get")
+            XCTAssertEqual(imprint.string.readerPlainText(), "Imprint The publisher's logo.\n" + notice)
+            for (section, image) in [(title, 2), (imprint, 1)] {
                 XCTAssertTrue(section.string.attribute(.attachment, at: image, effectiveRange: nil) is ReaderImageAttachment)
                 XCTAssertFalse(section.report.flowBoxesReflowed, "a hidden heading is not a box, so nothing is disclosed")
                 BuilderHarness.assertMapRoundTrips(section)
@@ -301,18 +301,18 @@ import UIKit
             // used to be drawn above it.
             let (paginator, pages) = H.pages(title, size: size, "\(fontSize)")
             XCTAssertEqual(pages.count, 1, "\(fontSize)")
-            let image = try XCTUnwrap(H.pageView(paginator, page: pages[0]).segmentFrames(for: NSRange(location: 4, length: 1)).first)
+            let image = try XCTUnwrap(H.pageView(paginator, page: pages[0]).segmentFrames(for: NSRange(location: 2, length: 1)).first)
             XCTAssertEqual(pages[0].topSpacing + image.minY, 3 * fontSize, accuracy: 0.5, "`margin-top: 3em` at \(fontSize) points")
             XCTAssertEqual(image.width, size.width, accuracy: 0.5, "`width: 100%` at \(fontSize) points")
             // A position inside the hidden heading or byline is its label.
             let page = try XCTUnwrap(title.document.element(id: "titlepage"))
             let words = title.document.nodes[page.order...page.subtreeEnd].filter(\.isText)
             XCTAssertEqual(words.map(\.text), ["An Aligned Book", "By ", "Test Author", "."])
-            for (text, label) in zip(words, [0, 2, 2, 2]) {
+            for (text, label) in zip(words, [0, 1, 1, 1]) {
                 XCTAssertEqual(title.map.location(of: DOMPosition(text, 1)), label, "\(text.text) at \(fontSize) points")
             }
             XCTAssertEqual(title.anchors["titlepage"], 0)
-            XCTAssertEqual(imprint.anchors["notice"], 4)
+            XCTAssertEqual(imprint.anchors["notice"], 3)
             if let first {
                 for (section, baseline) in [(title, first.title), (imprint, first.imprint)] {
                     XCTAssertEqual(section.string.string, baseline.string.string, "the same characters at \(fontSize) points")
