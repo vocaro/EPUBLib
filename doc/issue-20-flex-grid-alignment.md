@@ -233,8 +233,10 @@ column and for continuous scroll, 1200 by 800 for two columns): 108 captures.
    pixels ([floats and positioned boxes](native-viewer.md#floats-and-positioned-boxes)). Of
    the ten titles' 724 sections, built at 12, 17 and 96 points, 28 changed: the 8 title pages,
    now their image alone, and the 10 imprints and 10 colophons, each without its heading. No
-   other section's text changed, and none differs between the three sizes. The captures and
-   counts elsewhere in this section were taken before that.
+   other section's text changed, and none differs between the three sizes. Those headings
+   were also why every one of the ten emitted "Some floating, positioned or inline box
+   layouts may be simplified…"; nine no longer do, and *Tristram Shandy* does for its inline
+   blocks. The captures and counts elsewhere in this section were taken before that.
 7. **A row of sized inline blocks is scattered, and overlapped in continuous scroll.**
    *Tristram Shandy* marks omissions with runs of asterisks, each in an inline block five ems
    wide, which a browser sets as rows inside the paragraph. The reader puts each block a line
