@@ -665,6 +665,7 @@ is under `.build/voiceover/results/`. None of it is committed. The Mac's screens
 whole screen and stay local.
 
 ```sh
+export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 python3 scripts/make-controls-fixture.py
 xcodegen generate --spec Examples/ControlsQualification/project.yml
 DEVICE=$(xcrun simctl create "controls-$$" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro \
@@ -673,21 +674,30 @@ xcrun simctl boot "$DEVICE"
 xcodebuild -project Examples/ControlsQualification/ControlsQualification.xcodeproj \
   -scheme ControlsProbeIOS -destination "platform=iOS Simulator,id=$DEVICE" \
   -derivedDataPath .build/qualification/derived build-for-testing
-printf 'tap=Search\ntype=lantern\\n\ndump=results\ntap=Next Match\nstatus\n' > steps.txt
+printf 'tap=Search\ntype=lantern\ntap=search\ndump=results\ntap=Next Match\nstatus\n' > steps.txt
 python3 scripts/run-controls-qualification.py --device "$DEVICE" --name search \
   --args "-QualificationBook ltr" --steps steps.txt
 xcrun simctl delete "$DEVICE"
 ```
 
+The first line is the default of `scripts/test-ios.sh`; the runner has it too, whatever
+`xcode-select` names, and does not run a probe that another Xcode built. `tap=search` presses
+the keyboard's own key: a Return typed with `\n` in a `type=` step can leave the keyboard down
+under a field that still has focus, and
+[#307](https://github.com/vocaro/EPUBLib/issues/307#issuecomment-6132965039) has the counts.
+Each `dump` line of the log says whether the keyboard was on screen and what had keyboard
+focus, and on iOS every scenario starts upright.
+
 The probe's steps are documented where they are handled, in
 `Examples/ControlsQualification/UITests/ControlsProbe.swift`. Host arguments:
 `-QualificationBook ltr|rtl|long`, `-QualificationHost toolbar|strip|navigator`,
 `-QualificationPlacement automatic|leading|bottom`, `-QualificationHostItems <count>`,
-`-QualificationFlow scrolled`, `-QualificationFontSize <points>`, `-QualificationTitle NO`
-and, on the Mac, `-QualificationWindowSize <width>x<height>`. For the iPhone Duo build with
-Xcode 27.1 and pass `--hinge-script`; never send that simulator `simctl io screenConfig`,
-which crash-loops its SpringBoard. For the Mac pass `--mac` in place of `--device`, with a
-signed build, and ask whoever is using the Mac first: the probe takes its pointer and keyboard.
-A new simulator shows the keyboard's first-run card once; tap its Continue before typing. A
-run stopped part-way leaves the simulator as it was, with VoiceOver on or the text size large:
-restore both before the next run, because with VoiceOver on a tap only moves its cursor.
+`-QualificationFlow scrolled`, `-QualificationFontSize <points>`, `-QualificationTitle NO` and,
+on the Mac, `-QualificationWindowSize <width>x<height>`. For the iPhone Duo set `DEVELOPER_DIR`
+to Xcode 27.1 for the build and the run, and pass `--hinge-script`; never send that simulator
+`simctl io screenConfig`, which crash-loops its SpringBoard. For the Mac pass `--mac` in place
+of `--device`, with a signed build, and ask whoever is using the Mac first: the probe takes its
+pointer and keyboard. A new simulator shows the keyboard's first-run card once; tap its Continue
+before typing. A run stopped part-way leaves the simulator as it was, with VoiceOver on or the
+text size large: restore both before the next run, because with VoiceOver on a tap only moves
+its cursor.

@@ -19,10 +19,15 @@ SpringBoard: never send it there.
 
 Build first, with the Xcode whose simulator runtime the device uses; see
 doc/issue-49-51-controls-qualification.md. The device is never created, booted or deleted here.
+
+Every xcodebuild and xcrun call here uses /Applications/Xcode.app, as scripts/test-ios.sh does,
+whatever `xcode-select` names; set DEVELOPER_DIR for another Xcode, for the build as well. A
+probe built with a different Xcode from the one running it is not run.
 """
 import argparse
 import os
 from pathlib import Path
+import plistlib
 import shlex
 import shutil
 import subprocess
@@ -41,6 +46,7 @@ parser.add_argument("--hinge-script", help="a command taking UDID then `<degrees
 parser.add_argument("--timeout", type=int, default=900)
 options = parser.parse_args()
 
+os.environ.setdefault("DEVELOPER_DIR", "/Applications/Xcode.app/Contents/Developer")
 root = Path(__file__).resolve().parents[1]
 out = root / ".build/qualification/runs" / options.name
 out.mkdir(parents=True, exist_ok=True)
@@ -88,11 +94,12 @@ def handle(words):
     return "UNKNOWN SIGNAL"
 
 
+xcode = output("xcodebuild", "-version").replace("\n", " ")
 meta = [
     "revision " + output("git", "-C", str(root), "rev-parse", "HEAD"),
     "tree " + ("clean" if not output("git", "-C", str(root), "status", "--porcelain", "--", "Sources") else "Sources modified"),
     "macOS " + output("sw_vers", "-productVersion") + " " + output("sw_vers", "-buildVersion"),
-    output("xcodebuild", "-version").replace("\n", " "),
+    xcode + " at " + os.environ["DEVELOPER_DIR"],
 ]
 if options.mac:
     scheme, destination = "ControlsProbeMac", "platform=macOS"
@@ -105,7 +112,16 @@ else:
         + " " + output("xcrun", "simctl", "getenv", options.device, "SIMULATOR_RUNTIME_BUILD_VERSION"),
         "model " + output("xcrun", "simctl", "getenv", options.device, "SIMULATOR_MODEL_IDENTIFIER"),
     ]
+# The probe's test bundle names the Xcode that built it. test-without-building runs another
+# Xcode's build without a word, and meta.txt would then name an Xcode the probe was not built with.
+bundle = next((root / options.derived_data / "Build/Products").glob(f"*/{scheme}-Runner.app/**/{scheme}.xctest"), None)
+plist = next((path for path in (bundle / "Info.plist", bundle / "Contents/Info.plist") if path.exists()), None) if bundle else None
+built = plistlib.loads(plist.read_bytes()).get("DTXcodeBuild") if plist else None
+meta.append("probe built with Xcode " + (built or "unknown"))
 (out / "meta.txt").write_text("\n".join(meta + ["args " + options.args]) + "\n")
+if built and built not in xcode.split():
+    raise SystemExit(f"NOT RUN: the probe in {options.derived_data} was built with Xcode {built} and this run would use "
+                     f"{xcode}.\nSet DEVELOPER_DIR to one Xcode for the build and the run.")
 
 environment = dict(os.environ, TEST_RUNNER_QUALIFICATION_OUT=str(out))
 with open(out / "xcodebuild.log", "w") as log:

@@ -88,6 +88,10 @@ enum ContentSemantics {
 
     static let rowGroups: Set<String> = ["thead", "tbody", "tfoot"]
 
+    /// The elements a table is made of. `TableContent` lays a grid out from them by name.
+    private static let tableParts: Set<String> = rowGroups.union(["caption", "colgroup", "col", "tr", "td", "th"])
+    static func isTablePart(_ element: ContentNode) -> Bool { element.isHTML && tableParts.contains(element.name) }
+
     /// List containers, which reset the list-item counter.
     static let lists: Set<String> = ["ol", "ul", "menu", "dir"]
 

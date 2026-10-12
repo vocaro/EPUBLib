@@ -442,6 +442,51 @@ import UIKit
         XCTAssertTrue(page.start <= reading && reading < page.end, "\(page)")
     }
 
+    #if os(macOS)
+    /// AppKit aligns the scroll offset to the pixel grid when it first draws the scroll view,
+    /// which moves the view a fraction of a point. Nobody scrolled: the reader still keeps the
+    /// position it was shown, not the start of that position's line
+    /// ([#302](https://github.com/vocaro/EPUBLib/issues/302)).
+    func testTheScrollViewsFirstDisplayIsNotAScrollByThePerson() throws {
+        let sections = [prose(0, length: 40_000), prose(1, length: 80_000), prose(2, length: 40_000)]
+        let host = scrolledHost(sections, size: CGSize(width: 867, height: 669))
+        let canvas = host.canvas
+        let position = ReaderTextPosition(section: 1, offset: 41_234)
+        canvas.show(position, selecting: nil)
+        try assertRestsAtTheTop(position, in: canvas, "shown")
+        let top = canvas.scrollVisibleContainerRect.minY
+        host.window.displayIfNeeded()
+        let moved = abs(canvas.scrollVisibleContainerRect.minY - top)
+        try XCTSkipIf(moved == 0, "AppKit left the offset where the reader put it")
+        XCTAssertLessThan(moved, 1, "the first display moves the view by less than a point")
+        for size in resizes.prefix(4) {
+            host.resize(to: size)
+            try assertRestsAtTheTop(position, in: canvas, "\(size)")
+            XCTAssertEqual(canvas.anchor, position, "\(size): no drift to the line's start")
+        }
+    }
+
+    /// A scroll by the person counts however slowly it goes: one line, half a point at a time.
+    func testAScrollOfHalfAPointAtATimeIsAScrollByThePerson() throws {
+        let host = scrolledHost([prose(0, length: 60_000)])
+        let canvas = host.canvas
+        let view = try XCTUnwrap(canvas.scrollTextView)
+        let position = ReaderTextPosition(section: 0, offset: 20_000)
+        canvas.show(position, selecting: nil)
+        host.window.displayIfNeeded()
+        let first = try XCTUnwrap(view.line(containing: position.offset))
+        let scrollView = try XCTUnwrap(canvas.scrollContainer as? NSScrollView)
+        for _ in 0..<Int((first.frame.height * 2).rounded(.up)) {
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: scrollView.contentView.bounds.minY + 0.5))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+        host.resize(to: CGSize(width: 420, height: 700))
+        let kept = try XCTUnwrap(canvas.anchor)
+        XCTAssertEqual(kept.offset, NSMaxRange(first.range), "the line scrolled to is the place kept")
+        try assertRestsAtTheTop(kept, in: canvas, "after the resize")
+    }
+    #endif
+
     // MARK: Column
 
     func testTheScrollColumnKeepsToTheWiderSideOfADivision() throws {
