@@ -93,7 +93,7 @@ import UIKit
         // The first heading takes two lines and is one element over both.
         let title = section.string.readerHeadings()[0].range
         let lines = view.pageAccessibilityLines.filter { NSIntersectionRange($0.range, title).length > 0 }
-        XCTAssertEqual(lines.count, 2, "the heading must wrap for this to show anything")
+        XCTAssertGreaterThanOrEqual(lines.count, 2, "the heading must wrap for this to show anything")
         let frame = elements[0].accessibilityFrameInContainerSpace
         let both = lines.reduce(CGRect.null) { $0.union($1.frame) }.offsetBy(dx: view.containerOrigin.x, dy: view.containerOrigin.y)
         XCTAssertEqual(frame.minY, both.minY, accuracy: 1)

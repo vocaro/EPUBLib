@@ -441,6 +441,9 @@ as they did.
   a longer page, are on its last line.
   UIKit exposes visible line/run accessibility children with links, attachment labels and
   page actions, keeping hidden paragraph context out of its native text accessibility traversal.
+  A heading is one such child however many lines it takes, with the header trait and its
+  level; on Mac a column's rich text carries each heading's level and the column has a
+  Headings rotor for its page (see "Input and accessibility").
   The canvas lists its columns to VoiceOver in source order; by their frames alone a column
   lowered by top spacing, or the first column of a right-to-left spread, would be read second.
   A paragraph that continues onto the next page is laid out a few lines further (or to
@@ -648,6 +651,29 @@ The following are the defaults. Host commands and accessibility actions stay ena
   first of the lines the scroll view lists (see "Continuous scroll" under Layout). Text that
   a book hides from the page and keeps for assistive technology is read where it stands, as
   text ([hidden labels](#floats-and-positioned-boxes)).
+- Headings: `h1` to `h6`, and any element with `role="heading"`, are headings to VoiceOver,
+  at the element's level or its `aria-level` from 1 to 6. `role="heading"` alone is level 2,
+  an `aria-level` past 6 leaves a heading with no level, and a heading element whose role is
+  `presentation` or `none` is laid out as a heading and is none to a listener. The builder
+  marks a heading's text, from its first character to its last, with one `ReaderHeading` for
+  each heading element (`.readerHeading`): two headings one after the other stay two, a
+  heading of several blocks or lines stays one, and one set run-in with its paragraph is its
+  own words alone. A heading hidden from the page and kept for assistive technology is a
+  heading too, and hidden words inside a shown heading are part of it
+  ([hidden labels](#floats-and-positioned-boxes)). The mark changes no character, no span of
+  the text map, no anchor and no line of any page.
+  On iPhone and iPad a heading is one accessibility element with the header trait and its
+  level, whole however many lines it takes; a link or an image in it is still its own
+  element, a heading too. A page gives the part of a heading it shows. In continuous scroll
+  a heading keeps one element whichever of its lines are on screen, listed by the part of it
+  in the reading area. VoiceOver's Headings rotor moves among the headings listed: the
+  page's, or the screen's in continuous scroll.
+  On Mac a text area has no elements for its lines, so the heading's characters carry its
+  level (`AXHeadingLevel`) in the rich text an assistive client reads, and each text view
+  gives VoiceOver a Headings rotor that names each heading by its words and moves to it: a
+  page column's holds its page's headings, the scroll view's the whole book's.
+  Not marked for VoiceOver: a heading inside a table, whose cells are read as cells, and on
+  iPhone and iPad a heading inside a note's popover, which keeps UIKit's own elements.
 - Selection: native selection UI with the host's `EPUBSelectionAction` in the edit or context
   menu, no length cap. Dragging can extend a selection across a two-column spread in either
   reading direction. A located passage is selected in every visible column and remains

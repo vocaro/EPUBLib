@@ -100,6 +100,13 @@ new phrase is recorded:
   or End).
 - `linecount`: Control-Option-F3 twice, the total and visible line counts.
 - `readall`: read from the cursor onward.
+- `nextheading`, `previousheading`: VoiceOver's own move to the next or previous heading
+  (Control-Option-Command-H, with Shift for the one before).
+- `rotor`: Control-Option-U, which opens VoiceOver's rotor: lists of what the item under its
+  cursor holds, the reader's Headings among them. `listright` and `listleft` go from list to
+  list, `listdown` and `listup` along one, `listchoose` (Return) moves VoiceOver to the item
+  named and `listclose` (Escape) closes the rotor. These six are plain keys. Send them only
+  while the rotor is open: otherwise the reader takes an arrow as a page turn.
 - `activate=LABEL`: Control-Option-Space, sent only if one of VoiceOver's last two phrases
   contains LABEL, as in `"activate=Next Page"`.
 - `pagedown`, `pageup`: the reader's own page keys, without VoiceOver modifiers.
@@ -395,6 +402,10 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
   performs the chosen one without moving the cursor. On an iPhone in landscape only the
   upward flick registered, which reaches the same actions.
 - `flick=right`, `flick=left`: VoiceOver's next and previous item; `flick=right*12` repeats it.
+- `rotor=LABEL`: two fingers turned on the glass, which turns VoiceOver's rotor to its next
+  setting, repeated until VoiceOver names LABEL, twenty turns at most: `rotor=Headings`.
+  `flick=down` and `flick=up` then move by that setting, heading to heading. Without a label
+  it turns the rotor once.
 - `rotate=landscape`, `rotate=portrait`: an iPad shows two columns in landscape and one in
   portrait. The probe waits for the screen as after `activate`, three seconds at most. End a
   session in the orientation it started in.

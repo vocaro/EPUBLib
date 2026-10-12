@@ -398,7 +398,7 @@ final class ReaderTextView: NSTextView {
 
     /// The headings an assistive client can reach in this view, in order, each with its text's
     /// characters and its words. A hidden heading is the one character of its label.
-    var accessibilityHeadings: [(heading: ReaderHeading, range: NSRange, label: String)] {
+    private var accessibilityHeadings: [(heading: ReaderHeading, range: NSRange, label: String)] {
         let all = headingCache ?? contentStorage.textStorage?.readerHeadings() ?? []
         headingCache = all
         let reach = isPageColumn ? shownCharacters : NSRange(location: 0, length: textLength)

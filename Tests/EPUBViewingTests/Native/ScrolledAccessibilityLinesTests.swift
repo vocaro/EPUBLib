@@ -352,11 +352,82 @@ import XCTest
         let first = try XCTUnwrap(listed.first)
         XCTAssertEqual(first.accessibilityLabel, "Hidden table heading")
         XCTAssertFalse(first.accessibilityTraits.contains(.image), "words, not a picture")
+        XCTAssertTrue(first.accessibilityTraits.contains(.header), "a heading, though the page shows none of it")
         XCTAssertTrue(listed.dropFirst().first?.accessibilityLabel?.contains("First cell") ?? false,
                       "then the row: \(listed.dropFirst().first?.accessibilityLabel ?? "nothing")")
         let area = canvas.scrollVisibleContainerRect.offsetBy(dx: view.containerOrigin.x, dy: view.containerOrigin.y)
         XCTAssertTrue(area.insetBy(dx: -0.01, dy: -0.01).contains(first.accessibilityFrameInContainerSpace),
                       "\(first.accessibilityFrameInContainerSpace) in \(area)")
+    }
+
+    /// A heading is one element however many lines it takes, and the same element whichever of
+    /// its lines are on screen. With its first line scrolled above the top it is still listed
+    /// whole, by the part of it in the reading area, so VoiceOver coming to it moves nothing;
+    /// and when the lines before the screen are listed too, it is not listed a second time.
+    func testAHeadingHalfAboveTheScreenIsOneElementAndStaysThatElement() async throws {
+        let title = "A chapter heading that is long enough to take three lines of a narrow screen at this text size"
+        let prose = (1...40).map { "<p>p\($0) " + CanvasText.sentence(50, seed: $0) + "</p>" }.joined()
+        let reader = try SessionCoverageReader(try SessionCoverageBook.epub([
+            SessionCoverageBook.Section("front", "<h1>Front</h1>" + prose, title: "Front"),
+            SessionCoverageBook.Section("long", "<h1>\(title)</h1>" + prose, title: "Long")]))
+        readers.append(reader)
+        reader.window?.resize(to: CGSize(width: 402, height: 874))
+        try await reader.settle()
+        try await reader.session.send(.navigate(href: reader.publication.spine[1].resource.href))
+        try await reader.wait("the second chapter") { reader.section == 1 }
+        try await reader.session.send(.style(EPUBReaderStyle(flow: .scrolled)))
+        try await reader.wait("the whole book in the scroll view") { reader.session.canvas?.scrollBook != nil }
+        try await reader.settle()
+        let canvas = try XCTUnwrap(reader.session.canvas), view = try XCTUnwrap(canvas.scrollTextView)
+        let subject: Subject = (reader, canvas, view)
+        let start = try XCTUnwrap(canvas.scrollBook).location(of: ReaderTextPosition(section: 1, offset: 0))
+        // The heading's words and the break that ends its paragraph.
+        let heading = NSRange(location: start, length: (title as NSString).length + 1)
+        let lines = view.measuredLines(in: heading)
+        XCTAssertGreaterThanOrEqual(lines.count, 2, "the heading must wrap for this to show anything")
+
+        // Whole on screen at the chapter's start: one element over all its lines.
+        let whole = try XCTUnwrap(try elements(of: view).first)
+        XCTAssertEqual(whole.accessibilityLabel, title + "\n")
+        XCTAssertTrue(whole.accessibilityTraits.contains(.header))
+        XCTAssertEqual(whole.accessibilityAttributedLabel?.attribute(.accessibilityTextHeadingLevel, at: 0, effectiveRange: nil) as? Int, 1)
+        XCTAssertGreaterThan(whole.accessibilityFrameInContainerSpace.height, lines[0].frame.height * 1.5)
+        XCTAssertEqual(try elements(of: view).map { $0.accessibilityLabel ?? "" }.joined(), view.plainText(in: try shown(subject)),
+                       "every character on screen is listed once, the heading's among them")
+
+        // Its first line above the top of the screen.
+        view.contentOffset.y = lines[1].frame.minY + view.containerOrigin.y - view.adjustedContentInset.top
+        let before = canvas.visibleRange
+        try await reader.wait("the place scrolled to") { canvas.visibleRange != before }
+        XCTAssertEqual(try shown(subject).location, lines[1].range.location, "the heading's second line is the first on screen")
+        let listed = try elements(of: view)
+        let cut = try XCTUnwrap(listed.first)
+        XCTAssertTrue(cut === whole, "the same element as when all of it showed")
+        XCTAssertEqual(cut.accessibilityLabel, title + "\n", "read whole, from its first word")
+        let area = visibleArea(of: subject).insetBy(dx: -1_000, dy: -0.01)
+        XCTAssertTrue(cut.accessibilityFrameInContainerSpace.height > 0 && area.contains(cut.accessibilityFrameInContainerSpace),
+                      "listed at \(cut.accessibilityFrameInContainerSpace), outside \(area)")
+        XCTAssertEqual(listed.dropFirst().first?.accessibilityLabel, try lineText(at: NSMaxRange(heading), in: view), "then the line under it")
+        XCTAssertEqual(listed.filter { $0.accessibilityTraits.contains(.header) }.count, 1)
+
+        // VoiceOver's cursor comes to it: nothing scrolls, the lines before the screen are
+        // listed before it, and it is still one element, the same one.
+        let offset = view.contentOffset
+        focus(cut, from: nil, in: view)
+        XCTAssertEqual(view.contentOffset, offset, "moving onto the heading moved the reader")
+        let grown = try elements(of: view)
+        XCTAssertEqual(grown.filter { $0.accessibilityTraits.contains(.header) }.count, 1, "the heading is listed once")
+        let index = view.index(ofAccessibilityElement: cut)
+        XCTAssertTrue(index != NSNotFound && grown[index] === cut)
+        XCTAssertGreaterThan(index, 0, "the end of the chapter before is listed before it")
+        let earlier = view.plainText(in: NSRange(location: 0, length: start))
+        for line in grown.prefix(index) {
+            XCTAssertTrue(earlier.contains(line.accessibilityLabel ?? "\u{0}"), "\(line.accessibilityLabel ?? "") is a line of the chapter before")
+        }
+        // On to the line under it and back: one stop each way.
+        let under = try XCTUnwrap(try move(from: cut, forward: true, in: view))
+        XCTAssertEqual(under.accessibilityLabel, try lineText(at: NSMaxRange(heading), in: view))
+        XCTAssertTrue(try XCTUnwrap(try move(from: under, forward: false, in: view)) === cut)
     }
 
     func testANoteKeepsUIKitsOwnTextElements() {
