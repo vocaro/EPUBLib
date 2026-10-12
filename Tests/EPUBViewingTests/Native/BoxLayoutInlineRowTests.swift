@@ -235,6 +235,28 @@ import UIKit
         H.pages(section, size: size)
     }
 
+    /// A point just inside the leading edge of `frame`, as the reader's views take them.
+    private func offset(at frame: CGRect, in view: ReaderTextView) -> Int {
+        view.characterOffset(at: CGPoint(x: view.containerOrigin.x + frame.minX + 2, y: view.containerOrigin.y + frame.midY))
+    }
+
+    func testAPointOnTheProseTheBoxesOrTheProseAfterThemFindsItsOwnCharacters() throws {
+        let tail = "and then the sentence runs on for long enough to fill the rest of this line and one more below it."
+        let (section, view) = try layout("<p>One \(marks(2)) \(tail)</p><p>The next paragraph.</p>", css: wide)
+        let one = H.range("One", in: section), after = H.range(tail, in: section)
+        XCTAssertEqual(offset(at: H.frame("One", in: section, view: view), in: view), one.location)
+        let regions = view.readerContainer.boxRegions.filter { !$0.reserved }.sorted { $0.range.location < $1.range.location }
+        for (region, mark) in zip(regions, glyphs(in: section, view: view)) {
+            XCTAssertEqual(offset(at: mark, in: view), region.range.location, "a point on a mark finds the mark")
+        }
+        // The prose after them is on their line, above its own paragraph's place in the flow.
+        let lines = H.lines(in: view, intersecting: after)
+        XCTAssertEqual(lines[0].frame.minY, H.frame("One", in: section, view: view).minY, accuracy: 0.5)
+        XCTAssertEqual(offset(at: lines[0].frame, in: view), after.location, "a point on the prose after the boxes finds that prose")
+        XCTAssertEqual(offset(at: lines[1].frame, in: view), lines[1].range.location)
+        XCTAssertEqual(offset(at: H.frame("The next paragraph.", in: section, view: view), in: view), H.range("The next paragraph.", in: section).location)
+    }
+
     // MARK: What the writer records
 
     func testTheWriterRecordsWhereEachBoxIsOnItsLine() throws {
@@ -355,6 +377,13 @@ import UIKit
             for other in lines.dropFirst(first + 1) where H.overlaps([line.frame.insetBy(dx: 0.5, dy: 0.5)], [other.frame.insetBy(dx: 0.5, dy: 0.5)]) { overlapping += 1 }
         }
         XCTAssertEqual(overlapping, 0, "no line is drawn over another")
+        // A point on a mark or on the prose after a run finds its own characters there too.
+        let text = chapter.string.string as NSString
+        let star = try XCTUnwrap(lines.first { text.substring(with: NSRange(location: $0.range.location - start, length: 1)) == "*" })
+        XCTAssertEqual(offset(at: star.frame, in: view), star.range.location, "a point on a mark finds the mark")
+        let word = H.range("and a single word after the gap", in: chapter)
+        let prose = try XCTUnwrap(lines.first { $0.range.location == start + word.location })
+        XCTAssertEqual(offset(at: prose.frame, in: view), prose.range.location, "a point on the prose after the run finds that prose")
         // The point of the fixture: the chapter is not where the plan, which measured all of
         // the text above it, has it.
         let planned = try XCTUnwrap(view.readerContainer.boxPage?.geometry.paragraph(at: start + H.range("The corner of the page", in: chapter).location))

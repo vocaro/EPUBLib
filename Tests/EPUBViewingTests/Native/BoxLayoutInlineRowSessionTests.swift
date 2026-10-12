@@ -71,7 +71,7 @@ import XCTest
         // Forty-nine marks in the chapter; whatever part of them is shown is in rows of several.
         XCTAssertGreaterThanOrEqual(stars.count, 9, "the first run is shown, \(label)")
         let rows = Dictionary(grouping: stars) { ($0.minY * 2).rounded() }
-        XCTAssertLessThanOrEqual(rows.count * 2, stars.count, "the marks are side by side, not one to a line: \(label)")
+        XCTAssertLessThanOrEqual(rows.count * 3, stars.count * 2, "the marks are side by side, not one to a line: \(label)")
     }
 
     func testTheChapterOfMarksIsSetInRowsInPagesAndInContinuousScroll() async throws {

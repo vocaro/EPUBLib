@@ -350,7 +350,8 @@ enum ReaderBoxLayout {
                         if open == nil, inline.continuesLine, let previous = plan.paragraphs.last, !previous.isBox,
                            previous.range.upperBound == range.location, let last = previous.lines.last,
                            text.attribute(.readerParagraphFlow, at: range.location - 1, effectiveRange: nil) as? ReaderParagraphFlow === inline.block {
-                            open = InlineRow(block: inline.block, end: range.location, top: last.frame.minY, bottom: max(last.frame.maxY, cursor),
+                            open = InlineRow(block: inline.block, rightToLeft: line.rightToLeft, end: range.location,
+                                             top: last.frame.minY, bottom: max(last.frame.maxY, cursor),
                                              pen: line.rightToLeft ? last.frame.minX : last.frame.maxX, source: last.range,
                                              firstRegion: plan.regions.count)
                         }
@@ -364,8 +365,8 @@ enum ReaderBoxLayout {
                                 plan.regions[reserved].frame = CGRect(x: 0, y: full.top, width: viewport.width, height: full.bottom - full.top)
                             }
                             x = line.start(width, indent: open == nil ? inline.firstLineIndent : 0)
-                            placed = InlineRow(block: inline.block, end: boxRange.upperBound,
-                                               top: open?.bottom ?? max(cursor, inlineFloor), bottom: open?.bottom ?? max(cursor, inlineFloor),
+                            let top = open?.bottom ?? max(cursor, inlineFloor)
+                            placed = InlineRow(block: inline.block, rightToLeft: line.rightToLeft, end: boxRange.upperBound, top: top, bottom: top,
                                                pen: x, source: boxRange, firstRegion: open?.firstRegion ?? plan.regions.count)
                         }
                         placed?.pen = line.rightToLeft ? x - line.before : x + width + line.after
@@ -407,7 +408,14 @@ enum ReaderBoxLayout {
                         // The boxes of a run are set beside one another, not under one another.
                         let obstacles = style.isOutOfFlow ? (hasVerticalInset ? plan.regions.filter(\.wrapsEarlierText) : plan.regions)
                             : plan.regions.prefix(placed?.firstRegion ?? plan.regions.count) + pending.unplaced
-                        frame = settled(frame, below: obstacles.map { $0.frame })
+                        if placed == nil {
+                            frame = settled(frame, below: obstacles.map { $0.frame })
+                        } else {
+                            // Where the box is set it only touches what is beside and above it:
+                            // the fraction its ink or a sum of line heights is out by is no collision.
+                            let probe = frame.insetBy(dx: min(0.5, frame.width / 4), dy: min(0.01, frame.height / 4))
+                            frame.origin.y += settled(probe, below: obstacles.map { $0.frame }).minY - probe.minY
+                        }
                         // Negative top margins move glyphs but TextKit clamps their flow advance
                         // to zero. Keep that displacement on every paragraph, and cancel only the
                         // measured height plus any positive displacement on the last fragment.
@@ -437,9 +445,7 @@ enum ReaderBoxLayout {
                                 placed.trailingSpace = box.inline?.trailingSpace ?? 0
                                 // What the row has taken so far, from the line's start, is closed
                                 // to the text after the run: the text before it, and the gaps.
-                                let taken = box.inline?.rightToLeft == true
-                                    ? CGRect(x: placed.pen, y: placed.top, width: max(0, viewport.width - placed.pen), height: placed.bottom - placed.top)
-                                    : CGRect(x: 0, y: placed.top, width: max(0, placed.pen), height: placed.bottom - placed.top)
+                                let taken = placed.taken(through: placed.pen, width: viewport.width)
                                 if let reserved = placed.reserved {
                                     plan.regions[reserved].frame = taken
                                     plan.regions[reserved].range = placed.source
@@ -479,10 +485,8 @@ enum ReaderBoxLayout {
             var base = max(cursor, inlineFloor)
             if let after {
                 if let reserved = after.reserved, after.trailingSpace > 0 {
-                    let frame = plan.regions[reserved].frame
-                    plan.regions[reserved].frame = frame.minX > 0
-                        ? CGRect(x: frame.minX - after.trailingSpace, y: frame.minY, width: frame.width + after.trailingSpace, height: frame.height)
-                        : CGRect(x: 0, y: frame.minY, width: frame.width + after.trailingSpace, height: frame.height)
+                    let pen = after.pen + (after.rightToLeft ? -1 : 1) * after.trailingSpace
+                    plan.regions[reserved].frame = after.taken(through: pen, width: viewport.width)
                 }
                 base = after.top
             }
@@ -526,6 +530,12 @@ enum ReaderBoxLayout {
             plan.paragraphs.append(.init(range: range, topAdjustment: start - beforeScope, bottomAdjustment: above,
                                         flowStart: beforeScope, flowEnd: start + measured.height, lines: lines,
                                         column: scoped ? column : nil, scope: flow?.scope.id))
+            // Its lines up there are above its own fragment, as a box's are: a point on them
+            // finds the fragment by this region, as it finds a box's.
+            if above < 0 {
+                let raised = lines.filter { $0.1.minY < beforeScope }.reduce(CGRect.null) { $0.union($1.1) }
+                if !raised.isNull { plan.regions.append(.init(range: range, frame: raised, side: .none, reserved: true)) }
+            }
             cursor = start + measured.height
             if measurementRange.length < range.length { break }
             index += 1
@@ -578,6 +588,7 @@ enum ReaderBoxLayout {
     /// The row a run of sized inline boxes is being set on.
     struct InlineRow {
         let block: ReaderParagraphFlow
+        let rightToLeft: Bool
         /// Where the source set on the row so far ends: what starts there continues the row.
         var end: Int
         var top: CGFloat
@@ -591,6 +602,12 @@ enum ReaderBoxLayout {
         let firstRegion: Int
         /// What the text after the last box keeps from it.
         var trailingSpace: CGFloat = 0
+
+        /// The part of the row from its line's start through `pen`, in a column `width` wide.
+        func taken(through pen: CGFloat, width: CGFloat) -> CGRect {
+            rightToLeft ? CGRect(x: max(0, pen), y: top, width: max(0, width - max(0, pen)), height: bottom - top)
+                : CGRect(x: 0, y: top, width: max(0, pen), height: bottom - top)
+        }
     }
 
     /// The line of a block that a sized inline box is set on: the edges its content may reach,
