@@ -56,8 +56,10 @@ enum StyleReference: Equatable {
         if trimmed.isEmpty { self = .invalid; return }
         if trimmed.lowercased().hasPrefix("data:") { self = .data; return }
         if trimmed.hasPrefix("//") || Self.hasScheme(trimmed) { self = .remote; return }
-        // Queries and fragments (`font.eot?#iefix`) never name a different archive entry.
-        let path = String(trimmed.prefix { $0 != "?" && $0 != "#" })
+        // Queries and fragments (`font.eot?#iefix`) never name a different archive entry. Cut at
+        // the byte, as `ResourceReference` reads: as a `Character`, a "?" or "#" before a
+        // combining mark is another character.
+        let path = String(decoding: trimmed.utf8.prefix { $0 != 0x3F && $0 != 0x23 }, as: UTF8.self) // ? #
         guard !path.isEmpty, let encoded = try? ResourceReference.resolve(path, relativeTo: base),
               let decoded = encoded.removingPercentEncoding else { self = .invalid; return }
         self = .local(decoded)

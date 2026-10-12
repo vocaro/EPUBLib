@@ -213,7 +213,8 @@ enum ReaderBoxLayout {
         var cursor: CGFloat = 0
         var scopeOrigins: [UUID: CGFloat] = [:]
         var sectionOrigins: [UUID: CGFloat] = [:]
-        let disabledRanges = disabledBoxRanges(text, disabled: disabled)
+        // The earlier pass's boxes this pass has yet to place: told of every region the plan gains.
+        var pending = Anticipation(anticipated, disabled: disabledBoxRanges(text, disabled: disabled))
         var lastConstraint = 0
         text.enumerateAttributes(in: NSRange(location: 0, length: text.length)) { attributes, run, _ in
             if attributes[.readerFlowBox] != nil
@@ -361,9 +362,7 @@ enum ReaderBoxLayout {
                         }
                         let hasVerticalInset = style.positionTop != .auto || style.positionBottom != .auto
                         let obstacles = style.isOutOfFlow ? (hasVerticalInset ? plan.regions.filter(\.wrapsEarlierText) : plan.regions)
-                            : plan.regions + anticipated.filter { candidate in
-                                !plan.regions.contains(where: { $0.range == candidate.range })
-                            }
+                            : plan.regions + pending.unplaced
                         frame = settled(frame, below: obstacles.map { $0.frame })
                         // Negative top margins move glyphs but TextKit clamps their flow advance
                         // to zero. Keep that displacement on every paragraph, and cancel only the
@@ -390,11 +389,13 @@ enum ReaderBoxLayout {
                                 plan.regions.append(.init(range: prefix.range,
                                     frame: CGRect(x: 0, y: prefix.frame.minY, width: x, height: prefix.frame.height),
                                     side: .none, reserved: true))
+                                pending.place(prefix.range)
                             }
                             plan.regions.append(.init(range: boxRange, frame: frame, side: style.float,
                                 wrapsEarlierText: style.isOutOfFlow && (style.positionTop != .auto || style.positionBottom != .auto),
                                 scope: box.containing?.id,
                                 contentFrame: CGRect(x: x, y: frame.minY, width: width, height: height)))
+                            pending.place(boxRange)
                             index = end
                             continue
                         }
@@ -423,11 +424,7 @@ enum ReaderBoxLayout {
             if ordinaryTail && start >= lastBoxBottom { break }
             var measurementRange = ordinaryTail && range.length > 8_194
                 ? NSRange(location: range.location, length: 8_194) : range
-            let predicted = anticipated.filter { candidate in
-                candidate.wrapsEarlierText && !plan.regions.contains(where: { $0.range == candidate.range })
-                    && !disabledRanges.contains(where: { NSIntersectionRange($0, candidate.range).length > 0 })
-                    && candidate.scope == flow?.scope.id
-            }
+            let predicted = pending.unplaced(wrappingTextIn: flow?.scope.id)
             var measured = measure(text.attributedSubstring(from: measurementRange), viewport: viewport,
                                    regions: plan.regions + predicted, origin: start, sourceOffset: range.location,
                                    column: scoped ? column : nil, scope: flow?.scope.id)
@@ -491,6 +488,41 @@ enum ReaderBoxLayout {
         }
         text.addAttribute(.readerBoxPage, value: ReaderBoxPage(geometry: plan), range: NSRange(location: 0, length: text.length))
         return Result(text: text, geometry: plan)
+    }
+
+    /// The boxes the pass before this one placed, for what this pass asks about them: which it
+    /// has not placed yet, for a float to stay clear of, and which of those the text of one
+    /// scope wraps around ahead of the box's place in the source. Searching the regions placed
+    /// so far for each of those boxes, for every paragraph, costs the cube of the box count in a
+    /// section that alternates the two. A set of the placed ranges answers each in one lookup,
+    /// and the boxes that text wraps ahead of are told apart by scope once.
+    struct Anticipation {
+        private let regions: [ReaderBoxGeometry.Region]
+        private let wrapping: [UUID?: [ReaderBoxGeometry.Region]]
+        private var placed: Set<NSRange> = []
+
+        /// `regions` in the order the earlier pass placed them. One that meets a `disabled`
+        /// range is a box this pass leaves in flow: text does not wrap ahead of it.
+        init(_ regions: [ReaderBoxGeometry.Region], disabled: [NSRange]) {
+            self.regions = regions
+            var wrapping: [UUID?: [ReaderBoxGeometry.Region]] = [:]
+            for region in regions where region.wrapsEarlierText
+                && !disabled.contains(where: { NSIntersectionRange($0, region.range).length > 0 }) {
+                wrapping[region.scope, default: []].append(region)
+            }
+            self.wrapping = wrapping
+        }
+
+        /// Records a region this pass has placed, by its range.
+        mutating func place(_ range: NSRange) { placed.insert(range) }
+
+        /// The earlier pass's regions that this pass has placed no region of the same range for.
+        var unplaced: [ReaderBoxGeometry.Region] { regions.filter { !placed.contains($0.range) } }
+
+        /// Those of `unplaced` that the text of `scope` wraps around.
+        func unplaced(wrappingTextIn scope: UUID?) -> [ReaderBoxGeometry.Region] {
+            wrapping[scope]?.filter { !placed.contains($0.range) } ?? []
+        }
     }
 
     /// `frame` moved down until it is clear of every obstacle. Each drop goes to the bottom of

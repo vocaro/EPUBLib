@@ -30,8 +30,6 @@ Archive paths are decoded ZIP paths; the container's rootfile path and manifest/
 are URL references. An entry's name is read as UTF-8 when its bytes are well-formed UTF-8, with or
 without the ZIP language-encoding flag (general-purpose bit 11), which `zip` and `ditto` on a Mac
 leave clear; any other name is read as code page 437, or refused when the flag calls it UTF-8.
-Paths are compared as Swift strings, so a name's precomposed and decomposed forms are one path:
-either finds the entry, and two entries so named are duplicates.
 The parser resolves the rootfile path from the container root and other
 references relative to the containing OPF/navigation document. A rootfile path that is refused as
 a URL or names no entry that way (a name's own `%`, `#` or `?` left unescaped, as older validators
@@ -43,6 +41,18 @@ landmarks (the EPUB 2 guide's references when there are none) and the page list 
 bytes does not execute document content. XML expansion and external entity resolution are refused. Declaration screening distinguishes
 actual DTD syntax from comments, CDATA, processing instructions and quoted identifiers; it decodes
 UTF-16/32 input before inspecting markup.
+
+A path the reader keeps is relative and made of names separated by single `/`: no name is empty,
+`.` or `..`, and the path holds no backslash or NUL. Entry names, the rootfile path and the path
+of every resolved reference are held to that. A delimiter in a path or a reference is found as
+its byte, as an archive and a file system read it, not by `Character`: a `/`, `\`, `:`, `#`, `?`
+or `.` followed by a combining mark, variation selector or joiner, or preceded by a prepended
+mark such as U+0600, is still that delimiter or dot. So `../` followed by U+0301 and a name is a
+`..` segment followed by a name that begins with the mark, and `a/` followed by U+0301 and `b` is
+the name `a` followed by a second name that begins with it. Paths are compared as Swift strings,
+by canonical equivalence, so a name's precomposed and decomposed forms are one path: an entry
+answers to a reference in either normalization form, and two entry names equal after
+normalization are duplicates.
 
 Default limits are 256 MiB compressed, 512 MiB expanded, 32 MiB per resource, 20,000 entries and
 4 MiB per XML document, with depth/node limits. Hosts may lower or raise import limits. Resources
@@ -81,7 +91,10 @@ warnings, so this list is where they are disclosed:
   encryption.
 - **XML.** In the container, package, navigation and NCX documents, HTML's named character
   references (`&nbsp;`) and a `DOCTYPE` keyword in any case are read as a browser reads them in
-  content. A C0 control character XML forbids, copied from PDF text into a title, reads as a
+  content. In a document that is not UTF-16 or UTF-32, both are left as the parser finds them
+  when its XML declaration is written in EBCDIC, names an encoding that is not on a fixed list
+  of ASCII-compatible ones, or neither names one nor ends within the document's first 1,024
+  bytes. A C0 control character XML forbids, copied from PDF text into a title, reads as a
   space in an ASCII-compatible document.
 
 `EPUBWriting` holds what it writes to the stricter rules: a path with a colon is refused, and so

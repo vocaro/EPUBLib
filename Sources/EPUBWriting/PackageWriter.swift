@@ -35,11 +35,14 @@ public enum EPUBPackageWriter {
                                  spine: [EPUBSpineItem], contents: [EPUBNavigationItem],
                                  pages: [EPUBNavigationItem] = [], stylesheet: String? = nil) throws -> [Document] {
         guard !spine.isEmpty else { throw EPUBWritingError.invalidPublication("empty spine") }
+        // By byte, as `ResourceReference` reads a path: as a `Character`, the "/" before a
+        // combining mark is another character, and no prefix of the path is "EPUB/".
+        func inPackage(_ path: String) -> Bool { path.utf8.starts(with: "EPUB/".utf8) }
         var ids: Set<String> = ["nav"]
         var paths: Set<String> = ["EPUB/nav.xhtml", "EPUB/package.opf", "META-INF/container.xml", "mimetype"]
         for resource in resources {
             guard !resource.id.isEmpty, ids.insert(resource.id).inserted,
-                  ResourceReference.isSafePath(resource.path), resource.path.hasPrefix("EPUB/"),
+                  ResourceReference.isSafePath(resource.path), inPackage(resource.path),
                   paths.insert(resource.path).inserted else {
                 throw EPUBWritingError.invalidPublication("duplicate or invalid resource: \(resource.path)")
             }
@@ -51,10 +54,10 @@ public enum EPUBPackageWriter {
         func href(_ value: String) throws -> String {
             let resolved = try ResourceReference.resolve(value, relativeTo: "root.opf", strict: true)
             let path = String(resolved.split(separator: "#", maxSplits: 1)[0]).removingPercentEncoding ?? ""
-            guard value.hasPrefix("EPUB/"), paths.contains(path), path.hasPrefix("EPUB/") else {
+            guard inPackage(value), paths.contains(path), inPackage(path) else {
                 throw EPUBWritingError.invalidPublication("navigation references an undeclared resource: \(value)")
             }
-            return String(value.dropFirst(5))
+            return String(decoding: value.utf8.dropFirst(5), as: UTF8.self)
         }
         func items(_ entries: [EPUBNavigationItem]) throws -> String {
             try entries.map { entry in

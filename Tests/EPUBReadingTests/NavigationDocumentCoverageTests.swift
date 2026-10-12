@@ -7,6 +7,7 @@ import XCTest
 /// The EPUB 3 navigation document: the `toc` nav's labels, nesting and hrefs, and XML bounds.
 final class NavigationDocumentCoverageTests: XCTestCase {
     private typealias Item = EPUBNavigationItem
+    private let xhtml11 = #"<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">"#
 
     /// The plain book with its navigation document replaced by one holding `body`.
     private func book(nav body: String, adding: [String: Data?] = [:]) throws -> EPUBPublication {
@@ -87,6 +88,35 @@ final class NavigationDocumentCoverageTests: XCTestCase {
     func testANamedReferenceInACharacterDataSectionOrACommentIsNotOne() throws {
         let entries = try contents("<ol><li><a href=\"one.xhtml\"><![CDATA[A&nbsp;B]]> &nbsp;C<!-- &nbsp; &bogus; --></a></li></ol>")
         XCTAssertEqual(entries.first?.title, "A&nbsp;B \u{A0}C")
+    }
+
+    func testNamedCharacterReferencesInLabelsAreDecodedWhateverTheDoctype() throws {
+        // XHTML's names are read as the content-document parsers read them: from a built-in table,
+        // with or without a DOCTYPE to declare them. Character data sections, comments and an
+        // escaped ampersand keep what they spell.
+        let navs = "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">Caf&eacute;&nbsp;&mdash; <![CDATA[&nbsp;]]><!-- &bogus; -->&amp;nbsp; 1</a></li></ol></nav>"
+            + "<nav epub:type=\"landmarks\"><ol><li><a epub:type=\"bodymatter\" href=\"one.xhtml\">D&eacute;but</a></li></ol></nav>"
+            + "<nav epub:type=\"page-list\"><ol><li><a href=\"one.xhtml#p1\">&sect;&thinsp;1</a></li></ol></nav>"
+        for doctype in ["", "<!DOCTYPE html>", "<!DOCTYPE html SYSTEM \"about:legacy-compat\">", xhtml11,
+                        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" + xhtml11] {
+            let book = try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in doctype + Fixture.navigationDocument(navs) }))
+            XCTAssertEqual(book.tableOfContents, [Item(title: "Caf\u{E9}\u{A0}\u{2014} &nbsp;&nbsp; 1", href: "OPS/one.xhtml")], doctype)
+            XCTAssertEqual(book.landmarks, [EPUBLandmark(types: ["bodymatter"], title: "D\u{E9}but", href: "OPS/one.xhtml")], doctype)
+            XCTAssertEqual(book.pageList, [EPUBPageListEntry(label: "\u{A7}\u{2009}1", href: "OPS/one.xhtml#p1")], doctype)
+        }
+    }
+
+    func testNamedCharacterReferencesInALabelAreDecodedBesideALabelWithATildeAndBrace() throws {
+        // `~{` opens a two-byte run in the HZ encoding. This document is UTF-8, so a label that
+        // holds a template expression is plain text and the references before it are references.
+        let nav = "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">Caf&eacute;&nbsp;&mdash; 1</a></li>"
+            + "<li><a href=\"two.xhtml\">Using ~{...} fragments</a></li></ol></nav>"
+        for doctype in [xhtml11, "<?xml version=\"1.0\" encoding=\"utf-8\"?>" + xhtml11, ""] {
+            let book = try EPUBPublication.open(data: Fixture.packageVariant(nav: { _ in doctype + Fixture.navigationDocument(nav) }))
+            XCTAssertEqual(book.tableOfContents, [
+                Item(title: "Caf\u{E9}\u{A0}\u{2014} 1", href: "OPS/one.xhtml"), Item(title: "Using ~{...} fragments", href: "OPS/two.xhtml"),
+            ], doctype)
+        }
     }
 
     func testADoctypeWrittenInAnyCaseIsRead() throws {
@@ -225,6 +255,34 @@ final class NavigationDocumentCoverageTests: XCTestCase {
             XCTAssertEqual(parts.first?.removingPercentEncoding, resource.path, spelling)
             XCTAssertEqual(parts.last, "sec%201", spelling)
             if !spelling.contains("%CC%81") { XCTAssertEqual(parts.first, resource.href, spelling) }
+        }
+    }
+
+    // A `Character` holds a "/", "\", ":", "#" or "." together with a mark, selector or joiner
+    // after it, so read that way "../" + U+0301 + "x.xhtml" has no dot segment and
+    // "two.xhtml#" + U+0301 + "s" has no fragment (https://github.com/vocaro/EPUBLib/issues/181).
+    func testEntryHrefsAreResolvedWhateverMarkFollowsTheirSeparatorsAndDots() throws {
+        for m in Fixture.clusteringMarks {
+            let e = Fixture.escapingNonASCII(m)
+            let hrefs = ["../\(m)x.xhtml", "./\(m)x.xhtml#s", "a/../\(m)x.xhtml", "a/\(m)x.xhtml", "two.xhtml#\(m)s", "#\(m)s", "..%2F\(e)x.xhtml"]
+            let entries = try contents("<ol>" + hrefs.map { "<li><a href=\"\($0)\">x</a></li>" }.joined() + "</ol>")
+            XCTAssertEqual(entries.map(\.href), ["\(e)x.xhtml", "OPS/\(e)x.xhtml#s", "OPS/\(e)x.xhtml", "OPS/a/\(e)x.xhtml", "OPS/two.xhtml#\(e)s",
+                                                "OPS/nav.xhtml#\(e)s", "\(e)x.xhtml"], m.debugDescription)
+            // Read as the same href is without the mark. One that climbs past the container root
+            // or opens with a slash starts at the root (https://github.com/vocaro/EPUBLib/issues/84)
+            // and a colon is a character of the name; one with a backslash does not resolve, and
+            // its entry stays without a target (https://github.com/vocaro/EPUBLib/issues/171).
+            let others: [(href: String, resolved: String?)] = [("../../\(m)x.xhtml", "\(e)x.xhtml"), ("/\(m)x.xhtml", "\(e)x.xhtml"),
+                                                               ("./a:\(m)x.xhtml", "OPS/a%3A\(e)x.xhtml"), ("a\\\(m)x.xhtml", nil)]
+            for (href, resolved) in others {
+                let list = "<ol><li><a href=\"\(href)\">x</a></li><li><a epub:type=\"bodymatter\" href=\"one.xhtml#p2\">kept</a></li></ol>"
+                XCTAssertEqual(try contents(list), [Item(title: "x", href: resolved), Item(title: "kept", href: "OPS/one.xhtml#p2")], href.debugDescription)
+                // Among landmarks and pages, one that does not resolve is left out.
+                let book = try book(nav: "<nav epub:type=\"toc\"><ol><li><a href=\"one.xhtml\">1</a></li></ol></nav>"
+                    + "<nav epub:type=\"landmarks\">\(list)</nav><nav epub:type=\"page-list\">\(list)</nav>")
+                XCTAssertEqual(book.landmarks.map(\.href), [resolved, "OPS/one.xhtml#p2"].compactMap { $0 }, href.debugDescription)
+                XCTAssertEqual(book.pageList?.map(\.href), [resolved, "OPS/one.xhtml#p2"].compactMap { $0 }, href.debugDescription)
+            }
         }
     }
 

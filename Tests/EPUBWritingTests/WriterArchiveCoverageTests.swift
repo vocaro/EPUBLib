@@ -188,6 +188,33 @@ struct WriterArchiveCoverageTests {
         }
     }
 
+    // A `Character` holds a "/", "\", ":" or "." together with a combining mark, variation
+    // selector or joiner after it, so read that way "EPUB/../" + U+0301 + "a" is a safe path and
+    // was written as an entry of that name (https://github.com/vocaro/EPUBLib/issues/181).
+    @Test func entryPathsAreCheckedWhateverMarkFollowsASeparatorOrDot() async throws {
+        let directory = try WriterCoverage.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mime = Entry(path: "mimetype", fileURL: try WriterCoverage.mimetype(in: directory))
+        let assetURL = try WriterCoverage.file("asset", Data([1, 2, 3]), in: directory)
+        for (index, m) in WriterCoverage.clusteringMarks.enumerated() {
+            let refused = directory.appendingPathComponent("refused.epub")
+            for path in ["../\(m)a", "EPUB/../\(m)a", "EPUB/../../\(m)a", "/\(m)a", "EPUB//\(m)a", "./\(m)a", "EPUB/./\(m)a", "a\\\(m)b", "a:\(m)b",
+                         "EPUB/a\u{600}/..", "EPUB/a\u{600}/"] {
+                await #expect(throws: EPUBWritingError.invalidPublication("duplicate or invalid entry: \(path)"), "\(path.debugDescription)") {
+                    try await EPUBArchiveWriter.write(entries: [mime, Entry(path: path, fileURL: assetURL)], to: refused, maximumContentBytes: 1_000,
+                                                     modificationDate: date)
+                }
+                #expect(!exists(refused), "\(path.debugDescription)")
+            }
+            // A name that begins with the mark, or is dots and the mark, is written as it is.
+            let names = ["EPUB/\(m)a.txt", "EPUB/a.txt", "EPUB\(m)/a.txt", "\(m)a.txt", "EPUB/.\(m)", "EPUB/..\(m)"]
+            let output = directory.appendingPathComponent("names-\(index).epub")
+            try await EPUBArchiveWriter.write(entries: [mime] + names.map { Entry(path: $0, fileURL: assetURL) }, to: output, maximumContentBytes: 1_000,
+                                             modificationDate: date)
+            #expect(try contents(of: output).dropFirst().map { Array($0.path.unicodeScalars) } == names.map { Array($0.unicodeScalars) }, "\(m.debugDescription)")
+        }
+    }
+
     @Test func aMimetypeFileWithOtherContentIsRefused() async throws {
         let directory = try WriterCoverage.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
