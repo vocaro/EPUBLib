@@ -810,7 +810,10 @@ final class SectionWriter {
             if end > start { string.addAttribute(.readerParagraphFlow, value: paragraphs[index].format.flow,
                                                 range: NSRange(location: start, length: end - start)) }
         }
-        if isSection { ReaderAlignmentLayout.tag(string, paragraphs: paragraphs.map { ($0.start, $0.alignmentItem) }) }
+        if isSection {
+            adoptSpokenParagraphs()
+            ReaderAlignmentLayout.tag(string, paragraphs: paragraphs.map { ($0.start, $0.alignmentItem) })
+        }
         for attribute in postAttributes where NSMaxRange(attribute.range) <= length {
             string.addAttribute(attribute.key, value: attribute.value, range: attribute.range)
         }
@@ -1342,12 +1345,36 @@ final class SectionWriter {
                 spokenRun = paragraphs.count
             }
             // The boxes that open here have not begun: their first paragraph is still to come.
+            // A run of inline blocks goes on across it.
             for frame in frames.indices where frames[frame].firstParagraph == paragraphs.count { frames[frame].firstParagraph += 1 }
+            if lastInlineBox?.paragraphs == paragraphs.count { lastInlineBox?.paragraphs += 1 }
             paragraphs.append(paragraph)
             for label in pendingSpoken[index..<end] { appendSpoken(label, attributes: attributes) }
             index = end
         }
         pendingSpoken.removeAll()
+    }
+
+    /// A hidden label's own paragraph is no item of a flex or grid container, but it lies among
+    /// the container's paragraphs, which are found as the consecutive ones tagged with it
+    /// (`ReaderAlignmentLayout.boxes`). It takes the item of the paragraph after it, or of the
+    /// one before it when that shares a container nearer to the label.
+    private func adoptSpokenParagraphs() {
+        for index in paragraphs.indices where paragraphs[index].isSpoken {
+            let containers = paragraphs[index].format.itemAlignment.containers
+            guard !containers.isEmpty else { continue }
+            func adoption(_ neighbour: Int?) -> (depth: Int, item: ReaderAlignmentItem)? {
+                guard let neighbour, let item = paragraphs[neighbour].alignmentItem else { return nil }
+                for (depth, container) in containers.enumerated() {
+                    if let found = item.inside(container) { return (depth, found) }
+                }
+                return nil
+            }
+            let after = adoption(paragraphs[(index + 1)...].firstIndex { !$0.isSpoken })
+            let before = adoption(paragraphs[..<index].lastIndex { !$0.isSpoken })
+            if let after, let before { paragraphs[index].alignmentItem = before.depth < after.depth ? before.item : after.item }
+            else { paragraphs[index].alignmentItem = (after ?? before)?.item }
+        }
     }
 
     private func appendSpoken(_ label: SpokenLabel, attributes: Int, mapped: Bool = true) {

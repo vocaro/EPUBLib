@@ -283,7 +283,7 @@ import UIKit
         let notice = "This edition was made for a test and is free of copyright."
         var first: (title: SectionText, imprint: SectionText)?
         for fontSize: CGFloat in [12, 17, 96] {
-            let title = try H.build(F.shippedTitleBody, css: F.shippedCSS, fontSize: fontSize, files: files)
+            let title = try H.build(F.shippedTitlePageBody, css: F.shippedCSS, fontSize: fontSize, files: files)
             let imprint = try H.build(F.shippedImprintBody, css: F.shippedCSS, fontSize: fontSize, files: files)
             XCTAssertEqual(title.string.drawnString, "\u{FFFC}", "the title page draws its image alone at \(fontSize) points")
             XCTAssertEqual(title.string.spokenLabels, ["An Aligned Book", "By Test Author."], "\(fontSize)")

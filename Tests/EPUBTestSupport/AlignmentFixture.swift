@@ -138,9 +138,15 @@ public extension Fixture {
             }
             """
 
-        /// The title page, whose image is `titlepage.png` beside the document (1400 by 340
-        /// pixels as shipped).
+        /// The title page's heading and byline, which it hides.
         public static let shippedTitleBody = """
+            <section class="epub-type-contains-word-titlepage" id="titlepage" epub:type="titlepage">\
+            <h1 epub:type="title">An Aligned Book</h1><p>By <b>Test Author</b>.</p></section>
+            """
+
+        /// The whole title page: the hidden heading and byline, and the image of the same words
+        /// that it shows, `titlepage.png` beside the document (1400 by 340 pixels as shipped).
+        public static let shippedTitlePageBody = """
             <section class="epub-type-contains-word-titlepage" id="titlepage" epub:type="titlepage">\
             <h1 epub:type="title">An Aligned Book</h1><p>By <b>Test Author</b>.</p>\
             <img alt="" src="titlepage.png"/></section>

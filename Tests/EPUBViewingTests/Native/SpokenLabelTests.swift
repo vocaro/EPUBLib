@@ -222,6 +222,18 @@ import UIKit
         let section = try assertLaidOutAsWithoutItsLabels(body, css: F.shippedCSS, labels: ["Dedication", "A second hidden line"],
                                                           size: CGSize(width: 400, height: 640))
         XCTAssertFalse(section.report.flexGridSimplified)
+        // The box is still one run of paragraphs, the labels' lines among them: a position
+        // anywhere in it finds the whole box (`ReaderAlignmentLayout.boxes`).
+        let whole = NSRange(location: 0, length: section.string.length)
+        XCTAssertEqual(section.string.string, "\u{FFFC}\nFor those\u{2028}who read\n\u{FFFC}\nto the last page")
+        for location in [0, 4, 20, 22, section.string.length - 1] {
+            XCTAssertEqual(ReaderAlignmentLayout.boxes(in: section.string, around: location), [whole], "from \(location)")
+        }
+        // A row of sized inline blocks goes on across a hidden box between two of them.
+        try assertLaidOutAsWithoutItsLabels(
+            "<p>Before <span class='b'>one</span><span class='sr'>inline label</span><span class='b'>two</span>"
+                + "<span class='clip' style='display:block'>block label</span><span class='b'>three</span> after.</p>",
+            css: ".b { display:inline-block; width:60px }", labels: ["inline label", "block label"])
     }
 
     // MARK: Pages
