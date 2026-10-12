@@ -247,7 +247,12 @@ window captures.
   the pages after it, the reader's position is the end of the section, and the dedication's
   last line rested at the top of the reading area with the dedication's blank space scrolled
   away. The reader has since been changed to rest the box's top edge there from any position
-  inside it ([Flows](#flows)); that change was checked by tests, not by operating the app again.
+  inside it ([Flows](#flows)). That change was checked by tests and by the same steps on the
+  same book through the reader's commands in an off-screen window (1,000 by 1,000 points of
+  content, one column, 17 points), not by operating the app again: before it "Zelda" was the
+  line at the top with the first line 47 points above; after it the box's top edge is 0.13
+  points below the top of the reading area and the middle of its lines at 0.49 of the
+  area's height.
 
 ### Physical devices and VoiceOver
 
@@ -393,7 +398,8 @@ kept, for these reasons:
 - **A position that starts an aligned box rests the box's top edge at the top.** The page is
   then seen as it was composed, as in paging. Resting the first line there instead would put a
   centred dedication at the top of the screen with all of its blank space below. The last lines
-  of the section before show in the top margin, as they do above any position.
+  of the section before show in the top margin, as they do above any position. The same is now
+  done for a position anywhere inside a box that fits the visible area ([Flows](#flows)).
 - **A box is at most one viewport, so `min-height: 150vh` behaves as `100vh`.** In paging the
   cap keeps a box and its text on one page with no blank page after it. In continuous scroll
   the box is half a screen shorter than WebKit makes it, all of it blank space. None of the ten
@@ -458,3 +464,14 @@ and the Mac run have no failure.
   The rule holds for every position the reader shows, the one a resize or a setting change
   keeps included: where the person has scrolled part of a one-screen box off the top, a
   resize shows the box whole again, moving its lines down to where the box puts them.
+- In a book with box geometry (every Standard Ebooks title, for its title page) a position
+  can rest a fraction of a point below the top of the visible area, and continuous scroll then
+  reads the line above it as the visible start. For a box rested by its top edge that line is
+  the last one of the section before, so that section is the position reported; and on the
+  Mac, where a resize keeps the visible start, the text then moves down one line. Seen in
+  *The Great Gatsby* through the reader's commands, off screen: after the change of flow the
+  dedication's box was 0.13 points low and the imprint's last line was reported, and after a
+  resize the dedication was 19 points lower. This is not the alignment's: two of three
+  ordinary positions tried in the same book did the same (0.23 and 0.14 points low, a line
+  lower after a resize), and [#164](https://github.com/vocaro/EPUBLib/issues/164) describes
+  the resize keeping the visible start. Not changed here.
