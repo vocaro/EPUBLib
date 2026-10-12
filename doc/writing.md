@@ -9,8 +9,12 @@ be unique, spine resources must be declared and navigation must resolve to a dec
 
 The producer supplies content XHTML, CSS and media. It owns chapter division, content styles,
 source-page decisions and document reconstruction. Metadata and navigation are XML escaped
-once by the writer. The caller chooses a stable identifier and modification date for reproducible
-output; package generation does not invent document facts.
+once by the writer, scalar by scalar: `&`, `<`, `>` and both quotes are escaped whatever stands
+beside them, a combining mark included, and no value is normalized. A tab, line feed or carriage
+return is written as a character reference, so that a parser returns it as given from an
+attribute value as well as from text. A character XML 1.0 cannot hold (a control character other
+than those three, U+FFFE or U+FFFF) is left out. The caller chooses a stable identifier and
+modification date for reproducible output; package generation does not invent document facts.
 
 Write prepared documents and content into staging, then call `EPUBArchiveWriter.write` with
 ordered file-backed entries, placing `mimetype` first. It stores the exact mimetype uncompressed,

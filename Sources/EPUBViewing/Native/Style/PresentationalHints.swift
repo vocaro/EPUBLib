@@ -65,7 +65,10 @@ enum PresentationalHints {
         case "font":
             if let color = attribute("color").flatMap(legacyColor) { add(&result, "color", color) }
             if let face = attribute("face") {
-                let families = face.split(separator: ",").map { $0.filter { $0 != "\"" && $0 != "\\" && $0 != "'" } }
+                // By scalar: as a `Character`, a comma, quote or backslash with a combining mark
+                // after it is another character, and the quote would stay in the name it is put in.
+                let families = face.unicodeScalars.split(separator: ",")
+                    .map { String(String.UnicodeScalarView($0.filter { $0 != "\"" && $0 != "\\" && $0 != "'" })) }
                     .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.prefix(CSSPropertyParser.maximumFamilies)
                 if !families.isEmpty { add(&result, "font-family", families.map { "\"\($0)\"" }.joined(separator: ", ")) }
             }

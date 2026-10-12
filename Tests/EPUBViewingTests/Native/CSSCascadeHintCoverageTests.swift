@@ -182,6 +182,25 @@ final class CSSCascadeHintCoverageTests: XCTestCase {
         XCTAssertEqual(result.style("plain").fontSize, 20)
     }
 
+    /// A `Character` holds a quote, comma or backslash together with a combining mark after it or
+    /// a prepended mark before it. Read that way the quote stayed in the name the hint quotes, so
+    /// the declaration was no font list, and the comma parted nothing
+    /// (https://github.com/vocaro/EPUBLib/issues/203).
+    func testAFontFaceIsReadWhateverMarkStandsBesideAQuoteCommaOrBackslash() throws {
+        let result = try styled("""
+            <div><font id="quote" face="&quot;&#x301;x&quot;, Georgia">a</font><font id="apostrophe" face="'&#x308;x', Georgia">b</font>
+            <font id="comma" face="Arial,&#x301;x, Georgia">c</font><font id="backslash" face="a\\&#x338;x, Georgia">d</font>
+            <font id="prepended" face="x&#x600;&quot;, Georgia">e</font></div>
+            """, css: "div { font-family: Palatino }")
+        func families(_ id: String) -> [[String]] { result.style(id).fontFamilies.map { $0.unicodeScalars.map { String($0.value, radix: 16) } } }
+        func scalars(_ names: String...) -> [[String]] { names.map { $0.unicodeScalars.map { String($0.value, radix: 16) } } }
+        XCTAssertEqual(families("quote"), scalars("\u{301}x", "georgia"))
+        XCTAssertEqual(families("apostrophe"), scalars("\u{308}x", "georgia"))
+        XCTAssertEqual(families("comma"), scalars("arial", "\u{301}x", "georgia"))
+        XCTAssertEqual(families("backslash"), scalars("a\u{338}x", "georgia"))
+        XCTAssertEqual(families("prepended"), scalars("x\u{600}", "georgia"))
+    }
+
     func testHintsRankBelowEveryAuthorRuleAndAboveTheUserAgentSheet() throws {
         let result = try styled("""
             <table><tr><th id="ua" align="left">a</th><td id="bg" bgcolor="red">b</td></tr></table>
