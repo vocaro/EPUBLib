@@ -6,29 +6,34 @@ import UIKit
 import AppKit
 #endif
 
-/// Builds a `<table>`'s attributed text: its caption as a paragraph, then one attachment per
+/// Builds a `<table>`'s attributed text: its captions as paragraphs, then one attachment per
 /// row, each in a paragraph of its own with no spacing, so paginated flow can break between any
 /// two rows; rows a rowspan joins, and the header, keep with the next row (`.readerKeepWithNext`)
 /// so they share a page when they fit. A table of one column is a layout box, not data: it returns nil, and the
 /// builder flows its content as ordinary blocks (selectable, and paginated line by line).
+///
+/// Nothing a grid holds is left out of it silently. Content written outside its rows and cells
+/// takes the anonymous rows and cells of CSS 2.2 §17.2.1, and the cells the grid has no slot
+/// for (past `TableModel.maximumColumns` or `maximumCells`) follow the rows as paragraphs,
+/// counted for disclosure.
 enum TableContent {
     /// The row attachments' font: tiny, so a row's line is exactly as tall as its attachment
     /// whatever line-height multiple the paragraph has.
     static var rowFont: PlatformFont { PlatformFont.systemFont(ofSize: 1) }
 
     static func make(_ table: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
-        guard let (model, caption) = build(table, style: style, context: context) else { return nil }
+        guard let built = build(table, style: style, context: context) else { return nil }
+        let model = built.model
         let output = NSMutableAttributedString()
-        var captionText: NSAttributedString?
-        var captionAtBottom = false
-        if let caption {
+        // CSS 2.2 §17.4: every caption is shown, above or below the rows as its own side says.
+        var below = built.overflow
+        for caption in built.captions {
             let captionStyle = context.style(caption, style)
-            captionAtBottom = captionStyle.captionSide == .bottom || caption.attribute("align")?.lowercased() == "bottom"
-            captionText = self.caption(caption, style: captionStyle, atBottom: captionAtBottom, context: context)
-        }
-        if let captionText, !captionAtBottom {
-            output.append(captionText)
-            output.append(NSAttributedString(string: "\n", attributes: captionText.attributes(at: captionText.length - 1, effectiveRange: nil)))
+            let atBottom = captionStyle.captionSide == .bottom || caption.attribute("align")?.lowercased() == "bottom"
+            guard let text = self.caption(caption, style: captionStyle, atBottom: atBottom, context: context) else { continue }
+            if atBottom { below.append(text); continue }
+            output.append(text)
+            output.append(NSAttributedString(string: "\n", attributes: text.attributes(at: text.length - 1, effectiveRange: nil)))
         }
         let paragraph = NSMutableParagraphStyle()
         paragraph.paragraphSpacing = 0
@@ -41,9 +46,10 @@ enum TableContent {
             if model.keepsWithNext[row] { attributes[.readerKeepWithNext] = true }
             output.append(NSAttributedString(attachment: TableRowAttachment(table: model, row: row), attributes: attributes))
         }
-        if let captionText, captionAtBottom {
-            output.append(NSAttributedString(string: "\n", attributes: separator))
-            output.append(captionText)
+        for (index, text) in below.enumerated() {
+            let ending = index == 0 ? separator : below[index - 1].attributes(at: below[index - 1].length - 1, effectiveRange: nil)
+            output.append(NSAttributedString(string: "\n", attributes: ending))
+            output.append(text)
         }
         return output
     }
@@ -79,21 +85,105 @@ enum TableContent {
 
     // MARK: The table model
 
-    private struct Placed {
-        let element: ContentNode
+    struct Built {
+        let model: TableModel
+        /// Every caption that is shown, in document order.
+        let captions: [ContentNode]
+        /// The content of the cells the grid has no slot for, in reading order.
+        let overflow: [NSAttributedString]
+    }
+
+    /// A row or a cell as written, or the content written where one belongs. CSS 2.2 §17.2.1
+    /// puts an anonymous row around what a table or a row group holds outside its rows, and an
+    /// anonymous cell around what a row holds outside its cells. XHTML is parsed as XML, which
+    /// repairs no tree, so such content arrives where it was written.
+    private enum Part {
+        case element(ContentNode)
+        case anonymous([ContentNode])
+    }
+    /// A cell waiting for its slot.
+    private struct Cell {
+        /// nil for an anonymous cell.
+        let element: ContentNode?
         let style: ComputedStyle
-        let row: Int, column: Int, rowSpan: Int, columnSpan: Int
+        /// Rendered ahead of its placing where only content that shows makes a cell or a row.
+        var content: NSAttributedString?
+    }
+    private struct Placed {
+        let cell: Cell
+        let row: Int, column: Int, rowSpan: Int
+        var columnSpan: Int
+        /// Written with a span that runs past the columns the grid holds: the cell reaches the
+        /// table's last column instead.
+        var reaches = false
     }
     private struct Group {
         let element: ContentNode?
         let style: ComputedStyle
-        var rows: [ContentNode]
+        var rows: [Part]
         let isHeader: Bool
     }
+    private struct Arrangement {
+        var placed: [Placed] = []
+        var rows: [TableModel.Row] = []
+        var rowElements: [(row: ContentNode?, group: ContentNode?)] = []
+        var occupied: [[Bool]] = []
+        /// Cells the grid has no slot for, in reading order.
+        var leftOut: [Cell] = []
+        /// Content outside the rows and cells was passed over.
+        var skippedAnonymous = false
+        /// The columns of the cells placed as written.
+        var writtenColumns: Int { placed.lazy.filter { !$0.reaches }.map { $0.column + $0.columnSpan }.max() ?? 0 }
+    }
 
-    static func build(_ table: ContentNode, style: ComputedStyle, context: RichContentContext) -> (TableModel, ContentNode?)? {
+    private static let tableParts: Set<String> = ["caption", "colgroup", "col", "thead", "tbody", "tfoot", "tr"]
+    private static let rowParts: Set<String> = ["tr"]
+    private static let cellParts: Set<String> = ["td", "th"]
+
+    /// `nodes` as the elements named in `names` and the runs of other content between them.
+    /// White space alone is not content (CSS 2.2 §17.2.1, the first step).
+    private static func parts(_ nodes: [ContentNode], _ names: Set<String>) -> [Part] {
+        var result: [Part] = [], run: [ContentNode] = []
+        func close() {
+            let isContent = run.contains { node in
+                node.isElement || node.text.utf16.contains { $0 != 0x20 && $0 != 0x09 && $0 != 0x0A && $0 != 0x0D && $0 != 0x0C }
+            }
+            if isContent { result.append(.anonymous(run)) }
+            run = []
+        }
+        for node in nodes {
+            if node.isHTML, names.contains(node.name) {
+                close()
+                result.append(.element(node))
+            } else { run.append(node) }
+        }
+        close()
+        return result
+    }
+
+    /// The style of an anonymous table box: what a child inherits from the box it stands in,
+    /// with no edges, size or background of its own.
+    private static func anonymous(in parent: ComputedStyle) -> ComputedStyle {
+        var style = parent
+        style.display = .tableCell
+        style.float = .none
+        style.clear = .none
+        style.position = .static
+        style.margin = .init(.zero)
+        style.padding = .init(.zero)
+        style.border = .init(ComputedStyle.Border())
+        style.width = .auto; style.height = .auto
+        style.minWidth = .auto; style.minHeight = .auto; style.maxWidth = .auto; style.maxHeight = .auto
+        style.backgroundColor = nil
+        style.verticalAlign = .baseline
+        style.blockifiesChildren = false
+        style.boxAlignment = ComputedStyle.BoxAlignment()
+        return style
+    }
+
+    static func build(_ table: ContentNode, style: ComputedStyle, context: RichContentContext) -> Built? {
         let isDark = context.typography.isDark
-        var caption: ContentNode?
+        var captions: [ContentNode] = []
         var columns: [ComputedStyle.Length] = []
         var head: Group?, bodies: [Group] = [], feet: [Group] = []
         var implicit: Group?
@@ -102,10 +192,16 @@ enum TableContent {
             return computed.display == .none ? nil : computed
         }
         func closeImplicit() { if let group = implicit { bodies.append(group); implicit = nil } }
-        for child in table.elementChildren where child.isHTML {
+        for part in parts(table.children, tableParts) {
+            // A row, or content outside every row, belongs to the body it is written in.
+            guard case .element(let child) = part, child.name != "tr" else {
+                if implicit == nil { implicit = Group(element: nil, style: style, rows: [], isHeader: false) }
+                implicit?.rows.append(part)
+                continue
+            }
             switch child.name {
-            case "caption" where caption == nil:
-                if visible(child, style) != nil { caption = child }
+            case "caption":
+                if visible(child, style) != nil { captions.append(child) }
             case "colgroup", "col":
                 guard let groupStyle = visible(child, style) else { continue }
                 let items = child.name == "col" ? [child] : child.elementChildren.filter { $0.isHTML("col") }
@@ -123,65 +219,137 @@ enum TableContent {
             case "thead", "tbody", "tfoot":
                 closeImplicit()
                 guard let groupStyle = visible(child, style) else { continue }
-                let rows = child.elementChildren.filter { $0.isHTML("tr") }
+                let rows = parts(child.children, rowParts)
                 if child.name == "thead", head == nil { head = Group(element: child, style: groupStyle, rows: rows, isHeader: true) }
                 else if child.name == "tfoot" { feet.append(Group(element: child, style: groupStyle, rows: rows, isHeader: false)) }
                 else { bodies.append(Group(element: child, style: groupStyle, rows: rows, isHeader: false)) }
-            case "tr":
-                if implicit == nil { implicit = Group(element: nil, style: style, rows: [], isHeader: false) }
-                implicit?.rows.append(child)
             default: break
             }
         }
         closeImplicit()
         let groups = (head.map { [$0] } ?? []) + bodies + feet
 
-        // The slot grid: each cell takes the first free column of its row.
-        var occupied: [[Bool]] = []
-        var placed: [Placed] = []
-        var rows: [TableModel.Row] = []
-        var truncated = false
-        var rowElements: [(row: ContentNode, group: ContentNode?)] = []
-        groupLoop: for group in groups {
-            let first = rows.count
-            let groupRows = group.rows.compactMap { row in visible(row, group.style).map { (row, $0) } }
-            for (offset, (row, rowStyle)) in groupRows.enumerated() {
-                let index = first + offset
-                while occupied.count <= index { occupied.append([]) }
-                rowElements.append((row, group.element))
-                rows.append(TableModel.Row(background: isDark ? nil : (rowStyle.backgroundColor ?? color(row.attribute("bgcolor")))?.cgColor,
-                                           height: length(rowStyle.height, hint: row.attribute("height"), style: rowStyle).points ?? 0,
-                                           isHeader: group.isHeader))
-                var column = 0
-                for cell in row.elementChildren where cell.isHTML("td") || cell.isHTML("th") {
-                    guard let cellStyle = visible(cell, rowStyle) else { continue }
-                    while column < occupied[index].count, occupied[index][column] { column += 1 }
-                    let columnSpan = min(1000, max(1, Int(cell.attribute("colspan") ?? "") ?? 1))
-                    // `rowspan="0"` spans one row, as WebKit (and so the WebKit reader) treats it;
-                    // books written for WebKit put it on every cell.
-                    let requested = Int(cell.attribute("rowspan") ?? "") ?? 1
-                    let rowSpan = min(groupRows.count - offset, max(1, requested))
-                    guard column + columnSpan <= TableModel.maximumColumns, placed.count < TableModel.maximumCells else {
-                        truncated = true
-                        if placed.count >= TableModel.maximumCells { break groupLoop }
-                        continue
-                    }
-                    for r in index..<(index + rowSpan) {
-                        while occupied.count <= r { occupied.append([]) }
-                        if occupied[r].count < column + columnSpan {
-                            occupied[r] += Array(repeating: false, count: column + columnSpan - occupied[r].count)
-                        }
-                        for c in column..<(column + columnSpan) { occupied[r][c] = true }
-                    }
-                    placed.append(Placed(element: cell, style: cellStyle, row: index, column: column,
-                                         rowSpan: rowSpan, columnSpan: columnSpan))
-                    column += columnSpan
+        /// A row's cells: those written, and with `anonymous` one around each run of other
+        /// content that shows. `rendered` renders the written ones too.
+        func cells(_ parts: [Part], in parent: ComputedStyle, anonymous: Bool, rendered: Bool, skipped: inout Bool) -> [Cell] {
+            var cells: [Cell] = []
+            for part in parts {
+                switch part {
+                case .element(let cell):
+                    guard let cellStyle = visible(cell, parent) else { continue }
+                    cells.append(Cell(element: cell, style: cellStyle, content: rendered ? context.renderContent(cell, cellStyle) : nil))
+                case .anonymous(let nodes):
+                    guard anonymous else { skipped = true; continue }
+                    let boxStyle = Self.anonymous(in: parent)
+                    let content = context.renderNodes(nodes, boxStyle)
+                    if content.length > 0 { cells.append(Cell(element: nil, style: boxStyle, content: content)) }
                 }
             }
+            return cells
         }
-        let columnCount = max(occupied.map(\.count).max() ?? 0, 0)
-        if truncated { context.report.report.unsupportedElements["table", default: 0] += 1 }
-        guard columnCount > 1, !placed.isEmpty else { return nil }
+
+        /// The slot grid: each cell takes the first free column of its row. Without `anonymous`
+        /// it holds the rows and cells as written, and nothing is rendered.
+        func arrange(anonymous: Bool) -> Arrangement {
+            var result = Arrangement()
+            // Past the cell bound no further row is laid out.
+            var isFull = false
+            for group in groups {
+                let first = result.rows.count
+                // The rows that are shown; an anonymous one brings its cells.
+                var groupRows: [(element: ContentNode?, style: ComputedStyle, cells: [Cell]?)] = []
+                for part in group.rows {
+                    switch part {
+                    case .element(let row):
+                        guard let rowStyle = visible(row, group.style) else { continue }
+                        groupRows.append((row, rowStyle, nil))
+                    case .anonymous(let nodes):
+                        guard anonymous else { result.skippedAnonymous = true; continue }
+                        // An anonymous row exists for the content that shows in it.
+                        let rowCells = cells(parts(nodes, cellParts), in: group.style, anonymous: true, rendered: true,
+                                             skipped: &result.skippedAnonymous)
+                        if rowCells.contains(where: { ($0.content?.length ?? 0) > 0 }) { groupRows.append((nil, group.style, rowCells)) }
+                    }
+                }
+                for (offset, row) in groupRows.enumerated() {
+                    let rowCells = row.cells ?? cells(parts(row.element?.children ?? [], cellParts), in: row.style, anonymous: anonymous,
+                                                      rendered: false, skipped: &result.skippedAnonymous)
+                    guard !isFull else { result.leftOut += rowCells; continue }
+                    let index = first + offset
+                    while result.occupied.count <= index { result.occupied.append([]) }
+                    result.rowElements.append((row.element, group.element))
+                    let background = row.element.flatMap { row.style.backgroundColor ?? color($0.attribute("bgcolor")) }
+                    let height = row.element.flatMap { length(row.style.height, hint: $0.attribute("height"), style: row.style).points }
+                    result.rows.append(TableModel.Row(background: isDark ? nil : background?.cgColor, height: height ?? 0,
+                                                      isHeader: group.isHeader))
+                    var column = 0
+                    var leavesOut = false
+                    for (position, cell) in rowCells.enumerated() {
+                        while column < result.occupied[index].count, result.occupied[index][column] { column += 1 }
+                        var columnSpan = min(1000, max(1, Int(cell.element?.attribute("colspan") ?? "") ?? 1))
+                        // `rowspan="0"` spans one row, as WebKit (and so the WebKit reader) treats it;
+                        // books written for WebKit put it on every cell.
+                        let requested = Int(cell.element?.attribute("rowspan") ?? "") ?? 1
+                        var rowSpan = min(groupRows.count - offset, max(1, requested))
+                        guard result.placed.count < TableModel.maximumCells else {
+                            isFull = true
+                            result.leftOut.append(cell)
+                            continue
+                        }
+                        var reaches = false
+                        if column + columnSpan > TableModel.maximumColumns {
+                            // HTML keeps a cell whose span runs past the table's columns. The last
+                            // cell of a row can reach the last column without moving another cell;
+                            // any other has no slot, and neither has one that would then come
+                            // before a cell written ahead of it.
+                            guard column < TableModel.maximumColumns, position == rowCells.count - 1, !leavesOut else {
+                                leavesOut = true
+                                result.leftOut.append(cell)
+                                continue
+                            }
+                            // It takes one slot here, so the rows below keep the cells they had.
+                            (columnSpan, rowSpan, reaches) = (1, 1, true)
+                        }
+                        for r in index..<(index + rowSpan) {
+                            while result.occupied.count <= r { result.occupied.append([]) }
+                            if result.occupied[r].count < column + columnSpan {
+                                result.occupied[r] += Array(repeating: false, count: column + columnSpan - result.occupied[r].count)
+                            }
+                            for c in column..<(column + columnSpan) { result.occupied[r][c] = true }
+                        }
+                        result.placed.append(Placed(cell: cell, row: index, column: column, rowSpan: rowSpan,
+                                                    columnSpan: columnSpan, reaches: reaches))
+                        column += columnSpan
+                    }
+                }
+            }
+            return result
+        }
+
+        // A table is a grid when the cells written in its rows take more than one column. Whatever
+        // else it holds joins a grid and never makes one: the content of a table that flows as
+        // text flows with it.
+        var arrangement = arrange(anonymous: false)
+        guard arrangement.writtenColumns > 1 else { return nil }
+        if arrangement.skippedAnonymous { arrangement = arrange(anonymous: true) }
+        var placed = arrangement.placed
+        let rows = arrangement.rows, rowElements = arrangement.rowElements
+        let columnCount = placed.map { $0.column + $0.columnSpan }.max() ?? 0
+        for index in placed.indices where placed[index].reaches {
+            let taken = arrangement.occupied[placed[index].row]
+            var end = placed[index].column + 1
+            while end < columnCount, end >= taken.count || !taken[end] { end += 1 }
+            placed[index].columnSpan = end - placed[index].column
+        }
+        // The grid gives up on these cells; their content follows it.
+        var overflow: [NSAttributedString] = []
+        if !arrangement.leftOut.isEmpty {
+            context.report.report.unsupportedElements["table", default: 0] += 1
+            for cell in arrangement.leftOut {
+                let content = cell.content ?? cell.element.map { context.renderContent($0, cell.style) }
+                if let content, content.length > 0 { overflow.append(content) }
+            }
+        }
 
         // Presentational hints: `border`, `cellspacing`, `cellpadding`, `align`, `bgcolor`.
         let borderAttribute = table.attribute("border").map { Int($0.trimmingCharacters(in: .whitespaces)) ?? 1 }
@@ -213,13 +381,15 @@ enum TableContent {
         var cells: [TableModel.Cell] = []
         cells.reserveCapacity(placed.count)
         for item in placed {
-            let cellStyle = item.style
+            // The table's `cellpadding` and `border` are hints for its `td` and `th` elements: an
+            // anonymous cell has neither padding nor borders.
+            let cellStyle = item.cell.style, element = item.cell.element
             var padding = insets(cellStyle.padding)
-            if let cellPadding, max(padding.top, padding.right, padding.bottom, padding.left) <= 1 {
+            if element != nil, let cellPadding, max(padding.top, padding.right, padding.bottom, padding.left) <= 1 {
                 padding = TableModel.Insets(top: cellPadding, right: cellPadding, bottom: cellPadding, left: cellPadding)
             }
             var borders = strokes(cellStyle)
-            if hinted, borders.widths == TableModel.Insets() {
+            if element != nil, hinted, borders.widths == TableModel.Insets() {
                 let line = TableModel.Stroke(width: 1, style: .solid, color: defaultColor.cgColor)
                 borders = TableModel.Borders(top: line, right: line, bottom: line, left: line)
             }
@@ -237,19 +407,19 @@ enum TableContent {
                 chrome.top += own.top; chrome.bottom += own.bottom; chrome.left += own.left; chrome.right += own.right
             }
             let rowContext = rowElements[item.row]
-            let content = context.renderContent(item.element, cellStyle)
-            let noWrap = !cellStyle.whiteSpace.wraps || item.element.attribute("nowrap") != nil
+            let content = item.cell.content ?? element.map { context.renderContent($0, cellStyle) } ?? NSAttributedString()
+            let noWrap = !cellStyle.whiteSpace.wraps || element?.attribute("nowrap") != nil
             let maxContent = TableMeasure.maximumWidth(content)
             let minContent = noWrap ? maxContent : min(maxContent, TableMeasure.minimumWidth(content))
-            let valign = item.element.attribute("valign") ?? rowContext.row.attribute("valign") ?? rowContext.group?.attribute("valign")
+            let valign = element?.attribute("valign") ?? rowContext.row?.attribute("valign") ?? rowContext.group?.attribute("valign")
             cells.append(TableModel.Cell(
                 row: item.row, column: item.column, rowSpan: item.rowSpan, columnSpan: item.columnSpan,
-                content: content, text: TableMeasure.spokenText(content), isHeader: item.element.isHTML("th"),
+                content: content, text: TableMeasure.spokenText(content), isHeader: element?.isHTML("th") ?? false,
                 padding: padding, borders: borders, chrome: chrome,
-                background: isDark ? nil : (cellStyle.backgroundColor ?? color(item.element.attribute("bgcolor")))?.cgColor,
+                background: isDark ? nil : (cellStyle.backgroundColor ?? color(element?.attribute("bgcolor")))?.cgColor,
                 placement: placement(cellStyle.verticalAlign, hint: valign),
-                width: length(cellStyle.width, hint: item.element.attribute("width"), style: cellStyle),
-                height: length(cellStyle.height, hint: item.element.attribute("height"), style: cellStyle).points ?? 0,
+                width: length(cellStyle.width, hint: element?.attribute("width"), style: cellStyle),
+                height: length(cellStyle.height, hint: element?.attribute("height"), style: cellStyle).points ?? 0,
                 minContent: minContent, maxContent: maxContent))
         }
         let alignment: TableModel.Alignment
@@ -267,7 +437,7 @@ enum TableContent {
             background: isDark ? nil : (style.backgroundColor ?? color(table.attribute("bgcolor")))?.cgColor,
             alignment: alignment, isRightToLeft: style.direction == .rtl)
         model.sourceOrder = table.order
-        return (model, caption)
+        return Built(model: model, captions: captions, overflow: overflow)
     }
 
     private static func length(_ css: ComputedStyle.Length, hint: String?, style: ComputedStyle) -> ComputedStyle.Length {

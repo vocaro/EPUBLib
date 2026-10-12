@@ -134,6 +134,7 @@ final class SectionBuildState {
         typography: request.typography, fonts: request.fonts,
         style: { [unowned self] in self.style($0, $1) },
         renderContent: { [unowned self] in self.renderContent($0, style: $1) },
+        renderNodes: { [unowned self] in self.renderNodes($0, style: $1) },
         resolve: { [unowned self] in self.resolveResource($0) },
         report: report)
 
@@ -150,6 +151,30 @@ final class SectionBuildState {
         nesting += 1
         defer { nesting -= 1 }
         return SectionWriter(state: self, mode: .detached).renderContent(of: element, style: style)
+    }
+
+    /// Consecutive sibling nodes rendered into a separate string the same way, for the anonymous
+    /// cell a table puts around content written outside its cells. Too deep a nesting renders
+    /// their words, without those of elements that are never rendered.
+    func renderNodes(_ nodes: [ContentNode], style: ComputedStyle) -> NSAttributedString {
+        guard let first = nodes.first, let last = nodes.last else { return NSAttributedString() }
+        guard nesting < Self.maximumNesting else {
+            var words: [Substring] = []
+            var order = first.order
+            while order <= last.subtreeEnd {
+                let node = document.nodes[order]
+                if node.isHTML, ContentSemantics.neverRendered.contains(node.name) { order = node.subtreeEnd + 1; continue }
+                if node.isText { words += node.text.split(whereSeparator: \.isWhitespace) }
+                order += 1
+            }
+            return NSAttributedString(string: words.joined(separator: " "), attributes: [
+                .font: request.fonts.font(for: style),
+                .foregroundColor: ReaderPalette.text(dark: request.typography.isDark),
+            ])
+        }
+        nesting += 1
+        defer { nesting -= 1 }
+        return SectionWriter(state: self, mode: .detached).renderContent(of: nodes, style: style)
     }
 
     /// The note an element is, with endnote scopes memoized.

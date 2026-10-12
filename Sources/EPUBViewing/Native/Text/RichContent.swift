@@ -25,6 +25,9 @@ struct RichContentContext {
     /// formatting, nested blocks, links), for table cells and captions. The result has no
     /// trailing paragraph break, and its characters are not in the section's text map.
     let renderContent: (_ element: ContentNode, _ style: ComputedStyle) -> NSAttributedString
+    /// Renders consecutive sibling nodes the same way, as the content of an anonymous box that
+    /// inherits `style`: what a table holds outside its cells.
+    let renderNodes: (_ nodes: [ContentNode], _ style: ComputedStyle) -> NSAttributedString
     /// Resolves a local reference (`src`, `href`, `xlink:href`, `data`) against the section to a
     /// decoded archive path. Anything outside the archive returns nil and counts as refused.
     let resolve: (_ reference: String) -> String?
