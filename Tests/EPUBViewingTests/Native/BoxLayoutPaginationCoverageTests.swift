@@ -510,27 +510,31 @@ import UIKit
     /// while each collision rescanned the earlier boxes from the first, 1,000 took 12 seconds
     /// and 3,000 over 4 minutes on the machine these tests were written on.
     func testResolvingConsecutiveFloatsDoesNotGrowCubically() throws {
-        func seconds(_ count: Int) throws -> TimeInterval {
+        func seconds(_ count: Int) throws -> Double {
             let section = try build((0..<count).map { "<figure>F\($0).</figure>" }.joined() + "<p>End.</p>", css: "figure { float:left; width:60px }")
             return (0..<2).map { _ in
-                let start = Date()
+                let start = threadSeconds()
                 XCTAssertEqual(ReaderBoxLayout.resolve(section.string, viewport: size).text.string, section.string.string)
-                return Date().timeIntervalSince(start)
+                return threadSeconds() - start
             }.min() ?? 0
         }
         let small = try seconds(150), large = try seconds(600)
         // Linear work is 4 times as long, quadratic 16, cubic 64.
-        XCTAssertLessThan(large, 30 * max(small, 0.001), "150 floats took \(small) s and 600 took \(large) s")
+        XCTAssertLessThan(large, 30 * max(small, 0.001), "150 floats took \(small) s of CPU and 600 took \(large) s")
     }
 
     /// CPU seconds of this thread: unlike a wall clock, unaffected by other work on the machine.
     private func threadSeconds() -> Double { Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1e9 }
 
-    /// The earlier boxes are met in source order only when they were placed top first, and that
-    /// is the book's choice: a positioned box sits wherever its insets say. Here a column of them
-    /// is written bottom first, so each float that drops down it meets the last-written one
-    /// first. Rescanning from the first box after every drop took 0.4 s of CPU for 150 of each
-    /// and over 20 s for 600.
+    /// Floats that drop past positioned boxes, which sit wherever their insets say and so in no
+    /// particular order in the list. The asides are written from the largest `top` to the
+    /// smallest. An inset is held to 1,000 points (`StyleLimits.offset`), so all but the last
+    /// forty are given that same place and stack from there down in the order they are
+    /// written; the last forty are the column above them, written bottom first. Every float
+    /// then drops past the whole stack and the floats before it. Rescanning from the first box
+    /// after every drop took 0.4 s of CPU for 150 of each and over 20 s for 600, and would have
+    /// in any order: each drop cost one scan as far as the next collision, wherever in the list
+    /// that was.
     func testResolvingFloatsBelowBoxesWrittenBottomFirstDoesNotGrowCubically() throws {
         func seconds(_ count: Int) throws -> Double {
             let section = try build((0..<count).map { "<aside style='top:\((count - 1 - $0) * 25)px'>A\($0).</aside>" }.joined()
@@ -607,10 +611,11 @@ import UIKit
                                                               CGRect(x: 10, y: 0, width: 60, height: 30)]), alone, "boxes that only share an edge with it")
     }
 
-    /// One box under a column of obstacles drops past every one of them. Looking again from the
-    /// start of the list after each drop is half the square of the column's length in
-    /// comparisons for that one box when the list is not top first; sorting it is not. Sixteen
-    /// times the column is some twenty times the sorting and 256 times the rescanning.
+    /// One box at the top of a column of obstacles, listed in a shuffled order, drops past every
+    /// one of them. Looking again from the start of the list after each drop is half the square
+    /// of the column's length in comparisons for that one box, in whatever order the list is;
+    /// sorting it is not. Sixteen times the column is some twenty times the sorting and 256
+    /// times the rescanning.
     func testSettlingABoxBelowAColumnOfObstaclesInAnyOrderIsNotQuadratic() {
         func seconds(_ count: Int) -> Double {
             var random = SectionContentRandom(state: 0x155_0C01)

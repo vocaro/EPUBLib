@@ -346,7 +346,6 @@ import XCTest
     /// linear" — "a book with no linear section keeps all". Such a book has to be readable from
     /// end to end by page turns in either flow.
     func testABookWithNoLinearSectionIsReadThroughByPageTurnsInEitherFlow() async throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/159")
         for flow in [EPUBReadingFlow.scrolled, .paginated] {
             let reader = try open(SessionCoverageBook.epub([
                 Section("a", "<p>First section.</p>\(SessionCoverageBook.filler(60))", linear: false),
@@ -363,7 +362,50 @@ import XCTest
                 try await reader.wait("\(flow): turn \(turn)") { reader.session.visibleRange != shown || reader.state.status.canGoNext == false }
                 if let section = reader.section, seen.last != section { seen.append(section) }
             }
-            XCTAssertEqual(seen, [0, 1], "\(flow): page turns stop at the end of the first section, with Next disabled")
+            XCTAssertEqual(seen, [0, 1], "\(flow): page turns read on into the second section")
+            reader.close()
+        }
+    }
+
+    /// `doc/native-viewer.md`: `.relocated` carries "overall progression (by section byte size,
+    /// as foliate-js computed it)", and `NativeProgress` weighs nonlinear sections nothing. A book
+    /// with no linear section then weighs nothing at all, though it "keeps every section" in the
+    /// reading order of both flows.
+    func testABookWithNoLinearSectionReportsProgressionInEitherFlow() async throws {
+        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/232")
+        for flow in [EPUBReadingFlow.scrolled, .paginated] {
+            let reader = try open(SessionCoverageBook.epub([
+                Section("a", "<p>First section.</p>\(SessionCoverageBook.filler(60))", linear: false),
+                Section("b", "<p>Second section.</p>\(SessionCoverageBook.filler(60))", linear: false),
+            ]))
+            try await reader.settle()
+            try await reader.session.send(.style(EPUBReaderStyle(flow: flow)))
+            if flow == .scrolled { try await reader.wait("the whole book") { reader.session.canvas?.scrollBook != nil } }
+            try await reader.wait("\(flow): the start") {
+                reader.session.visibleRange?.start == ReaderTextPosition(section: 0, offset: 0) && reader.locations.last == reader.session.lastLocation
+            }
+            var progressions = [reader.session.lastLocation?.progression]
+            for turn in 0..<80 where reader.state.status.canGoNext != false {
+                let shown = reader.session.visibleRange
+                try await reader.session.send(.nextPage)
+                try await reader.wait("\(flow): turn \(turn)") {
+                    (reader.session.visibleRange != shown || reader.state.status.canGoNext == false) && reader.locations.last == reader.session.lastLocation
+                }
+                if reader.session.visibleRange != shown { progressions.append(reader.session.lastLocation?.progression) }
+            }
+            XCTAssertEqual(reader.session.lastLocation?.href, "OPS/b.xhtml", "\(flow): read through to the second section")
+            let reported = progressions.compactMap { $0 }
+            XCTAssertEqual(reported.count, progressions.count, "\(flow): a page without a progression: \(progressions)")
+            XCTAssertTrue(zip(reported, reported.dropFirst()).allSatisfy(<), "\(flow): each turn reads on: \(reported)")
+            // A scrolled view is measured at its top, so only a page reaches the book's end.
+            if flow == .paginated { XCTAssertEqual(progressions.last, 1, "the last page of a book is 1") }
+            XCTAssertTrue(reader.locations.allSatisfy { $0.progression != nil }, "\(flow): a `.relocated` without one: \(reader.locations.map(\.progression))")
+
+            // Search results are placed in the book by the same weights.
+            try await reader.session.send(.searchHighlight(text: "section."))
+            let found = try XCTUnwrap(reader.state.status.searchResults)
+            XCTAssertEqual(found.results.map(\.spineIndex), [0, 1], "\(flow)")
+            XCTAssertTrue(found.results.allSatisfy { $0.location.progression != nil }, "\(flow): a result without one: \(found.results.map(\.location.progression))")
             reader.close()
         }
     }

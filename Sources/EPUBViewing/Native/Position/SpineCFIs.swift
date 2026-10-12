@@ -85,9 +85,18 @@ struct SpineCFIs: Sendable {
     /// the itemref ID assertion as foliate does. nil when it names no spine item.
     ///
     /// foliate's retry compares the found element's `nodeName` with `'idref'`, which never
-    /// matches, so the package path always resolves by its indices alone; the element found
-    /// names the first spine item with the same `idref`. The local path is empty for a CFI that
-    /// names only a spine item, which foliate could not resolve within the section.
+    /// matches, so the package path always resolves by its indices alone. The local path is
+    /// empty for a CFI that names only a spine item, which foliate could not resolve within the
+    /// section.
+    ///
+    /// The spine index is that of the `itemref` the package path lands on. This departs from
+    /// foliate on purpose: foliate looks the element's `idref` up in the spine and takes the
+    /// first item that has it, so in a spine that repeats an item (`first, refrain, refrain`)
+    /// every repeat resolves to the first, and a position saved in a later one restores to the
+    /// wrong occurrence. EPUB Reading Systems 3.3 §5.5 has a reading system "treat these as
+    /// distinct items for user interface (UI) purposes". Every CFI foliate recorded still
+    /// resolves, since its package path is an `itemref`'s; one recorded in a later repeat now
+    /// names that repeat. A path that lands on any other element names no spine item.
     func resolve(_ cfi: String) -> (spineIndex: Int, localPath: String)? {
         guard let expression = try? EPUBCFI.parse(cfi) else { return nil }
         var paths = expression.parent ?? expression.path ?? []
@@ -95,9 +104,8 @@ struct SpineCFIs: Sendable {
         let top = paths.removeFirst()
         let index: Int
         if let package {
-            guard let element = EPUBCFI.element(at: top, in: package.document) else { return nil }
-            let idref = element.attribute("idref")
-            guard let found = package.itemrefs.firstIndex(where: { $0.attribute("idref") == idref }) else { return nil }
+            guard let element = EPUBCFI.element(at: top, in: package.document),
+                  let found = package.itemrefs.firstIndex(where: { $0 === element }) else { return nil }
             index = found
         } else {
             // foliate `CFI.fake.toIndex`.
