@@ -37,6 +37,60 @@ import UIKit
         return text
     }
 
+    // MARK: Hidden labels
+
+    /// A heading parked off screen above an image without alternative text, a hidden word in a
+    /// line, and a hidden link: what a browser reads and does not draw (`SpokenLabelAttachment`).
+    private func pageWithHiddenLabels() throws -> (section: SectionText, host: CanvasHost, view: ReaderTextView) {
+        let section = try BoxLayoutHarness.build("""
+            <h1 class="sr">The Hidden Title</h1><img alt="" src="title.png"/>\
+            <p>Words <span class="sr">unseen</span> after.</p><p><a class="sr" href="two.xhtml">Skip to chapter two</a>End.</p>
+            """, css: BoxLayoutHarness.reset + ".sr { position:absolute; left:-999em } img { display:block; width:120px }",
+            files: ["title.png": RichFixture.image(width: 240, height: 80)])
+        XCTAssertEqual(section.string.string, "\u{FFFC}\u{FFFC}\nWords \u{FFFC}after.\n\u{FFFC}End.")
+        let host = host([section.string])
+        return (section, host, try XCTUnwrap(host.canvas.textViews.first))
+    }
+
+    #if os(macOS)
+    func testAHiddenLabelIsStaticTextInThePagesRichText() throws {
+        let (section, _, view) = try pageWithHiddenLabels()
+        XCTAssertEqual(view.accessibilityValue(), section.string.string, "the characters as they are, so every range matches")
+        let rich = try XCTUnwrap(view.accessibilityAttributedString(for: NSRange(location: 0, length: section.string.length)))
+        var read: [String] = []
+        rich.enumerateAttribute(.accessibilityAttachment, in: NSRange(location: 0, length: rich.length)) { value, range, _ in
+            guard let element = value as? NSAccessibilityElement else { return }
+            let isText = element.accessibilityRole() == .staticText
+            read.append("\(range.location) \(isText ? "text" : "image") \((isText ? element.accessibilityValue() as? String : element.accessibilityLabel()) ?? "")")
+            if isText { XCTAssertNil(element.accessibilityLabel(), "its words are its value, said once") }
+        }
+        XCTAssertEqual(read, ["0 text The Hidden Title", "1 image Book image", "9 text unseen", "17 text Skip to chapter two"])
+        XCTAssertEqual(view.visibleText, "The Hidden Title\nWords unseen after.\nSkip to chapter two End.", "what Copy takes from the page")
+    }
+    #else
+    func testAHiddenLabelIsATextElementWhereItStands() throws {
+        let (_, host, view) = try pageWithHiddenLabels()
+        let elements = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+        XCTAssertEqual(elements.map { $0.accessibilityLabel ?? "" },
+                       ["The Hidden Title", "Book image", "Words ", "unseen", "after.\n", "Skip to chapter two", "End."],
+                       "no element for the break after the title or the image")
+        XCTAssertEqual(elements.map { $0.accessibilityTraits.contains(.image) }, [false, true, false, false, false, false, false])
+        XCTAssertEqual(elements.map { $0.accessibilityTraits.contains(.link) }, [false, false, false, false, false, true, false])
+        XCTAssertTrue(elements[0].accessibilityTraits.contains(.staticText) && elements[3].accessibilityTraits.contains(.staticText))
+        // Each has a place VoiceOver can rest on, inside the column, though it takes no room.
+        for element in elements {
+            let frame = element.accessibilityFrameInContainerSpace
+            XCTAssertFalse(frame.isNull || frame.isEmpty, "\(element.accessibilityLabel ?? "")")
+            XCTAssertTrue(view.bounds.insetBy(dx: -1, dy: -1).contains(frame), "\(element.accessibilityLabel ?? ""): \(frame)")
+        }
+        XCTAssertEqual(elements[0].accessibilityFrameInContainerSpace.midY, elements[1].accessibilityFrameInContainerSpace.midY, accuracy: 60,
+                       "the heading's label is in the line of the image it names")
+        XCTAssertTrue(elements[5].accessibilityActivate(), "a hidden link is followed like any other")
+        XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/two.xhtml"))
+        XCTAssertEqual(view.accessibilityValue, "The Hidden Title\nWords unseen after.\nSkip to chapter two End.")
+    }
+    #endif
+
     #if os(macOS)
     func testStyleRangesStopAtThePagesEnd() throws {
         let host = host([styledProse()])

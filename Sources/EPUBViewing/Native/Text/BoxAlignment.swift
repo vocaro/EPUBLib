@@ -167,6 +167,16 @@ final class ReaderAlignmentItem: @unchecked Sendable {
         container.parentItem?.noteContent()
     }
 
+    /// This item or the one around it that is `container`'s, nil when it is not inside it.
+    func inside(_ container: ReaderAlignmentContainer) -> ReaderAlignmentItem? {
+        var item: ReaderAlignmentItem? = self
+        while let current = item {
+            if current.container === container { return current }
+            item = current.container.parentItem
+        }
+        return nil
+    }
+
     /// Whether any container around the item has something for layout to do.
     var isEffective: Bool {
         var item: ReaderAlignmentItem? = self
@@ -241,6 +251,16 @@ struct ReaderAlignmentFrame {
         let item = container?.anonymousItem() ?? item
         item?.noteContent()
         return item
+    }
+
+    /// The containers around a paragraph in this frame, innermost first. A paragraph that takes
+    /// no room (a hidden label's own line) is no item of them, and finds by these the item it
+    /// lies beside (`ReaderAlignmentItem.inside(_:)`).
+    var containers: [ReaderAlignmentContainer] {
+        var result: [ReaderAlignmentContainer] = []
+        var current = container ?? item?.container
+        while let found = current { result.append(found); current = found.parentItem?.container }
+        return result
     }
 
     /// The frame's box has closed; true when its container is shown without its layout.
