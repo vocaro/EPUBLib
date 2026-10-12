@@ -148,11 +148,35 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   publication bytes are preserved. Opaque images and transparent light artwork retain their
   pixels; an author's explicit CSS inversion retains its own appearance treatment. Display
   renditions are cached separately by appearance under the existing image memory budget.
+- **Alternative text.** HTML tells an image with an empty `alt` from one with none, and the
+  reader keeps the two apart (`ImageAlternative`). Words in `alt` stand for the image in
+  selections, copies, search and VoiceOver, which reads them as the image's name. An empty
+  `alt`, or one of white space alone, marks decoration, or a picture of words the book also
+  gives as text, as a Standard Ebooks title page does beside its hidden heading and byline:
+  it has no words, and VoiceOver passes over it, with no element, no name and no inspection
+  action. An image with no `alt` at all may be content that nobody has described: VoiceOver
+  stops on it and says that it is an image, in its own word and language, and the reader makes
+  up no name for it. Both used to be announced as "Book image". An SVG file's own title and
+  description name it only where the book gave no `alt`; an `<object>` or `<embed>` has no
+  `alt` and is named by its `title`, and an inline SVG by its title and description.
+  A link stays reachable whatever its image's `alt` says. Decoration that is all its link
+  holds is the link, an image link without a name; decoration beside words in a link is
+  passed over, and the words carry the link. Two cases keep decoration listed on iPhone and
+  iPad, where VoiceOver turns a page or reads on from an element of the text and a view
+  without one leaves it no place to do so: a page that holds decoration alone lists it, as
+  images without a name, and so does a screen of decoration alone in continuous scroll,
+  where a picture keeps its element while VoiceOver's cursor is on it. On Mac the text
+  area is itself the element and its keys turn the page, so decoration is always passed
+  over. Not read: `role="presentation"`, `aria-hidden` and `aria-label` on an image. An
+  image in a table cell is read by its words in the cell's text, and one without words is
+  not announced there.
 - **Image inspection.** Double-click or double-tap an unlinked book image to inspect it in a separate
   native zoomable scroll surface, including images drawn inside table cells. On Mac, images
   also offer an Inspect Image context-menu action; UIKit supplies an attachment action and
   menu. Linked images retain link navigation and offer inspection through the menu.
-  Accessibility actions expose inspection for visible images. Zoom In, Zoom Out, Fit
+  Accessibility actions expose inspection for the visible images VoiceOver is told of, by
+  their words where they have them. In the inspector an image is named by its words, or is
+  an image without a name. Zoom In, Zoom Out, Fit
   and Close controls complement pinch/trackpad magnification and panning; Escape closes the
   inspector and Command-plus/minus/zero zooms or fits it. Reader page input is suspended while
   inspecting. Closing preserves the reader's text, selection and reading position.
@@ -441,6 +465,8 @@ as they did.
   a longer page, are on its last line.
   UIKit exposes visible line/run accessibility children with links, attachment labels and
   page actions, keeping hidden paragraph context out of its native text accessibility traversal.
+  Decoration in a line is part of that line's element and adds nothing to it
+  ("Alternative text" under Decisions).
   The canvas lists its columns to VoiceOver in source order; by their frames alone a column
   lowered by top spacing, or the first column of a right-to-left spread, would be read second.
   A paragraph that continues onto the next page is laid out a few lines further (or to
@@ -647,7 +673,9 @@ The following are the defaults. Host commands and accessibility actions stay ena
   starts at the first line on screen: on Mac at the insertion point kept there, on iOS at the
   first of the lines the scroll view lists (see "Continuous scroll" under Layout). Text that
   a book hides from the page and keeps for assistive technology is read where it stands, as
-  text ([hidden labels](#floats-and-positioned-boxes)).
+  text ([hidden labels](#floats-and-positioned-boxes)). An image is read by its `alt`, one
+  with an empty `alt` is passed over, and one with none is announced as an image without a
+  name ("Alternative text" under Decisions).
 - Selection: native selection UI with the host's `EPUBSelectionAction` in the edit or context
   menu, no length cap. Dragging can extend a selection across a two-column spread in either
   reading direction. A located passage is selected in every visible column and remains
@@ -768,8 +796,7 @@ Go: the native viewer is the bundled engine.
   not drawn and are read by VoiceOver where they stand; percentage and viewport
   offsets remain visible unless explicitly hidden or clipped. A box parked that far to the
   left that reaches back on screen, with a `right` offset or a great width, is hidden with
-  the rest. A hidden heading is read as plain text, as a shown one is, and an image without
-  alternative text beside it is still announced as "Book image". General clipping and arbitrary offscreen
+  the rest. A hidden heading is read as plain text, as a shown one is. General clipping and arbitrary offscreen
   geometry are unsupported. Unsized inline-blocks remain inline. Sized ones in a row are
   aligned by their tops and from their line's start edge, not by `vertical-align` or the
   block's `text-align`. Ordinary percentage margins,

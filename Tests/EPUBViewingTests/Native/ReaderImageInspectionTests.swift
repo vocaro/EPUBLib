@@ -30,7 +30,7 @@ import UIKit
         let source = try XCTUnwrap(ReaderImageSource.bitmap(data, path: "hashing.png", key: UUID().uuidString))
         var sizing = ImageSizing(intrinsic: source.pixelSize)
         sizing.width = .points(200)
-        return ReaderImageAttachment(source: source, sizing: sizing, alt: "Hashing example",
+        return ReaderImageAttachment(source: source, sizing: sizing, alternative: .text("Hashing example"),
             style: ComputedStyle(), cache: ReaderImageCache(budget: 96 << 20))
     }
 

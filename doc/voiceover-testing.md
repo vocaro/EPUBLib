@@ -18,11 +18,17 @@ justified paragraph, a heading, an internal **Verification link**, and an image 
 **Blue verification square**. Its long paragraph retains the continuation context that
 originally exposed off-page text. A second section, **Hidden labels** (`OPS/labels.xhtml`),
 holds what a book hides from the page and keeps for assistive technology: a heading and a
-byline parked at `left: -999em` above an image without alternative text, words clipped to
-nothing inside a line, and a parked link. It also holds what a book hides from everyone: a
+byline parked at `left: -999em` above an image with an empty `alt`, as a Standard Ebooks title
+page has them, words clipped to nothing inside a line, and a parked link. It also holds what a book hides from everyone: a
 `visibility: hidden` paragraph and an `aria-hidden` one. A third, **Hidden heading over a
 table** (`OPS/table.xhtml`), opens with a parked heading and then a table, so the heading is
-hidden labels alone on a line of no height, and goes on for more than a screen. A second
+hidden labels alone on a line of no height, and goes on for more than a screen. A fourth,
+**Pictures and their words** (`OPS/pictures.xhtml`), holds what a book can say of a picture:
+nothing, that it is decoration (an empty `alt`), or words. Each stands in a line of text; a
+decorative one is also all that a link holds, and stands beside words in a link; and two come
+from a file that has a title of its own, one with an empty `alt` and one with none. None of
+the section's words is one VoiceOver uses for a picture or a link, so those in a transcript
+are VoiceOver's own. A second
 bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
@@ -434,8 +440,8 @@ once; a simulator build needs no signing team. It creates an iPhone 17 Pro and a
 with `simctl` alone, sets each one's volume to 0 and runs one `xcodebuild
 test-without-building` for each at the same time, under `--timeout`. It deletes its simulators
 however the run ends, also when it is terminated, and never boots, changes or deletes one it
-did not create. `--steps`, `--font-size`, `--flow scrolled` and `--voiceover-off` are the
-probe's settings above. Each simulator gets `simulator-TYPE-STAMP.transcript.txt` beside its
+did not create. `--steps`, `--font-size`, `--flow scrolled`, `--href OPS/labels.xhtml` and
+`--voiceover-off` are the probe's settings above. Each simulator gets `simulator-TYPE-STAMP.transcript.txt` beside its
 log and result bundle in `.build/voiceover/results/`: the device, revision and steps, the
 probe's lines, then the result, with VoiceOver's state and the volume as `devicectl` reports
 them. The exit status is 0 only when every probe ran all its steps and passed, VoiceOver is
@@ -532,13 +538,22 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
 5. Resize or change typography, wait for the new layout, and repeat the boundary and ordering
    checks. On Mac verify corresponding value-change notifications and fresh text values.
 6. On the hidden-labels section, in pages and in continuous scroll: VoiceOver reads "Parked
-   title heading" and "By the parked author." before the image, "Clipped words in the line."
+   title heading" and "By the parked author." and then "Shown opening words.", with nothing
+   for the image between them, which has an empty `alt`; "Clipped words in the line."
    between the two shown sentences, and "Parked link to the target" as a link before "Shown
    last words."; it never reads "Words nobody is given." or "Words kept from assistive
-   technology."; and a screenshot shows none of the hidden words. On the section with a
+   technology."; and a screenshot shows the image and none of the hidden words. On the section with a
    hidden heading over a table, opened in continuous scroll, VoiceOver moving into the text
    meets "Parked table heading" before the table's first row, and the view does not move.
-7. Restore all original VoiceOver/scripting settings and independently verify restoration.
+7. On the section of pictures, in pages and in continuous scroll. VoiceOver stops between
+   "Undescribed picture" and "stands here." and says that an image is there, with no name.
+   It reads "Decoration" and "passed over." with nothing between them, and the same for
+   "Titled decoration". After "Bare jump:" it stops on a link that is an image without a
+   name, and activating it goes to "Link target reached". It reads "Jump with decoration"
+   and "Described jump" as links, the second also as an image, and "Square with a title of
+   its own" as an image between "Titled picture" and "stands here.". It never says "Book
+   image", and says "Square with a title of its own" once.
+8. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 

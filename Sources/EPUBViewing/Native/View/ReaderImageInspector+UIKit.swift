@@ -21,7 +21,9 @@ import UIKit
         imageView.image = UIImage(cgImage: bitmap)
         imageView.frame = CGRect(x: 0, y: 0, width: bitmap.width, height: bitmap.height)
         imageView.isAccessibilityElement = true
-        imageView.accessibilityLabel = label.isEmpty ? "Book image" : label
+        // Named by its words. Without any, the trait says what it is and no name is made up.
+        imageView.accessibilityTraits = .image
+        imageView.accessibilityLabel = label.isEmpty ? nil : label
         imageView.accessibilityHint = "Use Zoom In and Zoom Out to enlarge the image, then scroll to inspect it."
         scrollView.addSubview(imageView)
         scrollView.contentSize = imageView.bounds.size

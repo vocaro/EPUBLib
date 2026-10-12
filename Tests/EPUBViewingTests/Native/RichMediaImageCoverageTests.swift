@@ -187,6 +187,7 @@ final class RichMediaImageCoverageTests: XCTestCase {
         let png = RichMediaImages.solid(width: 10, height: 10)
         // Empty alt is a decorative image: shown with no accessibility text.
         let decorative = try XCTUnwrap(firstImage("<p><img src='pic.png' alt=''/></p>", files: ["pic.png": png]).0)
+        XCTAssertEqual(decorative.alternative, .decorative)
         XCTAssertEqual(decorative.alt, "")
         XCTAssertEqual(decorative.textEquivalent, "")
         // `title` and `aria-label` are not promoted to the image's accessibility text on an <img>.
@@ -198,6 +199,47 @@ final class RichMediaImageCoverageTests: XCTestCase {
         let (image, text) = try firstImage("<p>a<img alt='No source'/>b<img/>c</p>")
         XCTAssertNil(image)
         XCTAssertEqual(text.richMediaPlain, "aNo sourcebc")
+    }
+
+    /// HTML tells an empty `alt` from a missing one: decoration, and an image nobody has
+    /// described. Neither has words, so selections, Copy and search get the same from both.
+    func testAnEmptyAltIsDecorationAndAMissingOneIsAnImageWithoutWords() throws {
+        let png = RichMediaImages.solid(width: 10, height: 10)
+        let titled = Data("<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><title>Its own title</title><rect width='10' height='10'/></svg>".utf8)
+        let files = ["pic.png": png, "titled.svg": titled]
+        func alternative(_ markup: String) throws -> ImageAlternative? { try firstImage("<p>\(markup)</p>", files: files).0?.alternative }
+        XCTAssertEqual(try alternative("<img src='pic.png'/>"), .missing)
+        XCTAssertEqual(try alternative("<img src='pic.png' alt=''/>"), .decorative)
+        XCTAssertEqual(try alternative("<img src='pic.png' alt=' \n\t'/>"), .decorative, "an alt of white space says no more than an empty one")
+        XCTAssertEqual(try alternative("<img src='pic.png' alt='  A   photo '/>"), .text("A photo"))
+        // A name from anywhere else says nothing about decoration when it is blank.
+        XCTAssertEqual(try alternative("<img src='pic.png' title=''/>"), .missing)
+        XCTAssertEqual(try alternative("<object data='pic.png' type='image/png' title='A chart'>Chart</object>"), .text("A chart"))
+        XCTAssertEqual(try alternative("<object data='pic.png' type='image/png' title=''>Chart</object>"), .missing)
+        XCTAssertEqual(try alternative("<object data='pic.png' type='image/png'>Chart</object>"), .missing)
+        XCTAssertEqual(try alternative("<embed src='pic.png'/>"), .missing)
+        // A drawing's own title names it where the book gave no alt, and not where the book
+        // called it decoration: a title page drawn as an SVG beside the same words as text.
+        XCTAssertEqual(try alternative("<img src='titled.svg'/>"), .text("Its own title"))
+        XCTAssertEqual(try alternative("<img src='titled.svg' alt=''/>"), .decorative)
+        XCTAssertEqual(try alternative("<img src='titled.svg' alt='The book says'/>"), .text("The book says"))
+        // An inline SVG, and the image one wraps (a cover page).
+        let ns = "xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'"
+        XCTAssertEqual(try alternative("<svg \(ns) width='10' height='10'><rect width='10' height='10'/></svg>"), .missing)
+        XCTAssertEqual(try alternative("<svg \(ns) width='10' height='10'><title>Drawn</title><rect width='10' height='10'/></svg>"), .text("Drawn"))
+        XCTAssertEqual(try alternative("<svg \(ns) viewBox='0 0 10 10'><image width='10' height='10' xlink:href='pic.png'/></svg>"), .missing)
+        XCTAssertEqual(try alternative("<svg \(ns) viewBox='0 0 10 10'><title>Cover</title><image width='10' height='10' xlink:href='pic.png'/></svg>"),
+                       .text("Cover"))
+
+        // What stands for each in a selection, a copy and a search: its words, or nothing.
+        let text = try firstImage("<p>a<img src='pic.png'/>b<img src='pic.png' alt=''/>c<img src='titled.svg' alt=''/>d<img src='pic.png' alt='E'/>f</p>",
+                                  files: files).1
+        XCTAssertEqual(text.string.string, "a\u{FFFC}b\u{FFFC}c\u{FFFC}d\u{FFFC}f", "one character each, whatever the alt")
+        XCTAssertEqual(text.string.readerPlainText(), "abcdEf")
+        XCTAssertEqual(text.richMediaImages.map(\.textEquivalent), ["", "", "", "E"])
+        // An image that cannot be shown still shows its words, and decoration that cannot, none.
+        XCTAssertEqual(try firstImage("<p>a<img src='gone.png' alt='Gone'/>b<img src='gone.png' alt=''/>c<img src='gone.png'/>d</p>").1.richMediaPlain,
+                       "aGonebcd")
     }
 
     func testObjectEmbedAndPictureImageSelection() throws {

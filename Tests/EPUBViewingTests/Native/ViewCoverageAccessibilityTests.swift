@@ -39,8 +39,9 @@ import UIKit
 
     // MARK: Hidden labels
 
-    /// A heading parked off screen above an image without alternative text, a hidden word in a
-    /// line, and a hidden link: what a browser reads and does not draw (`SpokenLabelAttachment`).
+    /// A heading parked off screen above an image the book marks as decoration, as a Standard
+    /// Ebooks title page has it, a hidden word in a line, and a hidden link: what a browser
+    /// reads and does not draw (`SpokenLabelAttachment`).
     private func pageWithHiddenLabels() throws -> (section: SectionText, host: CanvasHost, view: ReaderTextView) {
         let section = try BoxLayoutHarness.build("""
             <h1 class="sr">The Hidden Title</h1><img alt="" src="title.png"/>\
@@ -64,7 +65,8 @@ import UIKit
             read.append("\(range.location) \(isText ? "text" : "image") \((isText ? element.accessibilityValue() as? String : element.accessibilityLabel()) ?? "")")
             if isText { XCTAssertNil(element.accessibilityLabel(), "its words are its value, said once") }
         }
-        XCTAssertEqual(read, ["0 text The Hidden Title", "1 image Book image", "9 text unseen", "17 text Skip to chapter two"])
+        XCTAssertEqual(read, ["0 text The Hidden Title", "9 text unseen", "17 text Skip to chapter two"],
+                       "the image of the title is decoration: nothing stands for it")
         XCTAssertEqual(view.visibleText, "The Hidden Title\nWords unseen after.\nSkip to chapter two End.", "what Copy takes from the page")
     }
     #else
@@ -72,22 +74,190 @@ import UIKit
         let (_, host, view) = try pageWithHiddenLabels()
         let elements = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
         XCTAssertEqual(elements.map { $0.accessibilityLabel ?? "" },
-                       ["The Hidden Title", "Book image", "Words ", "unseen", "after.\n", "Skip to chapter two", "End."],
-                       "no element for the break after the title or the image")
-        XCTAssertEqual(elements.map { $0.accessibilityTraits.contains(.image) }, [false, true, false, false, false, false, false])
-        XCTAssertEqual(elements.map { $0.accessibilityTraits.contains(.link) }, [false, false, false, false, false, true, false])
-        XCTAssertTrue(elements[0].accessibilityTraits.contains(.staticText) && elements[3].accessibilityTraits.contains(.staticText))
+                       ["The Hidden Title", "Words ", "unseen", "after.\n", "Skip to chapter two", "End."],
+                       "no element for the image of the title, which is decoration, or the break after it")
+        XCTAssertFalse(elements.contains { $0.accessibilityTraits.contains(.image) })
+        XCTAssertEqual(elements.map { $0.accessibilityTraits.contains(.link) }, [false, false, false, false, true, false])
+        XCTAssertTrue(elements[0].accessibilityTraits.contains(.staticText) && elements[2].accessibilityTraits.contains(.staticText))
         // Each has a place VoiceOver can rest on, inside the column, though it takes no room.
         for element in elements {
             let frame = element.accessibilityFrameInContainerSpace
             XCTAssertFalse(frame.isNull || frame.isEmpty, "\(element.accessibilityLabel ?? "")")
             XCTAssertTrue(view.bounds.insetBy(dx: -1, dy: -1).contains(frame), "\(element.accessibilityLabel ?? ""): \(frame)")
         }
-        XCTAssertEqual(elements[0].accessibilityFrameInContainerSpace.midY, elements[1].accessibilityFrameInContainerSpace.midY, accuracy: 60,
+        let image = try XCTUnwrap(view.imageAttachments().first)
+        XCTAssertEqual(elements[0].accessibilityFrameInContainerSpace.midY,
+                       try XCTUnwrap(view.segmentFrames(for: image.range).first).midY + view.containerOrigin.y, accuracy: 60,
                        "the heading's label is in the line of the image it names")
-        XCTAssertTrue(elements[5].accessibilityActivate(), "a hidden link is followed like any other")
+        XCTAssertTrue(elements[4].accessibilityActivate(), "a hidden link is followed like any other")
         XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/two.xhtml"))
         XCTAssertEqual(view.accessibilityValue, "The Hidden Title\nWords unseen after.\nSkip to chapter two End.")
+    }
+    #endif
+
+    // MARK: Images with words, without any, and marked as decoration
+
+    /// What a book can say of a picture: nothing, that it is decoration (an empty `alt`), or
+    /// words; standing alone, and as all or part of what a link holds.
+    private func pageOfPictures() throws -> (section: SectionText, host: CanvasHost, view: ReaderTextView) {
+        let section = try BoxLayoutHarness.build("""
+            <p>Undescribed <img src="p.png"/> stands.</p><p>Decoration <img src="p.png" alt=""/> passed.</p>\
+            <p>Words <img src="p.png" alt="A described picture"/> stand.</p>\
+            <p>Bare: <a href="two.xhtml"><img src="p.png" alt=""/></a></p>\
+            <p><a href="three.xhtml"><img src="p.png" alt=""/>Jump with decoration</a></p>\
+            <p><a href="four.xhtml"><img src="p.png" alt="Described jump"/></a></p>\
+            <p><a href="five.xhtml"><img src="p.png"/></a></p>
+            """, css: BoxLayoutHarness.reset + "img { width: 20px; height: 20px }",
+            files: ["p.png": RichFixture.image(width: 40, height: 40)])
+        XCTAssertEqual(section.string.string, "Undescribed \u{FFFC} stands.\nDecoration \u{FFFC} passed.\nWords \u{FFFC} stand.\n"
+                       + "Bare: \u{FFFC}\n\u{FFFC}Jump with decoration\n\u{FFFC}\n\u{FFFC}")
+        let host = host([section.string], size: CGSize(width: 420, height: 500))
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        XCTAssertEqual(view.placement.visibleLength, section.string.length, "the section is one page")
+        return (section, host, view)
+    }
+
+    /// The same words for a selection, a copy and a search whatever a picture's `alt` says of
+    /// its part: its words where it has them, and nothing for decoration or for none.
+    private static let picturesAsText = "Undescribed  stands.\nDecoration  passed.\nWords A described picture stand.\n"
+        + "Bare: \nJump with decoration\nDescribed jump\n"
+
+    func testCopyTakesAPicturesWordsAndNothingForDecorationOrNone() async throws {
+        let (section, host, view) = try pageOfPictures()
+        XCTAssertEqual(view.visibleText, Self.picturesAsText)
+        XCTAssertEqual(section.string.readerPlainText(), Self.picturesAsText, "what a search of the section reads")
+        view.selectedRange = NSRange(location: 0, length: section.string.length)
+        host.canvas.textViewSelectionDidChange(view)
+        try await host.settle()
+        XCTAssertEqual((host.recorder.selections.last ?? nil)?.text, Self.picturesAsText, "the selection a host is told of")
+        #if os(macOS)
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        XCTAssertTrue(view.writeSelection(to: pasteboard, type: .string))
+        XCTAssertEqual(pasteboard.string(forType: .string), Self.picturesAsText)
+        #else
+        let pasteboard = try XCTUnwrap(UIPasteboard(name: UIPasteboard.Name("org.epublib.tests.pictures.\(UUID().uuidString)"), create: true))
+        defer { UIPasteboard.remove(withName: pasteboard.name) }
+        view.pasteboard = pasteboard
+        view.copy(nil)
+        XCTAssertEqual(pasteboard.string, Self.picturesAsText)
+        #endif
+    }
+
+    #if os(macOS)
+    func testDecorationHasNoElementAndAPictureWithoutWordsIsAnImageWithoutALabel() throws {
+        let (section, host, view) = try pageOfPictures()
+        XCTAssertEqual(view.accessibilityValue(), section.string.string, "the characters as they are, so every range matches")
+        let rich = try XCTUnwrap(view.accessibilityAttributedString(for: NSRange(location: 0, length: section.string.length)))
+        var read: [String] = [], actions: [[String]] = [], elements: [NSAccessibilityElement] = []
+        rich.enumerateAttribute(.accessibilityAttachment, in: NSRange(location: 0, length: rich.length)) { value, range, _ in
+            guard let element = value as? NSAccessibilityElement else { return }
+            XCTAssertEqual(element.accessibilityRole(), .image)
+            let link = (section.string.attribute(.link, at: range.location, effectiveRange: nil) as? URL).flatMap { url in
+                ["two", "three", "four", "five"].first { ReaderLink.internal(href: "OPS/\($0).xhtml").url == url }
+            }
+            read.append("\(range.location) \(element.accessibilityLabel() ?? "nil")" + (link.map { " to \($0)" } ?? ""))
+            actions.append((element.accessibilityCustomActions() ?? []).map(\.name))
+            elements.append(element)
+            XCTAssertFalse(element.accessibilityFrameInParentSpace().isEmpty, "\(range.location) has a place")
+        }
+        let text = section.string.string as NSString
+        let bare = NSMaxRange(text.range(of: "Bare: ")), described = NSMaxRange(text.range(of: "Jump with decoration\n"))
+        XCTAssertEqual(read, ["12 nil", "49 A described picture", "\(bare) nil to two", "\(described) Described jump to four",
+                              "\(described + 2) nil to five"],
+                       "no element for decoration in a line or in a link that has words; one for decoration that is all its link holds")
+        XCTAssertEqual(actions, [["Inspect Image"], ["Inspect Image: A described picture"], ["Inspect Image"],
+                                 ["Inspect Image: Described jump"], ["Inspect Image"]])
+        XCTAssertTrue(try XCTUnwrap(elements[1].accessibilityCustomActions()?.first).handler?() ?? false)
+        XCTAssertNotNil(host.canvas.imageInspector)
+        host.canvas.imageInspector?.close()
+        // The link with decoration in it is still a link, by its words.
+        XCTAssertEqual(section.string.attribute(.link, at: text.range(of: "Jump with").location, effectiveRange: nil) as? URL,
+                       ReaderLink.internal(href: "OPS/three.xhtml").url)
+    }
+
+    func testTheInspectorNamesAnImageByItsWordsAndMakesUpNone() throws {
+        let (_, host, view) = try pageOfPictures()
+        let images = view.imageAttachments().map(\.image)
+        var labels: [String?] = []
+        for image in images {
+            host.canvas.inspectImage(image)
+            labels.append(try XCTUnwrap(host.canvas.imageInspector).imageView.accessibilityLabel())
+            host.canvas.imageInspector?.close()
+        }
+        XCTAssertEqual(labels, [nil, nil, "A described picture", nil, nil, "Described jump", nil])
+    }
+    #else
+    private func described(_ element: UIAccessibilityElement) -> String {
+        let traits = element.accessibilityTraits
+        let kind = [(UIAccessibilityTraits.link, "link"), (.image, "image"), (.staticText, "text")].filter { traits.contains($0.0) }.map(\.1)
+        return kind.joined(separator: "+") + " " + (element.accessibilityLabel.map { "\"\($0)\"" } ?? "nil")
+    }
+
+    func testDecorationHasNoElementAndAPictureWithoutWordsIsAnImageWithoutALabel() throws {
+        let (_, host, view) = try pageOfPictures()
+        let elements = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+        XCTAssertEqual(elements.map(described), [
+            "text \"Undescribed \"", "image+text nil", "text \" stands.\n\"",
+            "text \"Decoration  passed.\n\"",
+            "text \"Words \"", "image+text \"A described picture\"", "text \" stand.\n\"",
+            "text \"Bare: \"", "link+image nil",
+            "link \"Jump with decoration\"",
+            "link+image \"Described jump\"",
+            "link+image nil",
+        ], "a line with decoration in it is one element; decoration that is all its link holds is the link")
+        for element in elements {
+            let frame = element.accessibilityFrameInContainerSpace
+            XCTAssertFalse(frame.isNull || frame.isEmpty, described(element))
+            XCTAssertTrue(view.bounds.insetBy(dx: -1, dy: -1).contains(frame), "\(described(element)): \(frame)")
+        }
+        // Every link is followed, whatever its image's alt says.
+        for (index, href) in [(8, "two"), (9, "three"), (10, "four"), (11, "five")] {
+            XCTAssertTrue(elements[index].accessibilityActivate(), href)
+            XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/\(href).xhtml"))
+        }
+        XCTAssertNil(host.canvas.imageInspector)
+        // Inspection is offered for each image VoiceOver is told of, and not for decoration.
+        let inspections = elements.map { ($0.accessibilityCustomActions ?? []).map(\.name).filter { $0.hasPrefix("Inspect Image") } }
+        XCTAssertEqual(inspections, [[], ["Inspect Image"], [], [], [], ["Inspect Image: A described picture"], [], [], ["Inspect Image"], [],
+                                     ["Inspect Image: Described jump"], ["Inspect Image"]])
+        XCTAssertFalse(elements[3].accessibilityActivate(), "a line with decoration in it opens nothing")
+        XCTAssertNil(host.canvas.imageInspector)
+        XCTAssertTrue(elements[1].accessibilityActivate(), "an image without words is inspected as any other")
+        XCTAssertNotNil(host.canvas.imageInspector)
+        host.canvas.imageInspector?.close()
+        XCTAssertEqual(view.accessibilityValue, Self.picturesAsText)
+    }
+
+    /// A page of decoration alone would give VoiceOver no element to stand on, and so no place
+    /// to turn the page from: its images are listed, as images without a name.
+    func testAPageOfDecorationAloneListsItSoThePageCanBeTurned() throws {
+        let section = try BoxLayoutHarness.build("<p><img src=\"p.png\" alt=\"\"/></p><p> <img src=\"p.png\" alt=\"\"/> </p>",
+            css: BoxLayoutHarness.reset + "img { display: block; width: 120px }", files: ["p.png": RichFixture.image(width: 240, height: 80)])
+        let host = host([section.string, CanvasText.body("Next section.")])
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        let elements = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+        XCTAssertEqual(elements.map(described), ["image+text nil", "image+text nil"])
+        XCTAssertEqual(view.accessibilityElementCount(), 2)
+        XCTAssertEqual(view.accessibilityValue, section.string.readerPlainText(), "it still has no words")
+        let actions = (elements[0].accessibilityCustomActions ?? []).map(\.name)
+        XCTAssertEqual(actions, ["Next Page", "Previous Page", "Inspect Image"])
+        XCTAssertTrue(elements[0].accessibilityScroll(.next), "the page is turned from it")
+        XCTAssertEqual((try XCTUnwrap(host.canvas.textViews.first).accessibilityElements as? [UIAccessibilityElement])?.map(described),
+                       ["text \"Next section.\""])
+    }
+
+    func testTheInspectorNamesAnImageByItsWordsAndMakesUpNone() throws {
+        let (_, host, view) = try pageOfPictures()
+        var labels: [String?] = []
+        for image in view.imageAttachments().map(\.image) {
+            host.canvas.inspectImage(image)
+            let shown = try XCTUnwrap(host.canvas.imageInspector).imageView
+            labels.append(shown.accessibilityLabel)
+            XCTAssertTrue(shown.isAccessibilityElement && shown.accessibilityTraits.contains(.image))
+            host.canvas.imageInspector?.close()
+        }
+        XCTAssertEqual(labels, [nil, nil, "A described picture", nil, nil, "Described jump", nil])
     }
     #endif
 
@@ -323,7 +493,7 @@ import UIKit
     }
     #else
     func testLineElementsCoverThePageOnceWithLinksAndImagesAsTheirOwnElements() throws {
-        let image = try ViewCoverage.readerImage(width: 120, height: 120, shownWidth: 30, alt: "")
+        let image = try ViewCoverage.readerImage(width: 120, height: 120, shownWidth: 30, alt: nil)
         let labelled = try ViewCoverage.readerImage(width: 120, height: 120, shownWidth: 30, alt: "A small ornament")
         let text = NSMutableAttributedString(attributedString: CanvasText.body("Opening words, then a link that is long enough to wrap onto a second line of the column, "))
         let link = (text.string as NSString).range(of: "a link that is long enough to wrap onto a second line")
@@ -347,7 +517,7 @@ import UIKit
             XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/two.xhtml#target"))
         }
         let images = elements.filter { $0.accessibilityTraits.contains(.image) }
-        XCTAssertEqual(images.map { $0.accessibilityLabel ?? "" }, ["Book image", "A small ornament"])
+        XCTAssertEqual(images.map(\.accessibilityLabel), [nil, "A small ornament"], "no name is made up for an image without words")
         for element in images {
             let actions = (element.accessibilityCustomActions ?? []).map(\.name)
             XCTAssertTrue(actions.contains("Next Page") && actions.contains("Previous Page"), "\(actions)")
