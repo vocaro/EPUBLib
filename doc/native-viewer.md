@@ -311,16 +311,19 @@ as they did.
   is the column's width, set only when that changes, so a resize lays the text out once at most.
   On Mac, the column uses the actual scroll viewport's horizontal extent, including width
   reserved by a legacy scrollbar; a scrollbar preference change also recalculates wrapping.
-  A shown position's line rests at the top of the visible area. Far from what is laid out,
-  TextKit 2 only estimates where text is, and the viewport's layout estimates differently, so a
-  long jump checks which line the top shows: from text before the position, it lays out through
-  the position in one run and scrolls to its now exact line; from text past it, it climbs above
-  it first ([#13](https://github.com/vocaro/EPUBLib/issues/13)). A resize keeps the line holding
-  the position (the last one shown, or the visible start once the person has scrolled) at the
-  top, through any number of resizes in quick succession. A bounded correction loop verifies
-  that the requested line actually reaches the visible top, allowing a visible line at the
-  document's end when scrolling is clamped. If estimates cannot align it, or TextKit 2 lays
-  that line over other text, the text is loaded afresh and the position shown again
+  A shown position's line rests at the top of the visible area, or the top edge of an aligned
+  box around it that fits there ([Flex and grid alignment](#flex-and-grid-alignment)). Far
+  from what is laid out, TextKit 2 only estimates where text is, and the viewport's layout
+  estimates differently, so a long jump checks which line the top shows: from text before the
+  position, it lays out through the position in one run and scrolls to its now exact line;
+  from text past it, it climbs above it first
+  ([#13](https://github.com/vocaro/EPUBLib/issues/13)). A resize keeps the line holding the
+  position (the last one shown, or the visible start once the person has scrolled), or that
+  box's top edge, at the top, through any number of resizes in quick succession. A bounded
+  correction loop verifies that the requested line actually reaches the visible top, allowing
+  a visible line at the document's end when scrolling is clamped. If estimates cannot align
+  it, or TextKit 2 lays that line over other text, the text is loaded afresh and the position
+  shown again
   ([#12](https://github.com/vocaro/EPUBLib/issues/12), [#41](https://github.com/vocaro/EPUBLib/issues/41)).
   An assistive technology's read lays the whole text out behind the view: VoiceOver and a UI
   test's snapshot ask where every paragraph is. That replaces the estimates the visible lines
@@ -330,6 +333,17 @@ as they did.
   draw the finished layout at the old offset, a chapter away, at the next scroll, so while the
   view has not moved since it was last read, the reader first scrolls by as much as the first
   visible line has moved.
+  On Mac, VoiceOver enters a text view at its insertion point, which a read-only view does not
+  draw and replaced text leaves at its end: the end of the book. New text starts with it at
+  its first line, and the scroll view's is kept on the first line on screen. A move the reader
+  makes itself (a shown position, a scroll step, rebuilt text) puts it there, as a page turn
+  does for a column; after other scrolling it follows only while it is where the reader last
+  put it, so one placed by a click or by VoiceOver, which scrolls the view as it reads, stays.
+  A selection is never moved, and nothing is scrolled. Each such move also posts a layout
+  change naming the text view: without it VoiceOver, back in a text it had left, returns to
+  its own previous cursor and scrolls the view there. On iOS VoiceOver reads the text view's
+  own elements, from the book's first paragraph when it moves in from the controls
+  ([#301](https://github.com/vocaro/EPUBLib/issues/301)).
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
@@ -365,8 +379,23 @@ The native CSS subset wraps prose beside left/right floated figures, text and ar
 then restores the full column below the box. Auto-width text floats use their content width,
 including narrow drop caps. Horizontal margins and padding reserve space around the native
 glyph column. `clear: left`, `right` and `both` move subsequent prose below the
-requested float side. Sized `inline-block` text fits after its prefix when space permits,
-and following prose wraps beside the box without overwriting the prefix.
+requested float side.
+
+A sized `inline-block` is set on its block's line. It starts where the text or the box before
+it ends, a space after it where the source has white space between the two, and at the start
+of the block's next line when the one it would be on is full. A box that opens its block takes
+the block's `text-indent`, and a block that sets its lines from the right fills them from the
+right. A run of such boxes is therefore a row that wraps as words do: the rows of asterisks
+that mark an omission, an initial in a box of fixed width before the rest of its word. The
+text after the run goes on from its last box, on the same line where that line has 48 points
+left, and the block that follows starts below the run's last row. A box's own horizontal
+margins, borders and padding stand between it and its neighbours. Each box is still a
+paragraph of its own in the text, so characters, offsets and CFIs are what they were.
+
+Three things about a row differ from a browser. Its boxes are aligned by their tops, not
+their baselines, and prose beside a box taller than a line wraps beside it as beside a float.
+A row starts at its line's start edge whatever the block's `text-align`. And lines fill in
+turn, where a browser that honours `text-wrap: pretty` evens the rows out.
 
 Absolute callouts honor `top`, `right`, `bottom`, `left` and `inset` within their nearest
 positioned ancestor, including a top inset that places them before their source location.
@@ -398,6 +427,16 @@ float's edge, its margin underneath it
 ([#63](https://github.com/vocaro/EPUBLib/issues/63),
 [#150](https://github.com/vocaro/EPUBLib/issues/150)). TextKit breaks a justified paragraph's
 lines a little differently where the container places them; their edges are the same.
+
+The boxes' places are planned for the whole of that text, and TextKit lays out only what is
+on screen: far into a book in continuous scroll it estimates the height of everything above,
+so a line can be screens from where the plan has it. The container therefore wraps each
+planned paragraph against the plan from where that paragraph's own first line is laid out,
+and takes text past the plan's end to be below every box; a point is found the same way,
+from the fragment laid out under it. Prose keeps clear of the boxes beside it wherever the
+book is opened, and is not pushed aside by boxes that are nowhere near. A line that starts
+exactly where a box ends is clear of it
+([#147](https://github.com/vocaro/EPUBLib/issues/147)).
 
 A `.disclosure` explains that box layouts may be simplified. Sticky positioning, negative
 relative vertical offsets, arbitrary overlap and `z-index`, and page-pinned or repeating fixed
@@ -475,9 +514,15 @@ changes.
   on the page.
 - **Continuous scroll.** The viewport is the visible reading area, as for images sized in
   `vh`: a `min-height: 98vh` section takes about one screen and its content sits in the middle
-  of it. Heights follow the visible area when it changes. A position that starts an aligned
-  box (a navigation to its section, a restored location) rests the box's top edge at the top
-  of the visible area, not its first line, so the box is shown as composed. A box that opens
+  of it. Heights follow the visible area when it changes. A position in an aligned box that
+  fits the visible area rests the box's top edge at the top of that area, not the position's
+  line, so the box is shown as composed: a navigation to its section, a restored location or a
+  search result inside it, and the end of its section, where turning back to its page in
+  paging leaves the position before a change to continuous scroll. The box is the run of
+  consecutive paragraphs tagged with the same supported container that has a `height` or
+  `min-height`, the outermost one that fits where they nest, and it fits when its top edge is
+  no further from the bottom of its last line than the visible area is tall. A position in a
+  taller box rests its own line, which the box's top edge could put off screen. A box that opens
   the scrolled text has its space restored as its first fragment's top margin, since TextKit
   drops the spacing before a document's first paragraph.
 
@@ -625,7 +670,9 @@ Go: the native viewer is the bundled engine.
   left that reaches back on screen, with a `right` offset or a great width, is hidden with
   the rest. A hidden heading is read as plain text, as a shown one is, and an image without
   alternative text beside it is still announced as "Book image". General clipping and arbitrary offscreen
-  geometry are unsupported. Unsized inline-blocks remain inline. Ordinary percentage margins,
+  geometry are unsupported. Unsized inline-blocks remain inline. Sized ones in a row are
+  aligned by their tops and from their line's start edge, not by `vertical-align` or the
+  block's `text-align`. Ordinary percentage margins,
   padding and text indents resolve against the live containing content width, including
   constrained flow-box ancestors, and recalculate at resize. Mixed-unit CSS calculations
   and `min`/`max`/`clamp` branch selection still use the nominal media-query viewport;

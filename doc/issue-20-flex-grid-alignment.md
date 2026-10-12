@@ -73,9 +73,25 @@ sentence in the reader's `.disclosure` text, from `SectionReport.flexGridSimplif
 Paginated flow resolves viewport units against one column's page, with one column and with
 two. A box's space above its first line is kept wherever its page starts, and a box that opens
 a page is kept on that page. Continuous scroll resolves them against the visible reading area,
-the viewport images already use for `vh`, and re-resolves when that area changes. Navigating
-to the start of an aligned box rests the box's top edge at the top of the visible area, so the
-box is seen as composed; every other position rests its own line there, as before.
+the viewport images already use for `vh`, and re-resolves when that area changes.
+
+A position in an aligned box that fits the visible area rests the box's top edge at the top of
+that area, whichever of the box's lines the position is on, so the box is seen as composed. That
+covers a navigation to the box's section, a search result or a restored location inside it, and
+the end of its section, which is where turning back to its page in paging leaves the position
+before a change to continuous scroll. Every other position rests its own line there, as
+before, and so does a position in a box taller than the visible area, which the box's top edge
+could put off screen.
+
+No attribute marks a box's extent. A box is a supported container with a `height` or
+`min-height`, and each of its paragraphs already carries the tag that names the containers
+around it (`.readerAlignment`), so the box around a position is the run of consecutive
+paragraphs tagged with the same container (`ReaderAlignmentLayout.boxes`); it never runs past
+its section. Where boxes nest, the outermost one that fits is rested. A box fits when its top
+edge (its first line's top less the space kept above it, `.readerAlignmentLead`) is no further
+from the bottom of its last line than the visible area is tall; the lines are laid out from the
+box's start and the measuring stops at the first line past that height, so a long box costs a
+screen of layout at most, and a box of more than 60,000 characters is not measured at all.
 
 ## Coverage
 
@@ -229,8 +245,14 @@ window captures.
   Switching from paging to continuous scroll on the dedication's page rests the box's top edge
   at the top when the page was reached by navigation. When it was reached by turning back from
   the pages after it, the reader's position is the end of the section, and the dedication's
-  last line rests at the top of the reading area with the dedication's blank space scrolled
-  away. See [Remaining boundaries](#remaining-boundaries).
+  last line rested at the top of the reading area with the dedication's blank space scrolled
+  away. The reader has since been changed to rest the box's top edge there from any position
+  inside it ([Flows](#flows)). That change was checked by tests and by the same steps on the
+  same book through the reader's commands in an off-screen window (1,000 by 1,000 points of
+  content, one column, 17 points), not by operating the app again: before it "Zelda" was the
+  line at the top with the first line 47 points above; after it the box's top edge is 0.13
+  points below the top of the reading area and the middle of its lines at 0.49 of the
+  area's height.
 
 ### Physical devices and VoiceOver
 
@@ -322,13 +344,34 @@ reader's window that was not granted.
    were also why every one of the ten emitted "Some floating, positioned or inline box
    layouts may be simplified…"; nine no longer do, and *Tristram Shandy* does for its inline
    blocks. The captures and counts elsewhere in this section were taken before that.
-7. **A row of sized inline blocks is scattered, and overlapped in continuous scroll.**
-   *Tristram Shandy* marks omissions with runs of asterisks, each in an inline block five ems
-   wide, which a browser sets as rows inside the paragraph. The reader puts each block a line
-   lower than the last. In paging the prose after them wraps round each one, breaking words
-   across the gaps; in continuous scroll it is drawn over them (chapters 5.37, 6.34 and 9.20).
-   Rendered off screen on the Mac this is identical at `main`: the same positions and the same
-   overlaps. It is outside flex and grid and is not changed here.
+7. **A row of sized inline blocks was scattered, and overlapped in continuous scroll; fixed
+   since.** *Tristram Shandy* marks omissions with runs of asterisks, each in an inline block
+   of fixed width, which a browser sets as rows inside the paragraph, and in chapter 8.13 puts
+   the initial of each word of an alphabet in such a block. At `main` the reader put each block
+   a line lower than the last. In paging the prose after them wrapped round each one, breaking
+   words across the gaps; in continuous scroll it was drawn over them (chapters 5.37, 6.34 and
+   9.20). There were two causes. The planner placed an inline block after the last line of the
+   paragraph before it, which for a block following another is that block's one glyph, not its
+   box, so each landed inside the one before and was dropped below it; a block that opened a
+   paragraph was placed after the previous paragraph's last line for the same reason. And in
+   continuous scroll the boxes' places are planned for the whole book while TextKit only
+   estimates the height of the text above the screen: at chapter 5.37 a line was 5,232 points
+   from where the plan had it, so the prose never met the boxes beside it. The writer now
+   records where each block sits on its paragraph's line, the planner sets a run along that
+   line and wraps it, and the text container wraps each paragraph against the plan from where
+   that paragraph is laid out ([native viewer](native-viewer.md#floats-and-positioned-boxes)).
+
+   Captured before (`main` at `71bf8ce`) and after on the iPad Air 13-inch (M4) and iPhone 17
+   Pro simulators (iOS 27.0, 17 points, a 720-point and a 374-point column), in paging and in
+   continuous scroll, for chapters 5.37, 6.34, 8.13 and 9.20 and for the fixture of
+   `Fixture.inlineRows()`. Before, the marks of 5.37 were on nine lines on the iPad, and in
+   continuous scroll 8 pairs of lines overlapped there, 29 in 6.34 and 34 in 9.20 (8 and 36 on
+   the iPhone, where 6.34's marks are below the screen). After, no two lines overlap in any of
+   the 24 captures. Beside WebKit showing the same document with `text-wrap: wrap`, every mark
+   is within 0.1 points of WebKit's, across and down, and the prose that follows each run
+   starts within 0.4 points of WebKit's. As the books ship, with `text-wrap: pretty`, WebKit
+   evens a run's rows out (eleven marks and nine where the reader has twelve and eight); the
+   number of rows was the same in every capture.
 8. **Ordinary sections in continuous scroll** rest their first line at the top, so a
    half-title page's 3em margin is above the screen where WebKit, showing that document alone,
    has it on screen. That is the existing rule for positions that do not start an aligned box.
@@ -364,8 +407,8 @@ box geometry and no section of the other nine, so in continuous scroll those nin
 without the text container placing their lines. The first
 pages of five such sections and of every title page were captured in pages and in continuous
 scroll on both simulators (160 captures). No line leaves its column or page. In 7 captures,
-all of *Tristram Shandy*'s asterisk rows, an asterisk and the prose after it overlap
-(finding 7); the title pages and the imprint have no overlap.
+all of *Tristram Shandy*'s asterisk rows, an asterisk and the prose after it overlapped
+(finding 7, fixed since); the title pages and the imprint have no overlap.
 
 ### The four choices
 
@@ -388,7 +431,8 @@ kept, for these reasons:
 - **A position that starts an aligned box rests the box's top edge at the top.** The page is
   then seen as it was composed, as in paging. Resting the first line there instead would put a
   centred dedication at the top of the screen with all of its blank space below. The last lines
-  of the section before show in the top margin, as they do above any position.
+  of the section before show in the top margin, as they do above any position. The same is now
+  done for a position anywhere inside a box that fits the visible area ([Flows](#flows)).
 - **A box is at most one viewport, so `min-height: 150vh` behaves as `100vh`.** In paging the
   cap keeps a box and its text on one page with no blank page after it. In continuous scroll
   the box is half a screen shorter than WebKit makes it, all of it blank space. None of the ten
@@ -442,9 +486,24 @@ and the Mac run have no failure.
   its block is inside it, which makes the block that much wider.
 - Rules that a row draws with empty `::before` and `::after` flex items are not drawn, and
   that is not disclosed (*Tristram Shandy*, chapters 1.4 and 4.27).
-- Continuous scroll rests a box's top edge at the top only for a position at the box's start.
-  A position further into the box rests its own line there, which scrolls the box's blank
-  space away. That is how a dedication looks after it was reached in paging by turning back
-  from the pages after it (the position is then the end of its section) and the flow is
-  changed to continuous scroll: its last line is at the top of the reading area. Scrolling, or
-  choosing the section from the contents, shows it as composed.
+- Continuous scroll rests a box's top edge at the top for a position anywhere in the box only
+  when the whole box fits the visible area ([Flows](#flows)). In a taller box a position rests
+  its own line. A container aligned only across the line or only by a gap, with no `height` or
+  `min-height`, is not a box for this: each of its positions rests its own line. The rule
+  holds for every position the reader shows, the one a resize or a setting change keeps
+  included: where the person has scrolled part of a one-screen box off the top, a resize
+  shows the box whole again, moving its lines down to where the box puts them.
+- In a book with box geometry (when this was seen, every Standard Ebooks title, for the
+  headings its title page parks off screen; since finding 6 they are not boxes) a position
+  can rest a fraction of a point below the top of the visible area, and continuous scroll then
+  reads the line above it as the visible start. For a box rested by its top edge that line is
+  the last one of the section before, so that section is the position reported; and on the
+  Mac, where a resize keeps the visible start, the text then moves down one line. Seen in
+  *The Great Gatsby* through the reader's commands, off screen: after the change of flow the
+  dedication's box was 0.13 points low and the imprint's last line was reported, and after a
+  resize the dedication was 19 points lower. This is not the alignment's: two of three
+  ordinary positions tried in the same book did the same (0.23 and 0.14 points low, a line
+  lower after a resize); on the iPhone simulator a fixture's ordinary lines rested 0.03
+  points low and were read so, with this change and without it; and
+  [#164](https://github.com/vocaro/EPUBLib/issues/164) describes the resize keeping the
+  visible start. Not changed here.

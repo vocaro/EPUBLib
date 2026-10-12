@@ -147,6 +147,41 @@ runner types. Snapshots re-queried for each read matched the observer after ever
 turn, text-size change and resize, with and without the reader's notifications. Read an
 element again rather than reuse a value, and treat neither XCTest nor the observer as speech.
 
+## Continuous scroll
+
+In continuous scroll one text area holds the whole book. VoiceOver on the Mac enters it at its
+insertion point, which the reader keeps on the first line on screen (see
+[the native viewer](native-viewer.md), "Continuous scroll"). Launch the reader in that flow and
+compare what VoiceOver says on entering with what is on screen:
+
+```sh
+open -na "$PWD/.build/voiceover/mac/Build/Products/Debug/VoiceOverVerificationMac.app" \
+  --args -SampleFlow scrolled -SampleFontSize 23
+python3 scripts/run-voiceover-mac.py --timeout 240 --pause 4 ax:width=600 ax:next ax:next \
+  ax:focus in line nextline nextline pagedown line nextline out right ax:next left in line
+```
+
+There the observer's `next` and `previous` press Scroll Forward and Scroll Backward. Every
+`STATE` line gives `VISIBLE`, the text area's visible characters, and `ENTRY`, the line of its
+insertion point, and the transcript carries each `AXSelectedTextChanged`, so the insertion
+point can be followed beside the speech.
+
+1. Scroll before the first `in` of a session. VoiceOver keeps a text cursor of its own once
+   it has been in a text area, so only a first entry shows where the insertion point takes it.
+   The phrase after `in` is the `ENTRY` line of the `STATE` before it, the first on screen.
+2. `nextline` reads the following lines in order while `SELECTION` follows VoiceOver. The
+   first one after entering repeats the rest of the entry line, as in paging.
+3. `pagedown` while interacting moves `SELECTION` to the new first line; `line` then reads it.
+4. `out`, `right` to leave the text, a scroll step, `left` and `in`: VoiceOver enters at the
+   new first line. Each of the reader's own moves shows as `AXLayoutChanged`.
+
+`VISIBLE` is AppKit's own account and counts whole paragraphs: the fixture's 1,200-word
+paragraph is visible from its first character while any of it is on screen, and VoiceOver's
+first and last visible word, and a text cursor it brings back into view, go by that. The text
+area's lines are the whole book's, so a `STATE` read is slow in a long book; the fixture has
+269 at this size. On a simulator or device, `TEST_RUNNER_VOICEOVER_FLOW=scrolled` opens the
+fixture in continuous scroll.
+
 ## Physical iPhone and iPad
 
 Choose each connected device explicitly and run the native probe on it:
@@ -267,6 +302,25 @@ The Mac runner's transcript is plain text and needs no export.
   passed reading order, page boundaries and VoiceOver-activated page turns in both
   orientations at 17 and 23 points; see the
   [iPad and iPhone verification](issue-28-voiceover-devices.md).
+
+- On 2026-10-12 three Mac sessions heard continuous scroll at 23 points in a 600 × 882 window,
+  with the insertion point kept on screen. On opening: "In text Page boundary verifica". A
+  first entry after two Scroll Forward steps: "In text word0072 word0073 word0074 word0075
+  word0076", the `ENTRY` line. Page Down while interacting: `SELECTION` at the new first line,
+  then "word0141 word0142 word0143 word0144 word0145" for `line`. After leaving the text, two
+  Scroll Forward steps and returning: "In text word0072…" with the reader's layout change;
+  without it, VoiceOver's own previous line, "In text word0146…", with the view scrolled back
+  to it. On each of the reader's moves VoiceOver says the word before the insertion point
+  ("word0071") and repeats the item under its cursor. Read All went on in order, moving the
+  insertion point sentence by sentence; the numbered paragraph has no full stop, so the view
+  jumped to its end. With the VoiceOver cursor resting on the text area during a move, and no
+  layout change, entering went to the first visible character by AppKit's account, the
+  numbered paragraph's first line. Not heard: that resting case with the layout change,
+  scrolling by hand, contents navigation, a change from paging, a book of ordinary paragraphs.
+- On an iPhone simulator, through XCTest's VoiceOver service and not by ear, moving forward
+  from the controls into the text of continuous scroll went to the book's first paragraph and
+  scrolled the reader back to it, three screens up
+  ([#301](https://github.com/vocaro/EPUBLib/issues/301)).
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).

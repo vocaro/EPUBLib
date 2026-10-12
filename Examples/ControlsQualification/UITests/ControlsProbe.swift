@@ -92,6 +92,20 @@ import XCUIAutomation
             #endif
             note(command, argument)
             settle()
+        case "drag":
+            // A finger drag from one fraction of the window to another, as `0.5,0.36,0.5,0.28`:
+            // for what scrolls but is not the first list, such as the search sheet under its field.
+            #if os(iOS)
+            let points = argument.split(separator: ",").compactMap { Double($0) }
+            guard points.count == 4 else { return note(command, "BAD POINTS") }
+            let window = app.windows.firstMatch
+            window.coordinate(withNormalizedOffset: CGVector(dx: points[0], dy: points[1]))
+                .press(forDuration: 0.1, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: points[2], dy: points[3])))
+            note(command, argument)
+            settle()
+            #else
+            note(command, "iOS only")
+            #endif
         case "type":
             // `\n` presses Return on the keyboard that is showing.
             app.typeText(argument.replacingOccurrences(of: "\\n", with: "\n"))

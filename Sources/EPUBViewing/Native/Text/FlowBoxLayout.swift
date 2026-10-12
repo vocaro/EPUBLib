@@ -19,13 +19,40 @@ struct ReaderFlowBoxConstraint: Sendable {
     let side: ComputedStyle.Float
     let centers: Bool
     let direction: ComputedStyle.Direction
+    /// A sized inline box's place on its line; nil for a float or a positioned box.
+    let inline: ReaderInlineBox?
 
-    init(style: ComputedStyle, containing: ReaderBoxScope? = nil, replaced: Bool = false) {
-        self.style = style; self.containing = containing; self.replaced = replaced
+    init(style: ComputedStyle, containing: ReaderBoxScope? = nil, replaced: Bool = false, inline: ReaderInlineBox? = nil) {
+        self.style = style; self.containing = containing; self.replaced = replaced; self.inline = inline
         width = style.width; minimum = style.minWidth; maximum = style.maxWidth
         side = style.float
         centers = style.float == .none && style.margin.left == .auto && style.margin.right == .auto
         direction = style.direction
+    }
+}
+
+/// Where a sized inline box was written on its block's line. Each box is a paragraph of its
+/// own in the text, so the line it shares with the text and the boxes around it exists only
+/// here: the visual plan sets a run of them side by side and wraps the run like words.
+final class ReaderInlineBox: @unchecked Sendable {
+    /// The block whose line the box is on. That block's own paragraphs carry the same object
+    /// (`.readerParagraphFlow`), which is how text before and after the box is told from the
+    /// next block's.
+    let block: ReaderParagraphFlow
+    /// The block sets its lines from the right.
+    let rightToLeft: Bool
+    /// Text or another box precedes it on the line, with no forced break between.
+    let continuesLine: Bool
+    /// What it keeps from the text or box before it: a collapsed white space, or nothing.
+    let leadingSpace: CGFloat
+    /// The block's `text-indent`, when the box opens the block's first line.
+    let firstLineIndent: CGFloat
+    /// What the text or box after it keeps from it. Written once, when the white space is met.
+    var trailingSpace: CGFloat = 0
+
+    init(block: ReaderParagraphFlow, rightToLeft: Bool, continuesLine: Bool, leadingSpace: CGFloat, firstLineIndent: CGFloat) {
+        self.block = block; self.rightToLeft = rightToLeft; self.continuesLine = continuesLine
+        self.leadingSpace = leadingSpace; self.firstLineIndent = firstLineIndent
     }
 }
 
@@ -78,6 +105,29 @@ enum ReaderFlowBoxLayout {
         return result
     }
 
+    /// What a box paragraph's own formatting keeps clear at each side of the column, before
+    /// any width constraint narrows it: its content may run from the one to the other.
+    static func insets(of base: NSParagraphStyle, viewport: CGSize) -> (left: CGFloat, right: CGFloat) {
+        let rtl = base.baseWritingDirection == .rightToLeft
+        var left = max(0, rtl ? -base.tailIndent : base.headIndent)
+        var right = max(0, rtl ? base.headIndent : -base.tailIndent)
+        // Deep author indentation cannot leave a phone column without a readable text area.
+        let edgeLimit = viewport.width * 2 / 3
+        if left + right > edgeLimit {
+            let scale = edgeLimit / (left + right)
+            left *= scale; right *= scale
+        }
+        return (left, right)
+    }
+
+    /// The same for the box paragraph at `location` of `text`, at its live size.
+    static func insets(at location: Int, in text: NSAttributedString, viewport: CGSize) -> (left: CGFloat, right: CGFloat)? {
+        guard let box = text.attribute(.readerFlowBox, at: location, effectiveRange: nil) as? ReaderFlowBoxParagraph else { return nil }
+        let base = (text.attribute(.readerParagraphSizing, at: location, effectiveRange: nil) as? ReaderParagraphSizing)
+            .map { $0.resolve(viewport: viewport) } ?? box.base
+        return insets(of: base, viewport: viewport)
+    }
+
     static func apply(to text: NSMutableAttributedString, viewport: CGSize) {
         guard viewport.width.isFinite, viewport.width > 0, text.length > 0 else { return }
         var changes: [(NSRange, NSParagraphStyle)] = []
@@ -87,14 +137,7 @@ enum ReaderFlowBoxLayout {
                 .map { $0.resolve(viewport: viewport) } ?? box.base
             let style = base.mutableCopy() as! NSMutableParagraphStyle
             let rtl = style.baseWritingDirection == .rightToLeft
-            var left = max(0, rtl ? -style.tailIndent : style.headIndent)
-            var right = max(0, rtl ? style.headIndent : -style.tailIndent)
-            // Deep author indentation cannot leave a phone column without a readable text area.
-            let edgeLimit = viewport.width * 2 / 3
-            if left + right > edgeLimit {
-                let scale = edgeLimit / (left + right)
-                left *= scale; right *= scale
-            }
+            var (left, right) = insets(of: base, viewport: viewport)
             let font = text.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont
             let readableWidth = min(viewport.width, max(viewport.width / 3, (font?.pointSize ?? 16) * 4))
             for constraint in box.constraints {
