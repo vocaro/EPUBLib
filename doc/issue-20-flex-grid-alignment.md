@@ -410,7 +410,7 @@ with `EPUBLIB_W3C_EPUB_TESTS_REPORT` naming a file and `EPUBLIB_EPUBCHECK_REPORT
 
 On these pins neither name is in any report, and the totals are the table's. The first count
 was made at `45b8569` by a test written for it, before the W3C test's report listed this
-disclosure; the two tests gave the same figures with the library at `67d2035`.
+disclosure; the two tests gave the same figures with the library at `57bef2e`.
 
 No publication emits the sentence, so there is none to judge. What the count shows is narrower
 than it looks, because these are conformance fixtures and next to none of them uses flexbox or
@@ -487,7 +487,7 @@ kept, for these reasons:
 | Simulators | iOS 27.0 (24A434); iPhone 17 Pro, iPad Air 13-inch (M4); created for this and deleted |
 | Devices | iPad Air 13-inch (M3) and iPhone 17 Pro Max, OS 27.2 (24B5099f); the verification reader at `d2951fb`, built with Xcode 27.0 (27A266a) |
 | Appearance | Light on both sides of every comparison. The simulators were set to light, and the reader's style and the web view were set to Light. The Mac was in Dark; its off-screen window and web view were set to Aqua and the reader's style to Light, and the sample app was launched with `-NSRequiresAquaSystemAppearance YES`, so its window was captured in light |
-| Disclosure count on the W3C corpora | `main` at `45b8569`, and from the two corpus tests with the library at `67d2035`; w3c/epub-tests at `54092b4` and w3c/epubcheck at `0cc28fb`, the pins of `scripts/fetch-corpora.sh`; macOS 27.0 (26A428), Xcode 27.1 (27A9269), Apple Swift 6.4 |
+| Disclosure count on the W3C corpora | `main` at `45b8569`, and from the two corpus tests with the library at `57bef2e`; w3c/epub-tests at `54092b4` and w3c/epubcheck at `0cc28fb`, the pins of `scripts/fetch-corpora.sh`; macOS 27.0 (26A428), Xcode 27.1 (27A9269), Apple Swift 6.4 |
 | Tests | Mac suite at `4deb252` (the branch merged with `main` at `2187f80`): 2,321 tests, no failures. iPad Air 13-inch (M4) simulator at `2431b6a`: 2,140 tests, no failures. iPhone 17 Pro simulator at `2431b6a`: 2,140 tests, 2 failures, both time limits |
 
 The two iPhone failures were time limits (190 nested notes in 10 seconds, 11,205 elements
