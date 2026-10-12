@@ -6,7 +6,7 @@ import MathMLLayout
 ///
 /// An author's `alttext` is always the reading, verbatim but for collapsed whitespace, in the
 /// language of the content around the formula. Without one the reading is generated from the
-/// markup. MathMLLayout 0.1.0 generates English only and takes no locale, so a generated
+/// markup. MathMLLayout 0.1.1 generates English only and takes no locale, so a generated
 /// reading is tagged English whatever the content's language: an English voice then reads
 /// English words, rather than the book's voice mispronouncing them. `generate` is the one place
 /// to pass `contentLanguage` on once the engine accepts it.
@@ -19,7 +19,7 @@ enum MathSpeech {
         var isAuthored: Bool
     }
 
-    /// The language MathMLLayout 0.1.0 writes its spoken readings in.
+    /// The language MathMLLayout 0.1.1 writes its spoken readings in.
     static let generatedLanguage = "en"
 
     /// The language of the content at `element`: the nearest `xml:lang` or `lang` on it or an
