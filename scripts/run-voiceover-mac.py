@@ -85,6 +85,12 @@ def keyboard_owner():
         capture_output=True, text=True, timeout=5).stdout.strip()
 
 
+def phrases(log_path):
+    """The time and text of each phrase the probe has recorded, in order."""
+    return [line.split(" ", 3)[1::2] for line in log_path.read_text(errors="replace").splitlines()
+            if line.startswith("VOICEOVER_EVENT ") and line.split(" ", 3)[2:3] == ["heard:"]]
+
+
 def other_tests():
     """Unit-test hosts of other sessions: VoiceOver announces their windows and menus too."""
     return subprocess.run(["pgrep", "-x", "xctest"], capture_output=True, text=True).stdout.split()
@@ -98,6 +104,9 @@ def main():
     parser.add_argument("--results", type=Path, default=root / ".build/voiceover/results")
     parser.add_argument("--timeout", type=int, default=150)
     parser.add_argument("--pause", type=float, default=5, help="seconds of speech to record after each step")
+    parser.add_argument("--advance-after", type=float, metavar="SECONDS",
+                        help="send the next step this long after a key's first new phrase, and wait "
+                             "--pause only when none is recorded; later phrases of that key are cut short")
     parser.add_argument("--xctest-values", action="store_true", help="also record XCTest's snapshot of each column")
     parser.add_argument("steps", nargs="*", metavar="STEP",
                         help=f"ax:STEP or one of {', '.join(list(COMMANDS) + list(READER_KEYS))}")
@@ -125,6 +134,8 @@ def main():
     log_path = args.results / f"mac-{stamp}.log"
     events_path = args.results / f"mac-{stamp}.ax.log"
     transcript = [f"{now()} OTHER_TESTS {pid}" for pid in other_tests()]
+    if args.advance_after is not None:
+        transcript.append(f"{now()} ADVANCE {args.advance_after:g} s after a new phrase, or after {args.pause:g} s")
     finished = args.results / f"mac-{stamp}.finished"
     environment = dict(os.environ, TEST_RUNNER_VOICEOVER_STOP=str(finished))
     if args.xctest_values:
@@ -168,16 +179,24 @@ def main():
                         if owner != "org.epubreaderlib.voiceoververify.mac":
                             raise RuntimeError(f"Keyboard focus went to {owner} before {step}; session stopped")
                         name, _, label = step.partition("=")
-                        heard = [line for line in log_path.read_text(errors="replace").splitlines() if " heard: " in line]
-                        if label and not any(label in line for line in heard[-2:]):
+                        if label and not any(label in text for _, text in phrases(log_path)[-2:]):
                             raise RuntimeError(f"VoiceOver did not name {label} before {step}; session stopped")
+                        sent = now()
                         if name in READER_KEYS:
                             keystroke(READER_KEYS[name], "")
                         else:
                             code, shift = COMMANDS[name]
                             keystroke(code, "control down, option down" + (", shift down" if shift else ""),
                                       2 if name in TWICE else 1)
-                        time.sleep(args.pause)
+                        if args.advance_after is None:
+                            time.sleep(args.pause)
+                            continue
+                        # A phrase equal to the one before it is not recorded again; such a key waits out the pause.
+                        limit = time.monotonic() + args.pause
+                        while time.monotonic() < limit and not any(
+                                heard >= sent and not text.startswith("ERROR ") for heard, text in phrases(log_path)):
+                            time.sleep(0.05)
+                        time.sleep(max(0, min(args.advance_after, limit - time.monotonic())))
                 finished.touch()
                 return process.wait(timeout=max(1, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:

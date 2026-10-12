@@ -1,0 +1,161 @@
+name: Mac VoiceOver spike
+
+# A spike, not a check: can the Mac speech harness of doc/voiceover-testing.md run on a hosted
+# runner instead of a workstation? It runs for pushes to its own branch only.
+on:
+  push:
+    branches: [claude/brave-bell-dc7959]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  session:
+    name: Session (${{ matrix.variant }})
+    runs-on: xcode-27
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # documented: the steps of doc/voiceover-testing.md as they are.
+        # preflight: first toggles VoiceOver by hand with a long wait, to time its start.
+        variant: [documented, preflight]
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      RESULTS: .build/voiceover/results
+      READER: .build/voiceover/mac/Build/Products/Debug/VoiceOverVerificationMac.app
+    steps:
+      - name: Note the start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v7
+
+      - name: Diagnostics
+        run: |
+          set +e
+          mkdir -p "$RESULTS"
+          sw_vers
+          xcodebuild -version
+          csrutil status
+          system_profiler SPAudioDataType
+          system_profiler SPDisplaysDataType
+          who
+          echo "VoiceOver state: $(defaults read com.apple.universalaccess voiceOverOnOffKey 2>&1)"
+          echo "VoiceOver process: $(pgrep -lx VoiceOver || echo none)"
+          echo "VoiceOver training: $(defaults read com.apple.VoiceOverTraining 2>&1 | tr '\n' ' ')"
+          echo "VoiceOver AppleScript setting: $(defaults read com.apple.VoiceOver4/default SCREnableAppleScript 2>&1)"
+          ls -la /private/var/db/Accessibility/ 2>&1
+          automationmodetool
+          echo "Audio devices: $(SwitchAudioSource -a 2>&1 | tr '\n' ';') current: $(SwitchAudioSource -c 2>&1)"
+          echo "Secure input: $(ioreg -l -w 0 -d 1 | grep -c kCGSSessionSecureInputPID)"
+          echo "Frontmost: $(osascript -e 'tell application "System Events" to return bundle identifier of first application process whose frontmost is true' 2>&1)"
+          echo "Processors: $(sysctl -n hw.ncpu), memory: $(($(sysctl -n hw.memsize) / 1073741824)) GB"
+          df -h / | tail -n 1
+          # The chain above this step: privacy permissions are attributed along it.
+          pid=$$
+          while [ "${pid:-0}" -gt 1 ]; do
+            ps -o pid=,ppid=,comm= -p "$pid"
+            pid=$(ps -o ppid= -p "$pid" | tr -d ' ')
+          done
+          screencapture -x "$RESULTS/screen-1-start.png"
+          exit 0
+
+      - name: Suppress VoiceOver's welcome dialog and generate the project
+        run: |
+          defaults write com.apple.VoiceOverTraining doNotShowSplashScreen -bool true
+          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install xcodegen
+          python3 scripts/make-voiceover-fixture.py
+          xcodegen generate --spec Examples/VoiceOverVerification/project.yml
+          echo "Elapsed: $(($(date +%s) - JOB_START)) s"
+
+      - name: Build for testing, signed ad hoc without a team
+        run: |
+          if ! xcodebuild -project Examples/VoiceOverVerification/VoiceOverVerification.xcodeproj \
+              -scheme VoiceOverProbeMac -destination 'platform=macOS' \
+              -derivedDataPath .build/voiceover/mac \
+              CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= build-for-testing > "$RESULTS/build.log" 2>&1; then
+            grep -E "error:|Signing|requires a development team" "$RESULTS/build.log" | head -n 40
+            tail -n 40 "$RESULTS/build.log"
+            exit 1
+          fi
+          tail -n 5 "$RESULTS/build.log"
+          codesign -dvv "$READER" 2>&1 | grep -E "Identifier|Signature|TeamIdentifier|flags"
+          codesign -dvv .build/voiceover/mac/Build/Products/Debug/VoiceOverProbeMac-Runner.app 2>&1 \
+            | grep -E "Identifier|Signature|TeamIdentifier|flags"
+          echo "Elapsed: $(($(date +%s) - JOB_START)) s"
+
+      - name: Time a VoiceOver start and stop by hand
+        if: matrix.variant == 'preflight'
+        run: |
+          set +e
+          state() {
+            echo "key $(defaults read com.apple.universalaccess voiceOverOnOffKey 2>&1 | tail -n 1), process $(pgrep -x VoiceOver || echo none)"
+          }
+          toggle() {
+            osascript -e 'tell application "System Events" to key code 96 using {command down}'
+            echo "Command-F5 sent, osascript exit $?"
+            last=""
+            for tick in $(seq 0 59); do
+              now=$(state)
+              [ "$now" != "$last" ] && echo "+$((tick / 2)).$((tick % 2 * 5)) s: $now"
+              last=$now
+              sleep 0.5
+            done
+          }
+          echo "Before: $(state)"
+          toggle
+          screencapture -x "$RESULTS/screen-2-preflight-on.png"
+          toggle
+          screencapture -x "$RESULTS/screen-3-preflight-off.png"
+          echo "After: $(state)"
+          exit 0
+
+      - name: Run a speech session
+        run: |
+          set +e
+          open -na "$PWD/$READER" --args -SampleFlow paginated -SampleFontSize 23
+          sleep 8
+          echo "Reader: $(pgrep -lx VoiceOverVerificationMac || echo not running)"
+          screencapture -x "$RESULTS/screen-4-reader.png"
+          started=$(date +%s)
+          python3 scripts/run-voiceover-mac.py --timeout 300 \
+            ax:next ax:lines ax:focus in line nextline out \
+            left left left left left left left left left "activate=Next Page" ax:lines \
+            right right right right right right right right in line
+          status=$?
+          echo "Runner exit $status after $(($(date +%s) - started)) s; elapsed $(($(date +%s) - JOB_START)) s"
+          screencapture -x "$RESULTS/screen-5-session-end.png"
+          echo "VoiceOver state: $(defaults read com.apple.universalaccess voiceOverOnOffKey 2>&1)"
+          for file in "$RESULTS"/mac-*.transcript.txt; do echo "--- $file"; cat "$file"; done
+          for file in "$RESULTS"/mac-*.ax.log; do echo "--- $file"; head -n 30 "$file"; done
+          for file in "$RESULTS"/mac-*.log; do echo "--- $file"; grep -v "^VOICEOVER_EVENT" "$file" | tail -n 60; done
+          exit $status
+
+      - name: Collect the end state
+        if: always()
+        run: |
+          set +e
+          mkdir -p "$RESULTS"
+          screencapture -x "$RESULTS/screen-6-end.png"
+          echo "VoiceOver state: $(defaults read com.apple.universalaccess voiceOverOnOffKey 2>&1)"
+          echo "VoiceOver process: $(pgrep -lx VoiceOver || echo none)"
+          echo "Frontmost: $(osascript -e 'tell application "System Events" to return bundle identifier of first application process whose frontmost is true' 2>&1)"
+          log show --last 20m --style compact \
+            --predicate 'process == "VoiceOver" OR process == "VoiceOverStarter" OR process == "testmanagerd" OR process == "tccd"' \
+            2>&1 | tail -n 4000 > "$RESULTS/system.log"
+          rm -f "$RESULTS/voiceover-ax-observer"
+          ls -la "$RESULTS"
+          echo "Elapsed: $(($(date +%s) - JOB_START)) s"
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: voiceover-${{ matrix.variant }}
+          path: .build/voiceover/results
+          include-hidden-files: true
+          if-no-files-found: warn
