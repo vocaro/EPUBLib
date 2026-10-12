@@ -173,6 +173,19 @@ final class EPUBCheckOCFCoverageTests: XCTestCase {
         XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"])
     }
 
+    func testAPDFRenditionListedFirstIsPassedOverForThePackageDocument() throws {
+        // The default rendition is a package document. OCF 2.0.1 containers may list a PDF
+        // rendition beside it, and nothing there says which comes first.
+        let container = """
+            <?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0"><rootfiles>\
+            <rootfile full-path="OPS/book.pdf" media-type="application/pdf"/>\
+            <rootfile full-path="OPS/book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>
+            """
+        let book = try EPUBPublication.open(data: Fixture.epub(overrides: ["META-INF/container.xml": container, "OPS/book.pdf": "%PDF-1.7\n%%EOF"]))
+        XCTAssertEqual(book.metadata.title, "A Test Book")
+        XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"])
+    }
+
     func testAnEntryNameAndAnHrefInDifferentNormalizationFormsNameOneResource() throws {
         // An archive packed on a file system that decomposes names, referenced by a composed href.
         var files = try Fixture.files()
@@ -211,14 +224,31 @@ final class EPUBCheckOCFCoverageTests: XCTestCase {
         XCTAssertEqual(book.spine.count, 2)
     }
 
+    func testAMimetypeWithPaddingOrAByteOrderMarkIsReadPast() throws {
+        // PKG-007 for EPUBCheck. A text editor leaves a newline or a byte-order mark in a book
+        // zipped by hand; the media type between them is still the EPUB one.
+        for content in ["application/epub+zip\n", "application/epub+zip ", " application/epub+zip", "\u{FEFF}application/epub+zip",
+                        "application/epub+zip\r\n", "\u{FEFF} \tapplication/epub+zip \r\n\n"] {
+            XCTAssertEqual(try EPUBPublication.open(data: Fixture.epub(overrides: ["mimetype": content])).spine.count, 2, content.debugDescription)
+        }
+    }
+
     // MARK: Invalid containers, refused
 
-    func testAMimetypeWithPaddingIsRefusedAsDocumented() throws {
-        for content in ["application/epub+zip\n", "application/epub+zip ", " application/epub+zip", "\u{FEFF}application/epub+zip",
-                        "application/epub+zip\r\n", "application/x-epub+zip", ""] {
+    func testAMimetypeThatNamesAnotherMediaTypeIsRefusedAsDocumented() throws {
+        for content in ["application/x-epub+zip", "", " \n", "application/epub+zip;version=3", "application/epub+zip\napplication/epub+zip",
+                        "application/epub +zip", "application/epub+zip\u{FEFF}", "application/epub+zip\u{A0}", "application/vnd.oasis.opendocument.text",
+                        "APPLICATION/EPUB+ZIP"] {
             XCTAssertThrowsError(try EPUBPublication.open(data: Fixture.epub(overrides: ["mimetype": content])), content.debugDescription) {
                 XCTAssertEqual($0 as? EPUBPublicationError, .invalidArchive("Missing EPUB mimetype"), content.debugDescription)
             }
+        }
+        // A UTF-16 file is not the ASCII one behind a mark.
+        let utf16 = Data([0xFF, 0xFE]) + "application/epub+zip".data(using: .utf16LittleEndian)!
+        var files = try Fixture.files()
+        files["mimetype"] = utf16
+        XCTAssertThrowsError(try EPUBPublication.open(data: Fixture.archive(files))) {
+            XCTAssertEqual($0 as? EPUBPublicationError, .invalidArchive("Missing EPUB mimetype"))
         }
     }
 

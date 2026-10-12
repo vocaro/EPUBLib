@@ -261,31 +261,38 @@ final class EPUBCheckPackageDocumentCoverageTests: XCTestCase {
         XCTAssertNil(try open(package(manifest: epub2, spine: "<spine><itemref idref=\"one\"/></spine>"), images).cover, "neither")
     }
 
-    func testARemoteManifestResourceRefusesTheBookAsDocumented() throws {
-        // Valid EPUB 3 (audio, video and fonts may be remote), and refused as doc/architecture.md says.
+    func testARemoteManifestResourceIsLeftOutOfTheBook() throws {
+        // Valid EPUB 3 (audio, video and fonts may be remote). Nothing is fetched, and the item
+        // is left out as doc/architecture.md says.
         let manifest = """
             <item id="one" href="one.xhtml" media-type="application/xhtml+xml" properties="remote-resources"/>\
             <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>\
             <item id="audio" href="https://example.invalid/audio/one.mp4" media-type="audio/mp4"/>
             """
-        XCTAssertThrowsError(try open(package(manifest: manifest, spine: "<spine><itemref idref=\"one\"/></spine>"))) {
-            XCTAssertEqual($0 as? EPUBPublicationError, .unsafePath("https://example.invalid/audio/one.mp4"))
-        }
+        let book = try open(package(manifest: manifest, spine: "<spine><itemref idref=\"one\"/></spine>"))
+        XCTAssertEqual(book.resources.map(\.id), ["one", "nav"])
+        XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml"])
+        XCTAssertEqual(book.spine[0].resource.properties, ["remote-resources"])
+        XCTAssertEqual(book.tableOfContents.first?.title, "First Chapter")
     }
 
-    func testAManifestHrefWithAQueryIsATypedRefusal() throws {
+    func testAManifestHrefWithAQueryNamesTheFileBeforeIt() throws {
+        // RSC-033 for EPUBCheck. The query cannot change which entry is meant.
         let manifest = "<item id=\"one\" href=\"one.xhtml?version=2\" media-type=\"application/xhtml+xml\"/><item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>"
-        XCTAssertThrowsError(try open(package(manifest: manifest, spine: "<spine><itemref idref=\"one\"/></spine>"))) {
-            XCTAssertEqual($0 as? EPUBPublicationError, .unsafePath("one.xhtml?version=2"))
-        }
+        let book = try open(package(manifest: manifest, spine: "<spine><itemref idref=\"one\"/></spine>"))
+        XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml"])
+        XCTAssertEqual(book.spine[0].resource.href, "OPS/one.xhtml")
+        XCTAssertTrue(String(decoding: try book.data(for: book.spine[0].resource), as: UTF8.self).contains("Opening words"))
     }
 
-    func testAManifestHrefDifferingInCaseFromItsEntryNamesNoEntry() throws {
-        // Archive names are case-sensitive: a spine item whose href is cased otherwise is missing.
+    func testAManifestHrefDifferingInCaseFromItsEntryNamesThatEntry() throws {
+        // Archive names are case-sensitive, and a file system that is not hides the mismatch from
+        // a book's author: the one entry that differs only in case is the one meant.
         let manifest = "<item id=\"one\" href=\"One.XHTML\" media-type=\"application/xhtml+xml\"/><item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>"
-        XCTAssertThrowsError(try open(package(manifest: manifest, spine: "<spine><itemref idref=\"one\"/></spine>"))) {
-            XCTAssertEqual($0 as? EPUBPublicationError, .missingResource("OPS/One.XHTML"))
-        }
+        let book = try open(package(manifest: manifest, spine: "<spine><itemref idref=\"one\"/></spine>"))
+        XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml"])
+        XCTAssertTrue(String(decoding: try book.data(for: book.spine[0].resource), as: UTF8.self).contains("Opening words"))
+        XCTAssertEqual(book.tableOfContents.first?.href, "OPS/one.xhtml#start", "the contents entry names the same resource")
     }
 
     func testMediaOverlayDocumentsAndTheirAudioAreOrdinaryResources() throws {

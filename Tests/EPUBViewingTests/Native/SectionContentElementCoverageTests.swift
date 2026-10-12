@@ -350,8 +350,8 @@ final class SectionContentElementCoverageTests: XCTestCase {
 
     func testReferencesThatLeaveTheArchiveAreExternalWhateverTheirForm() throws {
         let targets = ["https://example.com/a", "http://example.com", "mailto:a@example.com", "tel:+15550100", "javascript:alert(1)",
-                       "data:text/html,x", "file:///etc/passwd", "//example.com/x", "../../../outside.xhtml",
-                       "ftp://example.com/f", "HTTPS://EXAMPLE.COM/"]
+                       "data:text/html,x", "file:///etc/passwd", "//example.com/x", "ftp://example.com/f", "HTTPS://EXAMPLE.COM/",
+                       "http://example.com:port/x", "http://exa mple.com/x"]
         let body = targets.enumerated().map { "<a href=\"\($1.replacingOccurrences(of: "&", with: "&amp;"))\">link\($0)x</a>" }.joined(separator: " ")
         let text = try H.build("<p>\(body)</p>")
         for (index, target) in targets.enumerated() {
@@ -362,6 +362,13 @@ final class SectionContentElementCoverageTests: XCTestCase {
             guard let url = value as? URL else { return }
             XCTAssertNotNil(ReaderLink(url: url), "\(url)")
         }
+        // A path cannot leave: `..` stops at the container root and a leading `/` names it
+        // (EPUB Reading Systems 3.3 §4.1.1). A query is dropped.
+        let inside = try H.build("<p><a href=\"../../../outside.xhtml\">climbing</a> <a href=\"/OPS/two.xhtml#x\">rooted</a> "
+            + "<a href=\"two.xhtml?page=2#x\">queried</a></p>")
+        XCTAssertEqual(S.link("climbing", in: inside), .internal(href: "outside.xhtml"))
+        XCTAssertEqual(S.link("rooted", in: inside), .internal(href: "OPS/two.xhtml#x"))
+        XCTAssertEqual(S.link("queried", in: inside), .internal(href: "OPS/two.xhtml#x"))
     }
 
     // MARK: Ruby

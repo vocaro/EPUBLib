@@ -35,16 +35,20 @@ final class CSSSyntaxFontFaceCoverageTests: XCTestCase {
             @font-face { font-family: OnlyEOT; src: url(e.eot) format("embedded-opentype") }
             @font-face { font-family: OnlyLocal; src: local(Arial) }
             @font-face { font-family: Data; src: url("data:font/ttf;base64,AAEAAAA=") format("truetype") }
-            @font-face { font-family: Escape; src: url(../../../outside.ttf), url("%zz.ttf"), url() }
+            @font-face { font-family: Escape; src: url("a%5Cb.ttf"), url("%zz.ttf"), url() }
+            @font-face { font-family: Climbing; src: url(../../../outside.ttf), url(/fonts/rooted.ttf) }
             @font-face { font-family: 12px; src: url(n.ttf) }
             @font-face { }
             @font-face;
             @font-face { font-family: Kept; src: url(k.ttf) }
             p { clear: both }
             """)
-        XCTAssertEqual(sheet.fontFaces, [CSSFontFace(family: "kept", sources: ["OPS/css/k.ttf"])])
+        // `..` stops at the container root and a leading `/` names it, so Climbing's sources are
+        // archive paths like any other.
+        XCTAssertEqual(sheet.fontFaces, [CSSFontFace(family: "climbing", sources: ["outside.ttf", "fonts/rooted.ttf"]),
+                                         CSSFontFace(family: "kept", sources: ["OPS/css/k.ttf"])])
         XCTAssertEqual(CSSSyntaxSupport.subjects(sheet), ["p"])
-        XCTAssertEqual(sheet.remoteReferences, 0, "A data: URL and a path out of the archive are not remote references")
+        XCTAssertEqual(sheet.remoteReferences, 0, "A data: URL and a path that cannot be an entry's are not remote references")
     }
 
     func testRemoteSourcesAreCountedAndOnlyArchiveSourcesKept() {

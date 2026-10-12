@@ -610,7 +610,8 @@ import UIKit
 
     /// Hyperlinks are URLs relative to their document: `..` and `.` segments, percent-encoded
     /// names and fragments resolve inside the container to encoded hrefs a host can navigate to;
-    /// anything with a scheme is outside the book.
+    /// anything with a scheme is outside the book. RS 4.1.1: `..` stops at the container root,
+    /// so no path is.
     func testHyperlinksResolveAsRelativeURLsAndSchemesAreExternal() throws {
         var book = Book()
         book.add(href: "text/part%20one/chapter%201.xhtml", id: "one", mediaType: "application/xhtml+xml", Data(Book.xhtml(body: """
@@ -634,7 +635,7 @@ import UIKit
         XCTAssertEqual(section.specLink("web"), .external("https://example.org/a%20page?x=1#y"))
         XCTAssertEqual(section.specLink("mail"), .external("mailto:someone@example.org"))
         XCTAssertEqual(section.specLink("phone"), .external("tel:+15550100"))
-        XCTAssertEqual(section.specLink("leaking"), .external("../../../../outside.xhtml"), "never a path outside the container")
+        XCTAssertEqual(section.specLink("leaking"), .internal(href: "outside.xhtml"), "never a path outside the container")
         XCTAssertNil(section.specLink("no target"))
         // Each internal target is a section of the book and an anchor in it.
         XCTAssertEqual(built.publication.spine.map(\.resource.href),
@@ -667,19 +668,22 @@ import UIKit
         XCTAssertNil(built.disclosure)
     }
 
-    /// RS 3.3, 3.5 and doc/native-viewer.md (Security): a reference that leaves the container,
-    /// names a file URL or a remote host is never followed. The image's alternative text
-    /// stands in, and the refusal is disclosed.
+    /// RS 3.3, 3.5 and doc/native-viewer.md (Security): a reference that names a file URL or a
+    /// remote host is never followed. The image's alternative text stands in, and the refusal
+    /// is disclosed. RS 4.1.1: a path that climbs past the container root stops there, so it
+    /// names an entry of the archive or nothing, never a file of the host.
     func testReferencesOutsideTheContainerAreNeverFollowed() throws {
         let book = try build("""
             <p><img src="https://example.org/remote.png" alt="A remote image"/></p>
             <p><img src="file:///etc/hosts" alt="A file URL"/></p>
             <p><img src="../../../../etc/passwd" alt="A leaking path"/></p>
+            <p><img src="/etc/hosts" alt="A rooted path"/></p>
             <p>End.</p>
             """, head: "<link rel=\"stylesheet\" href=\"https://example.org/remote.css\"/>")
-        XCTAssertEqual(book[0].specText, "A remote image\nA file URL\nA leaking path\nEnd.")
+        XCTAssertEqual(book[0].specText, "A remote image\nA file URL\nA leaking path\nA rooted path\nEnd.")
         XCTAssertTrue(book[0].specAttachments.isEmpty)
-        XCTAssertEqual(book[0].report.remoteResourcesRefused, 4, "the stylesheet and the three images")
+        XCTAssertEqual(book[0].report.remoteResourcesRefused, 3, "the stylesheet and the two remote images")
+        XCTAssertEqual(book[0].report.unreadableResources, 2, "etc/passwd and etc/hosts, which the archive does not hold")
         XCTAssertNotNil(book.disclosure)
     }
 

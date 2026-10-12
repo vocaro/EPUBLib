@@ -47,6 +47,9 @@ final class PackageManifestSpineCoverageTests: XCTestCase {
             ("../shared/common.css", "shared/common.css", "shared/common.css"),
             ("../OPS/back.xhtml", "OPS/back.xhtml", "OPS/back.xhtml"),
             ("Text/Section0001.xhtml", "OPS/Text/Section0001.xhtml", "OPS/Text/Section0001.xhtml"),
+            ("styles/main.css?v=3", "OPS/styles/main.css", "OPS/styles/main.css"),
+            ("/shared/root.css", "shared/root.css", "shared/root.css"),
+            ("Chapter%201%3A%20Start.xhtml", "OPS/Chapter 1: Start.xhtml", "OPS/Chapter%201%3A%20Start.xhtml"),
         ]
         var items = "", files: [String: Data?] = [:]
         for (index, item) in cases.enumerated() {
@@ -86,15 +89,85 @@ final class PackageManifestSpineCoverageTests: XCTestCase {
         }
     }
 
-    func testARemoteManifestItemRefusesThePackage() throws {
-        // doc/architecture.md: "Remote manifest resources ... fail explicitly."
-        for href in ["https://example.invalid/audio/chapter1.mp3", "http://example.invalid/font.woff2", "//example.invalid/video.mp4"] {
-            assertOpening(try book(items: "<item id=\"remote\" href=\"\(href)\" media-type=\"audio/mpeg\"/>"), throws: .unsafePath(href))
+    func testARemoteManifestItemIsLeftOutAndNothingIsFetched() throws {
+        // EPUB 3.3 §3.6 lets audio, video and fonts live outside the container. The item is left
+        // out as one whose file the archive lacks is: doc/architecture.md, Publication model.
+        let plain = try book()
+        for href in ["https://example.invalid/audio/chapter1.mp3", "http://example.invalid/font.woff2", "//example.invalid/video.mp4",
+                     "data:audio/mpeg;base64,AAAA"] {
+            let book = try book(items: "<item id=\"remote\" href=\"\(href)\" media-type=\"audio/mpeg\" properties=\"cover-image\"/>")
+            XCTAssertEqual(book.resources, plain.resources, href)
+            XCTAssertEqual(book.spine, plain.spine, href)
+            XCTAssertNil(book.cover, href)
         }
     }
 
+    func testASpineThatNamesARemoteItemRefusesThePackage() throws {
+        // A reading order cannot be fetched either, and without its document there is no book.
+        for href in ["https://example.invalid/chapter3.xhtml", "//example.invalid/chapter3.xhtml"] {
+            assertOpening(try book(items: "<item id=\"remote\" href=\"\(href)\" \(xhtml)/>",
+                                   spine: "<spine><itemref idref=\"one\"/><itemref idref=\"remote\"/></spine>"), throws: .unsafePath(href), href)
+        }
+    }
+
+    func testARemoteItemRepeatedVerbatimCountsOnceAndAConflictingOneIsRefused() throws {
+        let item = "<item id=\"remote\" href=\"https://example.invalid/a.mp3\" media-type=\"audio/mpeg\"/>"
+        XCTAssertEqual(try book(items: item + item).resources, try book().resources)
+        assertOpening(try book(items: item + "<item id=\"remote\" href=\"one.xhtml\" \(xhtml)/>"), throws: .invalidXML("Manifest item"))
+        assertOpening(try book(items: item + "<item id=\"remote\" href=\"https://example.invalid/b.mp3\" media-type=\"audio/mpeg\"/>"),
+                      throws: .invalidXML("Manifest item"))
+    }
+
+    func testARemoteItemAndALocalOneUnderOneIdAreTwoResources() throws {
+        // `x:y` is remote and `../x%3Ay` the file `x:y` in the container root: the same spelling
+        // once decoded, and not a verbatim repeat.
+        let items = "<item id=\"both\" href=\"x:y\" media-type=\"text/css\"/><item id=\"both\" href=\"../x%3Ay\" media-type=\"text/css\"/>"
+        assertOpening(try book(items: items, adding: ["x:y": Data("a{}".utf8)]), throws: .invalidXML("Manifest item"))
+    }
+
+    func testAManifestHrefAURLParserGivesUpOnIsRemoteAllTheSame() throws {
+        let plain = try book()
+        for href in ["http://host:port/a.mp3", " https://example.invalid/a.mp3", "http://exa mple.invalid/a.mp3"] {
+            XCTAssertEqual(try book(items: "<item id=\"remote\" href=\"\(href)\" media-type=\"audio/mpeg\"/>").resources, plain.resources, href)
+            assertOpening(try book(items: "<item id=\"remote\" href=\"\(href)\" \(xhtml)/>",
+                                   spine: "<spine><itemref idref=\"one\"/><itemref idref=\"remote\"/></spine>"), throws: .unsafePath(href), href)
+        }
+    }
+
+    func testAnHrefWithABareColonIsRemoteWhateverTheArchiveHolds() throws {
+        // `a:b.xhtml` is a URL with the scheme `a`. Only `%3A` or a leading `./` names such a file.
+        let files: [String: Data?] = ["OPS/a:b.xhtml": Data("<html/>".utf8)]
+        XCTAssertNil(try book(items: "<item id=\"colon\" href=\"a:b.xhtml\" \(xhtml)/>", adding: files).resources.first { $0.id == "colon" })
+        for href in ["a%3Ab.xhtml", "./a:b.xhtml"] {
+            let resource = try XCTUnwrap(try book(items: "<item id=\"colon\" href=\"\(href)\" \(xhtml)/>", adding: files).resources.first { $0.id == "colon" }, href)
+            XCTAssertEqual(resource.path, "OPS/a:b.xhtml", href)
+            XCTAssertEqual(resource.href, "OPS/a%3Ab.xhtml", href)
+        }
+    }
+
+    func testAManifestHrefDifferingOnlyInCaseNamesTheOneEntryThatMatches() throws {
+        // A file system that ignores case hides the mismatch from the book's author.
+        let chapter = Data("<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><p>Third.</p></body></html>".utf8)
+        let spine = "<spine><itemref idref=\"one\"/><itemref idref=\"three\"/></spine>"
+        let item = "<item id=\"three\" href=\"Text/Chapter3.XHTML\" \(xhtml)/>"
+        let matched = try book(items: item, spine: spine, adding: ["OPS/text/chapter3.xhtml": chapter])
+        XCTAssertEqual(matched.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/text/chapter3.xhtml"], "the entry's own spelling")
+        XCTAssertEqual(try matched.data(for: matched.spine[1].resource), chapter)
+        XCTAssertEqual(matched.spine[1].resource.href, "OPS/text/chapter3.xhtml")
+
+        // An exact match is never second-guessed.
+        let exact = try book(items: item, spine: spine, adding: ["OPS/text/chapter3.xhtml": Data("other".utf8), "OPS/Text/Chapter3.XHTML": chapter])
+        XCTAssertEqual(exact.spine[1].resource.path, "OPS/Text/Chapter3.XHTML")
+        XCTAssertEqual(try exact.data(for: exact.spine[1].resource), chapter)
+
+        // Between two entries that differ only in case there is nothing to choose by.
+        let two: [String: Data?] = ["OPS/text/chapter3.xhtml": chapter, "OPS/TEXT/CHAPTER3.xhtml": chapter]
+        assertOpening(try book(items: item, spine: spine, adding: two), throws: .missingResource("OPS/Text/Chapter3.XHTML"), "two candidates, in the spine")
+        XCTAssertNil(try book(items: item, adding: two).resources.first { $0.id == "three" }, "two candidates, outside the spine")
+        assertOpening(try book(items: item, spine: spine), throws: .missingResource("OPS/Text/Chapter3.XHTML"), "no candidate")
+    }
+
     func testAPathAbsoluteManifestHrefStartsAtTheContainerRoot() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/84")
         // EPUB Reading Systems 3.3 §4.1.1: parsing "/" against the URL of the root directory gives
         // the root directory. W3C test ocf-url_link-path-absolute declares its picture this way.
         XCTAssertEqual(try book(items: "<item id=\"photo\" href=\"/media/photo.jpg\" media-type=\"image/jpeg\"/>",
@@ -102,7 +175,6 @@ final class PackageManifestSpineCoverageTests: XCTestCase {
     }
 
     func testDoubleDotSegmentsBeyondTheContainerRootStopAtTheRoot() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/84")
         // EPUB Reading Systems 3.3 §4.1.1: parsing "../" against the URL of the root directory gives
         // the root directory, so no reference leaves the container. W3C test
         // ocf-url_link-leaking-relative declares its picture four levels above a one-level package.
