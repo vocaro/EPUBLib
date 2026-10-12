@@ -294,13 +294,14 @@ struct EPUBSearchField: View {
     /// does the inline field on a Mac. On iPhone and iPad the inline field gives it up, which
     /// puts the keyboard away: the keyboard covers the page the search is about to show, and
     /// where the strip fills what the keyboard leaves there is no page to tap to dismiss it.
-    private var keepsFocusAfterSearch: Bool {
+    static func keepsFocusAfterSearch(inPane: Bool) -> Bool {
         #if os(macOS)
         true
         #else
-        onDismiss != nil
+        inPane
         #endif
     }
+    private var keepsFocusAfterSearch: Bool { Self.keepsFocusAfterSearch(inPane: onDismiss != nil) }
     var body: some View {
         VStack(alignment: .leading) {
             HStack {
