@@ -321,6 +321,22 @@ The Mac runner's transcript is plain text and needs no export.
   from the controls into the text of continuous scroll went to the book's first paragraph and
   scrolled the reader back to it, three screens up
   ([#301](https://github.com/vocaro/EPUBLib/issues/301)).
+- On 2026-10-12 the hidden-labels section was read on a physical iPhone 17 Pro Max and a
+  physical iPad Air 13-inch (M3), both on OS 27.2, at 17 points in portrait, through XCTest's
+  VoiceOver service and not by ear. In pages, moving forward from the Bookmark control:
+  "Parked title heading", "By the parked author.", "Book Image", "Shown opening words.",
+  "Clipped words in the line.", "Shown closing words.", "Parked link to the target Link",
+  "Shown last words.". In continuous scroll VoiceOver reads a paragraph at a time, and each
+  label came in the paragraph it stands in: "￼ Parked title heading ￼ By the parked author. ￼",
+  "Shown opening words. ￼ Clipped words in the line. Shown closing words.", "￼ Parked link to
+  the target Shown last words. Double tap to activate embedded link". Neither label hidden
+  from everyone was read in any run, the screenshots show the image and the shown words only,
+  and VoiceOver was off on both devices afterward. An iPhone 17 Pro simulator on iOS 27.0 gave
+  the same phrases. On the iPad the probe needs `touch=Bookmark` before `read`: from the first
+  item its cursor stayed on the window's resize control in a simulator. The iPad refused UI
+  automation twice that day ("Timed out while enabling automation mode") and ran on the third
+  attempt half an hour later. Not heard: what VoiceOver voices for the attachment character
+  before a label in continuous scroll, larger text, landscape, and a Mac.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
