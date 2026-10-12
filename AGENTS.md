@@ -16,6 +16,10 @@ Drive iOS simulators headlessly, with `xcrun simctl` and `xcodebuild`.
 - Install, launch and capture with `simctl install`, `simctl launch` and
   `simctl io <device> screenshot`. Tests run with
   `xcodebuild -destination "platform=iOS Simulator,id=<device>"`.
+- A filtered run can succeed having run nothing. When the names given to `-only-testing:`
+  match no test, `xcodebuild` still ends with `** TEST SUCCEEDED **` and status 0. Read the
+  `Executed N tests` line of every filtered run. In zsh a list of names held in one variable
+  is passed as one argument, which matches nothing: hold them in an array.
 - VoiceOver runs in a simulator too. `scripts/run-voiceover-simulator.py` records what it
   reads on simulators of its own, muted; [VoiceOver testing](doc/voiceover-testing.md#simulators)
   says what that does and does not establish.
