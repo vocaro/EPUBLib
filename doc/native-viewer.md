@@ -328,6 +328,17 @@ as they did.
   it, or TextKit 2 lays that line over other text, the text is loaded afresh and the position
   shown again
   ([#12](https://github.com/vocaro/EPUBLib/issues/12), [#41](https://github.com/vocaro/EPUBLib/issues/41)).
+  The visible range the reader reports runs from the first line mostly below the top of the
+  visible area to the last mostly above its bottom. A rest is accepted within a point of the
+  top, and the line above the rested one ends where it starts, so a sliver of that line can
+  be on screen: a line less than half shown is not counted, and the position reported, which
+  is also the visible start a resize keeps, is the one shown. Where the book has a float or
+  positioned box anywhere the reader places every line itself, and the range is read from the
+  lines' own frames: every line whose middle the visible area holds, wherever it is in the
+  source (a float stands beside prose that follows it), and a line taller than the area that
+  holds the area's middle, such as a long table row. When the area's middle is in a gap and
+  that leaves no line, every line showing at all counts
+  ([#305](https://github.com/vocaro/EPUBLib/issues/305)).
   An assistive technology's read lays the whole text out behind the view: VoiceOver and a UI
   test's snapshot ask where every paragraph is. That replaces the estimates the visible lines
   were placed by. UIKit goes on drawing the viewport's paragraphs where they were, over the
@@ -605,7 +616,9 @@ The spike the issue asked for ran on the books StudyWright reads, with the opt-i
 Ebooks, Project Gutenberg and government titles), the 87 PDFReflowLib conversions of the
 review set, and, as a sample of imported EPUBs, 165 conversions of the same PDFs by two other
 converters (72 of which EPUBReading opens; the rest reference resources missing from their
-archives and are refused by the parser, as before).
+archives and are refused by the parser, as before). Those books belong to that project, not
+to EPUBLib: this is the record of one run, and the corpora for verifying changes are the
+public ones ([corpus runs](testing.md#corpus-runs)).
 
 - **Fidelity.** 213 books, 9,566 sections, 90 million rendered characters and 55,748
   attachments built with no crash, no withheld section and no text-map round-trip failure.
@@ -741,6 +754,35 @@ Go: the native viewer is the bundled engine.
     `context-fill` or `context-stroke` on a shape whose own fill or stroke is a gradient.
 
   The renderer draws no marker on a shape inside a `<clipPath>`, so none is counted there.
+
+  References between a drawing's elements are held to what the renderer can follow, and an
+  SVG past any of these shows its fallback text with the `svg` disclosure too. The renderer
+  follows a `mask`, a `clip-path` and a `<use>` by calling itself, on a stack whose end is
+  the end of the process, and it guards against loops only in part. So references count
+  toward the depth limit: a chain of nesting, `<use>`, `mask` and `clip-path` may be 64
+  levels deep in all, a mask or clip path one level and its content the next, which lets 31
+  masks in a chain through their content draw and refuses 32. More than two masks or clip
+  paths that lead back to each other are refused: the renderer unlinks a loop of one and of
+  two, which still draw, and misses a longer one. A gradient whose `href` leads into a loop
+  of two or more gradients that it is not one of is refused, since the renderer would walk
+  that loop for ever; a loop that nothing outside it leads into, and a gradient that names
+  itself, end and still draw. A linear gradient whose `spreadMethod` is `reflect` or
+  `repeat` is refused as well, whether it states the spread or takes it through `href` from
+  another gradient, linear or radial. The renderer panics on such a gradient that has no
+  length, when the average of its stops rounds past one, and telling which gradients have no
+  length would mean reproducing the renderer's resolution of lengths: units, percentages,
+  coordinates taken through `href`. So the spread alone decides. A linear gradient that
+  repeats or reflects shows fallback text at any length, painted or not, and so does one
+  whose `href` can reach a gradient that does, even past one that pads. A linear gradient
+  that pads, or whose `spreadMethod` is absent or not a value the renderer knows, still
+  draws, and so does a radial gradient of any spread. A reference is found wherever the
+  renderer takes one from: an attribute, a `style` attribute, a rule of a stylesheet in the
+  drawing, read as the renderer's own CSS parser reads it, or `inherit`, behind a marker
+  included. More is assumed than the renderer follows where telling the two apart would
+  mean doing its work: a rule is taken to apply to every element its last compound selector
+  could match, a declaration counts even where another overrides it, and an `id` that
+  several elements share names them all.
+
   Embedded raster images are capped at 4 megapixels each and 16 megapixels in total.
   Output is capped at 4,096 pixels on its long side and 16 megapixels, reduced further for
   isolated layers to fit the raster working-memory budget. SVG text uses outline fonts;
