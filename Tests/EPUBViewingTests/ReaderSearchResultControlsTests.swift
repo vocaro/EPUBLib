@@ -264,24 +264,58 @@ import UIKit
             .map { String(emphasized[$0.range].characters) }, ["needle"], "only the occurrence is emphasized")
     }
 
-    /// An iPhone on its side leaves the search sheet about 225 points above the keyboard. The pane
-    /// with results must fit in that, or the sheet cuts its field and Close Search off the top.
+    /// An iPhone 17 Pro on its side leaves the search sheet 177 points above the keyboard and its
+    /// suggestions, an iPhone SE 168 and an iPhone 17e 166. The sheet with results must fit in
+    /// that at every text size, or its top is cut off, the field and Close Search with it.
     func testSearchPaneWithResultsFitsACompactHeight() async throws {
         XCTAssertEqual(EPUBSearchResultPane.minimumListHeight(.regular), 160)
         XCTAssertEqual(EPUBSearchResultPane.minimumListHeight(nil), 160)
         #if os(iOS)
         let session = Session(), model = try controls(session)
         session.publish(.completed(query: "needle", hasMatches: true), Self.results(7, current: 0))
-        func pane(_ height: UserInterfaceSizeClass) -> MountedView {
-            MountedView(VStack(alignment: .leading) { EPUBSearchResultPane(controls: model, onDismiss: {}) }
-                .environment(\.verticalSizeClass, height))
+        // What the toolbar's Search button presents: the field, its buttons, Clear Search, the
+        // navigator and the list, padded and held to the sheet's top. Disabled, which changes
+        // no size, so that the field does not take focus in the test host as it does when its
+        // sheet opens.
+        func sheet(_ height: UserInterfaceSizeClass, _ textSize: DynamicTypeSize = .large) -> some View {
+            EPUBSearchField(controls: model, onDismiss: {}).padding().frame(maxHeight: .infinity, alignment: .top)
+                .disabled(true).environment(\.verticalSizeClass, height).dynamicTypeSize(textSize)
         }
-        let regular = pane(.regular), compact = pane(.compact)
-        defer { regular.close(); compact.close() }
+        let regular = MountedView(sheet(.regular))
+        defer { regular.close() }
         try await Task.sleep(for: .milliseconds(60))
-        // The field, its buttons, Clear Search and the sheet's padding take about 120 points more.
-        XCTAssertGreaterThanOrEqual(regular.minimumHeight(), 160)
-        XCTAssertLessThanOrEqual(compact.minimumHeight(), 100)
+        XCTAssertGreaterThan(regular.minimumHeight(), 177, "160 points for the list are what did not fit")
+
+        // The iPhone 17 Pro's sheet, its 874 points less the 62 at each end, the iPhone SE's and
+        // the iPhone 17e's.
+        let rooms = [CGSize(width: 750, height: 177), CGSize(width: 667, height: 168), CGSize(width: 750, height: 166)]
+        for room in rooms {
+            for textSize in DynamicTypeSize.allCases {
+                let name = "\(textSize) in \(Int(room.width)) by \(Int(room.height)) points"
+                let compact = MountedView(sheet(.compact, textSize), size: room)
+                defer { compact.close() }
+                try await Task.sleep(for: .milliseconds(60))
+                let field = try XCTUnwrap(compact.views(UITextField.self).first, name)
+                let list = try XCTUnwrap(compact.views(UICollectionView.self).first, name)
+                XCTAssertLessThanOrEqual(compact.height(in: room), room.height, "\(name): the content is taller than its sheet")
+                XCTAssertGreaterThanOrEqual(compact.frame(of: field).minY, 0, "\(name): the field is cut off the top")
+                XCTAssertLessThanOrEqual(compact.frame(of: field).maxY, room.height, name)
+                // Under the field the list has at least its minimum, or everything there scrolls.
+                let scroller = compact.views(UIScrollView.self).first { !($0 is UICollectionView) && !$0.isDescendant(of: field) }
+                if let scroller {
+                    let frame = compact.frame(of: scroller)
+                    XCTAssertTrue(list.isDescendant(of: scroller), name)
+                    XCTAssertGreaterThanOrEqual(frame.minY, compact.frame(of: field).maxY, name)
+                    XCTAssertLessThanOrEqual(frame.maxY, room.height, name)
+                    XCTAssertGreaterThan(scroller.contentSize.height, frame.height, "\(name): nothing to scroll to")
+                } else {
+                    XCTAssertGreaterThanOrEqual(compact.frame(of: list).height, 44 - 0.5, name)
+                    XCTAssertLessThanOrEqual(compact.frame(of: list).maxY, room.height, "\(name): the list runs out of the sheet")
+                }
+                if textSize == .large, room == rooms[0] { XCTAssertNil(scroller, "at the default size the list fits there as it is") }
+                if textSize == .accessibility5 { XCTAssertNotNil(scroller, "\(name): the field's row and Clear Search leave no room for a list") }
+            }
+        }
         #endif
     }
 
@@ -354,24 +388,36 @@ import UIKit
     private let fit: (CGSize) -> CGSize
     #endif
 
+    #if os(macOS)
     init(_ view: some View) {
-        #if os(macOS)
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         host = NSHostingView(rootView: view)
         window.contentView = host
         window.orderFront(nil)
-        #else
+    }
+    #else
+    /// With a `size`, the view is held to it as a sheet of that size holds its content: whatever
+    /// the window's size, and with no safe area.
+    init(_ view: some View, size: CGSize? = nil) {
         if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
             window = UIWindow(windowScene: scene)
         } else { window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844)) }
         let controller = UIHostingController(rootView: view)
         host = controller
         fit = { controller.sizeThatFits(in: $0) }
-        window.rootViewController = controller
+        if let size {
+            let root = UIViewController()
+            controller.safeAreaRegions = []
+            root.addChild(controller)
+            controller.view.frame = CGRect(origin: .zero, size: size)
+            root.view.addSubview(controller.view)
+            controller.didMove(toParent: root)
+            window.rootViewController = root
+        } else { window.rootViewController = controller }
         window.makeKeyAndVisible()
-        #endif
     }
+    #endif
 
     func fittingSize() -> CGSize {
         #if os(macOS)
@@ -385,12 +431,39 @@ import UIKit
     }
 
     #if os(iOS)
-    /// The least height the view accepts at the window's width.
+    /// The least height the view accepts at the window's width. The hosting controller's fitting
+    /// size includes its window's safe area, which belongs to the device and not to the view: 66
+    /// points on an iPhone 17 Pro, most of them under the Dynamic Island, and none in the test
+    /// host on an iPad.
     func minimumHeight() -> CGFloat {
         host.view.setNeedsLayout()
         host.view.layoutIfNeeded()
-        return fit(CGSize(width: window.bounds.width, height: 1)).height
+        let safeArea = host.view.safeAreaInsets
+        return fit(CGSize(width: window.bounds.width, height: 1)).height - safeArea.top - safeArea.bottom
     }
+
+    /// The height the view takes when offered `size`: more than its height when it does not fit.
+    func height(in size: CGSize) -> CGFloat {
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+        return fit(size).height
+    }
+
+    /// The UIKit views of one kind that SwiftUI made for the view, in tree order.
+    func views<Kind: UIView>(_ kind: Kind.Type) -> [Kind] {
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+        var found: [Kind] = []
+        func visit(_ view: UIView) {
+            if let match = view as? Kind { found.append(match) }
+            view.subviews.forEach(visit)
+        }
+        visit(host.view)
+        return found
+    }
+
+    /// Where one of them is in the mounted view.
+    func frame(of view: UIView) -> CGRect { view.convert(view.bounds, to: host.view) }
     #endif
 
     func close() {

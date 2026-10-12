@@ -12,8 +12,13 @@ source-page decisions and document reconstruction. Metadata and navigation are X
 once by the writer, scalar by scalar: `&`, `<`, `>` and both quotes are escaped whatever stands
 beside them, a combining mark included, and no value is normalized. A character XML 1.0 cannot
 hold (a C0 control character other than tab, line feed and carriage return, U+FFFE or U+FFFF) is
-left out. The caller chooses a stable identifier and modification date for reproducible output;
-package generation does not invent document facts.
+left out. A reader does normalize what it reads: `EPUBReading`, as EPUB Reading Systems 3.3 §5.3
+requires, reads a metadata value or a label with each run of ASCII whitespace as one space and
+none at its ends, so a title given with a tab, a line end, doubled spaces or a space at an end
+is written as given and does not read back as given. Nor does one given as nothing but white
+space of any kind, a lone no-break space included: it is written, and read back as empty. The
+caller chooses a stable identifier and modification date for reproducible output; package
+generation does not invent document facts.
 
 Write prepared documents and content into staging, then call `EPUBArchiveWriter.write` with
 ordered file-backed entries, placing `mimetype` first. It stores the exact mimetype uncompressed,

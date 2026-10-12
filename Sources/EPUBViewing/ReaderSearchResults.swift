@@ -379,15 +379,23 @@ struct EPUBSearchResultPane: View {
             if let onDismiss {
                 EPUBSearchResultList(controls: controls) { _ in if sizeClass == .compact { onDismiss() } }
                     .frame(minWidth: 260, idealWidth: 340, minHeight: Self.minimumListHeight(verticalSizeClass),
-                           idealHeight: 320, maxHeight: 480)
+                           idealHeight: Self.idealListHeight(verticalSizeClass), maxHeight: 480)
             }
         }
     }
 
-    /// An iPhone on its side leaves the pane's sheet about 225 points above the keyboard. With
-    /// 160 of them promised to the list, the pane was taller than its sheet, which cut the field
-    /// and Close Search off the top.
+    /// An iPhone 17 Pro on its side leaves the pane's sheet 177 points above the keyboard and its
+    /// suggestions, and the field, its buttons, the navigator and the padding take 125 of them.
+    /// With 160 more promised to the list, the sheet's content was taller than the sheet, which
+    /// cut the field and Close Search off the top.
     static func minimumListHeight(_ verticalSizeClass: UserInterfaceSizeClass?) -> CGFloat {
         verticalSizeClass == .compact ? 44 : 160
+    }
+
+    /// What a popover sized to its content gives the list. In a compact height the pane is a
+    /// sheet, which is not sized so, and the field asks whether the pane fits under it at this
+    /// height: there it is the least the list takes.
+    static func idealListHeight(_ verticalSizeClass: UserInterfaceSizeClass?) -> CGFloat {
+        verticalSizeClass == .compact ? minimumListHeight(verticalSizeClass) : 320
     }
 }

@@ -12,7 +12,8 @@ bash scripts/check-all.sh
 The gate verifies module boundaries, compares documentation snippets with compiled Swift
 sources, runs the Mac tests and the full test suite on dedicated iPhone 17 Pro and iPad Air
 13-inch (M4) simulators, and builds both sample app targets. Test devices are created by UUID and
-deleted on exit; existing devices are never selected or shut down. iOS logs live in
+deleted on exit; existing devices are never selected or shut down. Agents working in the
+repository drive simulators the same way, headlessly ([notes for agents](../AGENTS.md)). iOS logs live in
 `.build/validation/`. `EPUB_SIM_RUNTIME` selects a different installed runtime by identifier.
 
 For narrower checks:
@@ -44,8 +45,12 @@ duplicate ZIP entries, symlinks, path separators and dot segments beside every s
 their `Character`, CRC corruption, malformed/deep/wide XML, UTF-16 entities, repeated,
 conflicting, absent, remote and differently cased manifest items, references that start at or climb past
 the container root or carry a query, padded mimetypes, containers that list another rendition first,
-entry names with a colon, contents entries that do not resolve, named character references and
-lower-case doctypes in navigation, control characters in navigation,
+entry names with a colon, archives that other bytes follow, deflated entries whose directory
+misstates their sizes, contents entries that do not resolve, named character references and
+lower-case doctypes in navigation, control characters in navigation, white space in metadata
+values and navigation labels (ASCII whitespace stripped and collapsed however it is written,
+white space outside ASCII kept beside other content and a mark after a space kept, a value of
+nothing but white space of any kind empty),
 cancellation after expansion starts, and exact IDPF/Adobe font deobfuscation vectors. The font
 tests check the XOR prefix and the untouched suffix against independently specified keys.
 
@@ -67,7 +72,11 @@ flows after page turns, scrolling, navigation to markers, a restore and a resize
 selection, and close the session. Separate fixtures exercise
 encoded filenames and fragments, fixed layout, RTL, vertical writing, and flex and grid alignment
 (a centred title page, a Standard Ebooks style epigraph, a grid dedication and layouts left in
-block flow, with their expected native geometry). The illustrated fixture
+block flow, with their expected native geometry), and rows of sized inline blocks (a book of
+prose chapters around one whose paragraphs hold runs of marks, each in a box of fixed width;
+the runs are checked against where CSS sets them, and the chapter is laid out in pages and in
+continuous scroll, four chapters below what the scroll view lays out first, as it is laid out
+by itself). The illustrated fixture
 has 40 sections and eight incompressible 1024×1024 images; its test enforces an archive size over
 20 MiB and verifies that later sections remain navigable. Relayout tests take one mounted
 session of a book of labelled SVG figures from wide and light to narrow, large and dark, and

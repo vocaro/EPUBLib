@@ -32,7 +32,8 @@ closes its session. The example serializes command submissions and waits for `.r
 enabling controls. Applications requiring paint completion must observe relocation events.
 
 For automated and visual checks, the launch arguments `-SampleBook <path>` open a book directly,
-and `-SampleFlow scrolled`, `-SampleDark YES` and `-SampleFontSize <points>` set its style.
+`-SampleFlow scrolled`, `-SampleDark YES` and `-SampleFontSize <points>` set its style, and
+`-SampleHref <href>` shows one of its sections.
 
 ## Source and verification
 

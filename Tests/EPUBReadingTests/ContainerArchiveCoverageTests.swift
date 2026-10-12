@@ -657,25 +657,74 @@ final class ContainerArchiveCoverageTests: XCTestCase {
         }
     }
 
-    func testADeflatedEntryDeclaredLargerThanItsDataCouldInflateToIsRefused() throws {
-        // Deflate's longest copy is 258 bytes and its shortest code for one is two bits (a bit for
-        // the length, a bit for the distance), so no stream inflates to more than 1,032 times its
-        // own length.
+    // A deflated entry is read by its stream, as far as that goes, and held to its checksum.
+    // Neither size its directory states makes ZIPFoundation read without data, so an entry
+    // whose data is whole is the book's whatever uncompressed size they give it, and whatever
+    // compressed size that reaches the end of its stream and is one ZIPFoundation can hold.
+    func testADeflatedEntryIsReadByItsStreamWhateverSizesItsDirectoryStates() throws {
         let name = "OPS/one.xhtml"
         let book = try Fixture.epub(), chapter = try XCTUnwrap(Fixture.files()[name])
         let record = try XCTUnwrap(Fixture.directoryOffset(of: name, in: book))
         let compressed = (0..<4).reduce(0) { $0 | Int(book[record + 20 + $1]) << (8 * $1) }
-        // The size is not what the entry is read by, so one the data could hold changes nothing.
-        XCTAssertEqual(try EPUBPublication.open(data: archive(book, stating: 1032 * compressed, at: 24, of: name)).data(at: name), chapter)
-        assertRefusedUnread(try archive(book, stating: 1032 * compressed + 1, at: 24, of: name), "one byte more than the data could hold")
-        assertRefusedUnread(try archive(book, givingSize: 24, of: name, as: 1 << 40), "a terabyte")
+        func assertRead(_ data: Data, _ message: String, line: UInt = #line) throws {
+            let opened = try EPUBPublication.open(data: data)
+            XCTAssertEqual(try opened.data(at: name), chapter, message, line: line)
+            XCTAssertEqual(opened.spine.count, 2, message, line: line)
+        }
+        // The uncompressed size is not read by at all: less than the entry inflates to, more
+        // than Deflate makes of any data (1,032 times its length, two bits for a copy of 258
+        // bytes), more than a resource may be, and the most a field holds.
+        for size in [0, 1, chapter.count + 1, 1032 * compressed, 1032 * compressed + 1, EPUBImportLimits().resourceBytes + 1, Int(UInt32.max) - 1] {
+            try assertRead(try archive(book, stating: size, at: 24, of: name), "an uncompressed size of \(size)")
+        }
+        for size in [UInt64(1) << 40, 1 << 63, .max] {
+            try assertRead(try archive(book, givingSize: 24, of: name, as: size), "an uncompressed size of \(size) in a ZIP64 field")
+        }
 
-        // The compressed size is what the entry is read by, as far as the stream goes.
+        // The compressed size is how far the entry may be read. Past the end of its stream is
+        // not read, and past the end of the archive there is nothing to read.
         let room = try book.count - XCTUnwrap(Fixture.dataOffset(of: name, in: book))
-        XCTAssertEqual(try EPUBPublication.open(data: archive(book, stating: room, at: 20, of: name)).data(at: name), chapter)
-        assertRefusedUnread(try archive(book, stating: room + 1, at: 20, of: name), "a compressed size one byte past the end")
-        assertRefusedUnread(try archive(book, givingSize: 20, of: name, as: 1 << 40), "a compressed terabyte")
-        assertRefusedUnread(try archive(book, stating: 0, at: 20, of: name), "an entry of no compressed bytes")
+        for size in [compressed + 1, room, room + 1, Int(UInt32.max) - 1] {
+            try assertRead(try archive(book, stating: size, at: 20, of: name), "a compressed size of \(size)")
+        }
+        for size in [UInt64(1) << 40, UInt64(Int64.max)] {
+            try assertRead(try archive(book, givingSize: 20, of: name, as: size), "a compressed size of \(size) in a ZIP64 field")
+        }
+        // Short of its stream's end the entry is cut off. ZIPFoundation's own error for that
+        // is not yet typed (#74): only that it is one.
+        for size in [0, 1, compressed - 1] {
+            XCTAssertThrowsError(try EPUBPublication.open(data: archive(book, stating: size, at: 20, of: name)), "a compressed size of \(size)")
+        }
+    }
+
+    // The limits are for what a book expands to. A stored entry is as long as its directory
+    // says; a deflated one is as long as its stream makes it, which is counted as it is read.
+    func testADeflatedEntryIsHeldToTheLimitsByWhatItInflatesToAndNotByItsDeclaredSize() throws {
+        let name = "OPS/payload.txt"
+        let payload = String(repeating: "x", count: 131_072)
+        let data = try Fixture.epub(overrides: [name: payload])
+        let total = try Fixture.files().values.reduce(payload.utf8.count) { $0 + $1.count }
+        var limits = EPUBImportLimits()
+        limits.resourceBytes = payload.utf8.count
+        limits.expandedBytes = total
+        XCTAssertEqual(try EPUBPublication.open(data: data, limits: limits).data(at: name), Data(payload.utf8), "at both limits")
+        // Declared larger than either limit and no larger than it was: the same book.
+        for size in [payload.utf8.count + 1, total + 1, 1 << 30, Int(UInt32.max) - 1] {
+            let book = try EPUBPublication.open(data: archive(data, stating: size, at: 24, of: name), limits: limits)
+            XCTAssertEqual(try book.data(at: name), Data(payload.utf8), "declared as \(size) bytes")
+        }
+        // A byte over either limit is refused as it is inflated, whatever was declared.
+        for size in [10, payload.utf8.count, 1 << 30] {
+            let stated = try archive(data, stating: size, at: 24, of: name)
+            var less = limits
+            less.resourceBytes -= 1
+            assertOpening(stated, limits: less, throws: .limitExceeded(name), "one resource, declared as \(size) bytes")
+            less = limits
+            less.expandedBytes -= 1
+            XCTAssertThrowsError(try EPUBPublication.open(data: stated, limits: less), "the whole book, with one entry declared as \(size) bytes") {
+                guard case .limitExceeded = $0 as? EPUBPublicationError else { return XCTFail("\(size): \($0)") }
+            }
+        }
     }
 
     func testEntriesThatCompressAsFarAsDeflateAllowsAreRead() throws {
@@ -697,7 +746,8 @@ final class ContainerArchiveCoverageTests: XCTestCase {
         var data = try archive(Fixture.storedArchive(entries), stating: Int(zeros.crc32(checksum: 0)), at: 16, of: "OPS/zeros.bin")
         data = try archive(data, stating: zeros.count, at: 24, of: "OPS/zeros.bin")
         XCTAssertEqual(try EPUBPublication.open(data: data).data(at: "OPS/zeros.bin"), zeros)
-        assertRefusedUnread(try archive(data, stating: 1032 * stream.count + 1, at: 24, of: "OPS/zeros.bin"), "more than any stream holds")
+        // A size no stream of that length holds is still not what the entry is read by.
+        XCTAssertEqual(try EPUBPublication.open(data: archive(data, stating: 1032 * stream.count + 1, at: 24, of: "OPS/zeros.bin")).data(at: "OPS/zeros.bin"), zeros)
     }
 
     func testEntriesTheArchiveHoldsInFullAreReadWhateverTheirLayout() throws {
