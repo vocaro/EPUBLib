@@ -372,7 +372,7 @@ import UIKit
                 XCTAssertEqual(canvas.visibleRange?.start, position, "\(size)")
             }
         }
-        // The bottom: down to where half a point of a paragraph's first line shows there.
+        // The bottom: to where half a point of a paragraph's first line shows there.
         let last = paragraph(44)
         try scrollByHand(try rest(last).minY + 0.5 - canvas.scrollVisibleContainerRect.maxY)
         try await host.settle()
