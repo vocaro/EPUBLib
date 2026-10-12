@@ -243,7 +243,8 @@ final class SectionWriter {
                 // own. One that no id names is captured nowhere else: it is part of this note.
                 if !whole, state.isNamedNote(node) { leftOutNote = true; return }
             } else if kind == .footnote, !state.isCapturingNote || state.isNamedNote(node) {
-                // Shown only in place of its reference; in a note's table cell, as in the note.
+                // A footnote is shown only in place of its reference. In a cell of a note's
+                // table, one that no id names is part of that note, as it is outside the table.
                 skip(node, registered: true); return
             }
         }

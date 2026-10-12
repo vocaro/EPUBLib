@@ -197,7 +197,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     is in the flow, it navigates. Inside a popover, a link to the note being shown is plain
     text.
   - A footnote `aside` with no id anywhere in it cannot be referred to and is not shown, as
-    in Apple Books, Thorium and Foliate, which hide the element whatever refers to it.
+    in Apple Books, Thorium and Foliate.
 - **Flex and grid.** TextKit lays a section out as one column of paragraphs, so the reader
   aligns the flex and grid layouts that keep that column: a column flex container, a one-column
   grid and a row flex container with a single item

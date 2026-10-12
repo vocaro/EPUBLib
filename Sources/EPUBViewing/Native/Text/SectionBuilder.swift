@@ -179,6 +179,7 @@ final class SectionBuildState {
     private lazy var noteIDs: [Int: [String]] = {
         let enclosing = enclosingNote
         var ids: [Int: [String]] = [:], taken = Set<String>()
+        // First each note's own id and those of its leading descendants, as far as a nested note.
         for note in document.nodes where note.isElement && enclosing[note.order] == note.order {
             var leading: ContentNode? = note
             while let node = leading, enclosing[node.order] == note.order {
@@ -186,6 +187,7 @@ final class SectionBuildState {
                 leading = node.children.first(where: \.isElement)
             }
         }
+        // Then every other id inside a note. An empty one is no id, and adds no name.
         for node in document.nodes where node.isElement && enclosing[node.order] >= 0 {
             if let id = node.id, !id.isEmpty, taken.insert(id).inserted { ids[enclosing[node.order], default: []].append(id) }
         }
