@@ -71,7 +71,11 @@ flows after page turns, scrolling, navigation to markers, a restore and a resize
 selection, and close the session. Separate fixtures exercise
 encoded filenames and fragments, fixed layout, RTL, vertical writing, and flex and grid alignment
 (a centred title page, a Standard Ebooks style epigraph, a grid dedication and layouts left in
-block flow, with their expected native geometry). The illustrated fixture
+block flow, with their expected native geometry), and rows of sized inline blocks (a book of
+prose chapters around one whose paragraphs hold runs of marks, each in a box of fixed width;
+the runs are checked against where CSS sets them, and the chapter is laid out in pages and in
+continuous scroll, four chapters below what the scroll view lays out first, as it is laid out
+by itself). The illustrated fixture
 has 40 sections and eight incompressible 1024×1024 images; its test enforces an archive size over
 20 MiB and verifies that later sections remain navigable. Relayout tests take one mounted
 session of a book of labelled SVG figures from wide and light to narrow, large and dark, and
