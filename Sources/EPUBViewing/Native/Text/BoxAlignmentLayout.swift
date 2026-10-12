@@ -86,6 +86,45 @@ enum ReaderAlignmentLayout {
         return CGFloat(value.doubleValue)
     }
 
+    /// The paragraphs of each aligned box around `location`, outermost first, in source or
+    /// resolved text. A box here is a supported container with a `height` or `min-height`: one
+    /// that composes its content in a space of its own. Its paragraphs are the consecutive ones
+    /// tagged with it (`.readerAlignment`), so no attribute marks its extent, and it ends with
+    /// its section: the break between two sections of a book carries no tag. A box longer than
+    /// `maximumMeasuredContainer` exceeds any screen and is left out.
+    static func boxes(in text: NSAttributedString, around location: Int) -> [NSRange] {
+        guard location >= 0, text.length > 0 else { return [] }
+        let limit = maximumMeasuredContainer
+        /// The paragraph tagged at `index`, no further than the limit either way, and the boxes
+        /// it is in.
+        func tag(at index: Int) -> (boxes: [ReaderAlignmentContainer], range: NSRange)? {
+            let lower = max(0, index - limit - 1), upper = min(text.length, index + limit + 1)
+            var range = NSRange()
+            guard let paragraph = text.attribute(.readerAlignment, at: index, longestEffectiveRange: &range,
+                                                 in: NSRange(location: lower, length: upper - lower)) as? ReaderAlignmentParagraph
+            else { return nil }
+            var boxes: [ReaderAlignmentContainer] = []
+            var item: ReaderAlignmentItem? = paragraph.item
+            while let current = item {
+                if current.container.layout != .block, current.container.hasHeight { boxes.append(current.container) }
+                item = current.container.parentItem
+            }
+            return (boxes.reversed(), range)
+        }
+        // A section's end is on the break after its last paragraph, which only the paragraph's
+        // start shows to be its own.
+        let own = (text.string as NSString).paragraphRange(for: NSRange(location: min(location, text.length - 1), length: 0))
+        guard let first = tag(at: own.location) else { return [] }
+        return first.boxes.compactMap { container in
+            var box = first.range
+            while box.length <= limit, box.location > 0, let previous = tag(at: box.location - 1),
+                  previous.boxes.contains(where: { $0 === container }) { box = NSUnionRange(previous.range, box) }
+            while box.length <= limit, box.upperBound < text.length, let next = tag(at: box.upperBound),
+                  next.boxes.contains(where: { $0 === container }) { box = NSUnionRange(box, next.range) }
+            return box.length <= limit ? box : nil
+        }
+    }
+
     private struct Entry {
         /// A whole paragraph, with its terminator.
         let range: NSRange

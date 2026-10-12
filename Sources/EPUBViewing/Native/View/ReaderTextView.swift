@@ -33,6 +33,21 @@ struct ReaderVisualLine {
         return lower.map { NSRange(location: $0, length: upper - $0) }
     }
 
+    /// The source envelope of the lines `rect` mostly shows: those whose middle it holds, top
+    /// to bottom, and a line taller than `rect` that holds its middle. That leaves out a line
+    /// showing less than half of itself at the top or bottom edge, as the first line mostly
+    /// below the top is the first one on screen where TextKit places the lines
+    /// (`ReaderTextView.lineBoundary`). A shown position rests within a point of the top, and
+    /// the line above it ends where it starts, so that line can show a sliver; it is not on
+    /// screen for that. When `rect`'s middle is in a gap and it mostly shows no line, every
+    /// line it shows at all counts.
+    static func sourceRange(mostlyWithin rect: CGRect, in lines: [Self]) -> NSRange? {
+        let shown = lines.filter {
+            (rect.minY <= $0.frame.midY && $0.frame.midY <= rect.maxY) || ($0.frame.minY <= rect.midY && rect.midY <= $0.frame.maxY)
+        }
+        return sourceRange(intersecting: rect, in: shown) ?? sourceRange(intersecting: rect, in: lines)
+    }
+
     /// Source extrema of the visual row nearest Y, rather than a hit at the column's left edge.
     static func boundary(at y: CGFloat, lineEnd: Bool, in lines: [Self], length: Int) -> Int {
         let candidates = lines.filter {
@@ -58,6 +73,7 @@ extension ReaderTextView {
         let container = ReaderTextContainer(size: CGSize(width: 0, height: 0))
         container.lineFragmentPadding = 0
         layoutManager.textContainer = container
+        container.deliverIndents(for: storage)
         return (storage, layoutManager, container)
     }
 
@@ -73,6 +89,9 @@ extension ReaderTextView {
         // replacing the characters leaves them behind with the attachments they measured. Drop
         // the outgoing layout first, so a rebuilt book's old images are released with its text.
         readerLayoutManager.invalidateLayout(for: readerLayoutManager.documentRange)
+        // The outgoing text's box geometry is not the new text's: until `refreshFlowBoxLayout`
+        // plans it, the new paragraphs are plain ones with their own indents.
+        readerContainer.configureBoxes(in: NSAttributedString())
         contentStorage.textStorage?.setAttributedString(text)
         refreshFlowBoxLayout()
         exposeTextualAttachments()
@@ -294,6 +313,12 @@ extension ReaderTextView {
     /// cannot identify both a float and adjacent body text at the same height.
     func visibleCharacterRange(in rect: CGRect) -> NSRange? {
         ReaderVisualLine.sourceRange(intersecting: rect, in: visualLines())
+    }
+
+    /// The source envelope of the lines the viewport mostly shows
+    /// (`ReaderVisualLine.sourceRange(mostlyWithin:in:)`): what is on screen to a reader.
+    func mostlyVisibleCharacterRange(in rect: CGRect) -> NSRange? {
+        ReaderVisualLine.sourceRange(mostlyWithin: rect, in: visualLines())
     }
 
     /// The fragment the viewport last laid out at container `y`: the one the view draws there.

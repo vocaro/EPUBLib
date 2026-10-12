@@ -12,7 +12,8 @@ bash scripts/check-all.sh
 The gate verifies module boundaries, compares documentation snippets with compiled Swift
 sources, runs the Mac tests and the full test suite on dedicated iPhone 17 Pro and iPad Air
 13-inch (M4) simulators, and builds both sample app targets. Test devices are created by UUID and
-deleted on exit; existing devices are never selected or shut down. iOS logs live in
+deleted on exit; existing devices are never selected or shut down. Agents working in the
+repository drive simulators the same way, headlessly ([notes for agents](../AGENTS.md)). iOS logs live in
 `.build/validation/`. `EPUB_SIM_RUNTIME` selects a different installed runtime by identifier.
 
 For narrower checks:
@@ -71,7 +72,11 @@ flows after page turns, scrolling, navigation to markers, a restore and a resize
 selection, and close the session. Separate fixtures exercise
 encoded filenames and fragments, fixed layout, RTL, vertical writing, and flex and grid alignment
 (a centred title page, a Standard Ebooks style epigraph, a grid dedication and layouts left in
-block flow, with their expected native geometry). The illustrated fixture
+block flow, with their expected native geometry), and rows of sized inline blocks (a book of
+prose chapters around one whose paragraphs hold runs of marks, each in a box of fixed width;
+the runs are checked against where CSS sets them, and the chapter is laid out in pages and in
+continuous scroll, four chapters below what the scroll view lays out first, as it is laid out
+by itself). The illustrated fixture
 has 40 sections and eight incompressible 1024×1024 images; its test enforces an archive size over
 20 MiB and verifies that later sections remain navigable. Relayout tests take one mounted
 session of a book of labelled SVG figures from wide and light to narrow, large and dark, and
@@ -134,7 +139,7 @@ test that exposes an open defect is marked `XCTExpectFailure` (or `withKnownIssu
 issue's URL, and fails once the defect is fixed: remove the marker with the fix. Ratio-timed
 cost tests and tests that fail on one platform only are marked non-strictly or for that
 platform. A test whose input kills the test process is disabled by name (`disabled_test…`)
-with its issue above it. Three corpus runs are opt-in: `EPUBLIB_W3C_EPUB_TESTS` (the `tests`
+with its issue above it. Three [corpus runs](#corpus-runs) are opt-in: `EPUBLIB_W3C_EPUB_TESTS` (the `tests`
 directory of w3c/epub-tests) holds each W3C reading-system test to an expected outcome,
 `EPUBLIB_EPUBCHECK_FIXTURES` (`src/test/resources` of w3c/epubcheck) takes every EPUBCheck
 fixture through opening, text extraction and a native build, and `EPUBLIB_EPUBCHECK_CLI` (the
@@ -152,6 +157,31 @@ coverage does not substitute for hardware performance and accessibility testing.
 For real VoiceOver sessions, use the [VoiceOver testing process](voiceover-testing.md) and
 the isolated `Examples/VoiceOverVerification` reader. Its diagnostic speech probe is outside
 the local gate because it takes control of the user interface and changes VoiceOver state.
+
+## Corpus runs
+
+The corpora are public and the W3C's own: [w3c/epub-tests](https://github.com/w3c/epub-tests),
+the reading-system conformance tests (OCF, package document, navigation, content documents,
+layout), and the fixtures of [w3c/epubcheck](https://github.com/w3c/epubcheck), valid and
+invalid. Neither is kept in the repository. Fetch them once and set the variables:
+
+```sh
+eval "$(bash scripts/fetch-corpora.sh)"
+swift test --filter "SpecConformanceW3CCorpus|EPUBCheckCorpus|EPUBCheckWriterValidationTests"
+```
+
+The script fetches each corpus at a pinned commit into `~/Library/Caches/EPUBLib/corpora`
+(`EPUBLIB_CORPORA_DIR` names another place), which every worktree shares, and prints
+`EPUBLIB_W3C_EPUB_TESTS`, `EPUBLIB_EPUBCHECK_FIXTURES` and, when `epubcheck` is installed,
+`EPUBLIB_EPUBCHECK_CLI`. The expected outcome of each W3C test is in
+`Tests/EPUBTestSupport/SpecConformanceCorpus.swift`; a new pin goes in the script together
+with that table.
+
+`NativeCorpusQualificationTests` builds every book under `EPUBLIB_CORPUS`, a list of
+directories of EPUB files. The variable names no collection and is not part of verifying a
+change. The [first qualification](native-viewer.md#qualification) ran it on books that belong
+to another project; EPUBLib does not depend on that project or its files, and they are not to
+be used to test it.
 
 ## Adapter contract tests
 

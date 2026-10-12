@@ -215,6 +215,11 @@ enum ReaderBoxLayout {
         var sectionOrigins: [UUID: CGFloat] = [:]
         // The earlier pass's boxes this pass has yet to place: told of every region the plan gains.
         var pending = Anticipation(anticipated, disabled: disabledBoxRanges(text, disabled: disabled))
+        // The line the sized inline boxes of one block are being set on, and how far down the
+        // lines of such a block reach: the block after it starts below them.
+        var row: InlineRow?
+        var inlineBlock: (block: ReaderParagraphFlow, bottom: CGFloat)?
+        var inlineFloor: CGFloat = 0
         var lastConstraint = 0
         text.enumerateAttributes(in: NSRange(location: 0, length: text.length)) { attributes, run, _ in
             if attributes[.readerFlowBox] != nil
@@ -325,13 +330,59 @@ enum ReaderBoxLayout {
                     }
                     x = min(max(0, x), max(0, viewport.width - width))
                     width = min(viewport.width - x, max(1, width))
+                    // A sized inline box goes where its line has got to: after the text or the
+                    // box before it, or at the start of the next line when that one is full.
+                    var placed: InlineRow?
+                    if isInline, let inline = box.inline {
+                        func outer(_ lengths: ComputedStyle.Length..., border: ComputedStyle.Border) -> CGFloat {
+                            lengths.reduce(border.isVisible ? border.width : 0) {
+                                $0 + max(0, min(containing.width / 3, $1.resolve(reference: containing.width, viewport: viewport) ?? 0))
+                            }
+                        }
+                        let insets = ReaderFlowBoxLayout.insets(at: range.location, in: text, viewport: viewport)
+                            ?? (left: x, right: max(0, viewport.width - x - width))
+                        let line = InlineLine(left: insets.left, right: max(insets.left + width, viewport.width - insets.right),
+                            before: outer(style.margin.left, style.padding.left, border: style.border.left),
+                            after: outer(style.margin.right, style.padding.right, border: style.border.right),
+                            rightToLeft: inline.rightToLeft)
+                        var open = row.flatMap { $0.end == range.location && $0.block === inline.block && inline.continuesLine ? $0 : nil }
+                        // Text of the same block ends just before the box: its last line is the row.
+                        if open == nil, inline.continuesLine, let previous = plan.paragraphs.last, !previous.isBox,
+                           previous.range.upperBound == range.location, let last = previous.lines.last,
+                           text.attribute(.readerParagraphFlow, at: range.location - 1, effectiveRange: nil) as? ReaderParagraphFlow === inline.block {
+                            open = InlineRow(block: inline.block, rightToLeft: line.rightToLeft, end: range.location,
+                                             top: last.frame.minY, bottom: max(last.frame.maxY, cursor),
+                                             pen: line.rightToLeft ? last.frame.minX : last.frame.maxX, source: last.range,
+                                             firstRegion: plan.regions.count)
+                        }
+                        if var next = open, let fitted = line.place(width, after: next.pen + (line.rightToLeft ? -1 : 1) * inline.leadingSpace) {
+                            x = fitted
+                            next.end = boxRange.upperBound
+                            placed = next
+                        } else {
+                            // The row is full, and nothing after the run may be set at its end.
+                            if let full = open, let reserved = full.reserved {
+                                plan.regions[reserved].frame = CGRect(x: 0, y: full.top, width: viewport.width, height: full.bottom - full.top)
+                            }
+                            x = line.start(width, indent: open == nil ? inline.firstLineIndent : 0)
+                            let top = open?.bottom ?? max(cursor, inlineFloor)
+                            placed = InlineRow(block: inline.block, rightToLeft: line.rightToLeft, end: boxRange.upperBound, top: top, bottom: top,
+                                               pen: x, source: boxRange, firstRegion: open?.firstRegion ?? plan.regions.count)
+                        }
+                        placed?.pen = line.rightToLeft ? x - line.before : x + width + line.after
+                    }
                     setEdges(text, range: boxRange, x: x, width: width, viewport: viewport)
-                    var measured = measure(text.attributedSubstring(from: boxRange), viewport: viewport, boxFrame: CGRect(x: x, y: 0, width: width, height: viewport.height))
+                    let measured = measure(text.attributedSubstring(from: boxRange), viewport: viewport, boxFrame: CGRect(x: x, y: 0, width: width, height: viewport.height))
                     let minimum = max(resolve(style.height, viewport.height) ?? 0, resolve(style.minHeight, viewport.height) ?? 0)
                     let height = max(measured.height, minimum)
                     // Oversized text remains pageable ordinary text; no clipping or opaque raster fallback.
                     if height <= viewport.height - 1 {
-                        var y = cursor
+                        // A block whose lines held inline boxes ends above whatever is not on them.
+                        if let ended = inlineBlock, !(isInline && ended.block === box.inline?.block) {
+                            inlineFloor = max(inlineFloor, ended.bottom)
+                            inlineBlock = nil
+                        }
+                        var y = max(cursor, inlineFloor)
                         if style.isOutOfFlow {
                             let origin = style.position == .fixed ? box.containing.flatMap { sectionOrigins[$0.sectionRoot] } ?? 0
                                 : box.containing.flatMap { scopeOrigins[$0.id] } ?? 0
@@ -340,14 +391,7 @@ enum ReaderBoxLayout {
                             if let top = resolve(style.positionTop, referenceHeight) { y = origin + top }
                             else if let bottom = resolve(style.positionBottom, referenceHeight) { y = origin + referenceHeight - bottom - height }
                             y = max(0, y)
-                        } else if isInline, let previous = plan.paragraphs.last?.lines.last {
-                            let inlineX = previous.frame.maxX + 4
-                            if inlineX + width <= viewport.width {
-                                x = inlineX; y = previous.frame.minY
-                                setEdges(text, range: boxRange, x: x, width: width, viewport: viewport)
-                                measured = measure(text.attributedSubstring(from: boxRange), viewport: viewport, boxFrame: CGRect(x: x, y: 0, width: width, height: viewport.height))
-                            }
-                        }
+                        } else if let placed { y = placed.top }
                         // Rectangular floats/callouts avoid one another and existing content.
                         var frame = CGRect(x: max(0, x - edgeLeft), y: y,
                             width: min(viewport.width, width + edgeLeft + edgeRight), height: height)
@@ -361,9 +405,17 @@ enum ReaderBoxLayout {
                             frame.size.width = right - left
                         }
                         let hasVerticalInset = style.positionTop != .auto || style.positionBottom != .auto
+                        // The boxes of a run are set beside one another, not under one another.
                         let obstacles = style.isOutOfFlow ? (hasVerticalInset ? plan.regions.filter(\.wrapsEarlierText) : plan.regions)
-                            : plan.regions + pending.unplaced
-                        frame = settled(frame, below: obstacles.map { $0.frame })
+                            : plan.regions.prefix(placed?.firstRegion ?? plan.regions.count) + pending.unplaced
+                        if placed == nil {
+                            frame = settled(frame, below: obstacles.map { $0.frame })
+                        } else {
+                            // Where the box is set it only touches what is beside and above it:
+                            // the fraction its ink or a sum of line heights is out by is no collision.
+                            let probe = frame.insetBy(dx: min(0.5, frame.width / 4), dy: min(0.01, frame.height / 4))
+                            frame.origin.y += settled(probe, below: obstacles.map { $0.frame }).minY - probe.minY
+                        }
                         // Negative top margins move glyphs but TextKit clamps their flow advance
                         // to zero. Keep that displacement on every paragraph, and cancel only the
                         // measured height plus any positive displacement on the last fragment.
@@ -381,21 +433,36 @@ enum ReaderBoxLayout {
                         if firstRecord < plan.paragraphs.count {
                             let last = plan.paragraphs.count - 1
                             let returnedCursor = cursor
+                            var inlineRow: CGRect?
                             plan.paragraphs[last].bottomAdjustment = returnedCursor - (beforeScope + measured.height + max(0, delta))
                             plan.paragraphs[last].flowEnd = returnedCursor
                             cursor = returnedCursor
-                            if isInline, let prefix = plan.paragraphs.prefix(firstRecord).last?.lines.last,
-                               prefix.frame.minY == frame.minY {
-                                plan.regions.append(.init(range: prefix.range,
-                                    frame: CGRect(x: 0, y: prefix.frame.minY, width: x, height: prefix.frame.height),
-                                    side: .none, reserved: true))
-                                pending.place(prefix.range)
+                            if var placed {
+                                // Something earlier pushed the box down: its row starts there.
+                                if frame.minY != placed.top { placed.top = frame.minY; placed.bottom = frame.minY; placed.reserved = nil; placed.source = boxRange }
+                                placed.bottom = max(placed.bottom, frame.maxY)
+                                placed.source = NSUnionRange(placed.source, boxRange)
+                                placed.trailingSpace = box.inline?.trailingSpace ?? 0
+                                // What the row has taken so far, from the line's start, is closed
+                                // to the text after the run: the text before it, and the gaps.
+                                let taken = placed.taken(through: placed.pen, width: viewport.width)
+                                if let reserved = placed.reserved {
+                                    plan.regions[reserved].frame = taken
+                                    plan.regions[reserved].range = placed.source
+                                }
+                                inlineBlock = (placed.block, max(placed.bottom, inlineBlock?.bottom ?? placed.bottom))
+                                row = placed
+                                inlineRow = taken
                             }
                             plan.regions.append(.init(range: boxRange, frame: frame, side: style.float,
                                 wrapsEarlierText: style.isOutOfFlow && (style.positionTop != .auto || style.positionBottom != .auto),
                                 scope: box.containing?.id,
                                 contentFrame: CGRect(x: x, y: frame.minY, width: width, height: height)))
                             pending.place(boxRange)
+                            if let taken = inlineRow, row?.reserved == nil, let source = row?.source {
+                                row?.reserved = plan.regions.count
+                                plan.regions.append(.init(range: source, frame: taken, side: .none, reserved: true))
+                            }
                             index = end
                             continue
                         }
@@ -407,13 +474,29 @@ enum ReaderBoxLayout {
                     text.setAttributes(attributes, range: NSRange(location: boxRange.location + run.location, length: run.length))
                 }
             }
+            // Text of the same block straight after a run of inline boxes starts on the run's
+            // last row, where the last box ends; any other paragraph is below the block's lines.
+            let after = box == nil ? row.flatMap { $0.end == range.location && $0.block === flow ? $0 : nil } : nil
+            row = nil
+            if let ended = inlineBlock, box != nil || ended.block !== flow {
+                inlineFloor = max(inlineFloor, ended.bottom)
+                inlineBlock = nil
+            }
+            var base = max(cursor, inlineFloor)
+            if let after {
+                if let reserved = after.reserved, after.trailingSpace > 0 {
+                    let pen = after.pen + (after.rightToLeft ? -1 : 1) * after.trailingSpace
+                    plan.regions[reserved].frame = after.taken(through: pen, width: viewport.width)
+                }
+                base = after.top
+            }
             let clear = flow?.style.clear ?? .none
             let floor = plan.regions.filter { region in
                 region.side != .none && (clear == .both || (clear == .left && region.side == .left) || (clear == .right && region.side == .right))
-            }.map(\.frame.maxY).max() ?? cursor
+            }.map(\.frame.maxY).max() ?? base
             let table = text.attribute(.attachment, at: range.location, effectiveRange: nil) is TableRowAttachment
-            let tableFloor = table ? plan.regions.map(\.frame.maxY).max() ?? cursor : cursor
-            let start = max(cursor, floor, tableFloor)
+            let tableFloor = table ? plan.regions.map(\.frame.maxY).max() ?? base : base
+            let start = max(base, floor, tableFloor)
             let column = box.map { scopeFrame($0.containing) } ?? flow.map { scopeFrame($0.scope) }
             let scoped = column.map { $0.minX > 0 || $0.width < viewport.width } ?? false
             if scoped { setEdges(text, range: range, x: column!.minX, width: column!.width, viewport: viewport) }
@@ -439,8 +522,20 @@ enum ReaderBoxLayout {
             let entry = measured.paragraphs.first
             let lines = entry?.lines.map { (NSRange(location: range.location + $0.range.location, length: $0.range.length),
                                            $0.frame.offsetBy(dx: 0, dy: start)) } ?? []
-            plan.paragraphs.append(.init(range: range, topAdjustment: start - beforeScope, flowStart: beforeScope,
-                                        flowEnd: start + measured.height, lines: lines, column: scoped ? column : nil, scope: flow?.scope.id))
+            // Text that goes on from a box on the line above the flow starts up there. TextKit
+            // then draws its lines from that far above the fragment's frame, but the frame is as
+            // tall as from its topmost line to its last: whatever is above the flow is taken
+            // back, so that the next paragraph starts under the last line.
+            let above = min(0, (lines.map(\.1.minY).min() ?? start) - beforeScope)
+            plan.paragraphs.append(.init(range: range, topAdjustment: start - beforeScope, bottomAdjustment: above,
+                                        flowStart: beforeScope, flowEnd: start + measured.height, lines: lines,
+                                        column: scoped ? column : nil, scope: flow?.scope.id))
+            // Its lines up there are above its own fragment, as a box's are: a point on them
+            // finds the fragment by this region, as it finds a box's.
+            if above < 0 {
+                let raised = lines.filter { $0.1.minY < beforeScope }.reduce(CGRect.null) { $0.union($1.1) }
+                if !raised.isNull { plan.regions.append(.init(range: range, frame: raised, side: .none, reserved: true)) }
+            }
             cursor = start + measured.height
             if measurementRange.length < range.length { break }
             index += 1
@@ -488,6 +583,52 @@ enum ReaderBoxLayout {
         }
         text.addAttribute(.readerBoxPage, value: ReaderBoxPage(geometry: plan), range: NSRange(location: 0, length: text.length))
         return Result(text: text, geometry: plan)
+    }
+
+    /// The row a run of sized inline boxes is being set on.
+    struct InlineRow {
+        let block: ReaderParagraphFlow
+        let rightToLeft: Bool
+        /// Where the source set on the row so far ends: what starts there continues the row.
+        var end: Int
+        var top: CGFloat
+        var bottom: CGFloat
+        /// Where the row has got to: the outer edge of its last box, or the end of the text before the first.
+        var pen: CGFloat
+        /// The source on the row, and the region that closes what it has taken to later text.
+        var source: NSRange
+        var reserved: Int? = nil
+        /// The first region of the run: its own boxes are not obstacles to one another.
+        let firstRegion: Int
+        /// What the text after the last box keeps from it.
+        var trailingSpace: CGFloat = 0
+
+        /// The part of the row from its line's start through `pen`, in a column `width` wide.
+        func taken(through pen: CGFloat, width: CGFloat) -> CGRect {
+            rightToLeft ? CGRect(x: max(0, pen), y: top, width: max(0, width - max(0, pen)), height: bottom - top)
+                : CGRect(x: 0, y: top, width: max(0, pen), height: bottom - top)
+        }
+    }
+
+    /// The line of a block that a sized inline box is set on: the edges its content may reach,
+    /// and what the box's own margins, borders and padding add before and after that content.
+    struct InlineLine {
+        let left: CGFloat
+        let right: CGFloat
+        let before: CGFloat
+        let after: CGFloat
+        let rightToLeft: Bool
+
+        /// Where content `width` wide goes when the row has reached `pen`; nil when the row is full.
+        func place(_ width: CGFloat, after pen: CGFloat) -> CGFloat? {
+            let x = rightToLeft ? pen - after - width : pen + before
+            return x >= left - 0.5 && x + width <= right + 0.5 ? x : nil
+        }
+
+        /// Where it goes at the start of a line, the block's first indented by `indent`.
+        func start(_ width: CGFloat, indent: CGFloat) -> CGFloat {
+            rightToLeft ? max(left, right - max(0, indent) - width) : min(left + max(0, indent), max(left, right - width))
+        }
     }
 
     /// The boxes the pass before this one placed, for what this pass asks about them: which it
@@ -579,7 +720,9 @@ enum ReaderBoxLayout {
         let hasTerminator = measured.length > 1 && (measured.string as NSString).character(at: measured.length - 1) == 0x0A
         if hasTerminator { measured.deleteCharacters(in: NSRange(location: measured.length - 1, length: 1)) }
         container.paragraphText = measured
-        manager.textContainer = container; storage.attributedString = measured
+        manager.textContainer = container
+        container.deliverIndents(for: storage)
+        storage.attributedString = measured
         var height: CGFloat = 0
         var paragraphs: [ReaderBoxGeometry.Paragraph] = []
         manager.enumerateTextLayoutFragments(from: storage.documentRange.location, options: [.ensuresLayout]) { fragment in

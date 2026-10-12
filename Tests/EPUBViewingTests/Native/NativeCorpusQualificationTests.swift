@@ -7,7 +7,8 @@ import XCTest
 /// Builds every section of every EPUB under `EPUBLIB_CORPUS` (a colon-separated list of
 /// directories, searched recursively) and writes a qualification report to
 /// `EPUBLIB_CORPUS_REPORT` (default `.build/corpus-report.json`). Skipped unless the corpus is set:
-/// real books are not part of the repository.
+/// real books are not part of the repository. The variable names no collection; the corpora for
+/// verifying a change are the public ones in doc/testing.md ("Corpus runs").
 @MainActor final class NativeCorpusQualificationTests: XCTestCase {
     private struct BookResult: Codable {
         var file: String
