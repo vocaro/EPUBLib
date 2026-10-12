@@ -119,12 +119,24 @@ import XCTest
         XCTAssertEqual(view.selectedRange.length, 0, "\(label): nothing is selected", file: file, line: line)
     }
 
+    private func unlaidParagraphs(of view: ReaderTextView) -> Int {
+        var count = 0
+        view.readerLayoutManager.enumerateTextLayoutFragments(from: view.readerLayoutManager.documentRange.location, options: []) { fragment in
+            if fragment.state != .layoutAvailable { count += 1 }
+            return true
+        }
+        return count
+    }
+
     func testVoiceOverMovingIntoTheTextMeetsTheFirstLineOnScreenWhereverTheReaderIsTaken() async throws {
         let subject = try await scrolledAtTheFourthChapter()
         let (reader, canvas, view) = subject
         // From pages in the middle of the book.
+        let unlaid = unlaidParagraphs(of: view)
+        XCTAssertGreaterThan(unlaid, 100, "most of the book is only estimated")
         XCTAssertEqual(try elements(of: view).first?.accessibilityLabel, "Chapter pass\n")
         try assertTheListIsTheLinesOnScreen("switched from pages", subject)
+        XCTAssertEqual(unlaidParagraphs(of: view), unlaid, "listing the lines on screen lays out nothing else")
         // By the table of contents.
         try await reader.session.send(.navigate(href: reader.publication.spine[1].resource.href))
         try await reader.wait("the second chapter") { reader.section == 1 }

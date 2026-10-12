@@ -349,10 +349,51 @@ The Mac runner's transcript is plain text and needs no export.
   layout change, entering went to the first visible character by AppKit's account, the
   numbered paragraph's first line. Not heard: that resting case with the layout change,
   scrolling by hand, contents navigation, a change from paging, a book of ordinary paragraphs.
-- On an iPhone simulator, through XCTest's VoiceOver service and not by ear, moving forward
-  from the controls into the text of continuous scroll went to the book's first paragraph and
-  scrolled the reader back to it, three screens up
-  ([#301](https://github.com/vocaro/EPUBLib/issues/301)).
+- On 2026-10-12, continuous scroll on a physical iPhone 17 Pro Max (iOS 27.2, 440 × 956,
+  17 points) and iPad Air 13-inch (iPadOS 27.2, 23 points), the book of ordinary paragraphs,
+  through XCTest's VoiceOver service with VoiceOver switched on for each session; its phrases
+  were recorded and nobody listened. Before the scroll view listed its lines, two Scroll
+  Forward steps on the iPhone left `p003w01` to `p008w40` on screen, and the ninth move
+  forward from Scroll Forward gave "C hapter one", then the whole of `p001`, with the reader
+  back at the top of the book ([#301](https://github.com/vocaro/EPUBLib/issues/301)).
+  With the lines listed, on the iPhone: after two steps the first line of the reading area
+  was `p005w21 … p005w25`, the fifth of its paragraph, and the ninth move gave that line; the
+  screenshots before and after it differ only in VoiceOver's cursor. `backward=1` returned to
+  Bookmark. Twenty-eight moves forward and forty back gave every line once and in order, the
+  view following, back past the line VoiceOver came in at to `p004w01`. After
+  `activate=Contents,activate=Chapter two` the fifth move from Contents gave "Chapter two",
+  twenty-four more read on past the last line that had been on screen, and thirty back
+  passed the heading into the chapter before. A touch on Bookmark left the twenty lines on
+  screen listed alone, `point=0.5:0.8` gave the line under it, and twenty-two `flick=right`
+  and twenty-eight `flick=left` read on and back as the service's moves had.
+  On the iPad upright (1024 × 1366): after two steps the ninth move gave `p010w15 … p010w21`,
+  the third line of its paragraph and the first of the reading area; forty-four moves
+  forward and sixty back gave every line once and in order. In the first book at 23 points
+  the lines read "Page boundary verification", "Verification link Link", ". Image:", "Blue
+  verification square Image", and after three steps the ninth move gave `word0550 …
+  word0555`, the first on screen.
+- The same day, on the iPad on its side (1366 × 1024), straight after
+  `activate=Contents,activate=Chapter two`: the fifth move gave "Chapter two" and seventeen
+  more the lines down to `p043w36 … p043w40`, the last that had been on screen when the
+  menu closed. The next gave "Vertical scroll bar" and the one after the sample's footer;
+  the lines after `p043w40`, listed by then, were passed over. Moving back from there gave
+  the lines in order to "Chapter two", then three of them a second time, then went on above
+  the heading without a gap. An iPhone 17 Pro simulator (iOS 27.0) does the same after any
+  menu closes, even when the chapter chosen is the one on screen, and reads on, as the
+  devices did, when VoiceOver comes into the text after a step of the reader's own or
+  without a menu having closed. VoiceOver appears to keep the elements it found when the
+  menu closed and to walk those while its cursor stays on them. Posting a layout change,
+  with no element or with the line under the cursor, did not change that in the simulator;
+  a page-scrolled notification made VoiceOver skip lines; giving it new elements for the
+  same lines once its cursor had moved on made it lose its place. It is not resolved.
+- In the simulator, UIKit scrolled the line VoiceOver's cursor came to until the area inside
+  the scroll view's insets held its frame, and then until the line was 40 points below the
+  top of that area or about 120 above its bottom. A line that was the first listed when
+  VoiceOver took it led back to the control before the text on the next move back, though
+  lines had been listed before it since; and when the list shrank to the screen between the
+  two halves of a move, VoiceOver stopped at a line it had reached above the screen.
+- Not done on a device: a larger text size, VoiceOver's three-finger scroll and its read-all
+  gesture, which XCTest cannot make, a book whose lines hold floats or tables, and listening.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
