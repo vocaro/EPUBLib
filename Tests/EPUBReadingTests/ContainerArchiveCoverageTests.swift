@@ -158,6 +158,25 @@ final class ContainerArchiveCoverageTests: XCTestCase {
         XCTAssertEqual(book.tableOfContents.first?.href?.removingPercentEncoding, book.spine[0].resource.path + "#start")
     }
 
+    func testAnEntryNameWithAColonIsReadLikeTheOtherCharactersOCFForbids() throws {
+        // OCF forbids `" * : < > ? \ |` in file names for whoever writes a book (EPUB 3.3, File
+        // paths and file names). The snapshot is looked up by key, so a reader has nothing to
+        // fear from any of them but `\`.
+        let chapter = Data("<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><p>Named with a colon.</p></body></html>".utf8)
+        let data = try Fixture.packageVariant(
+            opf: { $0.replacingOccurrences(of: "href=\"two.xhtml\"", with: "href=\"Chapter%202%3A%20On.xhtml\"") },
+            nav: { $0.replacingOccurrences(of: "href=\"two.xhtml\"", with: "href=\"./Chapter%202:%20On.xhtml\"") },
+            adding: ["OPS/Chapter 2: On.xhtml": chapter, "OPS/notes: \"draft\" <1>?*|.txt": Data("kept".utf8), "a:b/c:d.txt": Data("kept".utf8)])
+        let book = try EPUBPublication.open(data: data)
+        XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/Chapter 2: On.xhtml"])
+        XCTAssertEqual(book.spine[1].resource.href, "OPS/Chapter%202%3A%20On.xhtml")
+        XCTAssertEqual(try book.data(for: book.spine[1].resource), chapter)
+        XCTAssertEqual(book.tableOfContents.first?.children.first?.href, book.spine[1].resource.href)
+        XCTAssertEqual(try book.data(at: "OPS/notes: \"draft\" <1>?*|.txt"), Data("kept".utf8))
+        XCTAssertEqual(try book.data(at: "a:b/c:d.txt"), Data("kept".utf8))
+        assertOpening(try Fixture.packageVariant(adding: ["OPS/a:\\b.txt": Data()]), throws: .unsafePath("OPS/a:\\b.txt"), "a backslash is still refused")
+    }
+
     func testEntryNamesDifferingOnlyByCaseAreDifferentFiles() throws {
         let files = try Fixture.packageVariantFiles(
             opf: { $0.replacingOccurrences(of: "<manifest>", with: "<manifest><item id=\"upper\" href=\"ONE.xhtml\" media-type=\"application/xhtml+xml\"/>") },
@@ -340,11 +359,16 @@ final class ContainerArchiveCoverageTests: XCTestCase {
         // The refusal names the path that was judged: the UTF-8 one, which is what would have
         // become the entry's key.
         for name in ["OPS/caf\u{E9}/../x.css", "../caf\u{E9}.css", "OPS/caf\u{E9}/..", "OPS/./caf\u{E9}.css", "OPS//caf\u{E9}.css",
-                     "/caf\u{E9}.css", "OPS/caf\u{E9}\\x.css", "C:caf\u{E9}.css", "OPS/caf\u{E9}\0.css", "OPS/\u{65E5}\u{672C}/../../x"] {
+                     "/caf\u{E9}.css", "OPS/caf\u{E9}\\x.css", "OPS/caf\u{E9}\0.css", "OPS/\u{65E5}\u{672C}/../../x"] {
             for flags: UInt16 in [0, 0x0800] {
                 assertOpening(try book(adding: [Fixture.StoredEntry(name, "a{}", flags: flags)]), throws: .unsafePath(name),
                               "\(name.debugDescription), flags \(flags)")
             }
+        }
+        // A colon is a character of a name, read alike either way.
+        for flags: UInt16 in [0, 0x0800] {
+            let book = try EPUBPublication.open(data: book(adding: [Fixture.StoredEntry("C:caf\u{E9}.css", "a{}", flags: flags)]))
+            XCTAssertEqual(try book.data(at: "C:caf\u{E9}.css"), Data("a{}".utf8), "flags \(flags)")
         }
         // Whatever is made of a name, the flag does not change it. These put a combining mark
         // after a separator, a dot, a backslash and a colon, where it joins them in one character.

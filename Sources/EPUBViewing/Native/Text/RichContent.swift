@@ -26,7 +26,8 @@ struct RichContentContext {
     /// trailing paragraph break, and its characters are not in the section's text map.
     let renderContent: (_ element: ContentNode, _ style: ComputedStyle) -> NSAttributedString
     /// Resolves a local reference (`src`, `href`, `xlink:href`, `data`) against the section to a
-    /// decoded archive path. Anything outside the archive returns nil and counts as refused.
+    /// decoded archive path. A remote reference, and one that cannot name an archive entry,
+    /// returns nil and counts as refused.
     let resolve: (_ reference: String) -> String?
     let report: SectionReportBox
 }
