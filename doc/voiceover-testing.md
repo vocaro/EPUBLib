@@ -307,7 +307,8 @@ The Mac runner's transcript is plain text and needs no export.
   scrolling by hand, contents navigation, a change from paging, a book of ordinary paragraphs.
 - On an iPhone simulator, through XCTest's VoiceOver service and not by ear, moving forward
   from the controls into the text of continuous scroll went to the book's first paragraph and
-  scrolled the reader back to it, three screens up.
+  scrolled the reader back to it, three screens up
+  ([#301](https://github.com/vocaro/EPUBLib/issues/301)).
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).

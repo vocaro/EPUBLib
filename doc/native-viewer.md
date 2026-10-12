@@ -338,7 +338,8 @@ as they did.
   A selection is never moved, and nothing is scrolled. Each such move also posts a layout
   change naming the text view: without it VoiceOver, back in a text it had left, returns to
   its own previous cursor and scrolls the view there. On iOS VoiceOver reads the text view's
-  own elements.
+  own elements, from the book's first paragraph when it moves in from the controls
+  ([#301](https://github.com/vocaro/EPUBLib/issues/301)).
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
