@@ -105,6 +105,7 @@ extension ReaderCanvasView: NSTextViewDelegate {
         textView.columnMinX = textView.convert(CGPoint(x: columnMinX, y: bounds.minY), from: self).x
         if textView.readerContainer.size.width != width {
             textView.readerContainer.size = CGSize(width: width, height: 0)
+            scrollPlace = nil // Every line moves with the wrapping.
         }
         textView.invalidateTextContainerOrigin()
         scrollView.layoutSubtreeIfNeeded()
@@ -134,6 +135,19 @@ extension ReaderCanvasView: NSTextViewDelegate {
         clip.scroll(to: NSPoint(x: clip.bounds.minX, y: min(max(-insets.top, target), maximumScrollOffset)))
         scrollView.reflectScrolledClipView(clip)
         textView.readerLayoutManager.textViewportLayoutController.layoutViewport()
+    }
+
+    /// Keeps the text on screen in place, before the screen is read or stepped from. AppKit
+    /// draws the viewport from the layout as it stands. Once the text above has been laid out
+    /// behind the view, which an assistive technology asking where a far range is does, the
+    /// estimates that placed the visible lines are gone, and the next scroll would draw whatever
+    /// the finished layout has at the old offset, a chapter away. While the view has not moved
+    /// since it was last read, this scrolls it by as much as the first line on screen has moved.
+    func settleScrollViewport() {
+        guard let place = scrollPlace, place.visibleTop == scrollVisibleContainerRect.minY,
+              let line = scrollTextView?.lineFrame(containing: place.location), abs(line.minY - place.lineTop) > 0.5 else { return }
+        scrollToContainerY(place.visibleTop + line.minY - place.lineTop)
+        scrollPlace = (place.location, line.minY, scrollVisibleContainerRect.minY)
     }
 
     private var maximumScrollOffset: CGFloat {
