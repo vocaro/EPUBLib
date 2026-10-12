@@ -82,6 +82,10 @@ import AppKit
     private var anchorFollowsScroll = false
     private var isScrollingProgrammatically = false
     private var scrollReportPending = false
+    /// Where the first line on screen stood when the scroll view was last read: its location in
+    /// the view's text, its top and the visible area's, in text container coordinates. AppKit's
+    /// `settleScrollViewport` holds the line there.
+    var scrollPlace: (location: Int, lineTop: CGFloat, visibleTop: CGFloat)?
 
     var wheelTurner = ReaderWheelPageTurner()
     var presentedNote: AnyObject?
@@ -631,6 +635,7 @@ import AppKit
         isApplyingSelection = true
         textView.selectedRange = NSRange(location: 0, length: 0)
         textView.placement = content.placement
+        scrollPlace = nil
         withProgrammaticScroll { textView.setContent(content.text) }
         isApplyingSelection = false
         // A carried native selection must fit the replacement section in full. Explicit locates
@@ -794,6 +799,8 @@ import AppKit
     /// The first and last characters in the visible area (not under the bars).
     private func scrollVisibleRange() -> ReaderTextRange? {
         guard let textView = scrollTextView, scrollBook != nil || textView.placement.section != nil else { return nil }
+        // The layout is what the view draws only once the viewport has settled on it.
+        withProgrammaticScroll { settleScrollViewport() }
         let rect = scrollVisibleContainerRect
         let start: Int, end: Int
         if textView.readerContainer.hasNonlinearGeometry {
@@ -803,6 +810,9 @@ import AppKit
             start = textView.lineBoundary(atContainerY: rect.minY, lineEnd: false)
             end = max(start, textView.lineBoundary(atContainerY: rect.maxY, lineEnd: true))
         }
+        #if os(macOS)
+        scrollPlace = textView.lineFrame(containing: start).map { (start, $0.minY, rect.minY) }
+        #endif
         if let book = scrollBook {
             return ReaderTextRange(start: book.position(at: start), end: book.position(at: end))
         }
@@ -812,6 +822,8 @@ import AppKit
 
     private func turnScrolledPage(forward: Bool) -> PageTurnResult {
         guard let textView = scrollTextView else { return .atBoundary }
+        // The step is taken from the text on screen, wherever a layout since has put it.
+        withProgrammaticScroll { settleScrollViewport() }
         guard forward ? isScrolledToEnd : isScrolledToStart else {
             let visible = scrollVisibleContainerRect
             let start = textView.lineBoundary(atContainerY: visible.minY, lineEnd: false)

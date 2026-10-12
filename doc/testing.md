@@ -24,10 +24,18 @@ swift test --filter CFI
 bash scripts/test-ios.sh
 ```
 
+A window that mounts a reader for a test calls `keepLightAppearance()` (`ReaderTestWindow.swift`),
+so a reader whose style is System opens light on a Mac or simulator in dark appearance, and the
+suite gives one result by day and in the evening. A test that needs a dark host sets
+`ReaderTestWindow.pageControls.colorScheme`.
+`NativeSessionTests.testAMountedReaderIsLightOnADarkMachineUntilTheTestAsksForDark` holds the
+harness to that with a dark appearance for its own process.
+
 ## Coverage
 
 Parser tests cover EPUB 2/3 structure, navigation, landmarks and page lists, resource access, identity, limits,
-duplicate ZIP entries, symlinks, CRC corruption, malformed/deep/wide XML, UTF-16 entities, repeated,
+duplicate ZIP entries, symlinks, path separators and dot segments beside every scalar that joins
+their `Character`, CRC corruption, malformed/deep/wide XML, UTF-16 entities, repeated,
 conflicting, absent, remote and differently cased manifest items, references that start at or climb past
 the container root or carry a query, padded mimetypes, containers that list another rendition first,
 entry names with a colon, contents entries that do not resolve, named character references and
@@ -41,7 +49,10 @@ geometry and the TextKit 2 views. MathML fixtures cover wide display and inline 
 and 28 points in a 320-point column, their rows as laid out and drawn in both flows, `mglyph`,
 elementary math, and readings in French and German content with and without `alttext`. CFI and search tests replay vectors recorded from foliate-js's own
 `epubcfi.js` and `search.js` in WebKit before they were removed, so CFIs the WebKit reader
-recorded keep naming the same positions. Live session tests mount a reader in a window, open at
+recorded keep naming the same positions. The one exception is deliberate: a CFI into a later
+occurrence of a spine item the spine repeats names that occurrence, where foliate-js named the
+first ([#108](https://github.com/vocaro/EPUBLib/issues/108)); the spine vectors are held to the
+document foliate-js named, not to its index. Live session tests mount a reader in a window, open at
 the text start (a `bodymatter` landmark, a guide `text` reference or the first linear section),
 navigate between sections, exercise styles and flows, update page controls without changing location/selection/highlights, locate/select passages, restore positions
 (including a foliate-written CFI under EPUBLib's bookmark identity, refusing the old tag, and a
@@ -76,6 +87,13 @@ Page-input tests cover default and replaced/cleared shortcuts, exact modifiers, 
 bindings, canvas and child focus, selection chords, live iOS recognizer disabling, Mac wheel
 pass-through and reset, zero/invalid/asymmetric/overlapping zones, RTL, resizing, fold exclusion,
 both reading flows, host commands and iOS VoiceOver page turns with direct input disabled.
+
+Scrolled-read tests hold continuous scroll to the text on screen after the whole book has been
+laid out behind the scroll view, as VoiceOver and a UI test's snapshot do when they ask where
+every paragraph is: scroll steps, a place scrolled to by hand, and the change back to pages.
+The read is a stand-in. A test host loads no text accessibility for an in-process query, so the
+tests ask for each paragraph's rectangle through `firstRect(for:)` on UIKit and
+`accessibilityFrame(for:)` on AppKit, and require that this laid the whole book out.
 
 Highlight paint tests read the pixels the mounted reader's views last drew: none in the
 highlight's color before a search, the matches after it, and none again after Clear Search,

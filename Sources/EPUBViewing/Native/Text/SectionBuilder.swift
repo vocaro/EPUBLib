@@ -97,8 +97,9 @@ final class SectionBuildState {
     var notes: [String: NSAttributedString] = [:]
     /// The body's computed style: notes are styled like body text.
     var bodyStyle: ComputedStyle
-    /// The publication's first language, for a document that declares none.
-    let defaultLanguage: String?
+    /// The publication's first language: a hint for typesetting text whose document declares
+    /// none (`InlineLanguage`), never the language of that text.
+    let languageHint: String?
     /// A pre-paginated spine item, reflowed: its absolutely positioned boxes stay in the flow.
     let isFixedLayout: Bool
     /// Nesting of `renderContent` and note captures, bounded so hostile nesting cannot recurse deeply.
@@ -125,7 +126,7 @@ final class SectionBuildState {
         self.request = request; self.document = document; self.style = style; self.initialStyle = initialStyle
         bodyStyle = initialStyle
         styling = InlineStyling(fonts: request.fonts, isDark: request.typography.isDark)
-        defaultLanguage = request.publication.metadata.languages.first.flatMap { $0.isEmpty ? nil : $0 }
+        languageHint = request.publication.metadata.languages.first.flatMap { $0.isEmpty ? nil : $0 }
         isFixedLayout = request.publication.spine[request.spineIndex].layout == .prePaginated
     }
 

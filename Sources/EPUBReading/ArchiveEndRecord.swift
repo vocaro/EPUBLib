@@ -9,6 +9,13 @@ import Foundation
 /// minute for a file of the size a book may be. A book is untrusted input and may be any file
 /// at all, so opening looks in those last bytes first and gives ZIPFoundation only bytes in
 /// which it finds a signature that soon.
+///
+/// Nor does ZIPFoundation close the file it opens over bytes it then refuses, and that file
+/// keeps them: every such refusal costs the process the size of what it was offered, for good.
+/// It refuses bytes it finds no signature in and bytes whose record gives a comment longer than
+/// what follows it, and none for anything else in them. Opening refuses both first
+/// (`readableOffset(in:)`), so ZIPFoundation is given only bytes it makes an archive of, which
+/// closes that file when it goes.
 enum ArchiveEndRecord {
     /// The length of a record with the longest comment.
     static let maximumLength = 22 + 65_535
@@ -24,5 +31,14 @@ enum ArchiveEndRecord {
             offset -= 1
         }
         return nil
+    }
+
+    /// `offset(in:)` when ZIPFoundation can read the record there: the bytes after its 22 are
+    /// no fewer than the comment length it gives. nil when they are fewer, as when there is no
+    /// signature; ZIPFoundation looks no further back for another record either.
+    static func readableOffset(in bytes: UnsafeRawBufferPointer) -> Int? {
+        guard let offset = offset(in: bytes) else { return nil }
+        let commentLength = Int(UInt16(littleEndian: bytes.loadUnaligned(fromByteOffset: offset + 20, as: UInt16.self)))
+        return commentLength <= bytes.count - offset - 22 ? offset : nil
     }
 }

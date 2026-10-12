@@ -104,16 +104,17 @@ final class SectionWriter {
     // MARK: Entry points
 
     func renderSection() -> Output {
+        let language = InlineLanguage(hint: state.languageHint)
         frames = [BlockFrame(style: state.initialStyle, format: blockFormat(state.initialStyle, node: nil, parent: nil),
-                             keepWithNext: false, firstParagraph: 0, language: state.defaultLanguage)]
+                             keepWithNext: false, firstParagraph: 0, language: language)]
         var context = InlineContext()
-        context.language = state.defaultLanguage
+        context.language = language
         walk(Entry(node: document.root, children: [document.root], style: state.initialStyle, context: context))
         return finish()
     }
 
     func renderContent(of element: ContentNode, style: ComputedStyle) -> NSAttributedString {
-        let language = Self.inheritedLanguage(of: element) ?? state.defaultLanguage
+        let language = inheritedLanguage(of: element)
         frames = [BlockFrame(style: style, format: blockFormat(style, node: element, parent: nil),
                              keepWithNext: false, firstParagraph: 0, language: language)]
         var context = InlineContext()
@@ -133,7 +134,7 @@ final class SectionWriter {
         style.display = .block
         style.isHidden = false
         style.fontSize = state.bodyStyle.fontSize
-        let language = Self.inheritedLanguage(of: element) ?? state.defaultLanguage
+        let language = inheritedLanguage(of: element)
         frames = [BlockFrame(style: style, format: blockFormat(style, node: element, parent: nil),
                              keepWithNext: false, firstParagraph: 0, language: language)]
         var context = InlineContext()
@@ -142,13 +143,16 @@ final class SectionWriter {
         return finish().string
     }
 
-    private static func inheritedLanguage(of element: ContentNode) -> String? {
+    /// The language the section's walk reaches `element` with: what it or its nearest ancestor
+    /// declares, else none and the package's as the hint.
+    private func inheritedLanguage(of element: ContentNode) -> InlineLanguage {
+        var language = InlineLanguage(hint: state.languageHint)
         var node: ContentNode? = element
         while let current = node {
-            if let language = current.language { return language.isEmpty ? nil : language }
+            if let declared = current.language { language.declare(declared); break }
             node = current.parent
         }
-        return nil
+        return language
     }
 
     // MARK: Walk
@@ -251,7 +255,7 @@ final class SectionWriter {
             state.report.report.flexGridSimplified = true
         }
         var context = parent.context
-        if let language = node.language { context.language = language.isEmpty ? nil : language }
+        if let language = node.language { context.language.declare(language) }
 
         if node.namespace == ContentNamespace.ops, node.name == "switch" {
             enterSwitch(node, style: style, context: context); return
@@ -381,7 +385,7 @@ final class SectionWriter {
             } else { entry.context.link = nil }
         }
         if node.isHTML("q") {
-            let marks = ContentSemantics.quotes(language: entry.context.language, depth: entry.context.quoteDepth)
+            let marks = ContentSemantics.quotes(language: entry.context.language.declared, depth: entry.context.quoteDepth)
             let attributes = styling.attributes(style, entry.context)
             emitGenerated(Array(marks.open.utf16), attributes: attributes)
             entry.exit.closeQuote = (marks.close, attributes)
@@ -487,7 +491,7 @@ final class SectionWriter {
 
     // MARK: Blocks
 
-    private func enterBlock(_ node: ContentNode, style: ComputedStyle, language: String?) {
+    private func enterBlock(_ node: ContentNode, style: ComputedStyle, language: InlineLanguage) {
         if style.display == .listItem, pendingMarker != nil { openParagraph() } // An outer item's marker gets its own line.
         closeParagraph()
         if !isNote {
@@ -914,7 +918,7 @@ final class SectionWriter {
         prepareForContent(next: Self.scalar(units, at: range.lowerBound))
         let location = buffer.count
         if collectingRubyBase, rubyBaseStart == nil { rubyBaseStart = location }
-        let transformed = style.textTransform == .none ? nil : transform(units[range], style.textTransform, language: context.language)
+        let transformed = style.textTransform == .none ? nil : transform(units[range], style.textTransform, language: context.language.declared)
         let characters = transformed.map { $0[...] } ?? units[range]
         if style.isSmallCaps, state.request.fonts.needsSyntheticSmallCaps(for: style) {
             emitSyntheticSmallCaps(characters, style: style, context: context, attributes: attributes,
@@ -946,7 +950,7 @@ final class SectionWriter {
         small.isSmallCaps = false
         small.fontSize = style.fontSize * 0.7
         let smallAttributes = styling.attributes(small, context)
-        let locale = Locale(identifier: context.language ?? "en")
+        let locale = Locale(identifier: context.language.declared ?? "en")
         for character in String(decoding: characters, as: UTF16.self) {
             if character.isLowercase {
                 buffer.append(String(character).uppercased(with: locale).utf16, attributes: smallAttributes)
@@ -1104,6 +1108,7 @@ final class SectionWriter {
         return Isolate(opener: opener, closer: closer, attributes: styling.attributes(style, context))
     }
 
+    /// `language` is the one the content declares: case mapping is not the package's to choose.
     private func transform(_ units: ArraySlice<UInt16>, _ transform: ComputedStyle.TextTransform,
                            language: String?) -> [UInt16] {
         let string = String(decoding: units, as: UTF16.self)
@@ -1320,10 +1325,10 @@ private struct BlockFrame {
     /// `paragraphs.count` when the box opened: its first paragraph gets `text-indent`.
     let firstParagraph: Int
     var attributes: Int?
-    let language: String?
+    let language: InlineLanguage
 
     init(style: ComputedStyle, format: BlockFormat, keepWithNext: Bool, keepTogether: Bool = false,
-         firstParagraph: Int, language: String?) {
+         firstParagraph: Int, language: InlineLanguage) {
         self.style = style; self.format = format; self.keepWithNext = keepWithNext; self.keepTogether = keepTogether
         self.firstParagraph = firstParagraph; self.language = language
     }

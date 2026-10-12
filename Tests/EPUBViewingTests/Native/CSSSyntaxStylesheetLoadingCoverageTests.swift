@@ -166,6 +166,34 @@ final class CSSSyntaxStylesheetLoadingCoverageTests: XCTestCase {
         XCTAssertEqual(result.report.unreadableResources, 2, "A missing sheet and one leaving the archive")
     }
 
+    /// A `Character` holds a "/", "\", "?" or "#" together with a combining mark, variation
+    /// selector or joiner after it; a reference is read by its bytes, as the archive's paths are
+    /// (https://github.com/vocaro/EPUBLib/issues/181).
+    func testAStyleReferenceIsReadWhateverMarkFollowsItsSeparators() throws {
+        let base = "OPS/css/main.css"
+        func path(_ reference: String) -> [Unicode.Scalar]? {
+            guard case .local(let path) = StyleReference(reference, relativeTo: base) else { return nil }
+            return Array(path.unicodeScalars)
+        }
+        for mark in ["\u{301}", "\u{338}", "\u{20E3}", "\u{FE0F}", "\u{200D}", "\u{1F3FB}", "\u{93E}", "\u{3099}"] {
+            // The path ends at the first "?" or "#", and its dot segments resolve.
+            XCTAssertEqual(path("fonts/a.otf#\(mark)x"), Array("OPS/css/fonts/a.otf".unicodeScalars), mark.debugDescription)
+            XCTAssertEqual(path("fonts/a.otf?\(mark)v=2#iefix"), Array("OPS/css/fonts/a.otf".unicodeScalars), mark.debugDescription)
+            XCTAssertEqual(path("../\(mark)a.css"), Array("OPS/\(mark)a.css".unicodeScalars), mark.debugDescription)
+            XCTAssertEqual(path("x/../\(mark)a.css?\(mark)"), Array("OPS/css/\(mark)a.css".unicodeScalars), mark.debugDescription)
+            // Read as the same reference is without the mark. One that climbs past the container
+            // root or opens with a slash starts at the root (https://github.com/vocaro/EPUBLib/issues/84),
+            // and a colon is a character of the name (https://github.com/vocaro/EPUBLib/issues/171).
+            XCTAssertEqual(path("../../../\(mark)a.css"), Array("\(mark)a.css".unicodeScalars), mark.debugDescription)
+            XCTAssertEqual(path("/\(mark)a.css"), Array("\(mark)a.css".unicodeScalars), mark.debugDescription)
+            XCTAssertEqual(path("./a:\(mark)b.css"), Array("OPS/css/a:\(mark)b.css".unicodeScalars), mark.debugDescription)
+            // A backslash names no entry, and nor does a query or a fragment with no path before it.
+            for reference in ["a\\\(mark)b.css", "?\(mark)", "#\(mark)a"] {
+                XCTAssertEqual(StyleReference(reference, relativeTo: base), .invalid, reference.debugDescription)
+            }
+        }
+    }
+
     func testAMissingImportIsReportedAndARemoteOneCounted() throws {
         let section = StyleTestSupport.xhtml(body: #"<p id="a">a</p>"#, head: """
             <link rel="stylesheet" href="css/main.css"/><style>@import "css/gone.css"; @import url(https://example.com/inline.css);</style>
