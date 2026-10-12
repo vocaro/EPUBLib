@@ -142,6 +142,35 @@ runner types. Snapshots re-queried for each read matched the observer after ever
 turn, text-size change and resize, with and without the reader's notifications. Read an
 element again rather than reuse a value, and treat neither XCTest nor the observer as speech.
 
+## Continuous scroll
+
+In continuous scroll one text area holds the whole book. VoiceOver on the Mac enters it at its
+insertion point, which the reader keeps on the first line on screen (see
+[the native viewer](native-viewer.md), "Continuous scroll"). Launch the reader in that flow and
+compare what VoiceOver says on entering with what is on screen:
+
+```sh
+open -na "$PWD/.build/voiceover/mac/Build/Products/Debug/VoiceOverVerificationMac.app" \
+  --args -SampleFlow scrolled -SampleFontSize 23
+python3 scripts/run-voiceover-mac.py --timeout 200 ax:width=600 ax:focus in line nextline \
+  out ax:next ax:next in line lastword nextline nextline readall ax:wait=12
+```
+
+There the observer's `next` and `previous` press Scroll Forward and Scroll Backward. Every
+`STATE` line gives `VISIBLE`, the text area's visible characters, and `ENTRY`, the line of its
+insertion point, and the transcript carries each `AXSelectedTextChanged`, so the insertion
+point can be followed beside the speech.
+
+1. The phrase after each `in` is the `ENTRY` line of the `STATE` before it, and that line is
+   the first on screen: where the book opens, and again after Scroll Forward.
+2. `nextline` from the last visible line reads the book's next line while the view scrolls
+   with it. No numbered word is repeated or skipped, and `SELECTION` follows VoiceOver.
+3. `readall` goes on past the bottom of the screen in word order.
+
+The text area's lines are the whole book's, so a `STATE` read is slow in a long book; the
+synthetic fixture has a few hundred. On a simulator or device,
+`TEST_RUNNER_VOICEOVER_FLOW=scrolled` opens the fixture in continuous scroll.
+
 ## Physical iPhone and iPad
 
 Choose each connected device explicitly and run the native probe on it:

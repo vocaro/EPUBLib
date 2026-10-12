@@ -329,6 +329,14 @@ as they did.
   draw the finished layout at the old offset, a chapter away, at the next scroll, so while the
   view has not moved since it was last read, the reader first scrolls by as much as the first
   visible line has moved.
+  On Mac, VoiceOver enters a text view at its insertion point, which a read-only view does not
+  draw and replaced text leaves at its end: the end of the book. New text starts with it at
+  its first line, and the scroll view's is kept on the first line on screen. A move the reader
+  makes itself (a shown position, a scroll step, rebuilt text) puts it there, as a page turn
+  does for a column; after other scrolling it follows only while it is where the reader last
+  put it, so one placed by a click or by VoiceOver, which scrolls the view as it reads, stays.
+  A selection is never moved, and nothing is scrolled. On iOS VoiceOver reads the text view's
+  own elements.
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
