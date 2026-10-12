@@ -425,15 +425,21 @@ private final class XMLTree: NSObject, XMLParserDelegate {
     var root: XMLNode?
     var count = 0
     static func parse(_ data: Data, path: String) throws -> XMLNode {
-        // Rewritten before the screen, which must see the declarations the parser will.
-        let data = BrowserMarkup.asXML(data)
-        guard XMLSafety.hasSafeDeclarations(data) else { throw EPUBPublicationError.invalidXML(path) }
-        if let root = tree(data) { return root }
+        // One attempt: the bytes are rewritten, then screened, then parsed, so that the screen
+        // sees the declarations the parser will.
+        func attempt(_ bytes: Data) throws -> XMLNode? {
+            let source = BrowserMarkup.asXML(bytes)
+            guard XMLSafety.hasSafeDeclarations(source) else { throw EPUBPublicationError.invalidXML(path) }
+            return tree(source)
+        }
+        if let root = try attempt(data) { return root }
         // XML forbids most C0 controls, and some converters copy them from PDF text into titles.
         // With no NUL byte the encoding is ASCII-compatible (not UTF-16 or UTF-32), so each is one
-        // byte, and a space in its place cannot change the markup. Read it once more that way.
+        // byte, and a space in its place cannot change the markup. Read it once more that way,
+        // from the document's own bytes: a space for a control may change what its declaration
+        // says, and with it whether the bytes may be rewritten.
         guard !data.contains(0), data.contains(where: isForbiddenControl),
-              let root = tree(Data(data.map { isForbiddenControl($0) ? 0x20 : $0 })) else {
+              let root = try attempt(Data(data.map { isForbiddenControl($0) ? 0x20 : $0 })) else {
             throw EPUBPublicationError.invalidXML(path)
         }
         return root
@@ -493,9 +499,13 @@ private final class XMLTree: NSObject, XMLParserDelegate {
 /// instructions are here, XML's five predefined names and unknown names are left for the
 /// parser, and UTF-16/32 documents are rewritten in their own encoding, retaining any
 /// byte-order mark.
+///
+/// The rewrite takes each byte below 0x80 for its ASCII character, so it is kept from a document
+/// whose declared encoding does not: in ISO-2022-JP, HZ or SCSU the bytes of `&pi;` may be parts
+/// of other characters.
 private enum BrowserMarkup {
     static func asXML(_ data: Data) -> Data {
-        guard case let (encoding, mark)? = wide(data) else { return rewrite(data) ?? data }
+        guard case let (encoding, mark)? = wide(data) else { return isASCIITransparent(data) ? rewrite(data) ?? data : data }
         guard let text = String(data: data.dropFirst(mark), encoding: encoding),
               let rewritten = rewrite(Data(text.utf8)),
               let encoded = String(decoding: rewritten, as: UTF8.self).data(using: encoding) else { return data }
@@ -514,6 +524,50 @@ private enum BrowserMarkup {
         if prefix.count >= 2 && prefix[1] == 0 { return (.utf16LittleEndian, 0) }
         return nil
     }
+
+    /// Whether a document that is not UTF-16 or UTF-32 keeps every byte below 0x80 for its ASCII
+    /// character, by its XML declaration read as ASCII: one that names no encoding is UTF-8, and
+    /// one that names an encoding must name a listed one. A declaration written in EBCDIC, and
+    /// one whose encoding or end is not within `declarationLimit` bytes, may name any.
+    private static func isASCIITransparent(_ data: Data) -> Bool {
+        guard !data.starts(with: [0x4C, 0x6F, 0xA7, 0x94]) else { return false } // `<?xm` in EBCDIC
+        var bytes = ArraySlice(data.prefix(declarationLimit))
+        if bytes.starts(with: [0xEF, 0xBB, 0xBF]) { bytes = bytes.dropFirst(3) }
+        func isBlank(_ byte: UInt8) -> Bool { byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D }
+        // `<?xml-stylesheet` opens a processing instruction, not the declaration.
+        guard bytes.starts(with: "<?xml".utf8), bytes.dropFirst(5).first.map(isBlank) == true else { return true }
+        bytes = bytes.dropFirst(5)
+        while true {
+            bytes = bytes.drop(while: isBlank)
+            if bytes.starts(with: "?>".utf8) { return true }
+            // A pseudo-attribute: a name, `=` and a value in either kind of quote.
+            let name = bytes.prefix { $0 != 0x3D && !isBlank($0) }
+            bytes = bytes.dropFirst(name.count).drop(while: isBlank)
+            guard bytes.first == 0x3D else { return false }
+            bytes = bytes.dropFirst().drop(while: isBlank)
+            guard let quote = bytes.first, quote == 0x22 || quote == 0x27,
+                  let close = bytes.dropFirst().firstIndex(of: quote) else { return false }
+            if name.elementsEqual("encoding".utf8) {
+                // The parser compares encoding names without regard to the case of ASCII letters.
+                let value = bytes[bytes.index(after: bytes.startIndex)..<close].map { $0 >= 0x41 && $0 <= 0x5A ? $0 | 0x20 : $0 }
+                return asciiTransparentEncodings.contains(String(decoding: value, as: UTF8.self))
+            }
+            bytes = bytes[bytes.index(after: close)...]
+        }
+    }
+    private static let declarationLimit = 1024
+    /// Names an XML declaration gives, in lower case, to encodings known to keep every byte below
+    /// 0x80 for its ASCII character: UTF-8, US-ASCII, the parts of ISO 8859 and the Windows code
+    /// pages 1250 to 1258.
+    private static let asciiTransparentEncodings: Set<String> = {
+        var names: Set = ["utf-8", "utf8", "us-ascii", "ascii", "iso-8859-6-e", "iso-8859-6-i", "iso-8859-8-e", "iso-8859-8-i"]
+        for part in 1...16 where part != 12 { // ISO 8859 has no part 12.
+            names.formUnion(["iso-8859-\(part)", "iso_8859-\(part)", "iso8859-\(part)"])
+        }
+        for number in 1...10 where number != 7 { names.insert("latin\(number)") }
+        for page in 1250...1258 { names.formUnion(["windows-\(page)", "cp\(page)", "x-cp\(page)"]) }
+        return names
+    }()
 
     /// `nil` when nothing changed.
     private static func rewrite(_ data: Data) -> Data? {

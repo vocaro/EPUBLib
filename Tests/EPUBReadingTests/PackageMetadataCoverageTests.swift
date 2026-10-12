@@ -250,6 +250,26 @@ final class PackageMetadataCoverageTests: XCTestCase {
         XCTAssertEqual(book.tableOfContents.first?.title, "Don\u{2019}t\u{A0}Panic")
     }
 
+    func testBytesThatSpellAReferenceInsideAnotherEncodingsCharactersAreLeftAlone() throws {
+        // In ISO-2022-JP the three characters below are the bytes 30 26, 70 69, 3B 33: `&pi;` runs
+        // across them. The named-reference rewrite reads bytes as ASCII, so it is kept from a
+        // document whose declared encoding does not keep ASCII bytes for ASCII characters (#185).
+        let title = "\u{611B}\u{97C8}\u{5C71}"
+        var files = try Fixture.files()
+        let opf = "<?xml version=\"1.0\" encoding=\"ISO-2022-JP\"?>\n" + String(decoding: files["OPS/book.opf"]!, as: UTF8.self)
+            .replacingOccurrences(of: "A Test Book", with: title)
+        let encoded = try XCTUnwrap(opf.data(using: .iso2022JP))
+        XCTAssertNotNil(encoded.range(of: Data("&pi;".utf8)), "the fixture holds the bytes of a reference")
+        files["OPS/book.opf"] = encoded
+        XCTAssertEqual(try EPUBPublication.open(data: Fixture.archive(files)).metadata.title, title)
+        // An encoding that does keep them is still rewritten: Latin-1, as old converters declare.
+        let latin = "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\n<!DOCTYPE package PUBLIC \"+//ISBN 0-9673008-1-9//DTD OEB 1.2 Package//EN\" "
+            + "\"http://openebook.org/dtds/oeb-1.2/oebpkg12.dtd\">\n" + String(decoding: try Fixture.files()["OPS/book.opf"]!, as: UTF8.self)
+            .replacingOccurrences(of: "A Test Book", with: "D\u{E9}j\u{E0}&nbsp;vu &mdash; encore")
+        files["OPS/book.opf"] = try XCTUnwrap(latin.data(using: .isoLatin1))
+        XCTAssertEqual(try EPUBPublication.open(data: Fixture.archive(files)).metadata.title, "D\u{E9}j\u{E0}\u{A0}vu \u{2014} encore")
+    }
+
     func testAControlCharacterInATitleOrAnNCXLabelReadsAsASpace() throws {
         // doc/architecture.md: a C0 control XML forbids "reads as a space in an ASCII-compatible document".
         let plain = try EPUBPublication.open(data: Fixture.epub(epub2: true))
