@@ -7,6 +7,13 @@ import SwiftUI
 /// opened at launch, in an ordinary `NavigationStack`. Launch arguments choose the book, the
 /// arrangement and the toolbar placement; see doc/issue-49-51-controls-qualification.md.
 @main struct ControlsQualificationApp: App {
+    #if os(iOS)
+    /// `-QualificationTouchTrace YES` records every touch, for a run by hand on a device.
+    init() {
+        if UserDefaults.standard.bool(forKey: "QualificationTouchTrace") { TouchTrace.shared.start() }
+    }
+    #endif
+
     var body: some Scene {
         WindowGroup {
             NavigationStack { QualificationScreen() }
@@ -140,6 +147,9 @@ struct QualificationScreen: View {
             Text(Self.summary(controls))
                 .font(.caption2).lineLimit(2).dynamicTypeSize(.small).padding(4)
                 .accessibilityIdentifier("qualification.status")
+                #if os(iOS)
+                .onChange(of: Self.summary(controls), initial: true) { TouchTrace.shared.note("status " + $1) }
+                #endif
         }
     }
 
