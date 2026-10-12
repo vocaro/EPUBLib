@@ -343,7 +343,14 @@ as they did.
   the viewport laid out, once it has been laid out again where the view stands. AppKit would
   draw the finished layout at the old offset, a chapter away, at the next scroll, so while the
   view has not moved since it was last read, the reader first scrolls by as much as the first
-  visible line has moved.
+  visible line has moved. A layout the reader makes itself is not one behind the view, and it
+  forgets where that line stood when it makes one: for new text, for a new column width, and
+  when a new visible height (the window's, or the safe area's alone) resolves the book's
+  boxes again. A box that takes its height from the visible area then moves its first line by
+  the change in the space above it while its top edge rests where it did, and the step would
+  scroll the box off its rest by as much
+  ([#313](https://github.com/vocaro/EPUBLib/issues/313)). A book with no box to resolve is
+  not laid out again for a new height, and its place is held as before.
   On Mac, VoiceOver enters a text view at its insertion point, which a read-only view does not
   draw and replaced text leaves at its end: the end of the book. New text starts with it at
   its first line, and the scroll view's is kept on the first line on screen. A move the reader
