@@ -367,12 +367,9 @@ import XCTest
         }
     }
 
-    /// `doc/native-viewer.md`: `.relocated` carries "overall progression (by section byte size,
-    /// as foliate-js computed it)", and `NativeProgress` weighs nonlinear sections nothing. A book
-    /// with no linear section then weighs nothing at all, though it "keeps every section" in the
-    /// reading order of both flows.
+    /// `doc/native-viewer.md`: a book with no linear section "keeps every section" in the reading
+    /// order of both flows, and "each then counts toward progression by its size".
     func testABookWithNoLinearSectionReportsProgressionInEitherFlow() async throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/232")
         for flow in [EPUBReadingFlow.scrolled, .paginated] {
             let reader = try open(SessionCoverageBook.epub([
                 Section("a", "<p>First section.</p>\(SessionCoverageBook.filler(60))", linear: false),
