@@ -33,7 +33,7 @@ import XCUIAutomation
         app.launch()
         note("launch", app.launchArguments.joined(separator: " "))
         let status = app.descendants(matching: .any)["qualification.status"]
-        note("ready", status.waitForExistence(timeout: 60) ? status.label : "NO STATUS LINE")
+        note("ready", status.waitForExistence(timeout: 60) ? statusLine() : "NO STATUS LINE")
         for line in lines("steps.txt") {
             step += 1
             let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
@@ -45,7 +45,7 @@ import XCUIAutomation
         #if os(macOS)
         // Synthesized keys and clicks go to whatever is in front. Another session's window or a
         // system dialog there must not receive them: stop acting until the host is frontmost again.
-        if ["tap", "forcetap", "tapbegins", "tapxy", "type", "key", "swipe", "scrolllist", "resize"].contains(command),
+        if ["tap", "forcetap", "tapbegins", "tapcontains", "tapxy", "type", "key", "swipe", "scrolllist", "resize"].contains(command),
            app.state != .runningForeground {
             return note(command, "SKIPPED \(argument): the host is not the frontmost application")
         }
@@ -63,9 +63,13 @@ import XCUIAutomation
             #endif
             note(command, before)
             settle()
-        case "tapbegins":
-            // The first element whose label begins with TEXT, such as a result named "Match 6 of 14, …".
-            let element = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", argument)).firstMatch
+        case "tapbegins", "tapcontains":
+            // The first element whose label begins with TEXT, such as a result named "Match 6 of 14, …";
+            // or whose label, title or identifier contains it, for a system control of unknown name.
+            let format = command == "tapbegins" ? "label BEGINSWITH %@"
+                : "label CONTAINS[c] %@ OR title CONTAINS[c] %@ OR identifier CONTAINS[c] %@"
+            let element = app.descendants(matching: .any)
+                .matching(NSPredicate(format: format, argumentArray: Array(repeating: argument, count: command == "tapbegins" ? 1 : 3))).firstMatch
             guard element.waitForExistence(timeout: 5) else { return note(command, "\(argument): MISSING") }
             let before = describe(element)
             guard element.isHittable else { return note(command, "NOT HITTABLE \(before)") }
@@ -191,7 +195,7 @@ import XCUIAutomation
                 note(command, "  \(visible) \(describe(element))")
             }
         case "status":
-            note(command, app.descendants(matching: .any)["qualification.status"].label)
+            note(command, statusLine())
         case "focus":
             note(command, focused())
         case "dump":
@@ -290,9 +294,16 @@ import XCUIAutomation
         return matches.first { $0.isHittable } ?? matches.first
     }
 
+    /// The host's line of reader state. AppKit gives a text's words as its value.
+    private func statusLine() -> String {
+        let status = app.descendants(matching: .any)["qualification.status"]
+        return status.label.isEmpty ? "\(status.value ?? "")" : status.label
+    }
+
     private func describe(_ element: XCUIElement) -> String {
         guard element.exists else { return "gone" }
         var parts = [Self.name(element.elementType), "\"\(element.label)\""]
+        if element.label.isEmpty, !element.title.isEmpty { parts.append("title=\"\(element.title)\"") }
         if let value = element.value, !"\(value)".isEmpty { parts.append("value=\"\(value)\"") }
         if !element.isEnabled { parts.append("DISABLED") }
         if element.isSelected { parts.append("SELECTED") }
@@ -330,8 +341,13 @@ import XCUIAutomation
 
     private func screenshot(_ name: String) {
         let file = String(format: "%02d-%@.png", step, name.replacingOccurrences(of: " ", with: "_"))
-        do { try XCUIScreen.main.screenshot().pngRepresentation.write(to: out.appendingPathComponent(file)) }
-        catch { note("shot", "FAILED \(error)") }
+        let shot = XCUIScreen.main.screenshot()
+        guard (try? shot.pngRepresentation.write(to: out.appendingPathComponent(file))) == nil else { return }
+        // The Mac's test runner is sandboxed out of the folder: the result bundle keeps the image.
+        let attachment = XCTAttachment(screenshot: shot)
+        attachment.name = file
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     /// The accessibility tree in its own order: type, label, value, identifier and state of every
@@ -357,7 +373,10 @@ import XCUIAutomation
         }
         do { walk(try app.snapshot(), 0) } catch { lines.append("SNAPSHOT FAILED \(error)") }
         let file = String(format: "%02d-%@", step, name.replacingOccurrences(of: " ", with: "_"))
-        try? Data(lines.joined(separator: "\n").utf8).write(to: out.appendingPathComponent(file + ".tree.txt"))
+        if (try? Data(lines.joined(separator: "\n").utf8).write(to: out.appendingPathComponent(file + ".tree.txt"))) == nil {
+            // Sandboxed out of the folder (the Mac): the runner takes the tree from the test log.
+            for line in lines { print("QUALIFICATION-TREE \(file) | \(line)") }
+        }
         try? Data(app.debugDescription.utf8).write(to: out.appendingPathComponent(file + ".raw.txt"))
         note("dump", "\(file): \(lines.count) elements")
         screenshot(name)

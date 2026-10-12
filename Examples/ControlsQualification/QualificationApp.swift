@@ -64,7 +64,20 @@ struct QualificationScreen: View {
             else { Text(model.failure ?? "Opening…") }
         }
         .task { await model.open() }
+        #if os(macOS)
+        .task { Self.applyLaunchWindowSize() }
+        #endif
     }
+
+    #if os(macOS)
+    /// `-QualificationWindowSize 440x700` opens the Mac window at that content size, for the
+    /// toolbar's overflow at narrow widths without a drag.
+    private static func applyLaunchWindowSize() {
+        let parts = (UserDefaults.standard.string(forKey: "QualificationWindowSize") ?? "").split(separator: "x").compactMap { Double($0) }
+        guard parts.count == 2, let window = NSApp.windows.first(where: \.isVisible) ?? NSApp.windows.first else { return }
+        window.setContentSize(NSSize(width: parts[0], height: parts[1]))
+    }
+    #endif
 
     /// `-QualificationHost toolbar|strip|navigator`: the toolbar of doc/reader-controls.md, the
     /// embedded control strip, or the host-placed match navigator and result list.

@@ -24,11 +24,15 @@ import argparse
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import time
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-parser.add_argument("--device", required=True, help="UDID of a booted simulator created for this run")
+target = parser.add_mutually_exclusive_group(required=True)
+target.add_argument("--device", help="UDID of a booted simulator created for this run")
+target.add_argument("--mac", action="store_true",
+                    help="this Mac instead: the probe then takes its pointer and keyboard, so ask whoever is using it first")
 parser.add_argument("--name", required=True)
 parser.add_argument("--args", default="", help="launch arguments of the host")
 parser.add_argument("--steps", required=True, help="file of probe steps, one per line")
@@ -41,7 +45,7 @@ root = Path(__file__).resolve().parents[1]
 out = root / ".build/qualification/runs" / options.name
 out.mkdir(parents=True, exist_ok=True)
 for stale in out.iterdir():
-    stale.unlink()
+    shutil.rmtree(stale) if stale.is_dir() else stale.unlink()
 (out / "args.txt").write_text("\n".join(shlex.split(options.args)) + "\n")
 (out / "steps.txt").write_text(Path(options.steps).read_text())
 
@@ -84,28 +88,35 @@ def handle(words):
     return "UNKNOWN SIGNAL"
 
 
-device = next((line.strip() for line in simctl("list", "devices").splitlines() if options.device in line), "unknown device")
-(out / "meta.txt").write_text("\n".join([
+meta = [
     "revision " + output("git", "-C", str(root), "rev-parse", "HEAD"),
     "tree " + ("clean" if not output("git", "-C", str(root), "status", "--porcelain", "--", "Sources") else "Sources modified"),
     "macOS " + output("sw_vers", "-productVersion") + " " + output("sw_vers", "-buildVersion"),
     output("xcodebuild", "-version").replace("\n", " "),
-    "device " + device,
-    "runtime " + output("xcrun", "simctl", "getenv", options.device, "SIMULATOR_RUNTIME_VERSION")
-    + " " + output("xcrun", "simctl", "getenv", options.device, "SIMULATOR_RUNTIME_BUILD_VERSION"),
-    "model " + output("xcrun", "simctl", "getenv", options.device, "SIMULATOR_MODEL_IDENTIFIER"),
-    "args " + options.args,
-]) + "\n")
+]
+if options.mac:
+    scheme, destination = "ControlsProbeMac", "platform=macOS"
+    meta.append("device this Mac, " + output("sysctl", "-n", "hw.model"))
+else:
+    scheme, destination = "ControlsProbeIOS", f"platform=iOS Simulator,id={options.device}"
+    meta += [
+        "device " + next((line.strip() for line in simctl("list", "devices").splitlines() if options.device in line), "unknown"),
+        "runtime " + output("xcrun", "simctl", "getenv", options.device, "SIMULATOR_RUNTIME_VERSION")
+        + " " + output("xcrun", "simctl", "getenv", options.device, "SIMULATOR_RUNTIME_BUILD_VERSION"),
+        "model " + output("xcrun", "simctl", "getenv", options.device, "SIMULATOR_MODEL_IDENTIFIER"),
+    ]
+(out / "meta.txt").write_text("\n".join(meta + ["args " + options.args]) + "\n")
 
 environment = dict(os.environ, TEST_RUNNER_QUALIFICATION_OUT=str(out))
 with open(out / "xcodebuild.log", "w") as log:
     run = subprocess.Popen(
         ["xcodebuild", "-project", str(root / "Examples/ControlsQualification/ControlsQualification.xcodeproj"),
-         "-scheme", "ControlsProbeIOS", "-destination", f"platform=iOS Simulator,id={options.device}",
+         "-scheme", scheme, "-destination", destination,
          "-derivedDataPath", str(root / options.derived_data), "-parallel-testing-enabled", "NO",
          # A step XCTest counts as a failure would otherwise end in minutes of `simctl diagnose`.
          "-collect-test-diagnostics", "never",
-         "-only-testing:ControlsProbeIOS/ControlsProbe/testOperate", "test-without-building"],
+         f"-only-testing:{scheme}/ControlsProbe/testOperate", "-resultBundlePath", str(out / "result.xcresult"),
+         "test-without-building"],
         stdout=log, stderr=subprocess.STDOUT, env=environment)
     deadline = time.time() + options.timeout
     while run.poll() is None:
@@ -122,5 +133,20 @@ with open(out / "xcodebuild.log", "w") as log:
         time.sleep(0.1)
 for marker in out.glob("ack-*"):
     marker.unlink()
+if options.mac:
+    # The Mac's test runner cannot write here: take its log and trees from xcodebuild's output
+    # and its screenshots from the result bundle.
+    trees, lines = {}, []
+    for line in (out / "xcodebuild.log").read_text(errors="replace").splitlines():
+        if line.startswith("QUALIFICATION-TREE "):
+            name, _, text = line[len("QUALIFICATION-TREE "):].partition(" | ")
+            trees.setdefault(name, []).append(text)
+        elif line.startswith("QUALIFICATION "):
+            lines.append(line[len("QUALIFICATION "):])
+    (out / "log.txt").write_text("\n".join(lines) + "\n")
+    for name, text in trees.items():
+        (out / f"{name}.tree.txt").write_text("\n".join(text) + "\n")
+    subprocess.run(["xcrun", "xcresulttool", "export", "attachments", "--path", str(out / "result.xcresult"),
+                    "--output-path", str(out / "attachments")], capture_output=True)
 print((out / "log.txt").read_text() if (out / "log.txt").exists() else "NO LOG; see " + str(out / "xcodebuild.log"))
 print(f"xcodebuild exit {run.returncode}; records in {out}")
