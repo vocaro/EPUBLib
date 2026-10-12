@@ -277,17 +277,15 @@ unchanged until he has.
 | | |
 | --- | --- |
 | Before | `main` at `5dbdedf` |
-| After | this branch at `2431b6a` (the fix merged with `main` at `864cf18`) |
+| After | this branch at `2431b6a` (the fix merged with `main` at `864cf18`); the Mac pages at `ccc29a1`, the same library sources |
 | Mac | macOS 27.0 (26A428), Xcode 27.1 (27A9269), Apple Swift 6.4 |
 | Simulators | iOS 27.0 (24A434); iPhone 17 Pro, iPad Air 13-inch (M4); created for this and deleted |
-| Tests | Mac suite at the merge: 2,201 tests, 6 failures, none from this change (below). iPad Air 13-inch (M4) simulator: 2,140 tests, no failures. iPhone 17 Pro simulator: 2,140 tests, 2 failures, both time limits |
+| Tests | Mac suite at `aa15514` (the branch merged with `main` at `ef7f52b`): 2,262 tests, no failures. iPad Air 13-inch (M4) simulator at `2431b6a`: 2,140 tests, no failures. iPhone 17 Pro simulator at `2431b6a`: 2,140 tests, 2 failures, both time limits |
 
-The test failures were with the machine's load average in the hundreds from other work. On the
-Mac four tests assert a light system appearance and the Mac was in Dark; one selection report
-arrived late and passes when run alone; one time limit (styling 11,205 elements in 3 seconds)
-was missed, as it was on the iPhone simulator together with a second time limit that passes
-when run alone. None touches the code changed here, and the iPad simulator run, taken straight
-after the iPhone's, has no failure.
+The two iPhone failures were time limits (190 nested notes in 10 seconds, 11,205 elements
+styled in 3) missed while the machine's load average was in the hundreds from other work. The
+first passes when run alone, and neither is in code changed here. The iPad run, straight after,
+and the Mac run have no failure.
 
 ### Not verified
 
