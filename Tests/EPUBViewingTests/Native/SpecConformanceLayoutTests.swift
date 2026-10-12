@@ -248,17 +248,18 @@ import UIKit
     /// goes back there, not to the first occurrence, in either flow.
     func testAPositionSavedInALaterRepeatRestoresToThatRepeat() async throws {
         var book = Book()
-        book.add("first", body: "<h1>First</h1>" + Book.prose(30, label: "First"))
-        book.add("refrain", body: "<h1>Refrain</h1>" + Book.prose(30, label: "Refrain"))
+        book.add("first", body: "<h1>First</h1>" + Book.prose(5, label: "First"))
+        book.add("refrain", body: "<h1>Refrain</h1>" + Book.prose(120, label: "Refrain"))
         book.spine = ["first", "refrain", "refrain", "refrain"].map { "    <itemref idref=\"\($0)\"/>" }.joined(separator: "\n")
         let reader = try mount(book)
         try await reader.waitUntilReady()
         let session = reader.session
         // Only page turns reach a later repeat: an href names the first. One page into the third itemref.
-        for turn in 0..<200 where session.visibleRange.map({ $0.start.section == 2 && $0.start.offset > 0 }) != true {
+        for turn in 0..<400 where session.readerState?.status.canGoNext != false {
+            if let shown = session.visibleRange?.start, shown.section > 2 || (shown.section == 2 && shown.offset > 0) { break }
             let before = session.visibleRange
             try await session.send(.nextPage)
-            try await reader.wait("turn \(turn)") { session.visibleRange != before }
+            try await reader.wait("turn \(turn)") { session.visibleRange != before || session.readerState?.status.canGoNext == false }
         }
         let start = try XCTUnwrap(session.visibleRange?.start)
         XCTAssertEqual(start.section, 2); XCTAssertGreaterThan(start.offset, 0)
