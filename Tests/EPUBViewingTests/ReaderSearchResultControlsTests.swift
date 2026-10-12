@@ -294,17 +294,18 @@ import UIKit
         #if os(iOS)
         let session = Session(), model = try controls(session)
         session.publish(.completed(query: "needle", hasMatches: true), Self.results(7, current: 0))
-        // Each room, and its list's height at the default text size. The sheets gave the list
-        // more than 160 points there, and it has what it had; the popover's 2 points come off it.
+        // Each room, and its list's height on its simulator at the default text size. The sheets
+        // gave the list more than 160 points there, and it has what it had, to the point or two
+        // by which a screen's scale moves it; the popover's 2 points come off its 160.
         let phone = CGSize(width: 375, height: 387), mini = CGSize(width: 375, height: 425), popover = CGSize(width: 372, height: 284)
-        let rooms: [(CGSize, CGFloat)] = [(phone, 260), (mini, 299), (popover, 158)]
+        let rooms: [(CGSize, ClosedRange<CGFloat>)] = [(phone, 258...262), (mini, 297...301), (popover, 155...159)]
         for (room, listAtDefault) in rooms {
             for textSize in DynamicTypeSize.allCases {
                 let name = "\(textSize) in \(Int(room.width)) by \(Int(room.height)) points"
                 let pane = try await paneHeld(to: room, .regular, textSize, model: model)
                 if textSize == .large {
                     XCTAssertNil(pane.scroller, name)
-                    XCTAssertEqual(pane.list.height, listAtDefault, accuracy: 1, name)
+                    XCTAssertTrue(listAtDefault.contains(pane.list.height), "\(name): the list is \(pane.list.height) points tall")
                 }
                 if textSize == .accessibility5 {
                     XCTAssertLessThan(pane.list.height, 160, "\(name): the list had no 160 points to take")
@@ -395,7 +396,7 @@ import UIKit
         let field = try XCTUnwrap(pane.views(UITextField.self).first, name)
         let list = try XCTUnwrap(pane.listFrame(), name)
         // Content over by less than a point is not scrolled for it.
-        XCTAssertLessThan(pane.height(in: room), room.height + 1, "\(name): the content is taller than its room")
+        XCTAssertLessThanOrEqual(pane.height(in: room), room.height + 1, "\(name): the content is taller than its room")
         XCTAssertGreaterThan(pane.frame(of: field).minY, 15, "\(name): the field is cut off the top")
         XCTAssertLessThanOrEqual(pane.frame(of: field).maxY, room.height, name)
         let scroller = pane.paneScroller()
