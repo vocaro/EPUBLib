@@ -32,6 +32,7 @@ enum MathHarness {
             publication: publication, document: document, spineIndex: 0,
             typography: NativeTypography(fontSize: fontSize, isDark: dark), fonts: FontRegistry(publication: publication),
             style: { _, parent in parent }, renderContent: { element, _ in NSAttributedString(string: element.textContent) },
+            renderNodes: { nodes, _ in NSAttributedString(string: nodes.map(\.textContent).joined()) },
             resolve: { _ in nil }, report: SectionReportBox())
         let formulas = document.nodes.filter { $0.namespace == ContentNamespace.mathML && $0.name == "math" }
         return (formulas, context)

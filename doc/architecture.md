@@ -80,9 +80,10 @@ Inputs need an EPUB mimetype, a container rootfile and a nonempty resolvable spi
 encryption, archive entries named outside the archive (a `..` segment, a leading `/`, a backslash),
 duplicate paths, symlinks, entity declarations, malformed metadata/navigation XML, one manifest id
 naming two resources and a spine that names a remote resource fail explicitly. So do bytes with
-no ZIP end record in their last 65,557, as far back as one with the longest comment begins: they
-are refused as no archive without the rest being searched, an archive followed by more than
-65,535 other bytes among them.
+no ZIP end record in their last 65,557, as far back as one with the longest comment begins, unless
+they begin with a local file header's signature as an archive does: they are refused as no
+archive by those last bytes and their first four, without the rest being read. Bytes that do
+begin so and hold no end record are refused after one search through them in memory.
 
 Faults that leave a book readable are read past instead. The publication model has no channel for
 warnings, so this list is where they are disclosed:
@@ -96,6 +97,20 @@ warnings, so this list is where they are disclosed:
   when there is exactly one.
 - **Contents.** An entry whose href does not resolve keeps its title and children, without an
   href. A landmark or page that does not resolve is left out.
+- **Archive.** The last end record in the file decides which archive is read, so bytes after a book
+  are passed over, however many, when they hold no end record's signature: a page a download was
+  wrapped in. Another archive after the book ends in one, and that record is followed with its
+  offsets counted from the file's first byte. An archive written with such offsets is read in the
+  book's place. One whose offsets count from its own first byte sends the reading into the book
+  before it: the file is refused unless a directory lies there, as it does when the same file is
+  run on twice. Where more bytes follow than a comment could hold, the archive is taken to end with
+  the comment of that last record and is read as it would be with nothing after it. The identity
+  and `archiveData` are the whole file's either way. An archive that has other bytes before it as
+  well, and more than 65,535 after it, is not looked for. A deflated entry is read by its stream
+  and held to its checksum: an uncompressed size its directory misstates is not believed, nor is a
+  compressed size that runs past the end of the archive, and the limits count what the entry
+  inflates to. The book is still refused when that compressed size is 2^63 bytes or more, or when a
+  data descriptor follows the entry and the misstated size places it past the end.
 - **Container.** White space around the mimetype's media type and a byte-order mark before it are
   ignored. A rootfile that is not typed as a package document is passed over for the first that
   is. An entry name may hold a colon, as it may the other characters OCF forbids.
