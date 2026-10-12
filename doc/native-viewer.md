@@ -457,6 +457,10 @@ as they did.
   accessibility text, line, style, frame and selection queries are bounded to the visible page.
   Installing a spread posts a value change for each column and a layout change naming the
   visible columns, without which VoiceOver can keep reading a column's previous page. The
+  layout change is posted by the element that holds the columns, the canvas's nearest
+  accessibility ancestor. Posted by the window, it left VoiceOver the text cursor it keeps in
+  a column it has left: after a page turn VoiceOver came back to the column at the offset it
+  had on the page before ([#337](https://github.com/vocaro/EPUBLib/issues/337)). The
   insertion point after a page's last character, and an offset an assistive client kept from
   a longer page, are on its last line.
   UIKit exposes visible line/run accessibility children with links, attachment labels and
