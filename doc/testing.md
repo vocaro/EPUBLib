@@ -24,6 +24,13 @@ swift test --filter CFI
 bash scripts/test-ios.sh
 ```
 
+A window that mounts a reader for a test calls `keepLightAppearance()` (`ReaderTestWindow.swift`),
+so a reader whose style is System opens light on a Mac or simulator in dark appearance, and the
+suite gives one result by day and in the evening. A test that needs a dark host sets
+`ReaderTestWindow.pageControls.colorScheme`.
+`NativeSessionTests.testAMountedReaderIsLightOnADarkMachineUntilTheTestAsksForDark` holds the
+harness to that with a dark appearance for its own process.
+
 ## Coverage
 
 Parser tests cover EPUB 2/3 structure, navigation, landmarks and page lists, resource access, identity, limits,
