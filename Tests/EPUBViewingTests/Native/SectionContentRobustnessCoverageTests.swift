@@ -140,6 +140,20 @@ final class SectionContentRobustnessCoverageTests: XCTestCase {
         XCTAssertEqual(S.paragraphs(text).count, 3_000)
     }
 
+    func testNotesHoldingOnlyOtherNotesDoNotWalkTheInnermostOnceForEachNoteAroundIt() throws {
+        // A note with nothing of its own shows the notes nested in it. 190 notes, each holding only the next, around
+        // 10,000 elements that render nothing: the innermost content is walked a few times, not 190.
+        let open = (0..<190).map { "<aside epub:type='footnote' id='n\($0)'>" }.joined()
+        let inner = String(repeating: "<p hidden=''>h</p>", count: 10_000) + "<p>Innermost.</p>"
+        let text = try timed("<p>Text</p>" + open + inner + String(repeating: "</aside>", count: 190))
+        XCTAssertEqual(text.string.string, "Text")
+        XCTAssertEqual(text.notes.count, 190)
+        XCTAssertEqual(text.notes["n189"]?.string, "Innermost.")
+        XCTAssertEqual(text.notes["n0"]?.string, "Innermost.")
+        let whole = (0..<190).filter { text.notes["n\($0)"]?.string == "Innermost." }.count
+        XCTAssertLessThanOrEqual(whole, 8, "the notes that walked the innermost content")
+    }
+
     func testThousandsOfListItemsAndNestedQuotes() throws {
         let items = (0..<5_000).map { "<li value='\($0 * 7)'><q>item <q>\($0)</q></q></li>" }.joined()
         let text = try timed("<ol>\(items)</ol>")

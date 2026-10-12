@@ -21,7 +21,9 @@ struct SectionText: @unchecked Sendable {
     /// Rendered location of each element `id`: the first rendered character at or after the
     /// element's start (the section's end when nothing follows).
     let anchors: [String: Int]
-    /// Footnote and endnote content by the note element's `id`, for showing a note in place.
+    /// Footnote and endnote content for showing a note in place, under every `id` that names the
+    /// note: its own and those of the elements inside it, apart from the ones inside a note
+    /// nested in it (`SectionBuildState.captureNote` has the rule).
     let notes: [String: NSAttributedString]
     /// `<head><title>`, whitespace-normalized; nil when absent or empty.
     let title: String?

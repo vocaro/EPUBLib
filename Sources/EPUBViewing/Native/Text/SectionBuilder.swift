@@ -105,10 +105,14 @@ final class SectionBuildState {
     /// Nesting of `renderContent` and note captures, bounded so hostile nesting cannot recurse deeply.
     private var nesting = 0
     private static let maximumNesting = 8
-    /// UTF-16 units all of a section's notes may hold. Notes never repeat one another's text (a
-    /// note leaves out the notes nested in it), so only hostile markup comes near this.
+    /// UTF-16 units all of a section's notes may hold. A note leaves out the notes nested in it
+    /// unless it has nothing else to show, so only hostile markup comes near this.
     static let maximumNoteLength = 4 << 20
     private var noteBudget = SectionBuildState.maximumNoteLength
+    /// Nodes that notes with nothing of their own may walk a second time, to show the notes
+    /// nested in them: a few passes over the document, so hostile nesting cannot walk a subtree
+    /// once for every note around it.
+    private lazy var wholeNoteBudget = 4 * document.nodes.count
     /// Whether each node (by order) has an endnotes container among its ancestors, computed in one
     /// pass when first needed, so classifying notes is not quadratic in their nesting.
     private lazy var insideEndnotes: [Bool] = {
@@ -158,27 +162,87 @@ final class SectionBuildState {
         ContentSemantics.noteKind(element) { self.insideEndnotes[$0.order] }
     }
 
-    /// Captures a note element's content once, under its `id` and the ids of its leading
-    /// descendants (a noteref may name the note's first paragraph rather than the note, which
-    /// then needs no id of its own). A leading descendant that is a note itself is not followed:
-    /// its ids name that note.
+    /// The nearest note at or around each element, by order (-1 for none), computed in one pass
+    /// when first needed.
+    private lazy var enclosingNote: [Int] = {
+        var enclosing = [Int](repeating: -1, count: document.nodes.count)
+        for node in document.nodes where node.isElement {
+            if noteKind(node) != nil { enclosing[node.order] = node.order }
+            else if let parent = node.parent { enclosing[node.order] = enclosing[parent.order] }
+        }
+        return enclosing
+    }()
+
+    /// The ids each note is captured under, by the note element's order (`captureNote` has the
+    /// rule). Settled for the whole document before any note is rendered, so an id names one
+    /// note whatever order the notes are reached in.
+    private lazy var noteIDs: [Int: [String]] = {
+        let enclosing = enclosingNote
+        var ids: [Int: [String]] = [:], taken = Set<String>()
+        for note in document.nodes where note.isElement && enclosing[note.order] == note.order {
+            var leading: ContentNode? = note
+            while let node = leading, enclosing[node.order] == note.order {
+                if let id = node.id, taken.insert(id).inserted { ids[note.order, default: []].append(id) }
+                leading = node.children.first(where: \.isElement)
+            }
+        }
+        for node in document.nodes where node.isElement && enclosing[node.order] >= 0 {
+            if let id = node.id, !id.isEmpty, taken.insert(id).inserted { ids[enclosing[node.order], default: []].append(id) }
+        }
+        return ids
+    }()
+
+    /// Whether a note's content is being rendered: by its own writer, or by one that writer
+    /// started for a table cell or caption in the note.
+    private(set) var isCapturingNote = false
+
+    /// Whether some id names a note, so that it is captured on its own.
+    func isNamedNote(_ element: ContentNode) -> Bool { noteIDs[element.order] != nil }
+
+    /// Whether an element is a footnote hidden from the flow, or inside one: navigating to it
+    /// shows nothing.
+    func isInsideHiddenFootnote(_ element: ContentNode) -> Bool {
+        var note = enclosingNote[element.order]
+        while note >= 0 {
+            if noteKind(document.nodes[note]) == .footnote { return true }
+            note = document.nodes[note].parent.map { enclosingNote[$0.order] } ?? -1
+        }
+        return false
+    }
+
+    /// Captures a note element's content once, under every id inside it that is not inside a
+    /// note nested in it: a reference may name the note, its first paragraph, a later one or the
+    /// number that opens it, and the note needs no id of its own. Ids inside a nested note name
+    /// that note alone.
+    ///
+    /// An id used more than once names one note. The notes that carry it themselves or on a
+    /// leading descendant (a first element child, and that one's, up to the first nested note)
+    /// come first, in document order; then the notes that hold it anywhere else.
     ///
     /// Only the section's own walk captures notes, and it reaches every element once. A note's
-    /// content leaves out the notes nested in it, which are captured on their own, so notes never
-    /// repeat each other's text however deeply they nest; the note budget bounds the rest.
+    /// content leaves out the notes nested in it that are captured on their own, so notes do not
+    /// repeat each other's text however deeply they nest. A nested note that no id names is
+    /// captured nowhere else, so it is part of the note around it; and a note with nothing of
+    /// its own shows the notes nested in it rather than nothing. The note budget bounds the rest.
     func captureNote(_ element: ContentNode) {
         guard noteBudget > 0, nesting < Self.maximumNesting else { return }
-        var ids: [String] = []
-        var leading: ContentNode? = element
-        while let node = leading, node === element || noteKind(node) == nil {
-            // Claims the id, so a note cannot capture itself again.
-            if let id = node.id, notes[id] == nil { notes[id] = NSAttributedString(); ids.append(id) }
-            leading = node.elementChildren.first
-        }
-        guard !ids.isEmpty else { return }
+        guard let ids = noteIDs[element.order], notes[ids[0]] == nil else { return }
+        // Claims the ids, so a note cannot capture itself again.
+        for id in ids { notes[id] = NSAttributedString() }
         nesting += 1
-        defer { nesting -= 1 }
-        var content = SectionWriter(state: self, mode: .note(ids: Set(ids))).renderNote(element)
+        isCapturingNote = true
+        defer { nesting -= 1; isCapturingNote = false }
+        let names = Set(ids), reported = report.report
+        let writer = SectionWriter(state: self, mode: .note(ids: names, whole: false))
+        var content = writer.renderNote(element)
+        if writer.leftOutNote, wholeNoteBudget > 0, content.string.allSatisfy(\.isWhitespace) {
+            // Whichever rendering is not kept leaves nothing in the report.
+            wholeNoteBudget -= element.subtreeEnd - element.order
+            let own = report.report
+            report.report = reported
+            let whole = SectionWriter(state: self, mode: .note(ids: names, whole: true)).renderNote(element)
+            if whole.string.allSatisfy(\.isWhitespace) { report.report = own } else { content = whole }
+        }
         if content.length > noteBudget {
             let end = (content.string as NSString).rangeOfComposedCharacterSequence(at: noteBudget).location
             content = content.attributedSubstring(from: NSRange(location: 0, length: end))
