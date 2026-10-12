@@ -207,6 +207,78 @@ import UIKit
         XCTAssertEqual(host.canvas.visibleRange?.start, ReaderTextPosition(section: 3, offset: opening))
     }
 
+    /// Standard Ebooks' compatible build in one continuous scroll view. Its title page positions
+    /// a heading and a byline (and the chapter here floats an initial), so the whole book has box
+    /// geometry and the text container places every line. The flex pages must sit where they do
+    /// on pages of their own, which have none (#63).
+    func testShippedStandardEbooksPagesKeepTheirPlaceInContinuousScroll() async throws {
+        let prose = String(repeating: "<p>A paragraph of ordinary reading text for pagination.</p>", count: 60)
+        let texts = [try H.build(F.shippedTitleBody, css: F.shippedCSS), try H.build(F.shippedDedicationBody, css: F.shippedCSS),
+                     try H.build(F.shippedEpigraphBody, css: F.shippedCSS),
+                     try H.build("<h2>Chapter</h2><p><span style='float: left; font-size: 3em'>T</span>he chapter opens here.</p>" + prose,
+                                 css: F.shippedCSS)]
+        for text in texts { XCTAssertFalse(text.report.flexGridSimplified) }
+        let verses = ["A lantern in the window, burning low,", "Kept for the one who is not yet home,",
+                      "And every road that leaves the town will know", "The way back."]
+        let dedication = ["For those", "who read", "to the last page"]
+        for size in [CGSize(width: 500, height: 700), CGSize(width: 340, height: 640)] {
+            // Pages: each section in a column of its own.
+            let pages = CanvasHost(FakeCanvasSource(texts.map(\.string)), size: size, configuration: .init(flow: .paginated))
+            defer { pages.close() }
+            var paged: [String: CGRect] = [:]
+            for (section, phrases) in [(1, dedication), (2, verses + ["An Imagined Poet"])] {
+                pages.canvas.show(ReaderTextPosition(section: section, offset: 0), selecting: nil)
+                pages.layOut()
+                XCTAssertEqual(pages.canvas.textViews.first?.readerContainer.hasNonlinearGeometry, false)
+                for phrase in phrases { paged[phrase] = try frame(phrase, section: section, of: texts, in: pages.canvas) }
+            }
+            // Continuous scroll: the whole book in one text view.
+            let source = FakeCanvasSource(texts.map(\.string))
+            source.book = CanvasText.book(texts.map(\.string))
+            let host = CanvasHost(source, size: size, configuration: .init(flow: .scrolled))
+            defer { host.close() }
+            func visibleArea() throws -> CGRect {
+                let view = try XCTUnwrap(host.canvas.scrollTextView)
+                let origin = view.containerOrigin
+                return view.convert(host.canvas.scrollVisibleContainerRect.offsetBy(dx: origin.x, dy: origin.y), to: host.canvas)
+            }
+            host.canvas.show(ReaderTextPosition(section: 2, offset: 0), selecting: nil)
+            host.layOut()
+            try await host.settle()
+            let scroll = try XCTUnwrap(host.canvas.scrollTextView)
+            XCTAssertNotNil(host.canvas.scrollBook)
+            XCTAssertTrue(scroll.readerContainer.hasNonlinearGeometry, "the book has box geometry")
+            var visible = try visibleArea()
+            var lines: [CGRect] = []
+            for phrase in verses + ["An Imagined Poet"] {
+                let line = try frame(phrase, section: 2, of: texts, in: host.canvas), page = try XCTUnwrap(paged[phrase])
+                XCTAssertEqual(line.minX, page.minX, accuracy: 1, "\(phrase) at \(size)")
+                XCTAssertEqual(line.maxX, page.maxX, accuracy: 1, "\(phrase) at \(size)")
+                XCTAssertEqual(line.height, page.height, accuracy: 1, "\(phrase) wraps as on its page, at \(size)")
+                lines.append(line)
+            }
+            let poet = lines[4], left = lines[0].minX
+            XCTAssertEqual(lines[1].minX - left, 16, accuracy: 1, "an indented verse line")
+            XCTAssertEqual(lines[2].minX, left, accuracy: 1)
+            XCTAssertEqual((left + poet.maxX) / 2, visible.midX, accuracy: tolerance, "the quotation is centred, at \(size)")
+            XCTAssertLessThanOrEqual(lines.map(\.maxX).max() ?? 0, poet.maxX + 1, "the attribution ends at the quotation's right edge")
+            XCTAssertLessThanOrEqual(poet.maxX - left, 0.8 * visible.width + 1, "no wider than `max-width: 80%`")
+            XCTAssertEqual((lines[0].minY + poet.maxY) / 2 - visible.minY, 0.49 * visible.height, accuracy: tolerance)
+            // The dedication: centred lines in a centred paragraph.
+            host.canvas.show(ReaderTextPosition(section: 1, offset: 0), selecting: nil)
+            try await host.settle()
+            visible = try visibleArea()
+            for phrase in dedication {
+                let line = try frame(phrase, section: 1, of: texts, in: host.canvas), page = try XCTUnwrap(paged[phrase])
+                XCTAssertEqual(line.midX, visible.midX, accuracy: tolerance, "\(phrase) at \(size)")
+                XCTAssertEqual(line.minX, page.minX, accuracy: 1, "\(phrase) at \(size)")
+            }
+            let first = try frame(dedication[0], section: 1, of: texts, in: host.canvas)
+            let last = try frame(dedication[2], section: 1, of: texts, in: host.canvas)
+            XCTAssertEqual((first.minY + last.maxY) / 2 - visible.minY, 0.49 * visible.height, accuracy: tolerance)
+        }
+    }
+
     func testScrolledSectionShownOnItsOwnKeepsItsLeadAndSelection() async throws {
         // Before the whole book is built, continuous scroll shows the current section by itself.
         let texts = try sections()

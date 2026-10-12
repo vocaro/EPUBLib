@@ -213,8 +213,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   wrap, reverse or be reordered stay blocks in reading order, with a `.disclosure`. Alignment is
   paragraph spacing and indents resolved at the live column size and never changes a section's
   characters, so CFIs, search, selection and highlights do not depend on it. The subset follows
-  a survey of published stylesheets and this repository's fixtures, not a book corpus
-  ([qualification](issue-20-flex-grid-alignment.md)).
+  a survey of published stylesheets and this repository's fixtures; ten shipped Standard Ebooks
+  titles were then rendered beside WebKit
+  ([qualification](issue-20-flex-grid-alignment.md#shipped-books)).
 - **Continuous scroll** is whole-book: one `UITextView`/`NSTextView` over every linear
   section, so nothing resets at a section boundary and the system scroll edge effects apply.
   Until every section is built it shows the current section, then swaps to the whole book in
@@ -396,6 +397,18 @@ when they fit a page. Oversized groups and nested complex boxes instead continue
 blocks in reading order; fallback widths expand when necessary to leave readable lines, and
 long box text can continue across pages. Up to eight nested width constraints resolve within
 the enclosing box in this fallback.
+
+A text that holds any of these boxes has every one of its lines placed by the reader's text
+container: one section in pages, the whole book in continuous scroll. TextKit then wraps a line
+within its paragraph's indents but aligns and justifies it across the rectangle it was handed,
+as if the paragraph had none. So the container hands TextKit paragraphs without indents and
+gives each line a rectangle that already leaves out its paragraph's head, first-line and tail
+indent. Margins, centring, right alignment, justification and list markers are then where they
+are in a text without boxes, and a paragraph with its own margin beside a float starts at the
+float's edge, its margin underneath it
+([#63](https://github.com/vocaro/EPUBLib/issues/63),
+[#150](https://github.com/vocaro/EPUBLib/issues/150)). TextKit breaks a justified paragraph's
+lines a little differently where the container places them; their edges are the same.
 
 A `.disclosure` explains that box layouts may be simplified. Sticky positioning, negative
 relative vertical offsets, arbitrary overlap and `z-index`, and page-pinned or repeating fixed
@@ -592,7 +605,9 @@ Go: the native viewer is the bundled engine.
   A layout disclosure accompanies books using these box styles. Common positioned accessibility
   labels hidden with zero-area `clip: rect(...)`, `clip-path: inset(50%)`, visibility or large negative
   top/left offsets in absolute units stay omitted; font-relative or mixed-unit offsets remain
-  visible unless explicitly hidden or clipped. General clipping and arbitrary offscreen
+  visible unless explicitly hidden or clipped. Standard Ebooks' title pages are such a case:
+  the heading and byline they park at `left: -999em` are shown above the title image that
+  repeats them ([#63](https://github.com/vocaro/EPUBLib/issues/63)). General clipping and arbitrary offscreen
   geometry are unsupported. Unsized inline-blocks remain inline. Ordinary percentage margins,
   padding and text indents resolve against the live containing content width, including
   constrained flow-box ancestors, and recalculate at resize. Mixed-unit CSS calculations

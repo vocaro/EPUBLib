@@ -85,7 +85,8 @@ struct ReaderScreen: View {
     }
 
     /// `-SampleBook <path>` opens a book at launch, for automated and visual checks;
-    /// `-SampleFlow scrolled`, `-SampleDark YES` and `-SampleFontSize <points>` set its style.
+    /// `-SampleFlow scrolled`, `-SampleDark YES` and `-SampleFontSize <points>` set its style,
+    /// and `-SampleHref <href>` shows one of its sections.
     private func openFromLaunchArguments() {
         guard reader.session == nil, let path = UserDefaults.standard.string(forKey: "SampleBook") else { return }
         reader.open(url: URL(fileURLWithPath: path))
@@ -98,5 +99,6 @@ struct ReaderScreen: View {
         if defaults.bool(forKey: "SampleDark") { style.appearance = .dark }
         if defaults.double(forKey: "SampleFontSize") > 0 { style.fontSize = defaults.double(forKey: "SampleFontSize") }
         reader.send(.style(style))
+        if let href = defaults.string(forKey: "SampleHref") { reader.send(.navigate(href: href)) }
     }
 }

@@ -58,6 +58,7 @@ extension ReaderTextView {
         let container = ReaderTextContainer(size: CGSize(width: 0, height: 0))
         container.lineFragmentPadding = 0
         layoutManager.textContainer = container
+        container.deliverIndents(for: storage)
         return (storage, layoutManager, container)
     }
 
@@ -73,6 +74,9 @@ extension ReaderTextView {
         // replacing the characters leaves them behind with the attachments they measured. Drop
         // the outgoing layout first, so a rebuilt book's old images are released with its text.
         readerLayoutManager.invalidateLayout(for: readerLayoutManager.documentRange)
+        // The outgoing text's box geometry is not the new text's: until `refreshFlowBoxLayout`
+        // plans it, the new paragraphs are plain ones with their own indents.
+        readerContainer.configureBoxes(in: NSAttributedString())
         contentStorage.textStorage?.setAttributedString(text)
         refreshFlowBoxLayout()
         exposeTextualAttachments()
