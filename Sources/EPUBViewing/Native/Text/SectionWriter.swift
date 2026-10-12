@@ -777,6 +777,14 @@ final class SectionWriter {
         key.hyphenate = format.hyphenate
         key.characterWrap = format.characterWrap
         key.tabInterval = format.tabInterval
+        // A marker's tab must have a stop after it wherever its line starts. TextKit cannot
+        // place a tab that has none: in a plain container it ends the paragraph at the tab, so
+        // the item's text gets no line, and in a container with boxes it asks for the next line
+        // down without end. The marker's one stop is not always ahead of it: a box left in flow
+        // moves its first line onto or past the stop (`ReaderFlowBoxLayout`), and TextKit
+        // measures a right-to-left paragraph's stops short by its tail indent. A tab past the
+        // stop falls on the next multiple of the marker's width instead.
+        if key.tabInterval <= 0, let width = paragraph.markerWidth { key.tabInterval = max(1, width) }
         guard let base = paragraph.factoryStyle, let style = base.mutableCopy() as? NSMutableParagraphStyle else {
             return styling.paragraphStyle(key)
         }
@@ -784,6 +792,8 @@ final class SectionWriter {
         style.firstLineHeadIndent += key.firstLineHeadIndent
         style.headIndent += key.headIndent
         style.tailIndent = base.tailIndent <= 0 ? base.tailIndent - key.tailInset : base.tailIndent
+        // Its stops are the system's, which end 336 points along.
+        if key.tabInterval > 0 { style.defaultTabInterval = key.tabInterval }
         if !paragraph.continuation { style.paragraphSpacingBefore = key.spacingBefore }
         if !paragraph.hasNext { style.paragraphSpacing = key.spacingAfter }
         if style.baseWritingDirection == .natural { style.baseWritingDirection = key.direction }
