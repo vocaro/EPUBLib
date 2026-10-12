@@ -362,10 +362,8 @@ import UIKit
             XCTAssertGreaterThan(sliver, 0, "the line above \(position) shows")
             XCTAssertLessThan(sliver, 1, "by less than the point a rest is accepted within")
             XCTAssertEqual(canvas.visibleRange?.start, position, "a sliver of the line above is not the visible start")
-            // The person has scrolled, so a resize keeps the visible start: the same line. The
-            // width changes too: on the Mac a change of height alone can leave a box rested by
-            // its top edge off by the change in its space above the first line (#313).
-            for size in [CGSize(width: 420, height: 560), CGSize(width: 500, height: 700)] {
+            // The person has scrolled, so a resize keeps the visible start: the same line.
+            for size in [CGSize(width: 500, height: 560), CGSize(width: 500, height: 700)] {
                 host.resize(to: size)
                 try await host.settle()
                 XCTAssertEqual(try rest(position).minY, canvas.scrollVisibleContainerRect.minY, accuracy: 1.5, "\(position) at \(size)")
@@ -380,6 +378,55 @@ import UIKit
         XCTAssertGreaterThan(sliver, 0, "the paragraph's first line shows")
         XCTAssertLessThan(sliver, 1)
         XCTAssertEqual(canvas.visibleRange?.end, last, "the visible end is the end of the line before")
+    }
+
+    /// A box rested by its top edge stays there through changes of the visible height at the
+    /// same column width. Its first line moves by the change in the space above it, and on the
+    /// Mac the step that holds the first line on screen in place after a layout behind the view
+    /// took that for one and scrolled by as much (#313). When this was found the step compared
+    /// the visible top with where it had been for equality, and the rest reaches the same place
+    /// by arithmetic that differs in the last bit from one height to another, so the defect
+    /// came and went. Here 700 to 560 showed it on 2026-10-12; 700 to 600 and to 650 move the
+    /// line by 49 and 24.5 points, which are exact in binary and so leave the arithmetic the
+    /// same wherever the box is.
+    func testAChangeOfHeightAloneKeepsABoxRestedByItsTopEdgeAtTheTop() async throws {
+        let prose = String(repeating: "<p>A paragraph of ordinary reading text for pagination.</p>", count: 60)
+        let texts = [try H.build(F.shippedTitleBody, css: F.shippedCSS), try H.build(F.shippedDedicationBody, css: F.shippedCSS),
+                     try H.build(F.shippedEpigraphBody, css: F.shippedCSS),
+                     try H.build("<h2>Chapter</h2><p>The chapter opens here.</p>" + prose, css: F.shippedCSS)]
+        let source = FakeCanvasSource(texts.map(\.string))
+        source.book = CanvasText.book(texts.map(\.string))
+        let host = CanvasHost(source, size: CGSize(width: 500, height: 700), configuration: .init(flow: .scrolled))
+        defer { host.close() }
+        // The title page first, so that the text above the dedication is laid out.
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        host.layOut()
+        try await host.settle()
+        let canvas = host.canvas, view = try XCTUnwrap(canvas.scrollTextView), book = try XCTUnwrap(canvas.scrollBook)
+        let dedication = ReaderTextPosition(section: 1, offset: 0), location = book.location(of: dedication)
+        /// How far the dedication's top edge is below the top of the visible area, and the
+        /// space the box keeps above its first line.
+        func box() throws -> (top: CGFloat, lead: CGFloat) {
+            let line = try XCTUnwrap(view.lineFrame(containing: location))
+            let rest = view.anchorFrame(of: line, at: location)
+            return (rest.minY - canvas.scrollVisibleContainerRect.minY, line.minY - rest.minY)
+        }
+        canvas.show(dedication, selecting: nil)
+        try await host.settle()
+        var shown = try box()
+        XCTAssertEqual(shown.top, 0, accuracy: 1, "shown")
+        XCTAssertEqual(canvas.visibleRange?.start, dedication, "shown")
+        let column = view.readerContainer.size.width
+        for height: CGFloat in [640, 700, 560, 700, 600, 700, 650] {
+            let before = shown.lead
+            host.resize(to: CGSize(width: 500, height: height))
+            try await host.settle()
+            shown = try box()
+            XCTAssertEqual(view.readerContainer.size.width, column, "the column keeps its width, so its lines wrap as they did")
+            XCTAssertGreaterThan(abs(shown.lead - before), 20, "the space above the first line follows the height, \(height)")
+            XCTAssertEqual(shown.top, 0, accuracy: 1, "the box's top edge at height \(height)")
+            XCTAssertEqual(canvas.visibleRange?.start, dedication, "height \(height)")
+        }
     }
 
     /// The same in a book without box geometry, where TextKit places the lines: a flex box, a

@@ -84,7 +84,9 @@ import AppKit
     private var scrollReportPending = false
     /// Where the first line on screen stood when the scroll view was last read: its location in
     /// the view's text, its top and the visible area's, in text container coordinates. AppKit's
-    /// `settleScrollViewport` holds the line there.
+    /// `settleScrollViewport` holds the line there. Forgotten whenever the reader lays the text
+    /// out itself (new text, a new column width, boxes resolved for a new visible height): its
+    /// lines then move by the reader's own doing, not by a layout behind the view.
     var scrollPlace: (location: Int, lineTop: CGFloat, visibleTop: CGFloat)?
     /// Whether the scroll view stands where it was last read, to within a point. AppKit aligns
     /// the offset to the pixel grid when the clip view gets its layer, at the scroll view's first
@@ -600,13 +602,16 @@ import AppKit
 
     /// Keeps the viewport attachments size against current, the visible height included (it
     /// changes with the safe area alone). Text already laid out keeps its size; a new column
-    /// width relays everything out anyway.
+    /// width relays everything out anyway. Boxes are resolved against it again, which lays all
+    /// the text out anew where there are any: a box that takes its height from the visible area
+    /// moves its first line by the change in the space above it while its top edge stays, and
+    /// `settleScrollViewport` must not take that for a layout behind the view (#313).
     func updateScrollViewport() {
         guard let textView = scrollTextView, let geometry = scrollGeometry else { return }
         let viewport = CGSize(width: geometry.width, height: max(0, scrollVisibleContainerRect.height))
         if textView.readerContainer.viewportSize != viewport {
             textView.readerContainer.viewportSize = viewport
-            textView.refreshFlowBoxLayout()
+            if textView.refreshFlowBoxLayout() { scrollPlace = nil }
         }
     }
 

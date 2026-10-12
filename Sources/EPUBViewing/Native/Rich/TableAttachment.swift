@@ -42,8 +42,11 @@ final class TableRowAttachment: ReaderAttachment {
         return slice.height * layout.scale * slice.fitScale
     }
 
+    /// A row takes the rest of its line, whatever its table holds.
+    static func width(on line: Line) -> CGFloat { max(1, line.width - max(line.position, line.leadingIndent)) }
+
     override func layoutBounds(_ line: Line) -> CGRect {
-        let width = max(1, line.width - max(line.position, line.leadingIndent))
+        let width = Self.width(on: line)
         return CGRect(x: 0, y: line.font?.descender ?? 0, width: width,
                       height: height(width: width, viewportHeight: line.viewport.height))
     }
@@ -168,5 +171,13 @@ final class TableRowAttachment: ReaderAttachment {
             return true
         }
         #endif
+    }
+}
+
+/// A table row where only widths are measured (`TableMeasure.maximumWidth`): as wide as the row
+/// on any line and of no height, so no table is laid out to size it.
+final class TableRowWidthAttachment: ReaderAttachment {
+    override func layoutBounds(_ line: Line) -> CGRect {
+        CGRect(x: 0, y: line.font?.descender ?? 0, width: TableRowAttachment.width(on: line), height: 0)
     }
 }
