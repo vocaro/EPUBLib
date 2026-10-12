@@ -224,8 +224,9 @@ A job has twenty minutes and a session at most 300 seconds, the runner script's 
 Preparing the runner and building take about two minutes and the boundary session about three
 at the fixed pause, so a run of that one session has uploaded its transcript about five minutes
 after it starts. A session that could not end three minutes before the job's limit is reported
-as not run, and the job fails. A new run for the same ref, width, text size and flow cancels one still
-in progress, so put step lists that share those into one run.
+as not run, and the job fails. A new run for the same ref, width, text size and flow cancels
+one still in progress, so put step lists that share those into one run; runs that differ in
+any of them go on side by side.
 
 With `advance_after` set to `0.5`, stepping took about a quarter of the time in four pairs of
 sessions, and 95 of 97 keys recorded the same first phrase as at the fixed pause. The hint that
@@ -237,8 +238,9 @@ session's outcome, transcript and command: 124 means the deadline was reached, 1
 runner script stopped the session, and 2 that it refused the steps. The download also holds a
 `mac-STAMP.transcript.txt` for each session in order, `runner.txt` with the commit, image,
 macOS, Xcode and screen, the observer, `xcodebuild` and build logs, and a screenshot of the
-runner's screen at the end. The run's summary page shows each session's steps and speech. The
-artifacts expire after five days; copy what must be kept. A failed job also uploads
+runner's screen at the end. The job's log prints each transcript, and the script writes each
+session's steps and speech to the run's summary page. The artifacts expire after five days;
+copy what must be kept. A failed job also uploads
 `voiceover-mac-result-bundles`, 100 MB for four short sessions, and adds
 `banner-and-dictation.log` to the transcripts: the banner's starts and anything from Dictation
 in the system log. A stopped session's bundle has no `Info.plist`, so `xcresulttool` cannot
