@@ -49,7 +49,7 @@ public enum EPUBPackageWriter {
         }
         let language = xml(facts.metadata.languages.first ?? "und")
         func href(_ value: String) throws -> String {
-            let resolved = try ResourceReference.resolve(value, relativeTo: "root.opf")
+            let resolved = try ResourceReference.resolve(value, relativeTo: "root.opf", strict: true)
             let path = String(resolved.split(separator: "#", maxSplits: 1)[0]).removingPercentEncoding ?? ""
             guard value.hasPrefix("EPUB/"), paths.contains(path), path.hasPrefix("EPUB/") else {
                 throw EPUBWritingError.invalidPublication("navigation references an undeclared resource: \(value)")
