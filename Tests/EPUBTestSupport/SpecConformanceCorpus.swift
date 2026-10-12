@@ -225,8 +225,10 @@ public enum SpecConformanceCorpus {
                                         .title("CSS: مغامرة جديدة!")),
         "pkg-dir_unset-root-unset": .init("epub-rs#confreq-rs-pkg-dir", note: "the publication model carries no base direction for metadata",
                                           .title("CSS: مغامرة جديدة!")),
+        // The page's own instructions print « and », so the marks are looked for around the quotation.
         "pkg-lang_but_not_content": .init("epub-rs#confreq-rs-pkg-lang-no-content", .rendered(0, "Le mieux est l'ennemi du bien"),
-                                          .notRendered(0, "«"), .notRendered(0, "»")),
+                                          .renderedInOrder(["“Le mieux est l'ennemi du bien”"]),
+                                          .notRendered(0, "«\u{202F}Le mieux"), .notRendered(0, "bien\u{202F}»")),
         "pkg-linked-records": .init("epub-rs#sec-linked-records", .title("Package metadata title!"), .authors(["Matthew Chan"])),
         "pkg-manifest-unknown": .init("epub-rs#confreq-rs-pkg-manifest-unknown", passIfOpens),
         "pkg-manifest-unlisted-resource": .init("epub-rs#confreq-rendition-rs-manifest",

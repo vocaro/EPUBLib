@@ -132,14 +132,15 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
         XCTAssertEqual(section.text, "The result p < 0.05 was significant.\nNext")
     }
 
-    // The same state before a digit, punctuation, a space, another "<" or a non-ASCII letter, in
-    // a heading and the title as in a paragraph. Every field matches the document that escapes
-    // each sign.
+    // The same state before a digit, punctuation, a space, another "<", a non-ASCII letter, an
+    // underscore or a colon, in a heading and the title as in a paragraph. Every field matches
+    // the document that escapes each sign.
     func testEveryLessThanSignThatOpensNoMarkupReadsLikeItsEscapedTwin() throws {
-        let body = "<h1 id='h'>x &lt;= y and y >= z</h1><p id='p'>p &lt;.05, a&lt;3, 5 &lt;é, &lt;&lt; and &lt;<b id='b'>bold</b>> &lt; </p><p id='n'>Next</p>"
-        let strict = try book(page(body, head: "<title>a &lt; b</title>")).textSection(at: 0)
-        XCTAssertEqual(strict.text, "x <= y and y >= z\np <.05, a<3, 5 <é, << and <bold> <\nNext")
-        let twin = try recovered(page(body.replacingOccurrences(of: "&lt;", with: "<"), head: "<title>a < b</title>"))
+        let body = "<h1 id='h'>x &lt;= y and y >= z</h1><p id='p'>p &lt;.05, a&lt;3, 5 &lt;é, &lt;&lt; and &lt;<b id='b'>bold</b>> &lt; </p>"
+            + "<p id='u'>a &lt;_&lt; b, &lt;:3 and &lt;_x id='no'>c&lt;:y>d</p><p id='n'>Next</p>"
+        let strict = try book(page(body, head: "<title>a &lt; b &lt;_ c</title>")).textSection(at: 0)
+        XCTAssertEqual(strict.text, "x <= y and y >= z\np <.05, a<3, 5 <é, << and <bold> <\na <_< b, <:3 and <_x id='no'>c<:y>d\nNext")
+        let twin = try recovered(page(body.replacingOccurrences(of: "&lt;", with: "<"), head: "<title>a < b <_ c</title>"))
         XCTAssertEqual(twin.title, strict.title)
         XCTAssertEqual(twin.text, strict.text)
         XCTAssertEqual(twin.anchors, strict.anchors)
@@ -147,12 +148,24 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
     }
 
     // A "<" inside an attribute value, a comment, script content or a processing instruction is
-    // already where it belongs, and XML's other name starts still open the elements they did.
-    func testALessThanSignInsideMarkupOrBeforeAnXMLNameStartIsLeftAlone() throws {
+    // already where it belongs.
+    func testALessThanSignInsideMarkupIsLeftAlone() throws {
         let section = try recovered(page("<p>a</b> <img alt='1 < 2'/><!-- c < d --><script>if (e < f) {}</script><?pi g < h ?> i</p>"
-            + "<p>j <_x id='u'>k</_x> <:y id='v'>l</:y></p>"))
-        XCTAssertEqual(section.text, "a 1 < 2 i\nj k l")
-        XCTAssertEqual(section.anchors, ["u": EPUBTextMark(offset: 12, separator: 1), "v": EPUBTextMark(offset: 14, separator: 1)])
+            + "<p>j <img alt='<_x> <:y>'/> k</p>"))
+        XCTAssertEqual(section.text, "a 1 < 2 i\nj <_x> <:y> k")
+    }
+
+    // HTML Standard, tag open state: only an ASCII letter, "/", "!" or "?" goes on to a tag. To
+    // libxml2 an underscore and a colon start a name too, and what looked like a tag in prose
+    // opened an element and took its attributes (#198). The native reader reads these as text.
+    func testALessThanSignBeforeAnUnderscoreOrAColonIsText() throws {
+        let section = try recovered(page("<_ at the start</b><p>a <_< b and <:3</p><p>j <_x id='u'>k</_x> <:y id='v'>l</:y></p><div><em><:></em></div>"))
+        XCTAssertEqual(section.text, "<_ at the start\na <_< b and <:3\nj <_x id='u'>k <:y id='v'>l\n<:>")
+        XCTAssertEqual(section.anchors, [:], "what reads as a tag in prose gives no element its id")
+        // The same sign as the last thing in the file but for the character after it.
+        for (tail, text) in [("<_", "before\nafter\n<_"), ("<:", "before\nafter\n<:"), ("<_>", "before\nafter\n<_>")] {
+            XCTAssertEqual(try recovered("<html><head><title>T</title></head><body><p>before</p><p>after</p>\(tail)").text, text, tail)
+        }
     }
 
     // Nothing can follow a "<" that ends the input, so it stays the cut-off tag it may be.

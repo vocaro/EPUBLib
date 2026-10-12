@@ -82,7 +82,10 @@ when that parser was used. Text, IDs and headings then describe the repaired HTM
 EPUB bytes remain unchanged. Recovery uses the same bounded extraction walk, excludes scripts,
 styles and templates, and preserves CDATA character data, image alternatives and structural
 MathML notation. Literal CDATA markers in quoted alternatives remain literal. As in the HTML
-Standard, a `<` that opens no tag stays text (`p < 0.05`), content after an early `</body>` or
+Standard, a `<` that opens no tag stays text (`p < 0.05`, `a <_< b`): a tag opens only before an
+ASCII letter, `/`, `!` or `?`. A `<` that is the last byte of the file is the one exception. It
+stays the cut-off tag it may be, so it is not shown, and a file that is only `<` is
+`malformedContent`. Content after an early `</body>` or
 `</html>` stays in the body, as does a second document in the same file, and U+0000 is dropped
 from text and read as U+FFFD inside tags, comments and scripts instead of ending the section
 there. Recovery

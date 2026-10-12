@@ -446,8 +446,9 @@ private enum SourceEncoding {
 /// Three more rewrites keep text that libxml2 would drop where the HTML Standard keeps it:
 /// - A `<` that opens no markup becomes `&lt;`, as HTML's tag open state emits it as a
 ///   character; libxml2 discards everything from it through the next `>`. Markup opens at a `<`
-///   before an ASCII letter, `/`, `!` or `?`, and before XML's other name starts `_` and `:`,
-///   which libxml2 reads as tags. A `<` that ends the input stays the cut-off tag it may be.
+///   before an ASCII letter, `/`, `!` or `?` and nowhere else: `_`, `:` and `.` start a name
+///   for libxml2, and prose such as `a <_< b` would open an element. A `<` that ends the input
+///   stays the cut-off tag it may be.
 /// - End tags that libxml2 reads as `</body>` or `</html>` become empty comments. In HTML they
 ///   close nothing and later content stays in the body; libxml2 pops the element and builds
 ///   that content outside the body, where the walk does not read it. A comment, unlike
@@ -466,8 +467,8 @@ private enum HTMLRecoverySource {
         let cdataOpen = Array("<![CDATA[".utf8), cdataClose = Array("]]>".utf8)
         let commentOpen = Array("<!--".utf8), commentClose = Array("-->".utf8)
         let replacement: [UInt8] = [0xEF, 0xBF, 0xBD] // U+FFFD
-        // From a `<` copied as is (`<!`, `</`, `<?`, `<_`, `<:`) to the next `>`, libxml2 may be
-        // in a declaration, a processing instruction or a tag that this scan does not follow.
+        // From a `<` copied as is (`<!`, `</`, `<?`) to the next `>`, libxml2 may be in a
+        // declaration, a processing instruction or a tag that this scan does not follow.
         var inMarkup = false
         func copyMarkup(_ range: Range<Int>) {
             inMarkup = false
@@ -509,8 +510,8 @@ private enum HTMLRecoverySource {
                     }
                 }
                 index = end + cdataClose.count
-            } else if bytes[index] == 0x3C, index + 1 < bytes.count, ![0x21, 0x2F, 0x3F, 0x3A, 0x5F].contains(bytes[index + 1]) {
-                // Before none of `!`, `/`, `?`, `:` and `_`, and not a tag: text.
+            } else if bytes[index] == 0x3C, index + 1 < bytes.count, ![0x21, 0x2F, 0x3F].contains(bytes[index + 1]) {
+                // Before none of `!`, `/` and `?`, and not a tag: text.
                 output.append(contentsOf: Array("&lt;".utf8)); index += 1
             } else {
                 switch bytes[index] {
