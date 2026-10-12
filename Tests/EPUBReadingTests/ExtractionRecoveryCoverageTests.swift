@@ -436,6 +436,32 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
         XCTAssertEqual(try recovered(page("<p>x</b> </ <html lang='en'/> y</p><p>z</p>")).text, "x y\nz")
     }
 
+    // libxml2 reads an attribute name only from a letter, "_", ":" or "." and passes over anything
+    // else to the next white space or ">", quotes and all. HTML reads `/x="a>…"` as a name and a
+    // quoted value, and so does the scan, which then runs on to the "/>" of a later tag. For
+    // libxml2 the start tag ended at the first ">" and that "/>" is the later tag's: rewriting
+    // it opened the `<script …/>` over the rest of the section, or closed the head before its title.
+    func testATagThatLibxml2EndsSoonerThanTheScanIsLeftAsWritten() throws {
+        let root = "<html xmlns='http://www.w3.org/1999/xhtml'>"
+        for body in ["<body /x=\"a><p>x</p><script src=\"k.js\"/><p>y</p></body>", "<body 1=\"a><p>x</p><script src=\"k.js\"/><p>y</p></body>",
+                     "<body><p>x</p><body /x=\"a><script src=\"k.js\"/><p>y</p></body>", "<body><p>x</p><head /x=\"a><script src=\"k.js\"/><p>y</p></body>",
+                     "<body><p>x</p><html /x=\"a><script src=\"k.js\"/><p>y</p></body>"] {
+            let section = try recovered("\(root)<head><title>T</title></head>\(body)</html>")
+            XCTAssertEqual(section.title, "T", body)
+            XCTAssertEqual(section.text, "x\ny", body)
+        }
+        let head = try recovered("\(root)<head /x=\"a><meta charset=\"utf-8\"/><title>T</title></head><body id='b'><p>x</p></body></html>")
+        XCTAssertEqual(head.title, "T")
+        XCTAssertEqual(head.text, "x")
+        XCTAssertEqual(head.anchors, ["b": EPUBTextMark(offset: 0, separator: 0)])
+        for prolog in ["<?xml version=\"1.0\"?>", ""] {
+            let section = try recovered("\(prolog)<html xmlns=\"http://www.w3.org/1999/xhtml\" /x=\"a><head><title>T</title></head><body id='b'><p>x</p><img alt=\"i\"/><p>y</p></body></html>")
+            XCTAssertEqual(section.title, "T", prolog)
+            XCTAssertEqual(section.text, "x\ni\ny", prolog)
+            XCTAssertEqual(section.anchors, ["b": EPUBTextMark(offset: 0, separator: 0)], prolog)
+        }
+    }
+
     // HTML Standard, "in body" insertion mode, U+0000: a parse error; the character is ignored.
     // doc/text-extraction.md: recovery "never yields partial text". Refusing the document would
     // also honour that; returning only what precedes the NUL does not.
