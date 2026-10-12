@@ -393,6 +393,33 @@ final class ContainerArchiveCoverageTests: XCTestCase {
         }
     }
 
+    func testANameWithAMarkBesideASeparatorIsCheckedByScalarWithAndWithoutTheFlag() throws {
+        // The two rules together. A name without the flag is read as UTF-8, so it can hold a mark
+        // beside a separator as a flagged one can, and either is checked by scalar
+        // (https://github.com/vocaro/EPUBLib/issues/181). CC 81 is U+0301, which joins the
+        // character before it; D8 80 is U+0600, which joins the one after.
+        let refused: [(String, [UInt8])] = [
+            ("OPS/../\u{301}x.css", Array("OPS/../".utf8) + [0xCC, 0x81] + Array("x.css".utf8)),
+            ("OPS/a\u{600}/../x.css", Array("OPS/a".utf8) + [0xD8, 0x80] + Array("/../x.css".utf8)),
+            ("OPS/a\\\u{301}x.css", Array("OPS/a\\".utf8) + [0xCC, 0x81] + Array("x.css".utf8)),
+            ("OPS/a:\u{301}x.css", Array("OPS/a:".utf8) + [0xCC, 0x81] + Array("x.css".utf8)),
+        ]
+        // A mark that opens a name after a real separator hides nothing: this is a file in OPS.
+        let kept = "OPS/\u{301}x.css", keptBytes = Array("OPS/".utf8) + [0xCC, 0x81] + Array("x.css".utf8)
+        XCTAssertEqual(Array(kept.utf8), keptBytes)
+        for flags: UInt16 in [0, 0x0800] {
+            for (name, bytes) in refused {
+                XCTAssertEqual(Array(name.utf8), bytes, name.debugDescription)
+                assertOpening(try book(adding: [entry(named: bytes, "a{}", flags: flags)]), throws: .unsafePath(name),
+                              "\(name.debugDescription), flags \(flags)")
+            }
+            let book = try EPUBPublication.open(data: self.book(adding: [entry(named: keptBytes, "a{}", flags: flags)]))
+            XCTAssertEqual(try book.data(at: kept), Data("a{}".utf8), "flags \(flags)")
+            XCTAssertThrowsError(try book.data(at: "OPS/x.css"), "flags \(flags)")
+            XCTAssertEqual(book.spine.map(\.resource.path), ["OPS/one.xhtml", "OPS/two.xhtml"], "flags \(flags)")
+        }
+    }
+
     func testBytesOnlyAForgivingDecoderReadsAsASeparatorOrADotAreNotUTF8() throws {
         // Overlong forms: a dot, a slash, a backslash, a colon and a NUL each spelled in more
         // bytes than UTF-8 allows. A decoder that accepted them would read `OPS/../x.css` in the

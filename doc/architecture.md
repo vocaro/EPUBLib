@@ -30,8 +30,6 @@ Archive paths are decoded ZIP paths; the container's rootfile path and manifest/
 are URL references. An entry's name is read as UTF-8 when its bytes are well-formed UTF-8, with or
 without the ZIP language-encoding flag (general-purpose bit 11), which `zip` and `ditto` on a Mac
 leave clear; any other name is read as code page 437, or refused when the flag calls it UTF-8.
-Paths are compared as Swift strings, so a name's precomposed and decomposed forms are one path:
-either finds the entry, and two entries so named are duplicates.
 The parser resolves the rootfile path from the container root and other
 references relative to the containing OPF/navigation document. A rootfile path that is refused as
 a URL or names no entry that way (a name's own `%`, `#` or `?` left unescaped, as older validators
@@ -52,8 +50,9 @@ followed by a combining mark, variation selector or joiner, or preceded by a pre
 as U+0600, is still that separator or dot. So `../` followed by U+0301 and a name is refused
 wherever `../` and the name alone is, and `a/` followed by U+0301 and `b` is the name `a` and a
 second name that begins with the mark. Paths are compared as Swift strings, by canonical
-equivalence: an entry answers to a reference in either normalization form, and two entry names
-equal after normalization are duplicates.
+equivalence, so a name's precomposed and decomposed forms are one path: an entry answers to a
+reference in either normalization form, and two entry names equal after normalization are
+duplicates.
 
 Default limits are 256 MiB compressed, 512 MiB expanded, 32 MiB per resource, 20,000 entries and
 4 MiB per XML document, with depth/node limits. Hosts may lower or raise import limits. Resources

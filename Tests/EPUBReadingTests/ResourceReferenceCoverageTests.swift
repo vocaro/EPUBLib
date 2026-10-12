@@ -140,6 +140,8 @@ final class ResourceReferenceCoverageTests: XCTestCase {
 
     /// Every scalar `String` takes into the `Character` of a "/" before it (`after`), and every
     /// scalar that takes a "/" after it into its own (`before`), found by asking `String`.
+    /// Unicode has thousands of the first and dozens of the second. With fewer, a test that
+    /// loops over them would try little or nothing and pass, so the run stops here instead.
     private static let clustering: (after: [Unicode.Scalar], before: [Unicode.Scalar]) = {
         var after: [Unicode.Scalar] = [], before: [Unicode.Scalar] = []
         for value in UInt32(0)...0x10FFFF {
@@ -147,6 +149,8 @@ final class ResourceReferenceCoverageTests: XCTestCase {
             if "/\(scalar)".count == 1 { after.append(scalar) }
             if "\(scalar)/".count == 1 { before.append(scalar) }
         }
+        precondition(after.count > 2_000 && before.count > 20,
+                     "String joins \(after.count) scalars to a \"/\" before them and \(before.count) to one after them")
         return (after, before)
     }()
 
@@ -182,21 +186,24 @@ final class ResourceReferenceCoverageTests: XCTestCase {
                        "\u{1F3FB}", "\u{93E}", "\u{94D}", "\u{E31}", "\u{3099}", "\u{FF9E}", "\u{E0020}"] as [Unicode.Scalar] {
             XCTAssertTrue(joined.contains(scalar), "U+" + String(scalar.value, radix: 16))
         }
-        XCTAssertGreaterThan(after.count, 2_000)
         // Hangul jamo, regional indicators and emoji join only their own kind.
         for scalar in ["\u{1161}", "\u{11A8}", "\u{1F1EF}", "\u{1F600}", "a", "\u{E9}"] as [Unicode.Scalar] { XCTAssertFalse(joined.contains(scalar)) }
         // Prepended marks, as the Arabic number sign, take what follows them.
+        let prepended = Set(before)
         XCTAssertTrue(before.contains("\u{600}") && before.contains("\u{6DD}") && before.contains("\u{110BD}"))
-        XCTAssertTrue(before.allSatisfy { $0.value > 0x7F } && Set(before).isDisjoint(with: joined))
-        // The other separators and the dot are joined by the same scalars; a NUL by none.
-        for scalar in after {
-            for other in ["\\", ":", ".", "#", "?", "%"] { XCTAssertEqual("\(other)\(scalar)".count, 1, other + " U+" + String(scalar.value, radix: 16)) }
-            XCTAssertEqual("\0\(scalar)".count, 2, "U+" + String(scalar.value, radix: 16))
+        XCTAssertTrue(before.allSatisfy { $0.value > 0x7F } && prepended.isDisjoint(with: joined))
+        // The other separators and the dot are joined by the same scalars and by no other, so
+        // every scalar is asked of each; a NUL by none.
+        let followed = ["\\", ":", ".", "#", "?", "%"], preceded = ["\\", ":", ".", "#"]
+        var wrong: [String] = []
+        for value in UInt32(0)...0x10FFFF {
+            guard let scalar = Unicode.Scalar(value) else { continue }
+            for other in followed where ("\(other)\(scalar)".count == 1) != joined.contains(scalar) { wrong.append(other + " U+" + String(value, radix: 16)) }
+            for other in preceded where ("\(scalar)\(other)".count == 1) != prepended.contains(scalar) { wrong.append("U+" + String(value, radix: 16) + " " + other) }
         }
-        for scalar in before {
-            for other in ["\\", ":", ".", "#"] { XCTAssertEqual("\(scalar)\(other)".count, 1, other + " U+" + String(scalar.value, radix: 16)) }
-            XCTAssertEqual("\(scalar)\0".count, 2, "U+" + String(scalar.value, radix: 16))
-        }
+        XCTAssertEqual(wrong.count, 0, wrong.prefix(20).joined(separator: ", "))
+        for scalar in after { XCTAssertEqual("\0\(scalar)".count, 2, "U+" + String(scalar.value, radix: 16)) }
+        for scalar in before { XCTAssertEqual("\(scalar)\0".count, 2, "U+" + String(scalar.value, radix: 16)) }
     }
 
     func testNoMarkHidesASeparatorOrADotSegmentFromThePathCheck() {

@@ -120,9 +120,12 @@ final class PackageManifestSpineCoverageTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: outer) }
         for resource in book.resources {
             let bytes = Array(resource.path.utf8)
-            XCTAssertTrue(!bytes.contains { $0 == 0x5C || $0 == 0x3A || $0 == 0 }
-                && bytes.split(separator: 0x2F, omittingEmptySubsequences: false).allSatisfy { !$0.isEmpty && $0 != [0x2E] && $0 != [0x2E, 0x2E] },
-                          resource.path.debugDescription)
+            // A path that fails is not written: it might name a file outside the folder.
+            guard !bytes.contains(where: { $0 == 0x5C || $0 == 0x3A || $0 == 0 }),
+                  bytes.split(separator: 0x2F, omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0 != [0x2E] && $0 != [0x2E, 0x2E] }) else {
+                XCTFail(resource.path.debugDescription)
+                continue
+            }
             let file = folder.appending(path: resource.path, directoryHint: .notDirectory)
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try book.data(for: resource).write(to: file)

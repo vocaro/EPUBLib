@@ -16,7 +16,8 @@ package enum ResourceReference {
     }
 
     /// Resolve local EPUB references with a synthetic origin; escape the archive root only by failing.
-    /// The result is ASCII, where a `Character` is one scalar, so it may be cut at its "#" either way.
+    /// The result is ASCII with CR and LF escaped, the only ASCII scalars that share a `Character`,
+    /// so each `Character` of it is one scalar and it may be cut at its "#" either way.
     package static func resolve(_ href: String, relativeTo path: String) throws -> String {
         guard let decoded = href.removingPercentEncoding?.unicodeScalars,
               !decoded.contains(where: { $0 == "\\" || $0 == "\0" }), decoded.first != "/",
