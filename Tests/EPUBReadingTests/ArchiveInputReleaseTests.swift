@@ -14,6 +14,8 @@ import ZIPFoundation
 /// process's memory, which varies with the machine and with what else it is doing.
 final class ArchiveInputReleaseTests: XCTestCase {
     private let signature: [UInt8] = [0x50, 0x4B, 0x05, 0x06]
+    /// A local file header's signature, which an archive begins with.
+    private let localHeader: [UInt8] = [0x50, 0x4B, 0x03, 0x04]
     /// What ZIPFoundation says of bytes it finds no end record in.
     private let noEndRecord = EPUBPublicationError.invalidArchive("missingEndOfCentralDirectoryRecord")
     private let chapter = "OPS/one.xhtml"
@@ -85,11 +87,19 @@ final class ArchiveInputReleaseTests: XCTestCase {
         late.replaceSubrange((late.count - 21)..<(late.count - 17), with: signature)
         var far = Data(repeating: 0x41, count: 70_000)
         far.replaceSubrange(0..<4, with: signature)
+        // Bytes that begin as an archive does are searched to their first for a record, where
+        // they lie. ZIPFoundation, which would keep them, is not asked to.
+        var led = Data(repeating: 0x50, count: 1 << 20)
+        led.replaceSubrange(0..<4, with: localHeader)
+        var ledLate = led
+        ledLate.replaceSubrange((ledLate.count - 21)..<(ledLate.count - 17), with: signature)
         let cases: [(String, Data)] = [
             ("text", Data(repeating: 0x41, count: 65_536)), ("zeros", Data(count: 1 << 20)),
             ("21 bytes of a record", Data(signature) + Data(count: 17)),
             ("a signature too near the end for a record", late),
             ("a signature further back than a record begins", far),
+            ("a megabyte that begins as an archive does", led),
+            ("the same with a signature too near the end for a record", ledLate),
         ]
         for (name, bytes) in cases { assertRefusedAndReleased(bytes, as: noEndRecord, name) }
     }
@@ -128,6 +138,14 @@ final class ArchiveInputReleaseTests: XCTestCase {
             ("a document larger than the limit", plain, limits { $0.xmlBytes = 16 }, .limitExceeded("META-INF/container.xml")),
             // ZIP64 zeros are restated in a copy, and the archive is made of that.
             ("an all-ZIP64 archive with an unsafe path", Fixture.storedArchive([mimetype, Fixture.StoredEntry("../evil", "x")] + rest, zip64: .everything), .init(), .unsafePath("../evil")),
+            // An archive that other bytes follow is made of its own bytes, which are the same
+            // memory, or of a copy of those alone.
+            ("no entries, and other bytes after", Data(localHeader) + Data(signature) + Data(count: 18) + Data(count: 70_000), .init(), .invalidArchive("Missing EPUB mimetype")),
+            ("a checksum that does not match, and other bytes after", stating(Data([plain[content] ^ 0xFF]), at: content, in: plain) + Data(count: 70_000), .init(), .invalidArchive("CRC: \(chapter)")),
+            ("entry data past the archive's end, among the bytes after", stating(le(UInt32(plain.count)), at: record + 24, in: plain) + Data(count: 1 << 20), .init(),
+             .invalidArchive("Entry data past the end of the archive")),
+            ("an all-ZIP64 archive with an unsafe path, and other bytes after",
+             Fixture.storedArchive([mimetype, Fixture.StoredEntry("../evil", "x")] + rest, zip64: .everything) + Data(count: 70_000), .init(), .unsafePath("../evil")),
         ]
         for (name, bytes, limits, expected) in cases { assertRefusedAndReleased(bytes, limits: limits, as: expected, name) }
     }
@@ -179,6 +197,10 @@ final class ArchiveInputReleaseTests: XCTestCase {
             ("stored", Fixture.storedArchive(entries)), ("deflated", try Fixture.epub()),
             ("with a comment", Fixture.storedArchive(entries, comment: Data("Packed for a test".utf8))),
             ("all ZIP64", Fixture.storedArchive(entries + [Fixture.StoredEntry("OPS/empty.css", Data())], zip64: .everything)),
+            // Its archive is made of the bytes as far as the record's comment, and of a copy of
+            // those where ZIP64 zeros are restated. The book keeps them all.
+            ("with other bytes after it", Fixture.storedArchive(entries) + Data(count: 70_000)),
+            ("all ZIP64, with other bytes after it", Fixture.storedArchive(entries + [Fixture.StoredEntry("OPS/empty.css", Data())], zip64: .everything) + Data(count: 70_000)),
         ]
         for (name, bytes) in books {
             let release = Release()
