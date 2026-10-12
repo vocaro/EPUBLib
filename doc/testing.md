@@ -28,8 +28,14 @@ A window that mounts a reader for a test calls `keepLightAppearance()` (`ReaderT
 so a reader whose style is System opens light on a Mac or simulator in dark appearance, and the
 suite gives one result by day and in the evening. A test that needs a dark host sets
 `ReaderTestWindow.pageControls.colorScheme`.
-`NativeSessionTests.testAMountedReaderIsLightOnADarkMachineUntilTheTestAsksForDark` holds the
-harness to that with a dark appearance for its own process.
+`NativeSessionTests.testATestWindowKeepsItsReaderLightUntilTheTestAsksForDark` holds the harness
+to that: on the Mac under a dark appearance for its own process, and on iOS, where a test process
+cannot make its device dark, by the window's own style. To run a Mac bundle as a machine in light
+appearance would, whatever the system setting, pass the argument after `-XCTest`:
+
+```sh
+xcrun xctest -XCTest All -NSRequiresAquaSystemAppearance YES .build/debug/EPUBViewingTests.xctest
+```
 
 ## Coverage
 
@@ -38,8 +44,12 @@ duplicate ZIP entries, symlinks, path separators and dot segments beside every s
 their `Character`, CRC corruption, malformed/deep/wide XML, UTF-16 entities, repeated,
 conflicting, absent, remote and differently cased manifest items, references that start at or climb past
 the container root or carry a query, padded mimetypes, containers that list another rendition first,
-entry names with a colon, contents entries that do not resolve, named character references and
-lower-case doctypes in navigation, control characters in navigation,
+entry names with a colon, archives that other bytes follow, deflated entries whose directory
+misstates their sizes, contents entries that do not resolve, named character references and
+lower-case doctypes in navigation, control characters in navigation, white space in metadata
+values and navigation labels (ASCII whitespace stripped and collapsed however it is written,
+white space outside ASCII kept beside other content and a mark after a space kept, a value of
+nothing but white space of any kind empty),
 cancellation after expansion starts, and exact IDPF/Adobe font deobfuscation vectors. The font
 tests check the XOR prefix and the untouched suffix against independently specified keys.
 
@@ -87,6 +97,13 @@ Page-input tests cover default and replaced/cleared shortcuts, exact modifiers, 
 bindings, canvas and child focus, selection chords, live iOS recognizer disabling, Mac wheel
 pass-through and reset, zero/invalid/asymmetric/overlapping zones, RTL, resizing, fold exclusion,
 both reading flows, host commands and iOS VoiceOver page turns with direct input disabled.
+
+Scrolled-read tests hold continuous scroll to the text on screen after the whole book has been
+laid out behind the scroll view, as VoiceOver and a UI test's snapshot do when they ask where
+every paragraph is: scroll steps, a place scrolled to by hand, and the change back to pages.
+The read is a stand-in. A test host loads no text accessibility for an in-process query, so the
+tests ask for each paragraph's rectangle through `firstRect(for:)` on UIKit and
+`accessibilityFrame(for:)` on AppKit, and require that this laid the whole book out.
 
 Highlight paint tests read the pixels the mounted reader's views last drew: none in the
 highlight's color before a search, the matches after it, and none again after Clear Search,

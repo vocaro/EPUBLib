@@ -264,6 +264,32 @@ import UIKit
             .map { String(emphasized[$0.range].characters) }, ["needle"], "only the occurrence is emphasized")
     }
 
+    /// An iPhone 17 Pro on its side leaves the search sheet 177 points above the keyboard and its
+    /// suggestions. The sheet with results must fit in that, or its top is cut off, the field
+    /// and Close Search with it.
+    func testSearchPaneWithResultsFitsACompactHeight() async throws {
+        XCTAssertEqual(EPUBSearchResultPane.minimumListHeight(.regular), 160)
+        XCTAssertEqual(EPUBSearchResultPane.minimumListHeight(nil), 160)
+        #if os(iOS)
+        let session = Session(), model = try controls(session)
+        session.publish(.completed(query: "needle", hasMatches: true), Self.results(7, current: 0))
+        // What the toolbar's Search button presents: the field, its buttons, Clear Search, the
+        // navigator and the list, padded. Disabled, which changes no size, so that the field
+        // does not take focus in the test host as it does when its sheet opens.
+        func sheet(_ height: UserInterfaceSizeClass) -> MountedView {
+            MountedView(EPUBSearchField(controls: model, onDismiss: {}).padding().disabled(true)
+                .environment(\.verticalSizeClass, height))
+        }
+        let regular = sheet(.regular), compact = sheet(.compact)
+        defer { regular.close(); compact.close() }
+        try await Task.sleep(for: .milliseconds(60))
+        // The list's minimum is all that the height's size class changes.
+        XCTAssertEqual(regular.minimumHeight() - compact.minimumHeight(), 160 - 44, accuracy: 0.5)
+        XCTAssertGreaterThan(regular.minimumHeight(), 177, "160 points for the list are what did not fit")
+        XCTAssertLessThanOrEqual(compact.minimumHeight(), 177)
+        #endif
+    }
+
     /// Mounts the supplied views in real windows and lays each search state out: on their own,
     /// and in a navigation toolbar with the navigator placed by the host. SwiftUI builds no
     /// accessibility tree for an in-process query, so names and values are asserted on the
@@ -362,6 +388,19 @@ import UIKit
         return fit(CGSize(width: window.bounds.width, height: .greatestFiniteMagnitude))
         #endif
     }
+
+    #if os(iOS)
+    /// The least height the view accepts at the window's width. The hosting controller's fitting
+    /// size includes its window's safe area, which belongs to the device and not to the view: 66
+    /// points on an iPhone 17 Pro, most of them under the Dynamic Island, and none in the test
+    /// host on an iPad.
+    func minimumHeight() -> CGFloat {
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+        let safeArea = host.view.safeAreaInsets
+        return fit(CGSize(width: window.bounds.width, height: 1)).height - safeArea.top - safeArea.bottom
+    }
+    #endif
 
     func close() {
         #if os(macOS)

@@ -61,7 +61,6 @@ final class EPUBCheckNavigationCoverageTests: XCTestCase {
     // MARK: Labels
 
     func testLabelsCollapseTheirWhitespace() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/75")
         // EPUB 3.3, 7.3: a label is the element's text "after concatenation of all child content
         // and application of whitespace normalization rules". Authoring tools wrap and indent.
         let book = try open(nav: toc("""
