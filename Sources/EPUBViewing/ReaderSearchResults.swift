@@ -384,9 +384,10 @@ struct EPUBSearchResultPane: View {
         }
     }
 
-    /// An iPhone on its side leaves the pane's sheet about 225 points above the keyboard. With
-    /// 160 of them promised to the list, the pane was taller than its sheet, which cut the field
-    /// and Close Search off the top.
+    /// An iPhone 17 Pro on its side leaves the pane's sheet 177 points above the keyboard and its
+    /// suggestions, and the field, its buttons, the navigator and the padding take 125 of them.
+    /// With 160 more promised to the list, the sheet's content was taller than the sheet, which
+    /// cut the field and Close Search off the top.
     static func minimumListHeight(_ verticalSizeClass: UserInterfaceSizeClass?) -> CGFloat {
         verticalSizeClass == .compact ? 44 : 160
     }
