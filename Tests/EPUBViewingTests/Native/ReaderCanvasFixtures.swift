@@ -138,7 +138,8 @@ final class TextualTestAttachment: NSTextAttachment, ReaderTextualAttachment {
 /// The scroll bars of a continuous scroll view. A Mac shows overlay ones with a trackpad and
 /// legacy ones with a mouse attached, and a legacy one takes its width from the scroll column
 /// (doc/native-viewer.md, "Layout"). A test of where lines sit across that column says which it
-/// means with `CanvasHost.setScrollBars`, so its result is not this Mac's. iOS has overlay ones only.
+/// means with `CanvasHost.setScrollBars`, so that its result does not depend on what is attached
+/// to the Mac it runs on. iOS has overlay ones only.
 enum CanvasScrollBars: CaseIterable {
     case overlay
     #if os(macOS)
