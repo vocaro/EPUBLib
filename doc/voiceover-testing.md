@@ -451,13 +451,13 @@ Four things went wrong in the first runs, and the runner and probe now allow for
 - **An xcodebuild that does not end.** After a test that recorded any issue, a warning
   included, xcodebuild runs `simctl diagnose --timeout=600` and waits for it. A rotated iPad
   logs such a warning in a probe that passes ("Support for all orientations will soon be
-  required"), and xcodebuild then ran on for 22 seconds, 30 seconds, a minute, and twice more
-  than five minutes, when it was stopped. The runner passes `-collect-test-diagnostics
-  never`, with which the same run ended within a second of its probe. If xcodebuild has still
-  not ended `--exit-grace` seconds after the probe, the runner stops it and its collector,
-  takes the speech from xcodebuild's output or from the unfinished result bundle
-  (`Staging/*/Diagnostics/**/StandardOutputAndStandardError.txt`), whichever holds more, and
-  says so in a `STOPPED` line.
+  required"), and xcodebuild then ran on for 22 seconds, 30 seconds, a minute, twice more than
+  five minutes, when it was stopped, and once the collector's whole ten. The runner passes
+  `-collect-test-diagnostics never`, with which the same run ended within a second of its
+  probe. If xcodebuild has still not ended `--exit-grace` seconds after the probe, the runner
+  stops it and its collector, takes the speech from xcodebuild's output or from the
+  unfinished result bundle (`Staging/*/Diagnostics/**/StandardOutputAndStandardError.txt`),
+  whichever holds more, and says so in a `STOPPED` line.
 - **Other sessions.** XCTest fails a UI test when a process it calls critical crashes while
   the test runs. One probe failed with "Critical process xctest crashed" while other sessions'
   unit tests were running on the Mac; its own transcript was complete. `FAILURE` lines give
