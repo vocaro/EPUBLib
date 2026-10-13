@@ -138,6 +138,14 @@ reader out. The bars are the system's own, in a test host; nothing is looked at 
 Each window's toolbar has an identifier of its own: toolbars that share one share their
 visibility across the windows of a process, so hiding one hides the next test's.
 
+Table reading-order tests hold a table on iPhone and iPad to one accessibility element for each
+row, between the lines around it and in both flows: text with its cells' words, the actions of
+its own cells, a row continued across pages by each page's own words, a row of pictures as an
+image and an empty row as nothing. They also hold every view the reader mounts inside a text
+view that lists its lines to being hidden from assistive technology. That VoiceOver reads what
+such a view offers before the lines of a page column is known only from
+[speech sessions](voiceover-testing.md); no in-process query shows it.
+
 Highlight paint tests read the pixels the mounted reader's views last drew: none in the
 highlight's color before a search, the matches after it, and none again after Clear Search,
 with no reflow between. They cover both flows, one- and two-column spreads, dark appearance,
