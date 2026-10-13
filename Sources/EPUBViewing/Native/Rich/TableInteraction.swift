@@ -35,6 +35,9 @@ struct ReaderTableAction {
     /// a link's element is its cell's.
     func keepRow(at location: Int?) {
         guard keptRow != location else { return }
+        #if os(macOS)
+        owner?.probe("KEEPROW \(location.map(String.init) ?? "none") was \(keptRow.map(String.init) ?? "none")")
+        #endif
         keptRow = location
         refresh()
     }
@@ -184,7 +187,21 @@ struct ReaderTableAction {
         #endif
         let origin = owner.containerOrigin
         var ranges: [NSRange] = []
+        #if os(macOS)
+        // TRIAL, not for main.
+        let probing = ReaderProbe.isOn && !owner.isPageColumn
+        let probeCaret = owner.selectedRange.location
+        var probeFragment = "none", probeRows: [String] = []
+        #endif
         owner.readerLayoutManager.enumerateTextLayoutFragments(from: owner.contentStorage.documentRange.location, options: []) { fragment in
+            #if os(macOS)
+            if probing {
+                let lower = owner.offset(of: fragment.rangeInElement.location), upper = owner.offset(of: fragment.rangeInElement.endLocation)
+                if lower <= probeCaret, probeCaret < upper {
+                    probeFragment = "state \(fragment.state.rawValue) y \(Int(fragment.layoutFragmentFrame.minY + origin.y))+\(Int(fragment.layoutFragmentFrame.height))"
+                }
+            }
+            #endif
             guard fragment.state == .layoutAvailable,
                   !fragment.layoutFragmentFrame.offsetBy(dx: origin.x, dy: origin.y).intersection(visible).isEmpty else { return true }
             let lower = owner.offset(of: fragment.rangeInElement.location)
@@ -197,8 +214,18 @@ struct ReaderTableAction {
         }
         for range in ranges {
             storage.enumerateAttribute(.attachment, in: range) { value, run, _ in
-                guard let row = value as? TableRowAttachment,
-                      let frame = owner.segmentFrames(for: run).first else { return }
+                guard let row = value as? TableRowAttachment else { return }
+                #if os(macOS)
+                if probing, owner.segmentFrames(for: run).isEmpty { probeRows.append("\(run.location) no segment") }
+                #endif
+                guard let frame = owner.segmentFrames(for: run).first else { return }
+                #if os(macOS)
+                if probing {
+                    let items = row.interactionCells(size: frame.size, viewportHeight: owner.readerContainer.viewportSize.height)
+                    let shown = items.filter { !$0.frame.offsetBy(dx: frame.minX + origin.x, dy: frame.minY + origin.y).intersection(visible).isEmpty }.count
+                    probeRows.append("\(run.location) y \(Int(frame.minY + origin.y))+\(Int(frame.height)) cells \(shown)/\(items.count)")
+                }
+                #endif
                 for item in row.interactionCells(size: frame.size, viewportHeight: owner.readerContainer.viewportSize.height) {
                     let key = Key(location: run.location, cell: item.cell,
                         lower: item.characters.location, upper: item.characters.upperBound)
@@ -256,6 +283,13 @@ struct ReaderTableAction {
             }
         }
         for key in Array(cells.keys) where !retained.contains(key) { cells.removeValue(forKey: key)?.removeFromSuperview() }
+        #if os(macOS)
+        if probing {
+            let text = "TABLES clip \(Int(visible.minY))+\(Int(visible.height)) ranges \(ranges.count) caret \(probeCaret) fragment \(probeFragment)"
+                + " kept \(keptRow.map(String.init) ?? "none") rows \(probeRows)"
+            owner.probe(text)
+        }
+        #endif
     }
 
     func clearSelection() {

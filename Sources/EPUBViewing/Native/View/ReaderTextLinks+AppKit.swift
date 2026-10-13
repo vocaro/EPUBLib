@@ -307,12 +307,14 @@ extension ReaderTextView: ReaderLinkHost {
     /// VoiceOver then says the item under its cursor again, so there the link's name follows
     /// that word.
     func showLink(at range: NSRange) {
+        probe("SHOWLINK \(range.location),\(range.length) frame \(Int(linkFrame(range).minY))+\(Int(linkFrame(range).height)) \(probeState)")
         guard let canvas, !isPageColumn, range.location != NSNotFound, range.location < textLength,
               !linkFrame(range).intersects(visibleRect),
-              let position = canvas.position(at: range.location, in: self) else { return }
+              let position = canvas.position(at: range.location, in: self) else { return probe("SHOWLINK left as it is") }
         canvas.show(position, selecting: nil)
         let place = NSRange(location: range.location, length: 0)
         if selectedRange != place { selectedRange = place }
+        probe("SHOWLINK shown, frame \(Int(linkFrame(range).minY))+\(Int(linkFrame(range).height)) \(probeState)")
     }
 }
 
@@ -341,18 +343,43 @@ final class ReaderLinkAccessibilityElement: NSAccessibilityElement {
     // AppKit asks on the main thread. The place is found when asked for: the view scrolls and
     // its lines move under an element that is kept.
     override func accessibilityFrameInParentSpace() -> NSRect {
-        guard let view else { return .zero }
+        guard let view else { probeLink("FrameInParentSpace = zero, no view"); return .zero }
         let range = range, listing = listing
-        return MainActor.assumeIsolated {
+        let frame: NSRect = MainActor.assumeIsolated {
             let frame = view.linkFrame(range)
             return listing.map { $0.convert(frame, from: view) } ?? frame
         }
+        probeLink("FrameInParentSpace = \(Int(frame.minY))+\(Int(frame.height))")
+        return frame
     }
 
     override func accessibilityFrame() -> NSRect {
-        guard let view else { return .zero }
+        guard let view else { probeLink("Frame = zero, no view"); return .zero }
         let range = range
-        return MainActor.assumeIsolated { NSAccessibility.screenRect(fromView: view, rect: view.linkFrame(range)) }
+        let frame: NSRect = MainActor.assumeIsolated { NSAccessibility.screenRect(fromView: view, rect: view.linkFrame(range)) }
+        probeLink("Frame = \(Int(frame.minY))+\(Int(frame.height)) x \(Int(frame.minX))+\(Int(frame.width))")
+        return frame
+    }
+
+    // TRIAL, not for main: what an assistive client asks of a link.
+    private func probeLink(_ text: String, stack: Bool = false) {
+        let title = accessibilityTitle() ?? "", listed = listing != nil, place = listedPlace, range = range
+        let live = view != nil
+        MainActor.assumeIsolated {
+            ReaderProbe.log("LINK \"\(title)\" \(listed ? "listed at \(place)" : "at \(range.location)")\(live ? "" : " (its view is gone)") \(text)", stack: stack)
+        }
+    }
+
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        let value = super.accessibilityAttributeValue(attribute)
+        probeLink("AXASK \(attribute.rawValue) = \(ReaderProbe.short(value))")
+        return value
+    }
+
+    override func accessibilityParent() -> Any? {
+        let parent = super.accessibilityParent()
+        probeLink("Parent = \(parent.map { "\(type(of: $0))" } ?? "none")")
+        return parent
     }
 
     override func accessibilityPerformPress() -> Bool {
@@ -376,11 +403,14 @@ final class ReaderLinkAccessibilityElement: NSAccessibilityElement {
     // while the insertion point is on it, where the reader puts it for a link it has to
     // show (`ReaderTextView.showLink`).
     override func isAccessibilityFocused() -> Bool {
-        guard let place else { return false }
-        return MainActor.assumeIsolated { place.text.selectedRange == NSRange(location: place.range.location, length: 0) }
+        guard let place else { probeLink("Focused = false, no place"); return false }
+        let focused = MainActor.assumeIsolated { place.text.selectedRange == NSRange(location: place.range.location, length: 0) }
+        probeLink("Focused = \(focused)")
+        return focused
     }
 
     override func setAccessibilityFocused(_ focused: Bool) {
+        probeLink("AXSET Focused \(focused)", stack: true)
         guard focused, let place else { return }
         MainActor.assumeIsolated { place.text.showLink(at: place.range) }
     }

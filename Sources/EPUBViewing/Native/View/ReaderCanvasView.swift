@@ -194,6 +194,9 @@ import AppKit
     }
 
     func show(_ position: ReaderTextPosition, selecting range: ReaderTextRange?) {
+        #if os(macOS)
+        scrollTextView?.probe("SHOW section \(position.section) offset \(position.offset) cell \(position.tableCell != nil)")
+        #endif
         settleLayout()
         clearSelection()
         anchor = position
@@ -332,6 +335,11 @@ import AppKit
         let range = configuration.flow == .scrolled ? scrollVisibleRange() : pagesVisibleRange()
         // Every move of the scroll view ends here, with the viewport laid out where it stands.
         if configuration.flow == .scrolled { refreshScrollTables() }
+        #if os(macOS)
+        if let textView = scrollTextView {
+            textView.probe("VISIBLE force \(force) reader \(scrollBook.flatMap { book in range.map { "\(book.location(of: $0.start))-\(book.location(of: $0.end))" } } ?? "none") \(textView.probeState)")
+        }
+        #endif
         guard let range else { return }
         let changed = range != visibleRange
         visibleRange = range
@@ -705,6 +713,9 @@ import AppKit
     /// Puts the whole book in the scroll view when the data source has it, else the anchor's section.
     private func loadScrollContent() {
         guard let textView = scrollTextView else { return }
+        #if os(macOS)
+        textView.probe("LOAD the scroll view's text", stack: true)
+        #endif
         // Capture in the old placement before a section becomes the whole book (or vice versa).
         // A pending locate owns the selection; a native user edit supersedes a cached locate.
         let carried: ReaderTextRange?
@@ -906,6 +917,13 @@ import AppKit
     /// has anybody when the platform reports the reader's own scroll late (`byReader`).
     func scrollPositionDidChange(byReader: Bool = false) {
         refreshScrollTables()
+        #if os(macOS)
+        if let textView = scrollTextView {
+            let taken = !byReader && !isScrollingProgrammatically && !scrollViewStandsWhereRead
+            textView.probe("SCROLLED \(taken ? "by somebody" : "by the reader (\(byReader) \(isScrollingProgrammatically) \(scrollViewStandsWhereRead))") \(textView.probeState)",
+                           stack: taken)
+        }
+        #endif
         guard !byReader, !isScrollingProgrammatically, !scrollViewStandsWhereRead else { return }
         anchorFollowsScroll = true
         guard !scrollReportPending else { return }
@@ -988,6 +1006,7 @@ import AppKit
     /// there the scroll view lists its lines on screen (`ReaderTextView`).
     private func placeScrollInsertionPoint(at start: ReaderTextPosition, requested: Bool) {
         guard let textView = scrollTextView else { return }
+        textView.probe("INSERTION requested \(requested) to \(scrollBook?.location(of: start) ?? start.offset) placed \(placedScrollInsertionPoint.map(String.init) ?? "none") \(textView.probeState)")
         if textView.selectedRange.length == 0, requested || textView.selectedRange.location == placedScrollInsertionPoint {
             let location = scrollBook?.location(of: start) ?? start.offset
             placedScrollInsertionPoint = location

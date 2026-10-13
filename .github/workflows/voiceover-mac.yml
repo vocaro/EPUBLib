@@ -201,6 +201,16 @@ jobs:
           set +e
           mkdir -p "$RESULTS"
           screencapture -x "$RESULTS/screen-end.png"
+          # TRIAL, not for main: the sandboxed reader's own log.
+          reader=org.epubreaderlib.voiceoververify.mac
+          cp "$(getconf DARWIN_USER_TEMP_DIR)$reader/reader-probe.log" "$RESULTS/reader-probe.log" 2> /dev/null
+          if [ ! -f "$RESULTS/reader-probe.log" ]; then
+            ( cp "$HOME/Library/Containers/$reader/Data/tmp/reader-probe.log" "$RESULTS/reader-probe.log" 2> /dev/null ) &
+            copy=$!
+            sleep 5
+            kill "$copy" 2> /dev/null
+          fi
+          ls -l "$RESULTS"/reader-probe*.log
           echo "VoiceOver state: $(defaults read com.apple.universalaccess voiceOverOnOffKey 2>&1), process: $(pgrep -lx VoiceOver || echo none)"
           # VoiceOver or the reader quitting in a session shows as a transcript that goes quiet
           # or starts over. macOS writes the report a few seconds after the process ends.
