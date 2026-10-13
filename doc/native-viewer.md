@@ -534,9 +534,10 @@ as they did.
   itself: `index(ofAccessibilityElement:)` is `NSNotFound` for it, from UIKit's own
   implementation as from the reader's, and UIKit then takes the bar to stand at the head of
   the list. Asked from the bar, UIKit gives the control before the text as the item before
-  it and the first line listed as the item after it. VoiceOver asks from the bar when its
-  cursor is put there by a touch, and after the book's last line, where the bar is the next
-  item: it then reads the screen again from its first line
+  it and the first line listed as the item after it. VoiceOver asks from the bar after the
+  book's last line, where the bar is the next item, and then reads the screen again from
+  its first line; moving back from there it goes to the control before the text. A cursor
+  put on the bar by a touch was not run and would be answered the same way
   ([#342](https://github.com/vocaro/EPUBLib/issues/342)).
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
