@@ -233,6 +233,10 @@ final class ReaderTextView: NSTextView {
             guard NSMaxRange(local) <= result.length else { continue }
             let element = linkElement(for: url, at: whole)
             result.addAttribute(.accessibilityLink, value: element, range: local)
+            if probe == "attach" {
+                result.addAttribute(.accessibilityAttachment, value: element, range: local)
+                continue
+            }
             guard whole.length == 1, probe == "merge" || probe == "child",
                   let attachment = result.attribute(.accessibilityAttachment, at: local.location, effectiveRange: nil) as? NSAccessibilityElement else { continue }
             if probe == "child" {

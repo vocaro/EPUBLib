@@ -13,9 +13,10 @@ import SwiftUI
     var body: some Scene {
         WindowGroup {
             #if os(macOS)
-            // `-VerificationPlainText YES` shows AppKit's own text view in the reader's place.
-            if UserDefaults.standard.bool(forKey: "VerificationPlainText") {
-                PlainTextReference().frame(minWidth: 360, minHeight: 600)
+            // `-VerificationPlainText YES` shows AppKit's own text view in the reader's place,
+            // and `-VerificationPlainText TextKit1` one laid out by TextKit 1.
+            if let kind = UserDefaults.standard.string(forKey: "VerificationPlainText") {
+                PlainTextReference(textKit2: kind != "TextKit1").frame(minWidth: 360, minHeight: 600)
             } else {
                 NavigationStack { ReaderScreen() }.frame(minWidth: 360, minHeight: 600)
             }
@@ -30,16 +31,21 @@ import SwiftUI
 }
 
 #if os(macOS)
-/// AppKit's own TextKit 2 text view holding a link of words and a link that is a picture,
-/// with none of the reader's code: what VoiceOver says and does here is AppKit's and
-/// VoiceOver's doing, to compare the reader with. Following a link writes its name at the
-/// start of the text, which changes the text's accessibility value.
+/// AppKit's own text view holding a link of words and a link that is a picture, with none of
+/// the reader's code: what VoiceOver says and does here is AppKit's and VoiceOver's doing, to
+/// compare the reader with. Following a link writes its name at the start of the text, which
+/// changes the text's accessibility value.
 struct PlainTextReference: NSViewRepresentable {
+    /// The reader's views are TextKit 2 views. TextKit 1 is what AppKit's text views were.
+    var textKit2 = true
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSTextView.scrollableTextView()
         guard let view = scrollView.documentView as? NSTextView else { return scrollView }
+        // Asking a text view for its layout manager takes it to TextKit 1 for good.
+        if !textKit2 { _ = view.layoutManager }
         let font = NSFont.systemFont(ofSize: 17)
         let text = NSMutableAttributedString(string: "Reference opening words. Before the reference link after it.\nPicture link: ",
                                              attributes: [.font: font])
