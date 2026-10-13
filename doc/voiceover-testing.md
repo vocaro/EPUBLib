@@ -627,7 +627,28 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    cell is an item by itself, and moving back gives the same items in reverse. On the last
    row the rotor offers Select Table Text for its two cells and Follow Table Link: Eighth
    cell link, which opens the first section at "Link target reached"; a line beside the
-   tables offers none of them.
+   tables offers none of them. Nothing marks those tables as data and they are not ruled.
+   On the section of tables of data, in pages and in continuous scroll, each cell is an
+   item. VoiceOver says the header cells that have changed since the cell before, then the
+   cell's words, the row at a row's first cell and the column at every cell, with "Table
+   start" and the count of rows and columns at the table's first cell and "Table end" at
+   its last: "Station, Column header, Row 1, Column 1, Table start, 4 rows 3 columns",
+   "Opened, 1901, Column 2", "Station, Birch, Row header, Row 3, Column 1", for the empty
+   cell "Depth, Column 3", and "Depth, Forty metres, Column 3, Table end". A cell that
+   spans says so, "Service, Column header, Spans 2 rows", and "Hours" is not read under
+   "Leaves", which stands below it. "Reopened 1978" is a link: a double tap opens the first
+   section at "Link target reached", and the rotor offers Select Cell Text and Follow Link:
+   Reopened 1978 after the page's own two. With the rotor on Rows (`rotor=Rows`),
+   `flick=down` and `flick=up` move down and up a column: from "Alder" to "Birch, Row
+   header, Row 3". The table with `role="presentation"` is read row by row, "Left side
+   Right side", though it is ruled like the others, and the ruled table of plain cells cell
+   by cell, "North, Row 1, Column 1, Table start, 2 rows 2 columns". On the section with a
+   table longer than a page, in continuous scroll, VoiceOver reads on through all forty
+   rows and back, every cell once and in order, the view following, and names a column's
+   header cell far below the header row: "Sum, Sum 39, Row 40, Column 3". In pages the
+   page after the first goes on at the next row's number, and does not say "Table start".
+   On the section with a row taller than a page, each page's cell reads the words that
+   page shows.
 7. On the section of pictures, in pages and in continuous scroll. VoiceOver stops between
    "Undescribed picture" and "stands here." and says that an image is there, with no name.
    It reads "Decoration" and "passed over." with nothing between them, and the same for
