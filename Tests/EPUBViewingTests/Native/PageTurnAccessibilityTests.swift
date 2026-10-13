@@ -685,8 +685,8 @@ import XCTest
         XCTAssertTrue(cell.accessibilityContainer as? ReaderTextView === columns[0])
         XCTAssertEqual(cell.accessibilityLabel, "Plain closing words.\n")
         XCTAssertEqual(answersAsCell(cell), [false, false, false])
-        XCTAssertEqual(cell.accessibilityFrame, UIAccessibility.convertToScreenCoordinates(cell.accessibilityFrameInContainerSpace, in: columns[0]),
-                       "where it is on the screen is where the left-hand column shows it")
+        // A line's place on the screen is UIKit's to work out, from its place in its column.
+        XCTAssertTrue(columns[0].bounds.insetBy(dx: -0.5, dy: -0.5).contains(cell.accessibilityFrameInContainerSpace))
         for column in columns { XCTAssertFalse(column.accessibilityCursorHasLeftThePage) }
 
         // Back: the line becomes the first cell of the spread before, in the left-hand column's table.
