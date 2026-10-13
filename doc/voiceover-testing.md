@@ -1076,7 +1076,10 @@ The Mac runner's transcript is plain text and needs no export.
   With `main` at `a49d12e` merged in, which marks headings in the same rich text, at
   `e4b1e22`, run 38342923798, pages: the same six phrases by line and with `readall`, and
   on the page of a rule alone "In text Separator", "Separator" for the line and for the
-  word, no phrase for a move right and "end of text".
+  word, no phrase for a move right and "end of text". Those two revisions also gave a rule
+  in a table cell the element, which the change as it is does not; the scenes hold no
+  table. The change as it is, at `6e9b055`, run 38346365216, pages: the same phrases by
+  line, by word, with `readall` and on the page of a rule alone as at `e3f5240`.
   The other elements, each a commit that differs in nothing but what a rule's character
   carries, heard in pages by line, by word, with `readall` and on the page of a rule alone.
   AppKit's splitter role and nothing else, `3073331`, run 38333879354: "horizontal splitter
