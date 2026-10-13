@@ -284,8 +284,18 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   native text interaction surfaces aligned to their drawn glyphs: select and Copy cell text,
   invoke the host's selection action, follow internal links and open notes. External links retain
   the reader's refusal notice. Cell selections, located passages and saved highlights use exact
-  DOM-based character ranges, including Unicode and inline markup. VoiceOver reads each continuation's words, completing
-  a word once if character wrapping splits it between pages. Continuations retain original
+  DOM-based character ranges, including Unicode and inline markup. VoiceOver reads a table by
+  its rows, each where it stands among the lines of its page, and each continuation by the
+  words it shows, completing a word once if character wrapping splits it between pages. On
+  iPhone and iPad a row is one accessibility element, in pages and in continuous scroll alike:
+  text, read as its cells' words in column order, with actions for its own cells (select a
+  cell's text, follow a link in it, inspect an image in it). A row that shows pictures and no
+  words is an image without a name, as a picture without words in a line is, and one that
+  shows nothing, or decoration alone, is no element unless its page lists nothing else. The interaction
+  surfaces are hidden from assistive technology there. A text view that is merely not an
+  element still offers UIKit's own elements for its text, and VoiceOver took those, every cell
+  on the page, before the first line of a page column and then read the rows as well. On Mac
+  a row is a group that holds its cells' text areas. Continuations retain original
   source offsets: several pages can report the same row range. Existing bookmarks naming a
   whole table still resolve to that table; new cell ranges identify the selected characters.
   Interaction surfaces are mounted only for visible cells. Cell TextKit
@@ -609,6 +619,10 @@ as they did.
   ("Alternative text" under Decisions).
   The canvas lists its columns to VoiceOver in source order; by their frames alone a column
   lowered by top spacing, or the first column of a right-to-left spread, would be read second.
+  A column given to VoiceOver that way is searched inside before its own lines are taken: the
+  text views over a table's cells, left visible, were read ahead of the page, which they are
+  not in a text view VoiceOver finds as a subview. Nothing the reader mounts inside a text
+  view is offered to assistive technology (see Tables).
   A paragraph that continues onto the next page is laid out a few lines further (or to
   a line break) and clipped, so its lines break exactly as in the measuring layout; justified
   text takes more, because CoreText justifies a paragraph of up to 8,192 characters as a whole
