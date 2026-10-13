@@ -22,6 +22,8 @@ final class ReaderTextView: NSTextView {
     private var attachmentElements: [Int: NSAccessibilityElement] = [:]
     /// The accessibility elements of the text's links (`ReaderTextLinks+AppKit.swift`).
     var linkElements = ReaderLinkElements()
+    /// The accessibility element of each heading, by the location of its first character.
+    private var headingElements: [Int: ReaderHeadingAccessibilityElement] = [:]
     private var menuImage: ReaderImageAttachment?
     /// The headings of the text in the view, found once for each text it is given.
     private var headingCache: [(heading: ReaderHeading, range: NSRange)]?
@@ -243,10 +245,15 @@ final class ReaderTextView: NSTextView {
     }
 
     /// AppKit lists a text view's links as its children and nothing else: the reader's own
-    /// elements take their place.
+    /// elements take their place, and its headings stand among them, each where it is in the
+    /// text (`headingChildren`).
     override func accessibilityChildren() -> [Any]? {
         guard canvas != nil else { return super.accessibilityChildren() }
-        return (super.accessibilityChildren() ?? []).filter { $0 is NSView } + linkChildren()
+        let links = linkChildren().map { (place: $0.range.location, element: $0 as NSAccessibilityElement) }
+        let headings = headingChildren().map { (place: $0.range.location, element: $0 as NSAccessibilityElement) }
+        // A heading comes before a link that begins where it does, which is a link inside it.
+        let own = (headings + links).enumerated().sorted { ($0.element.place, $0.offset) < ($1.element.place, $1.offset) }
+        return (super.accessibilityChildren() ?? []).filter { $0 is NSView } + own.map(\.element.element)
     }
 
     private func accessibilityElement(at range: NSRange, label: String, isText: Bool = false) -> NSAccessibilityElement {
@@ -278,6 +285,7 @@ final class ReaderTextView: NSTextView {
     func exposeTextualAttachments() {
         attachmentElements.removeAll()
         linkElements = ReaderLinkElements()
+        headingElements.removeAll()
         headingCache = nil
         // Replacing NSTextStorage moves its native caret to the new storage's end, which
         // can be hidden paragraph context, or the end of the book. VoiceOver uses that
@@ -431,6 +439,61 @@ final class ReaderTextView: NSTextView {
             guard !words.isEmpty else { return nil }
             return (heading, shown, heading.level > 0 ? "\(words), heading level \(heading.level)" : words)
         }
+    }
+}
+
+extension ReaderTextView {
+    /// The headings an assistive client finds among the text's children: each one with
+    /// characters on screen and, in continuous scroll, the next one below them. With its
+    /// cursor on a link, which is a child of the text and not a place in it, VoiceOver's move
+    /// to the next heading looks through those children and asks no rotor (macOS 27.0.1), so
+    /// a heading has an element there as a link has. The one below the screen is where that
+    /// move goes from the last link on screen. A page column has its page's headings.
+    func headingChildren() -> [ReaderHeadingAccessibilityElement] {
+        let visible = accessibilityVisibleCharacterRange()
+        var found: [ReaderHeadingAccessibilityElement] = []
+        for (heading, range, _) in accessibilityHeadings {
+            let below = range.location >= NSMaxRange(visible)
+            guard below || NSIntersectionRange(range, visible).length > 0 else { continue }
+            let element = headingElements[range.location] ?? ReaderHeadingAccessibilityElement()
+            headingElements[range.location] = element
+            element.view = self
+            element.range = range
+            element.setAccessibilityParent(self)
+            element.setAccessibilityLabel(plainText(in: range).split(whereSeparator: \.isWhitespace).joined(separator: " "))
+            // VoiceOver says the level it finds as the element's value: "heading level 2".
+            element.setAccessibilityValue(heading.level > 0 ? heading.level : nil)
+            found.append(element)
+            if below { break }
+        }
+        return found
+    }
+}
+
+/// A heading in a reader text view as VoiceOver finds it from another element of the text: a
+/// child of the text with AppKit's role for a heading, named by the heading's words, with its
+/// level. The heading's characters carry the level too, and the Headings rotor gives them:
+/// those are what VoiceOver goes by from a place in the text.
+final class ReaderHeadingAccessibilityElement: NSAccessibilityElement {
+    weak var view: ReaderTextView?
+    var range = NSRange(location: 0, length: 0)
+
+    override init() {
+        super.init()
+        setAccessibilityRole(.headingRole)
+    }
+
+    // AppKit asks on the main thread. The place is found when asked for, as a link's is.
+    override func accessibilityFrameInParentSpace() -> NSRect {
+        guard let view else { return .zero }
+        let range = range
+        return MainActor.assumeIsolated { view.linkFrame(range) }
+    }
+
+    override func accessibilityFrame() -> NSRect {
+        guard let view else { return .zero }
+        let range = range
+        return MainActor.assumeIsolated { NSAccessibility.screenRect(fromView: view, rect: view.linkFrame(range)) }
     }
 }
 

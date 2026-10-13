@@ -614,7 +614,10 @@ import UIKit
         XCTAssertEqual(try rotorHeadings(of: view, listing: true).map(\.label), headings.map(\.label))
     }
 
-    func testTheScrollViewsRotorAskedFromALinkStandsAtTheLink() throws {
+    /// Three chapters in continuous scroll, each some screens long: a link under the first
+    /// heading, one deep in the second chapter before a heading of the second level, and one
+    /// at the end of the book.
+    private func scrolledChapters() throws -> (host: CanvasHost, view: ReaderTextView) {
         let filler = (0..<12).map { "<p>\(CanvasText.sentence(60, seed: $0))</p>" }.joined()
         let sections = try [
             "<h1>First chapter</h1><p>Opening words and <a href=\"two.xhtml\">a first link</a>.</p>\(filler)",
@@ -627,7 +630,11 @@ import UIKit
         hosts.append(host)
         host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
         host.layOut()
-        let view = try XCTUnwrap(host.canvas.scrollTextView)
+        return (host, try XCTUnwrap(host.canvas.scrollTextView))
+    }
+
+    func testTheScrollViewsRotorAskedFromALinkStandsAtTheLink() throws {
+        let (_, view) = try scrolledChapters()
         let headings = try rotorHeadings(of: view, listing: true)
         XCTAssertEqual(headings.map(\.label), ["First chapter, heading level 1", "Second chapter, heading level 1",
                                                "A part of the second, heading level 2", "Third chapter, heading level 1"])
@@ -646,6 +653,98 @@ import UIKit
                 XCTAssertEqual(before?.range, heading.before.map { headings[$0].range }, "before \(name), asked with \(range)")
             }
         }
+    }
+
+    /// What the text's children are to an assistive client, each by its role and name.
+    private func children(of view: ReaderTextView) -> [String] {
+        (view.accessibilityChildren() ?? []).compactMap { child in
+            if let link = child as? ReaderLinkAccessibilityElement { return "link \(link.accessibilityTitle() ?? "")" }
+            if let heading = child as? ReaderHeadingAccessibilityElement { return "heading \(heading.accessibilityLabel() ?? "")" }
+            return nil
+        }
+    }
+
+    private func headingChildren(of view: ReaderTextView) -> [ReaderHeadingAccessibilityElement] {
+        (view.accessibilityChildren() ?? []).compactMap { $0 as? ReaderHeadingAccessibilityElement }
+    }
+
+    /// With its cursor on a link, VoiceOver's move to the next heading looks through the
+    /// text's children in their order and asks no rotor (macOS 27.0.1): a page's headings
+    /// stand there, each where it is in the text among the links.
+    func testAPagesHeadingsAreAmongItsTextsChildrenWithItsLinks() throws {
+        let (section, host, view) = try shownPage()
+        XCTAssertEqual(children(of: view), [
+            "heading A chapter title long enough to take two lines of the page", "heading Second linked part", "link linked",
+            "heading Hidden third", "heading Deeper than six"], "in the order of the text, a heading before a link inside it")
+        let headings = headingChildren(of: view)
+        XCTAssertEqual(headings.map(\.range), section.string.readerHeadings().map(\.range))
+        XCTAssertEqual(headings.map { $0.accessibilityValue() as? Int }, [1, 2, 3, nil], "the level VoiceOver says, and none where there is none to say")
+        for heading in headings {
+            let name = heading.accessibilityLabel() ?? ""
+            XCTAssertEqual(heading.accessibilityRole(), .headingRole, name)
+            XCTAssertTrue(heading.accessibilityParent() as AnyObject === view, name)
+            let place = heading.accessibilityFrame()
+            XCTAssertGreaterThanOrEqual(place.width, 1, name)
+            XCTAssertGreaterThanOrEqual(place.height, 1, name)
+            XCTAssertTrue(view.accessibilityFrame().insetBy(dx: -1, dy: -1).contains(place), "\(name): \(place) in \(view.accessibilityFrame()), words \(view.accessibilityFrame(for: heading.range))")
+        }
+        // Its place is its words': both lines of the first, and for the hidden one, which
+        // takes no room, a point in the line it stands in.
+        let title = headings[0].accessibilityFrame(), words = view.accessibilityFrame(for: headings[0].range)
+        XCTAssertEqual(title.minY, words.minY, accuracy: 1)
+        XCTAssertEqual(title.height, words.height, accuracy: 1)
+        XCTAssertGreaterThan(title.height, 2 * view.accessibilityFrame(for: NSRange(location: 0, length: 5)).height - 1, "two lines")
+        let under = (section.string.string as NSString).range(of: "Words under")
+        XCTAssertEqual(headings[2].accessibilityFrame().midY, view.accessibilityFrame(for: under).midY, accuracy: 14)
+        // The elements are kept while the text is: VoiceOver's cursor stays on the one it has.
+        XCTAssertTrue(zip(headings, headingChildren(of: view)).allSatisfy { $0 === $1 })
+        // A page gives its own headings, as it gives its own links.
+        let chapter = try chapter()
+        let pages = self.host(chapter.string, size: CGSize(width: 320, height: 560))
+        var seen: [String] = [], turns = 0
+        repeat {
+            let column = try XCTUnwrap(pages.canvas.textViews.first)
+            for heading in headingChildren(of: column) {
+                XCTAssertLessThanOrEqual(NSMaxRange(heading.range), column.shownCharacters.length, heading.accessibilityLabel() ?? "")
+                seen.append(heading.accessibilityLabel() ?? "")
+            }
+            turns += 1
+        } while turns < 100 && pages.canvas.turnPage(forward: true) == .turned
+        XCTAssertEqual(seen, ["A chapter title long enough to take two lines of a narrow page column", "Second level",
+                              "Third level on two lines", "Fourth level"], "each on the page that shows it")
+        // A text view with no canvas, as a note's popover has, keeps AppKit's children.
+        let note = H.view(section.string, size: CGSize(width: 300, height: 400), pageColumn: false)
+        XCTAssertFalse((note.accessibilityChildren() ?? []).contains { $0 is ReaderHeadingAccessibilityElement })
+        _ = host
+    }
+
+    /// The scroll view lists the links of the paragraphs on screen. Its headings are those on
+    /// screen and the next one below, where a move by heading goes from the last link on screen.
+    func testTheScrollViewsChildrenAreTheHeadingsOnScreenAndTheNextBelow() throws {
+        let (host, view) = try scrolledChapters()
+        let all = try rotorHeadings(of: view, listing: true)
+        func expected() -> [NSRange] {
+            let visible = view.accessibilityVisibleCharacterRange()
+            let shown = all.map(\.range).filter { NSIntersectionRange($0, visible).length > 0 }
+            return shown + (all.map(\.range).first { $0.location >= NSMaxRange(visible) }.map { [$0] } ?? [])
+        }
+        XCTAssertEqual(children(of: view), ["heading First chapter", "link a first link", "heading Second chapter"])
+        XCTAssertEqual(headingChildren(of: view).map(\.range), expected())
+        XCTAssertFalse(NSLocationInRange(all[1].range.location, view.accessibilityVisibleCharacterRange()), "the second is screens below")
+        let below = headingChildren(of: view)[1]
+        XCTAssertEqual(below.accessibilityValue() as? Int, 1)
+        XCTAssertGreaterThan(below.accessibilityFrameInParentSpace().minY, view.visibleRect.maxY, "its place is where it stands, below the screen")
+        // Scrolled to the second chapter: the same element for its heading, now on screen.
+        host.canvas.show(ReaderTextPosition(section: 1, offset: 0), selecting: nil)
+        host.layOut()
+        XCTAssertEqual(headingChildren(of: view).map(\.range), expected())
+        XCTAssertTrue(headingChildren(of: view).first === below)
+        XCTAssertEqual(headingChildren(of: view).map { $0.accessibilityLabel() ?? "" }, ["Second chapter", "A part of the second"])
+        // At the end of the book nothing is below.
+        host.canvas.show(ReaderTextPosition(section: 2, offset: 0), selecting: nil)
+        host.layOut()
+        XCTAssertEqual(headingChildren(of: view).map(\.range), expected())
+        XCTAssertEqual(headingChildren(of: view).last?.accessibilityLabel(), "Third chapter")
     }
     #endif
 }
