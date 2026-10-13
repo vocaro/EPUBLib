@@ -21,6 +21,8 @@ final class ReaderTextView: NSTextView {
     private var attachmentElements: [Int: NSAccessibilityElement] = [:]
     /// The accessibility element of each link, by the location of its first character.
     private var linkElements: [Int: ReaderLinkAccessibilityElement] = [:]
+    private lazy var linkSearch = ReaderLinkRotorSearch(view: self)
+    private lazy var linkRotor = NSAccessibilityCustomRotor(rotorType: .link, itemSearchDelegate: linkSearch)
     private var menuImage: ReaderImageAttachment?
     /// The text column's left edge in continuous scroll, where a division can move it off centre.
     var columnMinX: CGFloat = 0
@@ -299,6 +301,42 @@ final class ReaderTextView: NSTextView {
         return others + links(in: accessibilityVisibleCharacterRange()).map { linkElement(for: $0.url, at: $0.range) }
     }
 
+    private var linkRotorProbe: String? {
+        UserDefaults.standard.string(forKey: "ReaderLinkProbe").flatMap { $0.hasPrefix("rotor") ? $0 : nil }
+    }
+
+    override func accessibilityCustomRotors() -> [NSAccessibilityCustomRotor] {
+        guard linkRotorProbe != nil else { return super.accessibilityCustomRotors() }
+        return super.accessibilityCustomRotors() + [linkRotor]
+    }
+
+    /// The link after or before where VoiceOver's search stands, and none past either end.
+    fileprivate func linkRotorResult(_ parameters: NSAccessibilityCustomRotor.SearchParameters) -> NSAccessibilityCustomRotor.ItemResult? {
+        var all = links(in: exposedCharacters)
+        let filter = parameters.filterString
+        if !filter.isEmpty { all = all.filter { linkTitle($0.range).localizedCaseInsensitiveContains(filter) } }
+        let forward = parameters.searchDirection == .next
+        var place: Int?
+        if let current = parameters.currentItem {
+            if let link = current.targetElement as? ReaderLinkAccessibilityElement { place = link.range.location }
+            else if current.targetElement != nil, current.targetRange.location != NSNotFound,
+                    current.targetRange != NSRange(location: 0, length: 0) { place = current.targetRange.location }
+        }
+        let found: (url: URL, range: NSRange)?
+        if let place { found = forward ? all.first { $0.range.location > place } : all.last { NSMaxRange($0.range) <= place } }
+        else { found = forward ? all.first : all.last }
+        guard let found else { return nil }
+        let element = linkElement(for: found.url, at: found.range)
+        let result: NSAccessibilityCustomRotor.ItemResult
+        if linkRotorProbe == "rotor-element" { result = NSAccessibilityCustomRotor.ItemResult(targetElement: element) }
+        else {
+            result = NSAccessibilityCustomRotor.ItemResult(targetElement: self)
+            result.targetRange = found.range
+        }
+        result.customLabel = element.accessibilityTitle()
+        return result
+    }
+
     /// Where a link is, in this view's coordinates: at least a point, so that one which takes
     /// no room (a hidden label) still has a place for VoiceOver's cursor.
     fileprivate func linkFrame(_ range: NSRange) -> CGRect {
@@ -466,10 +504,21 @@ final class ReaderTextView: NSTextView {
     }
 }
 
+@MainActor final class ReaderLinkRotorSearch: NSObject, @MainActor NSAccessibilityCustomRotorItemSearchDelegate {
+    weak var view: ReaderTextView?
+
+    init(view: ReaderTextView) { self.view = view }
+
+    func rotor(_ rotor: NSAccessibilityCustomRotor,
+               resultFor searchParameters: NSAccessibilityCustomRotor.SearchParameters) -> NSAccessibilityCustomRotor.ItemResult? {
+        view?.linkRotorResult(searchParameters)
+    }
+}
+
 /// A link in a reader text view as VoiceOver meets it: in the text's accessibility string, and
 /// as a child of the text that its Find Next Link command moves to and Control-Option-Space
 /// presses.
-final class ReaderLinkAccessibilityElement: NSAccessibilityElement {
+final class ReaderLinkAccessibilityElement: NSAccessibilityElement, NSAccessibilityElementProtocol {
     weak var view: ReaderTextView?
     var url: URL?
     var range = NSRange(location: 0, length: 0)
@@ -479,6 +528,8 @@ final class ReaderLinkAccessibilityElement: NSAccessibilityElement {
         setAccessibilityRole(.link)
         setAccessibilitySubrole(.textLink)
     }
+
+    override func accessibilityIdentifier() -> String { "" }
 
     // AppKit asks on the main thread.
     override func accessibilityFrame() -> NSRect {
