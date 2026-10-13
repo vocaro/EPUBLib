@@ -473,6 +473,19 @@ extension TableCellTextView: ReaderLinkHost {
         onImage?(image)
         return onImage != nil
     }
+
+    /// The cell's insertion point goes to the link, as when VoiceOver moves it there itself
+    /// (`setAccessibilitySelectedTextRange`). A cell is on screen whole or not at all.
+    func showLink(at range: NSRange) {
+        let place = NSRange(location: min(max(range.location, shownCharacters.location), shownCharacters.upperBound), length: 0)
+        guard cellSelection != place else { return }
+        cellSelection = place
+        onSelection?(place)
+    }
+
+    func showsLink(at range: NSRange) -> Bool {
+        cellSelection == NSRange(location: range.location, length: 0)
+    }
 }
 
 extension TableCellTextView: NSTextViewDelegate {
