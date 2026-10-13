@@ -784,6 +784,9 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 - `rotate=landscape`, `rotate=portrait`: an iPad shows two columns in landscape and one in
   portrait. The probe waits for the screen as after `activate`, three seconds at most. End a
   session in the orientation it started in.
+- `listen=SECONDS`: every phrase VoiceOver speaks in that time, each as a `heard` line, where
+  another step records the one phrase standing when it ends. Use it after a step that makes
+  VoiceOver speak by itself, as a page turn under its cursor does.
 - `wait=SECONDS`, and `screenshot`, attached to the result bundle: what is on the glass,
   independent of every accessibility snapshot.
 
@@ -928,6 +931,12 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    another line; hidden continuation must not become reachable.
 3. Activate Next through VoiceOver and verify that the next visible/spoken word is exactly
    the successor of the prior page's last word, without duplication. Check Previous as well.
+   On an iPhone and iPad also turn the page from a line: with the cursor on a line of the
+   page, choose Next Page in the rotor (`flick=down`) and perform it (`doubletap=LABEL`).
+   VoiceOver then reads the first line of the page shown by itself (`listen=4`), a
+   screenshot shows its cursor on that line, and each move forward reads the next line of
+   that page. Do it from the first page and from a line in the middle of a later page,
+   whose lines hold the same characters as the next page's, and with Previous Page.
 4. Confirm heading order, the link's label/action and the image's spoken label.
 5. Resize or change typography, wait for the new layout, and repeat the boundary and ordering
    checks. On Mac verify corresponding value-change notifications and fresh text values.
@@ -2014,7 +2023,7 @@ The Mac runner's transcript is plain text and needs no export.
   not now. The selection itself is not to be seen in either screenshot.
   One thing was seen and not looked into: after the turn VoiceOver's cursor was still drawn
   where the line had stood, and a move forward from it went to the book's title under the
-  page.
+  page. The record of 2026-10-13 below has what it was.
   Most sessions started that evening did not run. At load averages of 600 to 1,000
   `devicectl` gave no answer in the runner's twenty seconds when a simulator's volume was
   set, and later failed with "Timed out waiting for CoreDeviceService to fully initialize";
@@ -2756,6 +2765,98 @@ The Mac runner's transcript is plain text and needs no export.
   a page's end, which the unit tests read; Read All in a cell with a link; link settings
   other than Speak; and a note's popover. What a cell says of a picture, a formula or a
   hidden label outside a link is in the entry before this one.
+- On 2026-10-12 and 13 pages were turned under VoiceOver's cursor before and after the
+  reader sent the cursor to the page shown
+  ([#449](https://github.com/vocaro/EPUBLib/issues/449)). The device is the physical iPad Air 13-inch
+  (M3) of the sessions above (iPadOS 27.2, 1024 × 1366, upright, 17 points, Xcode 27.0),
+  through XCTest's VoiceOver service, on the book's first section. Nobody listened.
+  Before, at `707e776`. With the cursor on "word0001 …", the first numbered line of the
+  first page, `flick=down` read "Next Page" and a double tap performed it: the page showed
+  `word0294`–`word0654`. The screenshot shows VoiceOver's cursor drawn where the old line
+  had stood, across the eighth and ninth lines of the new page, and three moves forward
+  each read "VoiceOver Page Boundary Verification", the book's title under the page. With
+  the cursor then put on "word0450 …" in the middle of that page (`point=0.5:0.5`), Next
+  Page showed `word0655`–`word1012` with the cursor drawn at the same place, now over
+  "word0818 …", and the three moves read "word0850 …", "word0842 …" and "word0850 …":
+  four lines below the cursor, the line above that, and the first again. From "word0818
+  …", Previous Page showed `word0294`–`word0654` with the cursor over "word0450 …", and
+  the moves read "word0474 …", "word0466 …", "word0474 …". Those two pages are full of
+  lines of eight and nine words. The reader answered for an element of the page before by
+  its characters counted from the top of its own page (`index(ofAccessibilityElement:)`),
+  and on such pages those are the characters of a line of the page turned to. A unit test
+  now holds the answer to the line's place in the book.
+  Before again, at `7fa9231` with the probe's `listen` step, the `main` the change was
+  last merged with. VoiceOver said nothing by itself after either turn. From "word0001 …"
+  the three moves read "word0573 …", "word0565 …", "word0573 …", near the foot of the page
+  that begins at `word0294`, where the first session had read the title; from "word0450
+  …", "word0939 …", "word0931 …", "word0939 …". The line it came to was not the same from
+  one session to the next, and was the page's first in none. With Previous Page chosen
+  and performed from "word0818 …", a second double tap with no flick before it turned the
+  page again, to `word0001`–`word0293`: on the line left behind the rotor stayed where it
+  was.
+  A page turned by the control strip's button needed no change. With the cursor taken
+  from a line to the button (`activate=Next Page`), VoiceOver stayed on "Next Page Button",
+  and moving forward read the strip's eight other controls and then "word0294 …",
+  "word0302 …", "word0310 …", "word0319 …": the new page from its first line. After
+  Previous Page it said "Previous Page dimmed", and moving forward read the controls again
+  and "Page boundary verification Heading".
+  After, at `7466dea`, the same steps with `listen=4` after each double tap. From "word0001
+  …", Next Page: VoiceOver read "word0294 word0295 … word0301" by itself, the screenshot
+  shows its cursor on that line, the first of the page, and the three moves read "word0302
+  …", "word0310 …", "word0319 …". From "word0450 …", Next Page: it read "word0655 …", and
+  the moves "word0663 …", "word0671 …", "word0680 …". From "word0818 …", Previous Page: it
+  read "word0294 …", and the moves "word0302 …", "word0310 …", "word0319 …". After a link:
+  with the cursor on "Verification link", a double tap showed the book's last page,
+  `word1013`–`word1200`, and VoiceOver read "Link target reached Heading" by itself, the
+  line of the link's target, below the twenty-one lines of words that begin that page; the
+  next moves read "This is the end of the numbered paragraph." and the book's title. A
+  turn by the control strip's button read as it had: VoiceOver stayed on "Next Page
+  Button", moving forward read the eight controls and then "word0294 …", "word0302 …",
+  "word0310 …", "word0319 …", and after Previous Page "Previous Page dimmed", the controls
+  and "Page boundary verification Heading". On its side (1366 × 1024), where the first
+  spread shows `word0001`–`word0147` beside `word0148`–`word0350`: with the cursor on
+  "word0232 …" in the right-hand page, Next Page showed `word0351`–`word0553` beside
+  `word0554`–`word0756`, VoiceOver read "word0351 …" by itself, the first line of the
+  left-hand page, and the moves read "word0358 …", "word0365 …", "word0372 …". A last
+  session at `a38fa29`, after `main`'s change to the scroll bar of continuous scroll had
+  been merged into the same file, read the same, upright: "word0294 …" after Next Page
+  from "word0001 …" and the three lines after it; and after Previous Page from "word0450
+  …", "Page boundary verification Heading", the first line of the first page, then "Read
+  the numbered words across two consecutive pages. The next page must resume at the",
+  "next numbered word." and "Verification link Link".
+  What the change costs was seen in these sessions. The cursor is on a new item after a
+  turn, and VoiceOver's rotor is at its default there: with Previous Page chosen and
+  performed from "word0818 …", a second double tap, with no flick before it, read the
+  first line again and left `word0294`–`word0654` on screen, where before the change it
+  had turned the page again. A listener turning several pages from the text now flicks
+  down before each double tap. On the control strip's button the cursor stays on the
+  button, and double taps turn page after page as they did.
+  The [simulator lane](#simulators) read the same change another way, since a simulator's
+  VoiceOver performs no action: the cursor is put on a line, and `doubletap=Next Page`
+  lands one plain touch on the control strip's button while the cursor stays on the line.
+  That is a page the host turns under the cursor, which the reader treats as it does a
+  line's own turn. iPhone 17 Pro simulator, iOS 27.0, 402 × 874, 17 points. Before, at
+  `0128fa6` with the probe's `listen` step: from "word0001 …" VoiceOver said nothing, and
+  the moves read "VoiceOver Page Boundary Verification", "word0061 …", "word0065 …", on a
+  page that begins at `word0017`; from "word0025 …", the third line of that page, the
+  moves read "word0093 …", "word0089 …", "word0093 …" on the page that begins at
+  `word0081`; and after Previous Page "word0029 …", "word0025 …", "word0029 …". After, at
+  `7466dea`: VoiceOver read "word0017 word0018 word0019 word0020" by itself, the first line
+  of the page, and the moves read "word0021 …", "word0025 …", "word0029 …"; from "word0025
+  …" it read "word0081 …" and the moves "word0085 …", "word0089 …", "word0093 …"; and
+  after Previous Page "word0017 …" and the same three.
+  The order of the two things VoiceOver's scroll posts was tried there too, in a build
+  with a switch for what is posted (not in the branch). The page's number and then the
+  line: "Page 2", then "word0017 word0018 word0019 word0020", and the moves read on from
+  the second line. The line and then the number: the line alone, and no "Page 2". The
+  number alone, which is all the scroll posted before: "Page 2", and VoiceOver's cursor
+  stayed at its place on the screen, so that from the third line of one page the next
+  move read the fourth line of the next, "word0093 …", and not its first.
+  Not established: VoiceOver's three-finger scroll itself, which XCTest cannot perform
+  ([#70](https://github.com/vocaro/EPUBLib/issues/70)), before the change or after it; a
+  physical iPhone; a page turned by a key with the cursor in the text; and Switch Control
+  or any other assistive technology that keeps a cursor. VoiceOver was read back as off
+  after every device session.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
