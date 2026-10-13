@@ -1197,6 +1197,25 @@ The Mac runner's transcript is plain text and needs no export.
   same steps on the page with no heading had ended two sessions (runs 38321608082 and
   38322808793) with a traceback and no transcript, the restore having failed ahead of the
   lines that write one. Nobody listened, and no workstation was used.
+- `ax:width` is a live resize, and until
+  [#479](https://github.com/vocaro/EPUBLib/pull/479) a session launched in
+  continuous scroll and then resized did not begin at the top of the book. Setting a window's
+  size through the accessibility API takes it through AppKit's live resize, and AppKit's text
+  view scrolls itself when one ends ([the native viewer](native-viewer.md), "Continuous
+  scroll"). Hosted sessions on 2026-10-13 (`-SampleFlow scrolled`, then `ax:width=600`, on a
+  reader of [#473](https://github.com/vocaro/EPUBLib/pull/473) that logged each scroll with
+  its stack, run 38378765133) saw the clip view go from 0 to 48 under
+  `-[NSView _endLiveResize]` and `-[NSTextView viewDidEndLiveResize]`, the insertion point
+  follow to character 27 a moment later, and `in` read the book's second line. Every
+  transcript of such a session from before the change begins a line down, with the title
+  above the screen; a session that changed to continuous scroll after its resize began at
+  the top. The same scroll is made in a unit test with no assistive client, by a window
+  resized with animation, which ends in the same two calls
+  (`ScrolledLiveResizeTests`): 48 points at the top of a book, and back to the start of a
+  paragraph anywhere else, 279 and 304 points in the tests' prose. With the change the
+  tests' reader stays at the top and VoiceOver would enter at the title. Not heard: a
+  hosted session after the change. Not made: a drag of the window's edge with a mouse,
+  which ends a live resize the same way.
 - On 2026-10-11 the Mac sessions verified first and last lines, word order, end of text,
   line counts and page-turn continuity in one and two columns at 17 and 23 points, with value
   notifications for page turns, text-size changes and resizes. See the
