@@ -167,6 +167,11 @@ struct ReaderTableAction {
 
     func refresh() {
         guard !updating, let owner, let storage = owner.contentStorage.textStorage else { return }
+        #if os(macOS)
+        // The rows on screen are read off the layout, which stands where the view draws it
+        // only once the view has been held to it (`ReaderCanvasView.holdScrollPlace`).
+        owner.holdScrollPlace()
+        #endif
         updating = true
         defer { updating = false }
         if sourceText !== owner.flowSourceText {
