@@ -26,7 +26,8 @@ final class ReaderTextView: NSTextView {
     /// VoiceOver's Headings rotor for this text.
     private lazy var headingRotor = {
         let rotor = NSAccessibilityCustomRotor(rotorType: .heading, itemSearchDelegate: self)
-        rotor.itemLoadingDelegate = self
+        // A page column gives the headings of other pages as tokens, and loads them.
+        if isPageColumn { rotor.itemLoadingDelegate = self }
         return rotor
     }()
     /// The text column's left edge in continuous scroll, where a division can move it off centre.
@@ -471,7 +472,7 @@ extension ReaderTextView: @MainActor NSAccessibilityElementLoading {
     }
 
     /// The heading's characters in that column.
-    func accessibilityRange(inTargetElementWithToken token: any NSAccessibilityLoadingToken) -> NSRange {
+    func accessibilityRangeInTargetElement(withToken token: any NSAccessibilityLoadingToken) -> NSRange {
         canvas?.loadHeading(token)?.range ?? NSRange(location: NSNotFound, length: 0)
     }
 }

@@ -1276,7 +1276,8 @@ import AppKit
     /// A section's headings, found once for each text the data source gives for it; nil while
     /// the section is not built.
     func headings(inSection section: Int) -> [(heading: ReaderHeading, range: NSRange)]? {
-        guard let text = dataSource?.text(forSection: section) else { return nil }
+        guard let dataSource, section >= 0, section < dataSource.sectionCount,
+              let text = dataSource.text(forSection: section) else { return nil }
         if let known = sectionHeadings[section], known.text === text { return known.headings }
         let found = SectionHeadings(text: text, headings: text.readerHeadings())
         sectionHeadings[section] = found

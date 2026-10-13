@@ -265,7 +265,7 @@ extension ReaderCanvasView: NSTextViewDelegate {
     /// The column and characters of the heading `token` names, turning to its page when it is
     /// not on the one shown. Nil when no heading begins there any more.
     func loadHeading(_ token: any NSAccessibilityLoadingToken) -> (view: ReaderTextView, range: NSRange)? {
-        guard configuration.flow == .paginated, let position = Self.headingPosition(of: token),
+        guard let position = Self.headingPosition(of: token),
               let found = headings(inSection: position.section)?.first(where: { $0.range.location == position.offset }) else { return nil }
         let heading = ReaderBookHeading(heading: found.heading, section: position.section, range: found.range)
         if let shown = shownHeading(heading) { return shown }
