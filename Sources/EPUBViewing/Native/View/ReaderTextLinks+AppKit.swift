@@ -112,6 +112,7 @@ extension ReaderTextView {
         element.range = range
         element.setAccessibilityParent(self)
         element.setAccessibilityTitle(title.isEmpty ? nil : title)
+        element.setAccessibilityCustomRotors(accessibilityCustomRotors())
         // A picture in a link is followed, not enlarged, by a press: inspection stays an action.
         element.setAccessibilityCustomActions(announcedImages(in: range).map { image, _ in
             NSAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") { [weak self] in
@@ -186,12 +187,6 @@ final class ReaderLinkAccessibilityElement: NSAccessibilityElement {
         guard let view else { return .zero }
         let range = range
         return MainActor.assumeIsolated { NSAccessibility.screenRect(fromView: view, rect: view.linkFrame(range)) }
-    }
-
-    // The rotors of its text: VoiceOver looks for them on the element its cursor is on.
-    override func accessibilityCustomRotors() -> [NSAccessibilityCustomRotor] {
-        guard let view else { return [] }
-        return MainActor.assumeIsolated { view.accessibilityCustomRotors() }
     }
 
     override func accessibilityPerformPress() -> Bool {

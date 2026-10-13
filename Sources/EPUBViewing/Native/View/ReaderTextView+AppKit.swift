@@ -461,7 +461,7 @@ extension ReaderTextView: @MainActor NSAccessibilityCustomRotorItemSearchDelegat
     /// The character a search asked from `item` stands at, and nil from nowhere. A link's
     /// element stands at the link's characters.
     private func headingSearchPlace(of item: NSAccessibilityCustomRotor.ItemResult) -> Int? {
-        if let link = item.targetElement as? ReaderLinkAccessibilityElement { return link.view === self ? link.range.location : nil }
+        if let link = item.targetElement as? ReaderLinkAccessibilityElement, link.view === self { return link.range.location }
         let range = item.targetRange
         guard item.targetElement != nil, range.location != NSNotFound, range != NSRange(location: 0, length: 0) else { return nil }
         return range.location
