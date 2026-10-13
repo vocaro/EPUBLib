@@ -26,36 +26,70 @@ on:
         description: How many times the tests run, one pass after another in one build.
         type: string
         default: '1'
+      scroll_bars:
+        description: >-
+          The scroll bars the tests run under: overlay, as a Mac with a trackpad shows; legacy,
+          as it shows while a mouse is attached; or both, each in a job of its own.
+        type: choice
+        options: [both, overlay, legacy]
+        default: both
+      probe:
+        description: Temporary. Try the argument route on the viewer's bundle.
+        type: boolean
+        default: false
 
-run-name: ${{ github.event_name == 'workflow_dispatch' && format('Mac unit tests, {0}, {1}{2}', inputs.ref || github.ref_name, inputs.filter || 'every test', inputs.repeat != '1' && format(', {0} passes', inputs.repeat) || '') || '' }}
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Mac unit tests, {0}, {1}{2}{3}', inputs.ref || github.ref_name, inputs.filter || (inputs.scroll_bars == 'legacy' && 'EPUBViewingTests' || 'every test'), inputs.repeat != '1' && format(', {0} passes', inputs.repeat) || '', inputs.scroll_bars != 'both' && format(', {0} scroll bars', inputs.scroll_bars) || '') || '' }}
 
 permissions:
   contents: read
 
-# A newer run for the same pull request, or by hand for the same ref, filter and count,
-# replaces one still in progress. A run for main finishes; of those waiting behind it only the
-# newest is kept.
+# A newer run for the same pull request, or by hand for the same ref, filter, count and scroll
+# bars, replaces one still in progress. A run for main finishes; of those waiting behind it only
+# the newest is kept.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.ref || github.ref }}-${{ inputs.filter }}-${{ inputs.repeat }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.ref || github.ref }}-${{ inputs.filter }}-${{ inputs.repeat }}-${{ inputs.scroll_bars }}-${{ inputs.probe }}
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
   test:
-    name: swift test
+    name: swift test, ${{ matrix.scroll_bars }} scroll bars
     # The standard label only: a larger runner, such as xcode-27-xlarge, is billed even in a
     # public repository.
     runs-on: xcode-27
     timeout-minutes: 40
+    strategy:
+      # Which kinds a test fails under is part of the result, so one job does not stop the other.
+      fail-fast: false
+      matrix:
+        # A pull request and a push to main get both kinds. To leave legacy ones to runs by
+        # hand, change the first 'both' to 'overlay'.
+        scroll_bars: ${{ fromJSON((inputs.scroll_bars || 'both') == 'both' && '["overlay", "legacy"]' || format('["{0}"]', inputs.scroll_bars)) }}
     defaults:
       run:
         shell: bash
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      SCROLL_BARS: ${{ matrix.scroll_bars }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
+
+      - name: Show legacy scroll bars
+        if: matrix.scroll_bars == 'legacy'
+        run: |
+          # The runner has no mouse, so it is told to show scroll bars always. That is a setting
+          # of the logged-in user: for GitHub's disposable machine only. A workstation runs a
+          # bundle under legacy scroll bars by an argument instead ("Local gate" in
+          # doc/testing.md).
+          if [ "$RUNNER_ENVIRONMENT" != github-hosted ]; then
+            echo "::error::This step changes the scroll bar setting of a disposable hosted runner and must not run on $RUNNER_ENVIRONMENT"
+            exit 1
+          fi
+          echo "Before: $(defaults read -g AppleShowScrollBars 2>&1 | tail -n 1)"
+          defaults write -g AppleShowScrollBars Always
+          echo "After: $(defaults read -g AppleShowScrollBars 2>&1 | tail -n 1)"
 
       - name: Describe the runner
         run: |
@@ -72,16 +106,44 @@ jobs:
           RunLoop.main.run(until: Date(timeIntervalSinceNow: 1))
           print(NSScroller.preferredScrollerStyle == .legacy ? "legacy" : "overlay")
           SWIFT
-          echo "Scroll bars: $(swift "$RUNNER_TEMP/scroll-bars.swift" 2> /dev/null || echo unknown)"
+          bars=$(swift "$RUNNER_TEMP/scroll-bars.swift" || echo unknown)
+          echo "Scroll bars: $bars"
+          if [ "$bars" != "$SCROLL_BARS" ]; then
+            echo "::error::The runner shows $bars scroll bars, and this job is for $SCROLL_BARS ones"
+            exit 1
+          fi
 
       - name: Build
         run: |
           swift build --build-tests
           echo "Built $(($(date +%s) - JOB_START)) s after the job started"
 
+      - name: Probe the argument route (temporary)
+        if: inputs.probe
+        run: |
+          cat > "$RUNNER_TEMP/probe.swift" <<'SWIFT'
+          import AppKit
+          let first = NSScroller.preferredScrollerStyle
+          RunLoop.main.run(until: Date(timeIntervalSinceNow: 1))
+          let later = NSScroller.preferredScrollerStyle
+          print("\(first == .legacy ? "legacy" : "overlay") at the start, \(later == .legacy ? "legacy" : "overlay") a second later")
+          SWIFT
+          echo "As the runner is: $(swift "$RUNNER_TEMP/probe.swift")"
+          echo "With the argument: $(swift "$RUNNER_TEMP/probe.swift" -AppleShowScrollBars Always)"
+          ls .build/debug | grep xctest
+          began=$(date +%s)
+          status=0
+          xcrun xctest -XCTest All -AppleShowScrollBars Always .build/debug/EPUBViewingTests.xctest > "$RUNNER_TEMP/argument.log" 2>&1 || status=$?
+          echo "xctest exit $status after $(($(date +%s) - began)) s"
+          grep -E "Scroll bars this Mac prefers" "$RUNNER_TEMP/argument.log" | sort | uniq -c || true
+          grep -E "^Test Case '.*' failed|: error: " "$RUNNER_TEMP/argument.log" | head -60 || true
+          grep -E "Executed [0-9]+ tests" "$RUNNER_TEMP/argument.log" | tail -n 2 || true
+
       - name: Test
         env:
-          FILTER: ${{ inputs.filter }}
+          # No other bundle draws a scroll bar, so with no filter the legacy job runs the
+          # viewer's tests only.
+          FILTER: ${{ inputs.filter || (matrix.scroll_bars == 'legacy' && '^EPUBViewingTests\.' || '') }}
           REPEAT: ${{ inputs.repeat || '1' }}
         run: |
           case "$REPEAT" in
@@ -171,3 +233,17 @@ jobs:
             } | tee -a "$GITHUB_STEP_SUMMARY"
           fi
           exit "$result"
+
+      # Two checks of the local gate that need no simulator. They run whatever the tests did, so
+      # that neither result hides the other.
+      - name: Check module boundaries
+        if: ${{ !cancelled() }}
+        run: python3 scripts/check-modules.py
+
+      - name: Check documentation snippets
+        if: ${{ !cancelled() }}
+        run: |
+          # The snippets come from the sample's shared sources. The build above compiled them
+          # with every other target; building that one by name says so and has nothing to do.
+          swift build --target ReaderSampleSupport
+          python3 scripts/check-docs.py
