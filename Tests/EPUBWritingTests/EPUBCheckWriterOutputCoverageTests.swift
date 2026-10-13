@@ -35,10 +35,11 @@ final class EPUBCheckWriterOutputCoverageTests: XCTestCase {
     // MARK: What EPUBCheck reports of the writer's output
 
     func testABookWithoutPagesWritesNoEmptyPageList() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/94")
         // RSC-005 `element "ol" incomplete; missing required element "li"`. EPUB 3.3, 7.3: a
         // `nav`'s `ol` holds one or more `li`; the page list itself is optional (7.4.3).
-        let lists = try navigation(.minimal).descendants("ol")
+        let html = try navigation(.minimal)
+        XCTAssertTrue(html.descendants("nav").filter { $0.attributes["epub:type"] == "page-list" }.isEmpty)
+        let lists = html.descendants("ol")
         XCTAssertFalse(lists.isEmpty)
         for list in lists { XCTAssertFalse(list.children.filter { $0.name == "li" }.isEmpty, "an ol with no li") }
     }

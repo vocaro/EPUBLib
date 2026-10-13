@@ -366,52 +366,84 @@ struct WriterArchiveCoverageTests {
     // A staging directory may link to large media instead of copying it. The entry's declared size
     // must be that of the bytes that are read, whichever of the link or its target is archived.
     @Test func aSymbolicLinkToASourceFileIsArchivedWithItsWholeContentOrRefused() async throws {
-        try await withKnownIssue("https://github.com/vocaro/EPUBLib/issues/98") {
-            let directory = try WriterCoverage.directory()
-            defer { try? FileManager.default.removeItem(at: directory) }
-            let mime = try WriterCoverage.mimetype(in: directory)
-            let content = Data((0..<10_000).map { UInt8(truncatingIfNeeded: $0 &* 31) })
-            let target = try WriterCoverage.file("target.bin", content, in: directory)
-            let link = directory.appendingPathComponent("link.bin")
-            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
-            let output = directory.appendingPathComponent("book.epub")
-            do {
-                try await EPUBArchiveWriter.write(entries: [.init(path: "mimetype", fileURL: mime), .init(path: "EPUB/linked.bin", fileURL: link)],
-                                                 to: output, maximumContentBytes: 1_000_000, modificationDate: date)
-            } catch {
-                #expect(!exists(output))
-                return
-            }
-            let written = try #require(try contents(of: output).last)
-            #expect(written.data.count == content.count)
-            let identical = written.data == content
-            #expect(identical)
-            #expect(exists(target) && exists(link))
-        }
+        let directory = try WriterCoverage.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mime = try WriterCoverage.mimetype(in: directory)
+        let content = Data((0..<10_000).map { UInt8(truncatingIfNeeded: $0 &* 31) })
+        let target = try WriterCoverage.file("target.bin", content, in: directory)
+        let link = directory.appendingPathComponent("link.bin")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        let output = directory.appendingPathComponent("book.epub")
+        try await EPUBArchiveWriter.write(entries: [.init(path: "mimetype", fileURL: mime), .init(path: "EPUB/linked.bin", fileURL: link)],
+                                         to: output, maximumContentBytes: 1_000_000, modificationDate: date)
+        let written = try #require(try contents(of: output).last)
+        #expect(written.data.count == content.count)
+        let identical = written.data == content
+        #expect(identical)
+        #expect(exists(target) && exists(link))
     }
 
     // "A non-consuming reference keeps a shared file alive." The same file reached through two
     // spellings of its path is still one shared, caller-owned file; the writer already compares
     // standardized URLs when it checks entries against the destination.
     @Test func aCallerOwnedFileReferencedThroughAnotherSpellingSurvivesAConsumingEntry() async throws {
-        try await withKnownIssue("https://github.com/vocaro/EPUBLib/issues/99") {
-            let directory = try WriterCoverage.directory()
-            defer { try? FileManager.default.removeItem(at: directory) }
-            let mime = try WriterCoverage.mimetype(in: directory)
-            let shared = try WriterCoverage.file("shared", Data("s".utf8), in: directory)
-            try FileManager.default.createDirectory(at: directory.appendingPathComponent("sub"), withIntermediateDirectories: true)
-            let alias = directory.appendingPathComponent("sub/../shared")
-            #expect(alias.standardizedFileURL == shared.standardizedFileURL)
-            let output = directory.appendingPathComponent("book.epub")
-            do {
-                try await EPUBArchiveWriter.write(entries: [.init(path: "mimetype", fileURL: mime),
-                    .init(path: "EPUB/a", fileURL: shared, consume: true), .init(path: "EPUB/b", fileURL: alias)],
-                    to: output, maximumContentBytes: 1_000, modificationDate: date)
-            } catch {
-                Issue.record("writing failed after the shared file was consumed: \(error)")
-            }
-            #expect(exists(shared), "the caller-owned file was deleted")
-            #expect(exists(output))
+        let directory = try WriterCoverage.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mime = try WriterCoverage.mimetype(in: directory)
+        let shared = try WriterCoverage.file("shared", Data("s".utf8), in: directory)
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        let alias = directory.appendingPathComponent("sub/../shared")
+        #expect(alias.standardizedFileURL == shared.standardizedFileURL)
+        let output = directory.appendingPathComponent("book.epub")
+        do {
+            try await EPUBArchiveWriter.write(entries: [.init(path: "mimetype", fileURL: mime),
+                .init(path: "EPUB/a", fileURL: shared, consume: true), .init(path: "EPUB/b", fileURL: alias)],
+                to: output, maximumContentBytes: 1_000, modificationDate: date)
+        } catch {
+            Issue.record("writing failed after the shared file was consumed: \(error)")
         }
+        #expect(exists(shared), "the caller-owned file was deleted")
+        #expect(exists(output))
+        #expect(try contents(of: output).map(\.data) == [Data("application/epub+zip".utf8), Data("s".utf8), Data("s".utf8)])
+    }
+
+    @Test func aSymbolicLinkUsesItsTargetsSizeForTheBudgetAndConsumesOnlyTheLink() async throws {
+        let directory = try WriterCoverage.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mime = try WriterCoverage.mimetype(in: directory)
+        let content = Data(repeating: 7, count: 10_000)
+        let target = try WriterCoverage.file("target.bin", content, in: directory)
+        let link = directory.appendingPathComponent("link.bin")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        let output = directory.appendingPathComponent("book.epub")
+        let entries: [EPUBArchiveWriter.Entry] = [.init(path: "mimetype", fileURL: mime),
+            .init(path: "EPUB/linked.bin", fileURL: link, consume: true)]
+        await #expect(throws: EPUBWritingError.resourceLimit("EPUB total size")) {
+            try await EPUBArchiveWriter.write(entries: entries, to: output, maximumContentBytes: 1_000, modificationDate: date)
+        }
+        #expect(!exists(output))
+        #expect(exists(link) && exists(target))
+        try await EPUBArchiveWriter.write(entries: entries, to: output, maximumContentBytes: 10_020, modificationDate: date)
+        #expect(try contents(of: output).last?.data == content)
+        #expect(!exists(link))
+        #expect(exists(target))
+    }
+
+    @Test func consumedPathSpellingsAreKeptUntilTheirFinalSharedUse() async throws {
+        let directory = try WriterCoverage.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mime = try WriterCoverage.mimetype(in: directory)
+        let shared = try WriterCoverage.file("shared", Data("s".utf8), in: directory)
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        let alias = directory.appendingPathComponent("sub/../shared")
+        let output = directory.appendingPathComponent("book.epub")
+        let recorder = WriterRecorder<Bool>()
+        try await EPUBArchiveWriter.write(entries: [.init(path: "mimetype", fileURL: mime),
+            .init(path: "EPUB/a", fileURL: shared, consume: true), .init(path: "EPUB/b", fileURL: alias, consume: true)],
+            to: output, maximumContentBytes: 1_000, modificationDate: date) { _ in
+                await recorder.add(FileManager.default.fileExists(atPath: shared.path))
+            }
+        #expect(await recorder.values == [true, true, true, false])
+        #expect(try contents(of: output).map(\.data) == [Data("application/epub+zip".utf8), Data("s".utf8), Data("s".utf8)])
     }
 }
