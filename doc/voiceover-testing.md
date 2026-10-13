@@ -2893,9 +2893,9 @@ The Mac runner's transcript is plain text and needs no export.
 - On 2026-10-13 a table's select action was performed with VoiceOver on the physical iPad
   Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366, upright, 17 points), before and after a
   change to what it does ([#450](https://github.com/vocaro/EPUBLib/issues/450)), with the
-  sample's selection line under the reader. Nobody listened. Every revision here is the
-  branch that reads a table of data by its cells with this change on it, without the three
-  commits `main` had gained by then.
+  sample's selection line under the reader. Nobody listened. The revisions here are the
+  branch that reads a table of data by its cells with this change on it, before that
+  branch and the `main` of that night were merged in; the last paragraph has the head.
   Before, at `35a8f53`, which has the probe's new steps and nothing of the change. In
   pages, on "Alder" in the tables of data, the rotor offered Next Page, Previous Page and
   Select Cell Text. With that chosen a double tap left VoiceOver's phrase at "Select Cell
@@ -2948,8 +2948,12 @@ The Mac runner's transcript is plain text and needs no export.
   A step through the rotor took six seconds, most of it XCTest waiting, so a list gone
   round three times took over three minutes. The iPad was unavailable to `devicectl` from
   23:52 until about 01:20 and was shared with three other sessions' runs after that. Each
-  session here claimed it in the shared file and read VoiceOver back as off afterward, and
-  no session recorded a phrase that was not the book's, the sample's or VoiceOver's own.
+  session here claimed it in the shared file and read VoiceOver back as off afterward.
+  At `8a797bd`, which has that branch as it merged and `main` with it, the cell and the row
+  in pages gave the phrases and the lines of `2738aa9` again, action for action. One session
+  there opened on a phrase that was not the book's, the sample's or VoiceOver's own,
+  something of the device's; its log and result bundle were deleted unread and it was run
+  again. No other session recorded such a phrase.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
