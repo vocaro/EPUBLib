@@ -37,7 +37,7 @@ READER = ROOT / ".build/voiceover/mac/Build/Products/Debug/VoiceOverVerification
 BOUNDARY = ("ax:next ax:lines ax:focus=search ax:focus=0 in line nextline nextline out " + "left " * 8
             + '"activate=Next Page" ax:lines ' + "right " * 8 + "in line nextline nextline")
 OUTCOMES = {0: "completed", 2: "refused by the runner script", 124: "ended early or reached its deadline",
-            125: "stopped"}
+            125: "stopped", 126: "VoiceOver not restored"}
 
 
 def runner():
@@ -150,7 +150,8 @@ def main():
             lines = written[-1].read_text().splitlines() if written else []
             print("\n".join(lines) + "\n::endgroup::", flush=True)
             # The steps and the speech alone, without the observer's lines, for the run's summary page.
-            spoken = [line[11:] for line in lines if line[25:].startswith(("STEP ", "heard: ", "ADVANCE "))]
+            spoken = [line[11:] for line in lines
+                      if line[25:].startswith(("STEP ", "heard: ", "ADVANCE ", "NOT_RESTORED "))]
             summary += [f"<details><summary>Session {number}: {outcome}</summary>", "", "```text", *spoken, "```",
                         "", "</details>", ""]
         line = f"Session {number}: {outcome}; {transcript}; {shlex.join(launch + options + steps)}"

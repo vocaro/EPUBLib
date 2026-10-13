@@ -7,6 +7,9 @@ step of scripts/voiceover-ax-observer.swift such as `ax:focus` or `ax:next`.
 `activate=LABEL` presses the item in the VoiceOver cursor only if VoiceOver just named it.
 The steps, speech and observer events are merged by time into one transcript.
 A session in which VoiceOver names XCTest's Automation Running banner is stopped.
+A rotor the steps can have left open is closed before VoiceOver is restored, because VoiceOver
+ignores its own shortcut under one. A session whose VoiceOver will not return to its original
+state still writes its transcript, with the reason in it, and exits with status 126.
 This script never changes the VoiceOver AppleScript setting or the clipboard.
 """
 import argparse
@@ -37,6 +40,8 @@ READER_KEYS = {"pagedown": 121, "pageup": 116}  # The reader's own keys, without
 LIST_KEYS = {"listleft": 123, "listright": 124, "listdown": 125, "listup": 126, "listchoose": 36, "listclose": 53}
 PHRASE = re.compile(r"^VOICEOVER_EVENT (\S+) heard: ?(.*)$", re.M)
 BANNER = "Automation Running"  # XCTest's banner, a window of its own that can take the VoiceOver cursor.
+NOT_RESTORED = 126  # The exit status of a session that left VoiceOver on or off against its original state.
+READER = "org.epubreaderlib.voiceoververify.mac"
 
 
 def unknown(steps):
@@ -44,6 +49,11 @@ def unknown(steps):
     return [step for step in steps
             if step.split("=")[0] not in COMMANDS and step not in FIND_COMMANDS and step not in READER_KEYS
             and step not in LIST_KEYS and not step.startswith("ax:")]
+
+
+def rotor_open(sent):
+    """Whether the keys sent can have left the rotor open: `listchoose` closes it only if it chose an item."""
+    return "rotor" in sent and "listclose" not in sent[len(sent) - sent[::-1].index("rotor"):]
 
 
 def enabled():
@@ -71,7 +81,8 @@ def set_state(desired):
     deadline = time.monotonic() + 5
     while enabled() != desired:
         if time.monotonic() >= deadline:
-            raise RuntimeError("VoiceOver did not reach the requested state; check it manually")
+            raise RuntimeError(f"VoiceOver did not turn {'on' if desired else 'off'} within 5 s of Command-F5; "
+                               "check it manually")
         time.sleep(0.25)
 
 
@@ -166,13 +177,24 @@ def main():
             raise RuntimeError(f"VoiceOver named XCTest's {BANNER} banner {moment}, so its cursor may be on "
                                "the banner and not on the reader; session stopped")
 
+    sent = []
+
+    def close_rotor():
+        """Send Escape if the session's keys can have left the rotor open; with none open the reader takes it."""
+        if rotor_open(sent) and keyboard_owner() == READER:
+            transcript.append(f"{now()} STEP listclose, sent by the runner in case the rotor is still open")
+            keystroke(LIST_KEYS["listclose"], "")
+            sent.append("listclose")
+            return True
+
     finished = args.results / f"mac-{stamp}.finished"
     environment = dict(os.environ, TEST_RUNNER_VOICEOVER_STOP=str(finished))
     if args.xctest_values:
         environment["TEST_RUNNER_VOICEOVER_SNAPSHOTS"] = "1"
     deadline = time.monotonic() + args.timeout
     original = enabled()
-    process = watcher = None
+    process = watcher = unrestored = None
+    status = 1
     try:
         set_state(True)
         with log_path.open("w") as log, events_path.open("w") as events:
@@ -207,12 +229,13 @@ def main():
                     else:
                         # Another controller may have taken the keyboard; never send it VoiceOver commands.
                         owner = keyboard_owner()
-                        if owner != "org.epubreaderlib.voiceoververify.mac":
+                        if owner != READER:
                             raise RuntimeError(f"Keyboard focus went to {owner} before {step}; session stopped")
                         name, _, label = step.partition("=")
                         if label and not any(label in text for _, text in phrases(log_path)[-2:]):
                             raise RuntimeError(f"VoiceOver did not name {label} before {step}; session stopped")
-                        sent = now()
+                        pressed = now()
+                        sent.append(name)
                         if name in READER_KEYS or name in LIST_KEYS:
                             keystroke({**READER_KEYS, **LIST_KEYS}[name], "")
                         elif name in FIND_COMMANDS:
@@ -228,26 +251,39 @@ def main():
                         # A phrase equal to the one before it is not recorded again; such a key waits out the pause.
                         limit = time.monotonic() + args.pause
                         while time.monotonic() < limit and not any(
-                                heard >= sent and not text.startswith("ERROR ") for heard, text in phrases(log_path)):
+                                heard >= pressed and not text.startswith("ERROR ") for heard, text in phrases(log_path)):
                             time.sleep(0.05)
                         time.sleep(max(0, min(args.advance_after, limit - time.monotonic())))
+                # While the probe still records, so that the transcript has what VoiceOver says to it.
+                if close_rotor():
+                    time.sleep(args.pause)
                 check_banner("by the end of the steps")
                 finished.touch()
-                return process.wait(timeout=max(1, deadline - time.monotonic()))
+                status = process.wait(timeout=max(1, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:
                 print("The probe ended early or its deadline was reached; stopping this session.")
-                return 124
+                status = 124
             except RuntimeError as error:
                 print(error)
-                return 125
+                status = 125
     finally:
         try:
             for child in (process, watcher):
                 if child is not None:
                     stop(child)
         finally:
-            set_state(original)
-            print(f"VoiceOver restored to {'on' if original else 'off'}.")
+            try:
+                close_rotor()  # For a session stopped before the end of its steps.
+            except subprocess.SubprocessError as error:
+                print(f"The rotor may still be open: {error}")
+            try:
+                set_state(original)
+                print(f"VoiceOver restored to {'on' if original else 'off'}.")
+            except (RuntimeError, subprocess.SubprocessError) as error:
+                # What the session heard is written all the same, with the reason beside it.
+                unrestored = f"VoiceOver not restored to {'on' if original else 'off'}: {error}"
+                print(unrestored)
+                transcript.append(f"{now()} NOT_RESTORED {error}")
             finished.unlink(missing_ok=True)
             transcript += [f"{now()} OTHER_TESTS {pid}" for pid in other_tests()]
             if log_path.exists():
@@ -261,6 +297,7 @@ def main():
             transcript_path = args.results / f"mac-{stamp}.transcript.txt"
             transcript_path.write_text("\n".join(sorted(transcript)) + "\n")
             print(f"Transcript: {transcript_path}\nObserver events: {events_path}\nLog: {log_path}\nResult bundle: {bundle}")
+    return NOT_RESTORED if unrestored else status
 
 
 if __name__ == "__main__":

@@ -95,8 +95,12 @@ The outer Python runner reads the original VoiceOver state, temporarily toggles 
 the approved System Events shortcut if needed, and restores that state in `finally`. It
 stops only its own process groups when the deadline expires. It never edits system
 preferences or enables VoiceOver's AppleScript-control setting. Native `enable()` timed out
-on the Mac in the initial session, so the outer runner owns the Mac toggle. Ordinary process
-cleanup cannot recover from forcibly killing the runner itself; verify restoration independently:
+on the Mac in the initial session, so the outer runner owns the Mac toggle. If VoiceOver is
+not back in its original state five seconds after the shortcut, the runner prints the reason,
+writes the transcript all the same with the reason in a `NOT_RESTORED` line, and exits with
+status 126: VoiceOver is then still on, or still off, and is yours to put back. Ordinary
+process cleanup cannot recover from forcibly killing the runner itself; verify restoration
+independently:
 
 ```sh
 defaults read com.apple.universalaccess voiceOverOnOffKey
@@ -128,7 +132,15 @@ new phrase is recorded:
   cursor holds, the reader's Headings among them. `listright` and `listleft` go from list to
   list, `listdown` and `listup` along one, `listchoose` (Return) moves VoiceOver to the item
   named and `listclose` (Escape) closes the rotor. These six are plain keys. Send them only
-  while the rotor is open: otherwise the reader takes an arrow as a page turn.
+  while the rotor is open: otherwise the reader takes an arrow as a page turn. A list with
+  nothing in it stays open after `listchoose`: on a page that has no heading the rotor says
+  "No items in Heading menu" and Return chooses nothing. VoiceOver ignores its own Command-F5
+  while the rotor is open, so the runner closes one before it restores VoiceOver. After the
+  steps of a session that sent `rotor` and no `listclose` after it, the runner sends Escape
+  itself, writes `STEP listclose, sent by the runner in case the rotor is still open` and
+  waits one pause; a session stopped before the end of its steps gets the same key as the
+  runner cleans up. Where `listchoose` had closed the rotor, the reader takes that Escape and
+  does nothing with it: VoiceOver said nothing and stayed on its line.
 - `activate=LABEL`: Control-Option-Space, sent only if one of VoiceOver's last two phrases
   contains LABEL, as in `"activate=Next Page"`. Without a label it is sent whatever was said.
 - `nextlink`, `previouslink`: VoiceOver's Find Next Link and Find Previous Link,
@@ -392,7 +404,10 @@ at a fixed pause; see [Acceptance and evidence](#acceptance-and-evidence).
 
 The job fails unless every session exits 0. `sessions.txt` in the download gives each
 session's outcome, transcript and command: 124 means the deadline was reached, 125 that the
-runner script stopped the session, and 2 that it refused the steps. The download also holds a
+runner script stopped the session, 2 that it refused the steps, and 126 that VoiceOver would
+not switch back off after it ("VoiceOver not restored"). Such a session still has its
+transcript, with the reason in a `NOT_RESTORED` line, and the sessions after it in the job
+begin with VoiceOver already on and leave it on. The download also holds a
 `mac-STAMP.transcript.txt` for each session in order, `runner.txt` with the commit, the runner
 image and its version, macOS, Xcode, System Integrity Protection, the screen and VoiceOver's
 [link setting](#links), the observer, `xcodebuild` and build logs, and a screenshot of the
@@ -746,6 +761,26 @@ The Mac runner's transcript is plain text and needs no export.
   resting cursor to the window's first control. Neither is a page-boundary failure. It kept
   one for a column it had left too, until the canvas posted its layout change from the element
   that holds the columns ([#337](https://github.com/vocaro/EPUBLib/issues/337)).
+- VoiceOver ignores its own Command-F5 while its rotor is open, whether the list holds an item
+  or none, so a session that ends under an open rotor leaves VoiceOver on
+  ([#399](https://github.com/vocaro/EPUBLib/issues/399)). On 2026-10-13 [hosted
+  sessions](#hosted-mac-sessions) on `xcode-27` (image 20261006.0244.1, macOS 27.0.1), in
+  pages in a window 600 points wide at 17 points, at the fixed pause, ended so twice at
+  `75272d3` (runs 38333839407 and 38333848757): after `ax:focus in rotor` on the first page,
+  whose list holds one heading, and after fourteen `ax:next` steps and `ax:lines ax:focus in
+  nextheading rotor listchoose line` on a page with no heading, where VoiceOver said "No items
+  in Heading menu" and then nothing to Return or to Control-Option-L. Each ended in
+  `NOT_RESTORED` with exit status 126, its transcript written, and VoiceOver was still on when
+  the job ended. With `listclose` before the end of the same steps VoiceOver went back to the
+  text on both pages, saying "Closing Heading menu" over the list of one, `line` read the line
+  it had been on, and VoiceOver switched off. At `753999e` (run 38334200030) the runner closed
+  the rotor itself: the session on the page with no heading ended with the runner's
+  `listclose`, "Closing Heading menu" and VoiceOver off, exit status 0. An Escape sent after
+  `listchoose` had moved VoiceOver to the first page's heading, with no rotor open, drew no
+  speech and no event from the reader, and `line` read the heading again. The day before, the
+  same steps on the page with no heading had ended two sessions (runs 38321608082 and
+  38322808793) with a traceback and no transcript, the restore having failed ahead of the
+  lines that write one. Nobody listened, and no workstation was used.
 - On 2026-10-11 the Mac sessions verified first and last lines, word order, end of text,
   line counts and page-turn continuity in one and two columns at 17 and 23 points, with value
   notifications for page turns, text-size changes and resizes. See the
@@ -921,7 +956,8 @@ The Mac runner's transcript is plain text and needs no export.
   Control-Option-Command-Shift-H moved to the next heading, not the one before. Not heard:
   two columns, a larger text size, a move back by a VoiceOver command, and the hidden-labels
   page in pages, whose session ended twice in the runner script's check of VoiceOver's state
-  with no transcript written. Nobody listened, and no workstation was used.
+  with no transcript written: the rotor was still open, as the pitfall above describes.
+  Nobody listened, and no workstation was used.
 - The same day they were read on a physical iPad Air 13-inch (M3) (iPadOS 27.2), upright at
   17 points, at `41a458f`, through XCTest's VoiceOver service; nobody listened. In pages a
   touch on the first page's heading gave "Page boundary verification Heading Use the rotor to
