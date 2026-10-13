@@ -255,8 +255,8 @@ import UIKit
         XCTAssertEqual(group.accessibilityRole(), .group)
         XCTAssertEqual(group.accessibilityChildren()?.count, 2)
         #else
-        // The row that holds the cell offers it. The text view around the rows offers nothing:
-        // VoiceOver would offer that on every line.
+        // The row that holds the cell offers it, and the text view around the rows offers
+        // nothing: VoiceOver would offer that on every line.
         let rows = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
         XCTAssertEqual(rows.filter { $0.accessibilityCustomActions?.contains { $0.name.contains("Select Table Text: Alpha") } == true }.count, 1)
         XCTAssertNil(view.accessibilityCustomActions)
