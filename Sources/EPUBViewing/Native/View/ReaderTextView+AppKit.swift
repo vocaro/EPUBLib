@@ -272,28 +272,10 @@ final class ReaderTextView: NSTextView {
     private func passingOverSilentRows(_ characters: String, from location: Int) -> String {
         guard !silentRows.isEmpty else { return characters }
         let result = NSMutableString(string: characters)
-        for place in silentRowCharacters(in: NSRange(location: location, length: result.length)) {
-            result.replaceCharacters(in: NSRange(location: place - location, length: 1), with: " ")
+        for row in silentRows(in: NSRange(location: location, length: result.length)) {
+            result.replaceCharacters(in: NSRange(location: row - location, length: 1), with: " ")
         }
         return result as String
-    }
-
-    // TRIAL, not for main: which line a row with nothing to say is part of, and whether the
-    // break after it is given as a space too, chosen at launch with `-ReaderSilentRow NAME`:
-    // "after" joins its line to the line after it, "afterbreak" does that and gives the break
-    // as a space. Pages only.
-    static let silentRowTrial = UserDefaults.standard.string(forKey: "ReaderSilentRow") ?? ""
-
-    /// The places in `range` given as a space: each such row's character, and in the trial
-    /// the break after it.
-    private func silentRowCharacters(in range: NSRange) -> [Int] {
-        guard Self.silentRowTrial == "afterbreak", isPageColumn, let text = contentStorage.textStorage?.string as NSString? else {
-            return Array(silentRows(in: range))
-        }
-        let wider = NSRange(location: max(0, range.location - 1), length: range.length + (range.location > 0 ? 1 : 0))
-        return silentRows(in: wider).flatMap { row in
-            [row, row + 1].filter { NSLocationInRange($0, range) && $0 < text.length && ($0 == row || text.character(at: $0) == 0x0A) }
-        }
     }
 
     /// The lines an assistive client is given, where `lines` are the text's own: the line of
@@ -302,15 +284,6 @@ final class ReaderTextView: NSTextView {
     private func passingOverSilentRows(_ lines: [NSRange]) -> [NSRange] {
         guard !silentRows.isEmpty else { return lines }
         var result: [NSRange] = [], opening: NSRange?
-        if Self.silentRowTrial.hasPrefix("after"), isPageColumn {
-            // TRIAL: part of the line after it, and of the line before where none follows.
-            for line in lines {
-                if isSilentRow(at: line.location) { opening = opening.map { NSUnionRange($0, line) } ?? line }
-                else { result.append(opening.map { NSUnionRange($0, line) } ?? line); opening = nil }
-            }
-            if let opening { if let last = result.last { result[result.count - 1] = NSUnionRange(last, opening) } else { result.append(opening) } }
-            return result
-        }
         for line in lines {
             if isSilentRow(at: line.location) {
                 if let last = result.last { result[result.count - 1] = NSUnionRange(last, line) }
@@ -381,10 +354,10 @@ final class ReaderTextView: NSTextView {
         let headings = contentStorage.textStorage?.readerHeadings(in: range) ?? []
         let links = accessibilityLinks(in: range)
         guard !attachments.isEmpty || !images.isEmpty || !rules.isEmpty || !headings.isEmpty || !links.isEmpty || !tableRows.isEmpty
-                || !silentRowCharacters(in: range).isEmpty else { return base }
+                || !silent.isEmpty else { return base }
         let result = NSMutableAttributedString(attributedString: base)
-        for place in silentRowCharacters(in: range) where place - range.location < result.length {
-            let local = NSRange(location: place - range.location, length: 1)
+        for row in silent where row - range.location < result.length {
+            let local = NSRange(location: row - range.location, length: 1)
             result.replaceCharacters(in: local, with: " ")
             result.removeAttribute(.attachment, range: local)
         }
