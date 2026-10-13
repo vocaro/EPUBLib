@@ -90,7 +90,14 @@ far" and "Foot near", "Foot far". Its second, which begins a page of its own, is
 of data under the header cells "Sign" and "Sense": a picture described as "Blue badge"
 beside "Open", and one nobody describes beside "Shut". "Words before the squares." and
 "Words after the squares." stand round the first table, "Words before the signs." and
-"Words after the signs." round the second, and sixty numbered lines follow. The section
+"Words after the signs." round the second, and sixty numbered lines follow. A third table,
+of data again, ends the section on a page of its own, under the header cells "Crest" and
+"Rank": the words "Worn" and "daily" round a picture described as "Blue crest", beside
+"High"; a header cell that is a picture described as "Blue shield" and nothing else,
+beside "Low"; and a cell of decoration alone (`alt=""`) beside a cell of two pictures,
+"Blue ring" and "Blue star", and no words. "Words before the crests.", whose paragraph is
+the target `crests`, and "Words after the crests." stand round it, and sixty more numbered
+lines follow. The section
 has no heading and no link, so the book's last heading and its last link are still those
 of the section before it, and none of its words is one VoiceOver uses for a table, a
 picture or a group. A second bundled book, opened with
@@ -721,7 +728,9 @@ row of the fourth; the long table's first page holds its header row and seven en
 tall row's first page its header row alone, and the first page of the header cells that are
 links their whole table, under two lines of words. The section of squares inside grids (`OPS/squares.xhtml`) has its
 table marked as layout on its first page and its table of data at the top of its second,
-one `ax:next` on. In continuous scroll the reader opened at a section shows that section,
+one `ax:next` on. Its last table is some pages further and opens a page of its own:
+`"launch=-SampleHref OPS/squares.xhtml#crests"` opens the reader there, in pages and in
+continuous scroll. In continuous scroll the reader opened at a section shows that section,
 which the `VISIBLE` range of a `STATE` line says, though VoiceOver's opening phrases are the
 book's first lines. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a line
 near a table, which continuous scroll needs: a session that came into the text without it
