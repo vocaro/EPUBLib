@@ -15,6 +15,11 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     }
 }
 
+/// PROTOTYPE switch: `none` gives a table no header cells at all.
+enum ReaderDataTablePrototype {
+    static var headers: String { UserDefaults.standard.string(forKey: "ReaderMacTableHeaders") ?? "table" }
+}
+
 /// The tables of data in one text view, as an assistive technology on the Mac is given them
 /// (doc/native-viewer.md, "Data tables"). A table is drawn as an attachment for each row, so a
 /// row's character is all the text has to give a table at. Each row's character gives a table
@@ -83,7 +88,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     let entry: Int
     private var rowsByLocation: [Int: ReaderTableRowElement] = [:]
     private var cellsByIndex: [Int: ReaderTableCellElement] = [:]
-    private var headerNames: [Int: ReaderTableCellElement] = [:]
+    private var headerNames: [Int: ReaderTableHeaderElement] = [:]
     private var columns: [ReaderTableColumnElement] = []
     /// The rows listed, for the text they were listed in.
     private var listedRows: (key: [CGFloat], rows: [ReaderTableRowElement])?
@@ -215,38 +220,37 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
         return cells(of: row).first { $0.cell == index }
     }
 
-    /// A header cell as it is given for the cells it heads: an element of its own, in no row,
-    /// that has the header's words and the rows and columns it covers, and holds nothing. It
-    /// is there for VoiceOver to say and is nowhere for its cursor to go, and it serves a
-    /// header cell on another page as well as one on this. It is not the cell listed in the
-    /// header's row: given that one, VoiceOver quit, in `-[SCRCell columnHeaderDescription]`
-    /// by its crash reports, at one header in six read at a slow pace and within four at a
-    /// fast one (macOS 27.0.1, doc/voiceover-testing.md).
-    func header(_ index: Int) -> ReaderTableCellElement? {
-        if let kept = headerNames[index] { return kept }
-        guard table.cells.indices.contains(index), !table.cells[index].text.isEmpty else { return nil }
-        let name = ReaderTableCellElement(table: self, cell: index)
-        name.text = table.cells[index].text
-        headerNames[index] = name
+    /// The header of each column, in column order: VoiceOver takes the one at a cell's
+    /// column (PROTOTYPE text; see `headerElement`). None where no column has a header cell.
+    private var columnHeaders: [NSAccessibilityElement] {
+        guard ReaderDataTablePrototype.headers != "none" else { return [] }
+        let heads = (0..<table.columnCount).map { table.columnHeaders($0) }
+        guard heads.contains(where: { !$0.isEmpty }) else { return [] }
+        return heads.enumerated().map { headerElement($1, key: $0) }
+    }
+
+    /// The header of each row of the whole table, in row order.
+    private var rowHeaders: [NSAccessibilityElement] {
+        guard ReaderDataTablePrototype.headers != "none" else { return [] }
+        let heads = table.rows.indices.map { table.rowHeaders($0) }
+        guard heads.contains(where: { !$0.isEmpty }) else { return [] }
+        return heads.enumerated().map { headerElement($1, key: -1 - $0) }
+    }
+
+    /// What heads a column or a row: its one header cell where the view lists it, and
+    /// otherwise an element that says the words of its header cells and holds nothing.
+    private func headerElement(_ cells: [Int], key: Int) -> NSAccessibilityElement {
+        if cells.count == 1, let listed = listed(cells[0]) { return listed }
+        if let kept = headerNames[key] { return kept }
+        let words = cells.map { table.cells[$0].text }.filter { !$0.isEmpty }.joined(separator: ", ")
+        let name = ReaderTableHeaderElement(table: self, words: words)
+        headerNames[key] = name
         return name
     }
 
-    /// The header cells of the columns `cell` stands in that are above it, and of its rows
-    /// that are before it. HTML's header cells, as `TableModel` has them.
-    func headers(of cell: Int) -> (columns: [ReaderTableCellElement], rows: [ReaderTableCellElement]) {
-        let model = table.cells[cell]
-        var above: [Int] = [], before: [Int] = []
-        for column in model.column..<min(table.columnCount, model.column + model.columnSpan) {
-            for header in table.columnHeaders(column) where header != cell && table.cells[header].row < model.row && !above.contains(header) {
-                above.append(header)
-            }
-        }
-        for row in model.row..<min(table.rows.count, model.row + model.rowSpan) {
-            for header in table.rowHeaders(row) where header != cell && table.cells[header].column < model.column && !before.contains(header) {
-                before.append(header)
-            }
-        }
-        return (above.compactMap { header($0) }, before.compactMap { header($0) })
+    func columnHeader(_ column: Int) -> NSAccessibilityElement? {
+        let headers = columnHeaders
+        return headers.indices.contains(column) ? headers[column] : nil
     }
 
     func cells(inColumn column: Int) -> [ReaderTableCellElement] {
@@ -295,20 +299,6 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     }
 
     private var visibleCells: [ReaderTableCellElement] { visibleRows.flatMap { cells(of: $0) } }
-
-    /// The cells that head a column, in column order and top first in each.
-    private var columnHeaders: [ReaderTableCellElement] {
-        var seen: [Int] = []
-        for column in 0..<table.columnCount { for header in table.columnHeaders(column) where !seen.contains(header) { seen.append(header) } }
-        return seen.compactMap { header($0) }
-    }
-
-    /// The cells that head a row, in row order.
-    private var rowHeaders: [ReaderTableCellElement] {
-        var seen: [Int] = []
-        for row in table.rows.indices { for header in table.rowHeaders(row) where !seen.contains(header) { seen.append(header) } }
-        return seen.compactMap { header($0) }
-    }
 
     /// The cell that covers a slot of the grid, where the view shows it. A cell that spans
     /// answers for every slot it covers.
@@ -391,11 +381,30 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityHeader() -> Any? { onMain(self) { $0.header } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
 
-    private var header: ReaderTableCellElement? { table?.table.columnHeaders(column).first.flatMap { index in table?.header(index) } }
+    private var header: NSAccessibilityElement? { table?.columnHeader(column) }
     private var screenFrame: NSRect {
         let frame = (table?.cells(inColumn: column) ?? []).map { $0.screenFrame }.reduce(NSRect.null) { $0.union($1) }
         return frame.isNull ? .zero : frame
     }
+}
+
+/// The header of a column or of a row where it is not one cell the view lists: the words of
+/// its header cells, for VoiceOver to say, in no row and nowhere for its cursor to go.
+@MainActor final class ReaderTableHeaderElement: NSAccessibilityElement {
+    private weak var table: ReaderTableElement?
+    let words: String
+
+    init(table: ReaderTableElement, words: String) {
+        self.table = table
+        self.words = words
+        super.init()
+        setAccessibilityRole(.cell)
+        setAccessibilityParent(table)
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .cell }
+    override func accessibilityParent() -> Any? { onMain(self) { $0.table } }
+    override func accessibilityLabel() -> String? { onMain(self) { $0.words.isEmpty ? nil : $0.words } }
 }
 
 /// A cell of a table of data, where the view shows it. It holds the text areas of its words
@@ -426,8 +435,6 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
         setAccessibilityRole(.cell)
         setAccessibilityRowIndexRange(rows)
         setAccessibilityColumnIndexRange(columns)
-        setAccessibilityColumnHeaderUIElements([])
-        setAccessibilityRowHeaderUIElements([])
         setAccessibilityChildren([])
     }
 
@@ -449,8 +456,6 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityParent() -> Any? { onMain(self) { $0.row ?? $0.table } }
     override func accessibilityRowIndexRange() -> NSRange { onMain(self) { $0.rows } }
     override func accessibilityColumnIndexRange() -> NSRange { onMain(self) { $0.columns } }
-    override func accessibilityColumnHeaderUIElements() -> [Any]? { onMain(self) { $0.table?.headers(of: $0.cell).columns ?? [] } }
-    override func accessibilityRowHeaderUIElements() -> [Any]? { onMain(self) { $0.table?.headers(of: $0.cell).rows ?? [] } }
     override func accessibilityChildren() -> [Any]? { onMain(self) { $0.textViews } }
     override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.textViews } }
     override func accessibilityLabel() -> String? { onMain(self) { $0.label } }
