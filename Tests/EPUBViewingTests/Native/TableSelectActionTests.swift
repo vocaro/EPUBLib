@@ -35,6 +35,16 @@ import XCTest
         <p>Words after the tables.</p>
         """
 
+    /// What the reader posts to an assistive technology, taken in UIKit's place.
+    @MainActor private final class Posts {
+        var all: [(notification: UIAccessibility.Notification, argument: Any?)] = []
+        /// The announcements among them, by their words.
+        var said: [String] { all.filter { $0.notification == .announcement }.compactMap { ($0.argument as? NSAttributedString)?.string } }
+        /// The items VoiceOver was told had changed, to read again and take their actions anew.
+        var changed: [UIAccessibilityElement?] { all.filter { $0.notification == .layoutChanged }.map { $0.argument as? UIAccessibilityElement } }
+        init(_ canvas: ReaderCanvasView) { canvas.postToAccessibility = { [unowned self] in all.append(($0, $1)) } }
+    }
+
     private func actions(_ element: UIAccessibilityElement) -> [String] { (element.accessibilityCustomActions ?? []).map(\.name) }
 
     private func perform(_ name: String, on element: UIAccessibilityElement, file: StaticString = #filePath, line: UInt = #line) throws {
@@ -94,8 +104,7 @@ import XCTest
             let canvas = try XCTUnwrap(reader.session.canvas)
             let view = try XCTUnwrap(scrolled ? canvas.scrollTextView : canvas.textViews.first { !$0.isHidden })
             try await reader.wait("the cells' text views") { view.tableInteraction?.cells.count == 6 }
-            var said: [String] = []
-            canvas.announce = { said.append($0) }
+            let posts = Posts(canvas)
             let turns = scrolled ? [] : ["Next Page", "Previous Page"]
 
             let listed = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
@@ -116,33 +125,42 @@ import XCTest
                 let width = Int(canvas.bounds.width)
                 XCTAssertEqual(actions(item), turns + [select] + rest, label)
                 let plain = try pixels(canvas)
-                said.removeAll()
+                posts.all.removeAll()
+                XCTAssertFalse(item.accessibilityTraits.contains(.selected), label)
 
-                // Selected: reported, drawn in the cell, and said.
+                // Selected: reported, drawn in the cell, and said. VoiceOver says "Selected"
+                // of an item with that trait, once it is told that the item changed.
                 try perform(select, on: item)
                 try await reader.wait("\(label): the words selected") { reader.session.selection?.text == words }
                 XCTAssertNotNil(reader.session.selection?.range.start.tableCell, label)
                 let selected = try pixels(canvas)
                 XCTAssertGreaterThan(changed(plain, selected, in: frame, width: width, ground: true), 200,
                                      "\(label): pixels of the cell's \(Int(frame.width)) × \(Int(frame.height)) ground that show the selection")
-                XCTAssertEqual(said, ["Selected: \(words)"], label)
+                XCTAssertTrue(item.accessibilityTraits.contains(.selected), label)
+                XCTAssertEqual(posts.changed.count, 1, label)
+                XCTAssertTrue(posts.changed.first.flatMap { $0 } === item, "\(label): VoiceOver is told that this item changed")
+                XCTAssertEqual(posts.said, [], label)
 
                 // The item then offers what a selection is for, where its select action stood.
                 XCTAssertEqual(actions(item), turns + [deselect, "Copy", "Use passage"] + rest, label)
                 try perform("Copy", on: item)
                 XCTAssertEqual(copied, [words], label)
-                XCTAssertEqual(said, ["Selected: \(words)", "Copied"], label)
+                XCTAssertEqual(posts.said, ["Copied"], label)
                 XCTAssertEqual(used, [], label)
                 try perform("Use passage", on: item)
                 XCTAssertEqual(used, [words], label)
                 used.removeAll()
                 XCTAssertEqual(reader.session.selection?.text, words, "\(label): neither takes the selection away")
+                XCTAssertEqual(posts.changed.count, 1, "\(label): nor changes the item")
 
                 // Deselected: reported, no longer drawn, said, and the item offers what it did.
                 try perform(deselect, on: item)
                 try await reader.wait("\(label): nothing selected") { reader.session.selection == nil }
                 XCTAssertEqual(changed(plain, try pixels(canvas), in: frame, width: width), 0, "\(label): the cell as it was drawn before")
-                XCTAssertEqual(said, ["Selected: \(words)", "Copied", "Deselected"], label)
+                XCTAssertFalse(item.accessibilityTraits.contains(.selected), label)
+                XCTAssertEqual(posts.changed.count, 2, label)
+                XCTAssertTrue(posts.changed.last.flatMap { $0 } === item, label)
+                XCTAssertEqual(posts.said, ["Copied"], label)
                 XCTAssertEqual(actions(item), turns + [select] + rest, label)
             }
 
@@ -150,12 +168,19 @@ import XCTest
             try perform("Select Cell Text", on: cell)
             try await reader.wait("\(flow): the cell's words selected") { reader.session.selection?.text == "Twelve metres" }
             XCTAssertEqual(actions(row), turns + ["Select Table Text: Left cell", "Select Table Text: Right cell"], flow)
+            XCTAssertFalse(row.accessibilityTraits.contains(.selected), flow)
+            XCTAssertFalse(listed[0].accessibilityTraits.contains(.selected), "\(flow): a line is no cell")
             // Selecting elsewhere moves the selection, and what is offered with it.
             try perform("Select Table Text: Right cell", on: row)
             try await reader.wait("\(flow): the other table's words selected") { reader.session.selection?.text == "Right cell" }
             XCTAssertEqual(actions(row), turns + ["Select Table Text: Left cell", "Deselect Table Text: Right cell", "Copy", "Use passage"], flow)
             XCTAssertEqual(actions(cell), turns + ["Select Cell Text"], flow)
+            XCTAssertTrue(row.accessibilityTraits.contains(.selected), flow)
+            XCTAssertFalse(cell.accessibilityTraits.contains(.selected), flow)
+            // An action VoiceOver still holds from before does nothing where it no longer applies.
+            let stale = try XCTUnwrap(row.accessibilityCustomActions?.first { $0.name == "Copy" })
             canvas.clearSelection()
+            XCTAssertFalse(try XCTUnwrap(stale.actionHandler)(stale), "\(flow): nothing is selected to copy")
             XCTAssertEqual(actions(row), turns + ["Select Table Text: Left cell", "Select Table Text: Right cell"], flow)
             reader.close()
         }
@@ -174,7 +199,7 @@ import XCTest
         let canvas = try XCTUnwrap(reader.session.canvas)
         let view = try XCTUnwrap(canvas.textViews.first { !$0.isHidden })
         try await reader.wait("the cells' text views") { view.tableInteraction?.cells.count == 6 }
-        canvas.announce = { _ in }
+        canvas.postToAccessibility = { _, _ in }
         let row = try XCTUnwrap((view.accessibilityElements as? [UIAccessibilityElement])?.first { $0.accessibilityLabel?.hasPrefix("Left cell") == true })
         // The two cells' places in the book, from selecting each.
         var ends: [ReaderTextRange] = []
@@ -213,7 +238,7 @@ import XCTest
         let canvas = try XCTUnwrap(reader.session.canvas)
         let view = try XCTUnwrap(canvas.textViews.first { !$0.isHidden })
         try await reader.wait("the cells' text views") { view.tableInteraction?.cells.count == 6 }
-        canvas.announce = { _ in }
+        canvas.postToAccessibility = { _, _ in }
         let row = try XCTUnwrap((view.accessibilityElements as? [UIAccessibilityElement])?.first { $0.accessibilityLabel?.hasPrefix("Left cell") == true })
         let surface = try XCTUnwrap(view.tableInteraction?.cells.values.first { $0.cellText.string.hasPrefix("Left cell") })
         func painted() -> Bool { surface.textStorage.attribute(.backgroundColor, at: 0, effectiveRange: nil) != nil }
@@ -242,7 +267,7 @@ import XCTest
         let canvas = try XCTUnwrap(reader.session.canvas)
         let view = try XCTUnwrap(canvas.textViews.first { !$0.isHidden })
         try await reader.wait("the cells' text views") { view.tableInteraction?.cells.count == 6 }
-        canvas.announce = { _ in }
+        canvas.postToAccessibility = { _, _ in }
         let row = try XCTUnwrap((view.accessibilityElements as? [UIAccessibilityElement])?.first { $0.accessibilityLabel?.hasPrefix("Left cell") == true })
         try perform("Select Table Text: Left cell", on: row)
         XCTAssertEqual(actions(row), ["Next Page", "Previous Page", "Deselect Table Text: Left cell", "Copy", "Select Table Text: Right cell"])

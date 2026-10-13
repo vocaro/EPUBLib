@@ -6,6 +6,15 @@ import AppKit
 import UIKit
 #endif
 
+/// One thing an assistive technology can do with what a table's cell shows.
+struct ReaderTableAction {
+    var name: String
+    /// Performing it changes what the cell's item says of itself and offers. VoiceOver holds
+    /// both as it found them when its cursor came to the item, and is to be told.
+    var changesItem = false
+    var perform: @MainActor () -> Bool
+}
+
 /// Only laid-out, visible rows receive native text surfaces. Their transparent glyphs use
 /// the attachment's exact TextKit 1 metrics; table decoration and ink stay in the row drawing.
 @MainActor final class ReaderTableInteraction {
@@ -25,11 +34,7 @@ import UIKit
 
     func hasCells(at location: Int) -> Bool { cells.keys.contains { $0.location == location } }
 
-    func accessibilityCells(at location: Int) -> [TableCellTextView] {
-        cells.filter { $0.key.location == location }.sorted {
-            ($0.key.cell, $0.key.lower) < ($1.key.cell, $1.key.lower)
-        }.map(\.value)
-    }
+    func accessibilityCells(at location: Int) -> [TableCellTextView] { shown(at: location) }
 
     func selectionPosition(at point: CGPoint) -> ReaderTextPosition? {
         guard let owner, let canvas = owner.canvas, let storage = owner.contentStorage.textStorage else { return nil }
@@ -50,82 +55,91 @@ import UIKit
     /// by touch; VoiceOver is given a row's or a cell's actions and never meets that menu.
     /// `label` names the cell where a row holds several, and `uses` is false for a row's
     /// later cells: a passage selected through several is one selection, to copy once.
-    private func selectionActions(of cell: TableCellTextView, named label: String?, uses: Bool = true) -> [(name: String, perform: @MainActor () -> Bool)] {
+    private func selectionActions(of cell: TableCellTextView, named label: String?, uses: Bool = true) -> [ReaderTableAction] {
         let words = cell.cellText.readerPlainText(in: cell.shownCharacters)
         // A cell without words, a picture alone, has none to select or to name the action by.
         guard !words.allSatisfy(\.isWhitespace) else { return [] }
         let subject = label.map { "Table Text: " + $0 } ?? "Cell Text"
         guard cell.cellSelection.length > 0 else {
-            return [("Select " + subject, { [weak self, weak cell] in
+            return [ReaderTableAction(name: "Select " + subject, changesItem: true) { [weak cell] in
                 guard let cell else { return false }
                 cell.cellSelection = cell.shownCharacters
                 cell.onSelection?(cell.shownCharacters)
-                self?.announce("Selected: " + String(words.prefix(60)))
                 return true
-            })]
+            }]
         }
-        var result: [(String, @MainActor () -> Bool)] = [("Deselect " + subject, { [weak self] in
+        var result = [ReaderTableAction(name: "Deselect " + subject, changesItem: true) { [weak self] in
             guard let canvas = self?.owner?.canvas else { return false }
             canvas.clearSelection()
-            self?.announce("Deselected")
             return true
-        })]
+        }]
         guard uses else { return result }
-        result.append(("Copy", { [weak self, weak cell] in
-            guard let cell else { return false }
+        // VoiceOver may still hold these from before the selection went another way.
+        result.append(ReaderTableAction(name: "Copy") { [weak self, weak cell] in
+            guard let cell, cell.cellSelection.length > 0 else { return false }
             cell.copy(nil)
-            self?.announce("Copied")
+            // Nothing a listener can tell changes when the words are copied.
+            #if os(iOS)
+            self?.owner?.canvas?.announce("Copied")
+            #endif
             return true
-        }))
+        })
         if let title = owner?.canvas?.configuration.selectionActionTitle {
-            result.append((title, { [weak cell] in cell?.onAction?(); return cell != nil }))
+            result.append(ReaderTableAction(name: title) { [weak cell] in
+                guard let cell, cell.cellSelection.length > 0 else { return false }
+                cell.onAction?()
+                return true
+            })
         }
         return result
     }
 
-    /// What is drawn tells a listener nothing: says that an action selected, deselected or copied.
-    private func announce(_ words: String) {
-        #if os(iOS)
-        owner?.canvas?.announce(words)
-        #endif
+    private func links(of cell: TableCellTextView, prefix: String) -> [ReaderTableAction] {
+        var result: [ReaderTableAction] = []
+        cell.cellText.enumerateAttribute(.link, in: cell.shownCharacters) { value, range, _ in
+            guard let url = value as? URL ?? (value as? String).flatMap(URL.init(string:)) else { return }
+            result.append(ReaderTableAction(name: prefix + cell.cellText.readerPlainText(in: range)) { [weak cell] in
+                cell?.onLink?(url, range); return cell != nil
+            })
+        }
+        return result
+    }
+
+    private func shown(at location: Int, cell index: Int? = nil) -> [TableCellTextView] {
+        cells.filter { $0.key.location == location && (index == nil || $0.key.cell == index) }
+            .sorted { ($0.key.cell, $0.key.lower) < ($1.key.cell, $1.key.lower) }.map(\.value)
+    }
+
+    /// Words are selected in a cell shown of the row at `location`, or in the one cell named.
+    func holdsSelection(at location: Int, cell index: Int? = nil) -> Bool {
+        shown(at: location, cell: index).contains { $0.cellSelection.length > 0 }
     }
 
     /// What an assistive technology can do with the cells shown of the row at `location`.
-    func accessibilityActions(at location: Int) -> [(name: String, perform: @MainActor () -> Bool)] {
-        var result: [(String, @MainActor () -> Bool)] = [], selected = false
-        for (_, cell) in cells.filter({ $0.key.location == location }).sorted(by: { ($0.key.cell, $0.key.lower) < ($1.key.cell, $1.key.lower) }) {
+    func accessibilityActions(at location: Int) -> [ReaderTableAction] {
+        var result: [ReaderTableAction] = [], selected = false
+        for cell in shown(at: location) {
             result += selectionActions(of: cell, named: String(cell.cellText.readerPlainText(in: cell.shownCharacters).prefix(60)), uses: !selected)
             selected = selected || cell.cellSelection.length > 0
-            cell.cellText.enumerateAttribute(.link, in: cell.shownCharacters) { value, range, _ in
-                guard let url = value as? URL ?? (value as? String).flatMap(URL.init(string:)) else { return }
-                result.append(("Follow Table Link: " + cell.cellText.readerPlainText(in: range), { [weak cell] in
-                    cell?.onLink?(url, range); return cell != nil
-                }))
-            }
+            result += links(of: cell, prefix: "Follow Table Link: ")
         }
         return result
     }
 
     /// What an assistive technology can do with one cell of the row at `location`: select the
-    /// words it shows there or act on those selected, and follow each link among them.
-    /// `selected` says that the first are for a selection the cell holds.
-    func accessibilityActions(at location: Int, cell index: Int) -> (selection: [(name: String, perform: @MainActor () -> Bool)], selected: Bool,
-                                                                     links: [(name: String, perform: @MainActor () -> Bool)]) {
-        var selection: [(String, @MainActor () -> Bool)] = [], selected = false, links: [(String, @MainActor () -> Bool)] = []
-        for (_, cell) in cells.filter({ $0.key.location == location && $0.key.cell == index }).sorted(by: { $0.key.lower < $1.key.lower }) {
+    /// words it shows there or act on those selected, and follow each link among them, named
+    /// by its words. `selected` says that the first are for a selection the cell holds.
+    func accessibilityActions(at location: Int, cell index: Int) -> (selection: [ReaderTableAction], selected: Bool, links: [ReaderTableAction]) {
+        var selection: [ReaderTableAction] = [], selected = false, found: [ReaderTableAction] = []
+        for cell in shown(at: location, cell: index) {
             // A cell shown in several pieces is one item: a piece that holds a selection answers for it.
             if selection.isEmpty || (cell.cellSelection.length > 0 && !selected) {
                 let offered = selectionActions(of: cell, named: nil)
                 if !offered.isEmpty { (selection, selected) = (offered, cell.cellSelection.length > 0) }
             }
-            cell.cellText.enumerateAttribute(.link, in: cell.shownCharacters) { value, range, _ in
-                guard let url = value as? URL ?? (value as? String).flatMap(URL.init(string:)) else { return }
-                links.append((cell.cellText.readerPlainText(in: range), { [weak cell] in
-                    cell?.onLink?(url, range); return cell != nil
-                }))
-            }
+            found += links(of: cell, prefix: "")
         }
-        return (selection, selected, links)
+        return (selection, selected, found)
     }
 
     func refresh() {

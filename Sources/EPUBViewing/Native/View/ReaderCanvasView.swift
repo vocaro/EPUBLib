@@ -47,12 +47,15 @@ import AppKit
     private var selectionDragOverridesNative = false
     private(set) var selectionContinuation: ReaderSelectionContinuation?
     #if os(iOS)
-    /// Has an assistive technology say what the reader did at its asking where nothing else
-    /// would tell a listener: text selected from VoiceOver's rotor, which is drawn and not read.
-    /// Queued, so that it follows whatever VoiceOver is saying and does not cut it short.
-    var announce: (String) -> Void = { words in
-        UIAccessibility.post(notification: .announcement,
-                             argument: NSAttributedString(string: words, attributes: [.accessibilitySpeechQueueAnnouncement: true]))
+    /// Tells an assistive technology of something the reader did at its asking, which it
+    /// would not learn otherwise: that an item it holds has changed, to be read again with
+    /// the actions it now offers. UIKit's own post, which a test takes in its place.
+    var postToAccessibility: (UIAccessibility.Notification, Any?) -> Void = { UIAccessibility.post(notification: $0, argument: $1) }
+
+    /// Has an assistive technology say what nothing else would tell a listener, after
+    /// whatever it is saying.
+    func announce(_ words: String) {
+        postToAccessibility(.announcement, NSAttributedString(string: words, attributes: [.accessibilitySpeechQueueAnnouncement: true]))
     }
     #endif
 

@@ -719,6 +719,31 @@ private struct ReaderAccessibilityList {
         view?.accessibilityCursorMoved(to: self)
     }
 
+    /// Words of a table's cell that this item reads are selected.
+    var holdsSelection: Bool {
+        guard let view, let storage = view.contentStorage.textStorage, range.location < storage.length,
+              storage.attribute(.attachment, at: range.location, effectiveRange: nil) is TableRowAttachment else { return false }
+        return view.tableInteraction?.holdsSelection(at: range.location) ?? false
+    }
+
+    // VoiceOver says "Selected" of such an item whenever it comes to it, in its own language.
+    override var accessibilityTraits: UIAccessibilityTraits {
+        get { holdsSelection ? super.accessibilityTraits.union(.selected) : super.accessibilityTraits }
+        set { super.accessibilityTraits = newValue.subtracting(.selected) }
+    }
+
+    /// An action of a table's cell as VoiceOver is given it. VoiceOver keeps what an item says
+    /// and offers as it found them when its cursor came to the item, so after an action that
+    /// changes them, selecting and deselecting, it is told that the item changed: it reads
+    /// the item again, selected or not, and takes its actions as they now are.
+    func customAction(_ action: ReaderTableAction, named name: String? = nil) -> UIAccessibilityCustomAction {
+        UIAccessibilityCustomAction(name: name ?? action.name) { [weak self] _ in
+            guard action.perform() else { return false }
+            if action.changesItem, let self { view?.canvas?.postToAccessibility(.layoutChanged, self) }
+            return true
+        }
+    }
+
     /// A page's elements turn the page. Continuous scroll scrolls natively, by VoiceOver's own
     /// gesture.
     func pageActions(of view: ReaderTextView) -> [UIAccessibilityCustomAction] {
@@ -744,9 +769,7 @@ private struct ReaderAccessibilityList {
                 }
             }
             if view.contentStorage.textStorage?.attribute(.attachment, at: range.location, effectiveRange: nil) is TableRowAttachment {
-                actions += (view.tableInteraction?.accessibilityActions(at: range.location) ?? []).map { action in
-                    UIAccessibilityCustomAction(name: action.name) { _ in action.perform() }
-                }
+                actions += (view.tableInteraction?.accessibilityActions(at: range.location) ?? []).map { customAction($0) }
             }
             return actions.isEmpty ? nil : actions
         }
@@ -799,10 +822,13 @@ private struct ReaderTableCellKey: Hashable {
         return NSRange(location: table.cells[cell].column, length: table.cells[cell].columnSpan)
     }
 
+    override var holdsSelection: Bool {
+        ([range.location] + continuations).contains { view?.tableInteraction?.holdsSelection(at: $0, cell: cell) == true }
+    }
+
     /// What the cell's text views offer for the words shown here, where it is on screen.
-    private var interactions: (selection: [(name: String, perform: @MainActor () -> Bool)], links: [(name: String, perform: @MainActor () -> Bool)]) {
-        var selection: [(name: String, perform: @MainActor () -> Bool)] = [], selected = false
-        var links: [(name: String, perform: @MainActor () -> Bool)] = []
+    private var interactions: (selection: [ReaderTableAction], links: [ReaderTableAction]) {
+        var selection: [ReaderTableAction] = [], selected = false, links: [ReaderTableAction] = []
         for location in [range.location] + continuations {
             guard let found = view?.tableInteraction?.accessibilityActions(at: location, cell: cell) else { continue }
             // The rows a cell continues into are the same cell: one that holds a selection answers for it.
@@ -834,8 +860,8 @@ private struct ReaderTableCellKey: Hashable {
                 }
             }
             let found = interactions
-            actions += found.selection.map { action in UIAccessibilityCustomAction(name: action.name) { _ in action.perform() } }
-            actions += found.links.map { link in UIAccessibilityCustomAction(name: "Follow Link: " + link.name) { _ in link.perform() } }
+            actions += found.selection.map { customAction($0) }
+            actions += found.links.map { customAction($0, named: "Follow Link: " + $0.name) }
             return actions.isEmpty ? nil : actions
         }
         set { super.accessibilityCustomActions = newValue }
