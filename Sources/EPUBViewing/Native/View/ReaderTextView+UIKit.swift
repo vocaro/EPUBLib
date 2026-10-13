@@ -823,12 +823,27 @@ private struct ScrollAccessibilityPlace: Equatable {
 
     override func accessibilityIncrement() {
         bar.accessibilityIncrement()
-        refresh()
+        adjusted()
     }
 
     override func accessibilityDecrement() {
         bar.accessibilityDecrement()
+        adjusted()
+    }
+
+    /// The bar has taken the view a tenth of the way through the book, with the cursor still
+    /// here, and UIKit tells VoiceOver nothing of it. VoiceOver holds the two lines it was
+    /// given before this element when its cursor came here. They are screens away now, no
+    /// longer listed, and the elements that stood for them are gone. At its next move back
+    /// VoiceOver found the nearer one gone and asked again from here, and then asked for one
+    /// more from the further: for an element UIKit no longer knew it was given nothing, noted
+    /// that as the start of the list, and two lines up it stayed where it was at every move
+    /// back. A layout change that names this element has VoiceOver drop what it holds and
+    /// ask again for the items each side of it, and it says nothing more for that than the
+    /// bar's new value.
+    private func adjusted() {
         refresh()
+        view?.canvas?.postAccessibilityNotification(.layoutChanged, self)
     }
 
     override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
