@@ -68,6 +68,30 @@ import UIKit
         return result
     }
 
+    /// What an assistive technology can do with one cell of the row at `location`: select the
+    /// words it shows there, and follow each link among them.
+    func accessibilityActions(at location: Int, cell index: Int) -> (select: (@MainActor () -> Bool)?,
+                                                                     links: [(name: String, perform: @MainActor () -> Bool)]) {
+        var select: (@MainActor () -> Bool)?, links: [(String, @MainActor () -> Bool)] = []
+        for (_, cell) in cells.filter({ $0.key.location == location && $0.key.cell == index }).sorted(by: { $0.key.lower < $1.key.lower }) {
+            if select == nil, !cell.cellText.readerPlainText(in: cell.shownCharacters).allSatisfy(\.isWhitespace) {
+                select = { [weak cell] in
+                    guard let cell else { return false }
+                    cell.cellSelection = cell.shownCharacters
+                    cell.onSelection?(cell.shownCharacters)
+                    return true
+                }
+            }
+            cell.cellText.enumerateAttribute(.link, in: cell.shownCharacters) { value, range, _ in
+                guard let url = value as? URL ?? (value as? String).flatMap(URL.init(string:)) else { return }
+                links.append((cell.cellText.readerPlainText(in: range), { [weak cell] in
+                    cell?.onLink?(url, range); return cell != nil
+                }))
+            }
+        }
+        return (select, links)
+    }
+
     func refresh() {
         guard !updating, let owner, let storage = owner.contentStorage.textStorage else { return }
         updating = true
