@@ -442,61 +442,6 @@ final class ReaderTextView: NSTextView {
     }
 }
 
-extension ReaderTextView {
-    /// The headings an assistive client finds among the text's children: each one with
-    /// characters on screen and, in continuous scroll, the next one below them. With its
-    /// cursor on a link, which is a child of the text and not a place in it, VoiceOver's move
-    /// to the next heading looks through those children and asks no rotor (macOS 27.0.1), so
-    /// a heading has an element there as a link has. The one below the screen is where that
-    /// move goes from the last link on screen. A page column has its page's headings.
-    func headingChildren() -> [ReaderHeadingAccessibilityElement] {
-        let visible = accessibilityVisibleCharacterRange()
-        var found: [ReaderHeadingAccessibilityElement] = []
-        for (heading, range, _) in accessibilityHeadings {
-            let below = range.location >= NSMaxRange(visible)
-            guard below || NSIntersectionRange(range, visible).length > 0 else { continue }
-            let element = headingElements[range.location] ?? ReaderHeadingAccessibilityElement()
-            headingElements[range.location] = element
-            element.view = self
-            element.range = range
-            element.setAccessibilityParent(self)
-            element.setAccessibilityLabel(plainText(in: range).split(whereSeparator: \.isWhitespace).joined(separator: " "))
-            // VoiceOver says the level it finds as the element's value: "heading level 2".
-            element.setAccessibilityValue(heading.level > 0 ? heading.level : nil)
-            found.append(element)
-            if below { break }
-        }
-        return found
-    }
-}
-
-/// A heading in a reader text view as VoiceOver finds it from another element of the text: a
-/// child of the text with AppKit's role for a heading, named by the heading's words, with its
-/// level. The heading's characters carry the level too, and the Headings rotor gives them:
-/// those are what VoiceOver goes by from a place in the text.
-final class ReaderHeadingAccessibilityElement: NSAccessibilityElement {
-    weak var view: ReaderTextView?
-    var range = NSRange(location: 0, length: 0)
-
-    override init() {
-        super.init()
-        setAccessibilityRole(.headingRole)
-    }
-
-    // AppKit asks on the main thread. The place is found when asked for, as a link's is.
-    override func accessibilityFrameInParentSpace() -> NSRect {
-        guard let view else { return .zero }
-        let range = range
-        return MainActor.assumeIsolated { view.linkFrame(range) }
-    }
-
-    override func accessibilityFrame() -> NSRect {
-        guard let view else { return .zero }
-        let range = range
-        return MainActor.assumeIsolated { NSAccessibility.screenRect(fromView: view, rect: view.linkFrame(range)) }
-    }
-}
-
 extension ReaderTextView: @MainActor NSAccessibilityCustomRotorItemSearchDelegate {
     /// The heading after or before where the search stands, and none past either end. VoiceOver
     /// stands on the characters under its cursor, or on the heading it was last given. To list
@@ -528,5 +473,62 @@ extension NSAttributedString.Key {
     /// The heading level of text an assistive client reads, 1 to 6: the Accessibility
     /// framework's own attribute, which AppKit has no name for.
     static let accessibilityHeadingLevel = NSAttributedString.Key(AttributeScopes.AccessibilityAttributes.HeadingLevelAttribute.name)
+}
+
+extension ReaderTextView {
+    /// The headings among the text's children: each one with characters on screen and, in
+    /// continuous scroll, the next one below them. From a place in the text VoiceOver moves
+    /// to the next heading by the rotor. With its cursor on a link, which is a child of the
+    /// text and no place in it, it asks no rotor and looks through the text's children for a
+    /// heading after the link, beginning again with the first past the last (macOS 27.0.1).
+    /// So a heading has an element there, as a link has. The one below the screen is where
+    /// that move goes from the last link on screen; VoiceOver scrolls to it by the scroll
+    /// bar. A page column has its page's headings.
+    func headingChildren() -> [ReaderHeadingAccessibilityElement] {
+        let visible = accessibilityVisibleCharacterRange()
+        var found: [ReaderHeadingAccessibilityElement] = []
+        for (heading, range, _) in accessibilityHeadings {
+            let below = range.location >= NSMaxRange(visible)
+            guard below || NSIntersectionRange(range, visible).length > 0 else { continue }
+            let element = headingElements[range.location] ?? ReaderHeadingAccessibilityElement()
+            headingElements[range.location] = element
+            element.view = self
+            element.range = range
+            element.setAccessibilityParent(self)
+            element.setAccessibilityLabel(plainText(in: range).split(whereSeparator: \.isWhitespace).joined(separator: " "))
+            // VoiceOver says the level it finds as the element's value: "heading level 2".
+            element.setAccessibilityValue(heading.level > 0 ? heading.level : nil)
+            found.append(element)
+            if below { break }
+        }
+        return found
+    }
+}
+
+/// A heading in a reader text view as VoiceOver finds it from another element of the text: a
+/// child of the text with AppKit's role for a heading, called by the heading's words, with
+/// its level. From a place in the text VoiceOver goes by the heading's characters, which
+/// carry the level too, and by the Headings rotor.
+final class ReaderHeadingAccessibilityElement: NSAccessibilityElement {
+    weak var view: ReaderTextView?
+    var range = NSRange(location: 0, length: 0)
+
+    override init() {
+        super.init()
+        setAccessibilityRole(.headingRole)
+    }
+
+    // AppKit asks on the main thread. The place is found when asked for, as a link's is.
+    override func accessibilityFrameInParentSpace() -> NSRect {
+        guard let view else { return .zero }
+        let range = range
+        return MainActor.assumeIsolated { view.linkFrame(range) }
+    }
+
+    override func accessibilityFrame() -> NSRect {
+        guard let view else { return .zero }
+        let range = range
+        return MainActor.assumeIsolated { NSAccessibility.screenRect(fromView: view, rect: view.linkFrame(range)) }
+    }
 }
 #endif
