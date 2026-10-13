@@ -298,6 +298,9 @@ extension PageAccessibilityTests {
             }
             // Unordered, so a live VoiceOver session on this Mac hears nothing of it.
             XCTAssertFalse(window.isVisible)
+            // The last change holds the posting element, which can hold the canvas, which holds
+            // the closure that holds `posted`.
+            posted.removeAll()
             return all
         }
         let frame = CGRect(x: 0, y: 0, width: 1100, height: 500)
