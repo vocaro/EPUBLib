@@ -4310,8 +4310,10 @@ The Mac runner's transcript is plain text and needs no export.
   wide at 17 points, with VoiceOver's link setting at Speak, at a fixed pause of four
   seconds, the same steps both times. Before at `3f3ae69`, which was `main`: run
   38426000629. After at `0474384`: runs 38428891242 and 38430983860; the commits after it
-  change comments and documents. Nobody listened. The harness was the branch's own, before
-  and after `main` with the sessions of Safari was merged into it.
+  change comments and documents. With `main` at `b515264` merged in (`9bd3d3f`), the first
+  session and the fourth were recorded once more and said the same (run 38433434953).
+  Nobody listened. The harness was the branch's own, before and after `main` with the
+  sessions of Safari was merged into it.
   Four sessions each time: along the row to the cell with its Actions menu, and down the
   column to it, in pages and then in continuous scroll. The way in was `ax:caret=Stations
   on`, a focus change to the text, `in`, `line` and five `nextline` to "Cedar, Reopened 1978,
