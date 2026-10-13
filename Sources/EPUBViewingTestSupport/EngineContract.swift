@@ -14,6 +14,8 @@ import Foundation
     // TEMPORARY, for the probe at the end of EngineContractTests.swift: which of the search
     // check's three fixed waits get a yield before them and 20 ms after. Not for main.
     public static var probeTreated: Set<Int> = []
+    /// Called with a wait's number at the moment its 150 ms ends.
+    public static var probeEnded: ((Int) -> Void)?
 
     /// Tests lifecycle, advertised commands, cancellation, location identity and bookmark restoration.
     /// Rendering fidelity, input gestures and resource release require adapter-specific tests.
@@ -77,6 +79,7 @@ import Foundation
                 let treated = EPUBEngineContract.probeTreated.contains(number)
                 if treated { await Task.yield() }
                 try await Task.sleep(for: .milliseconds(150))
+                EPUBEngineContract.probeEnded?(number)
                 if treated { try await Task.sleep(for: .milliseconds(20)) }
             }
             let navigates = session.capabilities.contains(.search)

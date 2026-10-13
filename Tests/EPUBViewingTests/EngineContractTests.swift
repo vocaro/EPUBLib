@@ -236,6 +236,8 @@ import XCTest
     /// 1 once the last step is taken, 2 once the search is cleared after it, 3 at a stale step.
     private var stage = 0
     var started, sent, looked: ContinuousClock.Instant?
+    /// When the measured wait's 150 ms ended.
+    var ended: ContinuousClock.Instant?
     /// Whether the event had been sent when the verifier looked.
     var seen = false
     init(wait: Int, stalls: Bool, onStart: @escaping () -> Void) {
@@ -296,17 +298,23 @@ import XCTest
     private static let effect = "A step or result of a cleared search still had an effect"
     /// One of the three waits, as it is or treated, against the engine that races it.
     private final class Shape {
-        let id: String, wait: Int, treated: Bool
+        let id: String, wait: Int, treated: Set<Int>
         var attempts = 0, counted = 0, beaten = 0, unmeasured = 0
+        /// Failures of the verifier in attempts where its look had the measured event.
+        var failedThoughSeen = 0
+        /// How long after the wait's 150 ms ended the event came: before it, then within 1, 2,
+        /// 5, 10 and 20 ms of it, then later still.
+        var late = Array(repeating: 0, count: 7), latest = 0.0
         var verdicts: [String: Int] = [:]
         /// Of the counted attempts: from the look to the event where the look came first, and
         /// from the event to the look where the event did.
         var behind: [Double] = [], ahead: [Double] = []
-        init(_ id: String, wait: Int, treated: Bool) { self.id = id; self.wait = wait; self.treated = treated }
+        init(_ id: String, wait: Int, treated: Set<Int>) { self.id = id; self.wait = wait; self.treated = treated }
         var name: String {
             let which = ["before the count taken as `cleared`", "before the count taken as `quiet`", "before the last check"][wait - 1]
             let engine = wait == 3 ? "a broken engine whose stale step has its effect" : "a correct engine that reports"
-            return "wait \(wait), \(which)|\(treated ? "a yield before, 20 ms after" : "as it is")|\(engine) from a 30 ms sleep"
+            let how = treated.isEmpty ? "every wait as it is" : "a yield before and 20 ms after wait \(treated.sorted().map(String.init).joined(separator: " and "))"
+            return "wait \(wait), \(which)|\(how)|\(engine) from a 30 ms sleep"
         }
     }
     private func milliseconds(_ duration: Duration) -> Double {
@@ -318,8 +326,9 @@ import XCTest
     private func attempt(_ shape: Shape, book: EPUBPublication, stopper: ProcessStopper?, stalls: Bool) async throws {
         let probe = SearchWaitProbe(wait: shape.wait, stalls: stalls) { stopper?.stopSoon() }
         ContractNativeSession.probe = probe
-        EPUBEngineContract.probeTreated = shape.treated ? [shape.wait] : []
-        defer { ContractNativeSession.probe = nil; EPUBEngineContract.probeTreated = [] }
+        EPUBEngineContract.probeTreated = shape.treated
+        EPUBEngineContract.probeEnded = { if $0 == shape.wait, probe.started != nil, probe.ended == nil { probe.ended = .now } }
+        defer { ContractNativeSession.probe = nil; EPUBEngineContract.probeTreated = []; EPUBEngineContract.probeEnded = nil }
         let engine = shape.wait == 3 ? ContractNativeEngine(fault: .timedStepsAfterClear, search: .results)
             : ContractNativeEngine(fault: .none, search: .results, reportsLate: true)
         var verdict = "passed"
@@ -332,7 +341,7 @@ import XCTest
         } catch let failure as EPUBEngineContract.Failure { verdict = failure.description }
         while probe.started != nil, probe.sent == nil { try await Task.sleep(for: .milliseconds(5)) }
         shape.attempts += 1
-        guard let started = probe.started, let sent = probe.sent, let looked = probe.looked else {
+        guard let started = probe.started, let sent = probe.sent, let looked = probe.looked, let ended = probe.ended else {
             shape.unmeasured += 1
             return
         }
@@ -340,6 +349,10 @@ import XCTest
         if stopper != nil, call < 170 || look < 170 { return }
         shape.counted += 1
         shape.verdicts[verdict, default: 0] += 1
+        let after = milliseconds(sent - ended)
+        shape.late[after <= 0 ? 0 : after <= 1 ? 1 : after <= 2 ? 2 : after <= 5 ? 3 : after <= 10 ? 4 : after <= 20 ? 5 : 6] += 1
+        shape.latest = max(shape.latest, after)
+        if probe.seen, verdict != "passed", shape.wait != 3 { shape.failedThoughSeen += 1 }
         if probe.seen { shape.ahead.append(look - call) } else {
             shape.beaten += 1
             shape.behind.append(call - look)
@@ -357,14 +370,20 @@ import XCTest
             shape.behind.sort(); shape.ahead.sort()
             print("PROBE|\(shape.id)|\(part)|\(shape.name)|attempts=\(shape.attempts)|counted=\(shape.counted)|beaten=\(shape.beaten)"
                 + "|verifier passed=\(passed)|verifier failed for an effect of a cleared search=\(effect)|other failures=\(other.values.reduce(0, +))"
-                + "|not measured=\(shape.unmeasured)"
+                + "|not measured=\(shape.unmeasured)|failed though the look had the event=\(shape.failedThoughSeen)"
+                + "|event before the 150 ms ended=\(shape.late[0])|within 1 ms after=\(shape.late[1])|1 to 2 ms=\(shape.late[2])|2 to 5 ms=\(shape.late[3])"
+                + "|5 to 10 ms=\(shape.late[4])|10 to 20 ms=\(shape.late[5])|over 20 ms=\(shape.late[6])" + String(format: "|latest ms after the 150 ms ended=%.3f", shape.latest)
                 + String(format: "|most ms from the look to the event=%.3f|median=%.3f|least ms from the event to the look=%.3f",
                          shape.behind.last ?? 0, shape.behind.isEmpty ? 0 : shape.behind[shape.behind.count / 2], shape.ahead.first ?? 0)
                 + (other.isEmpty ? "" : "|which: \(other)"))
         }
     }
     private func shapes(_ prefix: String) -> [Shape] {
-        (1...3).flatMap { wait in [Shape("\(prefix)\(wait)a", wait: wait, treated: false), Shape("\(prefix)\(wait)t", wait: wait, treated: true)] }
+        (1...3).flatMap { wait in [Shape("\(prefix)\(wait)a", wait: wait, treated: []), Shape("\(prefix)\(wait)t", wait: wait, treated: [wait])] }
+    }
+    /// Each wait raced with every wait as it is, and with the two after the clear treated.
+    private func arrangements(_ prefix: String) -> [Shape] {
+        (1...3).flatMap { wait in [Shape("\(prefix)\(wait)a", wait: wait, treated: []), Shape("\(prefix)\(wait)f", wait: wait, treated: [2, 3])] }
     }
     func testWhichSearchWaitsATimerBeats() async throws {
         let environment = ProcessInfo.processInfo.environment
@@ -377,6 +396,10 @@ import XCTest
         // Both sleeps overdue together, every attempt.
         if parts.contains("A") {
             try await measure("process stopped across both sleeps", shapes("A"), attempts: count(200), stopper: stopper)
+        }
+        // The same, against the arrangement proposed: the first wait as it is, the other two treated.
+        if parts.contains("D") {
+            try await measure("process stopped across both sleeps", arrangements("D"), attempts: count(200), stopper: stopper)
         }
         // The engine's queued work kept from starting for 160 ms.
         if parts.contains("B") {
