@@ -126,6 +126,12 @@ final class ReaderRuleAttachment: ReaderAttachment {
 
     enum Alignment: Sendable { case leading, center, trailing }
 
+    /// What an assistive technology is told stands at a rule, where the platform has no word of
+    /// its own for one. HTML makes `hr` a break between the paragraphs it parts and gives it
+    /// the separator role. The reader says so in its own word, which is not the book's: a rule
+    /// keeps an empty text equivalent, and selections, copies and search read nothing for it.
+    static let spokenName = "Separator"
+
     init(style: ComputedStyle, isDark: Bool) {
         width = style.width
         let border = style.border.top

@@ -21,6 +21,7 @@ files = {'mimetype': 'application/epub+zip',
                     'media-type="application/xhtml+xml"/><item id="labels" href="labels.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="table" href="table.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="pictures" href="pictures.xhtml" '
+                    'media-type="application/xhtml+xml"/><item id="scenes" href="scenes.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="grids" href="grids.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="ledger" href="ledger.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="tallrow" href="tallrow.xhtml" '
@@ -28,7 +29,8 @@ files = {'mimetype': 'application/epub+zip',
                     'media-type="image/svg+xml"/><item id="titled" href="titled.svg" '
                     'media-type="image/svg+xml"/></manifest><spine><itemref '
                     'idref="body"/><itemref idref="labels"/><itemref '
-                    'idref="table"/><itemref idref="pictures"/><itemref idref="grids"/><itemref '
+                    'idref="table"/><itemref idref="pictures"/><itemref '
+                    'idref="scenes"/><itemref idref="grids"/><itemref '
                     'idref="ledger"/><itemref idref="tallrow"/></spine></package>',
  'OPS/nav.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
                   'xmlns="http://www.w3.org/1999/xhtml" '
@@ -37,7 +39,8 @@ files = {'mimetype': 'application/epub+zip',
                   'verification</a></li><li><a href="labels.xhtml">Hidden '
                   'labels</a></li><li><a href="table.xhtml">Hidden heading over a '
                   'table</a></li><li><a href="pictures.xhtml">Pictures and their '
-                  'words</a></li><li><a href="grids.xhtml">Tables of data</a></li><li><a '
+                  'words</a></li><li><a href="scenes.xhtml">Scenes set '
+                  'apart</a></li><li><a href="grids.xhtml">Tables of data</a></li><li><a '
                   'href="ledger.xhtml">A table longer than a page</a></li><li><a '
                   'href="tallrow.xhtml">A row taller than a page</a></li></ol></nav></body></html>',
  'OPS/square.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 '
@@ -93,7 +96,19 @@ files = {'mimetype': 'application/epub+zip',
                        'href="body.xhtml#link-target"><img src="square.svg" alt="Described '
                        'jump"/></a></p><p>Titled decoration <img src="titled.svg" alt=""/> '
                        'passed over.</p><p>Titled picture <img src="titled.svg"/> stands '
-                       'here.</p><p>Last words about pictures.</p></body></html>'}
+                       'here.</p><p>Last words about pictures.</p></body></html>',
+ # What stands between two scenes: a rule, which HTML makes a change of subject and not a
+ # picture; one the book gives the presentation role, as ornament; and one alone on its page,
+ # where it is all VoiceOver has to stand on. No word here is one a screen reader uses for a
+ # rule, so those in a transcript are VoiceOver's or the reader's own.
+ 'OPS/scenes.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
+                     'xmlns="http://www.w3.org/1999/xhtml"><head><title>Scenes set '
+                     'apart</title><style>.alone, .after { break-before: page; '
+                     '}</style></head><body><h1>Scenes set apart</h1><p>First scene '
+                     'ends.</p><hr/><p>Second scene starts.</p><hr '
+                     'role="presentation"/><p>Words after an ornament.</p><div '
+                     'class="alone"><hr/></div><p class="after">Last words of the '
+                     'scenes.</p></body></html>'}
 # Tables that are data, and one that is not. The first has a caption, a header row and a header
 # cell in each row, an empty cell and a link. The second has header cells that span columns and
 # rows and data cells that do. The third is marked as layout, though it is ruled like the
@@ -147,8 +162,8 @@ files["OPS/table.xhtml"] = files["OPS/table.xhtml"].replace("LINES_AFTER", "".jo
 # end of the book is a few screens from the start of its last chapter.
 chapters = {"one": range(1, 41), "two": range(41, 81), "three": range(81, 87)}
 paragraphs = dict(files)
-for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "grids.xhtml", "ledger.xhtml", "tallrow.xhtml",
-             "square.svg", "titled.svg"]:
+for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "scenes.xhtml", "grids.xhtml", "ledger.xhtml",
+             "tallrow.xhtml", "square.svg", "titled.svg"]:
     del paragraphs["OPS/" + name]
 paragraphs["OPS/package.opf"] = (
     '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
