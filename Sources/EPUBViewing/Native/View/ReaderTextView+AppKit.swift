@@ -439,10 +439,12 @@ final class ReaderTextView: NSTextView {
 extension ReaderTextView: @MainActor NSAccessibilityCustomRotorItemSearchDelegate {
     /// The heading after or before where the search stands, and none past either end. VoiceOver
     /// stands on the characters under its cursor, or on the heading it was last given. To list
-    /// the headings it asks for the one after an item that is nowhere, with no element or with
-    /// the first character and none of it, and then for the one after each it is given: from
-    /// nowhere the search begins with the first heading, or the last. Standing inside a
-    /// heading, the one before is the heading before that one, as in a browser.
+    /// the headings it asks for the one after an item that is nowhere, with no element, and
+    /// then for the one after each it is given; with its cursor resting on the view it asks
+    /// from the view's first character and none of it. From either the search begins with the
+    /// first heading, or the last. Standing inside a heading, the one before is the heading
+    /// before that one, as in a browser. A page column answers for the whole book, where a
+    /// cursor at rest stands at the top of its page (`ReaderCanvasView.headingRotorResult`).
     func rotor(_ rotor: NSAccessibilityCustomRotor,
                resultFor searchParameters: NSAccessibilityCustomRotor.SearchParameters) -> NSAccessibilityCustomRotor.ItemResult? {
         if isPageColumn, let canvas { return canvas.headingRotorResult(for: searchParameters, askedOf: self) }
