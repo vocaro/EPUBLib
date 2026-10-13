@@ -2988,8 +2988,8 @@ The Mac runner's transcript is plain text and needs no export.
   shown, or the line. From a cell to a cell the reader still posts a new item, for the
   reason found below.
   No device has read this. From 04:15 PDT that day every probe session on the iPad Air
-  ended before its first step with "Timed out while enabling automation mode": four of
-  this branch's, between 04:57 and 05:26, and five of another's before them. The last
+  ended before its first step with "Timed out while enabling automation mode": five of
+  this branch's, between 04:57 and 05:53, and five of another's before them. The last
   session to run had ended at 04:01. Read from the Mac, the iPad was connected, booted,
   in developer mode and asking for no passcode, and VoiceOver was off on it. What follows
   is the [simulator lane](#simulators), which is not acceptance: iPad Air 13-inch (M4)
