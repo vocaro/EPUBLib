@@ -684,7 +684,8 @@ setting is the owner's to change.
 
 ## For the owner to judge
 
-Described, not decided. None of these was changed.
+The undecided points describe the observed behavior. Decisions and resulting changes are
+recorded with the points they resolve.
 
 1. **Focus order on the iPhone Duo.** With the vertical bar, VoiceOver reaches Search,
    Contents and Appearance after the whole page. The system owns that adaptation; the page
@@ -753,6 +754,17 @@ Described, not decided. None of these was changed.
     those next touches as it takes any swipe; after the fifth, on its side, the strip stood
     with the field at its top edge, 197 points from its end, where the swipe began. The
     touches were synthetic; a touch that lifts on the control was not tried.
+
+
+16. **The strip leaves no book in landscape at the largest text size.** [#368](https://github.com/vocaro/EPUBLib/issues/368)
+    measured a strip 339 points tall on iPhones on their sides, leaving no text of the book
+    on screen. Under the owner's delegated request to close the priority issues on 2026-10-13,
+    the implementation decision was to show Contents and Appearance as icons in compact
+    heights, as the toolbar does. Their accessible names remain Contents and Appearance;
+    text sizes, other controls and regular-height labels remain as before. This was the
+    recommended remedy, adopted after an optional preference question received no reply;
+    it is not a quoted owner policy choice. Landscape qualification evidence follows once
+    the four device/text-size cases have been run.
 
 ## Not verified
 

@@ -52,6 +52,8 @@ public struct EPUBReaderToolbar: ToolbarContent {
 
 /// An embedded alternative. At narrow widths groups stack vertically, including host items,
 /// preserving text size and search focus without clipping controls into a horizontal scroller.
+/// In a compact height, Contents and Appearance show their icons, retaining their accessible
+/// names, so their titles do not force a tall column over the book on a landscape iPhone.
 ///
 /// On iPhone and iPad the strip is as tall as its groups wherever it is offered that much, and
 /// scrolls them where it is not: its own search field raises the keyboard over a stack that
@@ -65,6 +67,7 @@ public struct EPUBReaderControlStrip<Extras: View>: View {
     private let extras: Extras
     #if !os(macOS)
     @State private var fits = false
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     #endif
     public init(controls: EPUBReaderControls, groups: [EPUBReaderControlGroup] = EPUBReaderControlGroup.allCases,
                 @ViewBuilder extras: () -> Extras) {
@@ -112,8 +115,20 @@ public struct EPUBReaderControlStrip<Extras: View>: View {
         }
     }
     @ViewBuilder private var items: some View {
-        ForEach(groups, id: \.self) { group in EPUBReaderControl(controls: controls, group: group, inlineSearch: true) }
+        ForEach(groups, id: \.self) { group in stripControl(group) }
         extras
+    }
+    @ViewBuilder private func stripControl(_ group: EPUBReaderControlGroup) -> some View {
+        let control = EPUBReaderControl(controls: controls, group: group, inlineSearch: true)
+        #if os(macOS)
+        control
+        #else
+        if verticalSizeClass == .compact, group == .contents || group == .appearance {
+            control.labelStyle(.iconOnly)
+        } else {
+            control
+        }
+        #endif
     }
 }
 
