@@ -496,6 +496,7 @@ import AppKit
         scrollBook = nil
         paginators.removeAll()
         paginatorUse.removeAll()
+        sectionHeadings.removeAll()
     }
 
     var cachedPaginatorCount: Int { paginators.count }
