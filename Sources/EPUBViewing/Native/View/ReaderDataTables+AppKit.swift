@@ -130,6 +130,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// The row's frame in the view's coordinates, laid out if it was not.
     func frame(ofRowAt location: Int) -> CGRect? {
         guard let view, let range = view.textRange(for: NSRange(location: location, length: 1)) else { return nil }
+        view.holdScrollPlace()
         view.readerLayoutManager.ensureLayout(for: range)
         let origin = view.containerOrigin
         return view.segmentFrames(for: NSRange(location: location, length: 1)).first?.offsetBy(dx: origin.x, dy: origin.y)
@@ -187,6 +188,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
             if let cell = listed[spoken.cell] {
                 cell.text = [cell.text, spoken.text].filter { !$0.isEmpty }.joined(separator: " ")
                 cell.images += spoken.images
+                cell.imagePlaces += spoken.imageFrames.map { (row.location, $0) }
                 cell.locations.append(row.location)
                 continue
             }
@@ -196,6 +198,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
             cell.row = row
             cell.text = spoken.text
             cell.images = spoken.images
+            cell.imagePlaces = spoken.imageFrames.map { (row.location, $0) }
             cell.locations = [row.location]
             cell.frameInRow = spoken.frame
             listed[spoken.cell] = cell
@@ -243,11 +246,13 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     }
 
     /// What heads a column or a row. Its one header cell, where that is on screen with its
-    /// text areas: VoiceOver reads a header cell by what it holds, and does not read a cell
-    /// under itself. Otherwise the words of its header cells, top or first one first, as
-    /// static text: several header cells, one on another page, or one far off the screen.
+    /// text areas or holds an image for each picture it shows: VoiceOver does not read a cell
+    /// under itself, and reads a header cell by what each thing the cell holds is called, a
+    /// text area by its value, a link by its title and an image by its label, looking no
+    /// further in. Otherwise the words of its header cells, top or first one first, as static
+    /// text: several header cells, one on another page, or one far off the screen.
     private func headerElement(_ cells: [Int], key: Int) -> NSAccessibilityElement {
-        if cells.count == 1, let listed = listed(cells[0]), listed.holdsText { return listed }
+        if cells.count == 1, let listed = listed(cells[0]), listed.holdsItsWords { return listed }
         let words = cells.map { table.cells[$0].text }.filter { !$0.isEmpty }.joined(separator: ", ")
         if let kept = headerNames[key], kept.words == words { return kept }
         let name = ReaderTableHeaderElement(table: self, words: words)
@@ -420,7 +425,10 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 /// A cell of a table of data, where the view shows it. It holds the text areas of its words
 /// while they are on screen, so that VoiceOver can go into it and read by word, and is
 /// labelled with its words where it has none. A cell whose words are one link and nothing
-/// else is pressed to follow it, and holds a link with its text areas inside.
+/// else, a header cell among them, is pressed to follow it, and holds a link called by its
+/// words with its text areas inside. A cell that shows pictures holds an image for each: in
+/// place of its text areas where it shows nothing else, and after them where the pictures
+/// stand among words.
 @MainActor final class ReaderTableCellElement: NSAccessibilityElement {
     /// A client can keep the element after its table has gone, with the page it was on.
     private weak var table: ReaderTableElement?
@@ -431,12 +439,18 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     var text = ""
     /// The pictures among them that say something.
     var images: [ReaderImageAttachment] = []
+    /// Where each of those pictures is drawn: the character of its row, and its box in that
+    /// row's coordinates.
+    var imagePlaces: [(location: Int, frame: CGRect)] = []
     /// The characters of the rows that hold lines of it here.
     var locations: [Int] = []
     /// Its box in its row's coordinates.
     var frameInRow = CGRect.zero
-    /// The link the cell holds where its words are one link (`holdsLink`).
+    /// The link the cell holds where its words are one link (`isLink`).
     private lazy var link = ReaderTableCellLinkElement(cell: self)
+    /// The images the cell holds for the pictures it shows (`heldPictures`), kept for as long
+    /// as the cell is: VoiceOver asks an element what it is after the read that gave it.
+    private var pictures: [ReaderTableCellImageElement] = []
 
     init(table: ReaderTableElement, cell: Int) {
         self.table = table
@@ -462,14 +476,14 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     var textViews: [TableCellTextView] {
         guard let interaction = table?.view?.tableInteraction else { return [] }
         let views = locations.flatMap { interaction.accessibilityCells(at: $0, cell: cell) }
-        let holder: NSAccessibilityElement = holdsLink ? link : self
+        let holder: NSAccessibilityElement = isLink ? link : self
         for view in views { view.tableCellElement = holder }
         return views
     }
 
-    /// Whether the cell's words are in text areas it holds, which is where VoiceOver reads a
-    /// header cell's words from.
-    var holdsText: Bool { !textViews.isEmpty }
+    /// Whether the cell holds what says its words, which is where VoiceOver reads a header
+    /// cell's words from: its text areas, or an image for each picture it shows.
+    var holdsItsWords: Bool { holdsPictures ? !images.isEmpty : !textViews.isEmpty }
 
     override func accessibilityRole() -> NSAccessibility.Role? { .cell }
     override func accessibilityParent() -> Any? { onMain(self) { $0.row ?? $0.table } }
@@ -477,7 +491,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityColumnIndexRange() -> NSRange { onMain(self) { $0.columns } }
     override func accessibilityChildren() -> [Any]? { onMain(self) { $0.held } }
     override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.held } }
-    override func accessibilityLabel() -> String? { onMain(self) { $0.holdsLink ? nil : $0.unsaid } }
+    override func accessibilityLabel() -> String? { onMain(self) { $0.isLink || $0.holdsPictures ? nil : $0.unsaid } }
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? { onMain(self) { $0.actions } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
 
@@ -493,31 +507,97 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityPerformPress() -> Bool { onMain(self) { $0.followLink() } }
 
     /// The cell's words, where no text view says them: off screen, and for a header cell
-    /// given by name. They are the cell's label, or the title of the link it holds.
+    /// given by name. They are the label of a cell that is not a link.
     var unsaid: String? { text.isEmpty || !textViews.isEmpty ? nil : text }
 
-    /// What the cell holds: the text areas of its words, or the link they are inside.
-    private var held: [Any] { holdsLink ? [link] : textViews }
+    /// What the cell holds: the text areas of its words and then an image for each picture
+    /// among them, or the images alone where it shows nothing else, or the link its text
+    /// areas are inside.
+    private var held: [Any] {
+        if isLink { return [link] }
+        if holdsPictures { return heldPictures }
+        let views = textViews
+        return views.isEmpty ? [] : views + heldPictures
+    }
 
     /// The cell's words are one link and nothing else, where a link goes somewhere: the cell
     /// is pressed to follow it, as a double tap follows it on iPhone and iPad. A cell with
     /// words beside its link, or with several links, has no press: which of them a press
     /// would mean is not the cell's to say, and each link is an action by its words.
-    private var isLink: Bool {
+    ///
+    /// Such a cell holds a link, and the link its text areas, as a web view's cell does. That
+    /// is what makes VoiceOver say that the cell is a link as it comes to it: it says what a
+    /// cell holds, "Reopened 1978 hyperlink", and nothing of what the cell says it is
+    /// (doc/voiceover-testing.md has what it did with a subrole, a role description, a link
+    /// in place of the text areas and one beside them). A header cell that is one link holds
+    /// one too, and the link's title is how VoiceOver still reads that header before each
+    /// cell it heads (`linkTitle`).
+    var isLink: Bool {
         guard let table, table.view?.canvas != nil else { return false }
         return table.table.cells[cell].isLink
     }
 
-    /// The cell holds a link, and the link its text areas, as a web view's cell does. That
-    /// is what makes VoiceOver say that the cell is a link as it comes to it: it says what a
-    /// cell holds, "Reopened 1978 hyperlink", and nothing of what the cell says it is
-    /// (doc/voiceover-testing.md has what it did with a subrole, a role description, a link
-    /// in place of the text areas and one beside them). A header cell holds its text areas
-    /// as any other does: VoiceOver reads what a header cell holds before each cell under it,
-    /// and what it would say of a link there was not heard.
-    var holdsLink: Bool {
-        guard isLink, let table else { return false }
-        return !table.table.cells[cell].isHeader
+    /// What the link the cell holds is called: the cell's words, on screen and off it. Off
+    /// screen they are all that says them. On screen the link's text areas say them too, and
+    /// VoiceOver says them once as it comes to the cell, "Dogwood hyperlink", as it does of
+    /// a link without a title. The title is for a header cell: before each cell it heads
+    /// VoiceOver said nothing of a header cell whose link had none, "1912" where it says
+    /// "Dogwood 1912", and the column's and the row's numbers at Control-Option-C and
+    /// Control-Option-R (doc/voiceover-testing.md).
+    var linkTitle: String? { text.isEmpty ? nil : text }
+
+    /// The cell shows pictures and nothing else, or nothing at all, and is no link. It holds
+    /// an image for each picture that says something, called by the picture's words, and no
+    /// text area, as a web view's cell holds an image. VoiceOver says what a cell holds, a
+    /// text area by its characters, and a picture's place among a text area's characters is
+    /// the attachment's character: at the cell it said the column's header and that
+    /// character, for a described picture as for any other. With the image it says "Sign
+    /// Blue badge image", and "image cell" for a picture nobody describes. A cell of
+    /// decoration alone holds nothing and is "empty cell", like a cell with nothing in it
+    /// (doc/voiceover-testing.md has what was heard, and the other ways that were tried).
+    var holdsPictures: Bool {
+        guard let table, table.view != nil else { return false }
+        let model = table.table.cells[cell]
+        return model.isWordless && !model.isLink
+    }
+
+    /// The image of each picture the cell shows here that says something, in the order they
+    /// stand. They are all a cell holds that shows pictures and nothing else. A cell that
+    /// shows pictures among words holds them after its text areas. Its words are in a text
+    /// area for VoiceOver to read by word, and a picture is nothing VoiceOver says of a text
+    /// area at a cell: a transcript has "Crest Worn", the attachment's character and "daily"
+    /// there. With the image after the text area it has those and then ", Blue crest image",
+    /// the picture's words last wherever the picture stands among the cell's. That costs a
+    /// step: such a cell is "cell 2 items", Control-Option-Shift-Down goes to its text area,
+    /// and pressed again it goes into the words.
+    private var heldPictures: [ReaderTableCellImageElement] {
+        while pictures.count < images.count { pictures.append(ReaderTableCellImageElement(cell: self, index: pictures.count)) }
+        return Array(pictures.prefix(images.count))
+    }
+
+    /// The picture the cell holds its image at `index` for. None once the cell holds no image:
+    /// when the view shows other text, for a cell that is a link, and for a cell of words
+    /// whose text areas are off screen, which is labelled with all its words.
+    func picture(at index: Int) -> ReaderImageAttachment? {
+        guard images.indices.contains(index), let table, table.view != nil, !isLink else { return nil }
+        return holdsPictures || !textViews.isEmpty ? images[index] : nil
+    }
+
+    /// Shows the picture larger, as its Inspect Image action does. False without a reader to
+    /// show it in, as in a note's popover.
+    func inspect(_ image: ReaderImageAttachment) -> Bool {
+        guard let canvas = table?.view?.canvas else { return false }
+        canvas.inspectImage(image)
+        return true
+    }
+
+    /// Where the cell's picture at `index` is drawn, on screen: where VoiceOver draws its
+    /// cursor for the picture's image. The cell's own place where the picture has none.
+    func screenFrame(ofImage index: Int) -> NSRect {
+        guard let table, let view = table.view, imagePlaces.indices.contains(index),
+              let rowFrame = table.frame(ofRowAt: imagePlaces[index].location) else { return screenFrame }
+        let frame = imagePlaces[index].frame.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY)
+        return NSAccessibility.screenRect(fromView: view, rect: view.isPageColumn ? frame.intersection(view.bounds) : frame)
     }
 
     /// Follows the cell's link, as its Follow Link action does: from the text view that shows
@@ -534,10 +614,8 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     private var actions: [NSAccessibilityCustomAction]? {
         guard let view = table?.view else { return nil }
         var actions = images.map { image in
-            NSAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") { [weak view] in
-                guard let canvas = view?.canvas else { return false }
-                canvas.inspectImage(image)
-                return true
+            NSAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") { [weak self] in
+                self?.inspect(image) ?? false
             }
         }
         // Of what a cell offers for its words, selecting them alone is offered here. What a
@@ -563,9 +641,9 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 }
 
 /// The link that a cell holds whose words are one link and nothing else: all the cell holds,
-/// with the cell's text areas inside it while they are on screen and the cell's words for its
-/// title where they are not. It has the role of the reader's other links, which VoiceOver
-/// calls a hyperlink, stands where the cell does, and is pressed as the cell is.
+/// with the cell's words for its title and the cell's text areas inside it while they are on
+/// screen. It has the role of the reader's other links, which VoiceOver calls a hyperlink,
+/// stands where the cell does, and is pressed as the cell is.
 @MainActor final class ReaderTableCellLinkElement: NSAccessibilityElement {
     /// A client can keep the element after its cell has gone, with the page it was on.
     private weak var cell: ReaderTableCellElement?
@@ -582,7 +660,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityRole() -> NSAccessibility.Role? { .link }
     override func accessibilitySubrole() -> NSAccessibility.Subrole? { .textLink }
     override func accessibilityParent() -> Any? { onMain(self) { $0.cell } }
-    override func accessibilityTitle() -> String? { onMain(self) { $0.cell?.unsaid } }
+    override func accessibilityTitle() -> String? { onMain(self) { $0.cell?.linkTitle } }
     override func accessibilityChildren() -> [Any]? { onMain(self) { $0.held } }
     override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.held } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.cell?.screenFrame ?? .zero } }
@@ -590,8 +668,52 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 
     /// The cell's text areas, while the cell holds this link.
     private var held: [TableCellTextView] {
-        guard let cell, cell.holdsLink else { return [] }
+        guard let cell, cell.isLink else { return [] }
         return cell.textViews
+    }
+}
+
+/// A picture a cell of a table of data shows: an image called by the picture's words, or by
+/// nothing where nobody describes it, which VoiceOver says in its own word. It stands where
+/// the picture is drawn, holds nothing, and offers the picture's Inspect Image as the cell
+/// does. It has no help. The image VoiceOver is given at a picture's character in text has
+/// the sentence about Inspect Image for its help, and VoiceOver read that into the cell's
+/// phrase each time it came to the cell: "Sign Blue badge image Double-click or choose
+/// Inspect Image to enlarge."
+@MainActor final class ReaderTableCellImageElement: NSAccessibilityElement {
+    /// A client can keep the element after its cell has gone, with the page it was on.
+    private weak var cell: ReaderTableCellElement?
+    /// Which of the pictures its cell shows.
+    let index: Int
+
+    init(cell: ReaderTableCellElement, index: Int) {
+        self.cell = cell
+        self.index = index
+        super.init()
+        setAccessibilityRole(.image)
+        setAccessibilityParent(cell)
+        setAccessibilityChildren([])
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .image }
+    override func accessibilityParent() -> Any? { onMain(self) { $0.cell } }
+    override func accessibilityLabel() -> String? { onMain(self) { $0.words } }
+    override func accessibilityFrame() -> NSRect { onMain(self) { $0.cell?.screenFrame(ofImage: $0.index) ?? .zero } }
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? { onMain(self) { $0.actions } }
+
+    /// The picture, while its cell shows it and holds this image for it.
+    private var image: ReaderImageAttachment? { cell?.picture(at: index) }
+
+    private var words: String? {
+        guard let alt = image?.alt, !alt.isEmpty else { return nil }
+        return alt
+    }
+
+    private var actions: [NSAccessibilityCustomAction]? {
+        guard let image else { return nil }
+        return [NSAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") { [weak cell] in
+            cell?.inspect(image) ?? false
+        }]
     }
 }
 #endif

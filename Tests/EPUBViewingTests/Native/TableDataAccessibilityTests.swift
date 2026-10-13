@@ -343,8 +343,10 @@ import XCTest
         XCTAssertFalse(view.accessibilityCursorHasLeftThePage, "the cell is on the page")
         let start = try XCTUnwrap(canvas.visibleRange?.start)
         canvas.show(start, selecting: nil)
-        XCTAssertTrue(posts.isEmpty, "the page shown again still has the cell: \(posts.map(\.notification))")
+        XCTAssertEqual(posts.map(\.notification), [.layoutChanged], "the page shown again still has the cell")
+        XCTAssertNil(posts.first?.argument, "so no element is named, and the cursor is sent nowhere")
         XCTAssertFalse(view.accessibilityCursorHasLeftThePage)
+        posts.removeAll()
 
         try perform("Next Page", on: cell)
         XCTAssertEqual(posts.map(\.notification), [.layoutChanged], "the cursor is sent once")

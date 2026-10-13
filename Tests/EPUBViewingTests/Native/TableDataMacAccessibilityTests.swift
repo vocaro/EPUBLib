@@ -89,12 +89,17 @@ import XCTest
         ((link(of: cell)?.accessibilityChildren() ?? cell.accessibilityChildren()) ?? []).compactMap { $0 as? TableCellTextView }
     }
 
-    /// What a cell says: the words of its text areas, or where it has none its label, or the
-    /// title of the link it holds.
+    /// The image a cell holds for each picture it shows.
+    private func images(of cell: ReaderTableCellElement) -> [ReaderTableCellImageElement] {
+        (cell.accessibilityChildren() ?? []).compactMap { $0 as? ReaderTableCellImageElement }
+    }
+
+    /// What a cell says: the words of its text areas and then what its images are called, or
+    /// where it has neither its label, or the title of the link it holds.
     private func said(_ cell: ReaderTableCellElement) -> String {
-        let views = textAreas(of: cell)
-        guard !views.isEmpty else { return cell.accessibilityLabel() ?? link(of: cell)?.accessibilityTitle() ?? "" }
-        return views.map { $0.accessibilityValue() ?? "" }.joined(separator: " ")
+        let views = textAreas(of: cell), pictures = images(of: cell)
+        guard !views.isEmpty || !pictures.isEmpty else { return cell.accessibilityLabel() ?? link(of: cell)?.accessibilityTitle() ?? "" }
+        return (views.map { $0.accessibilityValue() ?? "" } + pictures.map { $0.accessibilityLabel() ?? "" }).joined(separator: " ")
     }
 
     private func said(_ cells: [Any]?) -> [String] { (cells ?? []).compactMap { $0 as? ReaderTableCellElement }.map(said) }
@@ -252,9 +257,9 @@ import XCTest
     /// their words.
     ///
     /// Such a cell holds a link, and the link its text areas, which is what makes VoiceOver
-    /// say "hyperlink" as it comes to the cell (doc/voiceover-testing.md). A header cell that
-    /// is one link is pressed too and holds its text areas itself: VoiceOver reads what a
-    /// header cell holds before each cell under it.
+    /// say "hyperlink" as it comes to the cell (doc/voiceover-testing.md). The link is called
+    /// by the cell's words as well, which VoiceOver says once. A header cell that is one link
+    /// is such a cell (`testAHeaderCellThatIsOneLinkHoldsALinkAndStillHeads`).
     func testACellThatIsOneLinkIsPressedToFollowItAndHoldsThatLink() async throws {
         let book = try book("<p>Words before the table.</p>" + Self.branches + "<p>Words after the table.</p>" + SessionCoverageBook.filler(120))
         for scrolled in [false, true] {
@@ -272,26 +277,22 @@ import XCTest
             XCTAssertEqual(actions(cells[7]), ["Select Cell Text", "Follow Link: First", "Follow Link: Second"], flow)
 
             // The link is all the cell holds, with the cell's text area inside it, where the
-            // cell stands. On screen its text area says its words, and it has no title to
-            // say them twice.
-            XCTAssertEqual(cells.map { link(of: $0) != nil }, [false, false, false, false, true, false, false, false, false],
-                           "\(flow): not the header cell that is a link")
+            // cell stands. Its title is the cell's words, which its text area says as well.
+            XCTAssertEqual(cells.map { link(of: $0) != nil }, [false, false, false, false, true, false, true, false, false],
+                           "\(flow): the cells that are pressed, the header cell among them")
             let link = try XCTUnwrap(link(of: cells[4]), flow)
             XCTAssertEqual(cells[4].accessibilityChildren()?.count, 1, flow)
             XCTAssertTrue(cells[4].accessibilityVisibleChildren()?.first as AnyObject === link, flow)
             XCTAssertEqual(link.accessibilityRole(), .link, flow)
             XCTAssertEqual(link.accessibilitySubrole(), .textLink, "\(flow): the role of the reader's links in text, which VoiceOver calls a hyperlink")
             XCTAssertTrue(link.accessibilityParent() as AnyObject === cells[4], flow)
-            XCTAssertNil(link.accessibilityTitle(), flow)
+            XCTAssertEqual(link.accessibilityTitle(), "Reopened 1978", flow)
             XCTAssertNil(cells[4].accessibilityLabel(), flow)
             XCTAssertEqual(link.accessibilityFrame(), cells[4].accessibilityFrame(), flow)
             let inside = try XCTUnwrap(link.accessibilityChildren() as? [TableCellTextView], flow)
             XCTAssertEqual(inside.map { $0.accessibilityValue() }, ["Reopened 1978"], flow)
             XCTAssertTrue(inside.first?.accessibilityParent() as AnyObject === link, flow)
             XCTAssertEqual(link.accessibilityVisibleChildren()?.count, 1, flow)
-            XCTAssertTrue(textAreas(of: cells[6]).first?.accessibilityParent() as AnyObject === cells[6], "\(flow): the header cell holds its own")
-            // The header cell is still what heads its row, read by the text area it holds.
-            XCTAssertTrue(table.accessibilityRowHeaderUIElements()?.last as AnyObject === cells[6], flow)
 
             let linked = ReaderTextPosition(section: 1, offset: 0)
             XCTAssertFalse(reader.isVisible(linked), "\(flow): the link's target must be off screen for this to show anything")
@@ -302,27 +303,91 @@ import XCTest
             XCTAssertTrue(cells[4].accessibilityPerformPress(), flow)
             try await reader.wait("\(flow): the linked chapter") { reader.isVisible(linked) }
         }
-        // The link a cell holds is pressed as the cell is, and so is a header cell that is a link.
-        for pressed in [4, 6] {
-            let (reader, _, view) = try await reader(book, scrolled: false)
-            let cells = try cells(of: try XCTUnwrap(try tables(in: view).last))
+        // The link a cell holds is pressed as the cell is.
+        let (reader, _, view) = try await reader(book, scrolled: false)
+        let cells = try cells(of: try XCTUnwrap(try tables(in: view).last))
+        let linked = ReaderTextPosition(section: 1, offset: 0)
+        XCTAssertFalse(reader.isVisible(linked))
+        XCTAssertTrue(try XCTUnwrap(link(of: cells[4])).accessibilityPerformPress())
+        try await reader.wait("the linked chapter from the cell's link") { reader.isVisible(linked) }
+    }
+
+    private static let routes = """
+    <table><thead><tr><th>Route</th><th><a href="notes.xhtml">Built</a></th><th>Length</th></tr></thead><tbody>
+    <tr><th scope="row"><a href="notes.xhtml">Dogwood</a></th><td>1912</td><td>Nine miles</td></tr>
+    <tr><th scope="row"><a href="notes.xhtml">Elm</a></th><td>1947</td><td>Four miles</td></tr>
+    <tr><th scope="row">Fir</th><td><a href="notes.xhtml">Relaid 1960</a></td><td>Six miles</td></tr>
+    </tbody></table>
+    """
+
+    /// A header cell whose words are one link is a link cell like any other: pressed to follow
+    /// it, and holding a link with its text area inside, so that VoiceOver says "Dogwood
+    /// hyperlink" as it comes to it. It is still what heads its row or its column, the cell
+    /// itself, which VoiceOver does not read under itself.
+    ///
+    /// Before each cell a header cell heads, VoiceOver reads it by what each thing it holds is
+    /// called, and looks no further in: a text area's value, and a link's title. So the link
+    /// is called by the cell's words. Held without a title, it left VoiceOver saying "1912"
+    /// where it says "Dogwood 1912", and the column's and the row's numbers for their headers
+    /// (doc/voiceover-testing.md).
+    func testAHeaderCellThatIsOneLinkHoldsALinkAndStillHeads() async throws {
+        let book = try book("<p>Words before the routes.</p>" + Self.routes + "<p>Words after the routes.</p>" + SessionCoverageBook.filler(120))
+        for scrolled in [false, true] {
+            let flow = scrolled ? "continuous scroll" : "pages"
+            let (reader, _, view) = try await reader(book, scrolled: scrolled)
+            let table = try XCTUnwrap(try tables(in: view).first, flow)
+            let cells = try cells(of: table)
+            let words = ["Route", "Built", "Length", "Dogwood", "1912", "Nine miles", "Elm", "1947", "Four miles", "Fir", "Relaid 1960", "Six miles"]
+            XCTAssertEqual(cells.map(said), words, flow)
+            let links = [1, 3, 6, 10]
+            XCTAssertEqual(cells.indices.filter { link(of: cells[$0]) != nil }, links, "\(flow): two rows' header cells, a column's, and a cell under it")
+            XCTAssertEqual(cells.indices.filter { cells[$0].isAccessibilitySelectorAllowed(Self.press) }, links, flow)
+            XCTAssertTrue(cells.allSatisfy { $0.accessibilityRole() == .cell }, flow)
+            for index in links {
+                let label = "\(flow): \(words[index])"
+                let link = try XCTUnwrap(link(of: cells[index]), label)
+                XCTAssertEqual(cells[index].accessibilityChildren()?.count, 1, "\(label): the link is all the cell holds")
+                XCTAssertNil(cells[index].accessibilityLabel(), label)
+                XCTAssertEqual(link.accessibilityRole(), .link, label)
+                XCTAssertEqual(link.accessibilitySubrole(), .textLink, label)
+                XCTAssertEqual(link.accessibilityTitle(), words[index], "\(label): what VoiceOver reads a header cell by")
+                let inside = try XCTUnwrap(link.accessibilityChildren() as? [TableCellTextView], label)
+                XCTAssertEqual(inside.map { $0.accessibilityValue() }, [words[index]], label)
+                XCTAssertTrue(inside.first?.accessibilityParent() as AnyObject === link, label)
+                XCTAssertEqual(actions(cells[index]), ["Select Cell Text", "Follow Link: \(words[index])"], label)
+            }
+            // The header of a column and of a row is its header cell itself, link or not.
+            let headers = table.accessibilityColumnHeaderUIElements() ?? []
+            XCTAssertEqual(headed(headers), ["Route", "Built", "Length"], flow)
+            XCTAssertTrue(headers.elementsEqual(cells.prefix(3)) { $0 as AnyObject === $1 }, flow)
+            let rowHeaders = table.accessibilityRowHeaderUIElements() ?? []
+            XCTAssertEqual(headed(rowHeaders), ["", "Dogwood", "Elm", "Fir"], flow)
+            XCTAssertTrue(rowHeaders.dropFirst().elementsEqual([cells[3], cells[6], cells[9]]) { $0 as AnyObject === $1 }, flow)
+            let columns = try XCTUnwrap(table.accessibilityColumns() as? [ReaderTableColumnElement], flow)
+            XCTAssertTrue(columns[1].accessibilityHeader() as AnyObject === cells[1], flow)
+            XCTAssertTrue(cells.allSatisfy { $0.accessibilityColumnHeaderUIElements() == nil && $0.accessibilityRowHeaderUIElements() == nil }, flow)
+
+            // A header cell is pressed to follow its link: a row's in pages, the column's in
+            // continuous scroll.
             let linked = ReaderTextPosition(section: 1, offset: 0)
-            XCTAssertFalse(reader.isVisible(linked))
-            XCTAssertTrue(try XCTUnwrap(pressed == 4 ? link(of: cells[4]) : cells[6]).accessibilityPerformPress(), "cell \(pressed)")
-            try await reader.wait("the linked chapter from cell \(pressed)") { reader.isVisible(linked) }
+            XCTAssertFalse(reader.isVisible(linked), "\(flow): the link's target must be off screen for this to show anything")
+            XCTAssertTrue(cells[scrolled ? 1 : 6].accessibilityPerformPress(), flow)
+            try await reader.wait("\(flow): the linked chapter") { reader.isVisible(linked) }
         }
     }
 
     /// A cell's press follows its link from the text view that shows the link. In continuous
     /// scroll a cell far off the screen has none: it says it is pressed, since that is what it
     /// is, and its press does nothing until it is brought on screen, where VoiceOver's cursor
-    /// brings it. Until then the link it holds has the cell's words for its title, so that
-    /// VoiceOver says the same of a link cell on the screen and off it. A cell kept from text
-    /// the view no longer shows has no press and holds nothing.
+    /// brings it. Until then the link it holds has the cell's words for its title and nothing
+    /// inside, so that VoiceOver says the same of a link cell on the screen and off it. A
+    /// header cell that is a link heads its column by name while it is off screen, as any
+    /// header cell does. A cell kept from text the view no longer shows has no press and
+    /// holds nothing.
     func testACellThatIsOneLinkOffScreenHoldsALinkTitledWithItsWords() async throws {
         let entries = (1...60).map { String(format: "<tr><td>Entry %02d</td><td><a href=\"notes.xhtml\">Note %02d</a></td></tr>", $0, $0) }.joined()
-        let book = try book("<p>Words before the ledger.</p><table><thead><tr><th>Entry</th><th>Note</th></tr></thead><tbody>" + entries
-                            + "</tbody></table><p>Words after the ledger.</p>")
+        let book = try book("<p>Words before the ledger.</p><table><thead><tr><th>Entry</th><th><a href=\"notes.xhtml\">Note</a></th></tr></thead><tbody>"
+                            + entries + "</tbody></table><p>Words after the ledger.</p>")
         let (reader, _, view) = try await reader(book, scrolled: true)
         let table = try XCTUnwrap(try tables(in: view).first)
         let far = try XCTUnwrap(table.accessibilityCell(forColumn: 1, row: 55) as? ReaderTableCellElement)
@@ -337,6 +402,9 @@ import XCTest
         XCTAssertFalse(far.accessibilityPerformPress(), "nothing shows the link to follow it from")
         XCTAssertFalse(link.accessibilityPerformPress())
         XCTAssertFalse(reader.isVisible(linked))
+        let heading = try XCTUnwrap(table.accessibilityCell(forColumn: 1, row: 0) as? ReaderTableCellElement)
+        XCTAssertTrue(table.accessibilityColumnHeaderUIElements()?.last as AnyObject === heading, "the header cell is on screen, and heads its column itself")
+        XCTAssertEqual(textAreas(of: heading).count, 1)
 
         let scrollView = try XCTUnwrap(view.enclosingScrollView)
         let place = try XCTUnwrap(table.frame(ofRowAt: try rows(of: table)[55].location))
@@ -344,9 +412,17 @@ import XCTest
         scrollView.reflectScrolledClipView(scrollView.contentView)
         try await reader.wait("the far cell's text area") { self.textAreas(of: far).count == 1 }
         XCTAssertTrue(self.link(of: far) === link, "the same link")
-        XCTAssertNil(link.accessibilityTitle(), "on screen its text area says the words")
+        XCTAssertEqual(link.accessibilityTitle(), "Note 55", "on screen it is called the same, and its text area says the words too")
         XCTAssertEqual(said(far), "Note 55")
         XCTAssertEqual(actions(far), ["Select Cell Text", "Follow Link: Note 55"])
+        // The header row is now far above the screen: the header cell that is a link holds a
+        // link with nothing inside, and its column is headed by name.
+        try await reader.wait("the header cell's text area gone") { !heading.holdsItsWords }
+        XCTAssertEqual(self.link(of: heading)?.accessibilityTitle(), "Note")
+        XCTAssertEqual(self.link(of: heading)?.accessibilityChildren()?.count, 0)
+        let named = table.accessibilityColumnHeaderUIElements() ?? []
+        XCTAssertEqual(headed(named), ["Entry", "Note"])
+        XCTAssertTrue(named.allSatisfy { $0 is ReaderTableHeaderElement })
         XCTAssertFalse(reader.isVisible(linked), "the link's target must be off screen for this to show anything")
         XCTAssertTrue(far.accessibilityPerformPress())
         try await reader.wait("the linked chapter") { reader.isVisible(linked) }
@@ -366,6 +442,167 @@ import XCTest
         XCTAssertEqual(kept.accessibilityChildren()?.count, 0)
         XCTAssertEqual(keptLink.accessibilityChildren()?.count, 0)
         XCTAssertEqual(keptLink.accessibilityFrame(), .zero)
+    }
+
+    private static let pictured = """
+    <table><thead><tr><th>Mark</th><th>Meaning</th></tr></thead><tbody>
+    <tr><td><img src="square.svg" alt="Blue square"/></td><td><img src="square.svg"/></td></tr>
+    <tr><td>Worn <img src="square.svg" alt="Blue crest"/> daily</td><td><img src="square.svg" alt=""/></td></tr>
+    <tr><th scope="row"><img src="square.svg" alt="Blue shield"/></th>
+    <td><img src="square.svg" alt=""/> <img src="square.svg" alt="Blue ring"/> <img src="square.svg" alt="Blue star"/></td></tr>
+    <tr><td><a href="notes.xhtml"><img src="square.svg" alt="Blue gate"/></a></td><td><hr/></td></tr>
+    </tbody></table>
+    """
+
+    private func picturedBook(_ body: String) throws -> EPUBPublication {
+        try EPUBPublication.open(data: SessionCoverageBook.epub([
+            SessionCoverageBook.Section("tables", body, title: "Tables"),
+            SessionCoverageBook.Section("notes", "<h1>Notes</h1><p>The linked note.</p>", title: "Notes")],
+            manifest: "<item id=\"square\" href=\"square.svg\" media-type=\"image/svg+xml\"/>", files: ["OPS/square.svg": Self.square]))
+    }
+
+    /// A cell that shows pictures and nothing else holds an image for each of them, called by
+    /// the picture's words, in place of its text area. VoiceOver says what a cell holds, a
+    /// text area by its characters, and a picture's is the attachment's character: it said
+    /// the column's header and that character at such a cell, for a described picture as for
+    /// any other, where it now says "Blue badge image" (doc/voiceover-testing.md). A picture
+    /// nobody describes is an image without a name, which VoiceOver says in its own word, and
+    /// decoration is no image: a cell of decoration alone holds nothing, as an empty one
+    /// does. A cell that shows a picture among words holds its text area, where VoiceOver
+    /// reads by word, and then the picture's image, which VoiceOver says after the words. A
+    /// cell that is a link holds its link, whatever the link shows, and a rule is no picture.
+    func testACellThatShowsPicturesHoldsAnImageForEach() async throws {
+        let book = try picturedBook("<p>Words before the table.</p>" + Self.pictured + "<p>Words after the table.</p>" + SessionCoverageBook.filler(120))
+        for scrolled in [false, true] {
+            let flow = scrolled ? "continuous scroll" : "pages"
+            let (_, canvas, view) = try await reader(book, scrolled: scrolled)
+            let tables = try tables(in: view)
+            XCTAssertEqual(tables.map { $0.accessibilityLabel() },
+                           ["Mark, Meaning", "Blue square", "Worn Blue crest daily", "Blue shield, Blue ring Blue star", "Blue gate"],
+                           "\(flow): a row is still called by its cells' words, a picture's among them")
+            let table = try XCTUnwrap(tables.first, flow)
+            let cells = try cells(of: table)
+            XCTAssertEqual(cells.count, 10, flow)
+            XCTAssertEqual(cells.map { images(of: $0).map { $0.accessibilityLabel() } },
+                           [[], [], ["Blue square"], [nil], ["Blue crest"], [], ["Blue shield"], ["Blue ring", "Blue star"], [], []],
+                           "\(flow): an image for each picture that says something, and none for a link's or for decoration")
+            XCTAssertEqual(cells.map { textAreas(of: $0).map { $0.accessibilityValue() ?? "" } },
+                           [["Mark"], ["Meaning"], [], [], ["Worn \u{FFFC} daily"], [], [], [], ["\u{FFFC}"], ["\u{FFFC}"]],
+                           "\(flow): a text area for words, for a picture among them, for a link and for a rule, and none where a cell shows pictures alone")
+            XCTAssertEqual(cells.map { $0.accessibilityChildren()?.count }, [1, 1, 1, 1, 2, 0, 1, 2, 1, 1], "\(flow): a cell of decoration alone holds nothing")
+            XCTAssertTrue(cells[4].accessibilityChildren()?.first is TableCellTextView, "\(flow): a picture among words comes after the words' text area")
+            XCTAssertTrue(textAreas(of: cells[4]).first?.accessibilityParent() as AnyObject === cells[4], flow)
+            XCTAssertEqual(link(of: cells[8]) != nil, true, "\(flow): the cell that is a link holds its link, though the link is a picture")
+            XCTAssertTrue(cells.allSatisfy { $0.accessibilityLabel() == nil }, "\(flow): no cell is called by its words as well")
+            XCTAssertEqual(cells.map(said), ["Mark", "Meaning", "Blue square", "", "Worn \u{FFFC} daily Blue crest", "", "Blue shield", "Blue ring Blue star",
+                                             "\u{FFFC}", "\u{FFFC}"], flow)
+
+            for (number, cell) in cells.enumerated() {
+                for (order, image) in images(of: cell).enumerated() {
+                    let label = "\(flow), cell \(number), image \(order)"
+                    XCTAssertEqual(image.accessibilityRole(), .image, label)
+                    XCTAssertTrue(image.accessibilityParent() as AnyObject === cell, label)
+                    XCTAssertEqual(image.accessibilityChildren()?.count ?? 0, 0, label)
+                    // VoiceOver read an image's help into the cell's phrase each time it came to the cell.
+                    XCTAssertNil(image.accessibilityHelp(), label)
+                    XCTAssertTrue((cell.accessibilityVisibleChildren() ?? []).compactMap { $0 as? ReaderTableCellImageElement }[order] === image, label)
+                    // It stands where its picture is drawn, inside its cell: the picture's 32
+                    // points across, and down the line the picture stands on.
+                    let frame = image.accessibilityFrame()
+                    XCTAssertEqual(frame.width, 32, accuracy: 0.5, label)
+                    XCTAssertGreaterThanOrEqual(frame.height, 31.5, label)
+                    XCTAssertTrue(cell.accessibilityFrame().insetBy(dx: -0.5, dy: -0.5).contains(frame), "\(label): \(frame) in \(cell.accessibilityFrame())")
+                }
+                // Asked again, a cell gives the images it gave: VoiceOver asks an element what it is after the read that gave it.
+                XCTAssertTrue(images(of: cell).elementsEqual(images(of: cell)) { $0 === $1 }, "\(flow), cell \(number)")
+            }
+            let pair = images(of: cells[7])
+            XCTAssertLessThanOrEqual(pair[0].accessibilityFrame().maxX, pair[1].accessibilityFrame().minX + 0.5, "\(flow): each of two pictures in its own place")
+
+            // A picture is shown larger from its image as from its cell, and its cell offers
+            // what it offered: a described picture's words are still there to select.
+            XCTAssertEqual(cells.map(actions), [["Select Cell Text"], ["Select Cell Text"], ["Inspect Image: Blue square", "Select Cell Text"], ["Inspect Image"],
+                                                ["Inspect Image: Blue crest", "Select Cell Text"], [], ["Inspect Image: Blue shield", "Select Cell Text"],
+                                                ["Inspect Image: Blue ring", "Inspect Image: Blue star", "Select Cell Text"],
+                                                ["Inspect Image: Blue gate", "Select Cell Text", "Follow Link: Blue gate"], []], flow)
+            XCTAssertEqual([cells[2], cells[3], cells[4], cells[7]].flatMap { images(of: $0) }.map { ($0.accessibilityCustomActions() ?? []).map(\.name) },
+                           [["Inspect Image: Blue square"], ["Inspect Image"], ["Inspect Image: Blue crest"], ["Inspect Image: Blue ring"],
+                            ["Inspect Image: Blue star"]], flow)
+            for image in images(of: cells[3]) + images(of: cells[4]) + [pair[1]] {
+                XCTAssertNil(canvas.imageInspector, flow)
+                let action = try XCTUnwrap(image.accessibilityCustomActions()?.first, flow)
+                XCTAssertTrue(try XCTUnwrap(action.handler, flow)(), "\(flow): \(action.name)")
+                XCTAssertNotNil(canvas.imageInspector, "\(flow): \(action.name)")
+                canvas.imageInspector?.close()
+            }
+            for (cell, name) in [(cells[2], "Inspect Image: Blue square"), (cells[4], "Inspect Image: Blue crest"), (cells[7], "Inspect Image: Blue star")] {
+                XCTAssertNil(canvas.imageInspector, flow)
+                try perform(name, on: cell)
+                XCTAssertNotNil(canvas.imageInspector, "\(flow): \(name) from its cell")
+                canvas.imageInspector?.close()
+            }
+
+            // A header cell that is a picture is still what heads its row: VoiceOver reads a
+            // header cell by what the things it holds are called, and does not read a cell
+            // under itself.
+            let rowHeaders = table.accessibilityRowHeaderUIElements() ?? []
+            XCTAssertEqual(headed(rowHeaders), ["", "", "", "Blue shield", ""], flow)
+            XCTAssertTrue(rowHeaders[3] as AnyObject === cells[6], flow)
+        }
+    }
+
+    /// An image needs no text area, so a cell far off the screen in continuous scroll that
+    /// shows a picture and nothing else holds the image it holds on screen: VoiceOver is given
+    /// the same of it wherever the view is. A cell of words there is labelled with them, a
+    /// picture's among them, and holds nothing until its text area is on screen. A cell kept
+    /// from text the view no longer shows holds nothing, and an image kept from it is called
+    /// nothing.
+    func testACellThatShowsAPictureOffScreenHoldsItsImage() async throws {
+        let entries = (1...60).map {
+            String(format: "<tr><td>Entry %02d</td><td><img src=\"square.svg\" alt=\"Mark %02d\"/></td><td>Kept <img src=\"square.svg\" alt=\"Seal %02d\"/></td></tr>", $0, $0, $0)
+        }.joined()
+        let book = try picturedBook("<p>Words before the ledger.</p><table><thead><tr><th>Entry</th><th>Mark</th><th>Seal</th></tr></thead><tbody>" + entries
+                                    + "</tbody></table><p>Words after the ledger.</p>")
+        let (_, _, view) = try await reader(book, scrolled: true)
+        let table = try XCTUnwrap(try tables(in: view).first)
+        let far = try XCTUnwrap(table.accessibilityCell(forColumn: 1, row: 55) as? ReaderTableCellElement)
+        let beside = try XCTUnwrap(table.accessibilityCell(forColumn: 0, row: 55) as? ReaderTableCellElement)
+        XCTAssertEqual(beside.accessibilityLabel(), "Entry 55", "off screen a cell of words is labelled with them")
+        XCTAssertEqual(beside.accessibilityChildren()?.count, 0)
+        let among = try XCTUnwrap(table.accessibilityCell(forColumn: 2, row: 55) as? ReaderTableCellElement)
+        XCTAssertEqual(among.accessibilityLabel(), "Kept Seal 55", "and so is one with a picture among its words, the picture's too")
+        XCTAssertEqual(among.accessibilityChildren()?.count, 0, "with no image to say them twice")
+        let image = try XCTUnwrap(images(of: far).first)
+        XCTAssertEqual(far.accessibilityChildren()?.count, 1)
+        XCTAssertEqual(image.accessibilityLabel(), "Mark 55")
+        XCTAssertNil(far.accessibilityLabel(), "the cell is not labelled with them as well")
+        XCTAssertEqual(actions(far), ["Inspect Image: Mark 55"], "selecting its words takes its text area")
+        XCTAssertFalse(image.accessibilityFrame().isEmpty)
+        XCTAssertTrue(far.accessibilityFrame().insetBy(dx: -0.5, dy: -0.5).contains(image.accessibilityFrame()))
+
+        let scrollView = try XCTUnwrap(view.enclosingScrollView)
+        let place = try XCTUnwrap(table.frame(ofRowAt: try rows(of: table)[55].location))
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: place.minY - 100))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        try await readers[0].wait("the far cell's actions") { self.actions(far) == ["Inspect Image: Mark 55", "Select Cell Text"] }
+        XCTAssertTrue(images(of: far).first === image, "on screen it is the same image")
+        XCTAssertEqual(far.accessibilityChildren()?.count, 1, "and no text area beside it")
+        XCTAssertNil(far.accessibilityLabel())
+        XCTAssertEqual(said(among), "Kept \u{FFFC} Seal 55", "on screen the cell of words holds its text area, and then its picture's image")
+        XCTAssertNil(among.accessibilityLabel())
+
+        // In pages another chapter is other text in the column: the cell is of a table that has gone.
+        let (paged, _, column) = try await reader(book, scrolled: false)
+        let kept = try XCTUnwrap(try XCTUnwrap(try tables(in: column).first).accessibilityCell(forColumn: 1, row: 1) as? ReaderTableCellElement)
+        let keptImage = try XCTUnwrap(images(of: kept).first)
+        XCTAssertEqual(keptImage.accessibilityLabel(), "Mark 01")
+        let linked = ReaderTextPosition(section: 1, offset: 0)
+        try await paged.session.send(.navigate(href: "OPS/notes.xhtml"))
+        try await paged.wait("the other chapter in pages") { paged.isVisible(linked) }
+        XCTAssertEqual(kept.accessibilityChildren()?.count, 0)
+        XCTAssertNil(keptImage.accessibilityLabel())
+        XCTAssertNil(keptImage.accessibilityCustomActions())
+        XCTAssertEqual(keptImage.accessibilityFrame(), .zero)
     }
 
     /// What the text areas a row's group holds say, in order.
@@ -934,7 +1171,7 @@ import XCTest
         XCTAssertTrue(table.accessibilityCell(forColumn: 1, row: 55) as AnyObject === far, "the same element")
         // The header row is now far above the screen and its cells hold no text areas, which
         // is where VoiceOver reads a header cell's words: the columns are headed by name.
-        try await reader.wait("the header row's text areas gone") { !header[1].holdsText }
+        try await reader.wait("the header row's text areas gone") { !header[1].holdsItsWords }
         let named = table.accessibilityColumnHeaderUIElements() ?? []
         XCTAssertEqual(headed(named), ["Entry", "Item", "Sum"])
         XCTAssertTrue(named.allSatisfy { $0 is ReaderTableHeaderElement })
