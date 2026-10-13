@@ -251,9 +251,11 @@ import UIKit
         #if os(macOS)
         let row = try XCTUnwrap(section.tables().first { $0.row.row == 1 })
         let spoken = try XCTUnwrap(view.accessibilityAttributedString(for: NSRange(location: row.offset, length: 1)))
-        let group = try XCTUnwrap(spoken.attribute(.accessibilityAttachment, at: 0, effectiveRange: nil) as? NSAccessibilityElement)
-        XCTAssertEqual(group.accessibilityRole(), .group)
-        XCTAssertEqual(group.accessibilityChildren()?.count, 2)
+        // The table has header cells, so it is data: the row's character gives the table, and
+        // the row in it holds its two cells (`TableDataMacAccessibilityTests`).
+        let table = try XCTUnwrap(spoken.attribute(.accessibilityAttachment, at: 0, effectiveRange: nil) as? ReaderTableElement)
+        XCTAssertEqual(table.accessibilityRole(), .table)
+        XCTAssertEqual((table.accessibilitySelectedRows()?.first as? ReaderTableRowElement)?.accessibilityChildren()?.count, 2)
         #else
         // The table has header cells, so it is data: each cell is an element that offers what it
         // can do itself, and the text view around the table offers none of it.

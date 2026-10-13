@@ -24,6 +24,8 @@ final class ReaderTextView: NSTextView {
     var linkElements = ReaderLinkElements()
     /// The accessibility element of each heading, by the location of its first character.
     private var headingElements: [Int: ReaderHeadingAccessibilityElement] = [:]
+    /// The accessibility elements of the text's tables of data (`ReaderDataTables+AppKit.swift`).
+    private(set) lazy var dataTables = ReaderDataTables(view: self)
     private var menuImage: ReaderImageAttachment?
     /// The headings of the text in the view, found once for each text it is given.
     private var headingCache: [(heading: ReaderHeading, range: NSRange)]?
@@ -212,6 +214,8 @@ final class ReaderTextView: NSTextView {
     /// A TextKit 2 text view exposes nothing for an attachment drawn from its image, so each one
     /// that stands for text gets an image element labelled with its text equivalent, through
     /// the attachment attribute VoiceOver reads in text. A hidden label is text, not an image.
+    /// A row of a table that holds data gets its table (`ReaderDataTables+AppKit.swift`), and
+    /// a row of any other table a group that holds its cells' text areas.
     /// An image without words is an image element without a label, and one the book marks as
     /// decoration is left with nothing, for VoiceOver to pass over. A rule has no words, and
     /// its element carries the reader's word for one, for VoiceOver to say that a break is
@@ -219,13 +223,20 @@ final class ReaderTextView: NSTextView {
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard !isPageColumn || validPageAccessibilityRange(range),
               let base = super.accessibilityAttributedString(for: range) else { return nil }
-        let attachments = textualAttachments(in: range)
+        let tableRows = dataTableRows(in: range)
+        let attachments = textualAttachments(in: range).filter { entry in !tableRows.contains { $0.range == entry.range } }
         let images = announcedImages(in: range)
         let rules = rules(in: range)
         let headings = contentStorage.textStorage?.readerHeadings(in: range) ?? []
         let links = accessibilityLinks(in: range)
-        guard !attachments.isEmpty || !images.isEmpty || !rules.isEmpty || !headings.isEmpty || !links.isEmpty else { return base }
+        guard !attachments.isEmpty || !images.isEmpty || !rules.isEmpty || !headings.isEmpty || !links.isEmpty || !tableRows.isEmpty else { return base }
         let result = NSMutableAttributedString(attributedString: base)
+        // A row of a table of data is given its table, named by the row's words.
+        for (row, run) in tableRows {
+            let local = NSRange(location: run.location - range.location, length: run.length)
+            guard NSMaxRange(local) <= result.length, let element = dataTables.element(at: run.location, of: row) else { continue }
+            result.addAttribute(.accessibilityAttachment, value: element, range: local)
+        }
         for (heading, run) in headings where heading.level > 0 {
             let local = NSRange(location: run.location - range.location, length: run.length)
             guard NSMaxRange(local) <= result.length else { continue }
@@ -274,6 +285,16 @@ final class ReaderTextView: NSTextView {
         }
         // After the rules: a rule that is all its link holds, or that opens one, is the link.
         addAccessibilityLinks(links, to: result, of: range)
+        return result
+    }
+
+    /// The rows in `range` of tables that hold data, each with its character.
+    private func dataTableRows(in range: NSRange) -> [(row: TableRowAttachment, range: NSRange)] {
+        guard containsTableRows, let storage = contentStorage.textStorage else { return [] }
+        var result: [(TableRowAttachment, NSRange)] = []
+        storage.enumerateAttribute(.attachment, in: NSIntersectionRange(range, NSRange(location: 0, length: storage.length))) { value, run, _ in
+            if let row = value as? TableRowAttachment, row.table.isData { result.append((row, run)) }
+        }
         return result
     }
 
@@ -328,6 +349,7 @@ final class ReaderTextView: NSTextView {
         attachmentElements.removeAll()
         linkElements = ReaderLinkElements()
         headingElements.removeAll()
+        dataTables.reset()
         headingCache = nil
         // Replacing NSTextStorage moves its native caret to the new storage's end, which
         // can be hidden paragraph context, or the end of the book. VoiceOver uses that
