@@ -78,7 +78,8 @@ height a stack gave them, so a label too long for its line is cut short and not 
 strip with nothing in it that fills the width, such as one without `.search`, stays as wide as
 its groups. On a Mac the strip is as tall as its groups whatever it is offered: no keyboard
 takes its room and text is one size there, and a scroll view is a scroll area in the Mac's
-accessibility tree, one more container round the strip's controls.
+accessibility tree, one more container round the strip's controls: VoiceOver stops on it as a
+"scroll area" with no name and passes the controls by until the reader interacts with it.
 
 The strip sets a layout priority of 1 on itself, so that a stack offers it the height it needs
 before the reader beside it; views of equal priority are each offered an equal share, and the

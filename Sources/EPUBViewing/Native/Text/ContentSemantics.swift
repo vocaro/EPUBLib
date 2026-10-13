@@ -86,6 +86,22 @@ enum ContentSemantics {
     private static let headings: Set<String> = ["h1", "h2", "h3", "h4", "h5", "h6"]
     static func isHeading(_ element: ContentNode) -> Bool { element.isHTML && headings.contains(element.name) }
 
+    /// The level of the heading an element is to assistive technology, or nil: `h1` to `h6`,
+    /// and any element with `role="heading"`. An `aria-level` from 1 to 6 replaces the level,
+    /// and one past 6 leaves a heading with no level a platform can name (0). `role="heading"`
+    /// without a level is level 2, as ARIA has it. A heading element whose role is
+    /// `presentation` or `none` is laid out as a heading and is none to a listener.
+    static func headingLevel(_ element: ContentNode) -> Int? {
+        let native = isHeading(element) ? Int(element.name.dropFirst()) : nil
+        guard element.isElement, native != nil || element.attribute("role") != nil else { return nil }
+        let roles = roles(element)
+        if native != nil, roles.contains(where: { $0 == "presentation" || $0 == "none" }) { return nil }
+        guard native != nil || roles.contains("heading") else { return nil }
+        guard let authored = element.attribute("aria-level").flatMap({ Int($0.trimmingCharacters(in: .whitespaces)) }),
+              authored >= 1 else { return native ?? 2 }
+        return authored <= 6 ? authored : 0
+    }
+
     static let rowGroups: Set<String> = ["thead", "tbody", "tfoot"]
 
     /// The elements a table is made of. `TableContent` lays a grid out from them by name.

@@ -36,6 +36,9 @@ import AppKit
 ///   white space collapses across it. Between blocks it opens the line of the content after it,
 ///   or ends the paragraph before when that content must open its own (a table, a float); with
 ///   neither it has a paragraph of no height, which the paragraphs after it do not see.
+/// - A heading (`ContentSemantics.headingLevel`) is marked for assistive technology alone: its
+///   text, from its first character to its last, and a hidden label standing for one, carry
+///   `.readerHeading`. No character, map span or paragraph is different for it.
 /// - Every rendered character from the DOM is mapped (`TextMap`); generated text is not.
 final class SectionWriter {
     enum Mode: Equatable {
@@ -109,6 +112,13 @@ final class SectionWriter {
     /// Hidden labels waiting for a line to stand in: the next content's, wherever that is.
     private var pendingSpoken: [SpokenLabel] = []
     private var spokenAttributes: Int?
+
+    /// The headings being walked, the nearest last, each with where its first content was written.
+    private var openHeadings: [(heading: ReaderHeading, start: Int?)] = []
+    /// What `.readerHeading` is set on: each heading's text, and each hidden label of one.
+    private var headingRanges: [(range: NSRange, heading: ReaderHeading)] = []
+    /// One object for each heading element, by the element's order.
+    private var headings: [Int: ReaderHeading] = [:]
 
     private var stack: [Entry] = []
     /// `ResourceReference.resolve` by href (nil: not in the archive); books repeat their links.
@@ -216,6 +226,7 @@ final class SectionWriter {
         var flatten = false
         var softBoundary = false
         var isolate = false
+        var heading = false
         var closeQuote: (text: String, attributes: Int)?
         var ruby: (collecting: Bool, start: Int?)?
     }
@@ -387,6 +398,10 @@ final class SectionWriter {
                       parentStyle: ComputedStyle, role: Role) {
         let entry = Entry(node: node, children: node.children, style: style, context: context)
         entry.role = role
+        if let heading = heading(for: node) {
+            openHeadings.append((heading, nil))
+            entry.exit.heading = true
+        }
         let blockLevel = style.display.isBlockLevel || style.requiresFlowBox
         if blockLevel && flattenDepth == 0 {
             enterBlock(node, style: style, language: context.language)
@@ -442,6 +457,10 @@ final class SectionWriter {
         if let quote = entry.exit.closeQuote { emitGenerated(Array(quote.text.utf16), attributes: quote.attributes) }
         if entry.exit.isolate, let isolate = isolates.popLast(), isolate.emitted, paragraphOpen {
             buffer.append(isolate.closer, attributes: isolate.attributes)
+        }
+        // A heading's text ends with its last content, before the break that ends its paragraph.
+        if entry.exit.heading, let open = openHeadings.popLast(), let start = open.start, buffer.count > start {
+            headingRanges.append((NSRange(location: start, length: buffer.count - start), open.heading))
         }
         if entry.exit.flatten { flattenDepth -= 1 }
         if entry.exit.softBoundary { softBoundary() }
@@ -823,6 +842,10 @@ final class SectionWriter {
         for attribute in postAttributes where NSMaxRange(attribute.range) <= length {
             string.addAttribute(attribute.key, value: attribute.value, range: attribute.range)
         }
+        // The longer range first: a heading inside another, and a hidden label, keep their own.
+        for entry in headingRanges.sorted(by: { $0.range.length > $1.range.length }) where NSMaxRange(entry.range) <= length {
+            string.addAttribute(.readerHeading, value: entry.heading, range: entry.range)
+        }
         string.endEditing()
         map.length = length
         return Output(string: string, map: map, anchors: anchors)
@@ -1085,6 +1108,9 @@ final class SectionWriter {
             isolates[index].emitted = true
         }
         flushAnchors()
+        // A heading's text begins with its own first content: after the break, the marker, the
+        // white space and the hidden labels that were waiting for a line.
+        for index in openHeadings.indices where openHeadings[index].start == nil { openHeadings[index].start = buffer.count }
     }
 
     private func didEmitContent() {
@@ -1372,6 +1398,30 @@ final class SectionWriter {
         // An element is a unit: every position inside it is the label. A text node stands for its run.
         mapSpan(location: location, length: 1, node: label.owner, offset: 0,
                 sourceLength: label.owner.isText ? label.owner.utf16Length : 0, exact: false)
+        // A hidden heading is a heading, and so are hidden words inside a shown one.
+        if let heading = heading(enclosing: label.owner) {
+            headingRanges.append((NSRange(location: location, length: 1), heading))
+        }
+    }
+
+    // MARK: Headings
+
+    private func heading(for node: ContentNode) -> ReaderHeading? {
+        if let known = headings[node.order] { return known }
+        guard let level = ContentSemantics.headingLevel(node) else { return nil }
+        let heading = ReaderHeading(level: level)
+        headings[node.order] = heading
+        return heading
+    }
+
+    /// The heading `node` is, or the nearest one it is inside.
+    private func heading(enclosing node: ContentNode) -> ReaderHeading? {
+        var current: ContentNode? = node
+        while let candidate = current {
+            if let heading = heading(for: candidate) { return heading }
+            current = candidate.parent
+        }
+        return nil
     }
 
     /// Bidi isolation for an inline element's `dir`, `<bdi>` and `<bdo>`, as generated isolate
