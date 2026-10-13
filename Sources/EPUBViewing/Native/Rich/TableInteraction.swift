@@ -36,6 +36,12 @@ struct ReaderTableAction {
 
     func accessibilityCells(at location: Int) -> [TableCellTextView] { shown(at: location) }
 
+    /// The cells on screen in reading order, each with its row's place in the text.
+    var accessibilityCellsInOrder: [(location: Int, cell: TableCellTextView)] {
+        cells.sorted { ($0.key.location, $0.key.cell, $0.key.lower) < ($1.key.location, $1.key.cell, $1.key.lower) }
+            .map { ($0.key.location, $0.value) }
+    }
+
     func selectionPosition(at point: CGPoint) -> ReaderTextPosition? {
         guard let owner, let canvas = owner.canvas, let storage = owner.contentStorage.textStorage else { return nil }
         for (key, cell) in cells {

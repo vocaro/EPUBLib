@@ -223,6 +223,29 @@ level in a column's rich text, and the rotor's headings asked for as VoiceOver w
 ask. None of them drives VoiceOver; the [VoiceOver testing process](voiceover-testing.md) has
 what it said.
 
+Page-turn tests on UIKit (`PageTurnAccessibilityTests`) put an assistive technology's cursor
+on a line of a page as UIKit tells the reader of it, by the line's own callback and the
+focus notification, and read what the canvas posts when the page is shown anew
+(`ReaderCanvasView.postAccessibilityNotification`). A page turned from a line posts one
+layout change with the first line of the page shown, in one column and across a spread, into
+the next chapter and back into the one before; a position shown from a line posts the line
+that holds it; VoiceOver's scroll posts the page's number and then the line; and nothing is
+posted for a cursor on a control, for VoiceOver switched off, for a page shown again as it
+was, or for a move by heading. They also hold an element kept from one page to standing for
+no line of the next, on pages whose lines have the same characters counted from each page's
+first, and to standing for its own line when its page is shown again. That VoiceOver moves
+its cursor for the layout change, and what it then reads, is known only from
+[speech sessions](voiceover-testing.md) on a device.
+
+Table cell line tests on AppKit (`TableCellLineAccessibilityTests`) read the lines a cell's
+own text gives an assistive technology: the layout's lines, numbered from the first the cell
+shows and covering its text once; the offset after its last character on its last line, in a
+cell of one line, in one of several, and in each part of a cell cut at a page's end; no line
+for an offset past that one; and the insertion point's line with its characters, which is
+what VoiceOver's Read Line has to read. One of them takes its cells from a table built by the
+real pipeline and mounted on a page. VoiceOver said nothing for Read Line at the end of a
+cell's text while that offset had no line.
+
 Link tests on AppKit (`LinkAccessibilityTests`) read what a column and the scroll view give
 an assistive technology for a link: one element for a link whose font changes inside it, with
 its words, its place and a press that reports the link; the names of links that are pictures,
@@ -230,8 +253,14 @@ hidden labels and formulas, and never U+FFFC; a link element as the attachment o
 picture or label in a link, and none over a link's words; a hidden label's place, which has a
 size though the label has none; a link cut at a page's end and continued on the next page;
 the links on screen in continuous scroll; and a text view with no canvas, as a note's
-popover has, left with AppKit's own. What VoiceOver says of each is recorded with the
-[VoiceOver testing process](voiceover-testing.md#links).
+popover has, left with AppKit's own. `TableCellLinkAccessibilityTests` read the same of a
+table cell, which is a text view of its own: its links by what they say, with every range
+counted from the first character the cell shows; a link element at each picture, label or
+formula in a link and none at decoration after a link's first character; each link's place in
+its cell and its press reporting the cell and the offset; a cell that shows only the later
+lines of a row cut by a page; and the page, or the scroll view, listing its cells' links
+among its own in reading order, as children of its own. What VoiceOver says of each is
+recorded with the [VoiceOver testing process](voiceover-testing.md#links).
 
 Table cell tests on AppKit (`TableCoverageInteractionTests`) read what a cell's own text gives
 an assistive technology for each attachment it can hold, on a table built by the real pipeline

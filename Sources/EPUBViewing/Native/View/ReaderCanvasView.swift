@@ -136,6 +136,16 @@ import AppKit
     /// The offset a rest for a new visible height left the scroll view at, until UIKit reports
     /// the scrolling of that inset change (`scrollViewDidChangeAdjustedContentInset`).
     var restedScrollOffset: CGFloat?
+    /// Posts what the canvas tells an assistive technology after a page turn. A test puts its
+    /// own closure here to see what is posted, and with which element.
+    var postAccessibilityNotification: @MainActor (UIAccessibility.Notification, Any?) -> Void = {
+        UIAccessibility.post(notification: $0, argument: $1)
+    }
+    /// A page shown now leaves an assistive technology's cursor to whoever asked for the page:
+    /// VoiceOver's rotor, which takes the cursor to the item it is given
+    /// (`showForAccessibilityRotor`), and its scroll, which sends the cursor once the page is
+    /// announced (`accessibilityScroll`).
+    var accessibilityCursorIsHeld = false
     #endif
 
     var wheelTurner = ReaderWheelPageTurner()
@@ -567,6 +577,8 @@ import AppKit
             postAccessibilityNotification(NSAccessibility.unignoredAncestor(of: self) ?? window, .layoutChanged,
                                           [.uiElements: columns.filter { !$0.isHidden }])
         }
+        #else
+        accessibilityCursorFollowsThePage(to: anchor)
         #endif
         trimPaginators()
         applyHighlights()
@@ -1347,15 +1359,23 @@ import AppKit
     /// A page-turn key, swipe, wheel tick or edge tap.
     func turnPageFromInput(forward: Bool) {
         guard imageInspector == nil, !hasSelection, !isDraggingSelection else { return }
-        _ = turnPage(forward: forward)
+        if turnPage(forward: forward) != .atBoundary { pageDidTurnFromTheText() }
     }
 
     /// A page turn an assistive technology asks for by name, as a host's command is: nothing
     /// in it could be meant for a selection, so selected text does not hold it back. False at
     /// either end of the book.
     func turnPageFromAccessibility(forward: Bool) -> Bool {
-        guard imageInspector == nil else { return false }
-        return turnPage(forward: forward) != .atBoundary
+        guard imageInspector == nil, turnPage(forward: forward) != .atBoundary else { return false }
+        pageDidTurnFromTheText()
+        return true
+    }
+
+    /// A page turned by something done in the text, where keyboard focus and VoiceOver may be.
+    private func pageDidTurnFromTheText() {
+        #if os(macOS)
+        focusFirstColumnAfterTurn()
+        #endif
     }
 
     /// Text is selected in a text view on screen.

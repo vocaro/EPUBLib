@@ -48,8 +48,7 @@ import Foundation
     }
 
     public func pageButtonLabel(for action: EPUBPageAction) -> String {
-        if status?.style.flow == .scrolled { return action == .next ? "Scroll Forward" : "Scroll Backward" }
-        return action == .next ? "Next Page" : "Previous Page"
+        action.label(in: status?.style.flow ?? .paginated)
     }
 
     /// Describes the bundled native reader's active input settings. Built-in buttons pass
@@ -139,5 +138,19 @@ import Foundation
             }
         }
         return matches(publication.tableOfContents) == 1
+    }
+}
+
+extension EPUBPageAction {
+    /// What a control or an accessibility action that does this is called in `flow`. Continuous
+    /// scroll has no pages, and a step there scrolls. The page buttons and the actions of the
+    /// Mac's text areas take their names from here, so one command has one name.
+    func label(in flow: EPUBReadingFlow) -> String {
+        switch (flow, self) {
+        case (.paginated, .next): "Next Page"
+        case (.paginated, .previous): "Previous Page"
+        case (.scrolled, .next): "Scroll Forward"
+        case (.scrolled, .previous): "Scroll Backward"
+        }
     }
 }

@@ -46,13 +46,23 @@ first row, a described picture and a hidden label in the second, decoration and 
 nobody describes in the third, and a table of its own in the fourth. "Entries follow."
 stands before the table and a second formula after it, in the page's own text, and the
 section goes on for more than a screen. It has no heading. None of its words is one a
-screen reader uses for a rule, a picture, a formula, a table or a text. An eighth, **Tables
+screen reader uses for a rule, a picture, a formula, a table or a text. An eighth, **Jumps inside a grid**
+(`OPS/cells.xhtml`), holds links in the cells of a table of three rows and
+two columns, after two lines of words and before sixty numbered ones. It has no heading
+either. The first row has a cell
+of plain words and a link of words, "worded jump", in a cell that runs on to three lines at
+17 points in a 600-point window. The second has a link that is a picture with words,
+"Described entry jump", and one that is a picture with an empty `alt`. The third has a link
+that holds such decoration and the words "Entry jump with decoration", and a link that is a
+hidden label, "Parked entry jump", before the cell's shown words. Every link goes to "Link
+target reached" in the first section. None of the section's words is one VoiceOver uses for a
+picture, a link, a table or a text. A ninth, **Tables
 of data** (`OPS/grids.xhtml`), holds four tables, each ruled as a grid: one with a caption, a header
 row and a header cell in each row, an empty cell and a cell that is a link; one whose header
 cells span two rows and two columns, as two of its data cells do; one given
-`role="presentation"`; and one of plain cells that only its rules mark as data. A ninth,
+`role="presentation"`; and one of plain cells that only its rules mark as data. A tenth,
 **A table longer than a page** (`OPS/ledger.xhtml`), has forty numbered rows under a header
-row, and a tenth, **A row taller than a page** (`OPS/tallrow.xhtml`), the book's last, a
+row, and an eleventh, **A row taller than a page** (`OPS/tallrow.xhtml`), the book's last, a
 cell of 2,600 numbered words. None of their words is one VoiceOver uses for a table, so
 "row", "column" and "table" in a transcript are its own. A second
 bundled book, opened with
@@ -64,8 +74,9 @@ are "Page boundary verification" (level 1), which opens it, "Link target reached
 after the numbered paragraph, the two parked ones (level 1), each opening its section, and
 "Pictures and their words", "Scenes set apart", "What each line offers", "Tables of data",
 "A table longer than a page" and "A row taller than a page" (level 1), each opening its
-section; the section of entries, between "What each line offers" and "Tables of data", has
-none. The second book's are "Chapter one", "Chapter two" and "Chapter three", screens apart.
+section; the sections of entries and of jumps inside a grid, between "What each line
+offers" and "Tables of data", have none. The second book's are "Chapter one", "Chapter two"
+and "Chapter three", screens apart.
 Do not import private books for this check.
 
 On a Mac the same application can show AppKit's own text view in the reader's place, with
@@ -186,7 +197,12 @@ new phrase is recorded:
   `listdown` and `listup` say each one, `listchoose` performs the one last said, and
   `listclose` closes the menu, at which VoiceOver says "Closing Actions menu".
   `"listchoose=show menu"` sends Return only if one of VoiceOver's last two phrases contains
-  the label, as `activate=LABEL` does. On a group the menu held the actions of what the
+  the label, as `activate=LABEL` does. On a column and inside its text the menu holds the
+  reader's two page actions around AppKit's own, in VoiceOver's order: "Previous Page",
+  "show menu", "Next Page", and in continuous scroll "Scroll Backward", "show menu", "Scroll
+  Forward". So `actions listdown listdown listdown "listchoose=Next Page"` turns the page
+  and `actions listdown "listchoose=Previous Page"` turns it back. A fourth `listdown` says
+  nothing: the list does not go round. On a group the menu held the actions of what the
   group holds, one after another, and on the sample's group with its controls embedded
   VoiceOver said nothing and opened no menu: the list keys after it went to the reader, where
   Down Arrow moves the insertion point. The runner closes a menu a session can have left
@@ -259,13 +275,18 @@ selection and the numbered-word span of its value:
 - `larger`, `smaller`: choose the Appearance menu's text-size items.
 - `width=POINTS`: resize the window.
 - `focus`, `focus=COLUMN`, `focus=search`: give the last column, a numbered column or the
-  search field keyboard focus, without a click.
+  search field keyboard focus, without a click. `focus=0.2` gives it to a table cell, by the
+  name `links` prints. That does not bring VoiceOver into the cell: its `in` then entered the
+  page's text. See [Links](#links) for the way in.
 - `lines`: print every accessibility line of each column.
 - `links`: print what each column gives an assistive client for its links and attachments.
   A `CHILD` line is one of the text's own children, which Find Next Link moves through. A
   `LINK` line is a run of the text's accessibility string with the element given as its
   link, the element given as its attachment, or both: each one's role, what it is called,
-  and its actions.
+  and its actions. A table row is one such run, a group that holds a text area for each of
+  its cells on screen. Each cell follows its column with a name of its own, `0.3` for the
+  first column's fourth, and the same lines with `CELL` before them: `CELL 0.3 VALUE`, and
+  `CELL CHILD` and `CELL LINK` for what the cell's own text gives.
 - `actions`: print each column, everything that holds it up to the window, and any other
   element with a named action, as an `ELEMENT` line: its number in the order an assistive
   client meets it, its depth under the window, its role, what it is called and its actions,
@@ -273,13 +294,15 @@ selection and the numbered-word span of its value:
   actions of the item under its cursor, so the lines show where the cursor would have to be
   for a named action to be offered. `actions=all` prints every element of the window.
 - `action=NAME`: perform a named action on the first of those elements that has it, without
-  VoiceOver, as in `"ax:action=Next Page"`. It prints `MISSING` when no element has one of
-  that name.
-- `caret=WORDS`: put the insertion point before the first of these words, as in
-  `"ax:caret=Bare jump"`. VoiceOver enters a text at its insertion point, so `in` then starts
-  on that line and `right` reads the word.
-- `follow=WORDS`: press the link that names the words or holds them, by its own action and
-  without VoiceOver.
+  VoiceOver, as in `"ax:action=Next Page"`, which a column's text area has in pages. It
+  prints `MISSING` when no element has one of that name, and otherwise the status the
+  accessibility API gave. For `"ax:action=Scroll Forward"` in continuous scroll that status
+  is -25200, a failure, though the view scrolls: read the `STATE` after it.
+- `caret=WORDS`: put the insertion point before the first of these words, in a column or in
+  a cell, as in `"ax:caret=Bare jump"`. VoiceOver enters a text at its insertion point, so
+  `in` then starts on that line and `right` reads the word.
+- `follow=WORDS`: press the link that names the words or holds them, in a column or in a
+  cell, by its own action and without VoiceOver.
 - `wait=SECONDS`: only observe. Without steps the observer only observes; a single step of
   `-` reads steps from standard input.
 
@@ -324,6 +347,9 @@ point can be followed beside the speech.
 2. `nextline` reads the following lines in order while `SELECTION` follows VoiceOver. The
    first one after entering repeats the rest of the entry line, as in paging.
 3. `pagedown` while interacting moves `SELECTION` to the new first line; `line` then reads it.
+   So does Scroll Forward chosen in the Actions menu. Move by line first: after a step made
+   straight after `in`, VoiceOver goes back to the start of the text, `SELECTION 0,0` follows
+   it, and `line` reads the book's first line.
 4. `out`, `right` to leave the text, a scroll step, `left` and `in`: VoiceOver enters at the
    new first line. Each of the reader's own moves shows as `AXLayoutChanged`.
 
@@ -438,6 +464,25 @@ without VoiceOver. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a l
 a few `right` steps reach it. After a link is followed the transcript has `AXValueChanged`
 with the page that holds the target, in the fixture the one with "Link target reached".
 
+A link in a table cell is in a text of its own, inside its row. Moving by word in the
+page's text VoiceOver stops on a row and says "Table row group". Rows that follow one
+another are stops of their own, and the probe records a phrase said twice running once.
+`in` there interacts with the row: "In Table row group 2 items" and the first cell's text.
+`right` moves to the next cell and a second `in` enters the cell, where `right`, `line`,
+`nextline`, `nextlink` and `activate` do in the cell's text what they do in the page's.
+`"ax:caret=grid."` puts the insertion point one word before the fixture's table of links,
+so after `ax:focus=search ax:focus=0 in` two `right` steps reach its first row and each
+further one the next row. In continuous scroll enter with `ax:focus in`: after the focus
+change from the search field the first `in` there said the book's first line, and a second
+was needed. `ax:focus=0.2` gives a cell keyboard focus and does not bring VoiceOver into it.
+`ax:links` prints each cell's own links as `CELL CHILD` and `CELL LINK` lines, and the
+page's `CHILD` lines hold the links of the cells on screen among the page's own.
+`nextlink` from the page's text goes through all of those. VoiceOver's place in the page's
+text does not move with it, so `right` after one of a cell's links reads on from the word
+VoiceOver had reached before the table. In the runs on links `line` said nothing with
+VoiceOver's cursor on a cell's last word or past it, in main's reader as with the cells'
+own elements. A cell has a line there since: see the record of Read Line in a table cell.
+
 What VoiceOver says of a link as it reads depends on a setting: VoiceOver Utility, Verbosity,
 Text, "When encountering a link/attachment", which can be Speak, Change Pitch, Play Tone or Do
 Nothing. A transcript holds speech and neither tones nor pitch, so every hosted run reads the
@@ -528,7 +573,9 @@ Preparing the runner and building take about two minutes and the boundary sessio
 at the fixed pause, so a run of that one session has uploaded its transcript about five minutes
 after it has a runner. A session that could not end three minutes before the job's limit is
 reported as not run, and the job fails. That leaves the sessions of a run about fifteen
-minutes between them: four of the boundary session's length, or a dozen short ones. On
+minutes between them: four of the boundary session's length, or a dozen short ones. At the
+fixed pause a session took about 35 seconds and 5 more for each key, so seven sessions of
+ninety keys between them filled a job. On
 2026-10-13 four sessions of five or six steps, each with a width, text size, flow or pause of
 its own, took 239 seconds of a job of 5 minutes 50 seconds, the build 82 of them (run
 38344667427); as four runs they would have built four times, on four runners. Nothing cancels
@@ -742,8 +789,9 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 - `rotate=landscape`, `rotate=portrait`: an iPad shows two columns in landscape and one in
   portrait. The probe waits for the screen as after `activate`, three seconds at most. End a
   session in the orientation it started in.
-- `listen=SECONDS`: every phrase VoiceOver comes to in that time, or that there was none:
-  what an action says for itself. The phrase recorded after another step is only the last.
+- `listen=SECONDS`: every phrase VoiceOver speaks in that time, each as a `heard` line, where
+  another step records the one phrase standing when it ends. Use it after a step that makes
+  VoiceOver speak by itself, as a page turn under its cursor does.
 - `state`: the sample's own line of what the reader reports as selected and what its
   selection action was last given, "Selected: nothing. Used: nothing.", which
   `TEST_RUNNER_VOICEOVER_LAUNCH='-SampleSelectionLine YES'` puts under the reader. XCTest
@@ -897,6 +945,12 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    another line; hidden continuation must not become reachable.
 3. Activate Next through VoiceOver and verify that the next visible/spoken word is exactly
    the successor of the prior page's last word, without duplication. Check Previous as well.
+   On an iPhone and iPad also turn the page from a line: with the cursor on a line of the
+   page, choose Next Page in the rotor (`flick=down`) and perform it (`doubletap=LABEL`).
+   VoiceOver then reads the first line of the page shown by itself (`listen=4`), a
+   screenshot shows its cursor on that line, and each move forward reads the next line of
+   that page. Do it from the first page and from a line in the middle of a later page,
+   whose lines hold the same characters as the next page's, and with Previous Page.
 4. Confirm heading order, the link's label/action and the image's spoken label.
 5. Resize or change typography, wait for the new layout, and repeat the boundary and ordering
    checks. On Mac verify corresponding value-change notifications and fresh text values.
@@ -941,6 +995,20 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    VoiceOver says "Table start" at the first cell a page lists and "Table end" at the last,
    so a page in the middle of a table says both. On the section with a row taller than a
    page, each page's cell reads the words that page shows.
+   On a Mac a cell is a text of its own, and VoiceOver reads its
+   line wherever its cursor is in it. In a window 600 points wide at 17 points, with the
+   reader opened at that section (`"launch=-SampleHref OPS/table.xhtml"`), in pages and in
+   continuous scroll, `"ax:caret=Shown words after"`, a focus change to the text, `in` and
+   `left` put VoiceOver on the first table's second row, "Table row group"; `in` there says
+   "In Table row group 2 items text Third cell", and `in` again "In text Third cell". `line`
+   then says "Third cell" on entering, after `right` has said "Third", after a second
+   `right` has said "cell", the cell's last word, and after a third has said "end of text".
+   A reader whose cells have no line for the end of their text says nothing for the last
+   two, and counts "-9,223,372,036,854,775,808 lines" there for `linecount`, where the
+   answer is "1 line 1 visible line". At 56 points the cells take two lines each and the
+   table has the page to itself: two `right` steps from the text's first line reach the
+   first row, `line` says "First" on entering its first cell and "cell" with the cursor at
+   the end of the cell's text, and `previousline` from there says "First".
 7. On the section of pictures, in pages and in continuous scroll. VoiceOver stops between
    "Undescribed picture" and "stands here." and says that an image is there, with no name.
    It reads "Decoration" and "passed over." with nothing between them, and the same for
@@ -1037,7 +1105,41 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     continuous scroll the first row's cell reads the same. A reader whose cells keep none of
     their elements says nothing in each of those places: a phrase with nothing in it by line
     and with `readall`, and a step with no phrase by word.
-14. A table's text selected, on an iPhone and iPad, with the sample's selection line under
+14. Page actions, on a Mac, in pages (one column in a window 600 points wide at 17 points,
+    two in one 1100 wide at 23) and in continuous scroll, with VoiceOver brought to a column
+    by `ax:focus=search ax:focus=0`. `ax:actions` gives each text area `AXShowMenu` and two
+    actions in quotation marks, "Next Page" and "Previous Page" in pages and "Scroll
+    Forward" and "Scroll Backward" in continuous scroll, and the same after
+    `"ax:press=Continuous Scroll"` and `ax:press=Paging` with the reader open. On the column
+    and after `in`, `actions` says "Actions menu 3 items" and three `listdown` steps say
+    "Previous Page", "show menu" and "Next Page", or the scroll's two names around "show
+    menu". After two moves by line, `"listchoose=Next Page"` gives `AXValueChanged` with the
+    next page's words, VoiceOver says the action's name and the page's first word, and
+    `describe` and `line` give "Line 1" and the page's first line; `"listchoose=Previous
+    Page"` comes back the same way. In continuous scroll `"listchoose=Scroll Forward"` moves
+    `SELECTION` to the first line of the next screen, which `line` reads, and "Scroll
+    Backward" to where it was. In two columns, chosen inside the right-hand column
+    (`ax:focus=1`), Next Page turns the spread and VoiceOver says "text" and the first words
+    of the new left-hand column: `describe` gives "text is in the VoiceOver cursor", and
+    `in` and `line` the column's first line. `pagedown` there does the same. A reader
+    without that left VoiceOver on the first line of the new right-hand column. VoiceOver
+    says "actions available" only before its hint for the text area, "actions available You
+    are currently on a text area", and after no line of five moved to. A step in continuous
+    scroll made straight after `in` is undone, with the action and with `pagedown`: that is
+    VoiceOver's return to the start of the text, and no failure of the action.
+15. Links in a table's cells on a Mac, in pages and in continuous scroll, on the fixture's
+    last section (`-SampleHref OPS/cells.xhtml`). `ax:links` gives each cell's link by what
+    it says, "worded jump", "Described entry jump, image", "image", "Entry jump with
+    decoration" and "Parked entry jump", none by U+FFFC, and the page's `CHILD` lines hold
+    the same five. Inside a cell, reached through its row, VoiceOver reads "worded jump" as
+    its words and nothing else, and says "hyperlink Described entry jump, image",
+    "hyperlink image", "hyperlink" before "Entry" and "hyperlink Parked entry jump", by word
+    and in the cell's line. `nextlink` there says the cell's link by its name and
+    "hyperlink". `activate` from there, from a word of the link's line and from a picture
+    reached by word shows the page with "Link target reached". From the page's text
+    `nextlink` goes through the five in order and begins again with the first, and
+    `activate` follows the one it is on.
+16. A table's text selected, on an iPhone and iPad, with the sample's selection line under
     the reader (`TEST_RUNNER_VOICEOVER_LAUNCH='-SampleSelectionLine YES'`). On a cell of the
     tables of data, choose Select Cell Text in the rotor (`choose=Select Cell Text`) and
     double-tap. VoiceOver reads the cell again as selected, "selected Alder Row header Row 2
@@ -1054,7 +1156,7 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     whose clipboard is its owner's; the unit tests perform it. With VoiceOver off
     (`TEST_RUNNER_VOICEOVER_OFF=1`), `press=Alder` selects the word by touch: UIKit draws
     it, with its handles and once, and the edit menu has Copy.
-15. Restore all original VoiceOver/scripting settings and independently verify restoration.
+17. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
@@ -1792,9 +1894,10 @@ The Mac runner's transcript is plain text and needs no export.
   On the Mac: GitHub's hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1
   `26A434`, Xcode 27.0), a window 600 points wide, run 38327683951 at `81f8d88` (pages) and
   runs 38328830423 (pages) and 38328832799 (continuous scroll) at `d432df6`. The scenes'
-  first page is 22 `ax:next` steps in, the page of a rule alone 23 and the last 24. In
-  continuous scroll 28 `ax:next` steps reach the end of the book, where `lastword` puts
-  VoiceOver on "scenes."; `textend` goes to the end of the book's first section instead. The
+  first page is 22 `ax:next` steps in, the page of a rule alone 23 and the last 24. The
+  section was then the book's last: in
+  continuous scroll 28 `ax:next` steps reached the end of the book, where `lastword` put
+  VoiceOver on "scenes."; `textend` went to the end of the book's first section instead. The
   reader gives a rule no element there, and both revisions read the same. Pages by line:
   "Scenes set apart", "First scene ends.", a phrase with nothing in it, "Second scene
   starts.", a phrase with nothing in it, "Words after an ornament.": VoiceOver stops on the
@@ -1952,7 +2055,7 @@ The Mac runner's transcript is plain text and needs no export.
   2026-10-13 on a table's select action has why, and what shows it now.
   One thing was seen and not looked into: after the turn VoiceOver's cursor was still drawn
   where the line had stood, and a move forward from it went to the book's title under the
-  page.
+  page. The record of 2026-10-13 below has what it was.
   Most sessions started that evening did not run. At load averages of 600 to 1,000
   `devicectl` gave no answer in the runner's twenty seconds when a simulator's volume was
   set, and later failed with "Timed out waiting for CoreDeviceService to fully initialize";
@@ -2157,6 +2260,197 @@ The Mac runner's transcript is plain text and needs no export.
   Actions menu as under a rotor: the runner closes one first, and in the one session left under
   a menu it wrote `STEP listclose, sent by the runner in case the Actions menu is still open`,
   VoiceOver said "Closing Actions menu" and switched off.
+- Later on 2026-10-13 each text area of the Mac reader was given the page turn as actions of
+  its own, named for the flow, and the reader's SwiftUI surface lost its two named actions
+  and its scroll action on Mac. It was heard before and after on the same main:
+  [hosted sessions](#hosted-mac-sessions) on `xcode-27` (image 20261006.0244.1, macOS 27.0.1
+  `26A434`, Xcode 27.0), at a fixed pause of four seconds, with VoiceOver brought to a column
+  by `ax:focus=search ax:focus=0`. Before is main's reader at `7fa9231`, run 38364728057.
+  After is the reader of `07b233b`, which is that main and the change: runs 38364815359, with
+  the eight step lists of the run before, and 38368581010 and 38368509490, which choose the
+  actions. Twenty-three sessions; nobody listened.
+  What an assistive client is given (`ax:actions`). Before, `AXTextArea ACTIONS AXShowMenu`
+  for each column and for the scroll view's text, and `MISSING` for `"ax:action=Next Page"`
+  and `"ax:action=Scroll Forward"`. After, `AXTextArea ACTIONS AXShowMenu,"Next
+  Page","Previous Page"` for each column, one and two, and `AXShowMenu,"Scroll
+  Forward","Scroll Backward"` in continuous scroll, where the scroll area kept AppKit's four
+  scrolls by page; the hosting view's group has `ACTIONS none` as before. With the reader
+  open, `"ax:press=Continuous Scroll"` changed a column's pair to the scroll's and
+  `ax:press=Paging` changed it back.
+  VoiceOver's Actions menu. Before, on a column, inside its text, on the right column of two
+  and in continuous scroll: "Actions menu 1 item", "show menu". After, in each of those
+  places: "Actions menu 3 items", and three `listdown` steps "Previous Page", "show menu",
+  "Next Page", or "Scroll Backward", "show menu", "Scroll Forward". A fourth said nothing.
+  After each change of flow the menu held the new flow's names.
+  The cost. Before, VoiceOver's hint for a text area was "You are currently on a text area,
+  inside of a group. To …", or in continuous scroll "You are currently on a text area." and
+  "You are currently in a text area. To enter text in this area, ty". After, each begins
+  "actions available": "actions available You are currently on a text area, inside of a".
+  VoiceOver says the hint about three seconds after it arrives at the column, enters its
+  text or returns from the menu, once each time. Five moves by line, in pages and in
+  continuous scroll, each read the line and nothing more; where a hint followed one of them
+  it was the one still owed for entering the text. Six moves by line and two by word at a
+  pause of five seconds read the same way on the reader of `c43e88f`, the change on the
+  main before this one (run 38360115206).
+  Choosing an action, in pages. In one column, after five moves by line, `"listchoose=Next
+  Page"` gave `AXValueChanged` with `word0055` to `word0171` where the page had held
+  `word0001` to `word0054`. VoiceOver said "word0055 word0056 word0057 word0058 word0059
+  word0060 word0061 w" and "Next Page text  word:  word0055  character:", Control-Option-F3
+  "Line 1  word:  word0055  character:  is in the VoiceOver cursor", and `line` "word0055
+  word0056 word0057 word0058 word0059 word0060". `"listchoose=Previous Page"` gave the
+  first page's words again, "Previous Page text  word:  Page  character:" and "Page boundary
+  verification". Chosen with the cursor on the column and not in its text, Next Page turned
+  the page and VoiceOver said "Next Page text" and the hint, its cursor still on the column
+  ("text is in the VoiceOver cursor Line 1"); `in` then read "In text word0055 word0056
+  word0057 word0058 word0059 word0060". On the book's first page Previous Page changed
+  nothing, and VoiceOver said "Previous Page text  word:  verification  character:  n", the
+  word it was on. A `nextline` straight after a turn moved the insertion point to the
+  second line, and its phrase was recorded only when the menu was next used, in both
+  sessions in pages.
+  In two columns, chosen inside the right-hand one, which held `word0025` to `word0092`.
+  Next Page gave `AXValueChanged` for both, `word0093` to `word0160` and `word0161` to
+  `word0228`. VoiceOver said "word0161", "Next Page text  word:  word0161  character:" and
+  then "text word0093 word0094 word0095 word0096 word0097 word0098 word0": it was on the
+  left-hand column ("text is in the VoiceOver cursor Line 1"), and `in` and `line` read
+  "word0093 word0094 word0095 word0096". Previous Page from inside that column gave the
+  first spread and left VoiceOver in it, on "Page boundary veri". The reader's Page Down
+  key, pressed inside the right-hand column, was heard on both readers. Before: "word0161",
+  "2 updated items", and Control-Option-F3 "Line 1  word:  word0161  character:  is in the
+  VoiceOver cursor", so that the sixty-eight words of the new left-hand column were passed
+  over. After: "word0161" and "text word0093 word0094 word0095 word0096 word0097 word0098
+  word0", and `line` "word0093 word0094 word0095 word0096".
+  In continuous scroll, five lines down. `"listchoose=Scroll Forward"` moved `SELECTION`
+  from `271,0` to `865,0`; VoiceOver said "word0078" and "Scroll Forward text  word:
+  word0079  character:", Control-Option-F3 "Line 18  word:  word0079", and `line` "word0079
+  word0080 word0081 word0082 word0083 word0084". `"listchoose=Scroll Backward"` moved it to
+  `27,0`: "Scroll Backward text  word:  Read  character:" and "Read the numbered words
+  across two consecutive pages. The next". After a change to continuous scroll with the
+  reader open and two moves by line, Scroll Forward gave `SELECTION 703,0` and "Scroll
+  Forward text  word:  word0061  character:"; back in pages, on the page that then showed
+  `word0055` to `word0171`, Next Page gave `word0172` to `word0285` and "Next Page text
+  word:  word0172  character:".
+  The group that holds the columns, with the sample's controls in the toolbar and one
+  column: "Actions menu 10 items" before and "Actions menu 12 items" after, "cancel" and
+  "press" four times, then "Previous Page", "show menu", "Next Page" where "show menu" stood
+  alone, then "cancel". With two columns it said 11 before and 15 after, and with the
+  controls embedded it opened no menu before or after; those two were heard on the main
+  before this one, at `aeb57f0` and at `c43e88f` (runs 38357370635 and 38358026967).
+  What stayed as it was. A link reached with Find Next Link ("Verification link hyperlink")
+  had "Actions menu 1 item", "press", before and after. And in continuous scroll a step made
+  straight after `in`, before VoiceOver had moved inside the text, was undone on both
+  readers. With Page Down, before and after: `SELECTION 865,0`, "word0078", "text  word:
+  Read  character:  R", then `SELECTION 0,0` and "Page", Control-Option-F3 "Line 1  word:
+  Page", and `line` "Page boundary verification", the book's first line. With Scroll Forward
+  chosen in the menu, after: the same events and "Scroll Forward text  word:  Read
+  character:  R", "Page". After two moves by line the step held, with the key ([continuous
+  scroll](#continuous-scroll), step 3) and with the action.
+  The status the accessibility API gave `ax:action`. In pages `STATUS 0` for Next Page and
+  Previous Page, with the value change, and -25200 for Previous Page on the book's first
+  page, where the reader reports that nothing turned. In continuous scroll -25200 for every
+  Scroll Forward and Scroll Backward, four times, though each scrolled: `ENTRY` went from
+  "word0079" to "word0196" and back, and VoiceOver said the new first word.
+  What did not work, heard once and left out, in a reader with switches for it (`f0d9594`,
+  runs 38362236673 and 38362411656). The turn made after the action's handler had returned:
+  in continuous scroll VoiceOver said "word0078", "text  word:  word0079  character:" and
+  then "word0025", and was on "Line 9  word:  word0025", neither where it had been nor the
+  new first line; the status in continuous scroll was -25200 all the same, and in pages
+  became -25200 where the turn made inside the handler gives 0.
+  Not established: why the status in continuous scroll is a failure, and what another
+  assistive client makes of it. Why VoiceOver goes back to the start of the text after a
+  step it has not moved before, and what would keep it at the new first line. What VoiceOver
+  does when a listener has switched off its following of keyboard focus, which is what
+  takes it to the first column. Not heard: listening; a workstation; a turn with text
+  selected and a turn under `EPUBPageControls.hostOnly`, which unit tests hold and the
+  sample has no switch for; a right-to-left spread; a spread whose next section is not
+  built yet; and VoiceOver's cursor on a table's row or cell, which keeps its own actions.
+- On 2026-10-13 VoiceOver's Read Line was heard in a table cell on a Mac, before and after a
+  cell gave a line for the end of its text. GitHub's hosted `xcode-27` runner (image
+  `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), VoiceOver's link setting Speak, a
+  window 600 points wide, at the fixed pause. Nobody listened and no workstation was used.
+  Before is `main` at `0128fa6`, runs 38360769105 and 38363804998. After is `774f82c`, that
+  `main` with the change, runs 38361875335 and 38363855146. Each step list was run on both.
+  The two readers differ in one answer, the line of the offset after a cell's last
+  character, so what changed in the speech is what VoiceOver asks of that offset. The
+  observer prints no cell's selection; in a page's text the selection after `right` is the
+  end of the word VoiceOver said, `SELECTION 7,0` after "Entries".
+  A cell of one line, "Third cell" in the section with a hidden heading over a table, at 17
+  points: in pages `"launch=-SampleHref OPS/table.xhtml" "ax:caret=Shown words after"
+  ax:focus=search ax:focus=0 in left in in`, and in continuous scroll the same with
+  `ax:focus` for the two focus steps. Both readers, in both flows: "In text Shown words
+  after the table.", "Table row group", "In Table row group 2 items text Third cell" and
+  "In text Third cell"; `line` said "Third cell" on entering, and again after `right` had
+  said "Third". After the next `right`, "cell", `line` said nothing before and "Third cell"
+  after. After one more, "end of text", the same: nothing, and then "Third cell". In pages
+  `textend` said "end of text end of text" and `line` after it nothing before and "Third
+  cell" after, and after `firstword`, "Third", `line` said "Third cell" in both. With the
+  cursor on "cell", `describe` said "word: cell end of text is in the VoiceOver cursor" in
+  both, and `linecount` "-9,223,372,036,854,775,808 lines 9,223,372,036,854,775,808 visib"
+  before, the 64 characters the probe records, and "1 line 1 visible line" after.
+  A cell whose words are a link, "Right cell jump" in the section of what each line offers
+  (`"launch=-SampleHref OPS/offers.xhtml" "ax:caret=Plain words below" ax:focus=search
+  ax:focus=0 in left in right in`): "In Table row group 2 items text Left cell", "text
+  Right cell jump" and "In text Right cell jump" in both, and `line` "Right cell jump" on
+  entering. After "Right", "cell" and "jump" by word `line` said nothing before and "Right
+  cell jump" after, and the same after "end of text".
+  A cell of two lines. At 56 points the first table's cells read "First" over "cell", and
+  the page holds the hidden heading and the table's two rows and nothing else
+  (`text_size=56 "launch=-SampleHref OPS/table.xhtml" ax:focus=search ax:focus=0 in right
+  right in in`): "In text Parked table heading", "Parked table heading", "Table row group",
+  "In Table row group 2 items text First cell" and "In text First" in both, and `line`
+  "First" on entering and after `right` had said "First". After the next `right`, "cell",
+  `describe` said "word: cell end of text is in the VoiceOver cursor" before and "Line 2
+  word: cell end of text is in the VoiceOver cursor Line" after. `line` then said nothing
+  before and "cell" after, and the same after "end of text". From there `previousline` and
+  `nextline` said nothing before, and "First" and "cell" after: without a line for the end
+  of its text a cell gave VoiceOver no line to move from either.
+  The probe records a phrase VoiceOver repeats once. In a cell whose last line is one word,
+  `line` straight after `right` has said that word shows no new phrase in either reader, as
+  in the fourth session of run 38361875335; the sessions above have `describe` between the
+  two. A session at 56 points that looked for "Shown words after" (run 38360769105) found
+  the line on the next page and never reached a cell.
+  Cells that hold a picture, a formula or a hidden label. `main` gained the section of
+  entries while these were recorded, so its cells were heard on that `main`, `7fa9231`, run
+  38365047824, and on the change merged with it, `bee900d`, run 38365114165, at 17 points
+  with the reader opened at the section, the same four sessions in each. In all four cells
+  both readers said the same up to the last word, and with the cursor on it `describe` said
+  "word: shown. end of text is in the VoiceOver cursor", or the cell's own last word in
+  that place, with "Line 2" before it after the change in a cell of two lines. Then, for
+  `line` on the last word and again after "end of text": in the described picture's cell,
+  nothing before and "Drawn Blue entry square image shown." after; in the hidden label's,
+  whose lines are "Parked entry words. Seen entry" and "words.", nothing before and "words."
+  after, and `previousline` from there nothing before and "Parked entry words. Seen entry"
+  after; in the formula's, in continuous scroll, nothing before and "stated." after, and
+  `previousline` nothing before and "Sum x squared image" after; in the cell of the picture
+  nobody describes, whose second line opens with the picture, nothing before and "image
+  stands." after. The session on "Third cell" in pages said at `bee900d` what it had said
+  at `774f82c`, phrase for phrase.
+  A picture's actions in a cell, and the cells of the section of entries in continuous
+  scroll, which the record of that section left unheard: at `d3e1f87`, #453's branch before
+  `main` was last merged into it, runs 38361206010 and 38362735530, with the reader opened
+  at the section. A cell's code there is what `main` has had since #453 merged.
+  Four `right` steps from the text's first line reach the second row, `in` twice enters the
+  described picture's cell and two `right` steps put VoiceOver on the picture, "Blue entry
+  square image". `actions` there said "Actions menu 2 items", `listdown` "show menu" and a
+  second `listdown` "Inspect Image: Blue entry square"; on the picture nobody describes the
+  second was "Inspect Image". `"listchoose=Inspect Image"` then opened the inspector, in
+  pages and in continuous scroll: `ax:actions=all` printed Zoom Out, Zoom In, Fit, Close,
+  "Magnification" and an image called "Blue entry square", or one with no name, and the
+  application posted the value "100%". VoiceOver said "Inspect Image: Blue entry square
+  text Drawn Blue entry square i" and for `describe`, in pages, "text is in the VoiceOver
+  cursor Line 3": its cursor stayed on the text and did not go to the inspector. Whether it
+  goes there from a picture in a page's own text was not compared. "show menu" is the menu's first
+  item, so one `listdown` before `"listchoose=Inspect Image"` chooses nothing and the
+  runner stops the session, as it did the second of run 38361206010. In continuous scroll
+  the cells said what they say in pages: "In text Drawn Blue entry square image shown." and
+  "Blue entry square image" by word; "text Parked entry words. Seen entry words." and
+  "Parked entry words." by word; "text Sum x squared image stated." and "x squared image"
+  by word; "Ornament", a step with no phrase and "passed."; "Undescribed", "image" and
+  "stands.". From the first row there, two `out` steps and `right` said "Drawn Blue entry
+  square shown. Parked entry words. Seen entry wo" at the second row, its cells' words,
+  and the next `right` "Table row group".
+  Not heard: a part of a cell cut at a page's end, which is unit-tested
+  (`TableCellLineAccessibilityTests`); a cell whose last character is a picture or a
+  formula; a physical Mac, or anyone listening.
 - On 2026-10-12 the section with a hidden heading over a table, with its second table, was
   read at 17 points before and after a table's rows became single items: at `2053be8` and at
   `1e3e5c3`, in the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and
@@ -2411,10 +2705,191 @@ The Mac runner's transcript is plain text and needs no export.
   merged in afterwards, has "What each line offers" as its sixth, so the section of entries
   is the seventh, with the same content and still opened by name. That merge changes
   nothing in a cell's code, and the sessions were not recorded again on it.
-  Not heard: the Inspect Image action of a picture in a cell chosen through VoiceOver; a
-  picture, a formula or a hidden label inside a link in a cell; a part of a cell cut at a
-  page's end; a formula without `alttext`, whose reading is generated; a rule or a picture
-  in a table inside a cell; and an iPhone or iPad, where nothing changes.
+  Not heard: a picture, a formula or a hidden label inside a link in a cell; a part of a
+  cell cut at a page's end; a formula without `alttext`, whose reading is generated; a rule
+  or a picture in a table inside a cell; and an iPhone or iPad, where nothing changes. The
+  Inspect Image action of a picture in a cell was chosen through VoiceOver afterwards, and
+  the other cells heard in continuous scroll: see the record of Read Line in a table cell.
+- On 2026-10-13 links in a table's cells were heard on a Mac: GitHub's hosted `xcode-27`
+  runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in a window 600 points
+  wide at 17 points, on the fixture's last section (`-SampleHref OPS/cells.xhtml`), with
+  VoiceOver's link setting at Speak, at the fixed pause. Nobody listened, and no workstation
+  was used. The section's first line, "Jumps inside a grid", was a heading in these runs. It
+  is a paragraph now, so that the book's headings stay those of the earlier sections.
+  The way into a cell was the same in every session. By word in the page's text: "grid."
+  and then "Table row group". `in` there: "In Table row group 2 items text Plain first
+  entry.". `right`: "text Before the worded jump after it, and then enough further wo".
+  `in`: "In text Before the worded jump after it, and then".
+  First main's reader with the new section, at `e3536cd`, in pages (run 38348189249) and in
+  continuous scroll (run 38349867508), the same in both but for where one line of the first
+  cell ends. `ax:links`: no child of the
+  page's text, each row a group of two text areas, and each cell's link AppKit's, titled
+  "worded jump", "￼", "￼", "￼ Entry jump with decoration" and "￼"; the element a cell gave
+  as an attachment's printed neither a role nor a name. The cell with the link of words: by
+  word "Before", "the", "worded", "jump", "after"; by line "Before the worded jump after it,
+  and then", " it, and then" (the rest of the line, as after entering a page), "enough
+  further words to carry this entry on to", back to the first, and "beginning of text";
+  Find Next Link "worded jump hyperlink" and the hint; Control-Option-Space the page with
+  "Link target reached" (`AXValueChanged` with `word1187` to `word1200`), and in continuous
+  scroll the view at the target (`ENTRY`). The described picture: the cell was "text
+  Described: "; by word "Described:", a step with no phrase, "end of text"; Find Next Link
+  "￼ hyperlink", followed from there. The decoration alone: "Bare:", a step with no phrase,
+  "end of text"; "￼ hyperlink", followed. Decoration and words: a step with no phrase,
+  "Entry", "jump", "with", "decoration"; "￼ Entry jump with decoration hyperlink",
+  followed. The hidden label: a step with no phrase, "Shown", "last", "entry."; Find Next
+  Link said "text Shown last entry.", the cell again, and Control-Option-Space then did
+  nothing. From the page's text Find Next Link said "Link not found". With VoiceOver on a
+  cell of the row and not in it, Find Next Link went to the page's first line, and in
+  continuous scroll to the book's first line, which the view then showed. `line` said
+  nothing in the four cells where the cursor was on the cell's last word or past it.
+  Then the reader's own elements in the cells, at `69917b1`, in pages (run 38352961195)
+  and in continuous scroll (run 38352965104), again the same in both. `ax:links`: each
+  cell's child and link titled "worded jump",
+  "Described entry jump, image", "image", "Entry jump with decoration" and "Parked entry
+  jump", a link element as the attachment of each picture and label, one without a name
+  for the decoration before "Entry", and the five again as children of the page's text. The
+  link of words as before, phrase for phrase. The described picture: the row was "In Table
+  row group 2 items text Described:  hyperlink Described" and the cell "In text Described:
+  hyperlink Described entry jump, image"; `line` on entering "Described:  hyperlink
+  Described entry jump, image"; by word "Described:", "hyperlink Described entry jump,
+  image", "end of text"; Find Next Link "Described entry jump, image hyperlink", and
+  "actions available" before the hint. The decoration alone: by line "Bare:  hyperlink
+  image"; by word "Bare:", "hyperlink image"; "image hyperlink". Decoration and words: by
+  line "hyperlink  Entry jump", the cell's first; by word "hyperlink", "Entry", "jump",
+  "with", "decoration"; "Entry jump with decoration hyperlink". The hidden label: by line
+  "hyperlink Parked entry jump Shown last entry."; by word "hyperlink Parked entry jump",
+  "Shown", "last", "entry."; "Parked entry jump hyperlink". Control-Option-Space after Find
+  Next Link followed each of the five, and so it did from "hyperlink image", reached by
+  word; in pages it also followed "worded jump" from the word "after" on that link's line.
+  Each time the page with "Link target reached" came, or in continuous scroll the view
+  went to it.
+  From the page's text, in pages (run 38352309093, at `69917b1`) and in the last session
+  of the scroll run: Find Next Link "worded jump hyperlink", "Described entry jump, image
+  hyperlink", "image hyperlink", "Entry jump with decoration hyperlink", "Parked entry jump
+  hyperlink" and "worded jump hyperlink" again, each with "You are currently on a
+  hyperlink, inside of a text area", and Control-Option-Space from there the target. In
+  pages, after the second of them `right` said "grid." and `line` "Shown words before the
+  grid.": VoiceOver's place in the page's text had not moved, and Control-Option-Space
+  then did nothing. With VoiceOver on a cell of the row, Find Next Link went to the page's
+  first line as before, and a second one said "worded jump hyperlink".
+  Once more at `75e28b6`, the same reader with main merged in up to `7b0cce2`, in one run
+  of five sessions (38356059690), three in pages and two in continuous scroll: the described
+  picture and the hidden label in their cells, and Find Next Link from the page's text in
+  both flows. The same phrases, and each link followed.
+  And at `87f032a`, with main merged in up to `7fa9231`, which has the elements a cell now
+  keeps for its other attachments, and with the section's first line a paragraph, in one
+  run of seven sessions (38369535055). In pages: the described picture, the decoration
+  alone, decoration and words and the hidden label, each in its cell by line, by word, with
+  Find Next Link and Control-Option-Space, and Find Next Link from the page's text. In
+  continuous scroll: Find Next Link from the page's text, and the hidden label in its
+  cell. The same phrases again, and each link followed. And once the page's headings had
+  become its children beside its links, at `6d6c584` (run 38373248427, three sessions): Find
+  Next Link from the page's text in pages and in continuous scroll, and the hidden label
+  in its cell, as before.
+  What did not work, heard once and left out, at `e54ad50` (run 38350087032): the cells'
+  own elements as the page's children. From the page Find Next Link said "worded jump
+  hyperlink" and then "Last link worded jump hyperlink" at every further press. VoiceOver
+  goes on from a link through the children of that link's parent, which was the cell. In
+  the same run `line` still said nothing after a cell's last word.
+  The way in was found in two runs with `--advance-after 0.5` (38346989450 in pages,
+  38346991372 in continuous scroll), which are no evidence. `ax:focus=0.2` there gave a
+  cell keyboard focus, and `in` then entered the page's text.
+  Not heard: listening; a workstation; two columns; a cell's link where a row goes on over
+  a page's end, which the unit tests read; Read All in a cell with a link; link settings
+  other than Speak; and a note's popover. What a cell says of a picture, a formula or a
+  hidden label outside a link is in the entry before this one.
+- On 2026-10-12 and 13 pages were turned under VoiceOver's cursor before and after the
+  reader sent the cursor to the page shown
+  ([#449](https://github.com/vocaro/EPUBLib/issues/449)). The device is the physical iPad Air 13-inch
+  (M3) of the sessions above (iPadOS 27.2, 1024 × 1366, upright, 17 points, Xcode 27.0),
+  through XCTest's VoiceOver service, on the book's first section. Nobody listened.
+  Before, at `707e776`. With the cursor on "word0001 …", the first numbered line of the
+  first page, `flick=down` read "Next Page" and a double tap performed it: the page showed
+  `word0294`–`word0654`. The screenshot shows VoiceOver's cursor drawn where the old line
+  had stood, across the eighth and ninth lines of the new page, and three moves forward
+  each read "VoiceOver Page Boundary Verification", the book's title under the page. With
+  the cursor then put on "word0450 …" in the middle of that page (`point=0.5:0.5`), Next
+  Page showed `word0655`–`word1012` with the cursor drawn at the same place, now over
+  "word0818 …", and the three moves read "word0850 …", "word0842 …" and "word0850 …":
+  four lines below the cursor, the line above that, and the first again. From "word0818
+  …", Previous Page showed `word0294`–`word0654` with the cursor over "word0450 …", and
+  the moves read "word0474 …", "word0466 …", "word0474 …". Those two pages are full of
+  lines of eight and nine words. The reader answered for an element of the page before by
+  its characters counted from the top of its own page (`index(ofAccessibilityElement:)`),
+  and on such pages those are the characters of a line of the page turned to. A unit test
+  now holds the answer to the line's place in the book.
+  Before again, at `7fa9231` with the probe's `listen` step, the `main` the change was
+  last merged with. VoiceOver said nothing by itself after either turn. From "word0001 …"
+  the three moves read "word0573 …", "word0565 …", "word0573 …", near the foot of the page
+  that begins at `word0294`, where the first session had read the title; from "word0450
+  …", "word0939 …", "word0931 …", "word0939 …". The line it came to was not the same from
+  one session to the next, and was the page's first in none. With Previous Page chosen
+  and performed from "word0818 …", a second double tap with no flick before it turned the
+  page again, to `word0001`–`word0293`: on the line left behind the rotor stayed where it
+  was.
+  A page turned by the control strip's button needed no change. With the cursor taken
+  from a line to the button (`activate=Next Page`), VoiceOver stayed on "Next Page Button",
+  and moving forward read the strip's eight other controls and then "word0294 …",
+  "word0302 …", "word0310 …", "word0319 …": the new page from its first line. After
+  Previous Page it said "Previous Page dimmed", and moving forward read the controls again
+  and "Page boundary verification Heading".
+  After, at `7466dea`, the same steps with `listen=4` after each double tap. From "word0001
+  …", Next Page: VoiceOver read "word0294 word0295 … word0301" by itself, the screenshot
+  shows its cursor on that line, the first of the page, and the three moves read "word0302
+  …", "word0310 …", "word0319 …". From "word0450 …", Next Page: it read "word0655 …", and
+  the moves "word0663 …", "word0671 …", "word0680 …". From "word0818 …", Previous Page: it
+  read "word0294 …", and the moves "word0302 …", "word0310 …", "word0319 …". After a link:
+  with the cursor on "Verification link", a double tap showed the book's last page,
+  `word1013`–`word1200`, and VoiceOver read "Link target reached Heading" by itself, the
+  line of the link's target, below the twenty-one lines of words that begin that page; the
+  next moves read "This is the end of the numbered paragraph." and the book's title. A
+  turn by the control strip's button read as it had: VoiceOver stayed on "Next Page
+  Button", moving forward read the eight controls and then "word0294 …", "word0302 …",
+  "word0310 …", "word0319 …", and after Previous Page "Previous Page dimmed", the controls
+  and "Page boundary verification Heading". On its side (1366 × 1024), where the first
+  spread shows `word0001`–`word0147` beside `word0148`–`word0350`: with the cursor on
+  "word0232 …" in the right-hand page, Next Page showed `word0351`–`word0553` beside
+  `word0554`–`word0756`, VoiceOver read "word0351 …" by itself, the first line of the
+  left-hand page, and the moves read "word0358 …", "word0365 …", "word0372 …". A last
+  session at `a38fa29`, after `main`'s change to the scroll bar of continuous scroll had
+  been merged into the same file, read the same, upright: "word0294 …" after Next Page
+  from "word0001 …" and the three lines after it; and after Previous Page from "word0450
+  …", "Page boundary verification Heading", the first line of the first page, then "Read
+  the numbered words across two consecutive pages. The next page must resume at the",
+  "next numbered word." and "Verification link Link".
+  What the change costs was seen in these sessions. The cursor is on a new item after a
+  turn, and VoiceOver's rotor is at its default there: with Previous Page chosen and
+  performed from "word0818 …", a second double tap, with no flick before it, read the
+  first line again and left `word0294`–`word0654` on screen, where before the change it
+  had turned the page again. A listener turning several pages from the text now flicks
+  down before each double tap. On the control strip's button the cursor stays on the
+  button, and double taps turn page after page as they did.
+  The [simulator lane](#simulators) read the same change another way, since a simulator's
+  VoiceOver performs no action: the cursor is put on a line, and `doubletap=Next Page`
+  lands one plain touch on the control strip's button while the cursor stays on the line.
+  That is a page the host turns under the cursor, which the reader treats as it does a
+  line's own turn. iPhone 17 Pro simulator, iOS 27.0, 402 × 874, 17 points. Before, at
+  `0128fa6` with the probe's `listen` step: from "word0001 …" VoiceOver said nothing, and
+  the moves read "VoiceOver Page Boundary Verification", "word0061 …", "word0065 …", on a
+  page that begins at `word0017`; from "word0025 …", the third line of that page, the
+  moves read "word0093 …", "word0089 …", "word0093 …" on the page that begins at
+  `word0081`; and after Previous Page "word0029 …", "word0025 …", "word0029 …". After, at
+  `7466dea`: VoiceOver read "word0017 word0018 word0019 word0020" by itself, the first line
+  of the page, and the moves read "word0021 …", "word0025 …", "word0029 …"; from "word0025
+  …" it read "word0081 …" and the moves "word0085 …", "word0089 …", "word0093 …"; and
+  after Previous Page "word0017 …" and the same three.
+  The order of the two things VoiceOver's scroll posts was tried there too, in a build
+  with a switch for what is posted (not in the branch). The page's number and then the
+  line: "Page 2", then "word0017 word0018 word0019 word0020", and the moves read on from
+  the second line. The line and then the number: the line alone, and no "Page 2". The
+  number alone, which is all the scroll posted before: "Page 2", and VoiceOver's cursor
+  stayed at its place on the screen, so that from the third line of one page the next
+  move read the fourth line of the next, "word0093 …", and not its first.
+  Not established: VoiceOver's three-finger scroll itself, which XCTest cannot perform
+  ([#70](https://github.com/vocaro/EPUBLib/issues/70)), before the change or after it; a
+  physical iPhone; a page turned by a key with the cursor in the text; and Switch Control
+  or any other assistive technology that keeps a cursor. VoiceOver was read back as off
+  after every device session.
 - On 2026-10-13 a table's select action was performed with VoiceOver on the physical iPad
   Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366, upright, 17 points), before and after a
   change to what it does ([#450](https://github.com/vocaro/EPUBLib/issues/450)), with the

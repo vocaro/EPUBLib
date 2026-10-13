@@ -332,18 +332,18 @@ import XCUIAutomation
                 unchosen = !found
                 if !found { note(step, "MISSING") }
             case "listen":
-                // Every phrase VoiceOver comes to in that many seconds, and that there was none:
-                // what an action says for itself, where the phrase after a step is only the last.
-                let limit = Date().addingTimeInterval(Double(parts.last ?? "") ?? 3)
-                var last = try? voiceOver.currentSpeech().utterance, new = 0
-                while Date() < limit {
+                // Every phrase VoiceOver speaks in that many seconds, where a step records one:
+                // what it says by itself after a change, in the order it says it.
+                let until = Date().addingTimeInterval(Double(parts.last ?? "") ?? 3)
+                var last: String?
+                while Date() < until {
+                    let phrase = (try? voiceOver.currentSpeech().utterance) ?? "no speech"
+                    if phrase != last {
+                        last = phrase
+                        note("heard", phrase)
+                    }
                     RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-                    guard let phrase = try? voiceOver.currentSpeech().utterance, phrase != last else { continue }
-                    last = phrase
-                    new += 1
-                    note("listen", phrase)
                 }
-                if new == 0 { note("listen", "nothing new in \(parts.last ?? "3") s; still: \(last ?? "no speech")") }
             case "state":
                 // The sample's own line of what the reader reports as selected and what its
                 // selection action was last given (`-SampleSelectionLine YES`). Reading it moves
