@@ -601,7 +601,10 @@ import XCTest
         let posted = posts(of: canvas)
         func named(_ label: String, line: UInt = #line) throws -> UIAccessibilityElement {
             let changes = posted()
-            XCTAssertEqual(changes.map(\.notification), [.layoutChanged], "\(label) posts one layout change", line: line)
+            // Text built again under the cursor leaves it on no line, and is a move of its own.
+            XCTAssertEqual(changes.map(\.notification), [.layoutChanged],
+                           "\(label) posts one layout change; named: \(changes.map { ($0.named as? UIAccessibilityElement)?.accessibilityLabel ?? "nothing" })",
+                           line: line)
             let element = try XCTUnwrap(changes.first?.named as? UIAccessibilityElement, "\(label) names a line", line: line)
             XCTAssertTrue(view.accessibilityElement(at: view.index(ofAccessibilityElement: element)) as? UIAccessibilityElement === element,
                           "\(label): the line named is an element the view lists", line: line)
