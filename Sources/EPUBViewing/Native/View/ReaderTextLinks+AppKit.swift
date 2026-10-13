@@ -146,14 +146,17 @@ extension ReaderTextView {
         accessibilityLinks(in: accessibilityVisibleCharacterRange()).map { linkElement(for: $0.url, at: $0.range) }
     }
 
-    /// Where the characters of a link are, in this view's coordinates: at least a point, so
-    /// that a hidden label, which takes no room, still has a place for VoiceOver's cursor.
-    fileprivate func linkFrame(_ range: NSRange) -> CGRect {
+    /// Where the characters of a link or a heading are, in this view's coordinates: at least
+    /// a point, so that a hidden label, which takes no room, still has a place for VoiceOver's
+    /// cursor, and no wider than the view, which a whole line's trailing space can be.
+    func linkFrame(_ range: NSRange) -> CGRect {
         var frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
         if frame.isNull { frame = lineFrame(containing: range.location) ?? .zero }
         frame.size = CGSize(width: max(frame.width, 1), height: max(frame.height, 1))
         let origin = containerOrigin
-        return frame.offsetBy(dx: origin.x, dy: origin.y)
+        frame = frame.offsetBy(dx: origin.x, dy: origin.y)
+        let inside = frame.intersection(bounds)
+        return inside.isEmpty ? frame : inside
     }
 }
 

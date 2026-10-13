@@ -23,6 +23,7 @@ files = {'mimetype': 'application/epub+zip',
                     'media-type="application/xhtml+xml"/><item id="pictures" href="pictures.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="scenes" href="scenes.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="offers" href="offers.xhtml" '
+                    'media-type="application/xhtml+xml"/><item id="entries" href="entries.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="grids" href="grids.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="ledger" href="ledger.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="tallrow" href="tallrow.xhtml" '
@@ -31,8 +32,8 @@ files = {'mimetype': 'application/epub+zip',
                     'media-type="image/svg+xml"/></manifest><spine><itemref '
                     'idref="body"/><itemref idref="labels"/><itemref '
                     'idref="table"/><itemref idref="pictures"/><itemref '
-                    'idref="scenes"/><itemref idref="offers"/><itemref idref="grids"/><itemref '
-                    'idref="ledger"/><itemref idref="tallrow"/></spine></package>',
+                    'idref="scenes"/><itemref idref="offers"/><itemref idref="entries"/><itemref '
+                    'idref="grids"/><itemref idref="ledger"/><itemref idref="tallrow"/></spine></package>',
  'OPS/nav.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
                   'xmlns="http://www.w3.org/1999/xhtml" '
                   'xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav '
@@ -42,7 +43,8 @@ files = {'mimetype': 'application/epub+zip',
                   'table</a></li><li><a href="pictures.xhtml">Pictures and their '
                   'words</a></li><li><a href="scenes.xhtml">Scenes set '
                   'apart</a></li><li><a href="offers.xhtml">What each line '
-                  'offers</a></li><li><a href="grids.xhtml">Tables of data</a></li><li><a '
+                  'offers</a></li><li><a href="entries.xhtml">Things inside '
+                  'entries</a></li><li><a href="grids.xhtml">Tables of data</a></li><li><a '
                   'href="ledger.xhtml">A table longer than a page</a></li><li><a '
                   'href="tallrow.xhtml">A row taller than a page</a></li></ol></nav></body></html>',
  'OPS/square.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 '
@@ -126,7 +128,30 @@ files = {'mimetype': 'application/epub+zip',
                      'line.</p><table><tr><td>Left cell</td><td><a '
                      'href="body.xhtml#link-target">Right cell '
                      'jump</a></td></tr></table><p>Plain words '
-                     'below.</p>LINES_BELOW</body></html>'}
+                     'below.</p>LINES_BELOW</body></html>',
+ # What a table's entry can hold besides words: a rule between two paragraphs, a formula, a
+ # described picture, a hidden label, decoration, a picture nobody describes and a table of
+ # its own. Each entry is a text of its own to VoiceOver on a Mac. A second formula stands
+ # after the table, in the page's own text, to compare. The section has no heading, and no
+ # word here is one a screen reader uses for a rule, a picture, a formula, a table or a text.
+ 'OPS/entries.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
+                      'xmlns="http://www.w3.org/1999/xhtml"><head><title>Things inside '
+                      'entries</title><style>.parked { position: absolute; left: -999em; } td { '
+                      'padding: 0.25em 0.5em; } img { width: 32px; height: 32px; '
+                      '}</style></head><body><p>Entries follow.</p><table><tr><td><p>Upper part '
+                      'closes.</p><hr/><p>Lower half opens.</p></td><td>Sum <math '
+                      'xmlns="http://www.w3.org/1998/Math/MathML" alttext="x '
+                      'squared"><msup><mi>x</mi><mn>2</mn></msup></math> '
+                      'stated.</td></tr><tr><td>Drawn <img src="square.svg" alt="Blue entry '
+                      'square"/> shown.</td><td><span class="parked">Parked entry '
+                      'words.</span>Seen entry words.</td></tr><tr><td>Ornament <img '
+                      'src="square.svg" alt=""/> passed.</td><td>Undescribed <img '
+                      'src="square.svg"/> stands.</td></tr><tr><td><table><tr><td>Inner '
+                      'one</td><td>Inner two</td></tr></table></td><td>Beside the inner '
+                      'grid.</td></tr></table><p>Beyond them <math '
+                      'xmlns="http://www.w3.org/1998/Math/MathML" alttext="y '
+                      'cubed"><msup><mi>y</mi><mn>3</mn></msup></math> '
+                      'ends.</p>ENTRY_LINES_AFTER</body></html>'}
 # Tables that are data, and one that is not. The first has a caption, a header row and a header
 # cell in each row, an empty cell and a link. The second has header cells that span columns and
 # rows and data cells that do. The third is marked as layout, though it is ruled like the
@@ -173,9 +198,12 @@ lines_after = [f"<p>Line {i:02d} after the table.</p>" for i in range(1, 61)]
 lines_after.insert(2, '<table><tr><td>Fifth cell</td><td>Sixth cell</td></tr><tr><td>Seventh cell</td><td>'
                       '<a href="body.xhtml#link-target">Eighth cell link</a></td></tr></table>')
 files["OPS/table.xhtml"] = files["OPS/table.xhtml"].replace("LINES_AFTER", "".join(lines_after))
-# The same for a section near the book's end, which could otherwise be shown from the end of the book.
+# The same for two sections near the book's end, which continuous scroll could otherwise show
+# from the end of the book.
 files["OPS/offers.xhtml"] = files["OPS/offers.xhtml"].replace(
     "LINES_BELOW", "".join(f"<p>Below line {i:02d}.</p>" for i in range(1, 61)))
+files["OPS/entries.xhtml"] = files["OPS/entries.xhtml"].replace(
+    "ENTRY_LINES_AFTER", "".join(f"<p>Line {i:02d} after the entries.</p>" for i in range(1, 61)))
 
 # A second book of ordinary paragraphs, for continuous scroll: chapters of forty, forty and six
 # paragraphs, each of forty numbered words ("p017w23" is the seventeenth paragraph's
@@ -183,8 +211,8 @@ files["OPS/offers.xhtml"] = files["OPS/offers.xhtml"].replace(
 # end of the book is a few screens from the start of its last chapter.
 chapters = {"one": range(1, 41), "two": range(41, 81), "three": range(81, 87)}
 paragraphs = dict(files)
-for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "scenes.xhtml", "offers.xhtml", "grids.xhtml",
-             "ledger.xhtml", "tallrow.xhtml", "square.svg", "titled.svg"]:
+for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "scenes.xhtml", "offers.xhtml",
+             "entries.xhtml", "grids.xhtml", "ledger.xhtml", "tallrow.xhtml", "square.svg", "titled.svg"]:
     del paragraphs["OPS/" + name]
 paragraphs["OPS/package.opf"] = (
     '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '

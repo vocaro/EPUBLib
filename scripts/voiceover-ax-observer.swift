@@ -156,9 +156,11 @@ func links() {
     }
 }
 /// The first link or attachment element, of a column's children or its runs, that names `words`.
+/// A heading is among the children too, and is neither.
 func embeddedElement(naming words: String) -> AXUIElement? {
     func names(_ element: AXUIElement) -> Bool {
-        [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute].contains { (attribute(element, $0) as? String)?.contains(words) ?? false }
+        guard attribute(element, kAXRoleAttribute) as? String != "AXHeading" else { return false }
+        return [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute].contains { (attribute(element, $0) as? String)?.contains(words) ?? false }
     }
     for text in columns() {
         if let child = (attribute(text, kAXChildrenAttribute) as? [AXUIElement] ?? []).first(where: names) { return child }
