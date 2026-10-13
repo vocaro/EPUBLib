@@ -45,10 +45,9 @@ can besides words, one kind to a cell: a rule between two paragraphs and a formu
 first row, a described picture and a hidden label in the second, decoration and a picture
 nobody describes in the third, and a table of its own in the fourth. "Entries follow."
 stands before the table and a second formula after it, in the page's own text, and the
-section goes on for more than a screen. It has no heading, so the book's headings are those
-of the sections before it. None of its words is one a screen reader uses for a rule, a
-picture, a formula, a table or a text. An eighth, **Jumps inside a grid**
-(`OPS/cells.xhtml`), the book's last, holds links in the cells of a table of three rows and
+section goes on for more than a screen. It has no heading. None of its words is one a
+screen reader uses for a rule, a picture, a formula, a table or a text. An eighth, **Jumps inside a grid**
+(`OPS/cells.xhtml`), holds links in the cells of a table of three rows and
 two columns, after two lines of words and before sixty numbered ones. It has no heading
 either. The first row has a cell
 of plain words and a link of words, "worded jump", in a cell that runs on to three lines at
@@ -57,7 +56,15 @@ of plain words and a link of words, "worded jump", in a cell that runs on to thr
 that holds such decoration and the words "Entry jump with decoration", and a link that is a
 hidden label, "Parked entry jump", before the cell's shown words. Every link goes to "Link
 target reached" in the first section. None of the section's words is one VoiceOver uses for a
-picture, a link, a table or a text. A second
+picture, a link, a table or a text. A ninth, **Tables
+of data** (`OPS/grids.xhtml`), holds four tables, each ruled as a grid: one with a caption, a header
+row and a header cell in each row, an empty cell and a cell that is a link; one whose header
+cells span two rows and two columns, as two of its data cells do; one given
+`role="presentation"`; and one of plain cells that only its rules mark as data. A tenth,
+**A table longer than a page** (`OPS/ledger.xhtml`), has forty numbered rows under a header
+row, and an eleventh, **A row taller than a page** (`OPS/tallrow.xhtml`), the book's last, a
+cell of 2,600 numbered words. None of their words is one VoiceOver uses for a table, so
+"row", "column" and "table" in a transcript are its own. A second
 bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
@@ -65,9 +72,11 @@ twenty-third), so a line in the middle of a paragraph can be told from its first
 of the book is a few screens from the start of its last chapter. The first book's headings
 are "Page boundary verification" (level 1), which opens it, "Link target reached" (level 2)
 after the numbered paragraph, the two parked ones (level 1), each opening its section, and
-"Pictures and their words", "Scenes set apart" and "What each line offers" (level 1), each
-opening one of the three sections before the last two, which have none; the second book's
-are "Chapter one", "Chapter two" and "Chapter three", screens apart.
+"Pictures and their words", "Scenes set apart", "What each line offers", "Tables of data",
+"A table longer than a page" and "A row taller than a page" (level 1), each opening its
+section; the sections of entries and of jumps inside a grid, between "What each line
+offers" and "Tables of data", have none. The second book's are "Chapter one", "Chapter two"
+and "Chapter three", screens apart.
 Do not import private books for this check.
 
 On a Mac the same application can show AppKit's own text view in the reader's place, with
@@ -741,7 +750,10 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
   nothing, because the item before says the same or VoiceOver does not move back, three more
   repeats end the read, as three did before. A `read` line says which way it ended.
 - `forward=COUNT`, `backward=COUNT`: that many moves to the next or previous item, where
-  `read` would go on through a whole book in continuous scroll.
+  `read` would go on through a whole book in continuous scroll. On a saturated Mac the service
+  can hand back the phrase from before a move, which reads as one item said twice and the
+  next missing, so a phrase that repeats the last waits three seconds for a new one. A move
+  that stays on the last item costs those seconds.
 - `visible`: the window size and each column's first and last numbered lines as XCTest sees
   them, to compare with the speech. Lines listed above or below the window, as continuous
   scroll lists them, are counted apart.
@@ -943,7 +955,33 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    cell is an item by itself, and moving back gives the same items in reverse. On the last
    row the rotor offers Select Table Text for its two cells and Follow Table Link: Eighth
    cell link, which opens the first section at "Link target reached"; a line beside the
-   tables offers none of them. On a Mac a cell is a text of its own, and VoiceOver reads its
+   tables offers none of them. Nothing marks those tables as data and they are not ruled.
+   On the section of tables of data, in pages and in continuous scroll, each cell is an
+   item. VoiceOver says the header cells that have changed since the cell before, then the
+   cell's words, the row at a row's first cell and the column at every cell, with "Table
+   start" and the count of rows and columns at the table's first cell and "Table end" at
+   its last: "Station, Column header, Row 1, Column 1, Table start, 4 rows 3 columns",
+   "Opened, 1901, Column 2", "Station, Birch, Row header, Row 3, Column 1", for the empty
+   cell "Depth, Column 3", and "Depth, Forty metres, Column 3, Table end". A cell that
+   spans says so, "Service, Column header, Spans 2 rows", and "Hours" is not read under
+   "Leaves", which stands below it. "Reopened 1978" is a link: a double tap opens the first
+   section at "Link target reached", and the rotor offers Select Cell Text and Follow Link:
+   Reopened 1978 after the page's own two. With the rotor on Rows (`rotor=Rows`),
+   `flick=down` and `flick=up` move down and up a column: from "Alder" to "Birch, Row
+   header, Row 3". The table with `role="presentation"` is read row by row, "Left side
+   Right side", though it is ruled like the others, and the ruled table of plain cells cell
+   by cell, "North, Row 1, Column 1, Table start, 2 rows 2 columns". On the section with a
+   table longer than a page, in continuous scroll, VoiceOver reads on through all forty
+   rows and back, every cell once and in order, the view following, and names a column's
+   header cell far below the header row: "Sum, Sum 39, Row 40, Column 3" on the way back.
+   With the rotor on Rows it moves down a column past the screen, a row at a time. In
+   pages the page after the first goes on at the next row's number and names a column's
+   header cell though its row is on the page before: "Entry 28, Row 29, Column 1, Table
+   start, 41 rows 3 columns" and "Item, Item 28, Column 2" on an iPad at 17 points.
+   VoiceOver says "Table start" at the first cell a page lists and "Table end" at the last,
+   so a page in the middle of a table says both. On the section with a row taller than a
+   page, each page's cell reads the words that page shows.
+   On a Mac a cell is a text of its own, and VoiceOver reads its
    line wherever its cursor is in it. In a window 600 points wide at 17 points, with the
    reader opened at that section (`"launch=-SampleHref OPS/table.xhtml"`), in pages and in
    continuous scroll, `"ax:caret=Shown words after"`, a focus change to the text, `in` and
@@ -2430,6 +2468,140 @@ The Mac runner's transcript is plain text and needs no export.
   VoiceOver on; the rotor steps were run again alone. Each time VoiceOver was left on it was
   switched off with `devicectl device settings voiceover --disable` and read back as off.
   Nobody listened to any of these sessions.
+- On 2026-10-12 the three sections of tables were read at 17 points before and after a table
+  of data was given to VoiceOver cell by cell: before at `17a4a36`, which is main with #382
+  and this change's fixture and probe, and after at `bc473cb`. Nobody listened; the phrases
+  are XCTest's record of VoiceOver's speech.
+  In the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and an iPad Air
+  13-inch (M4)), moving forward from Bookmark on the section of tables of data, in pages.
+  Before, a row was an item: "Stations on the branch", "Station Opened Depth", "Alder 1901
+  Twelve metres", "Birch 1934", "Cedar Reopened 1978 Forty metres", "Words between the
+  grids.", "Service Hours", "Leaves Arrives", "Express Nine Noon", "Stopper Ten Three",
+  "Nothing on Sunday", then "Left side Right side", "Lower left Lower right", "North Wet" and
+  "South Dry"; on the last row of the first table the rotor offered Next Page, Previous Page,
+  Select Table Text for each of its three cells and Follow Table Link: Reopened 1978. After:
+  "Stations on the branch", "Station Column header Row 1 Column 1 Table start 4 rows 3
+  column" (the 64 characters a simulator's phrase has), "Opened Column header Column 2",
+  "Depth Column header Column 3", "Station Alder Row header Row 2 Column 1", "Opened 1901
+  Column 2", "Depth Twelve metres Column 3", "Station Birch Row header Row 3 Column 1",
+  "Opened 1934 Column 2", "Depth Column 3" for the empty cell, "Station Cedar Row header Row
+  4 Column 1", "Opened Reopened 1978 Column 2 Link", "Depth Forty metres Column 3 Table end";
+  in the second table "Service Column header Spans 2 rows Row 1 Column 1 Table start",
+  "Hours Column header Spans 2 columns Column 2", "Leaves Column header Row 2 Column 2",
+  "Arrives Column header Column 3", "Service Express Row 3 Column 1", "Hours Leaves Nine
+  Column 2", "Arrives Noon Column 3", "Service Stopper Spans 2 rows Row 4 Column 1", "Hours
+  Leaves Ten Column 2", "Arrives Three Column 3", "Leaves Nothing on Sunday Spans 2 columns
+  Row 5 Column 2 Table en"; then "Left side Right side" and "Lower left Lower right" as
+  before, for the table with `role="presentation"`, and "North Row 1 Column 1 Table start 2
+  rows 2 columns", "Wet Column 2", "South Row 2 Column 1", "Dry Column 2 Table end" for the
+  ruled table of plain cells. VoiceOver says a header cell's words before a cell only when
+  they differ from the cell before's, and so on the way back: "Alder Depth Twelve metres Row
+  2 Column 3". The iPhone's first page ends after the first table and read the same. With
+  the rotor on Rows from "Alder": "Birch Row header Row 3", "Cedar Row header Row 4", where
+  it stays, and back up to "Station Column header Row 1 Table start 4 rows 3 columns"; from
+  "Nine" on the iPad: "Ten Row 4", "Nothing on Sunday Spans 2 columns Row 5 Table end", and
+  up to "Leaves Column header Row 2" and "Hours Column header Spans 2 columns Row 1". On
+  "Reopened 1978" the rotor offered Next Page, Previous Page, Select Cell Text and Follow
+  Link: Reopened 1978. With the rotor on Headings, from a cell, `flick=up` went to "Tables of
+  data Heading". In continuous scroll on the iPad the same items came forward and back, and
+  the cell offered Select Cell Text and Follow Link: Reopened 1978.
+  On the section with a table longer than a page, in continuous scroll, 136 moves forward
+  and 136 back on each simulator: every one of the 120 cells below the header row once and
+  in order each way, "Entry Entry 13 Row 14 Column 1", "Item Item 13 Column 2", past the
+  screen, to "Sum Sum 40 Column 3 Table end" and "Words after the ledger.", and back from
+  "Sum 40 Row 41 Column 3 Table end" through "Sum Sum 39 Row 40 Column 3", where the header
+  row is forty rows above the screen, to "Words before the ledger.". Before, the rows came
+  in order as "Entry 13 Item 13 Sum 13". In pages on the iPad: the first page to "Item Item
+  14 Column 2" in 46 moves; after Next Page "Entry 28 Row 29 Column 1 Table start 41 rows 3
+  columns", "Item Item 28 Column 2", "Sum Sum 28 Column 3", "Entry Entry 29 Row 30 Column 1",
+  and with the rotor on Rows "Item 31 Row 32" to "Item 33 Row 34" and back up to "Item 28 Row
+  29". An earlier session of the same steps on the iPhone, at a load average near 600, did
+  not turn the page: its double tap on Next Page changed nothing in two seconds.
+  On the row taller than a page, in continuous scroll on the iPad: "Clause Column header Row
+  1 Column 1 Table start 3 rows 2 columns", "Wording Column header Column 2", "Clause Tall
+  clause Row 2 Column 1", one item for the tall cell, "Wording t0001 t0002" and on, "Clause
+  Short clause Row 3 Column 1", "Wording Short wording Column 2 Table end", and the same
+  back. In pages on the iPhone the short cell beside the tall one was a stop that said only
+  "Row 2 Column 1" on the row's first page: the cell is centred in a row ten pages tall, so
+  its words stand some pages in. A cell is since listed on the page where it has something
+  to say, and at `1c4f136` that page began with the tall cell, "t0001 t0002".
+  **One thing went wrong before main's list of fifty lines past the screen was merged in,
+  on the simulator alone.** In continuous scroll on the iPad
+  simulator, reading on from Bookmark to "Line 10 after the grids.", which scrolls the view
+  until the first table's header row lies under the reader's top inset, and then back, left
+  the text at "Station Alder Row header Column 1" for Bookmark in two sessions of three at
+  `bc473cb`, with the header row, the caption and two lines above them unread; the third
+  read back through "Depth Column header Row 1 Column 3" to "Tables of data Heading". The
+  same steps before the change, at `17a4a36`, read back through "Station Opened Depth" to
+  "Tables of data" and the section before in two sessions of two, and the physical iPad at
+  `1c4f136` did so cell by cell in two of two, the second from "Line 24 after the grids.".
+  Reading back through the long table, which scrolls the view at every row, was complete on
+  both simulators, and the iPhone simulator read the same section on to "Line 10 after
+  the grids." and back complete in its one session. The thirty-nine items it read back
+  before leaving are those that were listed before "Line 10" at the moment it turned
+  round, two lines above the first on screen, which is what
+  [#339](https://github.com/vocaro/EPUBLib/issues/339) describes; why the rows before this
+  change did not show it there is not known. At
+  `25ae60e`, with main merged in and fifty lines listed each side
+  ([#380](https://github.com/vocaro/EPUBLib/pull/380)), the same steps on the iPad
+  simulator read back complete in two sessions of two, through "Depth Column header Row 1
+  Column 3" and "Stations on the branch" to "Tables of data Heading" and "Last words of the
+  scenes.".
+  The sessions ran while the Mac's load average stood between 400 and 1,000. Sessions at an
+  earlier revision of this change, before the probe waited out a repeated phrase, recorded
+  one cell twice and the next not at all here and there, and on the iPad simulator 136
+  moves forward reached only the ninety-sixth cell while the 136 back gave every cell; the
+  counts showed the first to be the record and not the reader. One session's touch on "Item
+  02" at 28 points found nothing on the iPhone simulator. At 17 points and `1c4f136`, with
+  the rotor on Rows, twenty-six flicks down from "Item 02 Row 3" went a row at a time to
+  "Item 28", past the screen; ten flicks up came back a row at a time to "Item 18", and the
+  flicks after that stepped through actions instead, "Select Cell Text", "Verification
+  link", "￼": the rotor was on Actions. A cell offers Select Cell Text only once it is on
+  screen, where its interaction surface is. The physical iPad made seventy such flicks
+  without the rotor moving. In one more iPhone simulator session, after a walk to "Line 10"
+  and back, a flick down with the rotor on Rows from "Alder" went to "Last words of the
+  scenes." and the flicks after it stepped through actions; the iPad simulator and the
+  iPad moved to "Birch" at the same step. At `25ae60e`, with main merged in, the iPhone
+  simulator made the twenty-six flicks down to "Item 28 Row 29" and twenty-eight back up,
+  a row at a time to "Item 01 Row 2" and "Item Column header Row 1", with the rotor on
+  Rows throughout, and read the long table's 120 cells once and in order each way in 136
+  moves. In pages on the iPhone the long table's second
+  page began "Entry 06 Row 7 Column 1 Table start 41 rows 3 columns", "Item Item 06 Column
+  2", and Rows moved from "Item 08" down to "Item 11 Row 12" and back up to "Item 06 Row 7".
+- The same day a physical iPad Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366) read the same
+  sections at `bc473cb`, and at `7d8e7f4` for the rotor's Rows, which differs from it in the
+  probe and one test. In pages on the tables of data, the simulators' items with whole
+  phrases: "Station Column header Row 1 Column 1 Table start 4 rows 3 columns", "Leaves
+  Nothing on Sunday Spans 2 columns Row 5 Column 2 Table end". With Follow Link: Reopened
+  1978 chosen in the rotor, the fourth action in pages and the second in continuous scroll,
+  a double tap on the cell changed the screen and a touch then found "Link target reached
+  Heading"; a plain double tap on the cell, with no action chosen, did the same. With
+  Select Cell Text chosen, a double tap gave "Select Cell Text" and the screenshot shows
+  VoiceOver's cursor on the cell's box and no highlight in it: that the words were selected
+  there is shown by the unit test only. The rotor's Rows moved down and up a column in both
+  tables as on the simulators. In continuous scroll at 23 points, 136 moves forward and 136
+  back through the long table gave all 120 cells once and in order each way; at 28 points,
+  with the rotor on Rows, thirty-four flicks down from "Item 02 Row 3" went a row at a time
+  to "Item 36 Row 37", past the screen, and thirty-six up went back to "Item 01 Row 2" and
+  "Item Column header Row 1". In pages at 23 points the page after the first began "Entry
+  19 Row 20 Column 1 Table start 41 rows 3 columns", "Item Item 19 Column 2". On the row
+  taller than a page: "Clause Column header Row 1 Column 1 Table start 3 rows 2 columns"
+  and "Wording Column header Column 2 Table end" on the first page, and after Next Page
+  "Tall clause Row 2 Column 1 Table start 3 rows 2 columns" and one item for the tall cell,
+  "Wording t0001 t0002" and on to `t1707`, the words that page shows. The probe's two-finger
+  turns came round to the same five rotor settings on this iPad, none of them Rows, until
+  it made its smallest turn alone, which moved one setting at a time. VoiceOver was off
+  after every session, and the iPad was claimed in the shared file for the half hour. At
+  `1c4f136`, the last change to the reader, two more sessions in continuous scroll read on
+  to "Line 10 after the grids." and to "Line 24 after the grids." and back, every item in
+  order to "Tables of data Heading" and "Last words of the scenes."; and at `791b57f`,
+  which differs from it in where a cell of a row several pages tall is listed, the walk
+  through the tables of data in pages matched the first session's phrase for phrase, the
+  link was followed again, and the long table gave its 120 cells once and in order each
+  way. At `25ae60e`, with main merged in and fifty lines listed past the screen, the walk in
+  pages and the walk on to "Line 10 after the grids." and back in continuous scroll gave the
+  phrases they had given before, the link was followed, and the long table gave its 120
+  cells once and in order each way. The physical iPhone was not used.
 - On 2026-10-13 the section of entries was read on a Mac before and after a table cell kept
   the elements it gives for its attachments. GitHub's hosted `xcode-27` runner (image
   `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), a window 600 points wide at 17

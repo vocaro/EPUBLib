@@ -185,10 +185,19 @@ import XCUIAutomation
                     }
                 }
             case "forward", "backward":
-                // A counted number of moves, where `read` would go on through a whole book.
+                // A counted number of moves, where `read` would go on through a whole book. On a
+                // busy Mac the service can hand back the phrase from before the move, which reads
+                // as an item said twice and the next one missing: a phrase that repeats the last
+                // waits three seconds for VoiceOver's own, and is recorded as it stands after them.
                 for _ in 0..<(Int(parts.last ?? "") ?? 1) {
-                    if parts[0] == "forward" { record("moveForward", try voiceOver.moveForward()) }
-                    else { record("moveBackward", try voiceOver.moveBackward()) }
+                    let before = events.last?["utterance"]
+                    var phrase = try (parts[0] == "forward" ? voiceOver.moveForward() : voiceOver.moveBackward()).utterance
+                    let limit = Date().addingTimeInterval(3)
+                    while phrase == before, Date() < limit {
+                        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+                        phrase = (try? voiceOver.currentSpeech().utterance) ?? phrase
+                    }
+                    note(parts[0] == "forward" ? "moveForward" : "moveBackward", phrase)
                 }
             case "visible":
                 // The numbered lines XCTest sees in each column, to compare with the speech. In
@@ -268,12 +277,15 @@ import XCUIAutomation
                 // turns at most; `flick=down` and `flick=up` then move by it. One turn of a given
                 // size moved the rotor one setting in some sessions and three in others, which
                 // went round and round past Headings: the turns are of several sizes. On a
-                // physical iPhone no turn registered, on the screen, the window or the text.
+                // physical iPad the five sizes together came round to the same five settings,
+                // and Rows was never one of them: after two rounds the smallest turn is made
+                // alone, which moved one setting at a time there. On a physical iPhone no turn
+                // registered, on the screen, the window or the text.
                 let wanted = parts.count > 1 ? parts[1] : ""
                 var found = wanted.isEmpty
                 let turns: [CGFloat] = [.pi / 4, .pi / 6, .pi / 9, .pi / 5, .pi / 12]
                 for turn in 0..<(wanted.isEmpty ? 1 : 30) {
-                    app.rotate(turns[turn % turns.count], withVelocity: 2)
+                    app.rotate(turn < 2 * turns.count ? turns[turn % turns.count] : .pi / 12, withVelocity: 2)
                     RunLoop.current.run(until: Date().addingTimeInterval(0.8))
                     let phrase = (try? voiceOver.currentSpeech().utterance) ?? "no speech"
                     note("rotor", phrase)

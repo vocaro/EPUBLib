@@ -168,6 +168,21 @@ view that lists its lines to being hidden from assistive technology. That VoiceO
 such a view offers before the lines of a page column is known only from
 [speech sessions](voiceover-testing.md); no in-process query shows it.
 
+Table header tests hold the model to HTML's rule for which cells head a column and a row,
+with and without `scope`, in `thead` and for cells that span, and to the rule for which tables
+are data: each mark that makes one so, a `role` that decides either way, twenty rows or
+cells, the ways of ruling a grid, and backgrounds, which do not count in either appearance.
+Data table tests read, on iPhone and iPad and in both flows, what VoiceOver is given for such
+a table, through the protocols it uses: one container for the table between the lines around
+it, a cell element for every cell with its rows and columns, the cell for each slot, the
+header cells of a row and a column, frames where the cells are drawn, and each cell's actions,
+performed. They cover cells that span, a table split across pages with its header row on
+another page, a row taller than a page, cells of pictures, and a table marked as layout. Two
+stand in for VoiceOver's cursor in continuous scroll, as the scrolled-lines tests do: one
+reads on through a table of seventy rows and back, finding each next stop as UIKit does, in
+the cell's container and then in the text view, and then moves down a column row by row; the
+other rests the cursor in a table and scrolls away. Neither drives VoiceOver.
+
 Accessibility action tests hold each item of a page and of a screen on iPhone and iPad to
 offering its own actions and no more: a line, a heading and a link their page turns in pages
 and nothing in continuous scroll, an image also its own inspection, and a table row also what
@@ -234,7 +249,7 @@ recorded with the [VoiceOver testing process](voiceover-testing.md#links).
 
 Table cell tests on AppKit (`TableCoverageInteractionTests`) read what a cell's own text gives
 an assistive technology for each attachment it can hold, on a table built by the real pipeline
-with the entries of the VoiceOver fixture's last section: the reader's word for a rule, an
+with the entries of the VoiceOver fixture's seventh section: the reader's word for a rule, an
 image named by its words for a formula and for a picture, a hidden label's words as text, an
 image without a name for a picture nobody describes, and no element for decoration. They hold
 each element to the place its character is drawn at, the same content in a page's text to the

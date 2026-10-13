@@ -71,6 +71,56 @@ final class TableRowAttachment: ReaderAttachment {
             .sorted { $0.column < $1.column }.map(\.text).joined(separator: "\t")
     }
 
+    /// A cell where this row stands, for an assistive technology that is given cells.
+    struct SpokenCell {
+        var cell: Int
+        /// The words the cell shows here and has not said in a row above: all of them where
+        /// it starts in a whole row, a continuation's own in pages.
+        var text: String
+        /// The pictures among them that say something: not the ones the book marks as decoration.
+        var images: [ReaderImageAttachment]
+        /// The cell's box in the row's coordinates, as drawn, not cut to the row.
+        var frame: CGRect
+        /// The cell begins here: in this row, at its top.
+        var starts: Bool
+        /// The cell has nothing to say anywhere: no words, and no picture but decoration.
+        var isBlank: Bool
+    }
+
+    /// The cells read where this row stands, in column order: those that start in it, and
+    /// those from rows above with lines of their own in it. A whole row gives a cell all its
+    /// words where it starts, like `textEquivalent`, and none where it goes on. A continuation
+    /// gives each cell the words of the lines it holds.
+    func spokenCells(size: CGSize, viewportHeight: CGFloat) -> [SpokenCell] {
+        let layout = layout(width: size.width, viewportHeight: viewportHeight)
+        let slice = fragment ?? layout.fragments(ofRow: row, maximumHeight: .greatestFiniteMagnitude)[0]
+        let scale = layout.scale * slice.fitScale
+        let isTop = slice.top <= layout.rowTops[row] + 0.01
+        var shown: [Int: Range<Int>] = [:]
+        for entry in slice.cells { shown[entry.cell] = entry.lines }
+        var members = Set(shown.keys)
+        if isTop { members.formUnion(table.rowCells[row].filter { table.cells[$0].row == row }) }
+        return members.sorted { (table.cells[$0].column, $0) < (table.cells[$1].column, $1) }.map { index in
+            let box = layout.cellFrames[index], text = layout.cellText[index]
+            let starts = isTop && table.cells[index].row == row
+            var words = "", lines = 0..<0
+            if fragment == nil {
+                if starts { (words, lines) = (table.cells[index].text, 0..<text.lines.count) }
+            } else if let own = shown[index], !own.isEmpty {
+                let first = text.lines[own.lowerBound].characters.location
+                words = text.spokenText(in: NSRange(location: first, length: text.lines[own.upperBound - 1].characters.upperBound - first))
+                lines = own
+            }
+            let isBlank = table.cells[index].text.isEmpty
+                && text.images(in: 0..<text.lines.count).allSatisfy { $0.image.alternative == .decorative }
+            return SpokenCell(cell: index, text: words,
+                              images: text.images(in: lines).map(\.image).filter { $0.alternative != .decorative },
+                              frame: CGRect(x: (layout.originX + box.minX) * scale, y: (box.minY - slice.top) * scale,
+                                            width: box.width * scale, height: box.height * scale),
+                              starts: starts, isBlank: isBlank)
+        }
+    }
+
     /// Draws the row into the current flipped graphics context, its origin at the row's
     /// top-left, clipped to `size`.
     func draw(in context: CGContext, size: CGSize, viewportHeight: CGFloat) {

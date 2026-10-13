@@ -379,10 +379,12 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   native text interaction surfaces aligned to their drawn glyphs: select and Copy cell text,
   invoke the host's selection action, follow internal links and open notes. External links retain
   the reader's refusal notice. Cell selections, located passages and saved highlights use exact
-  DOM-based character ranges, including Unicode and inline markup. VoiceOver reads a table by
-  its rows, each where it stands among the lines of its page, and each continuation by the
+  DOM-based character ranges, including Unicode and inline markup. VoiceOver reads a table
+  where it stands among the lines of its page, and each continuation by the
   words it shows, completing a word once if character wrapping splits it between pages. On
-  iPhone and iPad a row is one accessibility element, in pages and in continuous scroll alike:
+  iPhone and iPad it is given a table that holds data cell by cell, and a table that arranges
+  content row by row ("Data tables" below says which is which and what each costs). A row of
+  a table that is not data is one accessibility element, in pages and in continuous scroll alike:
   text, read as its cells' words in column order, with actions for its own cells (select a
   cell's text, follow a link in it, inspect an image in it). A row that shows pictures and no
   words is an image without a name, as a picture without words in a line is, and one that
@@ -390,7 +392,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   surfaces are hidden from assistive technology there. A text view that is merely not an
   element still offers UIKit's own elements for its text, and VoiceOver took those, every cell
   on the page, before the first line of a page column and then read the rows as well. On Mac
-  a row is a group that holds its cells' text areas. A cell's lines are those its own layout
+  a row is a group that holds its cells' text areas, in every table. A cell's lines are those its own layout
   makes, numbered from the first it shows, and the offset after its last character is on its
   last line, as the offset after a page's last character is on the page's. VoiceOver leaves
   a text's insertion point after a word it has read, so with its cursor on a cell's last
@@ -404,6 +406,98 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   whole table still resolve to that table; new cell ranges identify the selected characters.
   Interaction surfaces are mounted only for visible cells. Cell TextKit
   layouts and glyph metadata are retained for drawing in the table's bounded layout cache.
+- **Data tables.** On iPhone and iPad VoiceOver is given a table of data as Safari and Apple
+  Books give it an HTML table: each cell is a stop, and VoiceOver says the cell's row and
+  column, the header cells of both, and where the table starts and ends, and offers Rows in
+  its rotor, which moves down and up a column. A row read as its cells' words in one breath
+  suits a table that sets two things side by side; in a table of figures it does not say
+  where a cell ends, which column a value stands in or what heads it.
+  - **Which tables.** HTML has no element that says a table is there for layout, so the
+    reader decides as WebKit does (`AXTableHelpers` in WebKit's source, read on 2026-10-12),
+    from what it builds and draws. A `role` on the table settles it: `presentation` or
+    `none` is layout, and `table`, `grid` or `treegrid` is data. Without one a table is data
+    when it has a caption, a `summary`, a `thead` or `tfoot`, a `col` or `colgroup`, or
+    `rules`; a row or a cell with a table role, or a cell with `headers`, `scope`, `abbr`
+    or `axis`; twenty rows, or twenty cells in a row; ten cells ruled above and below or on
+    both sides; or half its cells ruled so, or ruled on any one side. The table's `border`
+    attribute rules every cell; a border around the table alone rules none. Two things
+    differ from WebKit. Any header cell makes a table data, where WebKit wants a first row or
+    a first column of them: a `th` says what it heads, and a row cannot say that. And cells
+    with a background of their own, and rows of alternating backgrounds, do not: the dark
+    appearance computes no backgrounds, and a table must be the same thing to a listener in
+    either appearance. Every other table is read row by row, as above. A table of one
+    column was never a grid here and still flows as text.
+  - **What it costs.** A table is a stop for every cell, so a table of forty rows and three
+    columns is 123 moves where it was 41, and VoiceOver adds "Row 3", "Column 2" and the
+    header cells' words to what the book says. For a table of data that is the point, and
+    the rotor's Rows crosses it a row at a time. For a table that only looks like data to
+    the rule above (twenty lines of verse beside their numbers, a ruled box with two
+    things in it) it is noise the book did not ask for; `role="presentation"` is how a book
+    says so, and it is rare. The rule can also miss a table of data: one with no header
+    cell, fewer than twenty rows and no rules, shaded or not, is read row by row. That is
+    what WebKit does with it too, except for the shading.
+  - **Elements.** The table is one accessibility container where its rows stand among the
+    lines (`UIAccessibilityContainerDataTable`), not a stop itself, and each cell an element
+    inside it that says which rows and columns it covers. A cell that spans is one element,
+    read where it starts, that answers for every slot it covers. An empty cell is a stop:
+    it has a place in the grid, and VoiceOver says its headers and its column. A cell of
+    pictures without words is an image, as a picture in a line is, and a cell of decoration
+    alone says nothing, like an empty one. A cell whose words are one link and nothing else
+    is a link. The caption is a line of its own before or after the rows, as it is drawn.
+  - **Header cells.** A `th` heads its columns or its rows as HTML has it: by its `scope`,
+    and without one its columns when it stands in `thead` or its rows hold header cells
+    alone, and otherwise its rows when its columns hold header cells alone. UIKit asks a
+    table for the header cells of a row and of a column, not of a cell, and VoiceOver says
+    them before the cell it comes to, leaving out that cell itself and any it said for the
+    cell before. So a header cell over a second row of header cells would be read under
+    their names; the table answers with the header cells above and before the cell that
+    was last asked where it stands, which is the cell VoiceOver has come to. A cell's
+    `headers` attribute makes its table data and is otherwise not followed: UIKit has no
+    way to give one cell headers of its own.
+  - **Actions.** A cell offers what it can do itself: Select Cell Text, Follow Link with the
+    link's words for each link in it, and Inspect Image for each picture; a page's cells
+    also turn the page, like its lines. A double tap follows the link of a cell that has
+    one link, and shows the picture of a cell that is a picture. The actions come from the
+    cell's interaction surface, so a cell listed past the screen has them once it is on
+    screen, which is where VoiceOver's cursor brings it.
+  - **Pages.** A page's table holds the cells that page shows, each with its row's number
+    in the whole table, so the second page of a table starts at "Row 29" and not at 1.
+    VoiceOver says "Table start" and the whole table's count of rows and columns at the
+    first cell listed, and "Table end" at the last, whatever their numbers: a page that
+    shows the middle of a table says both, and the row's number says where in the table
+    the page is. The first cell VoiceOver comes to in a table is said without its header
+    cells. The
+    rows of another page are not there to move to; Next Page goes on, as from a line. A
+    column's header cell on another page is still named before the cells it heads: the
+    table answers with an element that has the header's words and is nowhere to go. A
+    row taller than a page continues: on each page its cell is the same cell of the table,
+    reading the words that page shows. A cell is listed on a page where it has something
+    to say: a short cell beside one several pages tall is centred in the row, so its words
+    stand some pages in, and it is no stop on the pages before them. A cell that says
+    nothing anywhere is listed where it starts. A cell that spans rows is listed where it
+    starts, and the lines of it that later rows of the page hold are added to it there.
+  - **Continuous scroll.** The rows listed follow VoiceOver's cursor as lines do (below),
+    and the table keeps one element while any cell of it is listed, each cell its own, so
+    VoiceOver reads on through a table longer than the screen in both directions and the
+    rotor's Rows moves past the screen. Two things made that hold. VoiceOver asks a table
+    for its next cell before it asks the text view for anything, so a table lists its rows
+    again, for where the cursor is now, whenever it is asked; answered from the rows listed
+    for the cell before, a table ended at the last of those. And the rows around a cursor
+    that rests in a table the person has scrolled away from are listed in the same element
+    as the rows on screen, with those between them missing, as lines are.
+  - **Not done.** The Mac is unchanged: a row is a group there. A table inside a cell is
+    read as its cell's words, as before. Headings inside a table are not found by the
+    Headings rotor, as before.
+  - **Not resolved.** On an iPhone simulator the rotor once went from Rows to Actions part
+    of the way back up a column in continuous scroll. A physical iPad did not do it in
+    seventy such moves, nor did the simulator in a later session of fifty-four. A cell
+    offers its actions only once it is on screen, which may be why
+    ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-12 on tables of data).
+    And before fifty lines were listed past the screen
+    ([#380](https://github.com/vocaro/EPUBLib/pull/380)), reading back into a table left
+    the text on an iPad simulator in two sessions of three, where rows had not in two of
+    two; with the fifty it did not in two of two. Why cells showed it and rows did not is
+    not known, so a table's cells are to be taken as needing that list.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
   in place and also show in popovers.
