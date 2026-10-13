@@ -259,12 +259,18 @@ import XCTest
         try await subject.reader.wait("the place scrolled to") { canvas.visibleRange != before }
         let first = try XCTUnwrap(try elements(of: view).first)
         XCTAssertEqual(first.accessibilityLabel, view.plainText(in: top.range), "the line the inset cuts is still the first on screen")
-        XCTAssertLessThan(top.frame.minY + view.containerOrigin.y, cursorArea(of: view).minY - 5, "the inset must cut it for this to show anything")
+        // Where the line is drawn in the view, read afresh each time: measuring the lines
+        // listed past the screen can change TextKit's estimate of the text above, and the
+        // line's place in the content and the view's offset then move together.
+        func drawnTop() throws -> CGFloat {
+            try XCTUnwrap(view.line(containing: top.range.location)).frame.minY + view.containerOrigin.y - view.contentOffset.y
+        }
+        XCTAssertLessThan(try drawnTop(), view.adjustedContentInset.top - 5, "the inset must cut it for this to show anything")
         try assertTheListIsTheScreenAndTheLinesAfterIt("with the first line cut", subject)
         // UIKit scrolls a line it finds outside the area; it must find this one inside.
-        let offset = view.contentOffset
+        let drawn = try drawnTop()
         focus(first, from: nil, in: view)
-        XCTAssertEqual(view.contentOffset, offset, "moving into the text moved the reader")
+        XCTAssertEqual(try drawnTop(), drawn, accuracy: 0.01, "moving into the text moved the reader")
         XCTAssertTrue(try elements(of: view).contains { $0 === first })
         XCTAssertEqual(canvas.visibleRange?.start, canvas.scrollBook?.position(at: top.range.location))
         XCTAssertNil(canvas.currentSelection)
@@ -516,6 +522,65 @@ import XCTest
         XCTAssertEqual(listed[past].accessibilityLabel, try lineText(at: now.location, in: view), "fifty lines are listed before the screen")
         XCTAssertEqual(listed[listed.count - past - 1].accessibilityLabel, try lineText(at: NSMaxRange(now) - 1, in: view), "and fifty after it")
         XCTAssertTrue(given.allSatisfy { line in listed.contains { $0 === line } })
+    }
+
+    /// Listing lines past the screen measures them, which replaces TextKit's estimates of
+    /// them and can change its estimate of everything not yet laid out. The text on screen
+    /// stays where it is drawn through that, in a book whose paragraphs differ widely in
+    /// length, where the estimates are furthest out.
+    func testListingLinesPastTheScreenLeavesTheTextOnScreenWhereItIs() async throws {
+        let lengths = [3, 180, 9, 420, 25, 6, 260, 14, 90, 4, 330, 40]
+        let reader = try SessionCoverageReader(try SessionCoverageBook.epub((0..<6).map { chapter in
+            var body = "<h1>Chapter \(chapter)</h1>"
+            for paragraph in 0..<60 {
+                body += "<p>v\(chapter)x\(paragraph) " + CanvasText.sentence(lengths[(paragraph * 7 + chapter) % lengths.count], seed: paragraph + chapter) + "</p>"
+            }
+            return SessionCoverageBook.Section("c\(chapter)", body, title: "Chapter \(chapter)")
+        }))
+        readers.append(reader)
+        reader.window?.resize(to: CGSize(width: 402, height: 874))
+        try await reader.settle()
+        try await reader.session.send(.navigate(href: reader.publication.spine[3].resource.href))
+        try await reader.wait("the fourth chapter") { reader.section == 3 }
+        try await reader.session.send(.style(EPUBReaderStyle(flow: .scrolled)))
+        try await reader.wait("the whole book in the scroll view") { reader.session.canvas?.scrollBook != nil }
+        try await reader.settle()
+        let canvas = try XCTUnwrap(reader.session.canvas), view = try XCTUnwrap(canvas.scrollTextView)
+        XCTAssertGreaterThan(unlaidParagraphs(of: view), 200, "most of the book is only estimated")
+        /// The first line on screen and how far down the view its top is drawn.
+        func place() throws -> (first: Int, top: CGFloat) {
+            let shown = try XCTUnwrap(canvas.scrollVisibleCharacters())
+            let line = try XCTUnwrap(view.line(containing: shown.location))
+            return (shown.location, line.frame.minY + view.containerOrigin.y - view.contentOffset.y)
+        }
+        // At the start of a chapter shown from pages, and after a jump over text never laid
+        // out: in both the text above the screen is only estimated.
+        for jump in [0, 5_000] as [CGFloat] {
+            if jump > 0 {
+                let reported = canvas.visibleRange
+                view.contentOffset.y += jump
+                try await reader.wait("the place jumped to") { canvas.visibleRange != reported }
+                focus(NSObject(), from: nil, in: view)
+            }
+            let before = try place()
+            // With the cursor on a control: the fifty lines after the screen.
+            let listed = try elements(of: view)
+            var now = try place()
+            XCTAssertEqual(now.first, before.first, "listing the lines after the screen changed the first line on screen")
+            XCTAssertEqual(now.top, before.top, accuracy: 0.5, "listing the lines after the screen moved the text")
+            // With the cursor on the first line: the fifty before the screen as well.
+            let unlaid = unlaidParagraphs(of: view)
+            focus(try XCTUnwrap(listed.first), from: nil, in: view)
+            XCTAssertEqual(try elements(of: view).count, listed.count + past)
+            XCTAssertLessThan(unlaidParagraphs(of: view), unlaid, "the lines before the screen must not have been laid out for this to show anything")
+            now = try place()
+            XCTAssertEqual(now.first, before.first, "listing the lines before the screen changed the first line on screen")
+            XCTAssertEqual(now.top, before.top, accuracy: 0.5, "listing the lines before the screen moved the text")
+            try await reader.settle()
+            now = try place()
+            XCTAssertEqual(now.first, before.first, "the first line on screen changed once the reader had settled")
+            XCTAssertEqual(now.top, before.top, accuracy: 0.5, "the text moved once the reader had settled")
+        }
     }
 
     func testANoteKeepsUIKitsOwnTextElements() {
