@@ -693,7 +693,17 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    found" past the last, and the view shows the heading; `rotor` opens on the Heading menu,
    which lists the page's headings, or the whole book's in continuous scroll, each by its
    words and level, and `listchoose` moves to the one named.
-10. Restore all original VoiceOver/scripting settings and independently verify restoration.
+10. Links on a Mac, in pages and in continuous scroll, with VoiceOver's link setting at Speak
+    ([Links](#links)). `ax:links` lists each link on screen once as a `CHILD`, by its words:
+    "Verification link" on the first page, "Parked link to the target" on the hidden-labels
+    section, and "image", "Jump with decoration" and "Described jump, image" on the section
+    of pictures. None is called U+FFFC. `nextlink` moves to each in turn, VoiceOver says its
+    name and "hyperlink", and `activate` from there shows the page with "Link target
+    reached". Moving by word and by line VoiceOver says "hyperlink Parked link to the
+    target", "hyperlink image" after "Bare jump:", "hyperlink" before "Jump with decoration",
+    and "hyperlink Described jump, image". It reads "Verification link." as its words and
+    nothing else, and `activate` with the cursor on either word follows that link too.
+11. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 

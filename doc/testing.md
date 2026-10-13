@@ -208,6 +208,16 @@ level in a column's rich text, and the rotor's headings asked for as VoiceOver w
 ask. None of them drives VoiceOver; the [VoiceOver testing process](voiceover-testing.md) has
 what it said.
 
+Link tests on AppKit (`LinkAccessibilityTests`) read what a column and the scroll view give
+an assistive technology for a link: one element for a link whose font changes inside it, with
+its words, its place and a press that reports the link; the names of links that are pictures,
+hidden labels and formulas, and never U+FFFC; a link element as the attachment of each
+picture or label in a link, and none over a link's words; a hidden label's place, which has a
+size though the label has none; a link cut at a page's end and continued on the next page;
+the links on screen in continuous scroll; and a text view with no canvas, as a note's
+popover has, left with AppKit's own. What VoiceOver says of each is recorded with the
+[VoiceOver testing process](voiceover-testing.md#links).
+
 Highlight paint tests read the pixels the mounted reader's views last drew: none in the
 highlight's color before a search, the matches after it, and none again after Clear Search,
 with no reflow between. They cover both flows, one- and two-column spreads, dark appearance,
