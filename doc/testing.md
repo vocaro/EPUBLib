@@ -212,15 +212,23 @@ Page-turn tests on UIKit (`PageTurnAccessibilityTests`) put an assistive technol
 on a line of a page as UIKit tells the reader of it, by the line's own callback and the
 focus notification, and read what the canvas posts when the page is shown anew
 (`ReaderCanvasView.postAccessibilityNotification`). A page turned from a line posts one
-layout change with the first line of the page shown, in one column and across a spread, into
-the next chapter and back into the one before; a position shown from a line posts the line
-that holds it; VoiceOver's scroll posts the page's number and then the line; and nothing is
-posted for a cursor on a control, for VoiceOver switched off, for a page shown again as it
-was, or for a move by heading. They also hold an element kept from one page to standing for
-no line of the next, on pages whose lines have the same characters counted from each page's
-first, and to standing for its own line when its page is shown again. That VoiceOver moves
-its cursor for the layout change, and what it then reads, is known only from
-[speech sessions](voiceover-testing.md) on a device.
+layout change with the element the cursor is on, which is then the first line of the page
+shown and has that line's place in the list, in one column and across a spread, where it
+moves to the left-hand column, into the next chapter and back into the one before, and
+again when the action is performed a second time with the cursor told of no other item; a
+position shown from a line makes that element the line that holds it; VoiceOver's scroll
+posts the page's number and then the element; and nothing is posted for a cursor on a
+control, for VoiceOver switched off, for a page shown again as it was, or for a move by
+heading. One test takes a single element through a book whose every page opens with another
+kind of item, a table row, a picture, a link, a heading, a formula and a rule, and back: on
+each page it must answer what a new element for that page's first item answers, in its
+label, heading level, traits, language, frame and actions, and activating it must do what
+that item does and nothing the last one did. Another holds a data table's cell to being left
+and come to as an element of its own. They also hold an element kept from one page to
+standing for no line of the next, on pages whose lines have the same characters counted
+from each page's first, and to standing for its own line when its page is shown again. That
+VoiceOver reads the line for the layout change, draws its cursor there and keeps its rotor,
+is known only from [speech sessions](voiceover-testing.md) on a device.
 
 Table of data tests on AppKit (`TableDataMacAccessibilityTests`) read what a column and the
 scroll view give an assistive technology at each row of a table that holds data, on a reader
