@@ -230,7 +230,9 @@ to the next, which is how the probe's drag came to scroll from one place and not
 0.32 s or more the field and the reading mode kept the touch. A menu, after 0.38 and 0.45 s,
 opened under it, which put the keyboard away as a tap on a menu does. A control in any scroll
 view answers so: a swipe scrolls, and a touch that rests on a control before it moves has
-pressed it.
+pressed it. Each of the five touches the reading mode kept also brought up a large view of its
+two symbols, which stayed after the touch lifted ([For the owner to judge](#for-the-owner-to-judge),
+item 15).
 
 These are XCTest's touches on a simulator, timed as a swipe and as a press; a finger was not
 tried. On its side the menus were touched with the strip scrolled part of the way, 54 points
@@ -682,6 +684,15 @@ Described, not decided. None of these was changed.
     item 12's question. Item 12's answer removes it after a search: the keyboard is away
     before Search Results can be tapped, and the list is 167 points tall. A reader who taps
     the field again and then Search Results has the keyboard under the list as before.
+15. **The reading mode's large view outstays the touch.** At the largest text size a touch
+    that rests 0.15 s or more on the strip's reading mode brings up a large view of its two
+    symbols, 100 points wide, over Contents and Appearance: the system's, for a segmented
+    control at that size. When the touch then dragged off the control and lifted, the view
+    stayed until the next touch went down, five times of five on an iPhone SE simulator
+    (2026-10-12, `1eb150a`). The next touch put it away. The strip's scroll view took four of
+    those next touches as it takes any swipe; after the fifth, on its side, the strip stood
+    with the field at its top edge, 197 points from its end, where the swipe began. The
+    touches were synthetic; a touch that lifts on the control was not tried.
 
 ## Not verified
 
