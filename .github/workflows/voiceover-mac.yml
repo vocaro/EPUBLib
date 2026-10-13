@@ -28,6 +28,18 @@ on:
         type: choice
         options: [paginated, scrolled]
         default: paginated
+      launch:
+        description: >-
+          Further launch arguments of the reader, quoted as on a command line, such as
+          -SampleHref OPS/labels.xhtml for a section other than the first.
+        type: string
+      links:
+        description: >-
+          How VoiceOver announces a link or an attachment in text. Unchanged leaves the
+          runner's own setting.
+        type: choice
+        options: [Unchanged, Speak, Change Pitch, Play Tone, Do Nothing]
+        default: Unchanged
       pause:
         description: Seconds of speech to record after each key.
         type: string
@@ -43,9 +55,10 @@ run-name: Mac VoiceOver, ${{ inputs.ref || github.ref_name }}, ${{ inputs.width 
 permissions:
   contents: read
 
-# A newer run for the same ref, window, text size and flow replaces one still in progress.
+# A newer run for the same ref, window, text size, flow, launch arguments and link setting
+# replaces one still in progress.
 concurrency:
-  group: ${{ github.workflow }}-${{ inputs.ref || github.ref }}-${{ inputs.width }}-${{ inputs.text_size }}-${{ inputs.flow }}
+  group: ${{ github.workflow }}-${{ inputs.ref || github.ref }}-${{ inputs.width }}-${{ inputs.text_size }}-${{ inputs.flow }}-${{ inputs.launch }}-${{ inputs.links }}
   cancel-in-progress: true
 
 jobs:
@@ -63,6 +76,8 @@ jobs:
       VOICEOVER_WIDTH: ${{ inputs.width }}
       VOICEOVER_TEXT_SIZE: ${{ inputs.text_size }}
       VOICEOVER_FLOW: ${{ inputs.flow }}
+      VOICEOVER_LAUNCH: ${{ inputs.launch }}
+      VOICEOVER_LINKS: ${{ inputs.links }}
       VOICEOVER_PAUSE: ${{ inputs.pause }}
       VOICEOVER_ADVANCE_AFTER: ${{ inputs.advance_after }}
     steps:
@@ -87,7 +102,7 @@ jobs:
           # workflow's, so a ref older than they are can be built and heard too.
           git fetch --quiet --depth 1 origin "$GITHUB_SHA"
           git checkout FETCH_HEAD -- scripts/run-voiceover-mac.py scripts/run-voiceover-sessions.py \
-            scripts/voiceover-ax-observer.swift
+            scripts/voiceover-ax-observer.swift scripts/voiceover-link-verbosity.swift
 
       - name: Check the inputs and describe the runner
         run: |
@@ -129,6 +144,23 @@ jobs:
           echo "Screen: $bounds" | tee -a "$RESULTS/runner.txt"
           if [ "$bounds" != "0, 0, 1920, 1080" ]; then
             echo "::error::The screen is not 1920 by 1080, so the documented windows may not fit"
+            exit 1
+          fi
+
+      - name: Read or choose how VoiceOver announces a link
+        run: |
+          # VoiceOver's text verbosity decides what it says of a link or an attachment as it
+          # reads, so every run records the setting. VoiceOver Utility writes it: a setting
+          # written with `defaults` before VoiceOver had ever run left VoiceOver silent.
+          xcrun swiftc -O scripts/voiceover-link-verbosity.swift -o "$RESULTS/voiceover-link-verbosity"
+          status=0
+          if [ "${VOICEOVER_LINKS:-Unchanged}" = Unchanged ]; then VOICEOVER_LINKS=; fi
+          "$RESULTS/voiceover-link-verbosity" ${VOICEOVER_LINKS:+"$VOICEOVER_LINKS"} > "$RESULTS/link-verbosity.txt" 2>&1 || status=$?
+          cat "$RESULTS/link-verbosity.txt"
+          grep "^LINK VERBOSITY" "$RESULTS/link-verbosity.txt" | tail -n 1 >> "$RESULTS/runner.txt"
+          # Without a choice to make, a utility that could not be read is recorded and no more.
+          if [ "$status" != 0 ] && [ -n "$VOICEOVER_LINKS" ]; then
+            echo "::error::VoiceOver's link setting could not be set to $VOICEOVER_LINKS"
             exit 1
           fi
 
