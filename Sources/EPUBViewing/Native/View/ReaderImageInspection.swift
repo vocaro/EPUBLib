@@ -11,6 +11,9 @@ import UIKit
 struct ReaderImageInspection {
     static let maximumPixels = 16 * 1024 * 1024
     static let maximumDimension = 8192
+    /// What an assistive client on Mac is told of an image that has a name, in a page's text or
+    /// a table cell's. An image without a name has no help.
+    static let accessibilityHelp = "Double-click or choose Inspect Image to enlarge."
 
     static func decodeDimension(for size: CGSize) -> Int {
         guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return 1 }
@@ -89,6 +92,29 @@ extension ReaderCanvasView {
     }
 }
 
+extension NSAttributedString {
+    /// Whether assistive technology passes over `image`, which stands at `range` of this text,
+    /// a section's or a table cell's: one the book marks as decoration with an empty `alt`.
+    /// Decoration that is all its link holds is the link and stays, because a link has to be
+    /// reachable whatever its image's `alt` says.
+    func passesOver(_ image: ReaderImageAttachment, at range: NSRange) -> Bool {
+        guard image.alternative == .decorative else { return false }
+        guard range.location < length else { return true }
+        var link = NSRange()
+        guard attribute(.link, at: range.location, longestEffectiveRange: &link,
+                        in: NSRange(location: 0, length: length)) != nil else { return true }
+        // Anything else in the link that can be read carries it.
+        var carried = false
+        enumerateAttribute(.attachment, in: link) { value, run, stop in
+            if let other = value as? ReaderImageAttachment { carried = other.alternative != .decorative }
+            else if let value { carried = (value as? ReaderTextualAttachment)?.textEquivalent.isEmpty == false }
+            else { carried = !(string as NSString).substring(with: run).allSatisfy(\.isWhitespace) }
+            stop.pointee = ObjCBool(carried)
+        }
+        return carried
+    }
+}
+
 extension ReaderTextView {
     /// Laid-out images only: avoid asking TextKit to lay out a whole continuous-scroll book
     /// just to handle a pointer or accessibility action. Positions stay in native text space.
@@ -107,24 +133,10 @@ extension ReaderTextView {
         return result
     }
 
-    /// Whether assistive technology passes over `image`, which stands at `range`: one the book
-    /// marks as decoration with an empty `alt`. Decoration that is all its link holds is the
-    /// link and stays, because a link has to be reachable whatever its image's `alt` says.
+    /// Whether assistive technology passes over `image`, which stands at `range`
+    /// (`NSAttributedString.passesOver`).
     func isPassedOver(_ image: ReaderImageAttachment, at range: NSRange) -> Bool {
-        guard image.alternative == .decorative else { return false }
-        guard let storage = contentStorage.textStorage, range.location < storage.length else { return true }
-        var link = NSRange()
-        guard storage.attribute(.link, at: range.location, longestEffectiveRange: &link,
-                                in: NSRange(location: 0, length: storage.length)) != nil else { return true }
-        // Anything else in the link that can be read carries it.
-        var carried = false
-        storage.enumerateAttribute(.attachment, in: link) { value, run, stop in
-            if let other = value as? ReaderImageAttachment { carried = other.alternative != .decorative }
-            else if let value { carried = (value as? ReaderTextualAttachment)?.textEquivalent.isEmpty == false }
-            else { carried = !(storage.string as NSString).substring(with: run).allSatisfy(\.isWhitespace) }
-            stop.pointee = ObjCBool(carried)
-        }
-        return carried
+        contentStorage.textStorage?.passesOver(image, at: range) ?? (image.alternative == .decorative)
     }
 
     /// The images of `range` that assistive technology is told of: `imageAttachments(in:)`

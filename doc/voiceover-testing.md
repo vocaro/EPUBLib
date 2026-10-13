@@ -33,13 +33,21 @@ transcript are VoiceOver's own. A fifth, **Scenes set apart** (`OPS/scenes.xhtml
 rules: an `<hr>` between two paragraphs, one the book gives `role="presentation"`, and one
 alone on a page of its own, with a last paragraph on the page after it. None of its words is
 one a screen reader uses for a rule either. A sixth, **What each line offers**
-(`OPS/offers.xhtml`), the book's last, shows every kind of item at once, on one page and one
+(`OPS/offers.xhtml`), shows every kind of item at once, on one page and one
 screen, for what VoiceOver's rotor offers on each: its heading, lines of words ("Plain words
 above." and "Plain words below."), a link inside a line (**Lone jump**), a picture with words
 (**Square with words**) and one with none, and a table row whose second cell is a link ("Left
 cell" and "Right cell jump"). Sixty short lines follow ("Below line 01."), so the section's
 first line can be shown at the top in continuous scroll. None of its words is one VoiceOver
-uses for an action, a picture or a link. A second
+uses for an action, a picture or a link. A seventh, **Things inside
+entries** (`OPS/entries.xhtml`), the book's last, holds a table whose cells hold what a cell
+can besides words, one kind to a cell: a rule between two paragraphs and a formula in the
+first row, a described picture and a hidden label in the second, decoration and a picture
+nobody describes in the third, and a table of its own in the fourth. "Entries follow."
+stands before the table and a second formula after it, in the page's own text, and the
+section goes on for more than a screen. It has no heading, so the book's headings are those
+of the sections before it. None of its words is one a screen reader uses for a rule, a
+picture, a formula, a table or a text. A second
 bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
@@ -48,7 +56,7 @@ of the book is a few screens from the start of its last chapter. The first book'
 are "Page boundary verification" (level 1), which opens it, "Link target reached" (level 2)
 after the numbered paragraph, the two parked ones (level 1), each opening its section, and
 "Pictures and their words", "Scenes set apart" and "What each line offers" (level 1), each
-opening one of the last three; the second book's are "Chapter one", "Chapter two" and "Chapter three", screens apart.
+opening one of the three sections before the last, which has none; the second book's are "Chapter one", "Chapter two" and "Chapter three", screens apart.
 Do not import private books for this check.
 
 On a Mac the same application can show AppKit's own text view in the reader's place, with
@@ -192,6 +200,14 @@ left column, nine from the right, reach **Next Page** in the sample's control st
 that holds the columns. From the left column, `out out`, five `left`, `in` and six `right`
 reached Next Page there in three sessions on a reader with the fix of #337; on one without
 it the same keys went elsewhere twice. `activate=Next Page` stops such a session.
+
+A table's row is one character of its page's text, and each of its cells on screen is a text
+area of its own. Moving by word (`right`) VoiceOver stops on a row and says "Table row
+group", once for rows that follow one another, because the probe records a repeated phrase
+once. `in` there says "In Table row group 2 items text" and the first cell's words, and puts
+the cursor on that cell; `right` goes to the row's next cell; `in` again reads inside the
+cell, by word and by line as in the page's text; `out` leaves the cell, and a second `out`
+the row. With the cursor at the cell's first word, `firstword` says "beginning of text".
 
 A session can open with VoiceOver's cursor on a control, on the reader's group or already on
 the text, and what VoiceOver keeps of a column depends on how it got there. For a case in which
@@ -935,7 +951,23 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     own, or "Verification link", which is in the book's first section. On a device, choose
     Inspect Image on a picture and double-tap, and the inspector opens; choose Next Page on a
     line of a page and double-tap, and the page turns.
-13. Restore all original VoiceOver/scripting settings and independently verify restoration.
+13. Attachments in a table cell, on a Mac, in a window 600 points wide at 17 points, with
+    the reader opened at the section of entries (`"launch=-SampleHref OPS/entries.xhtml"`).
+    Three `right` steps from the text's first line reach the table's first row, and `in`
+    there says "In Table row group 2 items text Upper part closes." and then "Separator".
+    Inside that cell VoiceOver says "Upper part closes.", "Separator", "Lower half opens." by
+    line and with `readall`, and by word "Separator" between "closes." and "Lower". In the
+    cell beside it: "Sum x squared image stated.", and "x squared image" by word. In the
+    second row: "Drawn Blue entry square image shown.", and "Blue entry square image" by
+    word; then "Parked entry words. Seen entry words.", the hidden label first. In the
+    third: "Ornament passed.", with one step by word that has no phrase, for decoration;
+    then "Undescribed image stands.", and "image" by word. In the fourth, whose first cell
+    holds a table: "Inner one Inner two". After the table, in the page's own text, "Beyond
+    them y cubed image ends.": a formula is read in a cell as it is outside one. In
+    continuous scroll the first row's cell reads the same. A reader whose cells keep none of
+    their elements says nothing in each of those places: a phrase with nothing in it by line
+    and with `readall`, and a step with no phrase by word.
+14. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
@@ -1968,6 +2000,80 @@ The Mac runner's transcript is plain text and needs no export.
   VoiceOver on; the rotor steps were run again alone. Each time VoiceOver was left on it was
   switched off with `devicectl device settings voiceover --disable` and read back as off.
   Nobody listened to any of these sessions.
+- On 2026-10-13 the section of entries was read on a Mac before and after a table cell kept
+  the elements it gives for its attachments. GitHub's hosted `xcode-27` runner (image
+  `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), a window 600 points wide at 17
+  points, at the fixed pause, the reader opened at the section. Nobody listened and no
+  workstation was used. Before and after were recorded on the same `main` (`aeb57f0`), each
+  as one run of the same five sessions: the first row's two cells, the second row's, the
+  formula after the table, the first row's first cell in continuous scroll, and the third
+  row's two cells with the fourth row's first. The table's second column is narrow there:
+  its cells wrap after "Sum" and the formula, after "Seen entry" and after "Undescribed",
+  so a cell's first line is not all of it.
+  Before, at `c5e984e`, which is that `main` with the section and nothing else, run
+  38357791945. On entering the first row: "In Table row group 2 items text Upper part
+  closes." and a phrase with nothing in it. In the rule's cell by line: "Upper part
+  closes.", a phrase with nothing in it, "Lower half opens."; by word: "Upper", "part",
+  "closes.", a step with no phrase, "Lower", "half", "opens."; `readall`: the three phrases
+  heard by line. The formula's cell: "text Sum stated." on moving to it, "In text Sum" and
+  "Sum" for its first line, by word "Sum", a step with no phrase, "stated.", and `readall`
+  "Sum stated.". The picture's: "In Table row group 2 items text Drawn shown.", by word
+  "Drawn", a step with no phrase, "shown.", `readall` "Drawn shown.". The hidden label's:
+  "text Seen entry words.", by line "Seen entry" and "words.", no phrase for `firstword` or
+  the step after it, then "Seen", "entry", "words.", and `readall` "Seen entry words.". The
+  decoration's: "Ornament passed.", by word "Ornament", a step with no phrase, "passed.".
+  The undescribed picture's: "text Undescribed stands.", by line "Undescribed" and
+  "stands.", by word "Undescribed", a step with no phrase, "stands.". The cell that holds a
+  table: "In Table row group 2 items text" and no more, "In text", and no phrase for the
+  line, a word or `readall`. In continuous scroll the rule's cell read as in pages, a
+  phrase with nothing in it on the rule's line and in `readall`.
+  After, at `9cd0493`, run 38357859452. On entering the first row: "In Table row group 2
+  items text Upper part closes." and "Separator". In the rule's cell by line: "Upper part
+  closes.", "Separator", "Lower half opens."; by word: "Upper", "part", "closes.",
+  "Separator", "Lower", "half", "opens."; `readall`: the three phrases heard by line. The
+  formula's cell: "text Sum x squared image stated." on moving to it, "Sum x squared image"
+  for its first line, by word "Sum", "x squared image", "stated.", and `readall` "Sum x
+  squared image stated.". The picture's: "In text Drawn Blue entry square image shown.", by
+  word "Drawn", "Blue entry square image", "shown.", and the same line for `readall`. The
+  hidden label's: "text Parked entry words. Seen entry words.", by line "Parked entry
+  words. Seen entry" and "words.", "Parked entry words." for `firstword`, then "Seen",
+  "entry", "words.", and `readall` "Parked entry words. Seen entry words.". The
+  decoration's as before: "Ornament passed.", with one step by word that has no phrase.
+  The undescribed picture's: "text Undescribed image stands.", by line "Undescribed" and
+  "image stands.", by word "Undescribed", "image", "stands.", and `readall` "Undescribed
+  image stands.". The cell that holds a table: "In Table row group 2 items text Inner one
+  Inner two", "In text Inner one Inner two", and the same words for the line; no further
+  phrase was recorded for a word or `readall`, which a repeat of those words would not be.
+  In continuous scroll the rule's cell: "Separator" after the row's first words on
+  entering, on the rule's line and in `readall`.
+  The same before and after: the formula in the page's own text, "In text Beyond them y
+  cubed image ends.", by word "Beyond", "them", "y cubed image", "ends."; so a formula in a
+  cell is now read as one outside a cell is. Leaving the picture's cell VoiceOver said "Out
+  of text" and "actions available", for the cell's own Inspect Image action. The `LINE`
+  lines of the page are the same: each row is two characters of the page's text, the row
+  and the break after it. From the third row, two `out` steps and `right` reached the
+  fourth; VoiceOver said "Undescribed" there, the first word of the cell it had left, and
+  after the change "Table row" as well.
+  Why a cell's elements were not read was found first, on `main` at `7b0cce2` with the
+  section as it then was: three rows, and "Entries are over." after the table. A cell
+  differed from a page's text in two things, and each was changed alone, with a rule given
+  the element it has outside a table in both and nothing else touched, three sessions
+  each: the rule's cell, the formula's and the picture's. With the elements kept from one
+  read to the next and given no frame, at `0c979b4`, run 38356001122: "Separator" on
+  entering the row, by line, by word and with `readall`; "Sum x squared stated." and "x
+  squared" by word; "Drawn Blue entry square shown." and "Blue entry square" by word. The
+  elements were then static text labelled with the attachment's words, so nothing said
+  "image". With a new element for every read, as before, and each given the frame of its
+  character, at `a46659e`, run 38356030625: a phrase with nothing in it and a step with no
+  phrase in every one of those places, as on `main`.
+  The section was the book's sixth and last in all of these sessions. `main` at `0128fa6`,
+  merged in afterwards, has "What each line offers" as its sixth, so the section of entries
+  is the seventh, with the same content and still opened by name. That merge changes
+  nothing in a cell's code, and the sessions were not recorded again on it.
+  Not heard: the Inspect Image action of a picture in a cell chosen through VoiceOver; a
+  picture, a formula or a hidden label inside a link in a cell; a part of a cell cut at a
+  page's end; a formula without `alttext`, whose reading is generated; a rule or a picture
+  in a table inside a cell; and an iPhone or iPad, where nothing changes.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
