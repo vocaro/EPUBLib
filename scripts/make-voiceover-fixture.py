@@ -29,6 +29,7 @@ files = {'mimetype': 'application/epub+zip',
                     'media-type="application/xhtml+xml"/><item id="ledger" href="ledger.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="tallrow" href="tallrow.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="parts" href="parts.xhtml" '
+                    'media-type="application/xhtml+xml"/><item id="squares" href="squares.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="image" href="square.svg" '
                     'media-type="image/svg+xml"/><item id="titled" href="titled.svg" '
                     'media-type="image/svg+xml"/></manifest><spine><itemref '
@@ -36,7 +37,7 @@ files = {'mimetype': 'application/epub+zip',
                     'idref="table"/><itemref idref="pictures"/><itemref '
                     'idref="scenes"/><itemref idref="offers"/><itemref idref="entries"/><itemref idref="cells"/><itemref '
                     'idref="grids"/><itemref idref="ledger"/><itemref idref="tallrow"/><itemref '
-                    'idref="parts"/></spine></package>',
+                    'idref="parts"/><itemref idref="squares"/></spine></package>',
  'OPS/nav.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
                   'xmlns="http://www.w3.org/1999/xhtml" '
                   'xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav '
@@ -51,7 +52,8 @@ files = {'mimetype': 'application/epub+zip',
                   'grid</a></li><li><a href="grids.xhtml">Tables of data</a></li><li><a '
                   'href="ledger.xhtml">A table longer than a page</a></li><li><a '
                   'href="tallrow.xhtml">A row taller than a page</a></li><li><a '
-                  'href="parts.xhtml">Parts below a jump</a></li></ol></nav></body></html>',
+                  'href="parts.xhtml">Parts below a jump</a></li><li><a '
+                  'href="squares.xhtml">Squares inside grids</a></li></ol></nav></body></html>',
  'OPS/square.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 '
                    '32"><rect width="32" height="32" fill="#007acc"/></svg>',
  'OPS/titled.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 '
@@ -231,6 +233,22 @@ files["OPS/parts.xhtml"] = (
     "<h4>Third part opens</h4><p>Third part runs here.</p>"
     '<p>Toward the <a href="body.xhtml#link-target">last jump</a> and after.</p>'
     + "".join(f"<p>Line {i:02d} after the parts.</p>" for i in range(1, 61)) + "</body></html>")
+# Pictures where a row has no words of its own, the book's last section. A table marked as
+# layout has a row whose two cells show pictures nobody describes and nothing else, between two
+# rows of words. A table of data, which begins a page of its own, has a described picture in
+# one row's first cell and one nobody describes in the next row's. The section has no heading
+# and no link, so the book's last heading and its last link are still those of the section
+# before it, and no word here is one VoiceOver uses for a table, a picture or a group.
+files["OPS/squares.xhtml"] = (
+    '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Squares inside '
+    f"grids</title><style>{CELL_STYLE} img {{ width: 32px; height: 32px; }} .signs {{ break-before: page; }}</style>"
+    '</head><body><p>Words before the squares.</p><table role="presentation"><tr><td>Top near</td><td>Top far</td></tr>'
+    '<tr><td><img src="square.svg"/></td><td><img src="square.svg"/></td></tr>'
+    "<tr><td>Foot near</td><td>Foot far</td></tr></table><p>Words after the squares.</p>"
+    '<p class="signs">Words before the signs.</p><table><tr><th>Sign</th><th>Sense</th></tr>'
+    '<tr><td><img src="square.svg" alt="Blue badge"/></td><td>Open</td></tr>'
+    '<tr><td><img src="square.svg"/></td><td>Shut</td></tr></table><p>Words after the signs.</p>'
+    + "".join(f"<p>Line {i:02d} after the signs.</p>" for i in range(1, 61)) + "</body></html>")
 
 files["OPS/body.xhtml"] = files["OPS/body.xhtml"].replace(
     "NUMBERED_WORDS", " ".join(f"word{i:04d}" for i in range(1, 1201)))
@@ -256,7 +274,8 @@ files["OPS/cells.xhtml"] = files["OPS/cells.xhtml"].replace(
 chapters = {"one": range(1, 41), "two": range(41, 81), "three": range(81, 87)}
 paragraphs = dict(files)
 for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "scenes.xhtml", "offers.xhtml",
-             "entries.xhtml", "cells.xhtml", "grids.xhtml", "ledger.xhtml", "tallrow.xhtml", "parts.xhtml", "square.svg",
+             "entries.xhtml", "cells.xhtml", "grids.xhtml", "ledger.xhtml", "tallrow.xhtml", "parts.xhtml", "squares.xhtml",
+             "square.svg",
              "titled.svg"]:
     del paragraphs["OPS/" + name]
 paragraphs["OPS/package.opf"] = (
