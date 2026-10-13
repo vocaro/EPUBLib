@@ -410,9 +410,9 @@ import XCTest
     /// A row is called by the words its cells have. A cell without any is left out, with no
     /// pause said for it; a picture's description is among its cell's words; and a row that
     /// shows pictures nobody describes has no words to be called by, and is called nothing,
-    /// for VoiceOver to say its own word for a group. Such a row has no help either, which
-    /// VoiceOver would read in a missing name's place. A row of a table of data that shows
-    /// a picture is still its table.
+    /// for VoiceOver to say what the group holds in its own words. Such a row has no help
+    /// either, which VoiceOver would read in a missing name's place. A row of a table of
+    /// data that shows a picture is still its table.
     func testARowIsCalledByTheWordsItsCellsHave() async throws {
         let rows = "<tr><td>Alone</td><td></td><td>After a gap</td></tr>"
             + "<tr><td><img src='square.svg' alt='Blue square'/></td><td>Beside it</td><td>Decoration <img src='square.svg' alt=''/> passed</td></tr>"

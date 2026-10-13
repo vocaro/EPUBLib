@@ -354,8 +354,9 @@ final class ReaderTextView: NSTextView {
     /// order, as a table of data is called by its row's (`ReaderTableElement`), so that
     /// VoiceOver says them as it reads the text and not only inside the row. A row that
     /// shows pictures and no words has none to be called by, and is called nothing:
-    /// VoiceOver says its own word for a group there, in the listener's language, as it
-    /// says its own for a picture nobody describes. No name is made up for either.
+    /// VoiceOver then says what the group holds, "text image text image group", in its
+    /// own words and the listener's language, as it says its own word for a picture
+    /// nobody describes. No name is made up for either.
     func tableRowLabel(at location: Int) -> String {
         (tableRow(at: location)?.cellWords ?? []).filter { !$0.isEmpty }.joined(separator: ", ")
     }
