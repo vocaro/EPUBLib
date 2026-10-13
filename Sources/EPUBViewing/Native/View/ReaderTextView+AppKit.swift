@@ -211,49 +211,7 @@ final class ReaderTextView: NSTextView {
 
     private func plainCharacters(in range: NSRange) -> String {
         guard let storage = contentStorage.textStorage else { return "" }
-        let bounded = NSIntersectionRange(range, NSRange(location: 0, length: storage.length))
-        let plain = (storage.string as NSString).substring(with: bounded)
-        guard Self.blankRowTrial.hasPrefix("space") else { return plain }
-        let spaced = NSMutableString(string: plain)
-        for run in blankRows(in: bounded) { spaced.replaceCharacters(in: NSRange(location: run.location - bounded.location, length: run.length), with: " ") }
-        return spaced as String
-    }
-
-    // TRIAL, not for main: what a table row with nothing to say is to an assistive client,
-    // chosen at launch with `-ReaderBlankRow NAME`, to hear what VoiceOver does at each.
-    // "bare": nothing at its character. "space": that, and the character is given as a space
-    // (pages). "merged": nothing, and its line is part of the line before (pages).
-    // "spacemerged": both. "emptytext": static text without words.
-    static let blankRowTrial = UserDefaults.standard.string(forKey: "ReaderBlankRow") ?? ""
-
-    /// The character of each table row in `range` that has nothing to say.
-    private func blankRows(in range: NSRange) -> [NSRange] {
-        guard containsTableRows, let storage = contentStorage.textStorage else { return [] }
-        var result: [NSRange] = []
-        storage.enumerateAttribute(.attachment, in: NSIntersectionRange(range, NSRange(location: 0, length: storage.length))) { value, run, _ in
-            if let row = value as? TableRowAttachment, row.saysNothing { result.append(run) }
-        }
-        return result
-    }
-
-    /// TRIAL: a page's lines, with the line of a row that has nothing to say joined to the
-    /// line before it, or to the one after where it opens the page.
-    private var accessibilityPageLines: [NSRange] {
-        let lines = pageAccessibilityLines.map(\.range)
-        guard Self.blankRowTrial.hasSuffix("merged") else { return lines }
-        let blank = Set(blankRows(in: shownCharacters).map(\.location))
-        var result: [NSRange] = [], opening: NSRange?
-        for line in lines {
-            if blank.contains(line.location), line.length <= 2 {
-                if let last = result.last { result[result.count - 1] = NSUnionRange(last, line) }
-                else { opening = opening.map { NSUnionRange($0, line) } ?? line }
-            } else {
-                result.append(opening.map { NSUnionRange($0, line) } ?? line)
-                opening = nil
-            }
-        }
-        if let opening { result.append(opening) }
-        return result
+        return (storage.string as NSString).substring(with: NSIntersectionRange(range, NSRange(location: 0, length: storage.length)))
     }
 
     /// A TextKit 2 text view exposes nothing for an attachment drawn from its image, so each one
@@ -268,28 +226,14 @@ final class ReaderTextView: NSTextView {
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard !isPageColumn || validPageAccessibilityRange(range),
               let base = super.accessibilityAttributedString(for: range) else { return nil }
-        let blank = Self.blankRowTrial.isEmpty ? [] : blankRows(in: range)
-        let tableRows = dataTableRows(in: range).filter { !blank.contains($0.range) }
-        let attachments = textualAttachments(in: range).filter { entry in !tableRows.contains { $0.range == entry.range } && !blank.contains(entry.range) }
+        let tableRows = dataTableRows(in: range)
+        let attachments = textualAttachments(in: range).filter { entry in !tableRows.contains { $0.range == entry.range } }
         let images = announcedImages(in: range)
         let rules = rules(in: range)
         let headings = contentStorage.textStorage?.readerHeadings(in: range) ?? []
         let links = accessibilityLinks(in: range)
-        guard !attachments.isEmpty || !images.isEmpty || !rules.isEmpty || !headings.isEmpty || !links.isEmpty || !tableRows.isEmpty || !blank.isEmpty else { return base }
+        guard !attachments.isEmpty || !images.isEmpty || !rules.isEmpty || !headings.isEmpty || !links.isEmpty || !tableRows.isEmpty else { return base }
         let result = NSMutableAttributedString(attributedString: base)
-        for run in blank {
-            let local = NSRange(location: run.location - range.location, length: run.length)
-            guard NSMaxRange(local) <= result.length else { continue }
-            if Self.blankRowTrial.hasPrefix("space"), isPageColumn {
-                result.replaceCharacters(in: local, with: " ")
-                result.removeAttribute(.attachment, range: local)
-            } else if Self.blankRowTrial == "emptytext" {
-                let element = NSAccessibilityElement()
-                element.setAccessibilityParent(self)
-                element.setReaderAttachment(words: "", isText: true)
-                result.addAttribute(.accessibilityAttachment, value: element, range: local)
-            }
-        }
         // A row of a table of data is given its table, named by the row's words.
         for (row, run) in tableRows {
             let local = NSRange(location: run.location - range.location, length: run.length)
@@ -501,8 +445,8 @@ final class ReaderTextView: NSTextView {
 
     override func accessibilityRange(forLine line: Int) -> NSRange {
         guard isPageColumn else { return super.accessibilityRange(forLine: line) }
-        let lines = accessibilityPageLines
-        return lines.indices.contains(line) ? lines[line] : NSRange(location: NSNotFound, length: 0)
+        let lines = pageAccessibilityLines
+        return lines.indices.contains(line) ? lines[line].range : NSRange(location: NSNotFound, length: 0)
     }
 
     override func accessibilityLine(for index: Int) -> Int {
@@ -510,9 +454,9 @@ final class ReaderTextView: NSTextView {
         // The insertion point after the page's last character is on its last line, and so is
         // an offset VoiceOver kept from a longer previous page. Without a line there, it
         // announces 9,223,372,036,854,775,808 visible lines or reads nothing on entering.
-        let lines = accessibilityPageLines
+        let lines = pageAccessibilityLines
         guard index >= 0, !lines.isEmpty else { return NSNotFound }
-        return lines.firstIndex { NSLocationInRange(index, $0) } ?? lines.count - 1
+        return lines.firstIndex { NSLocationInRange(index, $0.range) } ?? lines.count - 1
     }
 
     override func accessibilitySelectedTextRange() -> NSRange {
