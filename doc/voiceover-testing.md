@@ -2158,7 +2158,11 @@ The Mac runner's transcript is plain text and needs no export.
   turn by the control strip's button read as it had: VoiceOver stayed on "Next Page
   Button", moving forward read the eight controls and then "word0294 …", "word0302 …",
   "word0310 …", "word0319 …", and after Previous Page "Previous Page dimmed", the controls
-  and "Page boundary verification Heading".
+  and "Page boundary verification Heading". On its side (1366 × 1024), where the first
+  spread shows `word0001`–`word0147` beside `word0148`–`word0350`: with the cursor on
+  "word0232 …" in the right-hand page, Next Page showed `word0351`–`word0553` beside
+  `word0554`–`word0756`, VoiceOver read "word0351 …" by itself, the first line of the
+  left-hand page, and the moves read "word0358 …", "word0365 …", "word0372 …".
   What the change costs was seen in the same session. The cursor is on a new item after a
   turn, and VoiceOver's rotor is at its default there: with Previous Page chosen and
   performed from "word0818 …", a second double tap, with no flick before it, read the
@@ -2189,9 +2193,9 @@ The Mac runner's transcript is plain text and needs no export.
   move read the fourth line of the next, "word0093 …", and not its first.
   Not established: VoiceOver's three-finger scroll itself, which XCTest cannot perform
   ([#70](https://github.com/vocaro/EPUBLib/issues/70)), before the change or after it; a
-  physical iPhone; two columns on a device, which a unit test holds; a page turned by a
-  key with the cursor in the text; and Switch Control or any other assistive technology
-  that keeps a cursor. VoiceOver was read back as off after every device session.
+  physical iPhone; a page turned by a key with the cursor in the text; and Switch Control
+  or any other assistive technology that keeps a cursor. VoiceOver was read back as off
+  after every device session.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
