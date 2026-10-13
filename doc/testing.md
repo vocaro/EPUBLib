@@ -141,6 +141,15 @@ reader out. The bars are the system's own, in a test host; nothing is looked at 
 Each window's toolbar has an identifier of its own: toolbars that share one share their
 visibility across the windows of a process, so hiding one hides the next test's.
 
+Table reading-order tests hold a table on iPhone and iPad to one accessibility element for each
+row, between the lines around it and in both flows: text with its cells' words, the actions of
+its own cells, a row continued across pages by each page's own words, a row of pictures as an
+image without a name, and an empty row or a row of decoration as nothing unless the page holds
+nothing else. They also hold every view the reader mounts inside a text
+view that lists its lines to being hidden from assistive technology. That VoiceOver reads what
+such a view offers before the lines of a page column is known only from
+[speech sessions](voiceover-testing.md); no in-process query shows it.
+
 Heading tests cover which characters the builder marks as a heading and at what level: `h1`
 to `h6`, `role="heading"` with and without `aria-level`, a role that takes a heading away, a
 heading run in with its paragraph, hidden headings and hidden words inside a shown one. They
@@ -277,7 +286,12 @@ engines demonstrate that missing/duplicate readiness, ignored cancellation, inco
 late callbacks, results published after completion, steps that do not wrap, stale results that
 still navigate and results kept after a clear fail the verifier. Adapter-specific tests must additionally check actual rendering,
 selection gestures, precise bookmark semantics and resource release. A bounded quiet period after
-close detects queued callbacks; it cannot prove that an engine will never emit a much later event.
+close, of 150 ms, detects queued callbacks; it cannot prove that an engine will never emit a much
+later event. Nor does it always catch one sent from a timer, however short: two sleeps that are
+both overdue resume in either order. A callback sent from a 30 ms sleep arrived after the quiet
+period had ended one time in ten on GitHub's hosted runner, when these tests ran there on
+2026-10-12, and about one time in a thousand on a busy Mac. So the broken engine's late callback
+is a queued one, which is caught every time.
 
 The contract verifier requires at least two distinct section hrefs when the engine advertises href
 navigation. It permits a navigation to the already-current section to be a no-op. `send` acknowledges
