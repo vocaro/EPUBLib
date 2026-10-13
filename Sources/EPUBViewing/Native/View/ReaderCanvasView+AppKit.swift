@@ -293,8 +293,12 @@ extension ReaderCanvasView: NSTextViewDelegate {
 
     /// The heading `token` names, when one still begins there.
     private func heading(for token: any NSAccessibilityLoadingToken) -> ReaderBookHeading? {
-        guard let position = Self.headingPosition(of: token),
-              let found = headings(inSection: position.section)?.first(where: { $0.range.location == position.offset }) else { return nil }
+        Self.headingPosition(of: token).flatMap(heading(at:))
+    }
+
+    /// The heading that begins at `position`, when one still does.
+    private func heading(at position: ReaderTextPosition) -> ReaderBookHeading? {
+        guard let found = headings(inSection: position.section)?.first(where: { $0.range.location == position.offset }) else { return nil }
         return ReaderBookHeading(heading: found.heading, section: position.section, range: found.range)
     }
 
@@ -312,6 +316,33 @@ extension ReaderCanvasView: NSTextViewDelegate {
     /// asks straight after it has had the column, so nothing is shown for this.
     func loadedHeadingRange(_ token: any NSAccessibilityLoadingToken) -> NSRange? {
         heading(for: token).flatMap(shownHeading)?.range
+    }
+
+    /// The book's next heading after the page `column` shows, with its words: the one a
+    /// column gives last among its children, for VoiceOver to find from a link on the page
+    /// (`ReaderTextView.headingChildren`). One that begins on the page is the column's own,
+    /// and a heading without words is passed over, as in the rotor. None past the book's last
+    /// heading, and none where a chapter is not built yet (`bookHeading`).
+    func headingAfterPage(of column: ReaderTextView) -> (heading: ReaderBookHeading, words: String)? {
+        guard column.isPageColumn, column.shownCharacters.length > 0,
+              var from = position(at: column.shownCharacters.length - 1, in: column) else { return nil }
+        while let found = bookHeading(from: from, forward: true) {
+            from = found.position
+            guard let text = dataSource?.text(forSection: found.section) else { return nil }
+            let words = text.readerPlainText(in: found.range).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            if !words.isEmpty { return (found, words) }
+        }
+        return nil
+    }
+
+    /// VoiceOver has moved to the element of the heading that begins at `position`, which a
+    /// column gave as the next one after its page: the reader turns to the heading's page,
+    /// unless a column shows it already, and this is the column that shows it and the
+    /// heading's characters there.
+    func showHeading(at position: ReaderTextPosition) -> (view: ReaderTextView, range: NSRange)? {
+        guard let heading = heading(at: position) else { return nil }
+        if shownHeading(heading) == nil { show(heading.position, selecting: nil) }
+        return shownHeading(heading)
     }
 
     /// A heading's place in the book as VoiceOver keeps it for a heading on another page.
