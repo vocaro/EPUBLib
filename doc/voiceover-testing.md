@@ -482,8 +482,22 @@ read against it:
 - `nextlink` moves through the links of the text on screen. VoiceOver says the name and
   "hyperlink", then the hint "You are currently on a hyperlink, inside of a text area. To
   click this link, press Control-Option-Space", of which the probe records the first 64
-  characters. Past the last link it begins again with the first. `previouslink` went
+  characters. Past the last link it begins again with the first, and where the page or
+  screen has one link it says "Last link" before that link's name. `previouslink` went
   forward too, in AppKit's own elements as in the reader's (macOS 27.0.1).
+- In continuous scroll `nextlink` from the last link on screen goes on to the book's next
+  link, below the screen, and so through the book. The reader shows that link and puts the
+  insertion point on it, and VoiceOver says a word and then the link, role first: "words."
+  and "hyperlink Parked link to the target", the word being the last one before the link,
+  with `AXLayoutChanged` and `SELECTION` at the link between them. `right` then reads the
+  link again and goes on from it, and `line` reads its line. Where that link is in a
+  table's cell the insertion point is on the cell's row, and `right` says "Table row
+  group". Only the links with nothing on screen are heard that way: for the others on the
+  screen the reader went to, `nextlink` says the name and "hyperlink" as on a page, and
+  `right` reads on from where VoiceOver last read. Past the book's last link it does what
+  it does on a page. With `tracking` first (cursor tracking off) VoiceOver says the link
+  below the screen by its name, scrolls to it itself, and `right` reads on from where it
+  last read.
 - `activate` follows the link under the cursor. With the cursor on a word it follows a link
   on that word's line, the word's own or not, and on a line without a link it does nothing.
   AppKit's own text view does the same.
@@ -495,9 +509,11 @@ in the `LINK` lines the same element as the link of its characters and, where th
 attachment, a link element as that character's attachment. The text's headings are `CHILD`
 lines too, `AXHeading` with the heading's words as `LABEL`, each where it stands among the
 links: those on the page or on screen, and last the book's next heading, which is below the
-screen in continuous scroll and on a later page in pages. A child whose keyboard focus an
+screen in continuous scroll and on a later page in pages. In continuous scroll the links end
+the same way, with the book's next link below the screen, or with the links of the next
+table row that has one. A child whose keyboard focus an
 assistive client can set ends in `FOCUSABLE`: VoiceOver focuses such an element when it
-moves to it, and a heading's is one. `ax:follow=WORDS` presses a link
+moves to it, and a heading's and a link's are. `ax:follow=WORDS` presses a link
 without VoiceOver. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a link's line, so
 a few `right` steps reach it. After a link is followed the transcript has `AXValueChanged`
 with the page that holds the target, in the fixture the one with "Link target reached".
@@ -517,7 +533,8 @@ was needed. `ax:focus=0.2` gives a cell keyboard focus and does not bring VoiceO
 page's `CHILD` lines hold the links of the cells on screen among the page's own.
 `nextlink` from the page's text goes through all of those. VoiceOver's place in the page's
 text does not move with it, so `right` after one of a cell's links reads on from the word
-VoiceOver had reached before the table. In the runs on links `line` said nothing with
+VoiceOver had reached before the table. A cell's link that the reader had to scroll to in
+continuous scroll is the exception: the insertion point is then on its row. In the runs on links `line` said nothing with
 VoiceOver's cursor on a cell's last word or past it, in main's reader as with the cells'
 own elements. A cell has a line there since: see the record of Read Line in a table cell.
 
@@ -1349,7 +1366,17 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     reached". Moving by word and by line VoiceOver says "hyperlink Parked link to the
     target", "hyperlink image" after "Bare jump:", "hyperlink" before "Jump with decoration",
     and "hyperlink Described jump, image". It reads "Verification link." as its words and
-    nothing else, and `activate` with the cursor on either word follows that link too.
+    nothing else, and `activate` with the cursor on either word follows that link too. In
+    continuous scroll from the top of the book, `ax:links` has "Parked link to the target"
+    as its last link `CHILD`, though the link is eleven thousand characters down, and two
+    `nextlink` steps say "Verification link hyperlink" and then "words." and "hyperlink
+    Parked link to the target", with `SELECTION` at the link and the link's line the first
+    on screen; `right` says the link again and then "Shown", `line` "hyperlink Parked link
+    to the target Shown last words.", and `activate` straight after the second `nextlink`
+    follows the link. Sixteen `nextlink` steps from the top name the book's fourteen links
+    in order, the cells' among them, and then "Last link Reopened 1978 hyperlink". A
+    reader without the link below among the children says "Verification link hyperlink"
+    and then "Last link Verification link hyperlink".
 11. Actions, on an iPhone and iPad. A line is offered what is in it and nothing else. On a
     page, with the cursor on a line of plain text, `flick=down` reads "Next Page", "Previous
     Page" and "Activate", and then "Next Page" again: each once, and no picture or link that
@@ -3448,6 +3475,117 @@ The Mac runner's transcript is plain text and needs no export.
   a page's end, which the unit tests read; Read All in a cell with a link; link settings
   other than Speak; and a note's popover. What a cell says of a picture, a formula or a
   hidden label outside a link is in the entry before this one.
+- On 2026-10-13 a link below the screen was reached with Find Next Link in continuous
+  scroll on a Mac ([#425](https://github.com/vocaro/EPUBLib/issues/425)): the hosted
+  `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in a
+  window 600 points wide at 17 points, with VoiceOver's link setting at Speak. Nobody
+  listened. The sessions that are evidence are at the fixed pause and at `dcd0aa8`.
+  Before, main's reader at `3f3ae69` (run 38423727356), in continuous scroll. From the
+  top of the book `ax:links` gave the heading, "Verification link" and the heading below
+  the screen, and three `nextlink` steps said "Verification link hyperlink", "Last link
+  Verification link hyperlink" and nothing more. From two lines into the numbered
+  paragraph `nextlink` said "Verification link hyperlink", the link above, and then "Last
+  link" and its name. Opened at the pictures, four steps said the three links and "image
+  hyperlink" again; at `OPS/offers.xhtml`, "Lone jump hyperlink", "Right cell jump
+  hyperlink" and then the same two again; at `OPS/cells.xhtml`, where VoiceOver's first
+  move after `in` took the view a line up and its cursor to "Below", a line of the
+  section before, "Link not found" and nothing at five more steps.
+  With the next link below the screen among the children (run 38421694695). `ax:links`
+  from the top: four children, each `FOCUSABLE`, the last "Parked link to the target",
+  which is at character 11,073 where `VISIBLE` ends at 10,963. `nextlink nextlink` gave
+  "Verification link hyperlink" and the hint, and then `SELECTION 11073,0`, "words.",
+  `AXLayoutChanged` and "hyperlink Parked link to the target" with the hint; `describe`
+  "hyperlink is in the VoiceOver cursor"; `right` "hyperlink Parked link to the target";
+  `right` "Shown"; `line` "hyperlink Parked link to the target Shown last words.".
+  `activate` straight after the second `nextlink` moved the insertion point to 10,963,
+  the heading "Link target reached": the link was followed.
+  Sixteen `nextlink` steps from the top went through the book's fourteen links in order.
+  Those with nothing on screen when VoiceOver moved to them were said after a word, role
+  first: "words." and "hyperlink Parked link to the target"; "jump:" and "hyperlink
+  image"; "Lone jump hyperlink", "before" and "hyperlink Lone jump"; "worded jump
+  hyperlink", "grid." and "hyperlink worded jump", two sections on, in a table's cell;
+  and "Reopened 1978 hyperlink", "Birch, 1934 table" and "hyperlink Reopened 1978", in a
+  cell of a table of data, where what stands before the row is the table's row before
+  it. Where the probe caught it, the name VoiceOver began with is there too. The others,
+  on the screen the reader had gone to, were said as on a page: "Eighth cell link
+  hyperlink", "Jump with decoration hyperlink", "Described jump, image hyperlink", "Right
+  cell jump hyperlink", "Described entry jump, image hyperlink", "image hyperlink",
+  "Entry jump with decoration hyperlink" and "Parked entry jump hyperlink". The fifteenth
+  step said "Last link Reopened 1978 hyperlink", that link being the only one on screen,
+  and the sixteenth nothing new. `ax:links` then gave it and the heading "A table longer
+  than a page".
+  A row below the screen, with the reader opened at `OPS/offers.xhtml`: `ax:links` gave
+  the heading, "Lone jump", "Right cell jump", "worded jump", which is in a table two
+  sections down, and the heading "Tables of data". Three `nextlink` steps said the first
+  two as main does and then `SELECTION 15738,0`, the row, "grid." and "hyperlink worded
+  jump"; `describe` "hyperlink is in the VoiceOver cursor"; `right` and `line` "Table row
+  group"; `nextlink` from there "worded jump hyperlink", and `activate` followed it.
+  With cursor tracking off (`tracking`, "Cursor Tracking Off"): "Verification link
+  hyperlink", then "Parked link to the target hyperlink" with nothing before it,
+  `SELECTION 11026,0` and "paragraph.", the view having been scrolled by VoiceOver and
+  the insertion point following to the first line on screen; `right` said "Page" and
+  `line` "Page boundary verification", the top of the book, where VoiceOver had last
+  read. `tracking` again said "Cursor Tracking On".
+  The link cases again, in pages (run 38421766784) and in continuous scroll (run
+  38423525194). In pages, as before the change: on the first page `ax:links` the heading,
+  the link and the heading on a later page; "Verification link hyperlink", "Last link
+  Verification link hyperlink", and `activate` the page of `word1187`; by word
+  "Verification", "link.", by line "Verification link. Image:  Blue verification square
+  image .", and `activate` from "link." the same page. The hidden labels: "closing",
+  "words.", "hyperlink Parked link to the target", "Shown", the line "hyperlink Parked
+  link to the target Shown last words.", `nextlink` "Parked link to the target
+  hyperlink", `describe` "hyperlink is in the VoiceOver cursor", and `activate` its
+  target. The pictures: "image hyperlink", "Jump with decoration hyperlink", "Described
+  jump, image hyperlink" and "image hyperlink" again, with `activate` its target; by word
+  "Bare", "jump:", "hyperlink image", "hyperlink", "Jump", "with", "decoration",
+  "hyperlink Described jump, image"; and `activate` on "hyperlink image", reached by
+  word, the target. The links in cells: from the page the five in order, "worded jump
+  hyperlink" again, and `activate` the target; inside a cell "Table row group", "In Table
+  row group 2 items text Plain first entry.", "text Before the worded jump after it",
+  the cell's line, "worded jump hyperlink" and `activate` the target. The move by heading
+  from a link: "heading level 2 Link target reached", `line` "Link target reached",
+  `right` "Link".
+  In continuous scroll the same phrases by word, by line and inside a cell, and each
+  `activate` put the insertion point on "Link target reached". What differs is where
+  `nextlink` goes past the last link on screen. At the pictures the fourth step said
+  "Lone jump hyperlink", "before" and "hyperlink Lone jump", two sections on, where main
+  says "image hyperlink" again, and `activate` followed that link. At `OPS/cells.xhtml`,
+  in the place where main said "Link not found", the first step gave `SELECTION
+  15738,0`, "grid." and "hyperlink worded jump", the next four the other four links as
+  on a page, and the sixth "Reopened 1978 hyperlink", "Birch, 1934 table" and "hyperlink
+  Reopened 1978", which `activate` followed. From two lines into the numbered paragraph
+  `nextlink` said "Verification link hyperlink", as main does, and `right` read on with
+  "word0013": a link on screen is left as it is. The move by heading from a link said
+  "word1200" and "heading level 2 Link target reached" as before, and `nextlink` from
+  the heading's line "Parked link to the target hyperlink", by then on screen.
+  How the reader came to act only for a link with nothing on screen was found in three
+  runs at a pause of 3 seconds, which are no evidence. In 38414908587 (`7bbe60c`) every
+  link's element put the insertion point on its link when VoiceOver focused it, which it
+  did at every `nextlink`. VoiceOver then said the word beside the new place about 60 ms
+  after it began the link's name: "word." and the hint with no "Verification link
+  hyperlink", "grid." and the hint for a cell's link, "hyperlink image", the item before,
+  in place of "Jump with decoration hyperlink", and nothing at all at one step. Reading
+  by word and by line was as on main. In 38417225645 (`fe36bcc`) and 38419320983
+  (`9797f6a`) a launch argument chose among ways to move VoiceOver's place without that
+  word. The text answering a new insertion point with no notification: `right` after
+  "Verification link hyperlink" said "word0001", where VoiceOver had last read, and after
+  the link below the screen, said by its name alone, "word0003", with the view taken back
+  to the top. The same with a layout change that names the text: "Verification link
+  hyperlink", "hyperlink Verification link", and `right` "word0001". A notification of
+  the reader's own that the selection changed, bare, with `AXTextSelectionChangedFocus`
+  or with `AXTextStateSync`: all three moved VoiceOver's place, `right` saying
+  "Verification" and "link.", and all three said the word, "Verification" over the name
+  in continuous scroll and "Verification link hyperlink" and then "Verification" in
+  pages. With the reader acting only for a link with nothing on screen, as built:
+  "Verification link hyperlink", `right` "word0001", and then, from the text two words
+  on, `nextlink` went to the link below with "words." and "hyperlink Parked link to the
+  target". Main's reader at `229a612` said "Link not found" at that same step (run
+  38419459166): having been on the link's element, VoiceOver looked for a link after it.
+  Not heard: listening; a workstation; two columns, which continuous scroll has not; a
+  larger text size; a book whose next link is many screens down, where the place TextKit
+  gives a line not yet laid out is an estimate; a link in a row that is taller than the
+  screen; Find Previous Link, which goes forward on this macOS; and link settings other
+  than Speak.
 - On 2026-10-12 and 13 pages were turned under VoiceOver's cursor before and after the
   reader sent the cursor to the page shown
   ([#449](https://github.com/vocaro/EPUBLib/issues/449)). The device is the physical iPad Air 13-inch

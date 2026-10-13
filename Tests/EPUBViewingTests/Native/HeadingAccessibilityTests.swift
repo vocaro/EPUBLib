@@ -1386,7 +1386,8 @@ import UIKit
             let shown = all.map(\.range).filter { NSIntersectionRange($0, visible).length > 0 }
             return shown + (all.map(\.range).first { $0.location >= NSMaxRange(visible) }.map { [$0] } ?? [])
         }
-        XCTAssertEqual(children(of: view), ["heading First chapter", "link a first link", "heading Second chapter"])
+        XCTAssertEqual(children(of: view), ["heading First chapter", "link a first link", "heading Second chapter", "link a second link"],
+                       "the next link below the screen is there too, after the heading it follows")
         XCTAssertEqual(headingChildren(of: view).map(\.range), expected())
         XCTAssertFalse(NSLocationInRange(all[1].range.location, view.accessibilityVisibleCharacterRange()), "the second is screens below")
         let below = headingChildren(of: view)[1]

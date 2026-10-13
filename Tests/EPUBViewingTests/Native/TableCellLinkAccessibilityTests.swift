@@ -256,6 +256,103 @@ import XCTest
         XCTAssertEqual(mounted.host.recorder.links.last?.position, mounted.host.recorder.links.first?.position, "the same link from the page")
     }
 
+    private func titles(of view: NSView) -> [String] { children(of: view).map { $0.accessibilityTitle() ?? "" } }
+
+    /// The cells standing in `view`, in reading order.
+    private func cells(of view: ReaderTextView) -> [(key: ReaderTableInteraction.Key, cell: TableCellTextView)] {
+        (view.tableInteraction?.cells ?? [:]).map { (key: $0.key, cell: $0.value) }
+            .sorted { ($0.key.location, $0.key.cell, $0.key.lower) < ($1.key.location, $1.key.cell, $1.key.lower) }
+    }
+
+    /// VoiceOver focuses the element it moves to. A cell's link on screen is left as it is,
+    /// the one the page lists and the cell's own: told that an insertion point has moved,
+    /// VoiceOver says the word beside it over the link's name (`LinkAccessibilityTests`).
+    func testACellsLinkOnScreenTakesTheFocusAndIsLeftAsItIs() async throws {
+        let mounted = try await mount(Self.grid, cells: 6)
+        let listed = children(of: mounted.view)
+        guard listed.count == 7 else { return XCTFail("\(listed.count) links") }
+        let cell = mounted.cells[1].cell
+        let own = try XCTUnwrap(links(in: cell).first)
+        XCTAssertEqual(own.element.accessibilityTitle(), "worded jump")
+        let shown = mounted.host.recorder.shown.count, inCell = cell.accessibilitySelectedTextRange()
+        for link in listed + [own.element] {
+            XCTAssertFalse(link.isAccessibilityFocused(), link.accessibilityTitle() ?? "")
+            link.setAccessibilityFocused(true)
+            XCTAssertEqual(mounted.view.selectedRange, NSRange(location: 0, length: 0), link.accessibilityTitle() ?? "")
+        }
+        XCTAssertEqual(cell.accessibilitySelectedTextRange(), inCell)
+        XCTAssertEqual(mounted.host.recorder.shown.count, shown)
+        // A link the page lists stands at its cell's row, one character of the page's text.
+        let rows = Array(Set(mounted.cells.map(\.key.location))).sorted()
+        XCTAssertEqual(rows.count, 3)
+        mounted.view.setAccessibilitySelectedTextRange(NSRange(location: rows[1], length: 0))
+        XCTAssertEqual(listed.map { $0.isAccessibilityFocused() }, [false, false, true, true, false, false, false], "both links of the second row")
+        XCTAssertFalse(own.element.isAccessibilityFocused(), "the cell's own element has none: VoiceOver is inside the cell there")
+        // The presses are what they were.
+        XCTAssertTrue(listed[1].accessibilityPerformPress())
+        XCTAssertTrue(own.element.accessibilityPerformPress())
+        XCTAssertEqual(mounted.host.recorder.links.count, 2)
+        XCTAssertEqual(mounted.host.recorder.links.last?.position, mounted.host.recorder.links.first?.position)
+    }
+
+    /// In continuous scroll the text's children end with the book's next link after the
+    /// screen (`LinkAccessibilityTests`). A row below the screen has no cells, and a cell's
+    /// link is its cell's element: where the next link is in a row, that row keeps its cells
+    /// while it is below the screen, and its links are the next ones.
+    func testContinuousScrollGivesTheLinksOfTheNextRowBelowTheScreenWhichKeepsItsCells() async throws {
+        let filler = (0..<12).map { "<p>\(CanvasText.sentence(60, seed: $0))</p>" }.joined()
+        let body = "<p>Shown <a href=\"one.xhtml#before\">words before</a> the grid.</p>\(filler)<table>"
+            + "<tr><td>No jump here.</td><td>Nor in this entry.</td></tr>"
+            + "<tr><td>Plain first entry.</td><td>Before the <a href=\"two.xhtml#t\">worded jump</a> after it.</td></tr>"
+            + "<tr><td>Described: <a href=\"two.xhtml#t\"><img src=\"p.png\" alt=\"Described entry jump\"/></a></td><td>Plain last entry.</td></tr>"
+            + "</table>\(filler)<p>Shown <a href=\"one.xhtml#after\">words after</a> the grid.</p>"
+        let mounted = try await mount(body, cells: 0, configuration: .init(flow: .scrolled))
+        let view = mounted.view
+        XCTAssertNil(view.tableInteraction?.keptRow, "nothing is kept until an assistive client asks")
+        // The first link on screen, and the next one: in the table's second row. The first
+        // row has no link and no cells.
+        XCTAssertEqual(titles(of: view), ["words before", "worded jump"])
+        let kept = cells(of: view)
+        XCTAssertEqual(kept.count, 2, "the cells of the row that holds the next link")
+        let row = try XCTUnwrap(kept.first?.key.location)
+        XCTAssertEqual(view.tableInteraction?.keptRow, row)
+        XCTAssertTrue(kept.allSatisfy { $0.key.location == row })
+        XCTAssertGreaterThanOrEqual(row, NSMaxRange(view.accessibilityVisibleCharacterRange()), "below the screen")
+        let below = try XCTUnwrap(children(of: view).last)
+        XCTAssertTrue(below.accessibilityParent() as AnyObject === view)
+        XCTAssertGreaterThan(below.accessibilityFrameInParentSpace().minY, view.visibleRect.maxY, "its place is where it stands")
+        XCTAssertGreaterThanOrEqual(below.accessibilityFrameInParentSpace().width, 1)
+        XCTAssertTrue(children(of: view).last === below, "kept from one read to the next")
+        XCTAssertEqual(cells(of: view).map { ObjectIdentifier($0.cell) }, kept.map { ObjectIdentifier($0.cell) })
+        // The reader's own layout keeps the row's cells.
+        mounted.host.layOut()
+        view.refreshTableInteractions()
+        XCTAssertEqual(cells(of: view).map { ObjectIdentifier($0.cell) }, kept.map { ObjectIdentifier($0.cell) })
+        // Its press follows the link from its cell.
+        XCTAssertTrue(below.accessibilityPerformPress())
+        XCTAssertEqual(mounted.host.recorder.links.last?.link, .internal(href: "OPS/two.xhtml#t"))
+        XCTAssertNotNil(mounted.host.recorder.links.last?.position.tableCell)
+        // VoiceOver moves to it: the reader shows its row, with the insertion point on the row.
+        let shown = mounted.host.recorder.shown.count
+        below.setAccessibilityFocused(true)
+        mounted.host.layOut()
+        view.refreshTableInteractions()
+        XCTAssertEqual(mounted.host.recorder.shown.count, shown + 1, "the reader showed the row")
+        XCTAssertEqual(view.selectedRange, NSRange(location: row, length: 0))
+        XCTAssertTrue(below.isAccessibilityFocused())
+        XCTAssertTrue(below.accessibilityFrameInParentSpace().intersects(view.visibleRect), "on screen now")
+        // The same element, with the next row's link beside it, and the next link below.
+        XCTAssertEqual(titles(of: view), ["worded jump", "Described entry jump, \(imageWord)", "words after"])
+        XCTAssertTrue(children(of: view).first === below, "the element VoiceOver is on is still the link's")
+        XCTAssertNil(view.tableInteraction?.keptRow, "the next link is the text's own")
+        // A link of the text's own that comes before the next row with one is the next.
+        let early = try await mount("<p>Shown <a href=\"one.xhtml#before\">words before</a>.</p>\(filler)<p>An <a href=\"one.xhtml#mid\">early jump</a>.</p>"
+            + "<table><tr><td>Entry</td><td>A <a href=\"two.xhtml#t\">worded jump</a>.</td></tr></table>\(filler)", cells: 0, configuration: .init(flow: .scrolled))
+        XCTAssertEqual(titles(of: early.view), ["words before", "early jump"])
+        XCTAssertNil(early.view.tableInteraction?.keptRow)
+        XCTAssertTrue(cells(of: early.view).isEmpty)
+    }
+
     private func surface(_ text: NSAttributedString, showing shown: NSRange? = nil) -> TableCellTextView {
         let cell = TableCellTextView(text: text, width: 400, characters: shown ?? NSRange(location: 0, length: text.length))
         cell.configure(frame: CGRect(x: 0, y: 0, width: 400, height: 200), scale: 1, textOffset: .zero, actionTitle: nil)
