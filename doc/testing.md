@@ -303,13 +303,20 @@ search, one that only highlights and one that lists results. Deliberately broken
 engines demonstrate that missing/duplicate readiness, ignored cancellation, incompatible restoration,
 late callbacks, results published after completion, steps that do not wrap, stale results that
 still navigate and results kept after a clear fail the verifier. Adapter-specific tests must additionally check actual rendering,
-selection gestures, precise bookmark semantics and resource release. A bounded quiet period after
-close, of 150 ms, detects queued callbacks; it cannot prove that an engine will never emit a much
-later event. Nor does it always catch one sent from a timer, however short: two sleeps that are
-both overdue resume in either order. A callback sent from a 30 ms sleep arrived after the quiet
-period had ended one time in ten on GitHub's hosted runner, when these tests ran there on
-2026-10-12, and about one time in a thousand on a busy Mac. So the broken engine's late callback
-is a queued one, which is caught every time.
+selection gestures, precise bookmark semantics and resource release.
+
+A bounded quiet period after close detects late callbacks; it cannot prove that an engine will
+never emit a much later event. The verifier yields, so that what the engine queued while closing
+has started, waits 150 ms, waits 20 ms more and then looks. The second wait is for a callback
+sent from a timer of the engine's own. Two sleeps that are both overdue resume in either order,
+so a callback sent from a 30 ms sleep can arrive just after the 150 ms has ended: up to 1.2 ms
+after, as measured. A look at that moment missed it one time in ten on GitHub's hosted runner,
+when these tests ran there on 2026-10-12, and a few times in a thousand on a busy Mac. The
+yield is for a main thread kept from the engine's queued work until the 150 ms is nearly over:
+a timer started that late is due after the look. So one broken engine queues its late callback
+and another sends it from a 30 ms sleep, and both are caught. To make the race on a Mac, stop
+the test process across both sleeps (`kill -STOP`, then `kill -CONT` 200 ms later, from a helper
+process): both are overdue when it continues, and they are delivered together.
 
 The contract verifier requires at least two distinct section hrefs when the engine advertises href
 navigation. It permits a navigation to the already-current section to be a no-op. `send` acknowledges
