@@ -165,7 +165,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   iPad, where VoiceOver turns a page or reads on from an element of the text and a view
   without one leaves it no place to do so: a page that holds decoration alone lists it, as
   images without a name, and so does a screen of decoration alone in continuous scroll,
-  where a picture keeps its element while VoiceOver's cursor is on it. On Mac the text
+  whatever is listed after the screen, where a picture keeps its element while VoiceOver's
+  cursor is on it. On Mac the text
   area is itself the element and its keys turn the page, so decoration is always passed
   over: its character stays in the text area's value with no element of its own, VoiceOver
   says nothing for it by line or in Read All, and moving by word its cursor takes one step
