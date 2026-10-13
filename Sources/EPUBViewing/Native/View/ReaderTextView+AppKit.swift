@@ -181,8 +181,8 @@ final class ReaderTextView: NSTextView {
     /// that stands for text gets an image element labelled with its text equivalent, through
     /// the attachment attribute VoiceOver reads in text. A hidden label is text, not an image.
     /// An image without words is an image element without a label, and one the book marks as
-    /// decoration is left with nothing, for VoiceOver to pass over. A rule has no words and is
-    /// a separator element, for VoiceOver to say that a break is there.
+    /// decoration is left with nothing, for VoiceOver to pass over. A rule has no words, and
+    /// its element carries the reader's word for one, for VoiceOver to say that a break is there.
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard !isPageColumn || validPageAccessibilityRange(range),
               let base = super.accessibilityAttributedString(for: range) else { return nil }

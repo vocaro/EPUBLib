@@ -317,25 +317,22 @@ import UIKit
         return found
     }
 
-    /// What WebKit gives an `hr` on Mac, which AppKit has no role for: a splitter that is a
-    /// break in content, called a separator. It has no name, no value and no help, so the role
-    /// description is all VoiceOver has to say.
-    private func assertIsASeparator(_ element: NSAccessibilityElement, in view: ReaderTextView, file: StaticString = #filePath, line: UInt = #line) {
-        XCTAssertEqual(element.accessibilityRole(), .splitter, file: file, line: line)
-        XCTAssertEqual(element.accessibilitySubrole()?.rawValue, "AXContentSeparator", "a break in content, not the bar of a split view", file: file, line: line)
-        XCTAssertEqual(element.accessibilityRoleDescription(), "separator", file: file, line: line)
-        XCTAssertEqual(element.accessibilityOrientation(), .horizontal, file: file, line: line)
-        XCTAssertNil(element.accessibilityLabel(), "the word is the role's and not a name", file: file, line: line)
-        XCTAssertNil(element.accessibilityValue(), file: file, line: line)
+    /// The reader's word for a rule, as text: AppKit has no role for a break in content, and
+    /// VoiceOver takes the splitter role WebKit gives an `hr` for the bar of a split view. The
+    /// word is the element's value alone, so it is said once, and the element has no help.
+    private func assertIsASeparator(_ element: NSAccessibilityElement, in view: NSView, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(element.accessibilityRole(), .staticText, file: file, line: line)
+        XCTAssertEqual(element.accessibilityValue() as? String, ReaderRuleAttachment.spokenName, file: file, line: line)
+        XCTAssertNil(element.accessibilityLabel(), "its word is its value, said once", file: file, line: line)
         XCTAssertNil(element.accessibilityHelp(), "VoiceOver reads the help of an element without a label in the label's place", file: file, line: line)
         XCTAssertTrue((element.accessibilityCustomActions() ?? []).isEmpty, "a rule opens nothing", file: file, line: line)
-        XCTAssertTrue(element.accessibilityParent() as? ReaderTextView === view, file: file, line: line)
-        XCTAssertFalse(element.accessibilityFrameInParentSpace().isEmpty, "it has a place", file: file, line: line)
+        XCTAssertTrue((element.accessibilityChildren() ?? []).isEmpty, file: file, line: line)
+        XCTAssertTrue(element.accessibilityParent() as? NSView === view, file: file, line: line)
     }
 
     /// On Mac the text area is the element and a rule is a character of its value. The
-    /// character carries a separator element, so that VoiceOver says a break is there, and the
-    /// value and every range stay those of the characters.
+    /// character carries an element that says a separator is there, as an image's carries an
+    /// image, and the value and every range stay those of the characters.
     func testARuleIsASeparatorElementWithoutWordsOnMac() throws {
         let (section, _, view) = try pageWithRules()
         let whole = NSRange(location: 0, length: section.string.length)
@@ -346,6 +343,7 @@ import UIKit
         for (location, element) in found {
             XCTAssertEqual(view.accessibilityString(for: NSRange(location: location, length: 1)), "\u{FFFC}")
             assertIsASeparator(element, in: view)
+            XCTAssertFalse(element.accessibilityFrameInParentSpace().isEmpty, "it has a place")
             let drawn = view.segmentFrames(for: NSRange(location: location, length: 1)).reduce(CGRect.null) { $0.union($1) }
             XCTAssertEqual(element.accessibilityFrameInParentSpace(), drawn.offsetBy(dx: view.containerOrigin.x, dy: view.containerOrigin.y),
                            "where the rule is drawn")
