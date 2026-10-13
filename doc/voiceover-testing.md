@@ -282,30 +282,43 @@ others are the test service's moves. They take about six seconds each under XCTe
 ## Hosted Mac sessions
 
 The same reader, probe, observer and runner script record real VoiceOver speech on GitHub's
-hosted `xcode-27` runner. A session there takes over no workstation, several can run at once,
-and the standard runner costs nothing in this public repository. It is acceptance evidence
-for the Mac, under the same rules as a workstation session; see
-[Acceptance and evidence](#acceptance-and-evidence). The
-[Mac VoiceOver workflow](../.github/workflows/voiceover-mac.yml) builds the reader at a ref,
-runs one or more sessions and uploads their transcripts. It starts only by hand:
+hosted `xcode-27` runner. A session there takes over no workstation, and the standard runner
+costs nothing in this public repository. It is acceptance evidence for the Mac, under the
+same rules as a workstation session; see [Acceptance and evidence](#acceptance-and-evidence).
+The [Mac VoiceOver workflow](../.github/workflows/voiceover-mac.yml) builds the reader at a
+ref, runs one or more sessions and uploads their transcripts.
+
+The runner is shared. GitHub runs five macOS jobs at a time for the whole account, for the
+VoiceOver runs and the [unit tests](testing.md#hosted-mac-tests) of every agent's session
+together, and its queue has no priorities: on 2026-10-12 a job waited a median of 13 minutes
+for a runner. So one run holds every session a piece of work needs, whatever their window
+widths, text sizes and flows, and it is started through `scripts/hosted-run.py`, which looks
+at what is running first; [Sharing the runner](testing.md#sharing-the-runner) has the rules.
+The workflow starts only by hand:
 
 ```sh
-gh workflow run voiceover-mac.yml --ref YOUR_BRANCH -f width=600 -f text_size=17 \
-  -f steps='ax:next ax:lines ax:focus in line nextline ; ax:next ax:focus in lastword line nextline'
-gh run list --workflow voiceover-mac.yml --limit 3
+python3 scripts/hosted-run.py voiceover-mac.yml -f width=600 -f text_size=17 \
+  -f steps='ax:next ax:lines ax:focus in line nextline ; ax:next ax:focus in lastword line nextline
+            width=1100 text_size=23 ax:next ax:lines ax:focus in line nextline
+            flow=scrolled ax:next ax:next ax:focus in line nextline'
 gh run watch RUN_ID --exit-status
 gh run download RUN_ID --name voiceover-mac-transcripts --dir .build/voiceover/hosted/RUN_ID
 ```
 
-`--ref` chooses the branch whose workflow file is used, and that branch is built unless the
-`ref` input names another one. The inputs, all optional:
+That is four sessions in one run: two in a window 600 points wide at 17 points, one in a
+window 1100 wide at 23, and one in continuous scroll. The script takes the `-f` inputs of
+`gh workflow run`. It checks the steps as the runner would and prints each session with its
+settings, starts the run unless the branch already has its share in flight, and prints the
+run's number. It starts the run from the branch checked out, or from the one `--ref` names.
+That branch's workflow file is used, and that branch is built unless the `ref` input names
+another one. The inputs, all optional:
 
 - `ref`: a branch, a tag or a full commit SHA whose reader and probe are built. The runner,
   observer and session scripts still come from the `--ref` branch, so a commit older than this
   workflow can be heard, and two commits compared, with one harness.
 - `steps`: the steps `scripts/run-voiceover-mac.py` takes, quoted as on a command line, as in
   `"activate=Next Page"`. A `;` or a line break starts another session. Each session gets a
-  fresh reader, and `ax:width` with the `width` input before its own steps. Left empty, one
+  fresh reader, and `ax:width` with its width before its own steps. Left empty, one
   session checks a page boundary: the left column's entry line and two lines down, a Next Page
   activated through VoiceOver, and the new page's entry line and second line. The entry line
   after the turn must be the page's first: with the fault of
@@ -313,19 +326,38 @@ gh run download RUN_ID --name voiceover-mac-transcripts --dir .build/voiceover/h
   VoiceOver to the column by `ax:focus=search ax:focus=0`, without which it can pass on a
   reader that has the fault.
 - `width` and `text_size`: the window width and the launch text size in points, 1100 and 23
-  unless given.
+  unless given, for a session that gives none.
 - `flow`: `paginated`, or `scrolled` for [continuous scroll](#continuous-scroll), which needs
-  its own steps.
-- `pause`: the runner's `--pause`, 5 seconds unless given.
-- `advance_after`: the runner's `--advance-after`. Empty keeps the fixed pause.
+  its own steps, for a session that gives none.
+- `pause`: the runner's `--pause`, 5 seconds unless given, for a session that gives none.
+- `advance_after`: the runner's `--advance-after`, for a session that gives none. Empty keeps
+  the fixed pause.
+
+A session can open with settings of its own, in any order before its first step: `width=600`,
+`text_size=17`, `flow=scrolled`, `pause=3` and `advance_after=0.5`, where `advance_after=`
+with nothing after it is the fixed pause. The inputs of those names are what a session has
+when it gives none, so one run holds sessions that differ in them. A setting that follows a
+step, is given twice or has a value it cannot have is refused before anything is built, and a
+session of settings alone is the page-boundary session with them. The job's log,
+`sessions.txt` and the run's summary page give each session's settings before its outcome,
+where the run's name gives the `width` and `text_size` inputs only:
+
+```text
+Session 3: 600 wide at 17 points, scrolled, 4 s pause; completed (exit 0) in 45 s; mac-20261013-042246-037894.transcript.txt; -SampleFlow scrolled -SampleFontSize 17 --pause 4 ax:width=600 ax:next ax:next ax:focus in line nextline
+Session 4: 1100 wide at 30 points, paginated, 3 s pause, next key 0.5 s after a phrase; completed (exit 0) in 29 s; mac-20261013-042347-959280.transcript.txt; -SampleFlow paginated -SampleFontSize 30 --pause 3 --advance-after 0.5 ax:width=1100 ax:next ax:lines ax:focus in line nextline
+```
 
 A job has twenty minutes and a session at most 300 seconds, the runner script's limit.
 Preparing the runner and building take about two minutes and the boundary session about three
 at the fixed pause, so a run of that one session has uploaded its transcript about five minutes
-after it starts. A session that could not end three minutes before the job's limit is reported
-as not run, and the job fails. A new run for the same ref, width, text size and flow cancels
-one still in progress, so put step lists that share those into one run; runs that differ in
-any of them go on side by side.
+after it has a runner. A session that could not end three minutes before the job's limit is
+reported as not run, and the job fails. That leaves the sessions of a run about fifteen
+minutes between them: four of the boundary session's length, or a dozen short ones. On
+2026-10-13 four sessions of five or six steps, each with a width, text size, flow or pause of
+its own, took 239 seconds of a job of 5 minutes 50 seconds, the build 82 of them (run
+38344667427); as four runs they would have built four times, on four runners. Nothing cancels
+a run but `gh run cancel RUN_ID`: a second run from a branch does not replace its first,
+whatever their inputs, so cancel a run that a newer one makes useless.
 
 With `advance_after` set to `0.5`, stepping took about a quarter of the time in four pairs of
 sessions, and 95 of 97 keys recorded the same first phrase as at the fixed pause. The hint that
@@ -334,16 +366,17 @@ exploring and walks across controls. A transcript offered as acceptance evidence
 at a fixed pause; see [Acceptance and evidence](#acceptance-and-evidence).
 
 The job fails unless every session exits 0. `sessions.txt` in the download gives each
-session's outcome, transcript and command: 124 means the deadline was reached, 125 that the
-runner script stopped the session, 2 that it refused the steps, and 126 that VoiceOver would
-not switch back off after it ("VoiceOver not restored"). Such a session still has its
+session's settings, outcome, transcript and command: 124 means the deadline was reached, 125
+that the runner script stopped the session, 2 that it refused the steps, and 126 that VoiceOver
+would not switch back off after it ("VoiceOver not restored"). Such a session still has its
 transcript, with the reason in a `NOT_RESTORED` line, and the sessions after it in the job
 begin with VoiceOver already on and leave it on. The download also holds a
 `mac-STAMP.transcript.txt` for each session in order, `runner.txt` with the commit, the runner
 image and its version, macOS, Xcode, System Integrity Protection and the screen, the observer,
 `xcodebuild` and build logs, and a screenshot of the runner's screen at the end. The job's log
 prints each transcript, and the script writes each session's steps and speech to the run's
-summary page. The artifacts expire after five days; copy what must be kept. A failed job also uploads
+summary page, under its settings and outcome. The artifacts expire after five days; copy what
+must be kept. A failed job also uploads
 `voiceover-mac-result-bundles`, 100 MB for four short sessions, and adds
 `banner-and-dictation.log` to the transcripts: the banner's starts and anything from Dictation
 in the system log. A stopped session's bundle has no `Info.plist`, so `xcresulttool` cannot

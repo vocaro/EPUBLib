@@ -48,10 +48,11 @@ Run a Mac VoiceOver speech session on GitHub's hosted runner, not on this machin
 Mac a session takes the keyboard focus for its whole length, which stops the owner and every
 other session.
 
-- Start one with `gh workflow run voiceover-mac.yml` and fetch its transcript with
-  `gh run download`; [VoiceOver testing](doc/voiceover-testing.md#hosted-mac-sessions) has the
-  inputs. It takes about five minutes, several can run at once, and at a fixed pause its
-  transcript is acceptance evidence for the Mac.
+- Start one with `python3 scripts/hosted-run.py voiceover-mac.yml` and fetch its transcript
+  with `gh run download`; [VoiceOver testing](doc/voiceover-testing.md#hosted-mac-sessions) has
+  the inputs. It takes about five minutes once it has a runner, which it can wait a long time
+  for ([below](#the-hosted-mac-runner-is-shared)), and at a fixed pause its transcript is
+  acceptance evidence for the Mac.
 - Ask the owner before any session on this Mac, and only for what a runner cannot do:
   someone listening, or stepping by hand.
 - Never run the workflow's preparation commands here (`defaults write`, `launchctl bootout`,
@@ -59,6 +60,33 @@ other session.
 - Keep the workflow on `runs-on: xcode-27`. A larger runner is billed even in a public
   repository; `gh api repos/vocaro/EPUBLib/actions/runs/<run>/timing` should report
   `"billable": {}`.
+
+## The hosted Mac runner is shared
+
+GitHub runs five macOS jobs at a time for the whole account. The runs of every agent's session
+draw on those five: the Mac VoiceOver runs and the Mac unit tests, a pull request's and
+`main`'s among them. The queue has no priorities, so a run started to try something stands
+ahead of a pull request's run started after it. On 2026-10-12, with a dozen branches starting
+runs, all five were busy for hours and a job waited a median of 13 minutes for a runner, 75 at
+worst.
+
+- Start a run by hand with `python3 scripts/hosted-run.py`, not with `gh workflow run`. It
+  prints the jobs running and waiting and starts nothing that the rules below rule out. With
+  no workflow named it only prints, as `gh run list --status in_progress` and
+  `gh run list --status queued` do: look before you start.
+- Put the speech sessions you need into one VoiceOver run. Each can have its own window
+  width, text size and flow, so step lists that differ in them share a run, a build and a
+  runner ([Hosted Mac sessions](doc/voiceover-testing.md#hosted-mac-sessions)). Do not start
+  a run for each.
+- Keep at most two runs in flight for your branch, and one while any job is waiting for a
+  runner. A pull request's own run counts as its branch's.
+- Do not start every unit test by hand for a commit that a pull request's run already tests.
+- Cancel a run of yours as soon as you no longer need it: `gh run cancel RUN_ID`. Nothing else
+  cancels a VoiceOver run.
+- The script's `--force` starts a run it would refuse. A slow queue is not a reason for it.
+
+[Sharing the runner](doc/testing.md#sharing-the-runner) has the measurements and what the
+script checks.
 
 ## Test corpora
 

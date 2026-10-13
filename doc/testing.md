@@ -64,17 +64,19 @@ public repository. A run starts for a pull request, which is tested as merged in
 for a push to `main`, and by hand:
 
 ```sh
-gh workflow run unit-tests-mac.yml --ref YOUR_BRANCH
-gh workflow run unit-tests-mac.yml --ref YOUR_BRANCH -f scroll_bars=both
-gh workflow run unit-tests-mac.yml --ref YOUR_BRANCH -f filter=ReaderCanvasViewTests -f repeat=20
-gh run list --workflow unit-tests-mac.yml --limit 3
+python3 scripts/hosted-run.py unit-tests-mac.yml
+python3 scripts/hosted-run.py unit-tests-mac.yml -f scroll_bars=both
+python3 scripts/hosted-run.py unit-tests-mac.yml -f filter=ReaderCanvasViewTests -f repeat=20
 gh run watch RUN_ID --exit-status
 gh run view RUN_ID
 ```
 
-A change to nothing but `doc/` and Markdown files starts no run. `--ref` chooses the branch
-whose workflow file is used, and that branch is tested unless the `ref` input names another.
-The inputs, all optional:
+A change to nothing but `doc/` and Markdown files starts no run. `scripts/hosted-run.py`
+takes the place of `gh workflow run`, with the same `-f` inputs: the runner is
+[shared](#sharing-the-runner), and the script looks at what is running there first, then
+prints the new run's number. It starts the run from the branch checked out, or from the one
+`--ref` names. That branch's workflow file is used, and that branch is tested unless the
+`ref` input names another. The inputs, all optional:
 
 - `ref`: a branch, a tag or a full commit SHA to build and test. The steps still come from the
   `--ref` branch, so a commit older than this workflow can be tested, and two commits compared.
@@ -138,12 +140,8 @@ the log in blocks, is lost with it. A new run for the same pull request, or by h
 same ref, filter, count and scroll bars, cancels one still in progress. A run for `main` is
 not cancelled; of the runs waiting behind it only the newest is kept.
 
-A job waits for a runner before it starts. Five jobs run at a time in the repository, these
-and the [VoiceOver sessions](voiceover-testing.md#hosted-mac-sessions) together, and the rest
-wait. On the evening of 2026-10-12, with about thirty runs an hour, half of 73 jobs started
-within ten seconds, 16 waited more than five minutes and the longest eleven; an hour later,
-with a run for every pull request as well, the second job of a run waited twelve minutes in
-one run and thirty-two in another.
+A job waits for a runner before it starts, at times for longer than it then runs; see
+[Sharing the runner](#sharing-the-runner).
 
 A hosted run differs from the [local gate](#local-gate):
 
@@ -156,6 +154,55 @@ A hosted run differs from the [local gate](#local-gate):
   and only `scroll_bars=automatic` has a process change from overlay to legacy a moment after
   it starts, as one does on a Mac with a mouse.
 - It holds no corpora and no `epubcheck`, so the opt-in runs are skipped.
+
+### Sharing the runner
+
+GitHub runs five macOS jobs at a time for the whole account, on its Free, Pro and Team plans
+([its limits](https://docs.github.com/en/actions/reference/limits)). The runs of every
+agent's session draw on those five: these tests, for pull requests, for `main` and by hand,
+and the [Mac VoiceOver sessions](voiceover-testing.md#hosted-mac-sessions). A job beyond the
+five waits for a runner. The queue has no priorities, so a pull request's run waits behind
+whatever was started before it.
+
+While fewer than five jobs ran, a job started within ten seconds. On the evening of
+2026-10-12, with eleven or twelve branches starting runs, all five were busy for hours, ten
+to fifteen jobs waited at any time, 27 at worst, and a job waited a median of 13 minutes for
+a runner and 75 at worst. Four runs in five were VoiceOver runs, and a single branch started
+four to nine of them within 90 seconds on sixteen occasions, each on a runner of its own with
+a build of its own.
+
+So a run by hand is started with `scripts/hosted-run.py`:
+
+```sh
+python3 scripts/hosted-run.py
+python3 scripts/hosted-run.py voiceover-mac.yml -f steps='width=600 text_size=17 in line ; in line'
+python3 scripts/hosted-run.py unit-tests-mac.yml -f filter=ReaderCanvasViewTests -f repeat=20
+```
+
+With no workflow it prints the jobs running and waiting and each run in flight, and starts
+nothing; `gh run list --status in_progress` and `gh run list --status queued` list the same
+runs. With a workflow it prints the two counts and starts the run, unless a rule below is
+against it: then it says why, starts nothing and exits with status 1. It counts jobs, since a
+run for `main` has two, and it sees this repository's runs only. The rules, with what the
+script does about each:
+
+- Look at what is running and waiting before you start a run. The script prints it each time.
+- Put the speech sessions you need into one VoiceOver run. Each can have its own window
+  width, text size and flow, so that step lists that differ in them share one run, one build
+  and one runner. The script checks the steps as the runner would, before anything waits for
+  one, and prints each session with its settings.
+- Keep at most two runs in flight for a branch, and one while any job is waiting for a
+  runner. A pull request's run counts as its branch's, and a run for `main` as nobody's. The
+  script starts no run beyond that and lists the branch's runs.
+- Do not start every test by hand for a commit that a pull request's run already tests. The
+  script starts no single pass of every test under legacy scroll bars for such a commit, and
+  names the pull request's run. `scroll_bars=overlay` is the kind that run does not have.
+- Cancel a run as soon as it is no longer needed, with `gh run cancel RUN_ID`. Nothing else
+  cancels a VoiceOver run. A new unit-test run cancels an older one only as described above.
+
+`--force` starts a run the script would refuse; a slow queue is not a reason for it. The
+script also says when GitHub's copy of the branch is not the commit checked out, because a
+run uses what is pushed.
 
 ## Coverage
 
