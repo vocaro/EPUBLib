@@ -326,7 +326,10 @@ import XCTest
     /// A page turned under VoiceOver's cursor sends the cursor to the page shown
     /// (`PageTurnAccessibilityTests`), and a cell is a line of the page in that: its own Next
     /// Page sends the cursor to the first cell the next page lists, and a page shown again
-    /// without turning leaves the cursor on the cell, which its table lists and the view does not.
+    /// without turning leaves the cursor on the cell, which its table lists and the view does
+    /// not. From a cell to a cell VoiceOver is given the new cell's own element, since it
+    /// says a cell's row and column of an item its cursor comes to; from a cell to a page
+    /// that opens with a line, the element under the cursor becomes that line.
     func testAPageTurnedUnderACellSendsTheCursorToThePageShown() async throws {
         let book = try book("<p>Words before the ledger.</p>" + Self.ledger(rows: 60) + "<p>Words after the ledger.</p>")
         let (_, canvas, view) = try await reader(book, scrolled: false)
@@ -334,6 +337,7 @@ import XCTest
         canvas.postAccessibilityNotification = { posts.append(($0, $1)) }
         let first = try cells(of: try XCTUnwrap(tables(in: view).first))
         let cell = try XCTUnwrap(first.dropFirst(4).first)
+        let (cellWords, cellRows) = (cell.accessibilityLabel, cell.accessibilityRowRange())
         XCTAssertEqual(view.index(ofAccessibilityElement: cell), NSNotFound, "a cell is in its table's list")
         focus(cell, from: nil, in: view)
         XCTAssertFalse(view.accessibilityCursorHasLeftThePage, "the cell is on the page")
@@ -347,18 +351,30 @@ import XCTest
         let sent = try XCTUnwrap(posts.first?.argument as? Cell, "the cursor is sent to a cell")
         let second = try cells(of: try XCTUnwrap(tables(in: view).first))
         XCTAssertTrue(sent === second.first, "the first cell the page now shown lists")
+        XCTAssertFalse(sent === cell, "a new element: VoiceOver says the row and column of a cell it comes to")
         XCTAssertFalse(first.contains { $0.accessibilityLabel == sent.accessibilityLabel }, "a cell of the next page")
         XCTAssertGreaterThan(sent.accessibilityRowRange().location, cell.accessibilityRowRange().location)
+        XCTAssertEqual(cell.accessibilityLabel, cellWords, "the cell left is what it was")
+        XCTAssertEqual(cell.accessibilityRowRange(), cellRows)
+        XCTAssertFalse(second.contains { $0 === cell })
         posts.removeAll()
         focus(sent, from: cell, in: view)
         XCTAssertFalse(view.accessibilityCursorHasLeftThePage)
         XCTAssertTrue(posts.isEmpty)
-        // Back, from a cell further down that page: the page before is read from its first item.
+        // Back, from a cell further down that page: the page before is read from its first
+        // item. That is a line, which the element under the cursor becomes, a cell no longer.
         let lower = try XCTUnwrap(second.dropFirst(7).first)
         focus(lower, from: sent, in: view)
         try perform("Previous Page", on: lower)
         XCTAssertEqual(posts.map(\.notification), [.layoutChanged])
         XCTAssertTrue((posts.first?.argument as? UIAccessibilityElement) === (try listed(view)).first, "the page's first line")
+        XCTAssertTrue((posts.first?.argument as? UIAccessibilityElement) === lower, "which is the element under the cursor")
+        XCTAssertEqual(words(lower), "Words before the ledger.")
+        XCTAssertFalse(lower.conforms(to: UIAccessibilityContainerDataTableCell.self), "a line is no cell of a table to one who asks it")
+        XCTAssertNil(try listed(view).first as? Cell)
+        XCTAssertEqual(actions(lower), ["Next Page", "Previous Page"], "and offers no cell's action")
+        XCTAssertEqual(try cells(of: try XCTUnwrap(tables(in: view).first)).map { $0.accessibilityLabel }, first.map { $0.accessibilityLabel },
+                       "the table under it lists its own cells")
     }
 
     /// A row taller than a page continues on the next: on each page the cell is the same cell
