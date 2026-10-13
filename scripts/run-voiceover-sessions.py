@@ -10,6 +10,8 @@ VOICEOVER_STEPS          the steps of scripts/run-voiceover-mac.py, quoted as on
 VOICEOVER_WIDTH          window width in points, set by `ax:width` before each session [1100]
 VOICEOVER_TEXT_SIZE      text size in points at launch [23]
 VOICEOVER_FLOW           paginated or scrolled [paginated]
+VOICEOVER_LAUNCH         further launch arguments of the reader, quoted as on a command line,
+                         such as `-SampleHref OPS/labels.xhtml` [none]
 VOICEOVER_PAUSE          the runner's --pause [5]
 VOICEOVER_ADVANCE_AFTER  the runner's --advance-after [the fixed pause]
 """
@@ -91,7 +93,11 @@ def settings():
     unknown = runner().unknown([step for steps in lists for step in steps])
     if unknown or not lists:
         raise SystemExit(f"Unknown steps: {' '.join(unknown)}" if unknown else "VOICEOVER_STEPS holds no step")
-    return options, ["-SampleFlow", flow, "-SampleFontSize", size], lists
+    try:
+        further = shlex.split(os.environ.get("VOICEOVER_LAUNCH", ""))
+    except ValueError as error:
+        raise SystemExit(f"VOICEOVER_LAUNCH: {error}")
+    return options, ["-SampleFlow", flow, "-SampleFontSize", size] + further, lists
 
 
 def running(name):
