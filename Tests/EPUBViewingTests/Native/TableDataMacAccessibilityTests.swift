@@ -675,6 +675,224 @@ import XCTest
         }
     }
 
+    /// The rows that space out a table used for layout: two cells that hold nothing, two that
+    /// hold decoration alone, and one cell that holds nothing across both columns.
+    private static let gaps = ["<tr><td></td><td></td></tr>",
+                               "<tr><td><img src='square.svg' alt=''/></td><td><img src='square.svg' alt=''/></td></tr>",
+                               "<tr><td colspan='2'></td></tr>"]
+
+    /// Rows of two cells of words, with one of those rows after each but the last.
+    private static func gapped(_ rows: [(String, String)]) -> String {
+        let worded = rows.map { "<tr><td>\($0.0)</td><td>\($0.1)</td></tr>" }
+        return worded[0] + zip(gaps, worded.dropFirst()).map { $0 + $1 }.joined()
+    }
+
+    private func pictured(_ body: String) throws -> EPUBPublication {
+        try EPUBPublication.open(data: SessionCoverageBook.epub([SessionCoverageBook.Section("tables", body, title: "Tables")],
+            manifest: "<item id=\"square\" href=\"square.svg\" media-type=\"image/svg+xml\"/>", files: ["OPS/square.svg": Self.square]))
+    }
+
+    /// The characters a client reads the view's text by, and where each table row stands in them.
+    private func text(of view: ReaderTextView) throws -> (shown: NSRange, rows: [Int]) {
+        let shown = view.isPageColumn ? view.shownCharacters : NSRange(location: 0, length: view.textLength)
+        var rows: [Int] = []
+        try XCTUnwrap(view.contentStorage.textStorage).enumerateAttribute(.attachment, in: shown) { value, run, _ in
+            if value is TableRowAttachment { rows.append(run.location) }
+        }
+        return (shown, rows)
+    }
+
+    /// The lines an assistive client is given, from the first to the last the text has.
+    private func lines(of view: ReaderTextView, in shown: NSRange) -> [NSRange] {
+        var lines: [NSRange] = []
+        while lines.count < 200, lines.last.map(NSMaxRange) ?? 0 < NSMaxRange(shown) {
+            let range = view.accessibilityRange(forLine: lines.count)
+            guard range.location != NSNotFound, range.length > 0 else { break }
+            lines.append(range)
+        }
+        return lines
+    }
+
+    /// A row that has nothing to say, of cells that hold nothing or decoration alone, is
+    /// nothing for VoiceOver to stop on, in a table marked as layout and in a table of data:
+    /// the text gives no element at its character, gives the character and the break after it
+    /// as spaces, and gives its line as part of the line after. VoiceOver stopped in silence
+    /// at a character with no element, said "text text group" of a group of decoration and
+    /// "table" of a table without a name, stops on any line of its own, and says of a line
+    /// what comes before its first break. The rows each side are a line apart, the row of
+    /// words ends its line, where VoiceOver goes into it, and inside a table of data the row
+    /// is still a row.
+    func testARowWithNothingToSayIsNothingToStopOn() async throws {
+        let layout = "<table role='presentation'>"
+            + Self.gapped([("Upper near", "Upper far"), ("Middle near", "Middle far"), ("Lower near", "Lower far"), ("Last near", "Last far")]) + "</table>"
+        let data = "<table><tr><th>Tree</th><th>Tally</th></tr>" + Self.gapped([("Oak", "Nine"), ("Elm", "Four"), ("Ash", "Six"), ("Yew", "Two")]) + "</table>"
+        let book = try pictured("<p>Words before.</p>" + layout + "<p>Words between.</p>" + data + "<p>Words after.</p>")
+        for scrolled in [false, true] {
+            let flow = scrolled ? "continuous scroll" : "pages"
+            let (_, _, view) = try await reader(book, scrolled: scrolled)
+            let (shown, rows) = try text(of: view)
+            XCTAssertEqual(rows.count, 15, flow)
+            let silent = [1, 3, 5, 9, 11, 13].map { rows[$0] }, worded = rows.filter { !silent.contains($0) }
+
+            let given = try attachments(in: view)
+            XCTAssertEqual(given.map(\.location), worded, flow)
+            XCTAssertEqual(given.map { $0.element.accessibilityLabel() },
+                           ["Upper near, Upper far", "Middle near, Middle far", "Lower near, Lower far", "Last near, Last far",
+                            "Tree, Tally", "Oak, Nine", "Elm, Four", "Ash, Six", "Yew, Two"], flow)
+            XCTAssertEqual(given.map { $0.element.accessibilityRole() }, Array(repeating: .group, count: 4) + Array(repeating: .table, count: 5), flow)
+
+            // A space for a character, so that every range matches the text, and the break
+            // after every other row as it was.
+            let rich = try XCTUnwrap(view.accessibilityAttributedString(for: shown))
+            let read = [try XCTUnwrap(view.accessibilityValue()), try XCTUnwrap(view.accessibilityString(for: shown)), rich.string]
+            for characters in read.map({ $0 as NSString }) {
+                XCTAssertEqual(characters.length, shown.length, flow)
+                XCTAssertEqual(rows.map { characters.character(at: $0 - shown.location) }, rows.map { silent.contains($0) ? 0x20 : 0xFFFC }, flow)
+                XCTAssertEqual(rows.map { characters.character(at: $0 + 1 - shown.location) }, rows.map { silent.contains($0) ? 0x20 : 0x0A }, flow)
+            }
+            for place in silent {
+                XCTAssertNil(rich.attribute(.accessibilityAttachment, at: place - shown.location, effectiveRange: nil), flow)
+                XCTAssertNil(rich.attribute(.attachment, at: place - shown.location, effectiveRange: nil), flow)
+                // Asked for the row's own character or its break, as for a word, the text gives the same.
+                for part in [NSRange(location: place, length: 1), NSRange(location: place + 1, length: 1)] {
+                    let one = try XCTUnwrap(view.accessibilityAttributedString(for: part))
+                    XCTAssertEqual(one.string, " ", flow)
+                    XCTAssertNil(one.attribute(.accessibilityAttachment, at: 0, effectiveRange: nil), flow)
+                    XCTAssertEqual(view.accessibilityString(for: part), " ", flow)
+                }
+                XCTAssertEqual(view.accessibilityString(for: NSRange(location: place - 1, length: 4)), "\n  \u{FFFC}", flow)
+            }
+
+            // The lines are the text's own but for these rows', which no line begins with.
+            let lines = lines(of: view, in: shown)
+            XCTAssertEqual(lines.count, 12, "\(flow): \(lines)")
+            XCTAssertEqual(lines.first?.location, shown.location, flow)
+            XCTAssertEqual(lines.last.map(NSMaxRange), NSMaxRange(shown), flow)
+            XCTAssertTrue(zip(lines, lines.dropFirst()).allSatisfy { NSMaxRange($0) == $1.location }, "\(flow): \(lines)")
+            XCTAssertEqual(worded.map { view.accessibilityLine(for: $0) }, [1, 2, 3, 4, 6, 7, 8, 9, 10], flow)
+            for (index, place) in rows.enumerated() where silent.contains(place) {
+                let line = view.accessibilityLine(for: rows[index + 1])
+                XCTAssertEqual(view.accessibilityRange(forLine: line), NSRange(location: place, length: 4), flow)
+                XCTAssertEqual([place, place + 1].map { view.accessibilityLine(for: $0) }, [line, line], flow)
+                XCTAssertEqual(view.accessibilityLine(for: rows[index - 1]), line - 1, flow)
+                // VoiceOver leaves the insertion point where it has read to.
+                view.selectedRange = NSRange(location: place + 1, length: 0)
+                XCTAssertEqual(view.accessibilityInsertionPointLineNumber(), line, flow)
+            }
+            view.selectedRange = NSRange(location: 0, length: 0)
+
+            // Entered at another row, the table of data has every row, and these rows' cells,
+            // which say nothing: VoiceOver calls each an empty cell.
+            let table = try XCTUnwrap(given[5].element as? ReaderTableElement, flow)
+            XCTAssertEqual(table.accessibilityRowCount(), 8, flow)
+            XCTAssertEqual(try self.rows(of: table).map { try cells(of: $0).map(said) },
+                           [["Tree", "Tally"], ["Oak", "Nine"], ["", ""], ["Elm", "Four"], ["", ""], ["Ash", "Six"], [""], ["Yew", "Two"]], flow)
+        }
+    }
+
+    /// What a row has to hold to be passed over is nothing, spaces or decoration, in a table
+    /// of its own inside a cell as well. A picture nobody describes is one VoiceOver calls an
+    /// image, a link is followed whatever it holds, and a rule says that a break is there:
+    /// a row that holds one keeps its character and its line, and is what it was. That is a
+    /// group wherever the row shows a picture to describe. A row whose one cell with anything
+    /// in it holds a link or a rule and no words is a group in continuous scroll and has no
+    /// element on a page, where a row is given by the cells with lines on that page.
+    func testARowThatHoldsAPictureALinkOrARuleIsNotPassedOver() async throws {
+        let rows = ["<td>First words</td><td></td>",
+                    "<td>&#160;</td><td> </td>",
+                    "<td><img src='square.svg'/></td><td></td>",
+                    "<td><a href='tables.xhtml'><img src='square.svg' alt=''/></a></td><td></td>",
+                    "<td><hr/></td><td></td>",
+                    "<td><table><tr><td><img src='square.svg' alt=''/></td></tr></table></td><td></td>",
+                    "<td><table><tr><td><img src='square.svg'/></td></tr></table></td><td></td>",
+                    "<td>Last words</td><td></td>"]
+        let book = try pictured("<p>Words before.</p><table role='presentation'>" + rows.map { "<tr>\($0)</tr>" }.joined() + "</table><p>Words after.</p>")
+        for scrolled in [false, true] {
+            let flow = scrolled ? "continuous scroll" : "pages"
+            let (_, _, view) = try await reader(book, scrolled: scrolled)
+            let (shown, places) = try text(of: view)
+            XCTAssertEqual(places.count, 8, flow)
+            let given = try attachments(in: view)
+            XCTAssertEqual(given.map(\.location), (scrolled ? [0, 2, 3, 4, 6, 7] : [0, 2, 6, 7]).map { places[$0] }, flow)
+            XCTAssertTrue(given.allSatisfy { $0.element.accessibilityRole() == .group }, flow)
+            XCTAssertEqual(given.map { $0.element.accessibilityLabel() }, ["First words"] + Array(repeating: nil, count: given.count - 2) + ["Last words"], flow)
+            let value = try XCTUnwrap(view.accessibilityValue()) as NSString
+            XCTAssertEqual(places.map { value.character(at: $0 - shown.location) }, [0xFFFC, 0x20, 0xFFFC, 0xFFFC, 0xFFFC, 0x20, 0xFFFC, 0xFFFC], flow)
+            XCTAssertEqual(places.map { view.accessibilityLine(for: $0) }, [1, 2, 2, 3, 4, 5, 5, 6], flow)
+        }
+    }
+
+    /// Such rows are part of the line after them however many they are, so those that open a
+    /// text are part of its first line. Those that end one have no line after them and are
+    /// one line of spaces together, as a text of such rows alone is.
+    func testRowsWithNothingToSayThatEndTheTextAreOneLine() async throws {
+        let silent = "<tr><td><img src='square.svg' alt=''/></td><td></td></tr>", worded = "<tr><td>Left words</td><td>Right words</td></tr>"
+        let ending = try pictured("<table role='presentation'>" + silent + silent + worded + silent + worded + silent + silent + "</table>")
+        let alone = try pictured("<table role='presentation'>" + silent + silent + silent + "</table>")
+        for scrolled in [false, true] {
+            let flow = scrolled ? "continuous scroll" : "pages"
+            var (_, _, view) = try await reader(ending, scrolled: scrolled)
+            var (shown, places) = try text(of: view)
+            XCTAssertEqual(places.count, 7, flow)
+            XCTAssertEqual(try attachments(in: view).map(\.location), [places[2], places[4]], flow)
+            XCTAssertEqual(lines(of: view, in: shown), [NSRange(location: 0, length: places[3]), NSRange(location: places[3], length: places[5] - places[3]),
+                                                        NSRange(location: places[5], length: shown.length - places[5])], flow)
+            XCTAssertEqual(places.map { view.accessibilityLine(for: $0) }, [0, 0, 0, 1, 1, 2, 2], flow)
+            XCTAssertEqual(view.accessibilityLine(for: NSMaxRange(shown) - 1), 2, flow)
+            XCTAssertEqual(view.accessibilityRange(forLine: 3).length, 0, flow)
+            XCTAssertEqual(view.accessibilityString(for: NSRange(location: places[5], length: shown.length - places[5]))?.allSatisfy { $0 == " " }, true, flow)
+
+            (_, _, view) = try await reader(alone, scrolled: scrolled)
+            (shown, places) = try text(of: view)
+            XCTAssertEqual(places.count, 3, flow)
+            XCTAssertTrue(try attachments(in: view).isEmpty, flow)
+            XCTAssertEqual(lines(of: view, in: shown), [shown], flow)
+            XCTAssertEqual((0..<shown.length).map { view.accessibilityLine(for: $0) }, Array(repeating: 0, count: shown.length), flow)
+            XCTAssertEqual(view.accessibilityRange(forLine: 1).length, 0, flow)
+            XCTAssertEqual(view.accessibilityValue()?.allSatisfy { $0 == " " }, true, flow)
+        }
+    }
+
+    /// Through a long table with such rows one, two and three together, every character is on
+    /// the line the text gives for it, the lines follow one another through the whole text,
+    /// and each ends with something to say: in continuous scroll the lines are AppKit's,
+    /// numbered through the book, and each number is less by the rows passed over before it.
+    func testLinesAreNumberedPastRowsWithNothingToSayThroughALongTable() async throws {
+        let silent = "<tr><td></td><td><img src='square.svg' alt=''/></td></tr>"
+        let rows = (1...60).map { "<tr><td>Left \($0)</td><td>Right \($0)</td></tr>" + String(repeating: silent, count: $0 % 4) }.joined()
+        let book = try pictured("<p>Words before, with enough of them after these to run on to a second line of the text at this width and at this size.</p>"
+            + "<table role='presentation'>" + rows + "</table><p>Words after.</p>")
+        for scrolled in [false, true] {
+            let flow = scrolled ? "continuous scroll" : "pages"
+            let (_, _, view) = try await reader(book, scrolled: scrolled)
+            let (shown, places) = try text(of: view)
+            let value = try XCTUnwrap(view.accessibilityValue()) as NSString
+            let passed = places.filter { value.character(at: $0 - shown.location) == 0x20 }
+            XCTAssertEqual(places.map { value.character(at: $0 + 1 - shown.location) }, places.map { passed.contains($0) ? 0x20 : 0x0A }, flow)
+            XCTAssertEqual(places.count - passed.count, try attachments(in: view).count, flow)
+            XCTAssertGreaterThan(passed.count, scrolled ? 80 : 5, flow)
+            let lines = lines(of: view, in: shown)
+            XCTAssertEqual(lines.first?.location, shown.location, flow)
+            XCTAssertEqual(lines.last.map(NSMaxRange), NSMaxRange(shown), flow)
+            XCTAssertTrue(zip(lines, lines.dropFirst()).allSatisfy { NSMaxRange($0) == $1.location }, flow)
+            // The two lines of words before, a line for each row that says something, and
+            // the words after, which the table's first page does not reach: it ends with
+            // rows passed over, which are a line together.
+            let ending = places.last.map(passed.contains) == true
+            XCTAssertEqual(lines.count, 2 + (places.count - passed.count) + (scrolled || ending ? 1 : 0), flow)
+            // A row passed over is nowhere but at the front of a line, before the row or
+            // the words that follow it.
+            for line in lines.dropLast(ending ? 1 : 0) {
+                let held = places.filter { NSLocationInRange($0, line) }
+                XCTAssertFalse(held.last.map(passed.contains) == true && line != lines.last, "\(flow): \(line)")
+                XCTAssertLessThanOrEqual(held.filter { !passed.contains($0) }.count, 1, "\(flow): \(line)")
+            }
+            for (number, line) in lines.enumerated() {
+                XCTAssertEqual(Set((line.location..<NSMaxRange(line)).map { view.accessibilityLine(for: $0) }), [number], "\(flow), line \(number)")
+            }
+        }
+    }
+
     /// In continuous scroll VoiceOver is given a row beyond the screen before the view shows
     /// it, and keeps the element it was given. That row is the same group, called by its
     /// words, with nothing in it yet: once its cells' text areas are there it holds them,
