@@ -26,7 +26,12 @@ final class ReaderTextView: NSTextView {
     /// The headings of the text in the view, found once for each text it is given.
     private var headingCache: [(heading: ReaderHeading, range: NSRange)]?
     /// VoiceOver's Headings rotor for this text.
-    private lazy var headingRotor = NSAccessibilityCustomRotor(rotorType: .heading, itemSearchDelegate: self)
+    private lazy var headingRotor = {
+        let rotor = NSAccessibilityCustomRotor(rotorType: .heading, itemSearchDelegate: self)
+        // A page column gives the headings of other pages as tokens, and loads them.
+        if isPageColumn { rotor.itemLoadingDelegate = self }
+        return rotor
+    }()
     /// The text column's left edge in continuous scroll, where a division can move it off centre.
     var columnMinX: CGFloat = 0
 
@@ -229,7 +234,7 @@ final class ReaderTextView: NSTextView {
             let label = attachments.first { $0.range == run }?.text ?? image.alt
             let element = accessibilityElement(at: run, label: label)
             // VoiceOver reads the help of an element without a label as its name, in the line.
-            element.setAccessibilityHelp(label.isEmpty ? nil : "Double-click or choose Inspect Image to enlarge.")
+            element.setAccessibilityHelp(label.isEmpty ? nil : ReaderImageInspection.accessibilityHelp)
             let actions = images.filter { $0.range == run }.map { entry in
                 NSAccessibilityCustomAction(name: entry.image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(entry.image.alt)") {
                     [weak self] in
@@ -275,15 +280,8 @@ final class ReaderTextView: NSTextView {
             element.setAccessibilityRole(.group)
             element.setAccessibilityLabel("Table row")
             element.setAccessibilityChildren(cells)
-        } else if isText {
-            element.setAccessibilityRole(.staticText)
-            element.setAccessibilityValue(label)
-            element.setAccessibilityLabel(nil)
-            element.setAccessibilityChildren(nil)
         } else {
-            element.setAccessibilityRole(.image)
-            element.setAccessibilityLabel(label.isEmpty ? nil : label)
-            element.setAccessibilityChildren(nil)
+            element.setReaderAttachment(words: label, isText: isText)
         }
         return element
     }
@@ -457,8 +455,10 @@ final class ReaderTextView: NSTextView {
 
     // A text area has no headings of its own to an assistive client: the book's are given to
     // VoiceOver as its Headings rotor, which lists them by their words and level and moves to
-    // the one chosen, and which its own move to the next heading goes by. A page column gives
-    // its page's, the scroll view the whole book's.
+    // the one chosen, and which its own move to the next heading goes by. The scroll view
+    // gives the headings of its text, which is the whole book. A page column gives the whole
+    // book's too, through the canvas: a heading on another page is one VoiceOver has the
+    // reader load, which turns to its page (`ReaderCanvasView.headingRotorResult`).
     override func accessibilityCustomRotors() -> [NSAccessibilityCustomRotor] {
         super.accessibilityCustomRotors() + [headingRotor]
     }
@@ -474,22 +474,32 @@ final class ReaderTextView: NSTextView {
         return all.compactMap { heading, range in
             let shown = NSIntersectionRange(range, reach)
             guard shown.length > 0 else { return nil }
-            let words = plainText(in: shown).split(whereSeparator: \.isWhitespace).joined(separator: " ")
-            guard !words.isEmpty else { return nil }
-            return (heading, shown, heading.level > 0 ? "\(words), heading level \(heading.level)" : words)
+            guard let label = Self.headingLabel(plainText(in: shown), level: heading.level) else { return nil }
+            return (heading, shown, label)
         }
+    }
+
+    /// What the rotor's list calls a heading of these words: the words and, where it has one,
+    /// its level. None for a heading without words.
+    static func headingLabel(_ text: String, level: Int) -> String? {
+        let words = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard !words.isEmpty else { return nil }
+        return level > 0 ? "\(words), heading level \(level)" : words
     }
 }
 
 extension ReaderTextView: @MainActor NSAccessibilityCustomRotorItemSearchDelegate {
     /// The heading after or before where the search stands, and none past either end. VoiceOver
     /// stands on the characters under its cursor, or on the heading it was last given. To list
-    /// the headings it asks for the one after an item that is nowhere, with no element or with
-    /// the first character and none of it, and then for the one after each it is given: from
-    /// nowhere the search begins with the first heading, or the last. Standing inside a
-    /// heading, the one before is the heading before that one, as in a browser.
+    /// the headings it asks for the one after an item that is nowhere, with no element, and
+    /// then for the one after each it is given; with its cursor resting on the view it asks
+    /// from the view's first character and none of it. From either the search begins with the
+    /// first heading, or the last. Standing inside a heading, the one before is the heading
+    /// before that one, as in a browser. A page column answers for the whole book, where a
+    /// cursor at rest stands at the top of its page (`ReaderCanvasView.headingRotorResult`).
     func rotor(_ rotor: NSAccessibilityCustomRotor,
                resultFor searchParameters: NSAccessibilityCustomRotor.SearchParameters) -> NSAccessibilityCustomRotor.ItemResult? {
+        if isPageColumn, let canvas { return canvas.headingRotorResult(for: searchParameters, askedOf: self) }
         var headings = accessibilityHeadings
         let filter = searchParameters.filterString
         if !filter.isEmpty { headings = headings.filter { $0.label.localizedCaseInsensitiveContains(filter) } }
@@ -505,6 +515,19 @@ extension ReaderTextView: @MainActor NSAccessibilityCustomRotorItemSearchDelegat
         result.targetRange = found.range
         result.customLabel = found.label
         return result
+    }
+}
+
+extension ReaderTextView: @MainActor NSAccessibilityElementLoading {
+    /// VoiceOver moves to a heading the rotor gave while it was on another page: the reader
+    /// turns to its page, and this is the column that then shows it.
+    func accessibilityElement(withToken token: any NSAccessibilityLoadingToken) -> (any NSAccessibilityElementProtocol)? {
+        canvas?.loadHeading(token)
+    }
+
+    /// The heading's characters in that column.
+    func accessibilityRangeInTargetElement(withToken token: any NSAccessibilityLoadingToken) -> NSRange {
+        canvas?.loadedHeadingRange(token) ?? NSRange(location: NSNotFound, length: 0)
     }
 }
 

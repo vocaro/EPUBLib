@@ -168,6 +168,17 @@ view that lists its lines to being hidden from assistive technology. That VoiceO
 such a view offers before the lines of a page column is known only from
 [speech sessions](voiceover-testing.md); no in-process query shows it.
 
+Accessibility action tests hold each item of a page and of a screen on iPhone and iPad to
+offering its own actions and no more: a line, a heading and a link their page turns in pages
+and nothing in continuous scroll, an image also its own inspection, and a table row also what
+its cells can do. They read an item's actions and then those of every view above it, as
+VoiceOver gathers them, in a reader mounted in the public SwiftUI view, and perform each one.
+They give the text view an action through its setter and hold it to passing none on while it
+lists lines, and a note's text view to passing it on. A line's page turn is held to turning
+the page while text is selected and to failing at either end of the book. SwiftUI builds no
+accessibility elements in a test host, so that the reader view names no page action on iPhone
+and iPad is known only from speech sessions too.
+
 Heading tests cover which characters the builder marks as a heading and at what level: `h1`
 to `h6`, `role="heading"` with and without `aria-level`, a role that takes a heading away, a
 heading run in with its paragraph, hidden headings and hidden words inside a shown one. They
@@ -191,6 +202,19 @@ size though the label has none; a link cut at a page's end and continued on the 
 the links on screen in continuous scroll; and a text view with no canvas, as a note's
 popover has, left with AppKit's own. What VoiceOver says of each is recorded with the
 [VoiceOver testing process](voiceover-testing.md#links).
+
+Table cell tests on AppKit (`TableCoverageInteractionTests`) read what a cell's own text gives
+an assistive technology for each attachment it can hold, on a table built by the real pipeline
+with the entries of the VoiceOver fixture's last section: the reader's word for a rule, an
+image named by its words for a formula and for a picture, a hidden label's words as text, an
+image without a name for a picture nobody describes, and no element for decoration. They hold
+each element to the place its character is drawn at, the same content in a page's text to the
+same elements, a rule to having no words for a copy, a selection or its row, a part of a cell
+cut at a page's end to the attachments of its own lines, and a table inside a cell to its
+cells' words. One of them holds an element to outliving the string it was given in and to
+being the same on the next read: VoiceOver read nothing at a cell's attachment while a cell
+made its elements anew for every read. What VoiceOver says of each is recorded with the
+[VoiceOver testing process](voiceover-testing.md).
 
 Highlight paint tests read the pixels the mounted reader's views last drew: none in the
 highlight's color before a search, the matches after it, and none again after Clear Search,
