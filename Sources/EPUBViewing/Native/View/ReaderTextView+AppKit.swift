@@ -270,11 +270,11 @@ final class ReaderTextView: NSTextView {
     }
 
     /// AppKit lists a text view's links as its children and nothing else: the reader's own
-    /// elements take their place, and its headings stand among them, each where it is in the
-    /// text (`headingChildren`).
+    /// elements take their place, with those of the table cells on screen among them, and its
+    /// headings stand among them, each where it is in the text (`headingChildren`).
     override func accessibilityChildren() -> [Any]? {
         guard canvas != nil else { return super.accessibilityChildren() }
-        let links = linkChildren().map { (place: $0.range.location, element: $0 as NSAccessibilityElement) }
+        let links = linkChildrenWithCells().map { (place: $0.place, element: $0.element as NSAccessibilityElement) }
         let headings = headingChildren().map { (place: $0.range.location, element: $0 as NSAccessibilityElement) }
         // A heading comes before a link that begins where it does, which is a link inside it.
         let own = (headings + links).enumerated().sorted { ($0.element.place, $0.offset) < ($1.element.place, $1.offset) }

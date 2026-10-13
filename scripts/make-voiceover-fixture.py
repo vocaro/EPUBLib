@@ -24,6 +24,7 @@ files = {'mimetype': 'application/epub+zip',
                     'media-type="application/xhtml+xml"/><item id="scenes" href="scenes.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="offers" href="offers.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="entries" href="entries.xhtml" '
+                    'media-type="application/xhtml+xml"/><item id="cells" href="cells.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="grids" href="grids.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="ledger" href="ledger.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="tallrow" href="tallrow.xhtml" '
@@ -32,7 +33,7 @@ files = {'mimetype': 'application/epub+zip',
                     'media-type="image/svg+xml"/></manifest><spine><itemref '
                     'idref="body"/><itemref idref="labels"/><itemref '
                     'idref="table"/><itemref idref="pictures"/><itemref '
-                    'idref="scenes"/><itemref idref="offers"/><itemref idref="entries"/><itemref '
+                    'idref="scenes"/><itemref idref="offers"/><itemref idref="entries"/><itemref idref="cells"/><itemref '
                     'idref="grids"/><itemref idref="ledger"/><itemref idref="tallrow"/></spine></package>',
  'OPS/nav.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
                   'xmlns="http://www.w3.org/1999/xhtml" '
@@ -44,7 +45,8 @@ files = {'mimetype': 'application/epub+zip',
                   'words</a></li><li><a href="scenes.xhtml">Scenes set '
                   'apart</a></li><li><a href="offers.xhtml">What each line '
                   'offers</a></li><li><a href="entries.xhtml">Things inside '
-                  'entries</a></li><li><a href="grids.xhtml">Tables of data</a></li><li><a '
+                  'entries</a></li><li><a href="cells.xhtml">Jumps inside a '
+                  'grid</a></li><li><a href="grids.xhtml">Tables of data</a></li><li><a '
                   'href="ledger.xhtml">A table longer than a page</a></li><li><a '
                   'href="tallrow.xhtml">A row taller than a page</a></li></ol></nav></body></html>',
  'OPS/square.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 '
@@ -151,7 +153,28 @@ files = {'mimetype': 'application/epub+zip',
                       'grid.</td></tr></table><p>Beyond them <math '
                       'xmlns="http://www.w3.org/1998/Math/MathML" alttext="y '
                       'cubed"><msup><mi>y</mi><mn>3</mn></msup></math> '
-                      'ends.</p>ENTRY_LINES_AFTER</body></html>'}
+                      'ends.</p>ENTRY_LINES_AFTER</body></html>',
+ # Links inside the cells of a table: one of words in a cell that runs on to more lines, one
+ # that is a described picture, one that is decoration alone, one of decoration and words, and
+ # one that is a hidden label. Like the section before it this one has no heading, and no
+ # word here is one VoiceOver uses for a picture, a link, a table or a text, so those in a
+ # transcript are VoiceOver's or the reader's own.
+ 'OPS/cells.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
+                    'xmlns="http://www.w3.org/1999/xhtml"><head><title>Jumps inside a '
+                    'grid</title><style>.parked { position: absolute; left: -999em; } td { '
+                    'padding: 0.25em 0.5em; } img { width: 32px; height: 32px; '
+                    '}</style></head><body><p>Jumps inside a grid</p><p>Shown words before '
+                    'the grid.</p><table><tr><td>Plain first entry.</td><td>Before the <a '
+                    'href="body.xhtml#link-target">worded jump</a> after it, and then enough '
+                    'further words to carry this entry on to another line.</td></tr><tr><td>Described: '
+                    '<a href="body.xhtml#link-target"><img src="square.svg" alt="Described '
+                    'entry jump"/></a></td><td>Bare: <a href="body.xhtml#link-target"><img '
+                    'src="square.svg" alt=""/></a></td></tr><tr><td><a '
+                    'href="body.xhtml#link-target"><img src="square.svg" alt=""/> Entry jump '
+                    'with decoration</a></td><td><a class="parked" '
+                    'href="body.xhtml#link-target">Parked entry jump</a>Shown last '
+                    'entry.</td></tr></table><p>Shown words after the '
+                    'grid.</p>GRID_LINES_AFTER</body></html>'}
 # Tables that are data, and one that is not. The first has a caption, a header row and a header
 # cell in each row, an empty cell and a link. The second has header cells that span columns and
 # rows and data cells that do. The third is marked as layout, though it is ruled like the
@@ -198,12 +221,14 @@ lines_after = [f"<p>Line {i:02d} after the table.</p>" for i in range(1, 61)]
 lines_after.insert(2, '<table><tr><td>Fifth cell</td><td>Sixth cell</td></tr><tr><td>Seventh cell</td><td>'
                       '<a href="body.xhtml#link-target">Eighth cell link</a></td></tr></table>')
 files["OPS/table.xhtml"] = files["OPS/table.xhtml"].replace("LINES_AFTER", "".join(lines_after))
-# The same for two sections near the book's end, which continuous scroll could otherwise show
-# from the end of the book.
+# The same for three sections near the book's end, which continuous scroll could otherwise
+# show from the end of the book.
 files["OPS/offers.xhtml"] = files["OPS/offers.xhtml"].replace(
     "LINES_BELOW", "".join(f"<p>Below line {i:02d}.</p>" for i in range(1, 61)))
 files["OPS/entries.xhtml"] = files["OPS/entries.xhtml"].replace(
     "ENTRY_LINES_AFTER", "".join(f"<p>Line {i:02d} after the entries.</p>" for i in range(1, 61)))
+files["OPS/cells.xhtml"] = files["OPS/cells.xhtml"].replace(
+    "GRID_LINES_AFTER", "".join(f"<p>Line {i:02d} after the grid.</p>" for i in range(1, 61)))
 
 # A second book of ordinary paragraphs, for continuous scroll: chapters of forty, forty and six
 # paragraphs, each of forty numbered words ("p017w23" is the seventeenth paragraph's
@@ -212,7 +237,7 @@ files["OPS/entries.xhtml"] = files["OPS/entries.xhtml"].replace(
 chapters = {"one": range(1, 41), "two": range(41, 81), "three": range(81, 87)}
 paragraphs = dict(files)
 for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "scenes.xhtml", "offers.xhtml",
-             "entries.xhtml", "grids.xhtml", "ledger.xhtml", "tallrow.xhtml", "square.svg", "titled.svg"]:
+             "entries.xhtml", "cells.xhtml", "grids.xhtml", "ledger.xhtml", "tallrow.xhtml", "square.svg", "titled.svg"]:
     del paragraphs["OPS/" + name]
 paragraphs["OPS/package.opf"] = (
     '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
