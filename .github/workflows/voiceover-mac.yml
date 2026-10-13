@@ -199,6 +199,14 @@ jobs:
           mkdir -p "$RESULTS"
           screencapture -x "$RESULTS/screen-end.png"
           echo "VoiceOver state: $(defaults read com.apple.universalaccess voiceOverOnOffKey 2>&1), process: $(pgrep -lx VoiceOver || echo none)"
+          # VoiceOver or the reader quitting in a session shows as a transcript that goes quiet
+          # or starts over. macOS writes the report a few seconds after the process ends.
+          sleep 5
+          for report in "$HOME"/Library/Logs/DiagnosticReports/*.ips /Library/Logs/DiagnosticReports/*.ips; do
+            case "$(basename "$report")" in
+              VoiceOver*|VoiceOverVerificationMac*) cp "$report" "$RESULTS/crash-$(basename "$report").txt" && echo "Crash report: $(basename "$report")" ;;
+            esac
+          done
           if [ "$JOB_STATUS" != success ]; then
             # The banner's starts and the kernel's kills of it, and anything from Dictation.
             /usr/bin/log show --last 20m --style compact --info --predicate \

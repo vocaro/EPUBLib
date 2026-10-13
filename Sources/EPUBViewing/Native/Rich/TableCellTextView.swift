@@ -245,6 +245,10 @@ typealias TableNativeTextView = UITextView
     }
 
     #if os(macOS)
+    /// The cell of a table of data whose words the view holds, which is then what holds the
+    /// view for an assistive technology.
+    weak var tableCellElement: NSAccessibilityElement?
+    override func accessibilityParent() -> Any? { tableCellElement ?? super.accessibilityParent() }
     override var isFlipped: Bool { true }
     override var textContainerOrigin: NSPoint { CGPoint(x: -textOffset.x, y: -textOffset.y) }
     override func accessibilityValue() -> String? { (cellText.string as NSString).substring(with: shownCharacters) }
