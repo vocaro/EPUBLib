@@ -28,6 +28,20 @@ Drive iOS simulators headlessly, with `xcrun simctl` and `xcodebuild`.
   Such a tool asks him to approve each device, and a test device is new on every run, so he
   is asked every time.
 
+## Tests are automated
+
+Do not ask the owner to carry out a test by hand: to tap, type or swipe through steps and say
+what happened. Tests are run by automation.
+
+- Before proposing a physical device, say what it would show that a simulator cannot. A check
+  said to need a finger usually needs a timing or an input that a UI test can make. Whether a
+  swipe scrolls the control strip was put to a finger and answered by a synthetic touch that
+  moves at once, with the host recording each touch
+  ([reader controls](doc/issue-49-51-controls-qualification.md#evidence-and-repeating-it)).
+- His approval of a run on his device covers installing and launching there. It is not an
+  offer to operate it.
+- Record what automation cannot reach as not verified, and leave it to him.
+
 ## Mac VoiceOver sessions
 
 Run a Mac VoiceOver speech session on GitHub's hosted runner, not on this machine. On the
