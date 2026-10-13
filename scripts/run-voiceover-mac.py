@@ -303,7 +303,7 @@ def main():
             if events_path.exists():
                 # What the reader reported and exposed, beside what VoiceOver said about it.
                 kinds = (" EVENT AXValueChanged", " EVENT AXLayoutChanged", " EVENT AXSelectedTextChanged", " STATE", " LINE", " PRESS",
-                         " RESIZE", " FOCUS", " MISSING", " CHILD", " LINK", " CARET", " ELEMENT", " ACTION")
+                         " RESIZE", " FOCUS", " MISSING", " CHILD", " LINK", " CARET", " ELEMENT", " ACTION", " TABLE")
                 transcript += [line for line in events_path.read_text(errors="replace").splitlines() if line[24:].startswith(kinds)]
             transcript_path = args.results / f"mac-{stamp}.transcript.txt"
             transcript_path.write_text("\n".join(sorted(transcript)) + "\n")

@@ -37,7 +37,7 @@ func shortValue(_ element: AXUIElement) -> String { describe(string(element, kAX
 let steps = Array(CommandLine.arguments.dropFirst(3))
 guard CommandLine.arguments.count >= 2,
       let pid = pid_t(CommandLine.arguments[1]), pid > 0 else {
-    fputs("Usage: voiceover-ax-observer PID [seconds] [next|previous|press=LABEL|larger|smaller|width=POINTS|focus[=COLUMN|=search]|lines|links|actions[=all]|action=NAME|caret=WORDS|follow=WORDS|wait=SECONDS ...]\n"
+    fputs("Usage: voiceover-ax-observer PID [seconds] [next|previous|press=LABEL|larger|smaller|width=POINTS|focus[=COLUMN|=search]|lines|links|tables|actions[=all]|action=NAME|caret=WORDS|follow=WORDS|wait=SECONDS ...]\n"
         + "A single step of - reads one step per line from standard input.\n", stderr)
     exit(1)
 }
@@ -170,6 +170,56 @@ func embeddedElement(naming words: String) -> AXUIElement? {
     return nil
 }
 
+/// What an element says of itself and of what it holds: its label, or its value, or its children's.
+func said(_ element: AXUIElement) -> String {
+    for key in [kAXDescriptionAttribute, kAXTitleAttribute, kAXValueAttribute] {
+        if let text = attribute(element, key) as? String, !text.isEmpty { return text }
+    }
+    return (attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []).map(said).filter { !$0.isEmpty }.joined(separator: " ")
+}
+func elementList(_ element: AXUIElement, _ name: String) -> [AXUIElement] { attribute(element, name) as? [AXUIElement] ?? [] }
+/// Each table a column's text gives for a row's character, as a client of the accessibility
+/// API is given it: its attributes, its rows, and each cell with the rows and columns it
+/// covers, what it holds and the cells that head it.
+func tables() {
+    for (index, text) in columns().enumerated() {
+        var seen: [AXUIElement] = []
+        for run in embeddedRuns(text) {
+            guard let attachment = run.attachment else { continue }
+            let role = string(attachment, kAXRoleAttribute)
+            guard role == kAXTableRole || role == kAXRowRole else { continue }
+            var table: AXUIElement? = role == kAXTableRole ? attachment : nil
+            if table == nil, let parent = attribute(attachment, kAXParentAttribute), CFGetTypeID(parent) == AXUIElementGetTypeID(),
+               string(parent as! AXUIElement, kAXRoleAttribute) == kAXTableRole { table = (parent as! AXUIElement) }
+            log("TABLE \(index) AT \(run.range.location) ATTACHMENT \(role) INDEX \(attribute(attachment, kAXIndexAttribute) as? Int ?? -1) OF TABLE \(table == nil ? "none" : "found")")
+            guard let table, !seen.contains(where: { CFEqual($0, table) }) else { continue }
+            seen.append(table)
+            let number = "\(index).\(seen.count - 1)"
+            var names: CFArray?
+            AXUIElementCopyAttributeNames(table, &names)
+            log("TABLE \(number) NAMES \((names as? [String] ?? []).sorted().joined(separator: ","))")
+            func words(_ name: String) -> String { elementList(table, name).map { "\"\(said($0))\"" }.joined(separator: ",") }
+            let rows = elementList(table, kAXRowsAttribute)
+            log("TABLE \(number) ROWS \(rows.count) VISIBLE \(elementList(table, kAXVisibleRowsAttribute).count) COLUMNS \(elementList(table, kAXColumnsAttribute).count)"
+                + " COUNT \(attribute(table, "AXRowCount") as? Int ?? -1)x\(attribute(table, "AXColumnCount") as? Int ?? -1)"
+                + " COLUMNHEADERS \(words(kAXColumnHeaderUIElementsAttribute)) ROWHEADERS \(words("AXRowHeaderUIElements"))"
+                + " PARENT \((attribute(table, kAXParentAttribute)).map { string($0 as! AXUIElement, kAXRoleAttribute) } ?? "none")")
+            for (line, row) in rows.prefix(12).enumerated() {
+                let cells = elementList(row, kAXChildrenAttribute)
+                log("TABLEROW \(number).\(String(format: "%02d", line)) \(string(row, kAXRoleAttribute)) \(string(row, kAXSubroleAttribute)) INDEX \(attribute(row, kAXIndexAttribute) as? Int ?? -1) CELLS \(cells.count)")
+                for (place, cell) in cells.enumerated() {
+                    func span(_ name: String) -> String { range(attribute(cell, name)).map { "\($0.location),\($0.length)" } ?? "none" }
+                    func heads(_ name: String) -> String { elementList(cell, name).map { "\"\(said($0))\"" }.joined(separator: ",") }
+                    let held = elementList(cell, kAXChildrenAttribute).map { string($0, kAXRoleAttribute) }.joined(separator: ",")
+                    log("TABLECELL \(number).\(String(format: "%02d", line)).\(place) \(string(cell, kAXRoleAttribute)) ROWS \(span("AXRowIndexRange")) COLUMNS \(span("AXColumnIndexRange"))"
+                        + " SAID \"\(said(cell).prefix(40))\" HOLDS \(held.isEmpty ? "nothing" : held) COLUMNHEADERS \(heads(kAXColumnHeaderUIElementsAttribute))"
+                        + " ROWHEADERS \(heads("AXRowHeaderUIElements")) ACTIONS \(actions(cell))")
+                }
+            }
+        }
+    }
+}
+
 /// A column, whatever holds it up to the window, and any other element with a named action,
 /// each with its depth: where a named action is, and so what VoiceOver's cursor must be on
 /// for its Actions menu to hold it. With `everything`, each element of the window.
@@ -274,6 +324,9 @@ func perform(_ step: String) {
     case "lines": pause = 0
     case "links":
         links()
+        pause = 0
+    case "tables":
+        tables()
         pause = 0
     case "caret":
         // The insertion point before the first of these words: VoiceOver enters a text there.
