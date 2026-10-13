@@ -220,9 +220,7 @@ var registered: [AXUIElement] = []
 var observer: AXObserver?
 let result = AXObserverCreate(pid, { _, element, notification, source in
     let selection = range(attribute(element, kAXSelectedTextRangeAttribute)).map { " SELECTION \($0.location),\($0.length)" } ?? ""
-    // PROBE, not for merge: the role of the element an application-wide event is about.
-    let role = source == nil ? " ROLE \(string(element, kAXRoleAttribute))" : ""
-    log("EVENT \(notification) VIA \(source.map { "TEXT \(Int(bitPattern: $0) - 1)" } ?? "APP")\(role)\(selection) VALUE \(shortValue(element))")
+    log("EVENT \(notification) VIA \(source.map { "TEXT \(Int(bitPattern: $0) - 1)" } ?? "APP")\(selection) VALUE \(shortValue(element))")
 }, &observer)
 guard let observer else { log("OBSERVER \(result.rawValue)"); exit(3) }
 /// Text areas come and go with the column count; the application registration covers the gaps.

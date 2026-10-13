@@ -199,7 +199,6 @@ final class ReaderTextView: NSTextView {
     /// its element carries the reader's word for one, for VoiceOver to say that a break is
     /// there. A heading's characters carry its level, shown or hidden.
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
-        probe("AXGET AttributedStringForRange \(range.location),\(range.length)")
         guard !isPageColumn || validPageAccessibilityRange(range),
               let base = super.accessibilityAttributedString(for: range) else { return nil }
         let attachments = textualAttachments(in: range)
@@ -340,59 +339,11 @@ final class ReaderTextView: NSTextView {
     }
 
     override func accessibilityVisibleCharacterRange() -> NSRange {
-        let range = isPageColumn ? shownCharacters : super.accessibilityVisibleCharacterRange()
-        probe("AXGET VisibleCharacterRange = \(range.location),\(range.length)")
-        return range
-    }
-
-    // PROBE, not for merge.
-    func probe(_ text: @autoclosure () -> String, stack: Bool = false) {
-        if ReaderProbe.isOn, !isPageColumn { ReaderProbe.log(text(), stack: stack) }
-    }
-
-    override func setAccessibilityVisibleCharacterRange(_ range: NSRange) {
-        probe("AXSET VisibleCharacterRange \(range.location),\(range.length)", stack: true)
-        ReaderProbe.client += 1
-        defer { ReaderProbe.client -= 1 }
-        super.setAccessibilityVisibleCharacterRange(range)
-    }
-
-    override func accessibilityPerformAction(_ action: NSAccessibility.Action) {
-        probe("AXACTION \(action.rawValue)", stack: true)
-        ReaderProbe.client += 1
-        defer { ReaderProbe.client -= 1 }
-        super.accessibilityPerformAction(action)
-    }
-
-    override func accessibilitySetValue(_ value: Any?, forAttribute attribute: NSAccessibility.Attribute) {
-        let text = "AXSETVALUE \(attribute.rawValue) \(String(describing: value).prefix(80))"
-        MainActor.assumeIsolated {
-            probe(text)
-            ReaderProbe.client += 1
-        }
-        super.accessibilitySetValue(value, forAttribute: attribute)
-        MainActor.assumeIsolated { ReaderProbe.client -= 1 }
-    }
-
-    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
-        let value = super.accessibilityAttributeValue(attribute)
-        let text = "AXREAD \(attribute.rawValue) = \(String(describing: value).prefix(48).replacingOccurrences(of: "\n", with: " "))"
-        MainActor.assumeIsolated { probe(text) }
-        return value
-    }
-
-    override func accessibilityAttributeValue(_ attribute: NSAccessibility.ParameterizedAttribute, forParameter parameter: Any?) -> Any? {
-        let value = super.accessibilityAttributeValue(attribute, forParameter: parameter)
-        let text = "AXASK \(attribute.rawValue) \(String(describing: parameter).prefix(60)) = \(String(describing: value).prefix(60).replacingOccurrences(of: "\n", with: " "))"
-        MainActor.assumeIsolated { probe(text) }
-        return value
+        isPageColumn ? shownCharacters : super.accessibilityVisibleCharacterRange()
     }
 
     override func accessibilityString(for range: NSRange) -> String? {
-        guard isPageColumn else {
-            probe("AXGET StringForRange \(range.location),\(range.length)")
-            return super.accessibilityString(for: range)
-        }
+        guard isPageColumn else { return super.accessibilityString(for: range) }
         return validPageAccessibilityRange(range) ? plainCharacters(in: range) : nil
     }
 
@@ -402,7 +353,6 @@ final class ReaderTextView: NSTextView {
     }
 
     override func accessibilityFrame(for range: NSRange) -> NSRect {
-        probe("AXGET FrameForRange \(range.location),\(range.length)")
         guard !isPageColumn || validPageAccessibilityRange(range) else { return .zero }
         return super.accessibilityFrame(for: range)
     }
@@ -435,21 +385,13 @@ final class ReaderTextView: NSTextView {
     }
 
     override func accessibilityRange(forLine line: Int) -> NSRange {
-        guard isPageColumn else {
-            let range = super.accessibilityRange(forLine: line)
-            probe("AXGET RangeForLine \(line) = \(range.location),\(range.length)")
-            return range
-        }
+        guard isPageColumn else { return super.accessibilityRange(forLine: line) }
         let lines = pageAccessibilityLines
         return lines.indices.contains(line) ? lines[line].range : NSRange(location: NSNotFound, length: 0)
     }
 
     override func accessibilityLine(for index: Int) -> Int {
-        guard isPageColumn else {
-            let line = super.accessibilityLine(for: index)
-            probe("AXGET LineForIndex \(index) = \(line)")
-            return line
-        }
+        guard isPageColumn else { return super.accessibilityLine(for: index) }
         // The insertion point after the page's last character is on its last line, and so is
         // an offset VoiceOver kept from a longer previous page. Without a line there, it
         // announces 9,223,372,036,854,775,808 visible lines or reads nothing on entering.
@@ -459,9 +401,7 @@ final class ReaderTextView: NSTextView {
     }
 
     override func accessibilitySelectedTextRange() -> NSRange {
-        let range = isPageColumn ? boundedPageAccessibilityRange(selectedRange) : super.accessibilitySelectedTextRange()
-        probe("AXGET SelectedTextRange = \(range.location),\(range.length)")
-        return range
+        isPageColumn ? boundedPageAccessibilityRange(selectedRange) : super.accessibilitySelectedTextRange()
     }
 
     override func accessibilitySelectedTextRanges() -> [NSValue]? {
@@ -473,13 +413,7 @@ final class ReaderTextView: NSTextView {
     }
 
     override func setAccessibilitySelectedTextRange(_ range: NSRange) {
-        guard isPageColumn else {
-            probe("AXSET SelectedTextRange \(range.location),\(range.length) WAS \(selectedRange.location),\(selectedRange.length)", stack: true)
-            if canvas?.probeRefuses(range) == true { return probe("REFUSED") }
-            ReaderProbe.client += 1
-            defer { ReaderProbe.client -= 1 }
-            return super.setAccessibilitySelectedTextRange(range)
-        }
+        guard isPageColumn else { return super.setAccessibilitySelectedTextRange(range) }
         // VoiceOver restores its own text cursor on entering a column, even from a longer
         // previous page: keep that caret on this page. A selection of hidden text is refused.
         if range.length == 0, range.location != NSNotFound {
@@ -490,17 +424,12 @@ final class ReaderTextView: NSTextView {
     }
 
     override func setAccessibilitySelectedTextRanges(_ ranges: [NSValue]?) {
-        probe("AXSET SelectedTextRanges \((ranges ?? []).map { "\($0.rangeValue.location),\($0.rangeValue.length)" })", stack: true)
         guard !isPageColumn || (ranges ?? []).allSatisfy({ validPageAccessibilityRange($0.rangeValue) }) else { return }
         super.setAccessibilitySelectedTextRanges(ranges)
     }
 
     override func accessibilityInsertionPointLineNumber() -> Int {
-        guard isPageColumn else {
-            let line = super.accessibilityInsertionPointLineNumber()
-            probe("AXGET InsertionPointLineNumber = \(line)")
-            return line
-        }
+        guard isPageColumn else { return super.accessibilityInsertionPointLineNumber() }
         let index = min(accessibilitySelectedTextRange().location, max(0, shownCharacters.length - 1))
         return accessibilityLine(for: index)
     }
@@ -524,9 +453,7 @@ final class ReaderTextView: NSTextView {
         let flow = canvas.configuration.flow
         return (super.accessibilityCustomActions() ?? []) + [EPUBPageAction.next, .previous].map { action in
             NSAccessibilityCustomAction(name: action.label(in: flow)) { [weak self] in
-                let turned = self?.canvas?.turnPageFromAccessibility(forward: action == .next) ?? false
-                self?.probe("ACTION \(action.label(in: flow)) returns \(turned)", stack: true)
-                return turned
+                self?.canvas?.turnPageFromAccessibility(forward: action == .next) ?? false
             }
         }
     }

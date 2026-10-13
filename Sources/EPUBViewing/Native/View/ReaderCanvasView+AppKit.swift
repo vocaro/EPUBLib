@@ -73,13 +73,7 @@ extension ReaderCanvasView: NSTextViewDelegate {
     }
 
     @objc private func scrollBoundsDidChange(_ notification: Notification) {
-        guard let clip = notification.object as? NSClipView, clip.documentView === scrollTextView else { return }
-        if ReaderProbe.isOn {
-            let own = isScrollingProgrammatically
-            ReaderProbe.log("SCROLL y=\(Int(clip.bounds.minY)) \(own ? "reader" : "OTHER") client=\(ReaderProbe.client) event=\(NSApp.currentEvent.map { "\($0.type.rawValue)" } ?? "none")", stack: !own)
-        }
-        probeScrolled()
-        scrollPositionDidChange()
+        if (notification.object as? NSClipView)?.documentView === scrollTextView { scrollPositionDidChange() }
     }
 
     @objc private func scrollViewportDidChange(_ notification: Notification) {
