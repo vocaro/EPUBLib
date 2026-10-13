@@ -215,6 +215,7 @@ extension ReaderTextView: ReaderLinkHost {
     var visibleLinkCharacters: NSRange { accessibilityVisibleCharacterRange() }
 
     func linkBounds(_ range: NSRange) -> CGRect {
+        holdScrollPlace()
         var frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
         if frame.isNull { frame = lineFrame(containing: range.location) ?? .zero }
         let origin = containerOrigin
@@ -362,7 +363,11 @@ final class ReaderLinkAccessibilityElement: NSAccessibilityElement {
     }
 
     // TRIAL, not for main: what an assistive client asks of a link.
+    private var probing = false
     private func probeLink(_ text: String, stack: Bool = false) {
+        guard !probing else { return }
+        probing = true
+        defer { probing = false }
         let title = accessibilityTitle() ?? "", listed = listing != nil, place = listedPlace, range = range
         let live = view != nil
         MainActor.assumeIsolated {
