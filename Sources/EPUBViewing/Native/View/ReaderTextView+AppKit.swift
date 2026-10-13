@@ -97,10 +97,11 @@ final class ReaderTextView: NSTextView {
 
     /// When a live resize ends, AppKit's text view scrolls itself: the paragraph under the top
     /// edge of the clip view goes to that edge, from its first line (`scrollToLocation:` the
-    /// paragraph's start with no offset, macOS 27.0). That edge is the text's top margin above
-    /// the first line on screen, so at the top of a book the title went 48 points above the
-    /// screen, and anywhere else the text went back to the start of a paragraph, at every
-    /// resize. Continuous scroll keeps its place through a resize itself (`layOutScroll`), and
+    /// paragraph's start with no offset, macOS 27.0). That edge is above the first line on
+    /// screen by the text's top margin, and by a toolbar over the reader. At the top of a book
+    /// the title went 48 points above the screen, 114 under a toolbar, and anywhere else the
+    /// text went back to the start of a paragraph, further at every resize.
+    /// Continuous scroll keeps its place through a resize itself (`layOutScroll`), and
     /// AppKit tells a view that the resize has ended before it tells that view's subviews: by
     /// now the canvas has rested the kept position, and it puts the view back there.
     override func viewDidEndLiveResize() {

@@ -1385,8 +1385,9 @@ The Mac runner's transcript is plain text and needs no export.
   above the screen; a session that changed to continuous scroll after its resize began at
   the top. The same scroll is made in a unit test with no assistive client, by a window
   resized with animation, which ends in the same two calls
-  (`ScrolledLiveResizeTests`): 48 points at the top of a book, and back to the start of a
-  paragraph anywhere else, 279 and 304 points in the tests' prose. With the change the
+  (`ScrolledLiveResizeTests`): 48 points at the top of a book, 114 under a toolbar, and
+  back to the start of a paragraph anywhere else, 279 and 304 points in the tests' prose
+  and further at each resize. With the change the
   tests' reader stays at the top and VoiceOver would enter at the title. Not heard: a
   hosted session after the change. Not made: a drag of the window's edge with a mouse,
   which ends a live resize the same way.

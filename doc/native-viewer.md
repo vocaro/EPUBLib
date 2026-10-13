@@ -842,10 +842,12 @@ as they did.
   of the window's edge and after a resize made with animation or by an assistive client: the
   paragraph under the clip view's top edge goes to that edge, from its first line
   (`-[NSTextView viewDidEndLiveResize]`, which scrolls to the paragraph's start with no
-  offset, macOS 27.0). That edge is the text's 48-point top margin above the first line on
-  screen. A reader at the top of its book stood 48 points down, its title above the screen,
-  and anywhere else the text went back to the start of a paragraph, by up to the paragraph's
-  height, at each resize. The reader took that for a scroll by the person: it kept the new
+  offset, macOS 27.0). That edge is above the first line on screen by the text's 48-point
+  top margin, and by the height of a toolbar over the reader. A reader at the top of its book
+  stood 48 points down, its title above the screen, and 114 points down under a 66-point
+  toolbar. Anywhere else the text went back to the start of a paragraph, 279 and 304 points
+  in the tests' prose, and further at each resize: 574 and 650 points after a second and a
+  third. The reader took that for a scroll by the person: it kept the new
   place, and put the insertion point VoiceOver enters at on the line then first on screen.
   AppKit tells a view that the resize has ended before it tells that view's subviews, so the
   canvas has rested the kept position by the time the text view scrolls. The reader reads
