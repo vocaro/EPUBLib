@@ -92,8 +92,8 @@ struct QualificationScreen: View {
         switch defaults.string(forKey: "QualificationHost") ?? "toolbar" {
         case "strip":
             VStack(spacing: 0) {
-                // Padding hides the strip's own layout priority from the stack.
-                EPUBReaderControlStrip(controls: controls).padding(.horizontal).layoutPriority(1)
+                // Padding and a frame hide the strip's own layout priority from the stack.
+                strip(controls).padding(.horizontal).layoutPriority(1)
                 reader(controls)
             }
         case "navigator":
@@ -126,6 +126,20 @@ struct QualificationScreen: View {
                     EPUBReaderToolbar(controls: controls, groups: [.pages])
                     #endif
                 }
+        }
+    }
+
+    /// `-QualificationStripGroups pages,contents,appearance,readingMode` gives the strip those
+    /// groups in that order, and `-QualificationStripRoom <points>` offers it no more height than
+    /// that: a strip without its search field raises no keyboard to be short of room under.
+    @ViewBuilder private func strip(_ controls: EPUBReaderControls) -> some View {
+        let names = (defaults.string(forKey: "QualificationStripGroups") ?? "").split(separator: ",")
+        let groups = names.isEmpty ? EPUBReaderControlGroup.allCases : names.compactMap { EPUBReaderControlGroup(rawValue: String($0)) }
+        let room = defaults.double(forKey: "QualificationStripRoom")
+        if room > 0 {
+            EPUBReaderControlStrip(controls: controls, groups: groups).frame(maxHeight: room)
+        } else {
+            EPUBReaderControlStrip(controls: controls, groups: groups)
         }
     }
 
