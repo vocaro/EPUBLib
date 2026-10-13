@@ -188,6 +188,12 @@ final class ReaderLinkAccessibilityElement: NSAccessibilityElement {
         return MainActor.assumeIsolated { NSAccessibility.screenRect(fromView: view, rect: view.linkFrame(range)) }
     }
 
+    // The rotors of its text: VoiceOver looks for them on the element its cursor is on.
+    override func accessibilityCustomRotors() -> [NSAccessibilityCustomRotor] {
+        guard let view else { return [] }
+        return MainActor.assumeIsolated { view.accessibilityCustomRotors() }
+    }
+
     override func accessibilityPerformPress() -> Bool {
         guard let view, let url else { return false }
         let range = range
