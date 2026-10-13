@@ -434,19 +434,18 @@ final class ReaderTextView: NSTextView {
 
     // VoiceOver's Actions menu holds the actions of the item under its cursor. On a column and
     // at every line and word inside one, that item is the text area, so each text area offers
-    // the page turn itself: named as the host's buttons are for the flow, and doing what a page
-    // key does. A view's named actions in SwiftUI reach no element of the window. A note's text
-    // has no canvas and no page to turn. The turn is made before the handler returns: made
-    // after it, VoiceOver settled on a line that was neither the one it had been on nor the
-    // new first one.
+    // the page turn itself, named as the host's buttons are for the flow. It is a turn asked
+    // for by name, as a line's is on iPhone and iPad: selected text does not hold it back, and
+    // it fails at either end of the book. A view's named actions in SwiftUI reach no element of
+    // the window. A note's text has no canvas and no page to turn. The turn is made before the
+    // handler returns: made after it, VoiceOver settled on a line that was neither the one it
+    // had been on nor the new first one.
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         guard let canvas else { return super.accessibilityCustomActions() }
         let flow = canvas.configuration.flow
         return (super.accessibilityCustomActions() ?? []) + [EPUBPageAction.next, .previous].map { action in
             NSAccessibilityCustomAction(name: action.label(in: flow)) { [weak self] in
-                guard let canvas = self?.canvas else { return false }
-                canvas.turnPageFromInput(forward: action == .next)
-                return true
+                self?.canvas?.turnPageFromAccessibility(forward: action == .next) ?? false
             }
         }
     }

@@ -53,8 +53,8 @@ import AppKit
         XCTAssertTrue(view.isPageColumn)
         XCTAssertEqual(names(view), ["Next Page", "Previous Page"])
         let first = try XCTUnwrap(canvas.visibleRange)
-        XCTAssertTrue(try perform("Previous Page", on: view))
-        XCTAssertEqual(canvas.visibleRange, first, "the book's first page has none before it")
+        XCTAssertFalse(try perform("Previous Page", on: view), "the book's first page has none before it")
+        XCTAssertEqual(canvas.visibleRange, first)
         XCTAssertTrue(try perform("Next Page", on: view))
         let second = try XCTUnwrap(canvas.visibleRange)
         XCTAssertEqual(second.start, first.end, "the next page starts where the first one ended")
@@ -83,7 +83,7 @@ import AppKit
         let first = canvas.textViews[0], second = canvas.textViews[1]
         // The book's first spread has none before it: nothing turns, and focus stays.
         XCTAssertTrue(window.makeFirstResponder(second))
-        XCTAssertTrue(try perform("Previous Page", on: second))
+        XCTAssertFalse(try perform("Previous Page", on: second))
         XCTAssertTrue(window.firstResponder === second)
         // VoiceOver follows keyboard focus, and would pass over the new first column otherwise.
         XCTAssertTrue(try perform("Next Page", on: second))
@@ -107,6 +107,8 @@ import AppKit
         XCTAssertFalse(view.isPageColumn)
         XCTAssertEqual(names(view), ["Scroll Forward", "Scroll Backward"])
         let first = try XCTUnwrap(canvas.visibleRange)
+        XCTAssertFalse(try perform("Scroll Backward", on: view), "the book starts here")
+        XCTAssertEqual(canvas.visibleRange, first)
         XCTAssertTrue(try perform("Scroll Forward", on: view))
         let second = try XCTUnwrap(canvas.visibleRange)
         XCTAssertGreaterThan(second.start, first.start)
@@ -115,7 +117,7 @@ import AppKit
         XCTAssertEqual(canvas.visibleRange?.start, first.start)
     }
 
-    func testAnActionDoesWhatAPageKeyDoes() throws {
+    func testAnActionGoesAsFarAsAPageKeyDoes() throws {
         for flow in [EPUBReadingFlow.paginated, .scrolled] {
             let byKey = host(flow: flow), byAction = host(flow: flow)
             XCTAssertEqual(byKey.canvas.visibleRange, byAction.canvas.visibleRange)
@@ -161,16 +163,15 @@ import AppKit
         XCTAssertEqual(canvas.visibleRange?.start, first.end)
     }
 
-    func testAnActionLeavesASelectionWhereItIsAsAPageKeyDoes() throws {
+    func testSelectedTextDoesNotHoldAnActionBackAsItDoesAPageKey() throws {
         let host = host()
         let canvas = host.canvas, view = try XCTUnwrap(canvas.textViews.first)
         let first = try XCTUnwrap(canvas.visibleRange)
         view.setSelectedRange(NSRange(location: 0, length: 5))
         XCTAssertTrue(canvas.hasSelection)
-        XCTAssertTrue(try perform("Next Page", on: view))
-        XCTAssertEqual(canvas.visibleRange, first)
-        view.setSelectedRange(NSRange(location: 0, length: 0))
-        XCTAssertTrue(try perform("Next Page", on: view))
+        view.keyDown(with: pageDown(in: host))
+        XCTAssertEqual(canvas.visibleRange, first, "a key could be meant for the selection")
+        XCTAssertTrue(try perform("Next Page", on: view), "a turn asked for by name is not")
         XCTAssertEqual(canvas.visibleRange?.start, first.end)
     }
 
