@@ -243,9 +243,16 @@ final class ReaderTextView: UITextView {
     /// its cursor stays on one item, as a line's Next Page, and on coming to another item
     /// its rotor is at its default. A line and a cell are one class of element for this: the
     /// element under the cursor is a cell on one page and a line on the next.
+    ///
+    /// From a cell to a cell the answer is `line`, the new cell's own element. VoiceOver says
+    /// a cell's row and column, and where its table starts, of an item its cursor comes to,
+    /// and of the item already under its cursor only when that item was no cell before: a
+    /// line that became a cell was read as a new cell is, and a cell that became another
+    /// was read by its words alone, the rotor kept each time (iOS 27.0 simulator). A reader
+    /// of a table needs the row a page begins at more than the rotor's place.
     func accessibilityCursorStands(for line: Any?) -> Any? {
         guard let line = line as? ReaderPageAccessibilityElement, let cursor = pageAccessibilityCursor, cursor !== line,
-              let view = line.view, var list = view.pageAccessibilityCache,
+              !(cursor.isCell && line.isCell), let view = line.view, var list = view.pageAccessibilityCache,
               let index = list.elements.firstIndex(where: { $0 === line }) else { return line }
         if let table = line.accessibilityContainer as? ReaderTableAccessibilityElement {
             guard table.cells.contains(where: { $0 === line }) else { return line }
