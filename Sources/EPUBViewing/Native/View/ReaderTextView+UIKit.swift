@@ -27,7 +27,7 @@ final class ReaderTextView: UITextView {
     private var imageGestureDelegate: ReaderImageGestureDelegate?
     private var selectionGestureDelegate: ReaderSpreadSelectionGestureDelegate?
     /// VoiceOver's Headings rotor for the lines this view lists.
-    fileprivate lazy var headingRotor = UIAccessibilityCustomRotor(systemType: .heading) { [weak self] predicate in
+    private lazy var headingRotor = UIAccessibilityCustomRotor(systemType: .heading) { [weak self] predicate in
         self?.heading(for: predicate)
     }
 
@@ -198,44 +198,35 @@ final class ReaderTextView: UITextView {
     }
 
     // VoiceOver's own Headings rotor moves among the elements it is given, and a page or a
-    // screen holds few of a book's headings: past the last of them it finds none. So the reader
-    // gives VoiceOver that rotor itself, and goes on to the book's next heading. VoiceOver
-    // says "Actions available" after every item that has such a rotor. A page's lines say so
-    // already, for their page actions, and the column gives them all the rotor. A line of the
-    // scroll view says nothing after its words, and there only the headings have it
-    // (`ReaderPageAccessibilityElement`): from a line that is no heading VoiceOver's own rotor
-    // finds the headings on screen, and from a heading the reader's goes on through the book.
+    // screen holds few of a book's headings: past the last of them it finds none. So the lines'
+    // container gives VoiceOver that rotor itself, and goes on to the book's next heading.
+    // What VoiceOver says of a line is the same with it: every line said "Actions available"
+    // before, in pages and in continuous scroll.
     override var accessibilityCustomRotors: [UIAccessibilityCustomRotor]? {
-        get { isPageColumn ? [headingRotor] : super.accessibilityCustomRotors }
+        get { listsLines ? [headingRotor] : super.accessibilityCustomRotors }
         set { super.accessibilityCustomRotors = newValue }
     }
 
-    /// The heading after or before the item under VoiceOver's cursor: the next one listed, as
-    /// its own rotor finds it, and past the page or the screen the book's next, which the
-    /// reader turns or scrolls to. A heading in several elements, around a link, is one stop.
+    /// The heading of the book after or before the item under VoiceOver's cursor: on the page
+    /// or the screen when it is there, and otherwise wherever it is, which the reader turns or
+    /// scrolls to. A heading in several elements, around a link, is one stop, at its first
+    /// words. The search goes by the item's place in the book, not by where it is listed:
+    /// VoiceOver asks twice for one move, the second time from the same item, though the first
+    /// answer may have turned the page that item was on, and both answers must be the same.
     private func heading(for predicate: UIAccessibilityCustomRotorSearchPredicate) -> UIAccessibilityCustomRotorItemResult? {
         guard let canvas else { return nil }
         let forward = predicate.searchDirection == .next
-        let listed = lineAccessibilityElements
-        let cursor = predicate.currentItem.targetElement as? ReaderPageAccessibilityElement
-        let index = cursor.flatMap { cursor in
-            listed.firstIndex { $0 === cursor } ?? listed.firstIndex { $0.range == cursor.range && $0.url == cursor.url }
+        var from = (predicate.currentItem.targetElement as? ReaderPageAccessibilityElement)?.position
+        if from == nil {
+            // With the cursor on none of the reader's lines: from before the first listed, or after the last.
+            let listed = lineAccessibilityElements
+            if forward {
+                from = listed.first?.position.map { ReaderTextPosition(section: $0.section, offset: $0.offset - 1) }
+            } else {
+                from = listed.last.flatMap { canvas.position(at: NSMaxRange($0.range), in: self) }
+            }
         }
-        // With the cursor on none of these lines, the search begins before the first or after the last.
-        let rest = forward ? listed[((index ?? -1) + 1)...] : listed[..<(index ?? listed.count)]
-        let own = index.flatMap { listed[$0].heading }
-        func result(_ element: ReaderPageAccessibilityElement) -> UIAccessibilityCustomRotorItemResult {
-            UIAccessibilityCustomRotorItemResult(targetElement: element, targetRange: nil)
-        }
-        if forward, let next = rest.first(where: { $0.heading != nil && $0.heading !== own }) { return result(next) }
-        if !forward, let previous = rest.last(where: { $0.heading != nil && $0.heading !== own }) {
-            // Its first element listed, where its words begin.
-            return result(rest.first { $0.heading === previous.heading } ?? previous)
-        }
-        // Past what is listed: after the last character listed, or before the first.
-        guard let first = listed.first, let last = listed.last,
-              let edge = canvas.position(at: forward ? NSMaxRange(last.range) - 1 : first.range.location, in: self),
-              let target = canvas.heading(from: edge, forward: forward) else { return nil }
+        guard let from, let target = canvas.heading(from: from, forward: forward) else { return nil }
         func shown() -> ReaderPageAccessibilityElement? {
             for view in canvas.textViews {
                 guard let local = canvas.localRange(of: ReaderTextRange(section: target.section, target.offset..<(target.offset + 1)), in: view)
@@ -244,10 +235,9 @@ final class ReaderTextView: UITextView {
             }
             return nil
         }
-        // It can be in the spread's other column already; otherwise the reader goes to it.
-        if let element = shown() { return result(element) }
-        canvas.show(target, selecting: nil)
-        return shown().map(result)
+        // It can be on the page or the screen already; otherwise the reader goes to it.
+        if shown() == nil { canvas.show(target, selecting: nil) }
+        return shown().map { UIAccessibilityCustomRotorItemResult(targetElement: $0, targetRange: nil) }
     }
 
     /// A page column and the canvas's scroll view list their lines; a note keeps UIKit's elements.
@@ -392,7 +382,7 @@ final class ReaderTextView: UITextView {
                 // ends the phrase there, before it has said that this is a heading.
                 if heading != nil, let end = label.lastIndex(where: { !$0.isNewline }) { label = String(label[...end]) }
                 element.accessibilityLabel = label
-                element.heading = heading
+                element.position = canvas?.position(at: range.location, in: self)
                 if let heading {
                     traits.insert(.header)
                     // VoiceOver takes a heading's level from its label's attributes; 0 is none.
@@ -494,8 +484,9 @@ private struct ScrollAccessibilityPlace: Equatable {
     weak var view: ReaderTextView?
     let range: NSRange
     let url: URL?
-    /// The book's heading this element reads, or reads part of.
-    var heading: ReaderHeading?
+    /// Where the element's first character is in the book. It holds when the page the element
+    /// was on has been turned, which is when VoiceOver asks the Headings rotor about it again.
+    var position: ReaderTextPosition?
 
     init(view: ReaderTextView, range: NSRange, url: URL?) {
         self.view = view
@@ -519,16 +510,6 @@ private struct ScrollAccessibilityPlace: Equatable {
     override func accessibilityElementDidBecomeFocused() {
         super.accessibilityElementDidBecomeFocused()
         view?.accessibilityCursorMoved(to: self)
-    }
-
-    // A heading of the scroll view has the reader's Headings rotor; a page column's lines
-    // take it from the column (`ReaderTextView.accessibilityCustomRotors`).
-    override var accessibilityCustomRotors: [UIAccessibilityCustomRotor]? {
-        get {
-            guard heading != nil, let view, !view.isPageColumn else { return super.accessibilityCustomRotors }
-            return [view.headingRotor]
-        }
-        set { super.accessibilityCustomRotors = newValue }
     }
 
     override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
