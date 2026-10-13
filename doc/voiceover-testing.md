@@ -1193,9 +1193,10 @@ The Mac runner's transcript is plain text and needs no export.
   **One thing is not resolved, on the simulator alone.** In continuous scroll on the iPad
   simulator, reading on from Bookmark to "Line 10 after the grids.", which scrolls the view
   until the first table's header row lies under the reader's top inset, and then back, left
-  the text at "Station Alder Row header Column 1" for Bookmark in three sessions of three at
-  `bc473cb`, with the header row, the caption and two lines above them unread. The same
-  steps before the change, at `17a4a36`, read back through "Station Opened Depth" to
+  the text at "Station Alder Row header Column 1" for Bookmark in two sessions of three at
+  `bc473cb`, with the header row, the caption and two lines above them unread; the third
+  read back through "Depth Column header Row 1 Column 3" to "Tables of data Heading". The
+  same steps before the change, at `17a4a36`, read back through "Station Opened Depth" to
   "Tables of data" and the section before in two sessions of two, and the physical iPad at
   `1c4f136` did so cell by cell in two of two, the second from "Line 24 after the grids.".
   Reading back through the long table, which scrolls the view at every row, was complete on
@@ -1206,8 +1207,13 @@ The Mac runner's transcript is plain text and needs no export.
   one cell twice and the next not at all here and there, and on the iPad simulator 136
   moves forward reached only the ninety-sixth cell while the 136 back gave every cell; the
   counts showed the first to be the record and not the reader. One session's touch on "Item
-  02" at 28 points found nothing on the iPhone simulator, so the rotor's Rows past the
-  screen was recorded on the device alone.
+  02" at 28 points found nothing on the iPhone simulator. At 17 points and `1c4f136`, with
+  the rotor on Rows, twenty-six flicks down from "Item 02 Row 3" went a row at a time to
+  "Item 28", past the screen; ten flicks up came back a row at a time to "Item 18", and the
+  flicks after that stepped through actions instead, "Select Cell Text", "Verification
+  link", "￼": the rotor was on Actions. A cell offers Select Cell Text only once it is on
+  screen, where its interaction surface is. The physical iPad made seventy such flicks
+  without the rotor moving.
 - The same day a physical iPad Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366) read the same
   sections at `bc473cb`, and at `7d8e7f4` for the rotor's Rows, which differs from it in the
   probe and one test. In pages on the tables of data, the simulators' items with whole

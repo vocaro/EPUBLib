@@ -348,8 +348,10 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     Headings rotor, as before.
   - **Not resolved.** On an iPad simulator (iOS 27.0), VoiceOver reading back up into a
     table whose first row lay under the reader's top inset left the text for the control
-    before it, where it had read back row by row before this change. A physical iPad
-    (iPadOS 27.2) read back cell by cell in the same place
+    before it in two sessions of three, where it had read back row by row before this
+    change. A physical iPad (iPadOS 27.2) read back cell by cell in the same place. And on
+    an iPhone simulator the rotor went from Rows to Actions part of the way back up a
+    column, which the iPad did not do
     ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-12 on tables of data).
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
