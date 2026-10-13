@@ -419,6 +419,9 @@ final class ReaderTextView: UITextView {
                 // with nothing to say, and so is decoration between two of them: no element,
                 // or VoiceOver stops on silence.
                 if attachment == nil, label?.allSatisfy(\.isWhitespace) != false { continue }
+                var traits: UIAccessibilityTraits = url == nil ? .staticText : .link
+                // A hidden label is words the page does not show, not a picture.
+                let isSpoken = attachment is SpokenLabelAttachment
                 // A table row is its cells' words, read once where the row stands. A row that
                 // shows pictures and no words is an image and no more, as a picture without
                 // words in a line is. One with nothing to say, or decoration alone, has no
@@ -429,9 +432,6 @@ final class ReaderTextView: UITextView {
                 let element = existing.first { $0.range == range && $0.url == url }
                     ?? ReaderPageAccessibilityElement(view: self, range: range, url: url)
                 element.image = attachment as? ReaderImageAttachment
-                var traits: UIAccessibilityTraits = url == nil ? .staticText : .link
-                // A hidden label is words the page does not show, not a picture.
-                let isSpoken = attachment is SpokenLabelAttachment
                 if attachment is ReaderRuleAttachment {
                     // A rule is a break between what stands before it and what follows:
                     // not a picture, which VoiceOver would call an image, and not words of
@@ -439,9 +439,10 @@ final class ReaderTextView: UITextView {
                     // of its own for one and the reader names it.
                     label = ReaderRuleAttachment.spokenName
                     traits.remove(.staticText)
+                } else if isRow {
+                    if isWordlessRow { label = nil; traits.insert(.image) }
                 } else if attachment != nil {
-                    if !isSpoken, isWordlessRow || !isRow { traits.insert(.image) }
-                    if isWordlessRow { label = nil }
+                    if !isSpoken { traits.insert(.image) }
                     // An image without words is an image and no more: the trait says so, in
                     // VoiceOver's own language, and the reader makes up no name for it.
                     if let image = attachment as? ReaderImageAttachment { label = image.alt.isEmpty ? nil : image.alt }

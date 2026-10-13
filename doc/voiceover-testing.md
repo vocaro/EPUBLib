@@ -962,44 +962,6 @@ The Mac runner's transcript is plain text and needs no export.
   has no label in the label's place.
   Not heard: VoiceOver activating the link that is an image without a name, which needs a
   device; a note's popover or a table cell with an image in it.
-- On 2026-10-12 the section with a hidden heading over a table, with its second table, was
-  read at 17 points before and after a table's rows became single items: at `2053be8` and at
-  `1e3e5c3`, in the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and
-  an iPad Air 13-inch (M4)), in pages and in continuous scroll. Before, in pages, sixteen
-  moves forward from Bookmark gave the eight cells of both tables, each an item ("First
-  cell" to "Eighth cell link Double tap to activate embedded link"), then "Parked table
-  heading", "First cell Second cell Image", "Third cell Fourth cell Image", "Shown words
-  after the table.", two lines, "Fifth cell Sixth cell Image" and "Seventh cell Eighth cell
-  link Image"; moving back from "Parked table heading" gave "First cell" and then Bookmark.
-  In continuous scroll the rows came where they stand, each as an image, and no cell before
-  them; but a touch on a cell put the cursor on the cell, and on the iPhone, where reading on
-  had scrolled the view, moving back left the text at "Line 02 after the table." by way of
-  the second table's four cells. In both flows the rotor offered Select Table Text for every
-  cell on screen on any line, in pages after Next Page and Previous Page. After, in both
-  flows on both simulators: "Parked table heading", "First cell Second cell", "Third cell
-  Fourth cell", "Shown words after the table.", "Line 01 after the table.", "Line 02 after
-  the table.", "Fifth cell Sixth cell", "Seventh cell Eighth cell link", "Line 03 after the
-  table." and on, with no cell by itself and no "Image", and the same items in reverse on
-  the way back, to Bookmark in pages and to the last line of the section before in
-  continuous scroll. A touch on the last row put the cursor on the row. There the rotor offered
-  Select Table Text: Seventh cell, Select Table Text: Eighth cell link and Follow Table
-  Link: Eighth cell link, after Next Page and Previous Page in pages, and on "Line 03 after
-  the table." none of the three. Two things are not this change's. In continuous scroll on
-  the iPhone, moving back left the text at "Line 02 after the table." for Bookmark in one
-  session of two at `1e3e5c3`, as it had at `2053be8`; a session at `1e0eb8c`, seven commits
-  of main earlier, and every iPad session read back to the heading. And in continuous scroll
-  the rotor offered on every line, before and after, "Verification link", "￼" and "Inspect
-  Image"; the first is a link in the book's first section.
-- The same day a physical iPad Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366) read the section
-  at `1e3e5c3` in both flows as the simulators had, forward and back, and VoiceOver followed
-  the link in the cell: with Follow Table Link: Eighth cell link chosen in the rotor, the
-  fifth action in pages and the third in continuous scroll, a double tap on the row changed
-  the screen and a touch then found "Link target reached". VoiceOver was off afterward. The
-  physical iPhone 17 Pro Max gave no result: one run ended in "Timed out while enabling
-  automation mode", and a second lost its authorization for UI testing after eighteen
-  seconds, with another app's control under VoiceOver's cursor, and left VoiceOver on. It
-  was switched off again with `devicectl device settings voiceover --disable`. Nobody
-  listened to any of these sessions.
 - On 2026-10-12 the section of scenes was read at 17 points before and after a rule was
   given a stop that names it. Nobody listened, no workstation was used and no physical
   device: the iPhone and iPad here are the [simulator lane](#simulators)'s (an iPhone 17 Pro
@@ -1061,6 +1023,55 @@ The Mac runner's transcript is plain text and needs no export.
   Not heard: a physical device; VoiceOver reading on by itself across a rule; a rule in a
   note's popover or in a table cell; a rule that is all a link holds; and what Safari or
   Books says at an `<hr>` on an iPhone, which was not compared.
+- On 2026-10-12 the section with a hidden heading over a table, with its second table, was
+  read at 17 points before and after a table's rows became single items: at `2053be8` and at
+  `1e3e5c3`, in the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and
+  an iPad Air 13-inch (M4)), in pages and in continuous scroll. Before, in pages, sixteen
+  moves forward from Bookmark gave the eight cells of both tables, each an item ("First
+  cell" to "Eighth cell link Double tap to activate embedded link"), then "Parked table
+  heading", "First cell Second cell Image", "Third cell Fourth cell Image", "Shown words
+  after the table.", two lines, "Fifth cell Sixth cell Image" and "Seventh cell Eighth cell
+  link Image"; moving back from "Parked table heading" gave "First cell" and then Bookmark.
+  In continuous scroll the rows came where they stand, each as an image, and no cell before
+  them; but a touch on a cell put the cursor on the cell, and on the iPhone, where reading on
+  had scrolled the view, moving back left the text at "Line 02 after the table." by way of
+  the second table's four cells. In both flows the rotor offered Select Table Text for every
+  cell on screen on any line, in pages after Next Page and Previous Page. After, in both
+  flows on both simulators: "Parked table heading", "First cell Second cell", "Third cell
+  Fourth cell", "Shown words after the table.", "Line 01 after the table.", "Line 02 after
+  the table.", "Fifth cell Sixth cell", "Seventh cell Eighth cell link", "Line 03 after the
+  table." and on, with no cell by itself and no "Image", and the same items in reverse on
+  the way back, to Bookmark in pages and to the last line of the section before in
+  continuous scroll. A touch on the last row put the cursor on the row. There the rotor offered
+  Select Table Text: Seventh cell, Select Table Text: Eighth cell link and Follow Table
+  Link: Eighth cell link, after Next Page and Previous Page in pages, and on "Line 03 after
+  the table." none of the three. Two things are not this change's. In continuous scroll on
+  the iPhone, moving back left the text at "Line 02 after the table." for Bookmark in one
+  session of two at `1e3e5c3`, as it had at `2053be8`; a session at `1e0eb8c`, seven commits
+  of main earlier, and every iPad session read back to the heading. And in continuous scroll
+  the rotor offered on every line, before and after, "Verification link", "￼" and "Inspect
+  Image"; the first is a link in the book's first section.
+- The same day a physical iPad Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366) read the section
+  at `1e3e5c3` in both flows as the simulators had, forward and back, and VoiceOver followed
+  the link in the cell: with Follow Table Link: Eighth cell link chosen in the rotor, the
+  fifth action in pages and the third in continuous scroll, a double tap on the row changed
+  the screen and a touch then found "Link target reached". VoiceOver was off afterward. The
+  physical iPhone 17 Pro Max (iOS 27.2, 440 × 956) gave no result at first: one run ended in
+  "Timed out while enabling automation mode", and a second lost its authorization for UI
+  testing after eighteen seconds, with another app's control under VoiceOver's cursor, and
+  left VoiceOver on. Later, with the phone free, it read the section at `edb13b1`, which has
+  the changes to images, rules and headings merged in, as the iPad had. In pages: "Parked
+  table heading" as a heading, the rows where they stand, on to "Line 06 after the table."
+  at the foot of the page, and back to Bookmark. In continuous scroll: on to "Line 10 after
+  the table." and back past the heading to the last line of the section before. In both
+  flows a double tap with Follow Table Link: Eighth cell link chosen opened "Link target
+  reached". A notification from another app took the place of one phrase in two sessions, a
+  move forward in pages and a step of the rotor in continuous scroll. xcodebuild took nearly
+  five minutes to start a session on the phone while the Mac was busy, so a deadline of five
+  minutes stopped the first continuous scroll session part way through the rotor and left
+  VoiceOver on; the rotor steps were run again alone. Each time VoiceOver was left on it was
+  switched off with `devicectl device settings voiceover --disable` and read back as off.
+  Nobody listened to any of these sessions.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
