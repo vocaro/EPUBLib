@@ -577,6 +577,106 @@ the supplied controls it reported that the search field's text "may be clipped" 
 result row's context text failed its contrast check. Its other findings were the reader's own
 text, which follows the reader's text size and not Dynamic Type, and the host's status line.
 
+
+### Landscape book space with the embedded strip (368)
+
+At `e909178f739fa682e0c671d85e3a19b42658ae1d`, on 2026-10-13, iOS 27.0 `24A434`,
+Xcode 27.0 `27A266a`, the qualification host's `ltr` book was opened in the strip host,
+without a keyboard or a prior touch. Contents and Appearance had icon-only labels in the
+compact height. On the iPhone SE at the largest size, the groups needed two rows: a single
+icon-only row is still too wide there. Regular heights keep the row-or-column arrangement.
+
+All edges below are points from the screen's top. The reader's height is the safe-area stack
+less the measured strip and the host's 21-point status line. The book itself remains 17 points
+at both control text sizes, as in the original issue's measurements.
+
+| Landscape device | Control text size | Strip edges | Reader height | Book text edges |
+| --- | --- | --- | --- | --- |
+| iPhone 17 Pro, 874 × 402 | `accessibility-medium` | 0 to 42 | 318 | 112 to 294 |
+| iPhone 17 Pro | `accessibility-extra-extra-extra-large` | 0 to 72 | 288 | 142 to 311 |
+| iPhone SE (3rd generation), 667 × 375 | `accessibility-medium` | 0 to 42 | 312 | 112 to 294 |
+| iPhone SE | `accessibility-extra-extra-extra-large` | 0 to 111 | 243 | 181 to 298 |
+
+Each opening tree and screenshot shows whole book lines. On the SE at the largest size,
+"Before the road" is at y = 181 to 228, with two full body lines at 252 to 275 and 275 to 298;
+it previously showed no book text. Controls have the following `(x, y, width, height)` frames:
+
+| Device and text size | Previous Page; Next Page | Contents; Appearance | Reading-mode picker |
+| --- | --- | --- | --- |
+| 17 Pro, medium | `(169, 0, 20, 28)`; `(197, 0, 20, 28)` | `(536, 0, 34, 24)`; `(578, 0, 38, 25)` | `(624, 0, 79, 31)` |
+| 17 Pro, largest | `(89, 0, 38, 54)`; `(135, 0, 38, 54)` | `(551, 0, 65, 47)`; `(625, 0, 72, 47)` | `(705, 0, 80, 31)` |
+| SE, medium | `(66, 0, 20, 29)`; `(94, 0, 20, 29)` | `(432, 0, 35, 25)`; `(475, 0, 38, 25)` | `(521, 0, 80, 31)` |
+| SE, largest | `(29, 0, 39, 54)`; `(76, 0, 39, 54)` | `(492, 0, 65, 47)`; `(566, 0, 72, 47)` | `(29, 80, 80, 31)` |
+
+The UIKit segments themselves are 32 points high: on the SE at the largest size their bottom
+is y = 112, a point past the strip's measured 111. The scroll view allows this drawing where
+its content fits, as it did before compact rows; the picker is wholly on screen and ends
+69 points before the book's first text.
+
+In each of the four menu runs, the accessibility tree still names the buttons Contents and
+Appearance. XCTest tapped each menu, chose Before the road from Contents and Smaller Text
+from Appearance, and the latter changed the reader from 17 to 15 points. These are synthetic
+touches through the visible controls, not commands sent directly to the controls model.
+The four runs each executed one probe test with no failures; their recorded trees and effects,
+rather than that test result alone, establish the result.
+
+Separate runs at the same four device/size combinations tapped Next Page and Previous Page,
+then Continuous Scroll and Paging, through their visible native controls. Each page-arrow pair
+advanced the reported progression and returned it to the opening value; each picker pair
+changed the reported flow to `scrolled` and back to `paginated`. On the SE at the largest size,
+the two segments at `(29, 80, 40, 32)` and `(69, 80, 40, 32)` both answered their centre taps.
+Those four runs also each executed one probe test with no failures. Their records are under
+`.build/qualification/runs/368-actions-<device>-<size>/`. This establishes ordinary visible
+control reachability; it does not claim a hit at every pixel of a control's drawing.
+
+`ReaderSearchResultControlsTests.testCompactHeightControlStripLeavesBookTextOnScreenAtAccessibilitySizes`
+mounts the native reader below the actual strip in the 750 × 381 and 667 × 375 safe-area rooms,
+with a host status line, at `.accessibility1` and `.accessibility5`, both padded and unpadded.
+All eight arrangements keep an actual rendered glyph wholly inside the reader, the field on
+screen, the groups in sight and unclipped, and the picker on screen before the book text.
+The complete iOS controls suite executed 13 tests with no failures, including the established
+regular-height keyboard and strip-scrolling checks. The machine was busy; these are layout
+and operation observations, not performance measurements.
+
+For repetition, use the probe build and owned-device procedure below, with
+`-QualificationBook ltr -QualificationHost strip`. At each of the two sizes use:
+
+```text
+auto=off
+signal=content_size accessibility-medium
+wait=2
+rotate=landscape
+wait=2
+dump=open
+tap=Contents
+dump=contents
+tap=Before the road
+tap=Appearance
+dump=appearance
+tap=Smaller Text
+dump=operated
+```
+
+For the page-arrow and reading-mode runs, replace the menu steps after `dump=open` with:
+
+```text
+tap=Next Page
+status
+tap=Previous Page
+status
+tap=Continuous Scroll
+status
+dump=scrolled
+tap=Paging
+status
+dump=paged
+```
+
+Replace the content-size argument with `accessibility-extra-extra-extra-extra-large` for the other
+case. These records are under `.build/qualification/runs/368-<device>-<size>/`; the initial
+frames are `06-open.tree.txt` and `06-open.png`. The measured frames and findings are recorded
+here so that their evidence does not depend on retaining a branch or a checkout.
+
 ## Names, values and states
 
 From the accessibility tree on iOS; the Mac's tree agrees where noted.
@@ -763,8 +863,8 @@ recorded with the points they resolve.
     Appearance. Where one row is too wide, compact-height groups wrap into rows in their
     supplied order instead of a full column. Text sizes and regular-height labels remain
     as before.
-    Landscape qualification evidence follows once the four device/text-size cases have
-    been run.
+    [Landscape qualification](#landscape-book-space-with-the-embedded-strip-368) records
+    whole book lines and reachable named menus on both iPhones at both accessibility sizes.
 
 ## Not verified
 
