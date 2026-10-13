@@ -1182,6 +1182,25 @@ The Mac runner's transcript is plain text and needs no export.
   and with the rotor on Rows "Item 31 Row 32" to "Item 33 Row 34" and back up to "Item 28 Row
   29". An earlier session of the same steps on the iPhone, at a load average near 600, did
   not turn the page: its double tap on Next Page changed nothing in two seconds.
+  On the row taller than a page, in continuous scroll on the iPad: "Clause Column header Row
+  1 Column 1 Table start 3 rows 2 columns", "Wording Column header Column 2", "Clause Tall
+  clause Row 2 Column 1", one item for the tall cell, "Wording t0001 t0002" and on, "Clause
+  Short clause Row 3 Column 1", "Wording Short wording Column 2 Table end", and the same
+  back. In pages on the iPhone the short cell beside the tall one was a stop that said only
+  "Row 2 Column 1" on the row's first page: the cell is centred in a row ten pages tall, so
+  its words stand some pages in. A cell is since listed on the page where it has something
+  to say, and at `1c4f136` that page began with the tall cell, "t0001 t0002".
+  **One thing is not resolved, on the simulator alone.** In continuous scroll on the iPad
+  simulator, reading on from Bookmark to "Line 10 after the grids.", which scrolls the view
+  until the first table's header row lies under the reader's top inset, and then back, left
+  the text at "Station Alder Row header Column 1" for Bookmark in three sessions of three at
+  `bc473cb`, with the header row, the caption and two lines above them unread. The same
+  steps before the change, at `17a4a36`, read back through "Station Opened Depth" to
+  "Tables of data" and the section before in two sessions of two, and the physical iPad at
+  `1c4f136` did so cell by cell in two of two, the second from "Line 24 after the grids.".
+  Reading back through the long table, which scrolls the view at every row, was complete on
+  both simulators. What the simulator's VoiceOver does there is not known; it is iOS 27.0
+  and the iPad 27.2.
   The sessions ran while the Mac's load average stood between 400 and 1,000. Sessions at an
   earlier revision of this change, before the probe waited out a repeated phrase, recorded
   one cell twice and the next not at all here and there, and on the iPad simulator 136
@@ -1212,8 +1231,14 @@ The Mac runner's transcript is plain text and needs no export.
   "Wording t0001 t0002" and on to `t1707`, the words that page shows. The probe's two-finger
   turns came round to the same five rotor settings on this iPad, none of them Rows, until
   it made its smallest turn alone, which moved one setting at a time. VoiceOver was off
-  after every session, and the iPad was claimed in the shared file for the half hour. The
-  physical iPhone was not used.
+  after every session, and the iPad was claimed in the shared file for the half hour. At
+  `1c4f136`, the last change to the reader, two more sessions in continuous scroll read on
+  to "Line 10 after the grids." and to "Line 24 after the grids." and back, every item in
+  order to "Tables of data Heading" and "Last words of the scenes."; and at `791b57f`,
+  which differs from it in where a cell of a row several pages tall is listed, the walk
+  through the tables of data in pages matched the first session's phrase for phrase, the
+  link was followed again, and the long table gave its 120 cells once and in order each
+  way. The physical iPhone was not used.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
