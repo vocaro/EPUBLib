@@ -352,18 +352,24 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// scroll step, a position shown (from the contents, a search, a link or a bookmark), text
     /// built again. VoiceOver keeps the items it was given each side of its cursor, two as a
     /// rule and fifty at its first move after a menu closes, and asks again only when it has
-    /// used them. Told nothing of the move, it went on to a line it held from before it. With
-    /// its cursor on a control it said a line no longer on screen and returned to the
-    /// control. With its cursor on a link it had followed it stayed on the link, and at its
-    /// next move read the line after the link, where UIKit brought the reader back.
+    /// used them. Nothing tells it that the view has moved under it. On a device it asks
+    /// again by itself once it has activated an item, so a step made by its own double tap
+    /// on Scroll Forward was read from the right place. A move it did not make, by a key on a
+    /// keyboard or the host's own command, left it with what it held (an iPad, iPadOS 27.2).
+    /// With its cursor on a line it stayed on that line, and its next move read the line
+    /// after it, where UIKit brought the reader back: the step was undone. With its cursor on
+    /// a control after a menu it went through the controls into the lines of the screen
+    /// before the step. A simulator's VoiceOver did the same after its own double tap as
+    /// well, which reaches the reader there as a plain touch.
     ///
-    /// A layout change has it drop what it holds and ask again (in a simulator's log, 0.8 s
-    /// after it is told). With its cursor outside the text no element is named: the cursor
-    /// stays where it is, and its next move into the text meets the first line now on
-    /// screen. With its cursor on a line, the line that holds `position`, the position
-    /// shown, is named: the cursor goes there and VoiceOver reads it, as it goes to the page
-    /// shown in paging (`accessibilityCursorFollowsThePage`). Given no element then,
-    /// VoiceOver took whichever line was drawn where its cursor had stood.
+    /// A layout change has it drop what it holds and ask again: 0.8 s after it is told, by
+    /// its own log in a simulator, if it has not moved in that time. With its cursor outside
+    /// the text no element is named: the cursor stays where it is, and its next move into
+    /// the text meets the first line now on screen. With its cursor on a line, the line that
+    /// holds `position`, the position shown, is named: the cursor goes there and VoiceOver
+    /// reads it, as it goes to the page shown in paging (`accessibilityCursorFollowsThePage`).
+    /// Given no element then, a simulator's VoiceOver took whichever line was drawn where
+    /// its cursor had stood.
     ///
     /// Nothing is posted while VoiceOver's rotor holds the cursor, which VoiceOver takes to
     /// the item the rotor gives it, nor for scrolling the reader does not do: a finger's,

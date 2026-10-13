@@ -38,6 +38,9 @@ import XCUIAutomation
         if let href = environment["VOICEOVER_HREF"] { app.launchArguments += ["-SampleHref", href] }
         // `VOICEOVER_BOOK=paragraphs` opens the book of ordinary paragraphs.
         if let book = environment["VOICEOVER_BOOK"] { app.launchArguments += ["-VerificationBook", book] }
+        // `VOICEOVER_STEP_AFTER=40` has the reader make one scroll step or page turn by itself,
+        // that many seconds after the book opens: a move VoiceOver did not make.
+        if let delay = environment["VOICEOVER_STEP_AFTER"] { app.launchArguments += ["-SampleStepAfter", delay] }
         app.launch()
         let snapshots = true
         #endif

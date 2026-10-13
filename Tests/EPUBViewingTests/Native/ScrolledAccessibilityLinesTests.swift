@@ -504,14 +504,16 @@ import XCTest
         }
     }
 
-    /// A VoiceOver user chooses a chapter, presses Scroll Forward and flicks into the text.
-    /// VoiceOver still holds the fifty items it was given when the menu closed, the lines then
-    /// on screen among them, and is told nothing of the step. It went through the controls to
-    /// the first of those lines, said it though it was no longer on screen or listed, and
-    /// returned to Scroll Forward. So a move the reader makes itself posts a layout change, at
-    /// which VoiceOver drops what it holds and asks again; a simulator's VoiceOver logged
-    /// that 0.8 s after it was told, on 2026-10-13. With the cursor outside the text no
-    /// element is named, and the cursor stays where it is (#428).
+    /// A VoiceOver user chooses a chapter and rests on a control, and the reader takes a scroll
+    /// step VoiceOver did not make: a key on a keyboard, or the host's own command. VoiceOver
+    /// still holds the fifty items it was given when the menu closed, the lines then on screen
+    /// among them, and is told nothing of the step. Flicking into the text, it went through
+    /// the controls into those lines: an iPad read the screen before the step, and a
+    /// simulator said the first of them, no longer on screen or listed, and returned to the
+    /// control. So a move the reader makes itself posts a layout change, at which VoiceOver
+    /// drops what it holds and asks again; a simulator's VoiceOver logged that 0.8 s after it
+    /// was told, on 2026-10-13. With the cursor outside the text no element is named, and the
+    /// cursor stays where it is (#428).
     func testAMoveTheReaderMakesTellsVoiceOverToAskAgainForTheLines() async throws {
         let subject = try await scrolledAtTheFourthChapter()
         let (reader, canvas, view) = subject
@@ -584,13 +586,15 @@ import XCTest
         XCTAssertTrue(posted().isEmpty, "VoiceOver's own moves through the text post nothing")
     }
 
-    /// A VoiceOver user follows a link from its line. The reader shows the link's target and
-    /// VoiceOver, told nothing, stayed on the link: its next move read the line after the
-    /// link, and UIKit brought the reader back there. Told of a layout change with no element
-    /// it went to whichever line was drawn where its cursor had stood, the line after the
-    /// target in a simulator on 2026-10-13. So with the cursor on a line, a move the reader
-    /// makes itself names the line of the position shown: the cursor goes there and VoiceOver
-    /// reads it, as it goes to the page shown in paging.
+    /// VoiceOver's cursor is on a line, and the reader moves by something VoiceOver did not
+    /// do: a scroll step from a keyboard or the host, a link followed by a touch. VoiceOver,
+    /// told nothing, stayed on its line: its next move read the line after it, and UIKit
+    /// brought the reader back there (an iPad after a step, a simulator after a link, on
+    /// 2026-10-13). Told of a layout change with no element, the simulator's went to
+    /// whichever line was drawn where its cursor had stood, the line after the link's
+    /// target. So with the cursor on a line, a move the reader makes itself names the line of
+    /// the position shown: the cursor goes there and VoiceOver reads it, as it goes to the
+    /// page shown in paging.
     func testAMoveTheReaderMakesTakesACursorInTheTextToThePositionShown() async throws {
         let subject = try await scrolledAtTheFourthChapter()
         let (reader, canvas, view) = subject
