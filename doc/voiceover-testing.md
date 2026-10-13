@@ -1969,8 +1969,9 @@ The Mac runner's transcript is plain text and needs no export.
   stands." after. The session on "Third cell" in pages said at `bee900d` what it had said
   at `774f82c`, phrase for phrase.
   A picture's actions in a cell, and the cells of the section of entries in continuous
-  scroll, which the record of that section left unheard: at `d3e1f87`, the head of #453
-  before it merged, runs 38361206010 and 38362735530, with the reader opened at the section.
+  scroll, which the record of that section left unheard: at `d3e1f87`, #453's branch before
+  `main` was last merged into it, runs 38361206010 and 38362735530, with the reader opened
+  at the section. A cell's code there is what `main` has had since #453 merged.
   Four `right` steps from the text's first line reach the second row, `in` twice enters the
   described picture's cell and two `right` steps put VoiceOver on the picture, "Blue entry
   square image". `actions` there said "Actions menu 2 items", `listdown` "show menu" and a
