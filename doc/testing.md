@@ -277,7 +277,12 @@ engines demonstrate that missing/duplicate readiness, ignored cancellation, inco
 late callbacks, results published after completion, steps that do not wrap, stale results that
 still navigate and results kept after a clear fail the verifier. Adapter-specific tests must additionally check actual rendering,
 selection gestures, precise bookmark semantics and resource release. A bounded quiet period after
-close detects queued callbacks; it cannot prove that an engine will never emit a much later event.
+close, of 150 ms, detects queued callbacks; it cannot prove that an engine will never emit a much
+later event. Nor does it always catch one sent from a timer, however short: two sleeps that are
+both overdue resume in either order. A callback sent from a 30 ms sleep arrived after the quiet
+period had ended one time in ten on GitHub's hosted runner, when these tests ran there on
+2026-10-12, and about one time in a thousand on a busy Mac. So the broken engine's late callback
+is a queued one, which is caught every time.
 
 The contract verifier requires at least two distinct section hrefs when the engine advertises href
 navigation. It permits a navigation to the already-current section to be a no-op. `send` acknowledges
