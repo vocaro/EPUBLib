@@ -1056,7 +1056,8 @@ The Mac runner's transcript is plain text and needs no export.
 - On 2026-10-12 the [simulator lane](#simulators) read what VoiceOver offers on a line,
   before and after a line was left with its own actions alone: an iPhone 17 Pro simulator
   (iOS 27.0, Xcode 27.0, 402 × 874) at the launch text size, a touch or a move to the line
-  and then `flick=down` to read the rotor. Nobody listened, and no physical device was used.
+  and then `flick=down` to read the rotor. A physical iPad read the change afterwards, as
+  told below. Nobody listened.
   Before, at `fc8ed77`. Continuous scroll, the book of paragraphs: "p001w11 p001w12 p001w13
   p001w14 p001w15 Actions available", and the rotor read "Previous Page", "Next Page",
   "Activate Default". Continuous scroll, the first book: "Read the numbered words across two
@@ -1108,10 +1109,26 @@ The Mac runner's transcript is plain text and needs no export.
   volume 60 before its VoiceOver had been switched on, and was muted again. After most
   sessions `devicectl` gave no answer in twenty seconds when asked for the simulator's
   VoiceOver state; the simulator was then deleted, as every one was.
-  Not established: any of this on a physical device after the change; VoiceOver performing
-  a line's own Next Page or Inspect Image, which a simulator's VoiceOver cannot; a table
-  row's actions under VoiceOver, which a unit test holds; and anything on a Mac, where the
-  text areas and the surface's two actions are unchanged.
+  The same evening the physical iPad Air 13-inch (M3) of the sessions above (1024 × 1366,
+  upright, 17 points) read the change, built at `8d7397b`, through XCTest's VoiceOver
+  service. In pages, with the cursor on "Read the numbered words across two consecutive
+  pages. …", four flicks read "Next Page", "Previous Page", "Activate Default" and "Next
+  Page", and a double tap on the line then performed Next Page: the page went from
+  `word0001`–`word0293` to `word0294`–`word0654`. In continuous scroll the same line left
+  the rotor on Headings: the flicks read "Link target reached Heading", "Parked title
+  heading Heading", "Parked table heading Heading" and "Pictures and their words Heading",
+  the reader scrolling to each, and no action. On the picture's line there the flicks read
+  "Inspect Image: Blue verification square" and "Activate Default", and with the first
+  chosen a double tap opened the inspector: VoiceOver was on "Zoom Out Button" and a touch
+  found "Zoom In Button". An iPad's phrase for a line does not tell whether the line has
+  actions. It ended in "Use the rotor to access Headings" for the page's line, which has
+  two, and for the same line in continuous scroll, which has none; the rotor tells.
+  VoiceOver was off after each session. A first session in pages was deleted with its log
+  and result bundle, and run again: a notification arrived on the iPad and was read in
+  place of the first flick's phrase.
+  Not established: a physical iPhone after the change; a table row's actions under
+  VoiceOver, which a unit test holds; and anything on a Mac, where the text areas and the
+  surface's two actions are unchanged.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
