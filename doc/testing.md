@@ -15,7 +15,9 @@ sources, runs the Mac tests and the full test suite on dedicated iPhone 17 Pro a
 deleted on exit; existing devices are never selected or shut down. Agents working in the
 repository drive simulators the same way, headlessly ([notes for agents](../AGENTS.md)). iOS logs live in
 `.build/validation/`. `EPUB_SIM_RUNTIME` selects a different installed runtime by identifier.
-The Mac tests alone also run on a [hosted runner](#hosted-mac-tests), for a pull request and for `main`.
+None of this runs on a hosted runner, and nothing starts by itself for a pull request or for
+`main`: GitHub's runner is for [Mac VoiceOver sessions](voiceover-testing.md#hosted-mac-sessions)
+only ([notes for agents](../AGENTS.md#the-hosted-runner)).
 
 For narrower checks:
 
@@ -54,60 +56,23 @@ xcrun xctest -XCTest All -AppleShowScrollBars Always .build/debug/EPUBViewingTes
 xcrun xctest -XCTest All -AppleShowScrollBars WhenScrolling .build/debug/EPUBViewingTests.xctest
 ```
 
-## Hosted Mac tests
-
-The [Mac unit tests workflow](../.github/workflows/unit-tests-mac.yml) runs `swift test` on
-GitHub's hosted `xcode-27` runner. Nothing else runs on that machine, so a result does not
-depend on what other worktrees are building, and the standard runner costs nothing in this
-public repository. A run starts for a pull request, which is tested as merged into its base,
-for a push to `main`, and by hand:
+A `swift test` that hangs can be made to say where. Written to a file or a pipe, its output
+arrives 16 KB at a time, so the log of a run that hangs stops short of the hang, or is empty.
+With `NSUnbufferedIO=YES` in its environment `swift test` writes each line as a test makes
+it, and the last `Test Case … started.` line with nothing after it names the test. A stack
+sample of the process running the tests, the `xctest` that `swift test` starts for a bundle,
+has every thread's frames, the test's own with its file and line, and needs no `sudo`:
 
 ```sh
-gh workflow run unit-tests-mac.yml --ref YOUR_BRANCH
-gh workflow run unit-tests-mac.yml --ref YOUR_BRANCH -f filter=ReaderCanvasViewTests -f repeat=20
-gh run list --workflow unit-tests-mac.yml --limit 3
-gh run watch RUN_ID --exit-status
-gh run view RUN_ID
+NSUnbufferedIO=YES swift test --filter BoxAlignmentCanvasTests > pass.log 2>&1 &
+sample "$(pgrep -P $!)" 2 -file hang.txt
 ```
 
-A change to nothing but `doc/` and Markdown files starts no run. `--ref` chooses the branch
-whose workflow file is used, and that branch is tested unless the `ref` input names another.
-The inputs, all optional:
-
-- `ref`: a branch, a tag or a full commit SHA to build and test. The steps still come from the
-  `--ref` branch, so a commit older than this workflow can be tested, and two commits compared.
-- `filter`: the regular expression `swift test --filter` takes, such as `ReaderCanvasViewTests`
-  or `CFI`. Empty runs every test. A filter that matches no test fails the run.
-- `repeat`: the number of passes, 1 unless given. The tests are built once and run that many
-  times, each pass a new process. It is for a test that fails now and then: the runner is the
-  quiet machine that tells a test's own timing from a workstation's load.
-
-The job fails unless every pass exits 0, and no test is retried: a test that fails there
-failed on a machine doing nothing else. `gh run view RUN_ID` lists each failed assertion with
-its test, file and line, and a notice with the count of tests. The log has one line for each
-pass, `Pass 1 of 1: … tests, … failed, … skipped, … s, swift test exit …`, and after several
-passes the failed tests with the number of passes each failed in; the run's summary page has
-the same as a table.
-
-A job has forty minutes. On 2026-10-12 the build took two minutes and a pass of every test ten
-and a half, thirteen minutes for the run: 2,494 tests, 2,443 of XCTest's and 51 of Swift
-Testing's, with 52 skipped, most of them the opt-in [corpus runs](#corpus-runs). Fifty passes
-of `ReaderCanvasViewTests` took fourteen minutes. A pass is started only if one as long as the
-longest so far would end three minutes before the job's limit; otherwise the passes left are
-reported as not run, and the job fails. A new run for the same pull request, or by hand for
-the same ref, filter and count, cancels one still in progress. A run for `main` is not
-cancelled; of the runs waiting behind it only the newest is kept.
-
-A hosted run differs from the [local gate](#local-gate):
-
-- It runs the Mac tests only. The simulator suites, the module and documentation checks and
-  the sample builds are the gate's.
-- The runner has three processors and 7 GB of memory, and macOS and Xcode are the image's,
-  which the job prints before it builds: on 2026-10-12, macOS 27.0.1 (`26A434`) and Xcode 27.0.
-- Its scroll bars are overlay ones, which the job prints too. A test that says which kind it
-  means runs as it does anywhere; nothing there runs the whole bundle under legacy scroll
-  bars, as `-AppleShowScrollBars Always` does above.
-- It holds no corpora and no `epubcheck`, so the opt-in runs are skipped.
+The second command is for when `pass.log` has stopped growing. `pgrep -P $!` finds the
+process this run started and no other session's. On 2026-10-12, with a test made to wait
+twenty seconds, a plain run's log was empty ten seconds in, the log of a run with
+`NSUnbufferedIO=YES` ended at that test's `started` line, and the sample had the test's frame
+on the main thread.
 
 ## Coverage
 
@@ -194,6 +159,15 @@ reader out. The bars are the system's own, in a test host; nothing is looked at 
 Each window's toolbar has an identifier of its own: toolbars that share one share their
 visibility across the windows of a process, so hiding one hides the next test's.
 
+Table reading-order tests hold a table on iPhone and iPad to one accessibility element for each
+row, between the lines around it and in both flows: text with its cells' words, the actions of
+its own cells, a row continued across pages by each page's own words, a row of pictures as an
+image without a name, and an empty row or a row of decoration as nothing unless the page holds
+nothing else. They also hold every view the reader mounts inside a text
+view that lists its lines to being hidden from assistive technology. That VoiceOver reads what
+such a view offers before the lines of a page column is known only from
+[speech sessions](voiceover-testing.md); no in-process query shows it.
+
 Heading tests cover which characters the builder marks as a heading and at what level: `h1`
 to `h6`, `role="heading"` with and without `aria-level`, a role that takes a heading away, a
 heading run in with its paragraph, hidden headings and hidden words inside a shown one. They
@@ -207,6 +181,16 @@ Headings rotor moving through a page and on through the book in both flows. On A
 level in a column's rich text, and the rotor's headings asked for as VoiceOver was seen to
 ask. None of them drives VoiceOver; the [VoiceOver testing process](voiceover-testing.md) has
 what it said.
+
+Link tests on AppKit (`LinkAccessibilityTests`) read what a column and the scroll view give
+an assistive technology for a link: one element for a link whose font changes inside it, with
+its words, its place and a press that reports the link; the names of links that are pictures,
+hidden labels and formulas, and never U+FFFC; a link element as the attachment of each
+picture or label in a link, and none over a link's words; a hidden label's place, which has a
+size though the label has none; a link cut at a page's end and continued on the next page;
+the links on screen in continuous scroll; and a text view with no canvas, as a note's
+popover has, left with AppKit's own. What VoiceOver says of each is recorded with the
+[VoiceOver testing process](voiceover-testing.md#links).
 
 Highlight paint tests read the pixels the mounted reader's views last drew: none in the
 highlight's color before a search, the matches after it, and none again after Clear Search,
@@ -320,7 +304,12 @@ engines demonstrate that missing/duplicate readiness, ignored cancellation, inco
 late callbacks, results published after completion, steps that do not wrap, stale results that
 still navigate and results kept after a clear fail the verifier. Adapter-specific tests must additionally check actual rendering,
 selection gestures, precise bookmark semantics and resource release. A bounded quiet period after
-close detects queued callbacks; it cannot prove that an engine will never emit a much later event.
+close, of 150 ms, detects queued callbacks; it cannot prove that an engine will never emit a much
+later event. Nor does it always catch one sent from a timer, however short: two sleeps that are
+both overdue resume in either order. A callback sent from a 30 ms sleep arrived after the quiet
+period had ended one time in ten on GitHub's hosted runner, when these tests ran there on
+2026-10-12, and about one time in a thousand on a busy Mac. So the broken engine's late callback
+is a queued one, which is caught every time.
 
 The contract verifier requires at least two distinct section hrefs when the engine advertises href
 navigation. It permits a navigation to the already-current section to be a no-op. `send` acknowledges

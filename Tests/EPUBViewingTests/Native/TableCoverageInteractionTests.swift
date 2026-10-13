@@ -63,6 +63,7 @@ import UIKit
         #else
         XCTAssertEqual(cell.backgroundColor, .clear)
         XCTAssertFalse(cell.isAccessibilityElement)
+        XCTAssertTrue(cell.accessibilityElementsHidden, "for touch: VoiceOver reads the row")
         #endif
     }
 
@@ -384,7 +385,7 @@ import UIKit
             XCTAssertTrue(host.canvas.bounds.intersects(reported.rect), "where the link is, for a note's popover")
         }
         XCTAssertEqual(host.recorder.links.count, 2)
-        let actions = try XCTUnwrap(host.canvas.textViews.first?.tableInteraction).accessibilityActions().map(\.name)
+        let actions = try XCTUnwrap(host.canvas.textViews.first?.tableInteraction).accessibilityActionsOfEveryRow().map(\.name)
         XCTAssertTrue(actions.contains("Follow Table Link: the target"))
         XCTAssertTrue(actions.contains("Follow Table Link: outside"))
         XCTAssertTrue(actions.contains("Select Table Text: Plain"))
