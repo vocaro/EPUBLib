@@ -130,7 +130,9 @@ import XCTest
         results = nil
         if fault == .callbackDuringClose { onEvent?(.notice("synchronous late callback")) }
         if fault == .callbackAfterClose {
-            Task { try? await Task.sleep(for: .milliseconds(30)); onEvent?(.notice("late")) }
+            // Queued here and not sent after a sleep: the main actor then runs it the first time
+            // the verifier waits, ahead of the verifier's own wake. A sleep raced that wake.
+            Task { onEvent?(.notice("late")) }
         } else { onEvent = nil }
     }
 }
@@ -183,78 +185,5 @@ import XCTest
             do { try await verify(fault, search: .results); XCTFail("Broken search results passed: \(fault)") }
             catch let error as EPUBEngineContract.Failure { XCTAssertTrue(error.description.contains(expected), "\(fault): \(error.description)") }
         }
-    }
-}
-
-// TEMPORARY, removed in the next commit: measures the race behind "Broken adapter passed:
-// callbackAfterClose" (issue 62). Not for main.
-@MainActor private final class LateCallbackProbe {
-    var onEvent: (() -> Void)?
-    var started: ContinuousClock.Instant?
-    var called: ContinuousClock.Instant?
-    /// As `ContractNativeSession.close()` with `.callbackAfterClose`: a callback 30 ms later,
-    /// or with `sleeps` false one queued on the main actor with no timer.
-    func close(sleeps: Bool) {
-        Task {
-            started = .now
-            if sleeps { try? await Task.sleep(for: .milliseconds(30)) }
-            called = .now
-            onEvent?()
-        }
-    }
-}
-
-@MainActor final class EngineContractTimingProbeTests: XCTestCase {
-    private func milliseconds(_ duration: Duration) -> Double {
-        Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
-    }
-    /// One pass as the verifier ends: close, sleep 150 ms, then look for the callback.
-    /// Returns whether it had come, and the time left between it and the look.
-    private func pass(sleeps: Bool) async throws -> (caught: Bool, margin: Double, start: Double, detail: String) {
-        var events = 0
-        let probe = LateCallbackProbe()
-        probe.onEvent = { events += 1 }
-        let closed = ContinuousClock.now
-        probe.close(sleeps: sleeps)
-        try await Task.sleep(for: .milliseconds(150))
-        let looked = ContinuousClock.now
-        let caught = events == 1
-        while probe.called == nil { try await Task.sleep(for: .milliseconds(5)) }
-        let start = milliseconds(probe.started! - closed), call = milliseconds(probe.called! - closed), look = milliseconds(looked - closed)
-        return (caught, look - call, start, String(format: "task started %.1f ms after close, called back at %.1f ms, verifier looked at %.1f ms", start, call, look))
-    }
-    func testWhichSleeperResumesFirst() async throws {
-        let passes = Int(ProcessInfo.processInfo.environment["EPUBLIB_PROBE_PASSES"] ?? "") ?? 200
-        var passedByTheVerifier = 0
-        for shape in [true, false] {
-            let name = shape ? "30 ms sleep" : "queued task"
-            var margins: [(Double, String)] = [], starts: [Double] = [], missed = 0
-            for _ in 0..<passes {
-                let result = try await pass(sleeps: shape)
-                margins.append((result.margin, result.detail))
-                starts.append(result.start)
-                if !result.caught { missed += 1; print("PROBE \(name) MISSED: \(result.detail)") }
-            }
-            margins.sort { $0.0 < $1.0 }
-            for (margin, detail) in margins.prefix(3) { print(String(format: "PROBE %@ margin %.1f ms: %@", name, margin, detail)) }
-            print(String(format: "PROBE %@: %d passes, %d missed, %d within 1 ms; margin least %.1f ms, 1st percentile %.1f ms, median %.1f ms", name, passes, missed,
-                         margins.filter { $0.0 < 1 }.count, margins[0].0, margins[passes / 100].0, margins[passes / 2].0))
-            starts.sort()
-            print(String(format: "PROBE %@: task started after close: median %.2f ms, 99th percentile %.1f ms, most %.1f ms, %d over 20 ms", name,
-                         starts[passes / 2], starts[passes - 1 - passes / 100], starts[passes - 1], starts.filter { $0 > 20 }.count))
-        }
-        // The real verifier against the real fake, as testContractRejectsBrokenAdapters runs it.
-        for _ in 0..<passes {
-            do {
-                try await EPUBEngineContract.verify(engine: ContractNativeEngine(fault: .callbackAfterClose),
-                    publication: EPUBPublication.open(data: Fixture.epub()), firstHref: "OPS/one.xhtml",
-                    secondHref: "OPS/two.xhtml", text: "Opening words", timeout: 0.2) { session in
-                        _ = session.makeView()
-                        return {}
-                    }
-                passedByTheVerifier += 1
-            } catch is EPUBEngineContract.Failure {}
-        }
-        print("PROBE verifier: \(passes) passes, the broken adapter passed in \(passedByTheVerifier)")
     }
 }
