@@ -329,7 +329,7 @@ import AppKit
     /// only when it differs after a passive one (scrolling, resizing).
     private func updateVisibleRange(force: Bool) {
         let range = configuration.flow == .scrolled ? scrollVisibleRange() : pagesVisibleRange()
-        // Reading the scroll view settled its viewport, so its rows are now where it draws them.
+        // Every move of the scroll view ends here, with the viewport laid out where it stands.
         if configuration.flow == .scrolled { refreshScrollTables() }
         guard let range else { return }
         let changed = range != visibleRange
@@ -884,11 +884,13 @@ import AppKit
 
     /// Gives the table rows now on screen in the scroll view their cells' text views, with the
     /// highlights and the selection that run through them. Done as the view moves, and again
-    /// once the reader has read where the view stands. The scroll view tells of a move the
-    /// reader makes itself, to a link's target or the section a book opens at, before TextKit
-    /// has laid the viewport out at the new place: the rows are then looked for where they
-    /// were, none is found on screen, and until the person scrolled a table reached that way
-    /// had no cell to select in, follow a link in, or offer an assistive technology.
+    /// once the reader has read where the view stands (`updateVisibleRange`), which every move
+    /// ends in. The platform tells of a move when the offset changes, before TextKit has laid
+    /// the viewport out there, so the rows are then looked for in the layout of the place
+    /// before. After a step of a page, or the reader's last correction on its way to a
+    /// contents entry, the rows that layout had not reached had no cell to select in, follow
+    /// a link in or offer an assistive technology until the person scrolled; where the
+    /// correction was by more than a screen, as for a section a book opened at, none had (#472).
     private func refreshScrollTables() {
         scrollTextView?.setTableHighlights(ReaderHighlight.drawingOrder(highlights))
         if let range = currentSelection?.range, range.start.tableCell != nil || range.end.tableCell != nil {

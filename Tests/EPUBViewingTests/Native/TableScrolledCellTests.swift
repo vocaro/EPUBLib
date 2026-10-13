@@ -33,8 +33,11 @@ import UIKit
 
     /// Chapters of prose, each with a paragraph of a thousand words and a small table, whose
     /// heights TextKit can only guess until they are laid out; then a chapter that opens
-    /// with a table of data taller than any screen here; then more prose.
-    private static func book() throws -> Data {
+    /// with a table of data taller than any screen here; then more prose. Built once: a book
+    /// built again is another book to the reader, which draws no highlight made in the first.
+    private static let book = Result { try makeBook() }
+
+    private static func makeBook() throws -> Data {
         let long = "<p>" + (1...1000).map { "word\($0)" }.joined(separator: " ") + "</p>"
         let small = "<table><tr><td>One side</td><td>Other side</td></tr></table>"
         var sections = [SessionCoverageBook.Section("opening", "<h1>Opening</h1>" + SessionCoverageBook.filler(30), title: "Opening")]
@@ -54,7 +57,7 @@ import UIKit
     private static let tables = 6
 
     private func open(_ size: CGSize, settled: Bool = true) async throws -> SessionCoverageReader {
-        let reader = try SessionCoverageReader(publication: EPUBPublication.open(data: Self.book()))
+        let reader = try SessionCoverageReader(publication: EPUBPublication.open(data: Self.book.get()))
         readers.append(reader)
         reader.window?.resize(to: size)
         guard settled else {
@@ -75,12 +78,9 @@ import UIKit
         try await Task.sleep(for: .milliseconds(300))
     }
 
-    /// Each text view the reader has mounted on a cell: its row's place in the text, the
-    /// cell, and its frame.
-    private func mounted(_ view: ReaderTextView) -> [String] {
-        (view.tableInteraction?.cells ?? [:]).map {
-            "\($0.key.location).\($0.key.cell).\($0.key.lower) \($0.value.frame.integral)"
-        }.sorted()
+    /// The frame of each text view the reader has mounted on a cell.
+    private func mounted(_ view: ReaderTextView) -> [ReaderTableInteraction.Key: CGRect] {
+        (view.tableInteraction?.cells ?? [:]).mapValues(\.frame)
     }
 
     /// Holds the scroll view to a text view on every cell of every row the screen shows,
@@ -113,7 +113,13 @@ import UIKit
         }
         XCTAssertGreaterThanOrEqual(rows, atLeast, "\(move): rows of the table on screen", file: file, line: line)
         view.refreshTableInteractions()
-        XCTAssertEqual(found, mounted(view), "\(move): looking again finds the same cells in the same places", file: file, line: line)
+        let again = mounted(view)
+        XCTAssertEqual(Set(found.keys), Set(again.keys), "\(move): looking again finds the same cells", file: file, line: line)
+        // To within a point: AppKit aligns the scroll view's offset to the pixel grid.
+        let moved = found.filter { key, frame in
+            again[key].map { abs($0.minX - frame.minX) > 1 || abs($0.minY - frame.minY) > 1 || abs($0.width - frame.width) > 1 || abs($0.height - frame.height) > 1 } ?? false
+        }
+        XCTAssertEqual(moved.count, 0, "\(move): looking again finds the cells where they were: \(moved.prefix(2))", file: file, line: line)
         #if os(iOS)
         guard rows > 0 else { return words }
         // What a cell's text view is for to an assistive technology: without it the cell's
@@ -232,35 +238,49 @@ import UIKit
     }
 
     /// A highlight in a cell and a selection in another are on the cells' text views after a
-    /// move of the reader's own: a new size, which lays the text out anew under both, and a
-    /// link to rows that have never been laid out, where a highlight was set beforehand.
+    /// move of the reader's own: a new size, which lays the text out anew under both; a
+    /// contents entry, to rows that have never been laid out and a highlight set beforehand;
+    /// and a step of a page back, which leaves the selected row the last on screen.
     func testCellsTheReaderGoesToHaveTheirHighlightAndSelection() async throws {
         var reader = try await open(CGSize(width: 402, height: 874))
-        try await reader.session.send(.locate(text: "Year 1950", highlight: true))
-        try await reader.wait("the host told of the selection") { (reader.selections().last ?? nil)?.text == "Year 1950" }
+        try await reader.session.send(.locate(text: "Year 1915", highlight: true))
+        try await reader.wait("the host told of the selection") { (reader.selections().last ?? nil)?.text == "Year 1915" }
         let highlight = EPUBHighlight(id: "cell", location: try XCTUnwrap(reader.selections().last ?? nil).location)
         try await reader.session.send(.setHighlights([highlight]))
-        try await reader.session.send(.locate(text: "Station 33", highlight: true))
-        try await reader.wait("the second cell selected") { reader.session.selection?.text == "Station 33" }
+        try await reader.session.send(.locate(text: "Station 12", highlight: true))
+        try await reader.wait("the second cell selected") { reader.session.selection?.text == "Station 12" }
         try await rest(reader)
-        XCTAssertEqual(try XCTUnwrap(cell("Station 33", in: reader)).cellSelection, NSRange(location: 0, length: 10))
-        XCTAssertTrue(highlighted(try XCTUnwrap(cell("Year 1950", in: reader))))
+        let selected = NSRange(location: 0, length: 10)
+        XCTAssertEqual(try XCTUnwrap(cell("Station 12", in: reader)).cellSelection, selected)
+        XCTAssertTrue(highlighted(try XCTUnwrap(cell("Year 1915", in: reader))))
 
         try await resize(reader, to: CGSize(width: 640, height: 700))
         var words = try assertTheRowsOnScreenHaveTheirCells(reader, after: "a new size")
-        XCTAssertTrue(words.contains("Station 33") && words.contains("Year 1950"), "both rows are on screen: \(words)")
-        XCTAssertEqual(reader.session.selection?.text, "Station 33")
-        XCTAssertEqual(try XCTUnwrap(cell("Station 33", in: reader)).cellSelection, NSRange(location: 0, length: 10), "the selection is on its cell")
-        XCTAssertTrue(highlighted(try XCTUnwrap(cell("Year 1950", in: reader))), "the highlight is on its cell")
-        XCTAssertFalse(highlighted(try XCTUnwrap(cell("Year 1951", in: reader))))
+        XCTAssertTrue(words.contains("Station 12") && words.contains("Year 1915"), "both rows are on screen: \(words)")
+        XCTAssertEqual(reader.session.selection?.text, "Station 12")
+        XCTAssertEqual(try XCTUnwrap(cell("Station 12", in: reader)).cellSelection, selected, "the selection is on its cell")
+        XCTAssertTrue(highlighted(try XCTUnwrap(cell("Year 1915", in: reader))), "the highlight is on its cell")
+        XCTAssertFalse(highlighted(try XCTUnwrap(cell("Year 1916", in: reader))))
 
         reader = try await open(CGSize(width: 402, height: 874))
         try await reader.session.send(.setHighlights([highlight]))
-        try await reader.session.send(.navigate(href: "OPS/tables.xhtml#station30"))
+        XCTAssertEqual(reader.notices(), [], "the second reader takes the first one's highlight")
+        try await reader.session.send(.navigate(href: "OPS/tables.xhtml"))
         try await rest(reader)
-        words = try assertTheRowsOnScreenHaveTheirCells(reader, after: "a link to rows with a highlight")
-        XCTAssertTrue(words.contains("Year 1950"), "the highlighted row is on screen: \(words)")
-        XCTAssertTrue(highlighted(try XCTUnwrap(cell("Year 1950", in: reader))), "the highlight is on a cell the reader went to")
-        XCTAssertFalse(highlighted(try XCTUnwrap(cell("Year 1951", in: reader))))
+        words = try assertTheRowsOnScreenHaveTheirCells(reader, after: "a contents entry to rows with a highlight")
+        XCTAssertTrue(words.contains("Year 1915"), "the highlighted row is on screen: \(words)")
+        XCTAssertTrue(highlighted(try XCTUnwrap(cell("Year 1915", in: reader))), "the highlight is on a cell the reader went to")
+        XCTAssertFalse(highlighted(try XCTUnwrap(cell("Year 1916", in: reader))))
+
+        reader = try await open(CGSize(width: 402, height: 874))
+        try await reader.session.send(.locate(text: "Station 70", highlight: true))
+        try await reader.wait("the cell selected") { reader.session.selection?.text == "Station 70" }
+        try await rest(reader)
+        try await reader.session.send(.previousPage)
+        try await rest(reader)
+        words = try assertTheRowsOnScreenHaveTheirCells(reader, after: "a step back from a selected cell")
+        XCTAssertTrue(words.contains("Station 70"), "the selected row is on screen: \(words)")
+        XCTAssertEqual(reader.session.selection?.text, "Station 70")
+        XCTAssertEqual(try XCTUnwrap(cell("Station 70", in: reader)).cellSelection, selected, "the selection is on a cell the reader stepped to")
     }
 }
