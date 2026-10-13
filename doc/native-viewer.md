@@ -505,6 +505,11 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     row is one selection, and the row offers Copy and the host's action once.
   - **Not done.** A line outside a table offers no selection to VoiceOver, as before. On Mac
     a cell's text area is VoiceOver's own to select in, and nothing here changes it.
+  - **Not shown.** A cell of a table of data in continuous scroll, on a device. An iPad's
+    rotor had no Actions setting on such a cell, with this change and without it, where
+    the same cell in pages and a row in continuous scroll have theirs
+    ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-13 on a table's select
+    action). The unit tests perform the cell's actions in both flows.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
   in place and also show in popovers.
