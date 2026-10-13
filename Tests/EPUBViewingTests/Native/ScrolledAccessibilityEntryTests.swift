@@ -222,7 +222,12 @@ import XCTest
         let byHand = try await posted(by: canvas) { try await scrollByHand(1_500, subject) }
         XCTAssertNotEqual(view.selectedRange, followed, "the insertion point follows a scroll by hand")
         try assertEntryIsTheFirstLineOnScreen("scrolled by hand", canvas)
-        XCTAssertTrue(byHand.isEmpty, "a scroll by hand posts \(byHand.map(\.notification.rawValue))")
+        // On a busy Mac a move of the reader's own has landed in this wait, as in the tests
+        // below (#352). Such a move brings its layout change: a notice of the insertion point
+        // with none after it would be the scroll's own.
+        let alone = byHand.indices.filter { byHand[$0].notification == .selectedTextChanged
+            && !(byHand.indices.contains($0 + 1) && byHand[$0 + 1].notification == .layoutChanged) }
+        XCTAssertTrue(alone.isEmpty, "a scroll by hand posts \(byHand.map(\.notification.rawValue))")
         // An insertion point an assistive client placed is the reader's again after its own step.
         view.setAccessibilitySelectedTextRange(NSRange(location: lineStart(at: view.selectedRange.location + 400, in: view), length: 0))
         try await assertToldTwice("a step from a line VoiceOver had moved to") { try await reader.session.send(.nextPage) }
