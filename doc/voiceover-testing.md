@@ -776,7 +776,11 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
   with NAME, twelve steps at most, each phrase recorded: where an action stands in an item's
   list depends on what else the item offers. When it is not offered the step ends in
   `MISSING`, and the next `doubletap` is skipped and says so, since it would perform
-  whichever action the rotor had come round to.
+  whichever action the rotor had come round to. The rotor must stand on Actions. It
+  usually does on an item that has actions, but a device keeps the setting a session
+  before it left: one found it on Characters and spelled the cell, and one on Rows and
+  went down the column. `rotor=Actions` first settles it, and ends in `MISSING` where the
+  item has no actions.
 - `flick=right`, `flick=left`: VoiceOver's next and previous item; `flick=right*12` repeats it.
 - `rotor=LABEL`: two fingers turned on the glass, which turns VoiceOver's rotor, repeated
   until VoiceOver's phrase begins with LABEL, thirty turns at most: `rotor=Headings`.
