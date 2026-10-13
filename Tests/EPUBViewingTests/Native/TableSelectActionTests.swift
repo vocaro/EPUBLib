@@ -200,6 +200,37 @@ import XCTest
         XCTAssertEqual(actions(row), ["Next Page", "Previous Page", "Deselect Table Text: Left cell", "Copy", "Deselect Table Text: Right cell"])
     }
 
+    /// UIKit draws the selection of a text view that is first responder, as a touch in a cell
+    /// makes it. The cell then paints none of its own over it, and paints it again when the
+    /// view gives that up with its words still selected.
+    func testACellLeavesItsSelectionToUIKitWhileItIsFirstResponder() async throws {
+        let publication = try EPUBPublication.open(data: SessionCoverageBook.epub([
+            SessionCoverageBook.Section("tables", Self.body + SessionCoverageBook.filler(120), title: "Tables")]))
+        let reader = try SessionCoverageReader(publication: publication)
+        readers.append(reader)
+        reader.window?.resize(to: CGSize(width: 402, height: 874))
+        try await reader.settle()
+        let canvas = try XCTUnwrap(reader.session.canvas)
+        let view = try XCTUnwrap(canvas.textViews.first { !$0.isHidden })
+        try await reader.wait("the cells' text views") { view.tableInteraction?.cells.count == 6 }
+        canvas.announce = { _ in }
+        let row = try XCTUnwrap((view.accessibilityElements as? [UIAccessibilityElement])?.first { $0.accessibilityLabel?.hasPrefix("Left cell") == true })
+        let surface = try XCTUnwrap(view.tableInteraction?.cells.values.first { $0.cellText.string.hasPrefix("Left cell") })
+        func painted() -> Bool { surface.textStorage.attribute(.backgroundColor, at: 0, effectiveRange: nil) != nil }
+        XCTAssertFalse(painted(), "nothing is selected")
+        try perform("Select Table Text: Left cell", on: row)
+        XCTAssertFalse(surface.isFirstResponder, "the action takes no keyboard focus")
+        XCTAssertTrue(painted())
+        XCTAssertTrue(surface.becomeFirstResponder())
+        XCTAssertEqual(surface.cellSelection, NSRange(location: 0, length: 9))
+        XCTAssertFalse(painted(), "UIKit draws it now")
+        XCTAssertTrue(surface.resignFirstResponder())
+        XCTAssertEqual(surface.cellSelection, NSRange(location: 0, length: 9), "the words stay selected")
+        XCTAssertTrue(painted(), "and UIKit no longer draws them")
+        canvas.clearSelection()
+        XCTAssertFalse(painted())
+    }
+
     /// A host that gives no selection action has none to offer; Copy needs no host.
     func testWithoutASelectionActionASelectedCellOffersCopyAlone() async throws {
         let publication = try EPUBPublication.open(data: SessionCoverageBook.epub([

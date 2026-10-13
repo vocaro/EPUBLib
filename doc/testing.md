@@ -190,7 +190,9 @@ pixels, counting those of the cell's ground that changed: the cell draws a selec
 ink over the row's own, which changes pixels at the letters' edges with no selection shown,
 and passed a count of any pixel. What the reader has VoiceOver say is taken from the canvas
 (`ReaderCanvasView.announce`) instead of posted. A third test selects a passage through two
-cells in code, as a located passage is, and reads each cell's share from the pixels.
+cells in code, as a located passage is, and reads each cell's share from the pixels, and a
+fourth holds a cell to painting no selection of its own while its view is first responder,
+when UIKit draws it, and to painting it again when the view gives that up.
 
 Accessibility action tests hold each item of a page and of a screen on iPhone and iPad to
 offering its own actions and no more: a line, a heading and a link their page turns in pages
