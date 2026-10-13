@@ -2360,10 +2360,13 @@ Go: the native viewer is the bundled engine.
   publisher corpus renders all 33 SVG resources, including six containing shadow filters
   ([verification](issue-53-svg-diagrams.md)). Rendering limits
   include 4 MiB of SVG, 10,000 nodes, depth 64 and 8 MiB of expanded local references.
-  Two amplifications the byte and node limits do not catch are bounded too, and an SVG past
-  either shows its fallback text with the `svg` disclosure, as one past the node, depth or
+  Amplifications the byte and node limits do not catch are bounded too, and an SVG past
+  any shows its fallback text with the `svg` disclosure, as one past the node, depth or
   byte limits does. One `<text>` run, whose layout is super-linear in its length, is held to
-  20,000 characters, and an SVG that holds a `<tref>`, which SVG 2 removed and which draws
+  20,000 Unicode scalar values. The sum across the drawing is held to 50,000, counting text
+  again wherever a `<use>` or a mask/clip reference expands it. This counts Rust's
+  `str::chars` units, including each combining scalar, rather than UTF-8 bytes or grapheme
+  clusters. An SVG that holds a `<tref>`, which SVG 2 removed and which draws
   text from elsewhere in the document into a run, is refused. Markers, whose content the
   renderer builds again at every vertex they are drawn at, are counted in the forms diagrams
   use and refused in any other, rather than modelled.
@@ -2425,8 +2428,7 @@ Go: the native viewer is the bundled engine.
   a ceiling set from measurement (the worst passing drawing costs the renderer on the order of what
   the other limits allow); each shape is charged the most that it or any ancestor, through every
   `<use>` that draws it, could ask for, so the count never falls below what the renderer does. A
-  stylesheet's declarations are the exception: they are charged only in part, as their entry below
-  says, and what they cost the renderer is not bounded. The screen's own work is counted too, in
+  stylesheet's declarations have a separate whole-document bound described below. The screen's own work is counted too, in
   steps for the gradients it looks up, the elements it walks and the CSS it reads, and a drawing
   that spends its budget of steps shows its fallback text with the same disclosure: that limits the
   screen's own reading and not what the renderer does, and it does not bound all of the screen's
@@ -2451,19 +2453,25 @@ Go: the native viewer is the bundled engine.
     `stroke` paint, the numbers (`stroke-width`, the opacities, `stroke-miterlimit`, offsets) and the
     keyword enumerations alike — is charged its bytes over 64, summed down the inheritance chain. A
     `style` value is counted with its white space trimmed, as the renderer trims it before storing.
-  - A stylesheet's declarations are charged only in part, and what storing them costs the renderer
-    is not bounded (#282); a gradient a stylesheet paints with is still charged in full, as the
-    first entry says. The renderer stores every presentation declaration of a rule on every element
-    the rule matches, groups and `<use>` elements included, so that cost goes as declarations times
-    matched elements. Each painted shape, and each character of a text run, is charged one value,
-    the longest presentation declaration's of any `<style>`, so that a single very long value cannot
-    be copied onto thousands of shapes for free. A rule of many declarations is charged as a rule of
-    one, and what a rule costs on the groups and `<use>` elements it matches is not charged, so a
-    drawing of a few kilobytes can still pass and cost the renderer hundreds of megabytes. An
-    at-rule such as `@font-face` is not counted: the renderer never applies it to an element, so an
-    embedded font a stylesheet carries in a `src: url(data:…)` does not count against a drawing, and
-    ordinary Illustrator, Inkscape, Figma and chart-library output that embeds a font renders as
-    before. A stylesheet that is stripped whole before rendering is not counted on either screening.
+  - Stylesheet matching and declarations are bounded before the renderer parses them, by
+    `SVGRenderingCostScreen` using the reference screen's simplecss reader. The matching budget
+    is 32 Mi units: selector UTF-8 bytes and attribute-lookup/value-scan cost per element, plus ancestor choices for each descendant
+    combinator whose final compound could match, and each matched declaration's name/value bytes
+    plus 64. The last term includes declarations the renderer drops: it still visits every
+    declaration of a matched rule. For depth `d` and `k` descendant combinators the number of
+    partial ancestor choices is bounded by the sum of binomial coefficients `C(d,j)` for
+    `0 <= j <= k`. This refuses both a small selector that backtracks exponentially and many
+    rules applied to many elements, including a long compound without combinators.
+  - Stylesheet storage has a 16 MiB budget: a declaration's value bytes plus 64 for its owned
+    attribute/string storage on every element its rule could match, including groups and `<use>`
+    copies. `marker` charges three attributes and `font` eighteen, their maximum shorthand
+    expansions. Cloning a declaration block for each selector in a list also counts, for every
+    property whether stored or dropped, with its name bytes too. A list past the budget is refused
+    before constructing lists of referenced resources. The original per-shape longest-value charge
+    remains to bound resolved text-span and inherited-value copies. At-rules such as `@font-face`
+    are skipped as in simplecss, and stylesheets stripped by serialization are skipped here.
+    A synthetic exporter-style drawing of fifty five-declaration class/descendant rules over
+    3,000 shapes remains within every limit and renders.
   - A `<text>` run clones its resolved style for every span (at most one span per character): the
     gradient stops its fill and stroke name, into the span and each of three text decorations; the
     dash array, into the span's stroke and, when the run is decorated, each decoration stroke; the
@@ -2473,8 +2481,14 @@ Go: the native viewer is the bundled engine.
     thousands of shapes, dashed strokes on a large chart, a short variable-font axis list, and long
     but ordinary values (a path's `d`, a `points` list, a `transform`, an embedded `data:` image, a
     normal `font-family`) stay well within the ceiling. A `<switch>` draws one alternative but every
-    one is charged, a sound over-charge. A mask's content is charged once, not once per element that
-    references the mask (#220 covers that multiplication).
+    one is charged, a sound over-charge. The rendering cost screen additionally charges a mask or
+    clip path's content once per reference against the 8 MiB expanded-reference ceiling. It follows
+    nested references and `<use>` without expanding a tree, so branching resource chains are
+    bounded as well. The renderer shares user-space masks and clip paths only after successful
+    conversion; an invalid resource is repeatedly retried. The screen conservatively charges
+    every reference in every unit system, even where the renderer successfully shares it. This
+    also bounds the drawing work of repeatedly using successfully cached content. [Source characterization and measurements](issue-176-220-282-svg-costs.md)
+    describe the units, the cache condition and the reproducible capped experiment.
 
   Embedded raster images are capped at 4 megapixels each and 16 megapixels in total.
   Output is capped at 4,096 pixels on its long side and 16 megapixels, reduced further for

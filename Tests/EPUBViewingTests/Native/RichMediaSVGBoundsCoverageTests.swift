@@ -83,9 +83,9 @@ final class RichMediaSVGBoundsCoverageTests: XCTestCase {
         XCTAssertTrue(renders(tspans(19_990)))
         XCTAssertFalse(renders(tspans(20_010)), "ten tspans totalling over 20,000 characters are one over-long run")
 
-        // The bound is per run: many separate <text> elements stay linear and render.
-        let many = "<svg \(ns) width='200' height='50'>" + String(repeating: "<text x='0' y='20'>\(String(repeating: "a", count: 1_000))</text>", count: 100) + "</svg>"
-        XCTAssertTrue(renders(many), "100 short runs (100,000 characters total) render; the bound is on one run")
+        // Short separate runs render within the additional whole-drawing text bound (#176).
+        let many = "<svg \(ns) width='200' height='50'>" + String(repeating: "<text x='0' y='20'>\(String(repeating: "a", count: 400))</text>", count: 100) + "</svg>"
+        XCTAssertTrue(renders(many), "100 short runs (40,000 characters total) render within both text bounds")
     }
 
     func testOverLongInlineTextRunShowsTitleFallbackAndDiscloses() throws {

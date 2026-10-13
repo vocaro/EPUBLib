@@ -41,7 +41,11 @@ final class RichMediaSVGRenderingCostCoverageTests: XCTestCase {
             let content = String(repeating: "<\(element)/>", count: 128)
             let drawing = svg("<title>Costly diagram</title><style>\(element){\(declarations)}</style><defs><g id='a'>\(content)</g><g id='b'>"
                 + String(repeating: "<use href='#a'/>", count: 64) + "</g></defs>" + String(repeating: "<use href='#b'/>", count: 30))
-            XCTAssertGreaterThan(try verdict(drawing).stylesheetCopies, SVGRenderingCostScreen.maximumStylesheetCopies)
+            let result = try verdict(drawing)
+            XCTAssertFalse(result.withinLimits)
+            XCTAssertGreaterThan(result.stylesheetCopies, 0)
+            XCTAssertTrue(result.stylesheetWork > SVGRenderingCostScreen.maximumStylesheetWork
+                || result.stylesheetCopies > SVGRenderingCostScreen.maximumStylesheetCopies)
             try fallback(drawing)
         }
     }
@@ -49,6 +53,12 @@ final class RichMediaSVGRenderingCostCoverageTests: XCTestCase {
         let selectors = (0..<5_000).map { ".c\($0)" }.joined(separator: ",")
         let drawing = svg("<style>\(selectors){fill:" + String(repeating: "x", count: 4_000) + "}</style><rect/>")
         XCTAssertGreaterThan(try verdict(drawing).stylesheetCopies, SVGRenderingCostScreen.maximumStylesheetCopies)
+    }
+    func testScreenRefusesSelectorDeclarationProductBeforeExpandingReferenceLists() throws {
+        let selectors = Array(repeating: ".c", count: 20_000).joined(separator: ",")
+        let declarations = String(repeating: "mask:url(#r);", count: 20_000)
+        let drawing = svg("<style>\(selectors){\(declarations)}</style><rect class='c'/>")
+        XCTAssertFalse(try verdict(drawing).withinLimits)
     }
     func testIgnoredDeclarationsStillCostMatchingWork() throws {
         let drawing = svg("<title>Costly diagram</title><style>rect{" + String(repeating: "a:x;", count: 100_000)
@@ -87,13 +97,13 @@ final class RichMediaSVGRenderingCostCoverageTests: XCTestCase {
         return svg("<title>Costly diagram</title><defs><\(name) id='r' \(units)>\(body)</\(name)></defs>"
             + String(repeating: "<rect width='2' height='2' \(source)='url(#r)'/>", count: references))
     }
-    func testMaskAndObjectBoundingBoxClipContentMultiplyAndCacheableResourcesShare() throws {
+    func testAllMaskAndClipUnitsPayPerReferenceAndOrdinaryReusePasses() throws {
         for (name, units, property) in [("mask", "", "mask"), ("clipPath", "clipPathUnits='objectBoundingBox'", "clip-path")] {
             XCTAssertTrue(SVGContent.isWithinRenderingLimits(try root(resource(name, units: units, references: 100, source: property))))
             try fallback(resource(name, units: units, references: 600, source: property))
         }
-        XCTAssertTrue(SVGContent.isWithinRenderingLimits(try root(resource("mask", units: "maskUnits='userSpaceOnUse'", references: 600))))
-        XCTAssertTrue(SVGContent.isWithinRenderingLimits(try root(resource("clipPath", references: 600, source: "clip-path"))))
+        XCTAssertTrue(SVGContent.isWithinRenderingLimits(try root(resource("mask", units: "maskUnits='userSpaceOnUse'", references: 100))))
+        XCTAssertTrue(SVGContent.isWithinRenderingLimits(try root(resource("clipPath", references: 100, source: "clip-path"))))
     }
     func testResourceExpansionHasAnExactByteBoundary() throws {
         let base = try verdict(resource("mask", references: 0, shapes: 10)).expandedBytes
@@ -123,13 +133,36 @@ final class RichMediaSVGRenderingCostCoverageTests: XCTestCase {
     }
     func testInvalidUserSpaceResourcesAreNotAssumedToBeCached() throws {
         for (tag, units, property) in [("mask", "maskUnits='userSpaceOnUse'", "mask"), ("clipPath", "", "clip-path")] {
-            var definitions = "<\(tag) id='r0' \(units)/>"
+            // A positive Double can underflow to zero in the renderer's f32 geometry. Even a
+            // resource with a seemingly nonempty primitive is then retried rather than cached.
+            let helper = "<rect width='1e-300' height='1'/>"
+            var definitions = "<\(tag) id='r0' \(units)>\(helper)</\(tag)>"
             for level in 1...20 {
-                definitions += "<\(tag) id='r\(level)' \(units)>"
+                definitions += "<\(tag) id='r\(level)' \(units)>\(helper)"
                     + String(repeating: "<rect width='2' height='2' \(property)='url(#r\(level - 1))'/>", count: 2) + "</\(tag)>"
             }
             try fallback(svg("<title>Costly diagram</title><defs>\(definitions)</defs><rect width='2' height='2' \(property)='url(#r20)'/>"))
         }
+    }
+    func testMaskReferencesMultiplyGradientAndDashCopiesToo() throws {
+        let stops = String(repeating: "<stop stop-color='red'/>", count: 2_000)
+        let shapes = String(repeating: "<rect width='1' height='1' fill='url(#g)'/>", count: 500)
+        let drawing = svg("<title>Costly diagram</title><defs><linearGradient id='g'>\(stops)</linearGradient><mask id='m'>\(shapes)</mask></defs>"
+            + String(repeating: "<rect width='2' height='2' mask='url(#m)'/>", count: 100))
+        XCTAssertTrue(try verdict(drawing).withinLimits, "source expansion alone cannot bound gradient copies")
+        try fallback(drawing)
+    }
+    func testSelectorAttributeLookupAndValueScanningAreBoundedBeforeMatches() throws {
+        let classes = (0..<5_000).map { ".c\($0){fill:red}" }.joined()
+        let longClass = svg("<title>Costly diagram</title><style>\(classes)</style><rect class='" + String(repeating: "x", count: 1_000_000) + "'/>")
+        XCTAssertGreaterThan(try verdict(longClass).stylesheetWork, SVGRenderingCostScreen.maximumStylesheetWork)
+        try fallback(longClass)
+        let attrs = (0..<50_000).map { "a\($0)='x'" }.joined(separator: " ")
+        let missingAttribute = svg("<title>Costly diagram</title><style>" + String(repeating: "[z]{fill:red}", count: 5_000) + "</style><rect \(attrs)/>")
+        XCTAssertGreaterThan(try verdict(missingAttribute).stylesheetWork, SVGRenderingCostScreen.maximumStylesheetWork)
+        try fallback(missingAttribute)
+        let tinyRules = svg("<style>" + String(repeating: "a{}", count: 100_000) + "</style><rect/>")
+        XCTAssertFalse(try verdict(tinyRules).withinLimits, "materialization stops after the 10,001st selector")
     }
     func testOrdinaryDiagramStylesRemainWithinAllLimits() throws {
         // Fifty rules of five declarations over a few thousand elements, with class, id,

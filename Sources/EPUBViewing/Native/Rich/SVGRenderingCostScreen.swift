@@ -5,7 +5,8 @@ import Foundation
 /// All arithmetic saturates at the relevant ceiling; no hostile drawing reaches the renderer.
 enum SVGRenderingCostScreen {
     static let maximumTextCharacters = 50_000
-    static let maximumStylesheetWork = 8 * 1024 * 1024
+    static let maximumStylesheetWork = 32 * 1024 * 1024
+    static let maximumStylesheetSelectors = 10_000
     static let maximumStylesheetCopies = 16 * 1024 * 1024
 
     struct Verdict {
@@ -14,6 +15,7 @@ enum SVGRenderingCostScreen {
         var textCharacters: Int
         var stylesheetWork: Int
         var stylesheetCopies: Int
+        var resources: [ObjectIdentifier: [ContentNode]] = [:]
     }
 
     private struct Cost {
@@ -48,23 +50,43 @@ enum SVGRenderingCostScreen {
     static func verdict(_ svg: ContentNode, nodes: [ContentNode], ids: [String: [ContentNode]]) -> Verdict {
         typealias Subject = SVGReferenceScreen.Subject
         var styles: [Subject: Style] = [:]
+        var attributeBytes: [String: Int] = [:]
+        let attributeCount = nodes.map { $0.attributes.count }.max() ?? 0
+        for node in nodes {
+            for attribute in node.attributes { attributeBytes[attribute.name] = max(attributeBytes[attribute.name, default: 0], attribute.value.utf8.count) }
+        }
+        func attributeWork(_ queries: [String: Int]) -> Int {
+            queries.reduce(0) { $0 + $1.value * (attributeCount + attributeBytes[$1.key, default: 0]) }
+        }
         var selectorWork = 0
+        var selectorCount = 0
         var sheetCopies = 0
         for node in nodes where node.name == "style" && SVGContent.serializeKeepsSheet(node.textContent) {
-            for rule in SVGReferenceScreen.CSSReader.rules(of: node.textContent, referencesOnly: false) {
-                selectorWork += rule.selectorBytes.reduce(0, +)
+            for rule in SVGReferenceScreen.CSSReader.rules(of: node.textContent, referencesOnly: false,
+                    maximumSelectors: maximumStylesheetSelectors - selectorCount, maximumCopies: maximumStylesheetCopies) {
+                selectorCount += rule.subjects.count
+                if selectorCount > maximumStylesheetSelectors {
+                    return Verdict(withinLimits: false, expandedBytes: 0, textCharacters: 0,
+                                   stylesheetWork: maximumStylesheetWork + 1, stylesheetCopies: 0)
+                }
+                selectorWork += rule.selectorBytes.reduce(0, +) + rule.queriedAttributes.reduce(0) { $0 + attributeWork($1) }
                 // simplecss clones a block for every selector, before matching any elements.
                 sheetCopies = min(maximumStylesheetCopies + 1,
                                   sheetCopies + min(maximumStylesheetCopies + 1, rule.declarationBytes * rule.subjects.count))
+                if sheetCopies > maximumStylesheetCopies {
+                    return Verdict(withinLimits: false, expandedBytes: 0, textCharacters: 0,
+                                   stylesheetWork: 0, stylesheetCopies: sheetCopies)
+                }
                 for (i, subject) in rule.subjects.enumerated() {
                     let descendants = rule.descendants[i]
-                    var style = styles[subject, default: Style()]
-                    style.declarationWork = min(maximumStylesheetWork + 1, style.declarationWork + rule.declarationBytes)
-                    style.copies = min(maximumStylesheetCopies + 1, style.copies + rule.copiedBytes)
-                    style.descendants[descendants, default: 0] += rule.selectorBytes[i]
-                    style.references.targets += rule.references.targets
-                    style.references.inherits = style.references.inherits || rule.references.inherits
-                    styles[subject] = style
+                    func add(to style: inout Style) {
+                        style.declarationWork = min(maximumStylesheetWork + 1, style.declarationWork + rule.declarationBytes)
+                        style.copies = min(maximumStylesheetCopies + 1, style.copies + rule.copiedBytes)
+                        style.descendants[descendants, default: 0] += rule.selectorBytes[i] + attributeWork(rule.queriedAttributes[i])
+                        style.references.targets += rule.references.targets
+                        style.references.inherits = style.references.inherits || rule.references.inherits
+                    }
+                    add(to: &styles[subject, default: Style()])
                 }
             }
         }
@@ -123,45 +145,10 @@ enum SVGRenderingCostScreen {
             }
             resources[ObjectIdentifier(node)] = Array(targets.values)
         }
-        func cachedResource(_ node: ContentNode) -> Bool {
-            // usvg caches only after successful conversion. An empty/invalid resource can be
-            // converted repeatedly even in user-space units, exponentially along a chain.
-            // Grant sharing only to a narrow, provably nonempty case: an unstyled direct solid
-            // rectangle, no links/transform/visibility/paint modifiers on it or its ancestors.
-            // Everything else pays per reference, including resources that usvg might cache.
-            guard styles.isEmpty else { return false }
-            let rootAttributes: Set<String> = ["id", "maskUnits", "maskContentUnits", "clipPathUnits", "width", "height", "x", "y"]
-            let ancestorAttributes: Set<String> = ["id", "width", "height", "x", "y", "viewBox", "xmlns"]
-            func positive(_ value: String?) -> Bool { value.flatMap(Double.init).map { $0.isFinite && $0 > 0 } ?? false }
-            func finite(_ value: String?) -> Bool { value.flatMap(Double.init)?.isFinite ?? false }
-            guard node.attributes.allSatisfy({ rootAttributes.contains($0.name) }) else { return false }
-            if node.name == "mask" {
-                for attr in node.attributes where ["width", "height"].contains(attr.name) {
-                    guard positive(attr.value) else { return false }
-                }
-                for attr in node.attributes where ["x", "y"].contains(attr.name) {
-                    guard finite(attr.value) else { return false }
-                }
-            }
-            var ancestor = node.parent
-            while let parent = ancestor {
-                guard parent.attributes.allSatisfy({ ancestorAttributes.contains($0.name) }) else { return false }
-                ancestor = parent.parent
-            }
-            func userSpace(_ name: String, byDefault: Bool) -> Bool {
-                let values = node.attributes.filter { $0.name == name }
-                return values.isEmpty ? byDefault : values.allSatisfy { $0.value == "userSpaceOnUse" }
-            }
-            let units = node.name == "mask"
-                ? userSpace("maskUnits", byDefault: false) && userSpace("maskContentUnits", byDefault: true)
-                : node.name == "clipPath" && userSpace("clipPathUnits", byDefault: true)
-            guard units else { return false }
-            return node.elementChildren.contains { child in
-                child.name == "rect" && child.children.isEmpty
-                    && child.attributes.allSatisfy { ["id", "width", "height", "x", "y"].contains($0.name) && ($0.name == "id" || finite($0.value)) }
-                    && positive(child.attribute("width")) && positive(child.attribute("height"))
-            }
-        }
+        // Charge every resource reference, including user-space resources. usvg caches only
+        // successful nonempty conversions; geometry rounding, styles or a failed nested resource
+        // can make an apparently shareable resource fail and be retried exponentially. Charging
+        // every reference also bounds drawing work when a successfully cached resource is reused.
         // An unsuccessful chain of k descendant combinators explores every ancestor choice,
         // including partial matches: sum C(depth,j), 0 <= j <= k. Charge the sum, capped.
         func ancestorChoices(_ depth: Int, _ descendants: Int) -> Int {
@@ -207,7 +194,7 @@ enum SVGRenderingCostScreen {
                 }
             }
             let used = node.name == "use" ? SVGContent.fragment(node).flatMap { ids[$0] } ?? [] : []
-            let referenced = (resources[identity] ?? []).filter { !cachedResource($0) }
+            let referenced = resources[identity] ?? []
             for child in node.children + used + referenced {
                 guard result.within else { break }
                 result.add(cost(child, depth: depth + 1))
@@ -218,6 +205,6 @@ enum SVGRenderingCostScreen {
         var result = cost(svg, depth: 0)
         result.copies = min(maximumStylesheetCopies + 1, result.copies + sheetCopies)
         return Verdict(withinLimits: result.within, expandedBytes: result.bytes, textCharacters: result.text,
-                       stylesheetWork: result.work, stylesheetCopies: result.copies)
+                       stylesheetWork: result.work, stylesheetCopies: result.copies, resources: resources)
     }
 }

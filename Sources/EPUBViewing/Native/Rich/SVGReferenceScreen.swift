@@ -526,12 +526,15 @@ enum SVGReferenceScreen {
             var references: References
             var descendants: [Int]
             var selectorBytes: [Int]
+            var queriedAttributes: [[String: Int]]
             var declarationBytes: Int
             var copiedBytes: Int
         }
 
         private let text: [UInt8]
         private var position = 0
+        private var selectorLimit = Int.max
+        private var copyLimit = Int.max
 
         private init(_ text: String) { self.text = Array(text.utf8) }
 
@@ -541,8 +544,11 @@ enum SVGReferenceScreen {
         private func string(_ range: Range<Int>) -> String { String(decoding: text[range], as: UTF8.self) }
 
         /// The rules of a stylesheet that assign a reference.
-        static func rules(of sheet: String, referencesOnly: Bool = true) -> [Rule] {
+        static func rules(of sheet: String, referencesOnly: Bool = true, maximumSelectors: Int = Int.max, maximumCopies: Int = Int.max) -> [Rule] {
             var reader = CSSReader(sheet)
+            reader.selectorLimit = maximumSelectors
+            reader.copyLimit = maximumCopies
+            var selectors = 0
             var rules: [Rule] = []
             guard reader.skipSpacesAndComments() else { return rules }
             while reader.current != nil {
@@ -553,6 +559,9 @@ enum SVGReferenceScreen {
                     reader.atRule()
                 } else if let rule = reader.ruleSet(), !rule.subjects.isEmpty, (!referencesOnly || !rule.references.isEmpty) {
                     rules.append(rule)
+                    selectors += rule.subjects.count
+                    if selectors > maximumSelectors || rule.declarationBytes * rule.subjects.count > maximumCopies { return rules }
+                    reader.selectorLimit = maximumSelectors - selectors
                 }
                 // Every statement that parser reads moves it on; this only guards the loop.
                 if reader.position == start { break }
@@ -591,6 +600,7 @@ enum SVGReferenceScreen {
             var subjects: [Subject] = []
             var descendants: [Int] = []
             var selectorBytes: [Int] = []
+            var queriedAttributes: [[String: Int]] = []
             while true {
                 guard current != nil else { return nil }
                 guard at(",") || subjects.isEmpty else { break }
@@ -599,6 +609,11 @@ enum SVGReferenceScreen {
                 if let selector = selector() {
                     subjects.append(selector.subject); descendants.append(selector.descendants)
                     selectorBytes.append(max(1, position - start))
+                    queriedAttributes.append(selector.attributes)
+                    if subjects.count > selectorLimit {
+                        return Rule(subjects: subjects, references: References(), descendants: descendants,
+                                    selectorBytes: selectorBytes, queriedAttributes: queriedAttributes, declarationBytes: 0, copiedBytes: 0)
+                    }
                 }
                 skipSpaces()
                 guard current != nil else { return nil }
@@ -624,9 +639,10 @@ enum SVGReferenceScreen {
                     copiedBytes += bytes * (name == "marker" ? 3 : name == "font" ? 18 : 1)
                 }
                 if mayReference(declaration.name) { references.add(name, string(declaration.value)) }
+                if declarationBytes * subjects.count > copyLimit { break }
             }
             if at("}") { position += 1 }
-            return Rule(subjects: subjects, references: references, descendants: descendants, selectorBytes: selectorBytes, declarationBytes: declarationBytes, copiedBytes: copiedBytes)
+            return Rule(subjects: subjects, references: references, descendants: descendants, selectorBytes: selectorBytes, queriedAttributes: queriedAttributes, declarationBytes: declarationBytes, copiedBytes: copiedBytes)
         }
 
         /// To the end of a block, counting brackets wherever they stand, and past its `}`.
@@ -646,9 +662,10 @@ enum SVGReferenceScreen {
 
         /// One selector, up to a `,` or `{`; nil where that parser reads none. A failure
         /// leaves the position where it leaves its own.
-        private mutating func selector() -> (subject: Subject, descendants: Int)? {
+        private mutating func selector() -> (subject: Subject, descendants: Int, attributes: [String: Int])? {
             var subject: Subject?
             var descendants = 0
+            var attributes: [String: Int] = [:]
             /// A selector must follow: at the start, and after a combinator.
             var expectsSelector = true
             /// A combinator was read since the last compound selector.
@@ -660,7 +677,7 @@ enum SVGReferenceScreen {
                 combined = false
             }
             while true {
-                guard !finished, let byte = current else { return expectsSelector ? nil : subject.map { ($0, descendants) } }
+                guard !finished, let byte = current else { return expectsSelector ? nil : subject.map { ($0, descendants, attributes) } }
                 switch Character(Unicode.Scalar(byte)) {
                 case "*":
                     guard expectsSelector else { return nil }
@@ -672,11 +689,13 @@ enum SVGReferenceScreen {
                     expectsSelector = false
                     position += 1
                     guard let name = identifier() else { return nil }
+                    attributes[byte == UInt8(ascii: "#") ? "id" : "class", default: 0] += 1
                     condition(byte == UInt8(ascii: "#") ? .id(string(name)) : .class(string(name)))
                 case "[":
                     expectsSelector = false
                     position += 1
-                    guard identifier() != nil, current != nil else { return nil }
+                    guard let attributeName = identifier(), current != nil else { return nil }
+                    attributes[string(attributeName), default: 0] += 1
                     if at("=") {
                         position += 1
                         guard quoted() else { return nil }
@@ -696,6 +715,7 @@ enum SVGReferenceScreen {
                     position += 1
                     guard let name = identifier() else { return nil }
                     if string(name) == "lang" {
+                        attributes["lang", default: 0] += 1
                         guard at("(") else { return nil }
                         position += 1
                         let start = position
