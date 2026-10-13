@@ -28,14 +28,14 @@ on:
         default: '1'
       scroll_bars:
         description: >-
-          The scroll bars the tests run under. overlay: as a Mac with a trackpad shows. legacy:
-          as a Mac with a mouse shows. both: each of those in a job of its own. automatic: the
+          The scroll bars the tests run under. legacy: as a Mac with a mouse shows. overlay: as
+          a Mac with a trackpad shows. both: each of those in a job of its own. automatic: the
           runner's own setting, overlay as a process starts and legacy a moment later.
         type: choice
-        options: [both, overlay, legacy, automatic]
-        default: both
+        options: [legacy, overlay, both, automatic]
+        default: legacy
 
-run-name: ${{ github.event_name == 'workflow_dispatch' && format('Mac unit tests, {0}, {1}{2}{3}', inputs.ref || github.ref_name, inputs.filter || 'every test', inputs.repeat != '1' && format(', {0} passes', inputs.repeat) || '', inputs.scroll_bars != 'both' && format(', {0} scroll bars', inputs.scroll_bars) || '') || '' }}
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Mac unit tests, {0}, {1}{2}, {3} scroll bars', inputs.ref || github.ref_name, inputs.filter || 'every test', inputs.repeat != '1' && format(', {0} passes', inputs.repeat) || '', inputs.scroll_bars == 'both' && 'both kinds of' || inputs.scroll_bars) || '' }}
 
 permissions:
   contents: read
@@ -58,9 +58,11 @@ jobs:
       # Which kinds a test fails under is part of the result, so one job does not stop the other.
       fail-fast: false
       matrix:
-        # A pull request and a push to main get both kinds. For one job to a run there, change
-        # the first 'both' to the kind it is to have.
-        scroll_bars: ${{ fromJSON((inputs.scroll_bars || 'both') == 'both' && '["overlay", "legacy"]' || format('["{0}"]', inputs.scroll_bars)) }}
+        # By hand, the kinds asked for. A push to main gets both. A pull request gets legacy
+        # ones only: each job takes a runner from the few that every run in the repository
+        # waits for. To give a pull request both, put 'both' in place of the expression in the
+        # inner brackets.
+        scroll_bars: ${{ fromJSON((inputs.scroll_bars || (github.event_name == 'push' && 'both' || 'legacy')) == 'both' && '["overlay", "legacy"]' || format('["{0}"]', inputs.scroll_bars || 'legacy')) }}
     defaults:
       run:
         shell: bash
@@ -113,10 +115,6 @@ jobs:
             echo "::error::A process on the runner has $first scroll bars and then $later ones, and this job is for $SCROLL_BARS ones"
             exit 1
           fi
-          echo "Temporary, pointing devices:"
-          hidutil list --matching '{"PrimaryUsagePage":1,"PrimaryUsage":2}' || true
-          hidutil list --matching '{"PrimaryUsagePage":1,"PrimaryUsage":1}' || true
-          defaults read -g AppleShowScrollBars 2>&1 | tail -n 1 || true
 
       - name: Build
         run: |
