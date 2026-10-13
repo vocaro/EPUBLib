@@ -194,7 +194,7 @@ func embeddedElement(naming words: String) -> AXUIElement? {
         for run in embeddedRuns(text) {
             // A link over a picture is the picture's link, whichever of the two has its words.
             if let link = run.link, names(link) || run.words.contains(words) || run.attachment.map(names) ?? false { return link }
-            // A table row off screen is an image named by all its cells' words, and no link.
+            // A table row is called by all its cells' words, and is no link.
             if let attachment = run.attachment, string(attachment, kAXRoleAttribute) == "AXLink", names(attachment) { return attachment }
         }
     }

@@ -294,12 +294,19 @@ column and each row from the table and none from a cell, which is the header's o
 screen and otherwise a static text with the header cells' words, for a column under two
 header cells, a header on another page and one scrolled far off the screen; a cell that
 spans answering for every slot it covers; the actions a cell
-offers, and that selecting a cell's words and following its link do so; a table that is not
-data left a group for each row; a table split across pages, with the page's rows, the whole
+offers, and that selecting a cell's words and following its link do so; a table split across pages, with the page's rows, the whole
 table's count and a header cell named from another page; a row taller than a page, whose
 words each page's table says once; continuous scroll, where a table holds every row, says
 which are on screen and labels a cell that has no text area yet; and a table kept from a
-page that has been turned, which says nothing of the new one. They read the elements through
+page that has been turned, which says nothing of the new one. For a table that is not data
+they read the group at each row's character: called by its cells' words in column order,
+holding the text areas of the cells on screen, and the same element when one character is
+asked for; a cell without words left out of the name, a described picture's words in it, a
+row of pictures nobody describes still called "Table row", and a row of a table of data
+that shows a picture still its table; in continuous scroll a row far below the screen the
+same group with nothing in it, which holds its cells once it is scrolled to; a row taller
+than a page called on each page by the words that page shows; and a group kept from a page
+that has been turned, which says nothing. They read the elements through
 AppKit's own accessibility methods. The older informal ones (`accessibilityAttributeNames()`,
 `accessibilityAttributeValue(_:)`) do not show what a client is given: called on these
 elements in a test they listed five attributes, gave nil for every value, and the test
