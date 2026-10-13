@@ -137,7 +137,6 @@ extension ReaderCanvasView: NSTextViewDelegate {
         clip.scroll(to: NSPoint(x: clip.bounds.minX, y: min(max(-insets.top, target), maximumScrollOffset)))
         scrollView.reflectScrolledClipView(clip)
         textView.readerLayoutManager.textViewportLayoutController.layoutViewport()
-        textView.probe("SCROLLTO \(Int(y)) clip \(Int(clip.bounds.minY)) height \(Int(textView.frame.height))")
     }
 
     /// Keeps the text on screen in place, before the screen is read or stepped from. AppKit
@@ -149,13 +148,8 @@ extension ReaderCanvasView: NSTextViewDelegate {
     func settleScrollViewport() {
         guard let place = scrollPlace, scrollViewStandsWhereRead,
               let line = scrollTextView?.lineFrame(containing: place.location), abs(line.minY - place.lineTop) > 0.5 else { return }
-        scrollTextView?.probe("SETTLE the line at \(place.location) moved from \(Int(place.lineTop)) to \(Int(line.minY))")
-        isHoldingScrollPlace = true
         scrollToContainerY(scrollVisibleContainerRect.minY + line.minY - place.lineTop)
-        isHoldingScrollPlace = false
         scrollPlace = (place.location, line.minY, scrollVisibleContainerRect.minY)
-        // The rows on screen keep their cells, which go where the rows now stand.
-        refreshScrollTables()
     }
 
     /// Runs `scroll`, in which AppKit moves the scroll view by itself, and puts the view back

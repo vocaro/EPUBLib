@@ -130,7 +130,6 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// The row's frame in the view's coordinates, laid out if it was not.
     func frame(ofRowAt location: Int) -> CGRect? {
         guard let view, let range = view.textRange(for: NSRange(location: location, length: 1)) else { return nil }
-        view.holdScrollPlace()
         view.readerLayoutManager.ensureLayout(for: range)
         let origin = view.containerOrigin
         return view.segmentFrames(for: NSRange(location: location, length: 1)).first?.offsetBy(dx: origin.x, dy: origin.y)

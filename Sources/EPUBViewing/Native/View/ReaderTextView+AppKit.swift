@@ -82,10 +82,6 @@ final class ReaderTextView: NSTextView {
     /// The text container's origin in this view's coordinates.
     var containerOrigin: CGPoint { textContainerOrigin }
 
-    /// In continuous scroll, holds the text on screen in place before something is read off
-    /// the layout as being on screen (`ReaderCanvasView.holdScrollPlace`).
-    @discardableResult func holdScrollPlace() -> Bool { canvas?.holdScrollPlace(of: self) ?? false }
-
     /// Asks for the text already on screen to be drawn again. The text view draws each laid-out
     /// fragment in a view of its own beneath it, which its own `needsDisplay` does not reach.
     func setRenderedTextNeedsDisplay() {
@@ -228,7 +224,6 @@ final class ReaderTextView: NSTextView {
     /// its element carries the reader's word for one, for VoiceOver to say that a break is
     /// there. A heading's characters carry its level, shown or hidden.
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
-        probe("AXGET AttributedStringForRange \(range.location),\(range.length)", kind: "AttributedStringForRange")
         guard !isPageColumn || validPageAccessibilityRange(range),
               let base = super.accessibilityAttributedString(for: range) else { return nil }
         let tableRows = dataTableRows(in: range)
@@ -317,45 +312,11 @@ final class ReaderTextView: NSTextView {
     /// headings stand among them, each where it is in the text (`headingChildren`).
     override func accessibilityChildren() -> [Any]? {
         guard canvas != nil else { return super.accessibilityChildren() }
-        holdScrollPlace()
         let links = linkChildrenWithCells().map { (place: $0.place, element: $0.element as NSAccessibilityElement) }
         let headings = headingChildren().map { (place: $0.range.location, element: $0 as NSAccessibilityElement) }
         // A heading comes before a link that begins where it does, which is a link inside it.
         let own = (headings + links).enumerated().sorted { ($0.element.place, $0.offset) < ($1.element.place, $1.offset) }
-        probe("AXGET Children = \(own.map { "\($0.element.place):\($0.element.element.accessibilityTitle() ?? $0.element.element.accessibilityLabel() ?? "")" }) \(probeState)")
         return (super.accessibilityChildren() ?? []).filter { $0 is NSView } + own.map(\.element.element)
-    }
-
-    // TRIAL, not for main: what an assistive client asks of the scroll view's text.
-    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
-        let value = super.accessibilityAttributeValue(attribute)
-        let text = "AXASK \(attribute.rawValue) = \(ReaderProbe.short(value))"
-        MainActor.assumeIsolated { probe(text, kind: attribute.rawValue) }
-        return value
-    }
-
-    override func accessibilityAttributeValue(_ attribute: NSAccessibility.ParameterizedAttribute, forParameter parameter: Any?) -> Any? {
-        let value = super.accessibilityAttributeValue(attribute, forParameter: parameter)
-        let text = "AXASK \(attribute.rawValue) \(ReaderProbe.short(parameter)) = \(ReaderProbe.short(value))"
-        MainActor.assumeIsolated { probe(text, kind: attribute.rawValue) }
-        return value
-    }
-
-    override func accessibilitySetValue(_ value: Any?, forAttribute attribute: NSAccessibility.Attribute) {
-        let text = "AXSETVALUE \(attribute.rawValue) \(ReaderProbe.short(value))"
-        MainActor.assumeIsolated { probe(text, stack: true) }
-        super.accessibilitySetValue(value, forAttribute: attribute)
-        MainActor.assumeIsolated { probe("AXSETVALUE done \(probeState)") }
-    }
-
-    override func accessibilityPerformAction(_ action: NSAccessibility.Action) {
-        probe("AXACTION \(action.rawValue)", stack: true)
-        super.accessibilityPerformAction(action)
-    }
-
-    override func setAccessibilityFocused(_ focused: Bool) {
-        probe("AXSET Focused \(focused) on the text")
-        super.setAccessibilityFocused(focused)
     }
 
     private func accessibilityElement(at range: NSRange, label: String, isText: Bool = false) -> NSAccessibilityElement {
@@ -433,13 +394,10 @@ final class ReaderTextView: NSTextView {
     }
 
     override func accessibilityVisibleCharacterRange() -> NSRange {
-        let range = isPageColumn ? shownCharacters : super.accessibilityVisibleCharacterRange()
-        probe("AXGET VisibleCharacterRange = \(range.location),\(range.length)")
-        return range
+        isPageColumn ? shownCharacters : super.accessibilityVisibleCharacterRange()
     }
 
     override func accessibilityString(for range: NSRange) -> String? {
-        probe("AXGET StringForRange \(range.location),\(range.length)", kind: "StringForRange")
         guard isPageColumn else { return super.accessibilityString(for: range) }
         return validPageAccessibilityRange(range) ? plainCharacters(in: range) : nil
     }
@@ -451,14 +409,7 @@ final class ReaderTextView: NSTextView {
 
     override func accessibilityFrame(for range: NSRange) -> NSRect {
         guard !isPageColumn || validPageAccessibilityRange(range) else { return .zero }
-        holdScrollPlace()
-        probe("AXGET FrameForRange \(range.location),\(range.length) before \(probeState)")
-        var frame = super.accessibilityFrame(for: range)
-        // AppKit lays the range out to answer, and in continuous scroll that can be what
-        // moves the text under the view: the answer is then for where the view stood.
-        if holdScrollPlace() { frame = super.accessibilityFrame(for: range) }
-        probe("AXGET FrameForRange \(range.location),\(range.length) = \(Int(frame.minY))+\(Int(frame.height)) after \(probeState)")
-        return frame
+        return super.accessibilityFrame(for: range)
     }
 
     override func accessibilityRange(for index: Int) -> NSRange {
@@ -489,21 +440,13 @@ final class ReaderTextView: NSTextView {
     }
 
     override func accessibilityRange(forLine line: Int) -> NSRange {
-        guard isPageColumn else {
-            let range = super.accessibilityRange(forLine: line)
-            probe("AXGET RangeForLine \(line) = \(range.location),\(range.length)", kind: "RangeForLine")
-            return range
-        }
+        guard isPageColumn else { return super.accessibilityRange(forLine: line) }
         let lines = pageAccessibilityLines
         return lines.indices.contains(line) ? lines[line].range : NSRange(location: NSNotFound, length: 0)
     }
 
     override func accessibilityLine(for index: Int) -> Int {
-        guard isPageColumn else {
-            let line = super.accessibilityLine(for: index)
-            probe("AXGET LineForIndex \(index) = \(line) \(probeState)")
-            return line
-        }
+        guard isPageColumn else { return super.accessibilityLine(for: index) }
         // The insertion point after the page's last character is on its last line, and so is
         // an offset VoiceOver kept from a longer previous page. Without a line there, it
         // announces 9,223,372,036,854,775,808 visible lines or reads nothing on entering.
@@ -525,11 +468,7 @@ final class ReaderTextView: NSTextView {
     }
 
     override func setAccessibilitySelectedTextRange(_ range: NSRange) {
-        guard isPageColumn else {
-            probe("AXSET SelectedTextRange \(range.location),\(range.length) \(probeState)", stack: true)
-            super.setAccessibilitySelectedTextRange(range)
-            return probe("AXSET SelectedTextRange done \(probeState)")
-        }
+        guard isPageColumn else { return super.setAccessibilitySelectedTextRange(range) }
         // VoiceOver restores its own text cursor on entering a column, even from a longer
         // previous page: keep that caret on this page. A selection of hidden text is refused.
         if range.length == 0, range.location != NSNotFound {
@@ -545,12 +484,7 @@ final class ReaderTextView: NSTextView {
     }
 
     override func accessibilityInsertionPointLineNumber() -> Int {
-        guard isPageColumn else {
-            probe("AXGET InsertionPointLineNumber before \(probeState)")
-            let line = super.accessibilityInsertionPointLineNumber()
-            probe("AXGET InsertionPointLineNumber = \(line) after \(probeState)")
-            return line
-        }
+        guard isPageColumn else { return super.accessibilityInsertionPointLineNumber() }
         let index = min(accessibilitySelectedTextRange().location, max(0, shownCharacters.length - 1))
         return accessibilityLine(for: index)
     }
