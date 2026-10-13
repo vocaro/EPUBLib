@@ -37,7 +37,7 @@ func shortValue(_ element: AXUIElement) -> String { describe(string(element, kAX
 let steps = Array(CommandLine.arguments.dropFirst(3))
 guard CommandLine.arguments.count >= 2,
       let pid = pid_t(CommandLine.arguments[1]), pid > 0 else {
-    fputs("Usage: voiceover-ax-observer PID [seconds] [next|previous|press=LABEL|larger|smaller|width=POINTS|focus[=COLUMN|=COLUMN.CELL|=search]|lines|links|tables|actions[=all]|action=NAME|caret=WORDS|follow=WORDS|wait=SECONDS ...]\n"
+    fputs("Usage: voiceover-ax-observer PID [seconds] [next|previous|press=LABEL|larger|smaller|width=POINTS|focus[=COLUMN|=COLUMN.CELL|=search]|lines|links[=WORDS]|tables[=WORDS]|actions[=all]|action=NAME|caret=WORDS|follow=WORDS|wait=SECONDS ...]\n"
         + "With Safari's PID the steps are width=POINTS, focus[=address], tables and wait=SECONDS, of the page it shows.\n"
         + "A single step of - reads one step per line from standard input.\n", stderr)
     exit(1)
@@ -164,18 +164,27 @@ func texts() -> [(name: String, text: AXUIElement, isCell: Bool)] {
         [("\(index)", column, false)] + cells(column).enumerated().map { ("\(index).\($0.offset)", $0.element, true) }
     }
 }
+/// Where `words` first stand in a text, for a step that prints from there on, and 0 where
+/// they do not or none are given. In continuous scroll one text is the whole book, and a step
+/// prints the first of what it finds: a section near the book's end is past that.
+func place(of words: String?, in text: AXUIElement) -> Int {
+    guard let words, !words.isEmpty else { return 0 }
+    let found = (string(text, kAXValueAttribute) as NSString).range(of: words).location
+    return found == NSNotFound ? 0 : found
+}
 /// The links and attachments of every column and of every cell in it: the text's own children,
-/// then the runs of its accessibility string. A cell's lines begin with CELL.
-func links() {
+/// then the runs of its accessibility string, from `words` on where the text has them. A
+/// cell's lines begin with CELL.
+func links(from words: String? = nil) {
     for (name, text, isCell) in texts() {
         let kind = isCell ? "CELL " : ""
         if isCell { log("CELL \(name) VALUE \"\(string(text, kAXValueAttribute).replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\u{FFFC}", with: "<attachment>").prefix(60))\"") }
         let children = attribute(text, kAXChildrenAttribute) as? [AXUIElement] ?? []
         log("\(kind)CHILDREN \(name) COUNT \(children.count)")
         for (number, child) in children.prefix(40).enumerated() { log("\(kind)CHILD \(name).\(number) \(embedded(child))") }
-        let runs = embeddedRuns(text)
-        log("\(kind)LINKS \(name) RUNS \(runs.count) OF \(runs.filter { $0.link != nil }.count) LINKS")
-        for run in runs.prefix(60) {
+        let runs = embeddedRuns(text), start = place(of: words, in: text)
+        log("\(kind)LINKS \(name) RUNS \(runs.count) OF \(runs.filter { $0.link != nil }.count) LINKS" + (start > 0 ? " FROM \(start)" : ""))
+        for run in runs.filter({ NSMaxRange($0.range) > start }).prefix(60) {
             let words = run.words.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\u{FFFC}", with: "<attachment>")
             log("\(kind)LINK \(name) RANGE \(run.range.location),\(run.range.length) TEXT \"\(words.prefix(60))\""
                 + " LINK \(run.link.map(embedded) ?? "none") ATTACHMENT \(run.attachment.map(embedded) ?? "none")")
@@ -213,10 +222,12 @@ func elementList(_ element: AXUIElement, _ name: String) -> [AXUIElement] { attr
 /// API is given it: what it is called, its counts, the row it says is selected and its header
 /// for each column and row. The first table of a column is given whole: its attributes, its
 /// rows, and each cell with the rows and columns it covers, what it holds and its actions.
-func tables() {
+/// With `words`, the tables from those words on, the first of them whole.
+func tables(from words: String? = nil) {
     for (index, text) in columns().enumerated() {
         var seen: [AXUIElement] = []
-        for run in embeddedRuns(text) {
+        let start = place(of: words, in: text)
+        for run in embeddedRuns(text) where NSMaxRange(run.range) > start {
             guard let attachment = run.attachment else { continue }
             let role = string(attachment, kAXRoleAttribute)
             guard role == kAXTableRole || role == kAXRowRole else { continue }
@@ -446,11 +457,12 @@ func perform(_ step: String) {
         pause = 1
     case "wait": pause = parts.last.flatMap(Double.init) ?? 0
     case "lines": pause = 0
+    // `links=WORDS` and `tables=WORDS` print from those words on, in a text that has them.
     case "links":
-        links()
+        links(from: parts.count > 1 ? parts.dropFirst().joined(separator: "=") : nil)
         pause = 0
     case "tables":
-        tables()
+        tables(from: parts.count > 1 ? parts.dropFirst().joined(separator: "=") : nil)
         pause = 0
     case "caret":
         // The insertion point before the first of these words, in a column or in a cell:
