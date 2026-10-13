@@ -598,7 +598,66 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       A cell off screen in continuous scroll is labelled with its words and holds nothing.
       VoiceOver's Actions menu (Control-Option-Command-Space) on a cell holds what the
       cell can do itself: Select Cell Text, Follow Link with the link's words for each
-      link, and Inspect Image for each picture. A cell has no press of its own.
+      link, and Inspect Image for each picture.
+    - **A cell that is a link.** A cell whose words are one link and nothing else is
+      pressed to follow that link, which is what Control-Option-Space asks of the item
+      under VoiceOver's cursor, as a double tap follows it on iPhone and iPad. While a
+      cell had no press, Control-Option-Space followed the fixture's link all the same, by
+      means of VoiceOver's own that were not found out: a click where the cell stands,
+      which follows a link only where its words are, or the press of something the cell
+      holds. The cell also holds a link, with the role of the reader's
+      links in text, and the link holds the cell's text areas, as a web view's cell holds
+      a link around its words. That is what makes VoiceOver say that the cell is a link.
+      It says "Opened Reopened 1978 hyperlink" across the row and "Cedar Reopened 1978
+      hyperlink" down the column, in pages and in continuous scroll, where it said "Opened
+      Reopened 1978" and nothing of a link until the Actions menu was opened. Its hint
+      says "You are currently on a hyperlink cell". "Hyperlink" is AppKit's word for a
+      link in text, and what VoiceOver says of the reader's other links. Each of these was
+      heard on a hosted runner
+      ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-13 on a table cell
+      that is a link):
+      - **What VoiceOver goes by.** Coming to a cell it says what the cell holds, and
+        nothing of what the cell says it is. A press alone changed one thing it said: the
+        Actions menu had three items where it had two. A subrole on the cell changed
+        nothing. A
+        role description changed the hint and Control-Option-F3, "Reopened 1978 hyperlink
+        is in the VoiceOver cursor", and not what is said on coming to the cell. A cell
+        with a link's role was passed over: Control-Option-Right went from "Cedar" to
+        "Forty metres". A link in place of the text areas, called by the cell's words,
+        said "Reopened 1978 hyperlink" and left the words out of reach, "In hyperlink
+        Reopened 1978 content is empty". A link beside the text areas said the word
+        twice, "hyperlink, Reopened 1978 hyperlink" with the link first and "Reopened
+        1978 hyperlink, hyperlink" with it last, and made the cell "2 items". Only the
+        link around the text areas said it once and kept the words.
+      - **What it costs.** The cell's words are a step further in: Control-Option-Shift-
+        Down says "In hyperlink Reopened 1978 text Reopened 1978", and pressed again "In
+        text Reopened 1978", where one press went into a cell's text; two presses of
+        Control-Option-Shift-Up come back. Control-Option-F3 says the word twice,
+        "Reopened 1978 hyperlink hyperlink cell is in the VoiceOver cursor": what the
+        cell holds, and VoiceOver's own name for such a cell. The Actions menu has a
+        third item under Follow Link, VoiceOver's "press"; it was not chosen there.
+      - **Which cells.** A cell with words beside its link, or with several links, has no
+        press and holds its text areas as before: which link a press would mean is not
+        the cell's to say, and each is an action by its words. A header cell that is one
+        link has the press and holds its text areas itself. VoiceOver reads what a
+        header cell holds before each cell under it, and what it would say of a link
+        there was not heard. In a note's popover a link does nothing, and a cell there
+        has no press.
+      - **Off screen.** A cell's press follows its link from the text area that shows
+        it. A cell far off the screen in continuous scroll has none until VoiceOver's
+        cursor brings it there, and its press does nothing till then. Its link holds
+        nothing and has the cell's words for its title, the shape that said "Reopened
+        1978 hyperlink" in the trial; a link cell off screen was not itself heard.
+      - **After the link is followed.** In pages VoiceOver read the new page and was on
+        its text area, a Control-Option-Shift-Down from its first line, in each of four
+        sessions that pressed a cell without having gone into its words, two of them on
+        the shape that was kept. Before the press, with the click, it left the text for
+        the window's first button in two sessions of three. It still does when the cell
+        is pressed after VoiceOver has been into the cell's words and come back out (one
+        session on the shape kept, three in the trial), which is the page turned under a
+        table's element of [#485](https://github.com/vocaro/EPUBLib/issues/485). In
+        continuous scroll the view went to the link's target and VoiceOver was on the
+        text area, entering at the target's line, before and after alike.
     - **Header cells, and VoiceOver quitting.** AppKit lets a cell name its own header
       cells, which is how HTML has them and what a web view does. Given that, VoiceOver
       quit: an exception in its own `-[SCRCell columnHeaderDescription]`, by the reports
@@ -716,8 +775,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       Control-Option-C says the column's header. The rest of what VoiceOver says differs,
       and most of that is VoiceOver's: it has one way of speaking for a table in a web
       page and another for a table anywhere else (`SCRWebTable` and `SCRTable` in the
-      reports macOS wrote). Three things a listener in the reader does not get, with what
-      closing each would take, and a fourth that was closed after the two were heard:
+      reports macOS wrote). Two things a listener in the reader does not get, with what
+      closing each would take, and two that were closed after the two were heard:
       - **The table's size, its name and its end.** Safari: "Stations on the branch
         table 3 columns, 4 rows" on coming to the table, and "end of table" past its last
         cell. The reader: the caption as a line, "Station, Opened, Depth table", and after
@@ -741,16 +800,18 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
         cell's own words would be said in the reader's English at every cell. Not worth
         closing that way.
       - **A cell that is a link.** Safari: "Opened link Reopened 1978 column 2 of 3", with
-        VoiceOver's cursor on the link, whose Actions menu has "press". The reader: "Opened
-        Reopened 1978", and "actions available" in the hint that follows; "link" is not
-        said, and Follow Link is in the Actions menu. Control-Option-Space on the cell did
-        follow the link in the two sessions that pressed it, though the cell has no press;
-        after it VoiceOver was on the new page's text in one and out of the text, on the
-        window's first button, in the other, on an earlier build
-        ([#485](https://github.com/vocaro/EPUBLib/issues/485)). Closing it: a cell whose
-        words are one link given a press that follows it, as a double tap does on iPhone
-        and iPad, and then heard, for whether VoiceOver calls such a cell a link or the
-        reader has to.
+        VoiceOver's cursor on the link, whose Actions menu has "press". The reader said
+        "Opened Reopened 1978", and "actions available" in the hint that followed; "link"
+        was not said, and Follow Link was in the Actions menu. Control-Option-Space on the
+        cell did follow the link in the two sessions that pressed it, though the cell had
+        no press. Closed since: the cell has a press and holds a link around its words (A
+        cell that is a link, above), and VoiceOver says "Opened Reopened 1978 hyperlink".
+        What still differs is VoiceOver's: it says "hyperlink" after the cell's words
+        where in a web page it says "link" before them; Control-Option-F3 says "Reopened
+        1978 hyperlink hyperlink cell is in the VoiceOver cursor" where in Safari it says
+        "Reopened 1978 link is in the VoiceOver cursor"; and going in says "In hyperlink
+        Reopened 1978 text Reopened 1978" where in Safari it says "In link Reopened 1978
+        Reopened 1978".
       - **A table that is not data.** Safari reads the four cells of the table marked as
         layout as four items with their words: "Left side", "Right side", "Lower left",
         "Lower right". Beside it the reader said "Table row group" at each row and none
@@ -789,7 +850,10 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       `tbody`, a link followed out of its section, and the reader in continuous scroll. A
       table in a spread of two columns, one in a note's popover, a picture's Inspect Image
       chosen from a cell, Read All through a table, and VoiceOver in a language other than
-      English ([#484](https://github.com/vocaro/EPUBLib/issues/484)).
+      English ([#484](https://github.com/vocaro/EPUBLib/issues/484)). Of a cell that is a
+      link: one far off the screen in continuous scroll, one whose link is a picture, one
+      continued on the next page, a header cell given a link to hold, and a link whose
+      target is on the page or the screen already.
   - **Not done.** A table inside a cell is read as its cell's words, as before. Headings
     inside a table are not found by the Headings rotor, as before.
   - **Not resolved.** On an iPhone simulator the rotor once went from Rows to Actions part

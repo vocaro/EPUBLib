@@ -602,6 +602,19 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
   comes back to the cell, and `out` again to the row's line in the text.
 - `actions` on a cell says "Actions menu" and its count, and `listdown` each of Select Cell
   Text, Follow Link: WORDS and Inspect Image that the cell has.
+- A cell whose words are one link and nothing else is said with "hyperlink" after its
+  words, "Opened Reopened 1978 hyperlink" along the row and "Cedar Reopened 1978 hyperlink"
+  down the column, and its hint says "You are currently on a hyperlink cell". `describe`
+  says "Reopened 1978 hyperlink hyperlink cell is in the VoiceOver cursor": what the cell
+  holds, then VoiceOver's name for such a cell. `actions` says three items, the third
+  VoiceOver's own "press", and `activate` follows the link. `in` says "In hyperlink
+  Reopened 1978 text Reopened 1978" and `in` again "In text Reopened 1978", where `right`
+  moves by word; `out` says "Out of text" and `out` again "Out of hyperlink Reopened 1978",
+  which is back on the cell.
+- After a link is followed in pages, `describe` says where VoiceOver is: "text is in the
+  VoiceOver cursor Line 1" on the new page's text area, where `in` goes into the page's
+  first line, and "Open EPUB… button is in the VoiceOver cursor" where it has left the text
+  for the window's first button ([#485](https://github.com/vocaro/EPUBLib/issues/485)).
 - `in` on a row's group says "In", the row's words, "group 2 items" and "text" with the
   first cell's words: "In Lower left, Lower right group 2 items text Lower left". `right`
   and `left` move among the row's cells, "text Lower right"; `in` on one goes into its
@@ -627,7 +640,8 @@ the header it gives for each column and each row by its words, with nothing betw
 quotation marks where a row or a column has none. The first table of a column is given
 whole: its attributes by name, a `TABLEROW` line for each of its first twelve rows, and for
 each cell a `TABLECELL` line with the rows and columns it covers, what it says, what it
-holds (`AXTextArea` on screen, nothing off it) and its actions.
+holds (`AXTextArea` on screen and nothing off it, or `AXLink` for a cell that is a link) and
+its actions, `AXPress` first for a cell that is pressed.
 
 Open the reader at a section of tables (`"launch=-SampleHref OPS/grids.xhtml"`,
 `OPS/ledger.xhtml`, `OPS/tallrow.xhtml`). At 600 points and 17, the first page of the tables
@@ -918,6 +932,11 @@ does about each:
   and launch arguments, so that step lists that differ in them share one run, one build and
   one runner. The script checks the steps as the runner would, before anything waits for a
   runner, and prints each session with its settings.
+- To hear several ways of doing one thing, put them in one commit behind a launch argument
+  that the reader's code reads from `UserDefaults`, give each session its own with
+  `launch=`, and take the commit out again when one way is kept. Nine ways of giving a
+  table cell that is a link were heard in two runs so, where a build for each would have
+  been nine (runs 38425952070 and 38428938679, the entry of 2026-10-13 on such a cell).
 - Keep at most two runs in flight for a branch, and one while any run is waiting for a
   runner. The script starts no run beyond that and lists the branch's runs.
 - Cancel a run as soon as it is no longer needed, with `gh run cancel RUN_ID`. Nothing else
@@ -1359,12 +1378,14 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    "Table row group" at both rows and none of their words. `in` on "Birch, 1934 table"
    says "In Birch, 1934 table Station Birch", `right` "Opened 1934" and "Depth empty cell",
    `nextline` "Cedar Forty metres", `columnheader` "Depth" and `rowheader` "Cedar". `in` on
-   a cell goes into its words, "In text 1934". On "Reopened 1978" `actions` holds Select
-   Cell Text and Follow Link: Reopened 1978, and choosing the second opens the first
-   section at "Link target reached". In the second table VoiceOver says "Hours, Leaves
-   Nine" and "Service Express", and moving down from "Stopper" it stays, "Stopper column 1,
-   row 4". On the long table's second page `in` on the first row says "In Entry 08, Item
-   08, Sum 08 table Entry Entry 08": the header is named from the page before, and
+   a cell goes into its words, "In text 1934". The cell that is a link is said with
+   "hyperlink", "Opened Reopened 1978 hyperlink" along its row and "Cedar Reopened 1978
+   hyperlink" down its column. `actions` there holds Select Cell Text, Follow Link:
+   Reopened 1978 and "press", and choosing the second, or `activate` on the cell, opens
+   the first section at "Link target reached". In the second table VoiceOver says "Hours,
+   Leaves Nine" and "Service Express", and moving down from "Stopper" it stays, "Stopper
+   column 1, row 4". On the long table's second page `in` on the first row says "In Entry
+   08, Item 08, Sum 08 table Entry Entry 08": the header is named from the page before, and
    `rowheader` says "row 9 of 41". In continuous scroll, `in` on "Entry 38, Item 38, Sum 38
    table" says "Entry Entry 38", and twenty-eight `nextline` steps from the header row read
    "Entry 01" to "Entry 28", each once, the view following.
@@ -4445,6 +4466,96 @@ The Mac runner's transcript is plain text and needs no export.
   VoiceOver reads to before the view has moved; a spread of two columns; a table in a
   note's popover; the Actions menu on a row's group; Safari on the two plain tables; and
   VoiceOver in another language or with its verbosity changed.
+- Later again on 2026-10-13 a table cell that is a link was heard on a Mac before and
+  after it was given a press and a link to hold: "Reopened 1978" in the first table of the
+  section of tables of data (`-SampleHref OPS/grids.xhtml`), on GitHub's hosted `xcode-27`
+  runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in a window 600 points
+  wide at 17 points, with VoiceOver's link setting at Speak, at a fixed pause of four
+  seconds, the same steps both times. Before at `3f3ae69`, which was `main`: run
+  38426000629. After at `0474384`: runs 38428891242 and 38430983860; the commits after it
+  change comments and documents. With `main` at `b515264` merged in (`9bd3d3f`), the first
+  session and the fourth were recorded once more and said the same (run 38433434953).
+  Nobody listened. The harness was the branch's own, before and after `main` with the
+  sessions of Safari was merged into it.
+  Four sessions each time: along the row to the cell with its Actions menu, and down the
+  column to it, in pages and then in continuous scroll. The way in was `ax:caret=Stations
+  on`, a focus change to the text, `in`, `line` and five `nextline` to "Cedar, Reopened 1978,
+  Forty metres table", `in` and `right`; or four `nextline` to "Birch, 1934 table", `in`,
+  `right` and `nextline`. A phrase is cut at 64 characters, shown by "…".
+
+  | Move | Before | After |
+  | --- | --- | --- |
+  | Along the row to the cell | "Opened Reopened 1978" | "Opened Reopened 1978 hyperlink" |
+  | Down the column to it | "Cedar Reopened 1978" | "Cedar Reopened 1978 hyperlink" |
+  | The hint that follows | "actions available You are currently on a cell, inside of a table…" | "actions available You are currently on a hyperlink cell, inside…" |
+  | Control-Option-F3 | "Reopened 1978 cell is in the VoiceOver cursor" | "Reopened 1978 hyperlink hyperlink cell is in the VoiceOver curso…" |
+  | The Actions menu | "Actions menu 2 items", "Select Cell Text", "Follow Link: Reopened 1978" | "Actions menu 3 items", "Select Cell Text", "Follow Link: Reopened 1978", "press" |
+  | Closing the menu | "Closing Actions menu", "Reopened 1978 cell" | "Closing Actions menu", "Reopened 1978 hyperlink hyperlink cell" |
+  | Control-Option-Space in pages | the page with "Link target reached" was shown; "VoiceOver Verification window Open EPUB… button" | the same page; "word1187 word1188 …", "text word1187 …" |
+  | Control-Option-F3 after it | "Open EPUB… button is in the VoiceOver cursor" | "text is in the VoiceOver cursor Line 1" |
+  | Control-Option-Down, Control-Option-Shift-Down and Control-Option-L after that | "Previous Page button", "Interact with the title of button", nothing | nothing new, "In text word1187 …", "word1187 … word1193" |
+  | Control-Option-Space in continuous scroll | the view at "Link target reached"; "Link", "text Page boundary verification" | the same, phrase for phrase |
+  | Control-Option-F3 after it | "text is in the VoiceOver cursor Line 202" | the same |
+  | Control-Option-Shift-Down and Control-Option-L after that | "In text Link target reached", "Link target reached" | the same |
+  | The cell in `ax:tables` | `AXCell` that holds `AXTextArea`, with the actions "Select Cell Text" and "Follow Link: Reopened 1978" | `AXCell` that holds `AXLink`, with `AXPress` and the same two |
+
+  Every row but the two for a flow was the same in pages and in continuous scroll, and
+  along the row as down the column. By line the row was "Cedar, Reopened 1978, Forty metres
+  table" before and after.
+  Into the cell's words, after (run 38430983860, session 1, in pages): `in` "In hyperlink
+  Reopened 1978 text Reopened 1978", `in` "In text Reopened 1978", `right` "Reopened", `out`
+  "Out of text" and the hint "You are currently on a text area, inside of a hyperlink.",
+  `out` "Out of hyperlink Reopened 1978", and Control-Option-F3 the cell again. Before, one
+  `in` went into the text, "In text Reopened 1978" (run 38422077936). Find Next Link from
+  the page's first lines, after (session 2): "Reopened 1978 hyperlink", "You are currently
+  on a hyperlink, inside of a text area…", and Control-Option-Space followed it. It was not
+  sent before.
+  Where VoiceOver was after the link was followed, for
+  [#485](https://github.com/vocaro/EPUBLib/issues/485). In pages, pressed from the cell
+  with VoiceOver not having been in its words, it was on the new page's text area and not
+  in it, a Control-Option-Shift-Down from the page's first line: both sessions after, and
+  the two of the trial below that had a press and a cell holding its text area. Before,
+  with no press, it was on the window's first button, "Open EPUB…", out of the text, in
+  both sessions; the one session of run 38422077936 on the same reader, which had been
+  into the cell's words and along the row first, ended on the new page's text. After,
+  pressed once VoiceOver had been into the cell's words and back out (run 38430983860,
+  session 1), it was on "Open EPUB…" again, as in the three sessions of the trial that
+  went into the cell first. Find Next Link from the page and Control-Option-Space left it
+  on the new page's text area. In continuous scroll it was on the text area each time,
+  entering at the target's line.
+  What makes VoiceOver say that the cell is a link was found by trial, at `a9a2d30` (run
+  38425952070, seven sessions) and `dbca416` (run 38428938679, two), each a way of giving
+  the cell chosen at launch, all with the press, in pages, along the row:
+
+  | The cell | Coming to it | Control-Option-F3 | Going in | Control-Option-Space |
+  | --- | --- | --- | --- | --- |
+  | Holds its text area, with a press and no more | "Opened Reopened 1978", "…on a cell, inside of a table…" | "Reopened 1978 cell is in the VoiceOver cursor"; the Actions menu has 3 items | not sent | followed; "text is in the VoiceOver cursor Line 1" |
+  | The same with the subrole of a link in text | the same | the same | not sent | not sent |
+  | The same with a link's role description | "Opened Reopened 1978", "…on a hyperlink, inside of a…" | "Reopened 1978 hyperlink is in the VoiceOver cursor" | not sent | not sent |
+  | The same with both | as with the role description | the same | not sent | followed; "text is in the VoiceOver cursor Line 1" |
+  | Has a link's role itself | passed over: from "Station Cedar", "Depth Forty metres" | "Forty metres cell is in the VoiceOver cursor" | not sent | on "Forty metres", nothing |
+  | Holds a link called by its words, and no text area | "Opened Reopened 1978 hyperlink", "…on a hyperlink cell, inside…" | "Reopened 1978 hyperlink hyperlink cell is in the VoiceOver curso…" | "In hyperlink Reopened 1978 content is empty", and the next move left the cell | not sent on the cell |
+  | Holds a link that holds its text area | the same | the same | "In hyperlink Reopened 1978 text Reopened 1978", "Out of hyperlink Reopened 1978" | followed; "Open EPUB… button is in the VoiceOver cursor" |
+  | Holds a link and then its text area | "Opened hyperlink, Reopened 1978 hyperlink" | "hyperlink, Reopened 1978 hyperlink cell 2 items is in the VoiceO…" | "In hyperlink, Reopened 1978 hyperlink cell 2 items text Reopened…", then "hyperlink" | followed; "Open EPUB… button is in the VoiceOver cursor" |
+  | Holds its text area and then a link | "Opened Reopened 1978 hyperlink, hyperlink" | "Reopened 1978 hyperlink, hyperlink cell 2 items is in the VoiceO…" | "In Reopened 1978 hyperlink, hyperlink cell 2 items text Reopened…", then "hyperlink" | followed; "Open EPUB… button is in the VoiceOver cursor" |
+
+  The reader keeps the link that holds the text area: the one way that said "hyperlink"
+  once on coming to the cell and left its words to be read by word. The three sessions
+  that ended on "Open EPUB…" had gone into the cell before the press.
+  VoiceOver did not quit. Three sessions at two seconds a key on the code as it is, two in
+  pages and one in continuous scroll (run 38428891242, session 5, and run 38430983860,
+  sessions 3 and 4), each went through the first table's cells with Control-Option-C after
+  each of eleven moves and Control-Option-R after each of eleven back, the link cell twice
+  among them: "Opened Reopened 1978 hyperlink", "Opened", and on the way back "Cedar".
+  None has "ERROR" in it or VoiceOver's opening phrase a second time, and no run has a
+  crash report; the same is so of the other twenty-one sessions here.
+  Not heard: anyone listening, or any Mac but the runner; "press" chosen from the Actions
+  menu; a link cell far off the screen in continuous scroll, whose link is called by the
+  cell's words and holds nothing; a cell whose link is a picture; a link cell continued on
+  the next page; a header cell that is a link, which has the press and holds its own text
+  area; a cell with words beside its link or with two links, which unit tests hold to no
+  press; a link whose target is already on the page; a spread of two columns; and Safari
+  beside it again.
 - On 2026-10-13 a table's select action was performed with VoiceOver on the physical iPad
   Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366, upright, 17 points), before and after a
   change to what it does ([#450](https://github.com/vocaro/EPUBLib/issues/450)), with the
