@@ -82,6 +82,11 @@ final class ReaderTextView: NSTextView {
     /// The text container's origin in this view's coordinates.
     var containerOrigin: CGPoint { textContainerOrigin }
 
+    /// In continuous scroll, holds the text on screen in place before something is read off
+    /// the layout as being on screen (`ReaderCanvasView.holdScrollPlace`). True when the view
+    /// moved.
+    @discardableResult func holdScrollPlace() -> Bool { canvas?.holdScrollPlace(of: self) ?? false }
+
     /// Asks for the text already on screen to be drawn again. The text view draws each laid-out
     /// fragment in a view of its own beneath it, which its own `needsDisplay` does not reach.
     func setRenderedTextNeedsDisplay() {
@@ -312,6 +317,7 @@ final class ReaderTextView: NSTextView {
     /// headings stand among them, each where it is in the text (`headingChildren`).
     override func accessibilityChildren() -> [Any]? {
         guard canvas != nil else { return super.accessibilityChildren() }
+        holdScrollPlace()
         let links = linkChildrenWithCells().map { (place: $0.place, element: $0.element as NSAccessibilityElement) }
         let headings = headingChildren().map { (place: $0.range.location, element: $0 as NSAccessibilityElement) }
         // A heading comes before a link that begins where it does, which is a link inside it.
@@ -409,7 +415,11 @@ final class ReaderTextView: NSTextView {
 
     override func accessibilityFrame(for range: NSRange) -> NSRect {
         guard !isPageColumn || validPageAccessibilityRange(range) else { return .zero }
-        return super.accessibilityFrame(for: range)
+        holdScrollPlace()
+        let frame = super.accessibilityFrame(for: range)
+        // AppKit lays the range out to answer. In continuous scroll that can be what moves
+        // the text under the view, and the answer is then for where the view stood.
+        return holdScrollPlace() ? super.accessibilityFrame(for: range) : frame
     }
 
     override func accessibilityRange(for index: Int) -> NSRange {

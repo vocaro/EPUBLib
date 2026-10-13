@@ -123,6 +123,9 @@ import AppKit
     /// there is one (`scrollVisibleCharacters`): its location in the view's text. VoiceOver
     /// starts there, so the labels are heard before what they stand over.
     private var scrollEntry: Int?
+    /// The view is being held to its text (`settleScrollViewport` on the Mac), which moves
+    /// its offset and nothing on screen.
+    var isHoldingScrollPlace = false
     #if os(macOS)
     /// Where the reader last put the scroll view's insertion point (`placeScrollInsertionPoint`).
     private var placedScrollInsertionPoint: Int?
@@ -878,6 +881,24 @@ import AppKit
         }
     }
 
+    #if os(macOS)
+    /// Holds the text on screen in place (`settleScrollViewport`) before the scroll view's
+    /// layout is read for what is on screen by anything but the reader's own read of it: the
+    /// rows whose cells stand in the view, and what an assistive client is told is on screen
+    /// and where. VoiceOver asks the text which line its insertion point is on, and AppKit
+    /// counts the lines from the first, which lays out all the text above. A row shown below
+    /// text that was only estimated then stands screens from where the view draws it, while
+    /// the rows after it stand where they were drawn: read off that layout, the row was off
+    /// screen, and its link was no child of the text. Not while the reader moves the view
+    /// itself, which ends in its own read. True when the view moved.
+    @discardableResult func holdScrollPlace(of view: ReaderTextView) -> Bool {
+        guard view === scrollTextView, !isScrollingProgrammatically, !isHoldingScrollPlace else { return false }
+        let top = scrollVisibleContainerRect.minY
+        withProgrammaticScroll { settleScrollViewport() }
+        return scrollVisibleContainerRect.minY != top
+    }
+    #endif
+
     private func withProgrammaticScroll(_ body: () -> Void) {
         let wasScrolling = isScrollingProgrammatically
         isScrollingProgrammatically = true
@@ -894,7 +915,7 @@ import AppKit
     /// contents entry, the rows that layout had not reached had no cell to select in, follow
     /// a link in or offer an assistive technology until the person scrolled; where the
     /// correction was by more than a screen, as for a section a book opened at, none had (#472).
-    private func refreshScrollTables() {
+    func refreshScrollTables() {
         scrollTextView?.setTableHighlights(ReaderHighlight.drawingOrder(highlights))
         if let range = currentSelection?.range, range.start.tableCell != nil || range.end.tableCell != nil {
             _ = scrollTextView?.selectTableRange(range, reporting: false)
@@ -905,7 +926,10 @@ import AppKit
     /// that leaves the view where it was last read is the platform's, and nobody scrolled; nor
     /// has anybody when the platform reports the reader's own scroll late (`byReader`).
     func scrollPositionDidChange(byReader: Bool = false) {
-        refreshScrollTables()
+        // While the view is held to its text the rows on screen are the ones that were. The
+        // layout of the place before has them off screen: their cells would be taken away
+        // and made again, and with them the links an assistive client holds.
+        if !isHoldingScrollPlace { refreshScrollTables() }
         guard !byReader, !isScrollingProgrammatically, !scrollViewStandsWhereRead else { return }
         anchorFollowsScroll = true
         guard !scrollReportPending else { return }

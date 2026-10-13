@@ -215,6 +215,7 @@ extension ReaderTextView: ReaderLinkHost {
     var visibleLinkCharacters: NSRange { accessibilityVisibleCharacterRange() }
 
     func linkBounds(_ range: NSRange) -> CGRect {
+        holdScrollPlace()
         var frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
         if frame.isNull { frame = lineFrame(containing: range.location) ?? .zero }
         let origin = containerOrigin
