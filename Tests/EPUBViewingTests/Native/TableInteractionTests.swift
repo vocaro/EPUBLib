@@ -251,16 +251,24 @@ import UIKit
         #if os(macOS)
         let row = try XCTUnwrap(section.tables().first { $0.row.row == 1 })
         let spoken = try XCTUnwrap(view.accessibilityAttributedString(for: NSRange(location: row.offset, length: 1)))
-        let group = try XCTUnwrap(spoken.attribute(.accessibilityAttachment, at: 0, effectiveRange: nil) as? NSAccessibilityElement)
-        XCTAssertEqual(group.accessibilityRole(), .group)
-        XCTAssertEqual(group.accessibilityChildren()?.count, 2)
+        // The table has header cells, so it is data: the row's character gives the table, and
+        // the row in it holds its two cells (`TableDataMacAccessibilityTests`).
+        let table = try XCTUnwrap(spoken.attribute(.accessibilityAttachment, at: 0, effectiveRange: nil) as? ReaderTableElement)
+        XCTAssertEqual(table.accessibilityRole(), .table)
+        XCTAssertEqual((table.accessibilitySelectedRows()?.first as? ReaderTableRowElement)?.accessibilityChildren()?.count, 2)
         #else
         // The table has header cells, so it is data: each cell is an element that offers what it
         // can do itself, and the text view around the table offers none of it.
         let listed = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
         let table = try XCTUnwrap(listed.first { $0 is UIAccessibilityContainerDataTable }, "the table is one container")
         let cells = try XCTUnwrap(table.accessibilityElements as? [UIAccessibilityElement])
-        XCTAssertEqual(cells.filter { $0.accessibilityCustomActions?.contains { $0.name == "Select Cell Text" } == true }.count, cells.count)
+        // The passage selected above runs into the table: a cell that holds part of it offers to
+        // deselect and to copy, where the others offer to select.
+        func offering(_ name: String) -> Int { cells.filter { $0.accessibilityCustomActions?.contains { $0.name == name } == true }.count }
+        XCTAssertEqual(offering("Deselect Cell Text"), controller.cells.values.filter { $0.cellSelection.length > 0 }.count)
+        XCTAssertGreaterThan(offering("Deselect Cell Text"), 0)
+        XCTAssertEqual(offering("Copy"), offering("Deselect Cell Text"))
+        XCTAssertEqual(offering("Select Cell Text"), cells.count - offering("Deselect Cell Text"))
         let alpha = try XCTUnwrap(cells.first { $0.accessibilityLabel?.hasPrefix("Alpha") == true })
         XCTAssertFalse(alpha.accessibilityCustomActions?.contains { $0.name.hasPrefix("Follow Link") } == true)
         let links = try XCTUnwrap(cells.first { $0.accessibilityLabel?.contains("Outside link") == true })

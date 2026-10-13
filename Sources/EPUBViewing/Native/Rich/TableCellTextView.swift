@@ -29,7 +29,8 @@ typealias TableNativeTextView = UITextView
     var onImage: ((ReaderImageAttachment) -> Void)?
     private var actionTitle: String?
     private var menuImage: ReaderImageAttachment?
-    private var highlightedCharacters: [NSRange] = []
+    private var highlights: [(range: NSRange, color: PlatformColor)] = []
+    private var highlightedCharacters: [NSRange] { highlights.map(\.range) }
     #if os(macOS)
     /// The accessibility element of each attachment VoiceOver is told of, by its location in
     /// the cell's text, kept for as long as the cell is.
@@ -127,13 +128,21 @@ typealias TableNativeTextView = UITextView
     }
 
     func setCellHighlights(_ runs: [(NSRange, PlatformColor)]) {
-        highlightedCharacters = runs.map(\.0)
-        cellStorage.removeAttribute(.backgroundColor, range: NSRange(location: 0, length: cellStorage.length))
-        for (range, color) in runs {
-            let run = NSIntersectionRange(range, shownCharacters)
-            if run.length > 0 { cellStorage.addAttribute(.backgroundColor, value: color, range: run) }
-        }
+        highlights = runs.map { ($0.0, $0.1) }
         updateInteractionInk()
+    }
+
+    /// The selection as the cell paints it itself, where UIKit paints none. UIKit draws a text
+    /// view's selection only while the view is first responder, which a touch in it makes it.
+    /// A selection set in code, as an assistive technology's action and a located passage set
+    /// it, was held, reported and copied, and nothing showed it.
+    private var paintedSelection: NSRange? {
+        #if os(iOS)
+        let run = NSIntersectionRange(cellSelection, shownCharacters)
+        return run.length > 0 && !isFirstResponder ? run : nil
+        #else
+        return nil
+        #endif
     }
 
     /// An opaque native selection/highlight background covers the original row ink. Redraw
@@ -143,6 +152,18 @@ typealias TableNativeTextView = UITextView
         cellManager.drawnCharacterRanges = ([cellSelection] + highlightedCharacters)
             .map { NSIntersectionRange($0, shownCharacters) }.filter { $0.length > 0 }
         cellStorage.beginEditing()
+        cellStorage.removeAttribute(.backgroundColor, range: full)
+        for (range, color) in highlights {
+            let run = NSIntersectionRange(range, shownCharacters)
+            if run.length > 0 { cellStorage.addAttribute(.backgroundColor, value: color, range: run) }
+        }
+        #if os(iOS)
+        // UIKit's own tint for selected text. It takes a highlight's place on the characters
+        // they share, where UIKit's would lie over it.
+        if let run = paintedSelection {
+            cellStorage.addAttribute(.backgroundColor, value: tintColor.withAlphaComponent(0.2), range: run)
+        }
+        #endif
         cellStorage.addAttribute(.foregroundColor, value: PlatformColor.clear, range: full)
         for range in [cellSelection] + highlightedCharacters {
             let run = NSIntersectionRange(range, shownCharacters)
@@ -224,6 +245,10 @@ typealias TableNativeTextView = UITextView
     }
 
     #if os(macOS)
+    /// The cell of a table of data whose words the view holds, which is then what holds the
+    /// view for an assistive technology.
+    weak var tableCellElement: NSAccessibilityElement?
+    override func accessibilityParent() -> Any? { tableCellElement ?? super.accessibilityParent() }
     override var isFlipped: Bool { true }
     override var textContainerOrigin: NSPoint { CGPoint(x: -textOffset.x, y: -textOffset.y) }
     override func accessibilityValue() -> String? { (cellText.string as NSString).substring(with: shownCharacters) }
@@ -428,6 +453,21 @@ typealias TableNativeTextView = UITextView
         set { super.contentOffset = textOffset }
     }
     override func setContentOffset(_ contentOffset: CGPoint, animated: Bool) { super.setContentOffset(textOffset, animated: false) }
+    // UIKit paints the selection from the one to the other, and the cell outside them.
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        updateInteractionInk()
+        return became
+    }
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        updateInteractionInk()
+        return resigned
+    }
+    override func tintColorDidChange() {
+        super.tintColorDidChange()
+        updateInteractionInk()
+    }
     override func copy(_ sender: Any?) { copyTextToPasteboard(onCopy?() ?? cellText.readerPlainText(in: cellSelection)) }
     @objc private func inspectCellImage(_ gesture: UITapGestureRecognizer) {
         if let image = cellImage(at: gesture.location(in: self)) { onImage?(image) }
