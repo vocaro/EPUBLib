@@ -120,24 +120,30 @@ passes the failed tests with the number of passes each failed in; the run's summ
 the same as a table.
 
 After the tests, and whatever their result, a job runs the two checks of the gate that need
-no simulator, `scripts/check-modules.py` and `scripts/check-docs.py`, in about five seconds.
+no simulator, `scripts/check-modules.py` and `scripts/check-docs.py`, in under ten seconds.
 The second compares the documentation's snippets with the sample's shared sources, which the
 job's build has compiled by then as the `ReaderSampleSupport` target. A change to
 documentation alone starts no run, so a snippet that such a change leaves stale fails the
 next run that does start, whoever's it is.
 
-A job has forty minutes. On 2026-10-13 a job took eleven to thirteen minutes, the build two
-or three of them and a pass of every test nine or ten: 2,526 tests, 2,475 of XCTest's and 51
-of Swift Testing's, with 52 skipped, most of them the opt-in [corpus runs](#corpus-runs).
+A job has forty minutes. On 2026-10-13 a job took eleven to fifteen minutes, the build two
+or three of them and a pass of every test nine to twelve. A pass was 2,534 tests then, 2,483
+of XCTest's and 51 of Swift Testing's, with 52 skipped, most of them the opt-in
+[corpus runs](#corpus-runs).
 Fifty passes of `ReaderCanvasViewTests` took fourteen minutes. A pass is started only if one
 as long as the longest so far would end three minutes before the job's limit; otherwise the
-passes left are reported as not run, and the job fails. A new run for the same pull request,
-or by hand for the same ref, filter, count and scroll bars, cancels one still in progress. A
-run for `main` is not cancelled; of the runs waiting behind it only the newest is kept.
+passes left are reported as not run, and the job fails. A pass that hangs is not stopped: the
+job runs to its limit and is cancelled there, and what the pass had printed, which reaches
+the log in blocks, is lost with it. A new run for the same pull request, or by hand for the
+same ref, filter, count and scroll bars, cancels one still in progress. A run for `main` is
+not cancelled; of the runs waiting behind it only the newest is kept.
 
-A job waits for a runner before it starts, and the [VoiceOver sessions](voiceover-testing.md#hosted-mac-sessions)
-wait for the same ones. On the evening of 2026-10-12, with about thirty runs an hour, half of
-73 jobs started within ten seconds, 16 waited more than five minutes and the longest eleven.
+A job waits for a runner before it starts. Five jobs run at a time in the repository, these
+and the [VoiceOver sessions](voiceover-testing.md#hosted-mac-sessions) together, and the rest
+wait. On the evening of 2026-10-12, with about thirty runs an hour, half of 73 jobs started
+within ten seconds, 16 waited more than five minutes and the longest eleven; an hour later,
+with a run for every pull request as well, the second job of a run waited twelve minutes in
+one run and thirty-two in another.
 
 A hosted run differs from the [local gate](#local-gate):
 
