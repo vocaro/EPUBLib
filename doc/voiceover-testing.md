@@ -688,6 +688,14 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
   Actions menu closes. `actions` there has "Inspect Image: Blue badge" and "Select Cell
   Text", or "Inspect Image" alone for a picture nobody describes, and `in` goes into
   the cell's text, "In text Blue badge image" or "In text image".
+- A row that has nothing to say, of cells that hold nothing or decoration alone, is
+  passed over: `nextline` and `right` go from the row of words above it to the row of
+  words below, and back, so a step list counts no step for it. `ax:lines` prints the row
+  above and the row as one line of four characters, `LINE 0.1 RANGE 23,4`, and `ax:links`
+  no run at the row. Between two rows of words, a step with no new phrase, "group", "text
+  text group" or a bare "table" is a reader that gives such a row to stop on (the entry
+  of 2026-10-13 on rows that have nothing to say). Inside a table of data the row is
+  still there: `nextline` down a column says "empty cell" at it.
 - `left` straight after `right` says the item VoiceOver is on again, which leaves no
   line in a transcript, and the second `left` moves back. A step list that turns round
   to come back to a row needs both.
@@ -716,7 +724,8 @@ of data holds the first table and the second page the next two and one row of th
 the long table's first page holds its header row and seven entries, and the tall row's first
 page its header row alone. The section of squares inside grids (`OPS/squares.xhtml`) has its
 table marked as layout on its first page and its table of data at the top of its second,
-one `ax:next` on. In continuous scroll the reader opened at a section shows that section,
+one `ax:next` on, and so has the section of gaps inside grids (`OPS/gaps.xhtml`), whose
+second page goes on to "Line 01 after the tally.". In continuous scroll the reader opened at a section shows that section,
 which the `VISIBLE` range of a `STATE` line says, though VoiceOver's opening phrases are the
 book's first lines. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a line
 near a table, which continuous scroll needs: a session that came into the text without it

@@ -311,7 +311,19 @@ row of pictures nobody describes with no name and no help, and a row of a table 
 that shows a picture still its table; in continuous scroll a row far below the screen the
 same group with nothing in it, which holds its cells once it is scrolled to; a row taller
 than a page called on each page by the words that page shows; and a group kept from a page
-that has been turned, which says nothing. They read the elements through
+that has been turned, which says nothing. And they read what the text gives at a row that
+has nothing to say, of cells that hold nothing or decoration alone, in a table marked as
+layout and in a table of data: no element at its character; a space for that character in
+the text's value, its string and its attributed string, each still as long as the text; and
+no line of its own, its line being part of the line before, with the rows of words each side
+a line apart and the insertion point after the row on that line. They hold that a table of
+data entered at another row still has such a row and its cells; that the lines follow one
+another through a long table with one, two and three such rows together, each character on
+the line the text gives for it, where in continuous scroll the lines are AppKit's and are
+numbered through the book; that such rows opening a text are part of its first line, and a
+text of them alone is one line; and that a row is not passed over when it holds a picture
+nobody describes, a link or a rule, while one of spaces, or with a table of decoration
+inside a cell, is. They read the elements through
 AppKit's own accessibility methods. The older informal ones (`accessibilityAttributeNames()`,
 `accessibilityAttributeValue(_:)`) do not show what a client is given: called on these
 elements in a test they listed five attributes, gave nil for every value, and the test
