@@ -805,6 +805,26 @@ transcript's `voiceOver` line says which. Put a deadline around device runs and 
 check the device state afterward, especially after cancellation. A user must enter any
 required XCTest UI Automation passcode directly on the device. Never collect it in logs or chat.
 
+The device asks for that passcode again eight hours after it was last entered, and after a
+restart. From then on it shows "Enable UI Automation" at the start of each session, XCTest
+waits sixty seconds for the answer, and the session ends before its first step with "Timed
+out while enabling automation mode". Nothing read from the Mac says so: `devicectl` gave an
+iPad in that state as connected, booted, in developer mode and unlocked, with no passcode
+required. The device's own log does, read for the test daemons alone, with "Writer daemon
+requires authentication to enable automation mode", the age of the last authorization and
+"Credential timeout: 28800.000000":
+
+```sh
+idevicesyslog -u YOUR_DEVICE_ID -p "testmanagerd|automationmode-writer|AutomationModeUI"
+```
+
+On 2026-10-13 an iPad authorized at 20:13 the evening before ran its last session at 04:01,
+and from 04:15 refused twelve sessions of two branches, until its owner entered the passcode
+at 07:53. When a session ends with that error, stop: a second try shows the prompt again on
+a device its owner may be holding. Release the device, tell the owner that it is asking for
+his passcode, and start one session when he is at it. Restarting the device does not clear
+it, since the authorization belongs to the boot it was made in.
+
 A probe that fails or is stopped part way leaves VoiceOver on, on a device its owner then
 picks up. Read the state from the Mac and switch it off there:
 
@@ -1070,11 +1090,15 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    Then double-tap again with no flick before it: the page turns again and VoiceOver reads
    the first line of that page, since its cursor is on the item it was on and the action
    chosen still stands. So it is from a data table's cell onto a page that opens with a
-   line, and from a line onto a page that opens with a cell, which VoiceOver reads with
-   its row, its column and "Table start" as it reads any cell it comes to. From a cell
-   onto a page that opens with a cell, as inside a table longer than a page, the cursor
-   goes to a new item, read with its row and column, and there the second double tap
-   turns nothing.
+   line (`OPS/grids.xhtml`, from "Twelve metres"), and from a line onto a page that opens
+   with a cell (`OPS/ledger.xhtml`, from its heading), which VoiceOver reads with its row,
+   its column and "Table start" as it reads any cell it comes to: the second double tap
+   there turns the page from that cell. From a cell onto a page that opens with a cell,
+   as inside a table longer than a page (the same section at 28 points, from "Entry 03"),
+   the cursor goes to a new item, read with its row and column, and there the second
+   double tap turns nothing. Each of these double taps is a physical device's to show. On
+   a simulator the flick after a turn says where the rotor is and no more
+   ([Simulators](#simulators)).
 4. Confirm heading order, the link's label/action and the image's spoken label.
 5. Resize or change typography, wait for the new layout, and repeat the boundary and ordering
    checks. On Mac verify corresponding value-change notifications and fresh text values.
@@ -3468,21 +3492,83 @@ The Mac runner's transcript is plain text and needs no export.
   only while it is one, and the item VoiceOver holds becomes the cell that opens the page
   shown, or the line. From a cell to a cell the reader still posts a new item, for the
   reason found below.
-  No device has read this. From 04:15 PDT that day every probe session on the iPad Air
-  ended before its first step with "Timed out while enabling automation mode": five of
-  this branch's, between 04:57 and 05:53, and five of another's before them. The last
-  session to run had ended at 04:01. Read from the Mac, the iPad was connected, booted,
-  in developer mode and asking for no passcode, and VoiceOver was off on it. What follows
-  is the [simulator lane](#simulators), which is not acceptance: iPad Air 13-inch (M4)
-  simulator, iOS 27.0, 1024 × 1366, upright, Xcode 27.0, through XCTest's VoiceOver
-  service. A simulator's VoiceOver performs no action, so each page was turned under the
-  cursor by the plain touch that `doubletap=Next Page` arrives as on the control strip's
-  button, and the flick after the turn says where the rotor is: "Previous Page", the
-  action after the one chosen, where it kept its place, and "Next Page" where it started
-  anew. That a double tap then turns the next page, as it did from a line on the iPad, is
-  not shown by any of this.
-  Before is `5765261`, the change recorded above, and after is `8a6c0f9`; each step list
-  was a session of its own on each.
+  A physical iPad Air 13-inch (M3) read it that morning: iPadOS 27.2, 1024 × 1366, upright,
+  17 points unless said, Xcode 27.0, VoiceOver through XCTest's service, nobody listening. A
+  device is needed for the point of the change, which a simulator cannot show: that a double
+  tap performs the action chosen in the rotor, so that a second double tap turns the next
+  page. Before is `d9e4d25`, `main` with the change recorded above and nothing of this one,
+  and after is `ad3ded5`, this change with that `main` merged into it. Each step list was a
+  session of its own on each, between 08:06 and 08:26 PDT. The cursor was put on an item,
+  Next Page chosen in the rotor (`flick=down` read "Next Page" in every session) and
+  performed twice with no flick between: `doubletap=VoiceOver Page`, `listen=4`,
+  `screenshot`, `doubletap=VoiceOver Page`, `listen=3`, `screenshot`, then `forward=3`.
+  From a cell to a line, in "Tables of data" (`OPS/grids.xhtml`), from "Twelve metres Row 2
+  Column 3". Before and after alike the first double tap read "Line 06 after the grids."
+  Before, the second read that line again and the moves read "Line 07 after the grids.",
+  "Line 08 …" and "Line 09 …": the page had not turned. After, the second read "Line 32
+  after the grids.", the first line of the page after, and the moves read "Line 33 …", "Line
+  34 …" and "Line 35 …". The screenshots after show VoiceOver's cursor on "Line 06 after the
+  grids." and then on "Line 32 after the grids.", each at the top of its page; before, on
+  "Line 06 …" both times.
+  From a line to a cell, in "A table longer than a page" (`OPS/ledger.xhtml`), from the
+  heading. Before and after alike the first double tap read "Entry 27 Row 28 Column 1 Table
+  start 41 rows 3 columns", the cell that opens the next page. Before, the second changed
+  nothing on screen and read the cell again, and the moves read "Item Item 27 Column 2",
+  "Sum Sum 27 Column 3" and "Entry Entry 28 Row 29 Column 1". After, it turned the page from
+  that cell: VoiceOver read "Line 14 after the ledger.", and the moves "Line 15 …", "Line 16
+  …" and "Line 17 …", with no row or column. One item had been a heading, a cell and a line,
+  and the action chosen on the heading was performed from each. The screenshots after show
+  the cursor on the cell "Entry 27", the table's first on that page, and then on "Line 14
+  after the ledger."; before, on "Entry 27" both times.
+  The cells around the item that had become a cell, after one turn from the heading
+  (`forward=3,backward=3` in place of the second double tap). Before and after alike: "Item
+  Item 27 Column 2", "Sum Sum 27 Column 3", "Entry Entry 28 Row 29 Column 1", and back "Sum
+  Sum 27 Row 28 Column 3", "Item Item 27 Column 2", "Entry Entry 27 Column 1 Table start 41
+  rows 3 columns". The item that had been a heading is the table's first cell from either
+  side, as a new item for that cell is.
+  Into the table and back out of it, by Previous Page: after the same turn from the heading,
+  `flick=down`, a double tap, `listen=4`, `screenshot`, a second double tap, `listen=3`,
+  `screenshot`, `forward=2`. The flick read "Next Page" before and "Previous Page" after,
+  the action after the one chosen: on the new item the rotor had started again, and on the
+  item that had become a cell it had kept its place. After, the double tap read "A table
+  longer than a page Heading", the second read "Line 32 after the grids.", the first line of
+  the last page of the section before, and the moves read "Line 33 …" and "Line 34 …"; the
+  screenshots show the cursor on the heading and then on "Line 32 after the grids.". One
+  item had been a heading, a cell, the heading again and a line of another section, and
+  Previous Page was performed from it as a cell and as the heading. Before, the double tap
+  performed the Next Page the flick had come to and read "Line 14 after the ledger.", and
+  the second read that line again.
+  From a cell to a cell, the same section at 28 points, from "Entry 03 Row 4 Column 1".
+  Before and after are the same, since the reader does the same: "Entry 15 Row 16 Column 1
+  Table start 41 rows 3 columns" after the first double tap and again after the second,
+  which turned nothing, and the moves "Item Item 15 Column 2", "Sum Sum 15 Column 3" and
+  "Entry Entry 16 Row 17 Column 1". The screenshots show the cursor on "Entry 15" both
+  times.
+  The change as it stood before `main` was merged into it, `f7cc4d5`, had read the same as
+  `ad3ded5` in the first two step lists a few minutes earlier, and the change recorded above
+  at its own commit, `0ea1f28`, the same as `d9e4d25` in the first.
+  VoiceOver was read back as off after every one of the fourteen sessions. In three of them
+  53 characters that are not the test book's or the sample's were recorded when VoiceOver
+  came on, as in the sessions recorded above. None was read, those sessions' logs and result
+  bundles were deleted and none of their screenshots was opened. One more bundle was deleted
+  for a first phrase that was empty, which is nobody's words; that session, from a cell to a
+  line at `ad3ded5`, was run again for its screenshots and read the same. The screenshots
+  cited are of sessions that recorded no such phrase.
+  The iPad could not be used before 07:53 PDT. From 04:15 it ended every session before its
+  first step with "Timed out while enabling automation mode", twelve sessions of this branch
+  and another: its authorization for UI automation, given at 20:13 the evening before, lasts
+  eight hours, and it was asking its owner for the passcode
+  ([Physical iPhone and iPad](#physical-iphone-and-ipad)).
+  The [simulator lane](#simulators) had read the change in those hours, at the commits it
+  then had: iPad Air 13-inch (M4) simulator, iOS 27.0, 1024 × 1366, upright, Xcode 27.0,
+  through XCTest's VoiceOver service. A simulator's VoiceOver performs no action, so each
+  page was turned under the cursor by the plain touch that `doubletap=Next Page` arrives as
+  on the control strip's button, and the flick after the turn says where the rotor is:
+  "Previous Page", the action after the one chosen, where it kept its place, and "Next Page"
+  where it started anew. Before is `5765261`, the change recorded above, and after is
+  `8a6c0f9`; each step list was a session of its own on each. Its pages are not the iPad's:
+  the page after the heading of "A table longer than a page" opens with "Entry 28" there and
+  with "Entry 27" on the iPad.
   From a cell to a line, in "Tables of data" (`OPS/grids.xhtml`) at 17 points:
   `touch=Twelve metres`, `flick=down`, the turn, `listen=4`, `screenshot`, `flick=down`,
   `forward=3`. Before and after alike the touch read "Twelve metres Row 2 Column 3", the
@@ -3537,9 +3623,8 @@ The Mac runner's transcript is plain text and needs no export.
   the moves read "word0021 … Actions available", "word0025 …", "word0029 …" in each, and
   VoiceOver read "word0017 word0018 word0019 word0020" by itself in two of them. In the
   first, at a load average over 400, it said nothing after the turn.
-  Not established: all of it on a device, and there that a second double tap turns the
-  page; a physical iPhone; a cell that becomes a line across an iPad's spread, which
-  unit tests hold to the column it is then in; a cell whose page turns to a cell of
+  Not established: a physical iPhone; a cell that becomes a line across an iPad's spread,
+  which unit tests hold to the column it is then in; a cell whose page turns to a cell of
   another table, which the reader treats as it does a cell of the same one; and Switch
   Control or any other assistive technology that keeps a cursor.
 - On 2026-10-13 the three sections of tables were read on a Mac before and after a table of

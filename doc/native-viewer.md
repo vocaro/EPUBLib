@@ -481,7 +481,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     rows of another page are not there to move to; Next Page goes on, as from a line. Into
     a table and out of one the item under the cursor goes with the page and keeps the
     action chosen: a line's item becomes the cell that opens the next page, and a cell's
-    item the line. From a cell to a cell, as on every later page of a table longer than
+    item the line, and with Next Page chosen each double tap turns another page across
+    them (iPadOS 27.2). From a cell to a cell, as on every later page of a table longer than
     a page, the cursor is on a new item with the rotor at its default, since that is the
     item VoiceOver reads with its row and column ("A page turned under VoiceOver's cursor"
     under Input and accessibility). A
@@ -1303,14 +1304,19 @@ The following are the defaults. Host commands and accessibility actions stay ena
   has a row and a column to give, by what it is at the time; a line asked all the same
   gives the protocol's own answer for neither. A line's item becomes the cell that opens
   the page turned to, among the cells of that page's table, and VoiceOver reads it as it
-  reads a cell it comes to: "Entry 28, Row 29, Column 1, Table start, 41 rows 3 columns".
+  reads a cell it comes to: "Entry 27, Row 28, Column 1, Table start, 41 rows 3 columns".
   A cell's item becomes the line that opens the next page and is read as a line, with no
-  row or column said of it or of the lines after it. The rotor keeps the action each time
-  (iOS 27.0 simulator).
+  row or column said of it or of the lines after it. The rotor keeps the action each
+  time, and the next double tap performs it (iPadOS 27.2). With Next Page chosen on a
+  cell, a double tap read the line that opens the next page and a second the first line
+  of the page after. Chosen on a heading whose next page opens with a cell, a double tap
+  read the cell, with its row and column as above, and a second turned the page from
+  that cell onto a page of lines.
   From a cell to a cell is the exception: VoiceOver is given the new cell's own item, and
-  its rotor starts again there. Given the item it held, it kept the rotor and said the
-  cell's words alone, "Entry 15", where of a new item it says "Entry 15, Row 16, Column 1,
-  Table start, 41 rows 3 columns". It says a cell's row and column of an item its cursor
+  its rotor starts again there, so a second double tap turns nothing. Given the item it
+  held, a simulator's VoiceOver kept the rotor and said the cell's words alone, "Entry
+  15", where of a new item it says "Entry 15, Row 16, Column 1, Table start, 41 rows 3
+  columns". It says a cell's row and column of an item its cursor
   comes to, and of the item already under its cursor only when that item was no cell
   before. Nothing the reader posts changed that: told of a screen change it said nothing
   at all, and given the table in place of the cell, or the table's own item kept from the
@@ -1319,8 +1325,9 @@ The following are the defaults. Host commands and accessibility actions stay ena
   said "Entry 15 Row 16, Column 1", and with it as an announcement it said the place
   before the words. Those are the reader's words in the reader's language, not
   VoiceOver's, and a VoiceOver that said its own would say the place twice, so neither is
-  done. A reader of a table needs the row a page begins at more than the rotor's place:
-  on each later page of a table longer than a page, Next Page still takes its flick down.
+  done (iOS 27.0 simulator). A reader of a table needs the row a page begins at more than
+  the rotor's place: on each later page of a table longer than a page, Next Page still
+  takes its flick down.
   Three cursors are left alone.
   One that is not in the text stays where it is: after the host's Next Page button
   VoiceOver is still on the button, and moving into the text from there met the new page's
