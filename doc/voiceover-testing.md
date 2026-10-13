@@ -1220,23 +1220,25 @@ The Mac runner's transcript is plain text and needs no export.
   section's, the parked link of the hidden labels, the three of the pictures (two of them a
   picture alone) and this section's own. A link in a table cell is not among them, and no
   picture that is not a link.
-  After, in pages at `918ec8b` on both: "Next Page", "Previous Page", "Activate Default" on
-  a line and on the link; "Inspect Image: Square with words", or "Inspect Image" on the
+  After, at `5e6834c` on both, in pages: "Next Page", "Previous Page", "Activate Default"
+  on a line and on the link; "Inspect Image: Square with words", or "Inspect Image" on the
   picture without words, before "Activate Default" on a picture; the three table actions
-  there on the row; and a turn of the rotor on a line came to Actions. In continuous scroll
-  at `5e6834c` on the iPad: a step on a line or on the link read the line a character at a
-  time ("P Papa", "l Lima"), and thirty turns of the rotor on a line went round Containers,
-  Lines, Words, Characters, Headings and Speaking Rate and never came to Actions; "Square
-  with words" said "Actions available" and offered "Inspect Image: Square with words" and
-  then "Activate Default", the picture without words "Inspect Image", and the row its three.
-  `5e6834c` is the change of `918ec8b` on the table branch's own merge with `main`: the two
-  readers differ in how one branch of a table row's element is written.
+  there on the row; and one turn of the rotor on a line came to Actions. In continuous
+  scroll: a step on a line or on the link read the line a character at a time ("P Papa",
+  "l Lima"), and thirty turns of the rotor on a line went round Containers, Lines, Words,
+  Characters, Headings and Speaking Rate and never came to Actions (`rotor=Actions:
+  MISSING`); "Square with words" said "Actions available" and offered "Inspect Image:
+  Square with words" and then "Activate Default", the picture without words "Inspect
+  Image", and the row its three. `5e6834c` is the change on the table branch's own merge
+  with `main`; a session in pages at `918ec8b`, the same change on an earlier merge, read
+  the same on both simulators.
   Most sessions started that evening did not run. At load averages of 600 to 1,000
   `devicectl` gave no answer in the runner's twenty seconds when a simulator's volume was
   set, and later failed with "Timed out waiting for CoreDeviceService to fully initialize";
-  the iPad simulator's VoiceOver said nothing in three minutes twice; and XCTest failed one
-  iPad session after its last step ("Critical process xctest crashed"), whose transcript is
-  whole. One iPhone simulator came back at volume 60 during the labelled continuous-scroll
+  the iPad simulator's VoiceOver said nothing in three minutes twice; and XCTest failed two
+  sessions after their last step ("Critical process xctest crashed"), whose transcripts are
+  whole. After the last sessions in continuous scroll `devicectl` could not read back the
+  simulators' VoiceOver state; they were deleted, as every one was. One iPhone simulator came back at volume 60 during the labelled continuous-scroll
   session and was muted again by the runner within a second (an `UNMUTED` line).
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
