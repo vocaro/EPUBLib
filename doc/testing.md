@@ -197,6 +197,26 @@ responder, when UIKit draws it, and to painting it again when the view gives tha
 VoiceOver reads the item again and takes its new actions when told is known only from
 [speech sessions](voiceover-testing.md) on a device: the tests passed before the reader told
 it anything, and an iPad's rotor still offered Select alone.
+Table scrolled-cell tests hold continuous scroll, on Mac, iPhone and iPad, to a text view on
+every cell of every row the screen shows after a move the reader makes itself, with nobody
+scrolling after it: a book opened at a chapter, a contents entry, a link to a cell from
+before it and from after it, steps of a page, and new sizes. They take what the reader
+mounted before they ask the layout anything, find each row on screen from the reader's own
+read of the visible lines, and require the row's cells inside the row as drawn, a second look
+that finds the same cells in the same places and, on iPhone and iPad, each cell's item
+offering its action. A last test holds a highlight set before the reader goes to its row, and
+a selection in the row a step back leaves last on screen, to being on their cells. The book
+has a table of 120 rows, taller than any screen here: the rows that went without cells were
+those TextKit had not laid out when the scroll view told of the move, the lowest on screen,
+and a test whose table stood whole at the top of its chapter passed without the change that
+it was written for ([#472](https://github.com/vocaro/EPUBLib/issues/472)). Each kind of move
+is made in a reader that has looked at nothing else, since a check lays text out past the
+screen and the next move then finds its rows. Without the change the contents entry, the
+first step of a page and the highlight fail; a new size, a link to a cell and the selection
+hold either way, the first because a new size ends in a layout pass that looks for the rows
+again, the others because the reader's last scroll to a cell is a small one made after the
+text is laid out. The test of a book opened at a chapter depends on whether every chapter is
+built when the commands arrive, and fails without the change in most runs, not all.
 
 Accessibility action tests hold each item of a page and of a screen on iPhone and iPad to
 offering its own actions and no more: a line, a heading and a link their page turns in pages

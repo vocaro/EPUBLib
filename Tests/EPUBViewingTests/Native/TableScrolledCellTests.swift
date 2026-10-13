@@ -203,6 +203,28 @@ import UIKit
         }
     }
 
+    /// A scroll that is not the reader's own and goes a screen at once, to rows never laid
+    /// out, as the platform's does for an assistive technology or a drag of the scroll bar.
+    /// The reader reads where the view stands a moment after it, and looks for the rows then.
+    func testATableThePlatformScrollsToHasItsCells() async throws {
+        for size in Self.sizes {
+            let reader = try await open(size)
+            try await reader.session.send(.navigate(href: "OPS/tables.xhtml"))
+            try await rest(reader)
+            let view = try XCTUnwrap(reader.session.canvas?.scrollTextView)
+            #if os(macOS)
+            let scrollView = try XCTUnwrap(view.enclosingScrollView), clip = scrollView.contentView
+            clip.scroll(to: NSPoint(x: clip.bounds.minX, y: clip.bounds.minY + clip.bounds.height - 60))
+            scrollView.reflectScrolledClipView(clip)
+            #else
+            view.contentOffset.y += view.bounds.height - 60
+            #endif
+            try await rest(reader)
+            let words = try assertTheRowsOnScreenHaveTheirCells(reader, after: "a scroll of the platform's, \(Int(size.width)) wide")
+            XCTAssertFalse(words.contains("Station 1"), "the view moved: \(words.prefix(6))")
+        }
+    }
+
     private func resize(_ reader: SessionCoverageReader, to size: CGSize) async throws {
         reader.window?.resize(to: size)
         let deadline = Date().addingTimeInterval(5)

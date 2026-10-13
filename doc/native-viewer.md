@@ -408,6 +408,20 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   whole table still resolve to that table; new cell ranges identify the selected characters.
   Interaction surfaces are mounted only for visible cells. Cell TextKit
   layouts and glyph metadata are retained for drawing in the table's bounded layout cache.
+  In continuous scroll which rows are visible is read from TextKit's layout, and the scroll
+  view tells of a move when its offset changes, before the text is laid out at the new place.
+  Looked for then alone, the rows that layout had not reached got no surfaces. So the rows
+  are looked for as the view moves and again once the reader has read where the view
+  stands, which every move ends in: the reader's own, to the section a book opens at, a
+  contents entry, a link's target, a step of a page or its place at a new size, and within
+  150 ms a person's. Highlights and a selection that run through the cells are put on them
+  at the same time. Before, the lowest rows on screen had no surface after a step of a page
+  or the reader's last correction on its way to a contents entry, on Mac as on iPhone and
+  iPad, and where that correction was by more than a screen none had: the section the
+  VoiceOver sample book opened at on an iPad. A held finger there selected the whole row,
+  as the text under the surfaces does, a cell's link could not be followed, and a row's and
+  a cell's items offered an assistive technology no actions, until the person scrolled
+  ([#472](https://github.com/vocaro/EPUBLib/issues/472)).
 - **Data tables.** On iPhone and iPad VoiceOver is given a table of data as Safari and Apple
   Books give it an HTML table: each cell is a stop, and VoiceOver says the cell's row and
   column, the header cells of both, and where the table starts and ends, and offers Rows in
