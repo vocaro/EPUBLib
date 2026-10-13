@@ -3616,23 +3616,63 @@ The Mac runner's transcript is plain text and needs no export.
   there opened on a phrase that was not the book's, the sample's or VoiceOver's own,
   something of the device's; its log and result bundle were deleted unread and it was run
   again. No other session recorded such a phrase.
-- On 2026-10-13 a table's cells were touched in continuous scroll where the reader had just
-  gone and nobody had scrolled, before and after the reader looked for the rows on screen
-  again at the end of each move ([#472](https://github.com/vocaro/EPUBLib/issues/472)).
-  The sample opened at the section of tables of data (`--href OPS/grids.xhtml --flow
-  scrolled --launch '-SampleSelectionLine YES'`), VoiceOver off, at 17 points, with steps
+- On 2026-10-13 a table's cells were touched, and acted on with VoiceOver, in continuous
+  scroll where the reader had just gone and nobody had scrolled, before and after the reader
+  looked for the rows on screen again at the end of each move
+  ([#472](https://github.com/vocaro/EPUBLib/issues/472)). The sample opened at the section
+  of tables of data (`TEST_RUNNER_VOICEOVER_HREF=OPS/grids.xhtml`,
+  `TEST_RUNNER_VOICEOVER_FLOW=scrolled`, `TEST_RUNNER_VOICEOVER_LAUNCH='-SampleSelectionLine YES'`),
+  at 17 points. Before is `main` at `229a612`, after is `b818fd7`, which is `main` with the
+  change. Nobody listened.
+  On the physical iPad Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366, upright), VoiceOver off,
+  with steps
   `state,press=Alder,state,screenshot,find=Copy,point=0.03:0.5,press=Express,state,screenshot,point=0.03:0.5,touch=Reopened,wait=1,find=Link target,screenshot`.
-  Before is `main` at `229a612`, after is `b818fd7`, which is `main` with the change.
-  On an iPad Air 13-inch (M4) simulator (iOS 27.0, 1024 × 1366, upright), before: a finger
-  held on "Alder" gave "Selected: Alder	1901	Twelve metres. Used: nothing.", and the
-  screenshot shows the tint the whole width of the column across that row, a handle at each
-  end, and a menu of Use passage, Copy and Translate, which is the text's own and not a
-  cell's; held on "Express" it gave "Selected: Express	Nine	Noon."; and a touch on the link
-  "Reopened 1978" left the section where it was, with nothing on screen named "Link target".
-  After: "Selected: Alder. Used: nothing.", the tint behind "Alder" alone with its two
-  handles and a menu of Copy, Look Up, Translate, Search Web and an arrow; "Selected:
-  Express. Used: nothing." with the tint behind that word; and after the touch on the link
-  the heading "Link target reached" stood at (152, 199), near the top of the screen.
+  Before: a finger held on "Alder" gave "Selected: Alder	1901	Twelve metres. Used:
+  nothing."; the screenshot shows the tint the whole width of the column across that row, a
+  handle at each end, and a menu of Use passage, Copy, a symbol and Translate, which is the
+  text's own menu and not a cell's. Held on "Express" it gave "Selected: Express	Nine	Noon.
+  Used: nothing.". A touch on the link "Reopened 1978" left the section where it was, with
+  nothing on screen named "Link target". After: "Selected: Alder. Used: nothing.", the tint
+  behind "Alder" alone with its two handles, and a menu of Copy, a symbol, Look Up,
+  Translate and an arrow; "Selected: Express. Used: nothing."; and after the touch on the
+  link the heading "Link target reached" stood at (152, 209), under the last line of the
+  numbered paragraph.
+  With VoiceOver, after, with steps
+  `touch=Alder,rotor=Actions,choose=Select Cell Text,doubletap=Alder,state,screenshot,choose=Copy,choose=Use passage,doubletap=Alder,state,choose=Deselect Cell Text,doubletap=Alder,state,screenshot`:
+  "Alder Row header Row 2 Column 1"; the rotor's turns gave Image Recognition, Containers,
+  Speaking Rate, Characters and "Actions Activate"; one step down, "Select Cell Text"; the
+  double tap brought "selected Alder Row header Row 2 Column 1" and "Selected: Alder. Used:
+  nothing.", and the screenshot shows VoiceOver's cursor round the cell and the tint behind
+  "Alder" alone; the next two steps were "Copy" and "Use passage"; with Use passage chosen
+  a double tap brought "Selected: Alder. Used: Alder."; two steps on, after "Activate
+  Default", stood "Deselect Cell Text", where a double tap brought "Alder Row header Row 2
+  Column 1" and "Selected: nothing. Used: Alder.", with no tint left in the screenshot.
+  Those are the phrases and lines the same cell gave in pages ([#471](https://github.com/vocaro/EPUBLib/pull/471),
+  the entry above). Copy was heard to be offered and was not performed.
+  With VoiceOver, before, the fault did not show. In two sessions at `229a612`
+  (`touch=Alder,rotor=Actions`, and the same with
+  `choose=Select Cell Text,doubletap=Alder,state,screenshot,choose=Copy` after it) the rotor
+  came to "Actions Activate" in the same five turns, and in the second "Select Cell Text"
+  was offered, the double tap brought "selected Alder Row header Row 2 Column 1" and
+  "Selected: Alder. Used: nothing.", and "Copy" followed. The night before, thirty turns on
+  that cell in that section had come to no Actions (the entry above), and a touch session at
+  the same revision minutes earlier that morning had selected the whole row. What
+  gave the cells their text views in the two sessions is not known: any scroll does, and
+  so does a layout pass of the reader, which VoiceOver's coming on may bring. So on a
+  device the change is shown by touch, and under VoiceOver it is shown that a cell's
+  actions are chosen and performed in continuous scroll with the change, not that they
+  could not be without it.
+  On an iPad Air 13-inch (M4) simulator (iOS 27.0, 1024 × 1366) the touch steps gave the
+  same lines and drawings as the iPad, before and after, the menus Use passage, Copy and
+  Translate before and Copy, Look Up, Translate, Search Web and an arrow after. There the
+  fault showed under VoiceOver as well, with steps
+  `touch=Alder,rotor=Actions,choose=Select Cell Text,touch=Express,choose=Select Cell Text`.
+  Before: "Alder Row header Row 2 Column 1 Use the rotor to access Headings", thirty turns
+  round Headings, Speaking Rate, Words, Rows and Characters (`rotor=Actions: MISSING`), and
+  the steps down then went down the column, "Birch Row header Row 3", "Cedar Row header Row
+  4"; the same on "Express". After: "Alder Row header Row 2 Column 1 Actions available",
+  "Actions Activate" at the fourth turn and "Select Cell Text" one step down, and on
+  "Express" "Select Cell Text" again.
   On an iPhone 17 Pro simulator (402 × 874) "Alder" gave the row before and the word after.
   "Express" is cut by the reader's lower edge there. Pressed at that edge it gave its row at
   both revisions, and the view moved under the press; pressed again a second later, whole
@@ -3643,8 +3683,13 @@ The Mac runner's transcript is plain text and needs no export.
   ([testing](testing.md), the table scrolled-cell tests): without the change a contents
   entry left fifteen to twenty rows of a screen without a text view on any cell, and a step
   of a page twenty-two to forty-one.
-  Not established here: a physical device, and VoiceOver. No session of this change ran on
-  the physical iPad.
+  Each device session claimed the iPad in the shared file, and VoiceOver was read back as
+  off after each. A phrase the transcript's filter withheld in each VoiceOver session, the
+  rotor's first turn, was told from a notification by a comparison that prints true or
+  false: it begins "Image Recognition". No session recorded anything of the device's own.
+  The iPhone was not used. Not established: a physical iPhone; landscape; a contents entry,
+  a link's target and a step of a page on a device, which the unit tests alone hold; and
+  why VoiceOver's sessions at `main` had the cells' text views.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).

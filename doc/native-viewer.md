@@ -666,14 +666,17 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     a cell's text area is VoiceOver's own to select in and to use a selection from. A cell
     of a table of data offers Select Cell Text there and none of the three above, and
     does not offer it while its words are selected.
-  - **Not shown.** A cell of a table of data in continuous scroll, on a device. In the
-    section the sessions opened the book at, the cells had no text views, so their items
-    had no actions, with this change and without it. That is a fault of its own and not
-    VoiceOver's: in continuous scroll a table the reader goes to itself gets its cells'
-    text views only once the person scrolls
-    ([#472](https://github.com/vocaro/EPUBLib/issues/472);
-    [VoiceOver testing](voiceover-testing.md), the entry of 2026-10-13 on a table's select
-    action). The unit tests perform the cell's actions in both flows.
+  - **In continuous scroll.** The sessions that first tried a cell of a table of data there
+    on a device could not choose its action: in the section they opened the book at, the
+    cells had no text views, so their items had no actions, with this change and without
+    it. That was a fault of its own ("Tables" above;
+    [#472](https://github.com/vocaro/EPUBLib/issues/472)). With it mended, in that section
+    and with nothing scrolled, VoiceOver's rotor came to Actions on the cell, Select Cell
+    Text was chosen and performed, the cell was read as selected with the tint behind its
+    word, Copy and Use passage were offered, Use passage was performed and Deselect Cell
+    Text took the selection away, as in pages
+    ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-13 on a table's cells
+    in continuous scroll). The unit tests perform the cell's actions in both flows.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
   in place and also show in popovers.
