@@ -194,13 +194,49 @@ iPhone 17 Pro. One drag on the strip, with the keyboard still up, brought the re
 the strip's bottom edge wherever the strip scrolls, with Appearance, Contents and the match row
 above it: all of the match row but on the iPhone SE on its side at `accessibility-medium`,
 where 30 of its 33 points showed, and at the largest size on the iPhones on their sides, where
-the strip showed the reading mode, Appearance and the lower third to half of Contents. Where
-the drag starts matters. One that began beside a row, between two rows or at Search and Clear
-Search scrolled the strip. One that began in the field did not, on the iPhone SE on its side
-at the largest size, and neither did a drag or a swipe that began on Contents on the upright
-iPhone SE: the field and the menus keep a touch that starts on them. That is the probe's
-synthetic touch; a finger was not tried. Beside the top safe area the strip scrolls under the
-status bar, as any scroll view does.
+the strip showed the reading mode, Appearance and the lower third to half of Contents. Beside
+the top safe area the strip scrolls under the status bar, as any scroll view does.
+
+A touch scrolls the strip from anywhere on it, a control included, if it moves soon after it
+goes down. Those runs read otherwise. The probe's drag scrolled the strip from beside a row,
+between two rows and at Search and Clear Search, and not from the field on the iPhone SE on
+its side or from Contents on the upright iPhone SE, where a swipe did not either, and the field
+and the menus were taken to keep a touch that starts on them. On 2026-10-12 at `1eb150a` the
+host recorded each touch itself ([Evidence](#evidence-and-repeating-it)): the view it went down
+on, when it had moved 10 points, and when the strip's scroll view began to drag. The probe's
+drag rests 0.15 s before it moves. Its swipe never touched Contents: it went down at y = 434,
+on the keyboard's suggestions, whose top is at 407.
+
+On an iPhone SE simulator (iOS 27.0) at the largest size, with the keyboard up over the
+results, synthetic touches went down on each control and moved after four rests, upright,
+where the strip has 95 points to scroll, and on its side, where it has 256:
+
+| Touch went down on | Moved after 0.02 to 0.03 s | 0.05 to 0.10 s | 0.15 to 0.17 s | 0.32 to 0.45 s |
+| --- | --- | --- | --- | --- |
+| The field | scrolled, 2 of 2 | scrolled, 2 of 2 | scrolled, 1 of 6 | kept, 2 of 2 |
+| Contents | scrolled, 3 of 3 | scrolled, 4 of 4 | scrolled, 2 of 6 | menu opened (upright) |
+| Appearance | scrolled, 3 of 3 | scrolled, 3 of 3 | scrolled, 2 of 6 | menu opened (on its side) |
+| The reading mode | scrolled, 2 of 2 | scrolled, 2 of 2 | scrolled, 2 of 5 | kept, 2 of 2 |
+| Between two rows or beside a row | scrolled, 3 of 3 | | | |
+
+All 21 touches on a control that moved within a tenth of a second scrolled the strip, upward
+and downward, a drag at 300 points a second among them. In 20 the scroll view began to drag
+0.03 to 0.12 s after the touch went down; the other was down for 0.03 s in all and had lifted
+before it did. No menu opened, the reading mode stayed Paging and the keyboard stayed up. Of
+the 23 that rested 0.15 to 0.17 s, 7 scrolled the strip and the control kept 16: nothing
+scrolled, no menu opened and the reading mode did not change. That rest is about where a
+scroll view hands a touch to the control under it: the same drag went either way from one try
+to the next, which is how the probe's drag came to scroll from one place and not another. After
+0.32 s or more the field and the reading mode kept the touch. A menu, after 0.38 and 0.45 s,
+opened under it, which put the keyboard away as a tap on a menu does. A control in any scroll
+view answers so: a swipe scrolls, and a touch that rests on a control before it moves has
+pressed it.
+
+These are XCTest's touches on a simulator, timed as a swipe and as a press; a finger was not
+tried. On its side the menus were touched with the strip scrolled part of the way, 54 points
+or more down the screen: in an earlier run that day a quick downward drag that began 50 points
+from the top did not reach the strip, the application having left the foreground, as the host
+recorded.
 
 Three seconds after the keyboard's Search key was touched, the keyboard was down and nothing
 had keyboard focus, in all twenty runs; tapping the field brought both back. Return was a
@@ -669,11 +705,13 @@ Described, not decided. None of these was changed.
 - Choosing a row in a host's own sheet of `EPUBSearchResultList`, and the host-placed
   navigator on iPad and the iPhone Duo.
 - The control strip under the VoiceOver service.
-- The strip's scrolling under a finger. The probe's drag and swipe scrolled it from between
-  its rows and from its buttons, and not from the field, Contents or Appearance; whether a
-  quick swipe that starts on one of those scrolls it on a device was not tried. Nor was the
-  strip under a keyboard taller than the simulator's English one, in an iPad window smaller
-  than the screen, with host views in it, or under the reader instead of over it.
+- A finger on the strip, and the strip on a device. What scrolls it was settled with XCTest's
+  touches on an iPhone SE simulator, where the rest before a touch moves decides it and the
+  host recorded that rest for every touch. A swipe is a touch that moves at once, and one that
+  moved within a tenth of a second scrolled the strip every time; a finger's own timing was
+  not measured. Nor was the strip under a keyboard taller than the simulator's English one, in
+  an iPad window smaller than the screen, with host views in it, or under the reader instead
+  of over it.
 
 ## Evidence and repeating it
 
@@ -710,8 +748,11 @@ The probe's steps are documented where they are handled, in
 `Examples/ControlsQualification/UITests/ControlsProbe.swift`. Host arguments:
 `-QualificationBook ltr|rtl|long`, `-QualificationHost toolbar|strip|navigator`,
 `-QualificationPlacement automatic|leading|bottom`, `-QualificationHostItems <count>`,
-`-QualificationFlow scrolled`, `-QualificationFontSize <points>`, `-QualificationTitle NO` and,
-on the Mac, `-QualificationWindowSize <width>x<height>`. For the iPhone Duo set `DEVELOPER_DIR`
+`-QualificationFlow scrolled`, `-QualificationFontSize <points>`, `-QualificationTitle NO`,
+`-QualificationTouchTrace YES` and, on the Mac, `-QualificationWindowSize <width>x<height>`.
+UIKit's own `-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityXXXL`
+gives the host the largest text size without a change to the simulator; on the iPhone SE the
+strip's frames were those `signal=content_size` gave. For the iPhone Duo set `DEVELOPER_DIR`
 to Xcode 27.1 for the build and the run, and pass `--hinge-script`; never send that simulator
 `simctl io screenConfig`, which crash-loops its SpringBoard. For the Mac pass `--mac` in place
 of `--device`, with a signed build, and ask whoever is using the Mac first: the probe takes its
@@ -719,3 +760,38 @@ pointer and keyboard. A new simulator shows the keyboard's first-run card once; 
 before typing. A run stopped part-way leaves the simulator as it was, with VoiceOver on or the
 text size large: restore both before the next run, because with VoiceOver on a tap only moves
 its cursor.
+
+A tree and a screenshot show where things stand after a touch, not what became of the touch.
+With `-QualificationTouchTrace YES` the host records every touch where the application
+receives it: the view it went down on, when it had moved 10 points, when each scroll view
+began to drag, and the scroll views, the keyboard and any menu before it, as it lifted and a
+second later, with a picture of the window then and the touch drawn on it. It also records
+the application leaving the foreground and its main thread standing still, either of which
+makes a touch go nowhere. The lines go to the host's standard output and, with the pictures,
+to `Documents/touch-trace-<launch time>/` in its container:
+
+```sh
+ls "$(xcrun simctl get_app_container "$DEVICE" org.epubreaderlib.controlsqualification data)/Documents"
+```
+
+A `drag` step rests a tenth of a second before it moves, which the host measures as 0.15 to
+0.17 s. That is about as long as a scroll view holds a touch back from the control under it,
+and a drag that starts on a control is taken by one or the other from one try to the next. Two
+more numbers set the rest in seconds and the speed in points a second, and a seventh keeps the
+touch down at the end, which leaves a scroll view where the touch took it and not where a
+fling would:
+
+```sh
+printf 'drag=0.5,0.52,0.5,0.22,0,1500\ndrag=0.75,0.27,0.75,0.46,0,300,0.6\n' > steps.txt
+```
+
+The first is a swipe of 200 points from the middle of an upright iPhone SE; the trace gave its
+rest as 0.02 s. With a rest of 0.05 the trace gave 0.08 to 0.10 s, and with 0.3, 0.32 to
+0.45 s. The second moves the strip of an iPhone SE on its side 64 points and leaves it there.
+A `swipe` step starts where XCTest puts it, which with the keyboard up was on the keyboard. On
+an iPhone SE on its side a quick downward drag that started 18 or 50 points from the top of
+the screen made the host inactive each of eleven times and sent it to the background in ten;
+none of three from 54 points did. The same host runs on a device, for a finger: build the
+`ControlsQualification` target for it, install and launch it with `devicectl`, and copy the
+trace back with `devicectl device copy from --domain-type appDataContainer`. It recorded one
+tap on an iPhone 17 Pro Max (iOS 27.2) that way, and nothing more was tried there.
