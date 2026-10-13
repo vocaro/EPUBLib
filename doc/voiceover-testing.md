@@ -168,8 +168,11 @@ new phrase is recorded:
   step with `line`, which reads the heading, and `ax:lines`, which shows the page. With
   VoiceOver's cursor on a link, reached by `nextlink`, the step goes to a heading's element
   among the text's children and VoiceOver says the level first, "heading level 2 Link
-  target reached": follow it with `describe`, which says what is in the cursor. `line` and
-  `right` then read from the insertion point, which is not on the heading.
+  target reached": follow it with `describe`, which says what is in the cursor. In pages
+  the reader turns to a heading that is on a later page, and VoiceOver says the heading,
+  the first words it says after any page turn, and the heading again. The reader puts the
+  insertion point on the heading, so `line` then reads the heading and `right` its first
+  word.
 - `rotor`: Control-Option-U, which opens VoiceOver's rotor: lists of what the item under its
   cursor holds, the reader's Headings among them. `listright` and `listleft` go from list to
   list, `listdown` and `listup` along one, `listchoose` (Return) moves VoiceOver to the item
@@ -192,6 +195,10 @@ new phrase is recorded:
   cursor and name it.
 - `describe`: Control-Option-F3 once, what is in the VoiceOver cursor. `attributes`:
   Control-Option-T, the text attributes there.
+- `tracking`: Control-Option-Shift-F3, which turns cursor tracking off, and on again:
+  whether the keyboard focus goes with VoiceOver's cursor. VoiceOver says "Cursor Tracking
+  Off" or "Cursor Tracking On". It keeps the setting from one session of a run to the next,
+  so a session that turns it off ends with the step again.
 - `actions`: Control-Option-Command-Space, VoiceOver's Actions menu, which holds the actions
   of the item under its cursor. VoiceOver says "Actions menu" and how many items it has.
   `listdown` and `listup` say each one, `listchoose` performs the one last said, and
@@ -459,7 +466,10 @@ as a `CHILD`, called by its words and never by U+FFFC, with `AXPress` among its 
 in the `LINK` lines the same element as the link of its characters and, where the link has an
 attachment, a link element as that character's attachment. The text's headings are `CHILD`
 lines too, `AXHeading` with the heading's words as `LABEL`, each where it stands among the
-links: those on the page, and in continuous scroll those on screen and the next one below. `ax:follow=WORDS` presses a link
+links: those on the page or on screen, and last the book's next heading, which is below the
+screen in continuous scroll and on a later page in pages. A child whose keyboard focus an
+assistive client can set ends in `FOCUSABLE`: VoiceOver focuses such an element when it
+moves to it, and a heading's is one. `ax:follow=WORDS` presses a link
 without VoiceOver. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a link's line, so
 a few `right` steps reach it. After a link is followed the transcript has `AXValueChanged`
 with the page that holds the target, in the fixture the one with "Link target reached".
@@ -1036,12 +1046,19 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    From a page in the middle of the book, with VoiceOver's cursor resting on the column
    (`ax:focus=0` without `in`), `nextheading` goes to the first heading after the top of
    that page, not to the book's first. From a link (`nextlink` first) `nextheading` says a
-   heading's level and then its words, "heading level 2 Link target reached": in continuous
-   scroll the book's next heading after the link, in pages the next one on the page, or the
-   page's first when none follows the link. One `right` puts VoiceOver back in the text, and
-   `nextheading` from there goes on through the book. `rotor` from a link has the same
+   heading's level and then its words, "heading level 2 Link target reached", for the
+   book's next heading after the link in both flows: in pages the reader turns to its page,
+   in a window 600 points wide at 17 points from the first page's link to the page of
+   `word1187`. `describe` says the heading is in the VoiceOver cursor, `line` reads it,
+   `right` says its first word, "Link", and `nextheading` goes on through the book, from the
+   heading's element to the next heading's and from the text by the rotor. `ax:links` on
+   the first page lists three children, the last of them the heading "Link target reached",
+   and marks each heading `FOCUSABLE`. From the book's last heading `nextheading` says
+   "Last heading" and the heading again. `rotor` from a link has the same
    Heading menu. VoiceOver opens its rotor on the menu it showed last, so a session that
-   has gone to another menu with `listright` starts the next one there.
+   has gone to another menu with `listright` starts the next one there. With `tracking`
+   sent first, which turns cursor tracking off, the same steps in pages say the heading
+   and leave the page where it is.
 10. Links on a Mac, in pages and in continuous scroll, with VoiceOver's link setting at Speak
     ([Links](#links)). `ax:links` lists each link on screen once as a `CHILD`, by its words:
     "Verification link" on the first page, "Parked link to the target" on the hidden-labels
@@ -1719,6 +1736,15 @@ The Mac runner's transcript is plain text and needs no export.
   a session as `"launch=-Name value"`, puts several variants of the reader in one run. A
   call stack logged from the reader's own handler says who moved something: VoiceOver's
   scroll arrives as a set of the scroll bar's value.
+  Log on the view and leave the elements alone where they are what is being heard. With
+  those methods overridden on an `NSAccessibilityElement`, a link reported no `AXPress`
+  (`ax:links` gave `ACTIONS none`), and an element with no title, read from inside its own
+  `accessibilityAttributeValue(_:)`, recursed until the reader crashed. What a probe's
+  element overrides to log can also be what makes VoiceOver act: it focused a heading's
+  element that overrode `isAccessibilityFocused()` to log it, and never one that only took
+  the focus. A step the runner lacks can be added on the throwaway branch, and a run
+  started from that branch with another branch as its `ref` input hears that branch's
+  reader with the added step.
 - The same day they were read on a physical iPad Air 13-inch (M3) (iPadOS 27.2), upright at
   17 points, at `41a458f`, through XCTest's VoiceOver service; nobody listened. In pages a
   touch on the first page's heading gave "Page boundary verification Heading Use the rotor to

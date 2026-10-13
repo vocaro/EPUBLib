@@ -263,8 +263,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   links: one that crosses the page's end is the part on the page, and one in the context
   laid out after the page is not listed. The scroll view lists the links of the paragraphs
   on screen, as AppKit does. The text's headings stand among those children too, each
-  where it is in the text: with its cursor on a link VoiceOver finds the next heading
-  there and nowhere else ("Input and accessibility", Headings).
+  where it is in the text, and after them the book's next one: with its cursor on a link
+  VoiceOver finds the next heading there and nowhere else ("Input and accessibility",
+  Headings).
   VoiceOver announces an element given as a character's attachment as it reads, and none at
   a character of words. So each attachment in a link, a picture, a hidden label or a
   formula, has a link element for its own: VoiceOver says "hyperlink" and the name there by
@@ -279,7 +280,13 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   VoiceOver then goes by it for Find Next Link as well. With a link's characters as its
   results VoiceOver said the words without "hyperlink" and found no previous link; with the
   link elements as its results it said "Link not found". So in continuous scroll a link
-  below the screen is reached by reading or scrolling to it. A note's popover keeps AppKit's
+  below the screen is reached by reading or scrolling to it. VoiceOver's search for
+  elements cannot give it one either: an answer that is no child of the text was refused,
+  and a text that offers the search is asked for much else ("Input and accessibility",
+  Headings). With the next link below the screen among the children, as the next heading
+  is, Find Next Link went to it and VoiceOver scrolled there; that was heard once on a
+  throwaway branch and is not built
+  ([#425](https://github.com/vocaro/EPUBLib/issues/425)). A note's popover keeps AppKit's
   elements, and its links do nothing.
   A table cell is a text view of its own. VoiceOver meets a row as one stop of the page's
   text, "Table row group"; interacting with it there shows the row's cells, and interacting
@@ -1213,7 +1220,8 @@ The following are the defaults. Host commands and accessibility actions stay ena
   it the list showed each label and VoiceOver read every such row out as the column's own
   text.
   With VoiceOver's cursor on a link the move to the next heading goes another way
-  ([#431](https://github.com/vocaro/EPUBLib/issues/431)). A link is an element of its own
+  ([#431](https://github.com/vocaro/EPUBLib/issues/431),
+  [#454](https://github.com/vocaro/EPUBLib/issues/454)). A link is an element of its own
   on Mac, a child of the text and no place in it. From there VoiceOver asks no rotor: it
   looks through the text's children for an element with the heading role after the link,
   and past the last it begins again with the first, as Find Next Link does (macOS 27.0.1).
@@ -1222,17 +1230,47 @@ The following are the defaults. Host commands and accessibility actions stay ena
   (`ReaderHeadingAccessibilityElement`), where it stands among the links: AppKit's heading
   role, the heading's words as its label and its level as its value. VoiceOver says both,
   "heading level 2 Link target reached", where the move from the text says the words
-  alone. The scroll view gives the headings on screen and the next one below them, so the
-  move from a link has the book's next heading to go to, and VoiceOver scrolls to it
-  itself, by setting the scroll bar's value. A page column gives its page's headings: in
-  paging the move from a link stays on the page, goes back to the page's first heading
-  when none follows the link, and says "Heading not found" on a page with none.
-  VoiceOver's cursor is then on the heading's element and not in the text. In continuous
-  scroll the reader takes VoiceOver's scroll for any other and puts the insertion point on
-  the first line on screen: VoiceOver says the word before it, and reading on by word or
-  by line starts from that line, above the heading. One move right from a link's element
-  or a heading's puts VoiceOver back in the text, where the move by heading goes through
-  the book by the rotor.
+  alone.
+  The children hold the headings on screen or on the page and, after them, the book's next
+  heading, so that the move from the last link there has it to go to. VoiceOver takes an
+  element for a place only when it is among the children of its text, so that heading is a
+  child before VoiceOver looks for it. In continuous scroll it is the next one below the
+  screen, a heading of the view's own text. In paging it is on a later page: an element at
+  the foot of the column, a point high, called by the heading's words
+  (`ReaderCanvasView.headingAfterPage`), and the last of the column's children. A chapter
+  that is not built yet ends the list, as it ends the rotor's.
+  VoiceOver focuses the element it moves to, while its cursor and the keyboard focus go
+  together (cursor tracking, which is on until a listener turns it off), and that is all it
+  tells the reader of the move. It gives the focus to an element that says whether it has
+  it: one that only took it was never given it. The reader then does three things
+  (`ReaderTextView.showHeading`). It puts the insertion point on the heading. VoiceOver's
+  cursor is on the element and not in the text, and its next move by word or by line starts
+  from the insertion point, which was wherever VoiceOver had last read, or the first line on
+  screen: with it on the heading, one move right says the heading's first word and reading
+  goes on from there, and the next move by heading goes on by the rotor from the heading.
+  In continuous scroll it shows a heading that has no character on screen, as it shows a
+  link's target, where VoiceOver would scroll to the element by the scroll bar, which the
+  reader takes for any other scroll. And in paging it turns to the page of a heading that
+  is on a later one, as it does when VoiceOver loads a heading the rotor gave. The element
+  VoiceOver is on becomes the heading's own in the column that then shows it, one of that
+  column's children with its place there: an element that left the children would leave
+  VoiceOver's cursor on the column. VoiceOver says the heading, then the first words it
+  says after any page turn, then the heading again.
+  What is left as it was (macOS 27.0.1):
+  - Past the book's last heading the move from a link begins again with the first heading
+    among the children, which is the first on screen or on the page, and says "Heading not
+    found" where they hold none. From the last heading's own element, with no other on
+    screen, VoiceOver says "Last heading" and stays.
+  - With cursor tracking off VoiceOver focuses nothing. In continuous scroll it scrolls to
+    the heading itself, and reading on starts from where it had last read. In paging it
+    says the heading that is on a later page and the page stays; one move right puts it
+    back in the page's text, where the move by heading goes by the rotor and turns.
+  - In a spread the turn can put the heading in the right-hand column. VoiceOver's cursor
+    is on its element there, and its text cursor stays in the left-hand column, the text it
+    was in: reading on by word or by line starts at the top of the spread, a column before
+    the heading. Given the keyboard focus, the right-hand column took VoiceOver's cursor as
+    an item it was not interacting with: `line` read the heading and one move right left
+    the text for the next control.
   The rotor's Headings list is the same from a link. VoiceOver asks the text for its
   rotors as well as the link, which has none, and having walked the list it asks the
   search once more, from the link's element at the first character and none of it. The
@@ -1241,14 +1279,28 @@ The following are the defaults. Host commands and accessibility actions stay ena
   column's rotor still held its page alone, the list opened with no row chosen and Return
   did nothing; that was heard once.
   Two other ways were heard and left out. Given the text's rotors, a link's element was
-  asked for them when the rotor opened and never for the move by heading. And an element
-  that offers a search for elements (`AXUIElementsForSearchPredicate`, which AppKit has
-  named since macOS 26) is asked by Find Next Link for the next link, with the range of
-  VoiceOver's text cursor: answered with none, Find Next Link said "Link not found" and
-  never reached a link, so what the move by heading asks of such an element was not heard.
-  That search could give the move from a link the exact next heading, without beginning
-  again, and a heading on another page; it would have to answer for links as well, and is
-  not built ([#454](https://github.com/vocaro/EPUBLib/issues/454)).
+  asked for them when the rotor opened and never for the move by heading. The other is
+  VoiceOver's search for elements (`AXUIElementsForSearchPredicate`, which AppKit has named
+  since macOS 26, served through the old attribute methods), which could end the move at
+  the book's last heading in place of beginning again:
+  - A link's or a heading's element that offers it is asked in place of being looked at,
+    with no start at all, and each child after it in turn, then the first ones. None can
+    tell whether VoiceOver's cursor is on it, so the first children answer for what follows
+    them and the move begins again all the same.
+  - A text area that offers it is asked where VoiceOver's own walk of the children finds
+    nothing, with the element under its cursor as the start, and answered with nothing
+    VoiceOver says "Heading not found", or "Last heading" from a heading. But it is then
+    asked for every kind of item VoiceOver looks for, from the text as well, and can answer
+    with elements alone. VoiceOver's moves to the next change of font or of style, and to
+    the next plain text, which find the place in a text that offers no search, left the
+    text for the window's other items. A search for bold text from a page, and one for a
+    picture from a control outside the text, were asked without end, 3,577 times in 25
+    seconds, until VoiceOver said the reader was not responding and could not be turned
+    off. Find Next Link was asked too: left unanswered it said "Link not found" or asked
+    without end, and past the last link it said "Last link" and stayed where it begins
+    again today.
+  So no text and no element of the reader offers the search, and the move from a link
+  past the last heading begins again.
   Not marked for VoiceOver: a heading inside a table, whose cells are read as cells, and on
   iPhone and iPad a heading inside a note's popover, which keeps UIKit's own elements.
 - Selection: native selection UI with the host's `EPUBSelectionAction` in the edit or context
