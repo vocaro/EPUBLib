@@ -302,6 +302,45 @@ import UIKit
         XCTAssertEqual(try column().placement.offset, 0)
     }
 
+    /// The VoiceOver fixture's own shape, in a real session: a chapter that ends with a heading,
+    /// one that opens with a hidden heading above shown words, and one that opens with a hidden
+    /// heading over a table, which is hidden labels alone on a line of no height.
+    func testTheHeadingsRotorGoesFromChapterToChapterThroughHiddenHeadings() async throws {
+        let parked = "style=\"position: absolute; left: -999em\""
+        let reader = try SessionCoverageReader(try SessionCoverageBook.epub([
+            SessionCoverageBook.Section("body", "<h1>Opening heading</h1>" + SessionCoverageBook.filler(60) + "<h2>Closing heading</h2><p>End.</p>", title: "Body"),
+            SessionCoverageBook.Section("labels", "<h1 \(parked)>Parked title heading</h1><p \(parked)>By the parked author.</p><p>Shown opening words.</p>", title: "Labels"),
+            SessionCoverageBook.Section("table", "<h1 \(parked)>Parked table heading</h1><table><tr><td>First cell</td><td>Second cell</td></tr></table>"
+                + "<p>Shown words after the table.</p>" + SessionCoverageBook.filler(20), title: "Table")]))
+        readers.append(reader)
+        reader.window?.resize(to: CGSize(width: 402, height: 874))
+        try await reader.settle()
+        try await reader.wait("every chapter built") { reader.session.bookText != nil }
+        let canvas = try XCTUnwrap(reader.session.canvas)
+        func column() throws -> ReaderTextView { try XCTUnwrap(canvas.textViews.first) }
+        var cursor = try XCTUnwrap(try XCTUnwrap(column().accessibilityElements as? [UIAccessibilityElement]).first)
+        XCTAssertEqual(read(cursor), "heading 1 Opening heading")
+        var heard: [String] = [], sections: [Int] = []
+        while let next = try rotorHeading(from: cursor, in: try XCTUnwrap(cursor.accessibilityContainer as? ReaderTextView), forward: true) {
+            heard.append(read(next))
+            sections.append(try XCTUnwrap(try column().placement.section))
+            XCTAssertTrue(try XCTUnwrap(next.accessibilityContainer as? ReaderTextView) === (try column()))
+            XCTAssertFalse(next.accessibilityFrameInContainerSpace.isEmpty, read(next))
+            cursor = next
+            XCTAssertLessThan(heard.count, 10)
+        }
+        XCTAssertEqual(heard, ["heading 2 Closing heading", "heading 1 Parked title heading", "heading 1 Parked table heading"])
+        XCTAssertEqual(sections, [0, 1, 2])
+        var back: [String] = []
+        while let previous = try rotorHeading(from: cursor, in: try XCTUnwrap(cursor.accessibilityContainer as? ReaderTextView), forward: false) {
+            back.append(read(previous))
+            cursor = previous
+            XCTAssertLessThan(back.count, 10)
+        }
+        XCTAssertEqual(back, ["heading 1 Parked title heading", "heading 2 Closing heading", "heading 1 Opening heading"])
+        XCTAssertEqual(try column().placement.section, 0)
+    }
+
     func testTheHeadingsRotorFindsNoneInAChapterThatIsNotBuiltYet() throws {
         let section = try H.build("<h1>Only heading</h1><p>Words.</p>", css: Self.css)
         let host = CanvasHost(FakeCanvasSource([section.string, nil]), size: CGSize(width: 320, height: 560))
