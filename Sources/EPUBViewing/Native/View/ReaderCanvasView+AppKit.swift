@@ -178,6 +178,17 @@ extension ReaderCanvasView: NSTextViewDelegate {
         return responder === self || responder.isDescendant(of: self)
     }
 
+    /// Brings keyboard focus to the first column of the spread after a page turn made from
+    /// another one. VoiceOver stays in the column it is in when the spread turns: after a key
+    /// or a page action in the second column it was on the first line of the new second
+    /// column, and the new first column was passed over. VoiceOver follows keyboard focus, and
+    /// reads the first column from its first word. Focus anywhere else is left alone.
+    func focusFirstColumnAfterTurn() {
+        guard let first = textViews.first, let responder = window?.firstResponder as? ReaderTextView,
+              responder !== first, columns.contains(where: { $0 === responder }) else { return }
+        focus(first)
+    }
+
     // MARK: Text view delegate
 
     func textViewDidChangeSelection(_ notification: Notification) {
