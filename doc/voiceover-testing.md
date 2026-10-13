@@ -392,8 +392,14 @@ TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wai
     it read "Bookmark", and `forward=1` from the bar reads the item below the reader. Do
     the same after two scroll steps, where the last line listed is the last in the reader's
     view. Nothing scrolls as the cursor goes to the bar: at the end of the book the bar reads
-    100%, where it read 99% while the view went back for it. `flick=down` on the bar scrolls
-    by a page and reads the new value.
+    100%, where it read 99% while the view went back for it. `flick=down` on the bar takes
+    the view a tenth of the way through the book and reads the new value, with the cursor
+    still on the bar, and `backward=5` from there reads the last line then on screen and
+    the lines above it in order. The second of those lines again at every further move is
+    the failure of the adjustment in
+    [#342](https://github.com/vocaro/EPUBLib/issues/342): VoiceOver had taken the list to
+    start there. A line of text read at the flick itself is the harness's: on a busy Mac the
+    swipe was taken for a touch and moved the cursor to the line under it.
 
 Drive at least one session with `flick=right*20` and `flick=left*30` in place of `forward`
 and `backward`: those are VoiceOver's own gestures for the next and previous item, where the
@@ -828,6 +834,30 @@ devices VoiceOver performs every one of these
 simulator's and not the probe's or the reader's. Page actions, the rotor and turns in
 landscape need a device. To read a later landscape spread on a simulator, turn pages in
 portrait and then rotate: the reader keeps its place.
+
+VoiceOver keeps a log of its own in a simulator, and it says what VoiceOver did where a
+transcript says only what it read. Stream it for the length of a session:
+
+```sh
+xcrun simctl spawn DEVICE log stream --level debug --style compact --predicate 'process == "vot"'
+```
+
+- `VOTElement` has each move: the command and the item it started from (`ElementMovement
+  decision`), the items VoiceOver holds each side of its cursor (`Cache:`), which of them it
+  tried (`Checking element`, `Found element`), what it then asked the app for and was given
+  (`fetch count: 1 -- startFromBehind:`, and `retrieved:` with `AHEAD` and `BEHIND`), and
+  when it threw away all it held (`Forced update, so removing all from cache`).
+- `VOTNotifications` has each notification as it arrived (`VoiceOver Received note: Layout
+  Changed`), and `VOTCommon` the events VoiceOver answered a move with: `DidFocusOnElement`,
+  `DidWrapBackwards`, `BoundaryEncountered`.
+- A `<null>` in the cache is an end of the list as VoiceOver has it: it asked for one more
+  item there and was given none. A move to that side then ends in `Found element: (null)`
+  and `BoundaryEncountered`, and the transcript has the same phrase again.
+
+The stop after the scroll bar is adjusted was found this way
+([#342](https://github.com/vocaro/EPUBLib/issues/342), under "Harness pitfalls and current
+results"). The log of a physical device holds whatever else its owner's device did, and is
+not read.
 
 A move costs half a second and a touch about five and a half, most of it XCTest waiting for
 an event that VoiceOver keeps from the reader. The end of a `read` costs 3.3 seconds and an

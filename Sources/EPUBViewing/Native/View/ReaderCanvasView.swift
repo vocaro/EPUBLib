@@ -124,6 +124,12 @@ import AppKit
     /// The offset a rest for a new visible height left the scroll view at, until UIKit reports
     /// the scrolling of that inset change (`scrollViewDidChangeAdjustedContentInset`).
     var restedScrollOffset: CGFloat?
+    /// Posts the layout change the scroll bar's stand-in tells of after it is adjusted
+    /// (`ReaderTextView`). A test puts its own closure here to see what an assistive
+    /// technology is told, and which element it is told of.
+    var postAccessibilityNotification: @MainActor (UIAccessibility.Notification, Any?) -> Void = {
+        UIAccessibility.post(notification: $0, argument: $1)
+    }
     #endif
 
     var wheelTurner = ReaderWheelPageTurner()

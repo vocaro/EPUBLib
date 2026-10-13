@@ -671,6 +671,22 @@ as they did.
   or from below, and the rule above that keeps a line listed through such a move is left
   for a bar the reader has not replaced. The element does not reach under the insets, so a
   touch on the bar's place there finds nothing, where it found the bar.
+  Adjusting the element moves the view under VoiceOver's cursor. UIKit's bar takes the view
+  a tenth of the way through the book at each swipe, at once, and tells VoiceOver only to
+  draw its cursor again. VoiceOver holds the two lines it was given before the element when
+  its cursor came there, and after the swipe those are screens away, listed no longer, and
+  their elements are gone. Its own log in a simulator has what it then did. At its next move
+  back it found the nearer of the two gone, asked again from the element and went to the
+  last line on screen. To hold two items again it asked for one more from the further line,
+  an element UIKit no longer knew, was given nothing, and noted that as the start of the
+  list. Two lines up it met that mark, made the sound it makes at a screen's first item and
+  stayed where it was at every further move back. Kept alive and unlisted, the two lines
+  took it back to where the view had been and then to the control before the text. So
+  after an adjustment the element posts a layout change that names itself. VoiceOver then
+  drops everything it holds and asks again for the two items each side of the element,
+  where its cursor stays, and it says nothing more than the bar's new value. A layout change
+  that names nothing did the same in the simulator, and so did a screen change, with
+  VoiceOver's sound for a new screen.
   A touch on the bar reached UIKit's bar, a view, before any line. The element is one among
   the lines the touch is tried against, and VoiceOver took a line that ended within a few
   points of the finger for the one touched: a paragraph's full lines run under the bar's
