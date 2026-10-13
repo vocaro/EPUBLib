@@ -203,6 +203,20 @@ view that lists its lines to being hidden from assistive technology. That VoiceO
 such a view offers before the lines of a page column is known only from
 [speech sessions](voiceover-testing.md); no in-process query shows it.
 
+Heading tests cover which characters the builder marks as a heading and at what level: `h1`
+to `h6`, `role="heading"` with and without `aria-level`, a role that takes a heading away, a
+heading run in with its paragraph, hidden headings and hidden words inside a shown one. They
+hold the mark to changing nothing else: one chapter is built with its headings marked and
+again with each told to be presentation only, and the two must have the same characters, text
+map, anchors and other attributes, and the same lines in the same places on every page at two
+sizes. View tests read what each platform gives an assistive technology. On UIKit: one element
+for a heading over all its lines, with its trait and level, the part of it a page shows, the
+one element it keeps in continuous scroll with its first line above the screen, and the
+Headings rotor moving through a page and on through the book in both flows. On AppKit: the
+level in a column's rich text, and the rotor's headings asked for as VoiceOver was seen to
+ask. None of them drives VoiceOver; the [VoiceOver testing process](voiceover-testing.md) has
+what it said.
+
 Highlight paint tests read the pixels the mounted reader's views last drew: none in the
 highlight's color before a search, the matches after it, and none again after Clear Search,
 with no reflow between. They cover both flows, one- and two-column spreads, dark appearance,
