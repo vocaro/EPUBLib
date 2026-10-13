@@ -1446,16 +1446,15 @@ The Mac runner's transcript is plain text and needs no export.
   twice.
   Not established. Why the actions reach no element: `ReaderCanvasView`, the view the surface
   wraps, is not an accessibility element on Mac, and where SwiftUI puts a named action of such a
-  view was not found. A unit-test host does not show it, so no test holds any of this: a walk of
-  the window's accessibility elements from its content view found nothing under the hosting view
-  there, not even the columns, and the hosting view, the view SwiftUI hosts the canvas in and
-  the canvas had no custom action. What VoiceOver's own scroll commands do with the scroll
-  area's four actions, and whether it has anything to scroll in pages, where no element has a
-  scroll action. Why the group's menu does not open with the controls embedded. Whether
-  VoiceOver ignores its Command-F5 under an open Actions menu as under a rotor: the runner
-  closes one first, and in the one session left under a menu it wrote `STEP listclose, sent by
-  the runner in case the Actions menu is still open`, VoiceOver said "Closing Actions menu" and
-  switched off.
+  view was not found. A unit-test host does not show it, so no test holds any of this: there the
+  hosting view reports no accessibility children, not even the columns, in either flow, and
+  neither it, the view SwiftUI hosts the canvas in nor the canvas has a custom action. What
+  VoiceOver's own scroll commands do with the scroll area's four actions, and whether it has
+  anything to scroll in pages, where no element has a scroll action. Why the group's menu does
+  not open with the controls embedded. Whether VoiceOver ignores its Command-F5 under an open
+  Actions menu as under a rotor: the runner closes one first, and in the one session left under
+  a menu it wrote `STEP listclose, sent by the runner in case the Actions menu is still open`,
+  VoiceOver said "Closing Actions menu" and switched off.
 - On 2026-10-12 the section with a hidden heading over a table, with its second table, was
   read at 17 points before and after a table's rows became single items: at `2053be8` and at
   `1e3e5c3`, in the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and
