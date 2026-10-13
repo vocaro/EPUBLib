@@ -156,8 +156,17 @@ new phrase is recorded:
   cursor and name it.
 - `describe`: Control-Option-F3 once, what is in the VoiceOver cursor. `attributes`:
   Control-Option-T, the text attributes there.
-- `actions`: Control-Option-Command-Space, the menu of the item's actions. The `list` keys
-  of `rotor` move in it and close it.
+- `actions`: Control-Option-Command-Space, VoiceOver's Actions menu, which holds the actions
+  of the item under its cursor. VoiceOver says "Actions menu" and how many items it has.
+  `listdown` and `listup` say each one, `listchoose` performs the one last said, and
+  `listclose` closes the menu, at which VoiceOver says "Closing Actions menu".
+  `"listchoose=show menu"` sends Return only if one of VoiceOver's last two phrases contains
+  the label, as `activate=LABEL` does. On a group the menu held the actions of what the
+  group holds, one after another, and on the sample's group with its controls embedded
+  VoiceOver said nothing and opened no menu: the list keys after it went to the reader, where
+  Down Arrow moves the insertion point. The runner closes a menu a session can have left
+  open as it does a rotor, with `STEP listclose, sent by the runner in case the Actions menu
+  is still open`.
 - `pagedown`, `pageup`: the reader's own page keys, without VoiceOver modifiers.
 - `ax:STEP`: a step of the observer described below, through the accessibility API.
 
@@ -211,7 +220,9 @@ selection and the numbered-word span of its value:
 
 - `next`, `previous`: press the page buttons, found by label or help rather than index.
 - `press=LABEL`: press any other button by its label, as in `"ax:press=Use Toolbar"`, which
-  moves the sample's controls from the reader's group to the window's toolbar.
+  moves the sample's controls from the reader's group to the window's toolbar, or a segment
+  of Reading Mode: `"ax:press=Continuous Scroll"` and `ax:press=Paging` change the flow
+  while the reader is open.
 - `larger`, `smaller`: choose the Appearance menu's text-size items.
 - `width=POINTS`: resize the window.
 - `focus`, `focus=COLUMN`, `focus=search`: give the last column, a numbered column or the
@@ -222,6 +233,15 @@ selection and the numbered-word span of its value:
   `LINK` line is a run of the text's accessibility string with the element given as its
   link, the element given as its attachment, or both: each one's role, what it is called,
   and its actions.
+- `actions`: print each column, everything that holds it up to the window, and any other
+  element with a named action, as an `ELEMENT` line: its number in the order an assistive
+  client meets it, its depth under the window, its role, what it is called and its actions,
+  one an application names itself in quotation marks. VoiceOver's Actions menu holds the
+  actions of the item under its cursor, so the lines show where the cursor would have to be
+  for a named action to be offered. `actions=all` prints every element of the window.
+- `action=NAME`: perform a named action on the first of those elements that has it, without
+  VoiceOver, as in `"ax:action=Next Page"`. It prints `MISSING` when no element has one of
+  that name.
 - `caret=WORDS`: put the insertion point before the first of these words, as in
   `"ax:caret=Bare jump"`. VoiceOver enters a text at its insertion point, so `in` then starts
   on that line and `right` reads the word.
@@ -1429,55 +1449,6 @@ The Mac runner's transcript is plain text and needs no export.
   Not heard: a physical device; VoiceOver reading on by itself across a rule; a rule in a
   note's popover or in a table cell; a rule that is all a link holds; and what Safari or
   Books says at an `<hr>` on an iPhone, which was not compared.
-- On 2026-10-12 the section with a hidden heading over a table, with its second table, was
-  read at 17 points before and after a table's rows became single items: at `2053be8` and at
-  `1e3e5c3`, in the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and
-  an iPad Air 13-inch (M4)), in pages and in continuous scroll. Before, in pages, sixteen
-  moves forward from Bookmark gave the eight cells of both tables, each an item ("First
-  cell" to "Eighth cell link Double tap to activate embedded link"), then "Parked table
-  heading", "First cell Second cell Image", "Third cell Fourth cell Image", "Shown words
-  after the table.", two lines, "Fifth cell Sixth cell Image" and "Seventh cell Eighth cell
-  link Image"; moving back from "Parked table heading" gave "First cell" and then Bookmark.
-  In continuous scroll the rows came where they stand, each as an image, and no cell before
-  them; but a touch on a cell put the cursor on the cell, and on the iPhone, where reading on
-  had scrolled the view, moving back left the text at "Line 02 after the table." by way of
-  the second table's four cells. In both flows the rotor offered Select Table Text for every
-  cell on screen on any line, in pages after Next Page and Previous Page. After, in both
-  flows on both simulators: "Parked table heading", "First cell Second cell", "Third cell
-  Fourth cell", "Shown words after the table.", "Line 01 after the table.", "Line 02 after
-  the table.", "Fifth cell Sixth cell", "Seventh cell Eighth cell link", "Line 03 after the
-  table." and on, with no cell by itself and no "Image", and the same items in reverse on
-  the way back, to Bookmark in pages and to the last line of the section before in
-  continuous scroll. A touch on the last row put the cursor on the row. There the rotor offered
-  Select Table Text: Seventh cell, Select Table Text: Eighth cell link and Follow Table
-  Link: Eighth cell link, after Next Page and Previous Page in pages, and on "Line 03 after
-  the table." none of the three. Two things are not this change's. In continuous scroll on
-  the iPhone, moving back left the text at "Line 02 after the table." for Bookmark in one
-  session of two at `1e3e5c3`, as it had at `2053be8`; a session at `1e0eb8c`, seven commits
-  of main earlier, and every iPad session read back to the heading. And in continuous scroll
-  the rotor offered on every line, before and after, "Verification link", "￼" and "Inspect
-  Image"; the first is a link in the book's first section.
-- The same day a physical iPad Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366) read the section
-  at `1e3e5c3` in both flows as the simulators had, forward and back, and VoiceOver followed
-  the link in the cell: with Follow Table Link: Eighth cell link chosen in the rotor, the
-  fifth action in pages and the third in continuous scroll, a double tap on the row changed
-  the screen and a touch then found "Link target reached". VoiceOver was off afterward. The
-  physical iPhone 17 Pro Max (iOS 27.2, 440 × 956) gave no result at first: one run ended in
-  "Timed out while enabling automation mode", and a second lost its authorization for UI
-  testing after eighteen seconds, with another app's control under VoiceOver's cursor, and
-  left VoiceOver on. Later, with the phone free, it read the section at `edb13b1`, which has
-  the changes to images, rules and headings merged in, as the iPad had. In pages: "Parked
-  table heading" as a heading, the rows where they stand, on to "Line 06 after the table."
-  at the foot of the page, and back to Bookmark. In continuous scroll: on to "Line 10 after
-  the table." and back past the heading to the last line of the section before. In both
-  flows a double tap with Follow Table Link: Eighth cell link chosen opened "Link target
-  reached". A notification from another app took the place of one phrase in two sessions, a
-  move forward in pages and a step of the rotor in continuous scroll. xcodebuild took nearly
-  five minutes to start a session on the phone while the Mac was busy, so a deadline of five
-  minutes stopped the first continuous scroll session part way through the rotor and left
-  VoiceOver on; the rotor steps were run again alone. Each time VoiceOver was left on it was
-  switched off with `devicectl device settings voiceover --disable` and read back as off.
-  Nobody listened to any of these sessions.
 - On 2026-10-12 the [simulator lane](#simulators) read what VoiceOver offers on a line,
   before and after a line was left with its own actions alone: an iPhone 17 Pro simulator
   (iOS 27.0, Xcode 27.0, 402 × 874) at the launch text size, a touch or a move to the line
@@ -1773,6 +1744,57 @@ The Mac runner's transcript is plain text and needs no export.
   and Change Pitch leave nothing in a transcript; a link in a table cell or a note's
   popover; a link that wraps onto a second line or crosses a page's end, which the unit
   tests read; and a link below the screen in continuous scroll.
+- On 2026-10-13 the reader's named actions were looked for on a Mac. `NativeSurface` names Next
+  Page and Previous Page with SwiftUI's `accessibilityAction(named:)` in both flows, and in
+  continuous scroll, which has no pages, the sample's buttons for the same commands are Scroll
+  Forward and Scroll Backward. VoiceOver was offered neither action anywhere, in pages or in
+  continuous scroll, so nothing is heard under a wrong name and the reader was left as it is.
+  [Hosted sessions](#hosted-mac-sessions) on `xcode-27` (image 20261006.0244.1, macOS 27.0.1
+  `26A434`, Xcode 27.0), main's reader at `531a534`, at a fixed pause of four seconds, with
+  VoiceOver brought to the column by `ax:focus=search ax:focus=0`: runs 38351606579, 38353526126
+  and 38354465519, seventeen sessions. Nobody listened.
+  What an assistive client is given, from `ax:actions`. In pages: the window, under it `AXGroup
+  AXHostingView` with `ACTIONS none`, and under that one `AXTextArea` for each column with
+  `ACTIONS AXShowMenu`. In continuous scroll an `AXScrollArea` with AppKit's
+  `AXScrollLeftByPage`, `AXScrollRightByPage`, `AXScrollUpByPage` and `AXScrollDownByPage`
+  stands between the group and the one text area. It was the same in one column and in two, at
+  17 points and at 23, on a later page, two scroll steps into the book of paragraphs, and after
+  `"ax:press=Continuous Scroll"` and `ax:press=Paging` with the reader open. `ax:actions=all`
+  found a named action on no element of the window while the sample's controls were embedded,
+  and with them in the toolbar only the toolbar's own "Move previous", "Move next" and "Remove
+  from toolbar". `"ax:action=Next Page"` printed `MISSING action=Next Page` in both flows, where
+  `"ax:action=Move next"` printed `ACTION Move next ON AXButton LABEL "Search" STATUS 0` and the
+  toolbar's order changed.
+  What VoiceOver said. On the column (Control-Option-F3: "text is in the VoiceOver cursor Line
+  1") `actions` gave "Actions menu 1 item" and `listdown` "show menu"; three more `listdown`
+  gave nothing, and `listclose` "Closing Actions menu". Inside the text, after `in` ("In text
+  Page boundary verifica"), the same two phrases; on the right column of two and on its first
+  line on the second spread ("word0324 word0325 word0326 word0327 word0328") the same; in
+  continuous scroll on the text area, inside it, and on the line "p006w29 p006w30 p006w31
+  p006w32 p006w33 p006w34 p006w35" of the book of paragraphs the same. `"listchoose=show menu"`
+  opened the text's contextual menu: "show menu text Page boundary verification", "menu (11
+  items)", and under two `listdown` "Look Up “wor”" and "Translate “wor”".
+  On the group that holds the columns, which `out` reaches in pages ("Out of group", and
+  Control-Option-F3 "Open EPUB… button Open Sample button Close button Use Toolbar bu"),
+  `actions` was followed by no phrase, three times in two sessions, and no menu opened: in the
+  first session the `listdown` keys after it moved the column's insertion point, and VoiceOver
+  read from there ("tion", "Read the numbered words across two consecutive"). With the sample's
+  controls in the toolbar the same group said "Actions menu 10 items": "cancel" and "press" four
+  times, "show menu" and "cancel", which are the actions of the six elements the group then
+  holds, in their order: four buttons, the column and a static text. In continuous scroll `out`
+  left the cursor on the text area ("You are currently on a text area."), sent once and sent
+  twice.
+  Not established. Why the actions reach no element: `ReaderCanvasView`, the view the surface
+  wraps, is not an accessibility element on Mac, and where SwiftUI puts a named action of such a
+  view was not found. A unit-test host does not show it, so no test holds any of this: there the
+  hosting view reports no accessibility children, not even the columns, in either flow, and
+  neither it, the view SwiftUI hosts the canvas in nor the canvas has a custom action. What
+  VoiceOver's own scroll commands do with the scroll area's four actions, and whether it has
+  anything to scroll in pages, where no element has a scroll action. Why the group's menu does
+  not open with the controls embedded. Whether VoiceOver ignores its Command-F5 under an open
+  Actions menu as under a rotor: the runner closes one first, and in the one session left under
+  a menu it wrote `STEP listclose, sent by the runner in case the Actions menu is still open`,
+  VoiceOver said "Closing Actions menu" and switched off.
 - On 2026-10-12 the section with a hidden heading over a table, with its second table, was
   read at 17 points before and after a table's rows became single items: at `2053be8` and at
   `1e3e5c3`, in the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and

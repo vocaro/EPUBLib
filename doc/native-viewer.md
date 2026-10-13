@@ -292,8 +292,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   characters, "￼" for a link that holds only a picture or a hidden label, six in the
   verification book and none for a picture that is not a link; and a page column none, on a
   page that shows a link. VoiceOver ends the list of an item's actions with "Activate
-  Default" and starts again. What VoiceOver on Mac does with the surface's two actions was
-  not examined.
+  Default" and starts again. On Mac VoiceOver is offered neither of the surface's two
+  actions ("Input and accessibility").
 - **Tables.** Attachments drawn natively (TextKit 2 has no `NSTextTable` on iOS), one
   image-drawn attachment per row so pages can break between any two rows; rows a rowspan
   joins, and the header, keep with the next row and share a page when they fit. `colspan`/
@@ -891,6 +891,22 @@ The following are the defaults. Host commands and accessibility actions stay ena
   name ("Alternative text" under Decisions). At a rule VoiceOver says "Separator", from a
   stop of its own on iPhone and iPad and from an element in the text on Mac ("Rules" under
   Decisions).
+- VoiceOver on Mac is offered neither named action, in pages or in continuous scroll
+  (macOS 27.0.1), so the names Next Page and Previous Page, wrong for a flow without pages,
+  are heard nowhere there. The window gives an assistive client the hosting view's group
+  and, under it, each column's text area, or in continuous scroll a scroll area that holds
+  the one text area. `ReaderCanvasView`, the view the surface wraps, is not an accessibility
+  element and is not among them. None of them has a named action: the group has no action
+  at all, a text area has AppKit's Show Menu, and the scroll area AppKit's four scrolls by
+  page, which are the only scroll actions in either flow. VoiceOver's Actions menu
+  (Control-Option-Command-Space) says "Actions menu 1 item" and "show menu" on a column and
+  inside its text. On the group it does not open, or lists what the group's other items
+  offer. A listener on Mac turns the page with the host's controls, which
+  `EPUBReaderControls` calls Scroll Forward and Scroll Backward in continuous scroll, or
+  with the reader's keys, which work while VoiceOver interacts with the text. Under
+  `EPUBPageControls.hostOnly`, which takes the keys away, the host's controls are the only
+  way. [VoiceOver testing](voiceover-testing.md#harness-pitfalls-and-current-results) has
+  the sessions.
 - Headings: `h1` to `h6`, and any element with `role="heading"`, are headings to VoiceOver,
   at the element's level or its `aria-level` from 1 to 6. `role="heading"` alone is level 2,
   an `aria-level` past 6 leaves a heading with no level, and a heading element whose role is
