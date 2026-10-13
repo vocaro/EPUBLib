@@ -616,6 +616,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       holds. The cell also holds a link, with the role of the reader's
       links in text, and the link holds the cell's text areas, as a web view's cell holds
       a link around its words. That is what makes VoiceOver say that the cell is a link.
+      The link is called by the cell's words too, which VoiceOver says once (A header
+      cell that is a link, below).
       It says "Opened Reopened 1978 hyperlink" across the row and "Cedar Reopened 1978
       hyperlink" down the column, in pages and in continuous scroll, where it said "Opened
       Reopened 1978" and nothing of a link until the Actions menu was opened. Its hint
@@ -646,16 +648,43 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
         third item under Follow Link, VoiceOver's "press"; it was not chosen there.
       - **Which cells.** A cell with words beside its link, or with several links, has no
         press and holds its text areas as before: which link a press would mean is not
-        the cell's to say, and each is an action by its words. A header cell that is one
-        link has the press and holds its text areas itself. VoiceOver reads what a
-        header cell holds before each cell under it, and what it would say of a link
-        there was not heard. In a note's popover a link does nothing, and a cell there
-        has no press.
+        the cell's to say, and each is an action by its words. In a note's popover a
+        link does nothing, and a cell there has no press.
+      - **A header cell that is a link.** A header cell whose words are one link, as
+        where each row is headed by a link to its subject, is such a cell: it has the
+        press and holds a link with its text area inside. VoiceOver says "Elm hyperlink
+        column 1, row 3" down a column of them, "Built hyperlink column 2, row 1" along
+        a header row and "Route Dogwood hyperlink" along its own row, where it said "Elm
+        column 1, row 3", "Built column 2, row 1" and "Route Dogwood" while a header
+        cell held its text area itself, and nothing of a link. It is still what heads
+        its row or its column, the cell itself, which VoiceOver does not read under
+        itself, and the cells it heads are read as they were: "Dogwood 1912", "Built
+        Relaid 1960 hyperlink", "Built" at Control-Option-C and "Dogwood" at
+        Control-Option-R. That took a title on the link. VoiceOver reads a header cell,
+        before each cell it heads, by what each thing the cell holds is called, and
+        looks no further in: a text area by its value, a link by its title. With the
+        link that other cells then held, which had its text area inside and no title
+        while that was on screen, a header cell left the cells it heads without their
+        headers: "1912" for "Dogwood 1912", and "column 2 of 3" and "row 2 of 4" at
+        Control-Option-C and Control-Option-R. So the link of every such cell has the
+        cell's words for its title, on screen and off it. VoiceOver says them once as
+        it comes to the cell, title and text area both being there, and going in says
+        "In hyperlink Elm text Elm", the form it had for a link without the title. Five
+        other ways were heard and not kept
+        ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-13 on a header
+        cell that is a link). The header given by its words, as the static text that
+        stands for a header off screen, or as the cell's own text area, read the cells
+        it heads and said a header cell's name before the cell itself, "Elm Elm
+        hyperlink" and "Built Built hyperlink": what heads the row was then no longer
+        the cell. The header given as the cell's link said nothing of it. A value on
+        the cell was read at Control-Option-R and not on coming to a cell it heads or
+        at Control-Option-C. A label on the link read as the title does.
       - **Off screen.** A cell's press follows its link from the text area that shows
         it. A cell far off the screen in continuous scroll has none until VoiceOver's
         cursor brings it there, and its press does nothing till then. Its link holds
-        nothing and has the cell's words for its title, the shape that said "Reopened
-        1978 hyperlink" in the trial; a link cell off screen was not itself heard.
+        nothing till then and is called by the cell's words as it is on screen; a link
+        cell off screen was not itself heard. A header cell that is a link heads its
+        column or its row by name while it is off screen, as any header cell does.
       - **After the link is followed.** In pages VoiceOver read the new page and was on
         its text area, a Control-Option-Shift-Down from its first line, in each of four
         sessions that pressed a cell without having gone into its words, two of them on
@@ -683,8 +712,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       two or three seconds a key and ten at four. Whether to tell Apple is
       [#483](https://github.com/vocaro/EPUBLib/issues/483).
       What heads a column or a row is its one header cell, where that cell is on screen
-      with its text areas: VoiceOver reads a header cell by what it holds, and does not
-      read a cell under itself. Otherwise it is a static text with the words of its header
+      with its text areas: VoiceOver reads a header cell by what the things it holds are
+      called, a text area by its value and a link by its title, and does not read a cell
+      under itself. Otherwise it is a static text with the words of its header
       cells, top or first one first: for a column under several header cells ("Hours,
       Leaves Nine"), a header on another page, and one far off the screen in continuous
       scroll ("Item Item 38", thirty-eight rows down). VoiceOver said nothing of a header
@@ -1681,11 +1711,42 @@ The following are the defaults. Host commands and accessibility actions stay ena
   done (iOS 27.0 simulator). A reader of a table needs the row a page begins at more than
   the rotor's place: on each later page of a table longer than a page, Next Page still
   takes its flick down.
-  Three cursors are left alone.
+  Three cursors are left where they are, and two of them are told of the page.
   One that is not in the text stays where it is: after the host's Next Page button
-  VoiceOver is still on the button, and moving into the text from there met the new page's
-  first line before this and does now. One whose line is still on the page keeps it, as
-  when the same page is shown again. And a move by heading that turns the page posts
+  VoiceOver is still on the button. One whose line is still on the page keeps it, as when
+  the same page is shown again: the host changes the appearance, or the text is built
+  again. What VoiceOver holds is not left to it in either. It keeps the items it was given
+  each side of its cursor, two as a rule and as many as fifty at a move it makes while
+  holding nothing, as after a menu closes ("Continuous scroll" above), and nothing told it
+  that a page had been shown under them by something it did not do, a key on a keyboard
+  or the host's own command. A page shown again has new items for its lines, so what
+  VoiceOver holds is gone then as it is after a turn. An item it held and had not been on
+  it tried as it came to it, found gone, and asked again. An item its cursor had been on
+  it took without asking and read from what it had kept of it, and at the move after
+  that it found the item gone and set its cursor on the item it had last touched (iOS
+  27.0 simulator). Back on the last control before the text after reading into a page
+  that was then turned, or on the page button with the whole page held after a menu, its
+  move into the text read the first line of the page before, and its next put it back
+  on the control: the page shown was reached the second time round. On a line of a page
+  that was then shown again, one move back and one forward took it out of the text, to
+  the control it had touched before it began to read.
+  So when a page is shown and no cursor has left it, the canvas posts a layout change with
+  no element (`ReaderCanvasView.accessibilityPageWasShown`), as it does after a move of
+  its own in continuous scroll. VoiceOver drops everything it holds 0.8 s later, by its own
+  log, says nothing and stays where it is, and its moves from there are through the items
+  of the page shown. On a line of a page shown again it sets its cursor on that line's new
+  item as it does so, and its rotor is at its default there: an action chosen before the
+  page was shown again takes one flick down to choose again. Having the item it holds
+  stand for the line, as it does across a turn, would keep the rotor and is not done. A
+  second such change right beside the one that sends the cursor,
+  before it or after it, as a page shown again for a new size just before a turn would
+  post, left what VoiceOver read and its rotor as they were in nine sessions of ten, and
+  in the tenth the line was read some seconds late. On a device VoiceOver asks again by
+  itself once it has activated an item, as an iPad did after its double tap on Scroll
+  Forward ("Continuous scroll" above), so this is for what it did not do itself; no
+  device has run it
+  ([VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current results"). And
+  a move by heading that turns the page posts
   nothing, since VoiceOver goes to the item the rotor gives it. VoiceOver's scroll, three
   fingers swiped, announces "Page N" as before, and the cursor is sent after the
   announcement. Posted in that order after a page turned under a simulator's cursor,
