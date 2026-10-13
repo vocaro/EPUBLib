@@ -29,8 +29,10 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 
     init(view: ReaderTextView) { self.view = view }
 
-    /// The view has other text: its tables are other tables.
+    /// The view has other text: its tables are other tables, and one a client still holds
+    /// from the text before has nothing to say of this one.
     func reset() {
+        for table in tables.values { table.detach() }
         tables.removeAll()
         found = nil
     }
@@ -106,6 +108,13 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
         setAccessibilityColumnCount(table.columnCount)
         setAccessibilityChildren([])
         columns = (0..<table.columnCount).map { ReaderTableColumnElement(table: self, column: $0) }
+    }
+
+    /// The view shows other text than the table was given in: the table has nothing in it.
+    func detach() {
+        view = nil
+        listedRows = nil
+        pageKey = nil
     }
 
     // MARK: What the view shows of the table
@@ -245,7 +254,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilitySelectedRows() -> [Any]? { onMain(self) { $0.entryRow.map { [$0] } ?? [] } }
     override func accessibilityColumns() -> [Any]? { onMain(self) { $0.columns } }
     override func accessibilityVisibleColumns() -> [Any]? { onMain(self) { $0.columns } }
-    override func accessibilityVisibleCells() -> [Any]? { onMain(self) { table in table.visibleRows.flatMap { table.cells(of: $0) } } }
+    override func accessibilityVisibleCells() -> [Any]? { onMain(self) { $0.visibleCells } }
     override func accessibilityChildren() -> [Any]? { onMain(self) { $0.rowElements + $0.columns } }
     override func accessibilityRowCount() -> Int { onMain(self) { $0.table.rows.count } }
     override func accessibilityColumnCount() -> Int { onMain(self) { $0.table.columnCount } }
@@ -275,6 +284,8 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
         return rows.filter { $0.location >= first && $0.location <= last }
             .filter { frame(ofRowAt: $0.location).map { !$0.intersection(visible).isEmpty } ?? false }
     }
+
+    private var visibleCells: [ReaderTableCellElement] { visibleRows.flatMap { cells(of: $0) } }
 
     /// The cells that head a column, in column order and top first in each.
     private var columnHeaders: [ReaderTableCellElement] {
@@ -308,7 +319,8 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 /// A row of a table of data, where it stands in the view: a whole row, or in pages the part of
 /// one a page shows.
 @MainActor final class ReaderTableRowElement: NSAccessibilityElement {
-    private unowned let table: ReaderTableElement
+    /// A client can keep the element after its table has gone, with the page it was on.
+    private weak var table: ReaderTableElement?
     let location: Int
     let row: TableRowAttachment
     /// The cells read in the row, and the layout they were listed in.
@@ -337,19 +349,20 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityParent() -> Any? { onMain(self) { $0.table } }
     /// The row's number in the whole table, which a page of it keeps.
     override func accessibilityIndex() -> Int { onMain(self) { $0.row.row } }
-    override func accessibilityChildren() -> [Any]? { onMain(self) { $0.table.cells(of: $0) } }
-    override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.table.cells(of: $0) } }
+    override func accessibilityChildren() -> [Any]? { onMain(self) { $0.table?.cells(of: $0) ?? [] } }
+    override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.table?.cells(of: $0) ?? [] } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
 
     private var screenFrame: NSRect {
-        guard let view = table.view, let frame = table.frame(ofRowAt: location) else { return .zero }
+        guard let table, let view = table.view, let frame = table.frame(ofRowAt: location) else { return .zero }
         return NSAccessibility.screenRect(fromView: view, rect: frame)
     }
 }
 
 /// A column of a table of data: the cells the view shows of it.
 @MainActor final class ReaderTableColumnElement: NSAccessibilityElement {
-    private unowned let table: ReaderTableElement
+    /// A client can keep the element after its table has gone, with the page it was on.
+    private weak var table: ReaderTableElement?
     let column: Int
 
     init(table: ReaderTableElement, column: Int) {
@@ -365,13 +378,13 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityRole() -> NSAccessibility.Role? { .column }
     override func accessibilityParent() -> Any? { onMain(self) { $0.table } }
     override func accessibilityIndex() -> Int { onMain(self) { $0.column } }
-    override func accessibilityChildren() -> [Any]? { onMain(self) { $0.table.cells(inColumn: $0.column) } }
+    override func accessibilityChildren() -> [Any]? { onMain(self) { $0.table?.cells(inColumn: $0.column) ?? [] } }
     override func accessibilityHeader() -> Any? { onMain(self) { $0.header } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
 
-    private var header: ReaderTableCellElement? { table.table.columnHeaders(column).first.flatMap { index in table.header(index) } }
+    private var header: ReaderTableCellElement? { table?.table.columnHeaders(column).first.flatMap { index in table?.header(index) } }
     private var screenFrame: NSRect {
-        let frame = table.cells(inColumn: column).map { $0.screenFrame }.reduce(NSRect.null) { $0.union($1) }
+        let frame = (table?.cells(inColumn: column) ?? []).map { $0.screenFrame }.reduce(NSRect.null) { $0.union($1) }
         return frame.isNull ? .zero : frame
     }
 }
@@ -380,7 +393,8 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 /// while they are on screen, so that VoiceOver can go into it and read by word, and is
 /// labelled with its words where it has none.
 @MainActor final class ReaderTableCellElement: NSAccessibilityElement {
-    private unowned let table: ReaderTableElement
+    /// A client can keep the element after its table has gone, with the page it was on.
+    private weak var table: ReaderTableElement?
     let cell: Int
     /// The row it is read in. None for a header cell on another page.
     weak var row: ReaderTableRowElement?
@@ -396,6 +410,9 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     init(table: ReaderTableElement, cell: Int) {
         self.table = table
         self.cell = cell
+        let model = table.table.cells[cell]
+        rows = NSRange(location: model.row, length: model.rowSpan)
+        columns = NSRange(location: model.column, length: model.columnSpan)
         super.init()
         setAccessibilityRole(.cell)
         setAccessibilityRowIndexRange(rows)
@@ -405,15 +422,15 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
         setAccessibilityChildren([])
     }
 
-    /// The rows the cell covers, counted in the whole table.
-    var rows: NSRange { NSRange(location: table.table.cells[cell].row, length: table.table.cells[cell].rowSpan) }
-    var columns: NSRange { NSRange(location: table.table.cells[cell].column, length: table.table.cells[cell].columnSpan) }
+    /// The rows and the columns the cell covers, counted in the whole table.
+    let rows: NSRange
+    let columns: NSRange
 
     /// The text views that hold the cell's words here, where they are on screen. Every table
     /// that stands at a row of this one holds the same views: a view answers to the cell
     /// that asked for it last, which is the cell of the table VoiceOver is in.
     private var textViews: [TableCellTextView] {
-        guard let interaction = table.view?.tableInteraction else { return [] }
+        guard let interaction = table?.view?.tableInteraction else { return [] }
         let views = locations.flatMap { interaction.accessibilityCells(at: $0, cell: cell) }
         for view in views { view.tableCellElement = self }
         return views
@@ -423,8 +440,8 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityParent() -> Any? { onMain(self) { $0.row ?? $0.table } }
     override func accessibilityRowIndexRange() -> NSRange { onMain(self) { $0.rows } }
     override func accessibilityColumnIndexRange() -> NSRange { onMain(self) { $0.columns } }
-    override func accessibilityColumnHeaderUIElements() -> [Any]? { onMain(self) { $0.table.headers(of: $0.cell).columns } }
-    override func accessibilityRowHeaderUIElements() -> [Any]? { onMain(self) { $0.table.headers(of: $0.cell).rows } }
+    override func accessibilityColumnHeaderUIElements() -> [Any]? { onMain(self) { $0.table?.headers(of: $0.cell).columns ?? [] } }
+    override func accessibilityRowHeaderUIElements() -> [Any]? { onMain(self) { $0.table?.headers(of: $0.cell).rows ?? [] } }
     override func accessibilityChildren() -> [Any]? { onMain(self) { $0.textViews } }
     override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.textViews } }
     override func accessibilityLabel() -> String? { onMain(self) { $0.label } }
@@ -437,7 +454,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 
     /// What the cell can do itself: show each picture, select its words, follow each link.
     private var actions: [NSAccessibilityCustomAction]? {
-        guard let view = table.view else { return nil }
+        guard let view = table?.view else { return nil }
         var actions = images.map { image in
             NSAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") { [weak view] in
                 guard let canvas = view?.canvas else { return false }
@@ -458,7 +475,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     }
 
     var screenFrame: NSRect {
-        guard let view = table.view, let location = locations.first, let rowFrame = table.frame(ofRowAt: location) else { return .zero }
+        guard let table, let view = table.view, let location = locations.first, let rowFrame = table.frame(ofRowAt: location) else { return .zero }
         let frame = frameInRow.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY)
         return NSAccessibility.screenRect(fromView: view, rect: view.isPageColumn ? frame.intersection(view.bounds) : frame)
     }

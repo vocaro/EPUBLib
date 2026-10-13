@@ -180,9 +180,10 @@ func said(_ element: AXUIElement) -> String {
     return (attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []).map(said).filter { !$0.isEmpty }.joined(separator: " ")
 }
 func elementList(_ element: AXUIElement, _ name: String) -> [AXUIElement] { attribute(element, name) as? [AXUIElement] ?? [] }
-/// Each table a column's text gives for a row's character, as a client of the accessibility
-/// API is given it: its attributes, its rows, and each cell with the rows and columns it
-/// covers, what it holds and the cells that head it.
+/// Each table a column's text gives at a row's character, as a client of the accessibility
+/// API is given it: what it is called, its counts, the row it says is selected and its header
+/// cells. The first table of a column is given whole: its attributes, its rows, and each cell
+/// with the rows and columns it covers, what it holds and the cells that head it.
 func tables() {
     for (index, text) in columns().enumerated() {
         var seen: [AXUIElement] = []
@@ -193,19 +194,25 @@ func tables() {
             var table: AXUIElement? = role == kAXTableRole ? attachment : nil
             if table == nil, let parent = attribute(attachment, kAXParentAttribute), CFGetTypeID(parent) == AXUIElementGetTypeID(),
                string(parent as! AXUIElement, kAXRoleAttribute) == kAXTableRole { table = (parent as! AXUIElement) }
-            log("TABLE \(index) AT \(run.range.location) ATTACHMENT \(role) INDEX \(attribute(attachment, kAXIndexAttribute) as? Int ?? -1) OF TABLE \(table == nil ? "none" : "found")")
-            guard let table, !seen.contains(where: { CFEqual($0, table) }) else { continue }
+            guard let table, !seen.contains(where: { CFEqual($0, table) }) else {
+                log("TABLE \(index) AT \(run.range.location) ATTACHMENT \(role) INDEX \(attribute(attachment, kAXIndexAttribute) as? Int ?? -1) OF TABLE \(table == nil ? "none" : "above")")
+                continue
+            }
             seen.append(table)
-            let number = "\(index).\(seen.count - 1)"
-            var names: CFArray?
-            AXUIElementCopyAttributeNames(table, &names)
-            log("TABLE \(number) NAMES \((names as? [String] ?? []).sorted().joined(separator: ","))")
+            let number = "\(index).\(String(format: "%02d", seen.count - 1))"
             func words(_ name: String) -> String { elementList(table, name).map { "\"\(said($0))\"" }.joined(separator: ",") }
             let rows = elementList(table, kAXRowsAttribute)
-            log("TABLE \(number) ROWS \(rows.count) VISIBLE \(elementList(table, kAXVisibleRowsAttribute).count) COLUMNS \(elementList(table, kAXColumnsAttribute).count)"
+            let selected = elementList(table, kAXSelectedRowsAttribute).map { "\(attribute($0, kAXIndexAttribute) as? Int ?? -1)" }.joined(separator: ",")
+            log("TABLE \(number) AT \(run.range.location) ATTACHMENT \(role) LABEL \"\(string(table, kAXDescriptionAttribute).prefix(60))\""
+                + " ROWS \(rows.count) VISIBLE \(elementList(table, kAXVisibleRowsAttribute).count) SELECTED \(selected.isEmpty ? "none" : selected)"
+                + " COLUMNS \(elementList(table, kAXColumnsAttribute).count)"
                 + " COUNT \(attribute(table, "AXRowCount") as? Int ?? -1)x\(attribute(table, "AXColumnCount") as? Int ?? -1)"
                 + " COLUMNHEADERS \(words(kAXColumnHeaderUIElementsAttribute)) ROWHEADERS \(words("AXRowHeaderUIElements"))"
                 + " PARENT \((attribute(table, kAXParentAttribute)).map { string($0 as! AXUIElement, kAXRoleAttribute) } ?? "none")")
+            guard seen.count == 1 else { continue }
+            var names: CFArray?
+            AXUIElementCopyAttributeNames(table, &names)
+            log("TABLE \(number) NAMES \((names as? [String] ?? []).sorted().joined(separator: ","))")
             for (line, row) in rows.prefix(12).enumerated() {
                 let cells = elementList(row, kAXChildrenAttribute)
                 log("TABLEROW \(number).\(String(format: "%02d", line)) \(string(row, kAXRoleAttribute)) \(string(row, kAXSubroleAttribute)) INDEX \(attribute(row, kAXIndexAttribute) as? Int ?? -1) CELLS \(cells.count)")
