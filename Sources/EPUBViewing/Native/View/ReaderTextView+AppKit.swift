@@ -242,11 +242,12 @@ final class ReaderTextView: NSTextView {
         return result
     }
 
-    // Candidate A: AppKit's splitter role and nothing else.
+    // Candidate B: AppKit's splitter role with the subrole WebKit gives an hr.
     private func ruleElement(at range: NSRange) -> NSAccessibilityElement {
         let element = attachmentElements[range.location] ?? NSAccessibilityElement()
         attachmentElements[range.location] = element
         element.setAccessibilityRole(.splitter)
+        element.setAccessibilitySubrole(NSAccessibility.Subrole(rawValue: "AXContentSeparator"))
         element.setAccessibilityParent(self)
         let frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
         if !frame.isNull {
