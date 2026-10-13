@@ -554,14 +554,16 @@ import UIKit
     }
 
     /// The heading a link's own Headings rotor gives when asked from the link, as VoiceOver
-    /// asks with its cursor on one (macOS 27.0.1): the link's element, with `range`.
+    /// asks with its cursor on one (macOS 27.0.1): the link's element, with `range`. AppKit
+    /// hands the search whatever element the client names, and `NSAccessibilityElement` does
+    /// not declare the protocol an item's initializer takes, hence the cast.
     private func heading(from link: ReaderLinkAccessibilityElement, forward: Bool, range: NSRange = NSRange(location: 0, length: 0),
                          file: StaticString = #filePath, line: UInt = #line) throws -> (label: String, range: NSRange)? {
         let view = try XCTUnwrap(link.view, file: file, line: line)
         let rotor = try XCTUnwrap(link.accessibilityCustomRotors().first { $0.type == .heading }, "a link has a Headings rotor", file: file, line: line)
         XCTAssertTrue(view.accessibilityCustomRotors().contains { $0 === rotor }, "its text's own", file: file, line: line)
         let parameters = NSAccessibilityCustomRotor.SearchParameters()
-        let current = NSAccessibilityCustomRotor.ItemResult(targetElement: link)
+        let current = NSAccessibilityCustomRotor.ItemResult(targetElement: unsafeBitCast(link, to: (any NSAccessibilityElementProtocol).self))
         current.targetRange = range
         parameters.currentItem = current
         parameters.searchDirection = forward ? .next : .previous
