@@ -37,7 +37,7 @@ func shortValue(_ element: AXUIElement) -> String { describe(string(element, kAX
 let steps = Array(CommandLine.arguments.dropFirst(3))
 guard CommandLine.arguments.count >= 2,
       let pid = pid_t(CommandLine.arguments[1]), pid > 0 else {
-    fputs("Usage: voiceover-ax-observer PID [seconds] [next|previous|press=LABEL|larger|smaller|width=POINTS|focus[=COLUMN|=search]|lines|links|caret=WORDS|follow=WORDS|wait=SECONDS ...]\n"
+    fputs("Usage: voiceover-ax-observer PID [seconds] [next|previous|press=LABEL|larger|smaller|width=POINTS|focus[=COLUMN|=COLUMN.CELL|=search]|lines|links|caret=WORDS|follow=WORDS|wait=SECONDS ...]\n"
         + "A single step of - reads one step per line from standard input.\n", stderr)
     exit(1)
 }
@@ -71,8 +71,13 @@ func elements(_ role: String) -> [AXUIElement] {
     for window in (attribute(app, kAXWindowsAttribute) as? [AXUIElement] ?? []) { collect(window, depth: 0) }
     return result
 }
+/// Whether a text area is a table cell: a text view of its own inside a column's.
+func isCell(_ text: AXUIElement) -> Bool {
+    guard let parent = attribute(text, kAXParentAttribute), CFGetTypeID(parent) == AXUIElementGetTypeID() else { return false }
+    return string(parent as! AXUIElement, kAXRoleAttribute) == kAXTextAreaRole
+}
 /// The reading columns, left to right.
-func columns() -> [AXUIElement] { elements(kAXTextAreaRole).sorted { minX($0) < minX($1) } }
+func columns() -> [AXUIElement] { elements(kAXTextAreaRole).filter { !isCell($0) }.sorted { minX($0) < minX($1) } }
 func lines(_ text: AXUIElement) -> [(range: CFRange, text: String)] {
     var result: [(CFRange, String)] = []
     while result.count < 500, let line = range(parameterized(text, kAXRangeForLineParameterizedAttribute, result.count as CFNumber)) {
@@ -125,32 +130,50 @@ func embeddedRuns(_ text: AXUIElement) -> [(range: NSRange, words: String, link:
     }
     return result
 }
-/// The links and attachments of every column: the text's own children, then the runs of its
-/// accessibility string.
+/// The cells of a column's table rows on screen, in reading order. A row is one character of
+/// the column's text, whose attachment element holds a text area for each of its cells.
+func cells(_ column: AXUIElement) -> [AXUIElement] {
+    embeddedRuns(column).flatMap { run in
+        (run.attachment.flatMap { attribute($0, kAXChildrenAttribute) as? [AXUIElement] } ?? [])
+            .filter { string($0, kAXRoleAttribute) == kAXTextAreaRole }
+    }
+}
+/// Every column with its number, each followed by its cells, numbered within it.
+func texts() -> [(name: String, text: AXUIElement, isCell: Bool)] {
+    columns().enumerated().flatMap { index, column in
+        [("\(index)", column, false)] + cells(column).enumerated().map { ("\(index).\($0.offset)", $0.element, true) }
+    }
+}
+/// The links and attachments of every column and of every cell in it: the text's own children,
+/// then the runs of its accessibility string. A cell's lines begin with CELL.
 func links() {
-    for (index, text) in columns().enumerated() {
+    for (name, text, isCell) in texts() {
+        let kind = isCell ? "CELL " : ""
+        if isCell { log("CELL \(name) VALUE \"\(string(text, kAXValueAttribute).replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\u{FFFC}", with: "<attachment>").prefix(60))\"") }
         let children = attribute(text, kAXChildrenAttribute) as? [AXUIElement] ?? []
-        log("CHILDREN \(index) COUNT \(children.count)")
-        for (number, child) in children.prefix(40).enumerated() { log("CHILD \(index).\(number) \(embedded(child))") }
+        log("\(kind)CHILDREN \(name) COUNT \(children.count)")
+        for (number, child) in children.prefix(40).enumerated() { log("\(kind)CHILD \(name).\(number) \(embedded(child))") }
         let runs = embeddedRuns(text)
-        log("LINKS \(index) RUNS \(runs.count) OF \(runs.filter { $0.link != nil }.count) LINKS")
+        log("\(kind)LINKS \(name) RUNS \(runs.count) OF \(runs.filter { $0.link != nil }.count) LINKS")
         for run in runs.prefix(60) {
             let words = run.words.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\u{FFFC}", with: "<attachment>")
-            log("LINK \(index) RANGE \(run.range.location),\(run.range.length) TEXT \"\(words.prefix(60))\""
+            log("\(kind)LINK \(name) RANGE \(run.range.location),\(run.range.length) TEXT \"\(words.prefix(60))\""
                 + " LINK \(run.link.map(embedded) ?? "none") ATTACHMENT \(run.attachment.map(embedded) ?? "none")")
         }
     }
 }
-/// The first link or attachment element, of a column's children or its runs, that names `words`.
+/// The first link or attachment element, of a column's or a cell's children or runs, that
+/// names `words`.
 func embeddedElement(naming words: String) -> AXUIElement? {
     func names(_ element: AXUIElement) -> Bool {
         [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute].contains { (attribute(element, $0) as? String)?.contains(words) ?? false }
     }
-    for text in columns() {
-        if let child = (attribute(text, kAXChildrenAttribute) as? [AXUIElement] ?? []).first(where: names) { return child }
+    for (_, text, _) in texts() {
+        if let child = (attribute(text, kAXChildrenAttribute) as? [AXUIElement] ?? []).first(where: { string($0, kAXRoleAttribute) == "AXLink" && names($0) }) { return child }
         for run in embeddedRuns(text) {
-            if let link = run.link, names(link) || run.words.contains(words) { return link }
-            if let attachment = run.attachment, names(attachment) { return attachment }
+            // A link over a picture is the picture's link, whichever of the two has its words.
+            if let link = run.link, names(link) || run.words.contains(words) || run.attachment.map(names) ?? false { return link }
+            if let attachment = run.attachment, string(attachment, kAXRoleAttribute) != kAXGroupRole, names(attachment) { return attachment }
         }
     }
     return nil
@@ -228,6 +251,14 @@ func perform(_ step: String) {
     case "focus":
         // Keyboard focus without a click, which would move the insertion point VoiceOver enters at.
         // `focus=search` leaves the columns, as VoiceOver's own navigation to the page buttons does.
+        // `focus=0.2` is a cell, by the name `links` prints for it: the first column's third.
+        if parts.count > 1, parts[1].contains(".") {
+            guard let cell = texts().first(where: { $0.name == parts[1] })?.text else { log("MISSING \(step)"); break }
+            NSRunningApplication(processIdentifier: pid)?.activate()
+            log("FOCUS \(parts[1]) STATUS \(AXUIElementSetAttributeValue(cell, kAXFocusedAttribute as CFString, kCFBooleanTrue).rawValue)")
+            pause = 1
+            break
+        }
         let texts = parts.last == "search" ? elements(kAXTextFieldRole) : columns()
         let index = parts.count > 1 ? Int(parts[1]) ?? 0 : texts.count - 1
         guard texts.indices.contains(index) else { log("MISSING \(step)"); break }
@@ -240,11 +271,12 @@ func perform(_ step: String) {
         links()
         pause = 0
     case "caret":
-        // The insertion point before the first of these words: VoiceOver enters a text there.
+        // The insertion point before the first of these words, in a column or in a cell:
+        // VoiceOver enters a text there.
         let words = parts.dropFirst().joined(separator: "=")
-        guard let (index, text, offset) = columns().enumerated().lazy.compactMap({ index, text -> (Int, AXUIElement, Int)? in
+        guard let (index, text, offset) = texts().lazy.compactMap({ name, text, _ -> (String, AXUIElement, Int)? in
             let found = (string(text, kAXValueAttribute) as NSString).range(of: words)
-            return found.location == NSNotFound ? nil : (index, text, found.location)
+            return found.location == NSNotFound ? nil : (name, text, found.location)
         }).first else { log("MISSING \(step)"); break }
         var place = CFRange(location: offset, length: 0)
         let status = AXValueCreate(.cfRange, &place).map { AXUIElementSetAttributeValue(text, kAXSelectedTextRangeAttribute as CFString, $0) }

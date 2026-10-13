@@ -22,12 +22,13 @@ files = {'mimetype': 'application/epub+zip',
                     'media-type="application/xhtml+xml"/><item id="table" href="table.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="pictures" href="pictures.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="scenes" href="scenes.xhtml" '
+                    'media-type="application/xhtml+xml"/><item id="cells" href="cells.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="image" href="square.svg" '
                     'media-type="image/svg+xml"/><item id="titled" href="titled.svg" '
                     'media-type="image/svg+xml"/></manifest><spine><itemref '
                     'idref="body"/><itemref idref="labels"/><itemref '
                     'idref="table"/><itemref idref="pictures"/><itemref '
-                    'idref="scenes"/></spine></package>',
+                    'idref="scenes"/><itemref idref="cells"/></spine></package>',
  'OPS/nav.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
                   'xmlns="http://www.w3.org/1999/xhtml" '
                   'xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav '
@@ -36,7 +37,8 @@ files = {'mimetype': 'application/epub+zip',
                   'labels</a></li><li><a href="table.xhtml">Hidden heading over a '
                   'table</a></li><li><a href="pictures.xhtml">Pictures and their '
                   'words</a></li><li><a href="scenes.xhtml">Scenes set '
-                  'apart</a></li></ol></nav></body></html>',
+                  'apart</a></li><li><a href="cells.xhtml">Jumps inside a '
+                  'grid</a></li></ol></nav></body></html>',
  'OPS/square.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 '
                    '32"><rect width="32" height="32" fill="#007acc"/></svg>',
  'OPS/titled.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 '
@@ -102,12 +104,34 @@ files = {'mimetype': 'application/epub+zip',
                      'ends.</p><hr/><p>Second scene starts.</p><hr '
                      'role="presentation"/><p>Words after an ornament.</p><div '
                      'class="alone"><hr/></div><p class="after">Last words of the '
-                     'scenes.</p></body></html>'}
+                     'scenes.</p></body></html>',
+ # Links inside the cells of a table: one of words in a cell that runs on to more lines, one
+ # that is a described picture, one that is decoration alone, one of decoration and words, and
+ # one that is a hidden label. No word here is one VoiceOver uses for a picture, a link, a
+ # table or a text, so those in a transcript are VoiceOver's or the reader's own.
+ 'OPS/cells.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
+                    'xmlns="http://www.w3.org/1999/xhtml"><head><title>Jumps inside a '
+                    'grid</title><style>.parked { position: absolute; left: -999em; } td { '
+                    'padding: 0.25em 0.5em; } img { width: 32px; height: 32px; '
+                    '}</style></head><body><h1>Jumps inside a grid</h1><p>Shown words before '
+                    'the grid.</p><table><tr><td>Plain first entry.</td><td>Before the <a '
+                    'href="body.xhtml#link-target">worded jump</a> after it, and then enough '
+                    'further words to carry this entry on to another line.</td></tr><tr><td>Described: '
+                    '<a href="body.xhtml#link-target"><img src="square.svg" alt="Described '
+                    'entry jump"/></a></td><td>Bare: <a href="body.xhtml#link-target"><img '
+                    'src="square.svg" alt=""/></a></td></tr><tr><td><a '
+                    'href="body.xhtml#link-target"><img src="square.svg" alt=""/> Entry jump '
+                    'with decoration</a></td><td><a class="parked" '
+                    'href="body.xhtml#link-target">Parked entry jump</a>Shown last '
+                    'entry.</td></tr></table><p>Shown words after the '
+                    'grid.</p>GRID_LINES_AFTER</body></html>'}
 files["OPS/body.xhtml"] = files["OPS/body.xhtml"].replace(
     "NUMBERED_WORDS", " ".join(f"word{i:04d}" for i in range(1, 1201)))
 # More than a screen of lines, so that the section's first line can be shown at the top.
 files["OPS/table.xhtml"] = files["OPS/table.xhtml"].replace(
     "LINES_AFTER", "".join(f"<p>Line {i:02d} after the table.</p>" for i in range(1, 61)))
+files["OPS/cells.xhtml"] = files["OPS/cells.xhtml"].replace(
+    "GRID_LINES_AFTER", "".join(f"<p>Line {i:02d} after the grid.</p>" for i in range(1, 61)))
 
 # A second book of ordinary paragraphs, for continuous scroll: chapters of forty, forty and six
 # paragraphs, each of forty numbered words ("p017w23" is the seventeenth paragraph's
@@ -115,7 +139,8 @@ files["OPS/table.xhtml"] = files["OPS/table.xhtml"].replace(
 # end of the book is a few screens from the start of its last chapter.
 chapters = {"one": range(1, 41), "two": range(41, 81), "three": range(81, 87)}
 paragraphs = dict(files)
-for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "scenes.xhtml", "square.svg", "titled.svg"]:
+for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "scenes.xhtml", "cells.xhtml", "square.svg",
+             "titled.svg"]:
     del paragraphs["OPS/" + name]
 paragraphs["OPS/package.opf"] = (
     '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
