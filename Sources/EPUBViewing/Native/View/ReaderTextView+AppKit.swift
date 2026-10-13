@@ -1,4 +1,5 @@
 #if os(macOS)
+import Accessibility
 import AppKit
 import SwiftUI
 
@@ -22,6 +23,10 @@ final class ReaderTextView: NSTextView {
     /// The accessibility elements of the text's links (`ReaderTextLinks+AppKit.swift`).
     var linkElements = ReaderLinkElements()
     private var menuImage: ReaderImageAttachment?
+    /// The headings of the text in the view, found once for each text it is given.
+    private var headingCache: [(heading: ReaderHeading, range: NSRange)]?
+    /// VoiceOver's Headings rotor for this text.
+    private lazy var headingRotor = NSAccessibilityCustomRotor(rotorType: .heading, itemSearchDelegate: self)
     /// The text column's left edge in continuous scroll, where a division can move it off centre.
     var columnMinX: CGFloat = 0
 
@@ -183,15 +188,22 @@ final class ReaderTextView: NSTextView {
     /// that stands for text gets an image element labelled with its text equivalent, through
     /// the attachment attribute VoiceOver reads in text. A hidden label is text, not an image.
     /// An image without words is an image element without a label, and one the book marks as
-    /// decoration is left with nothing, for VoiceOver to pass over.
+    /// decoration is left with nothing, for VoiceOver to pass over. A heading's characters
+    /// carry its level, shown or hidden.
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard !isPageColumn || validPageAccessibilityRange(range),
               let base = super.accessibilityAttributedString(for: range) else { return nil }
         let attachments = textualAttachments(in: range)
         let images = announcedImages(in: range)
+        let headings = contentStorage.textStorage?.readerHeadings(in: range) ?? []
         let links = accessibilityLinks(in: range)
-        guard !attachments.isEmpty || !images.isEmpty || !links.isEmpty else { return base }
+        guard !attachments.isEmpty || !images.isEmpty || !headings.isEmpty || !links.isEmpty else { return base }
         let result = NSMutableAttributedString(attributedString: base)
+        for (heading, run) in headings where heading.level > 0 {
+            let local = NSRange(location: run.location - range.location, length: run.length)
+            guard NSMaxRange(local) <= result.length else { continue }
+            result.addAttribute(.accessibilityHeadingLevel, value: heading.level, range: local)
+        }
         for (attachment, text, run) in attachments {
             let local = NSRange(location: run.location - range.location, length: run.length)
             guard NSMaxRange(local) <= result.length else { continue }
@@ -266,6 +278,7 @@ final class ReaderTextView: NSTextView {
     func exposeTextualAttachments() {
         attachmentElements.removeAll()
         linkElements = ReaderLinkElements()
+        headingCache = nil
         // Replacing NSTextStorage moves its native caret to the new storage's end, which
         // can be hidden paragraph context, or the end of the book. VoiceOver uses that
         // caret's line when entering a text view. Start newly installed text at its first
@@ -392,5 +405,65 @@ final class ReaderTextView: NSTextView {
     override func accessibilityNumberOfCharacters() -> Int {
         isPageColumn ? min(placement.visibleLength, textLength) : super.accessibilityNumberOfCharacters()
     }
+
+    // MARK: Headings
+
+    // A text area has no headings of its own to an assistive client: the book's are given to
+    // VoiceOver as its Headings rotor, which lists them by their words and level and moves to
+    // the one chosen, and which its own move to the next heading goes by. A page column gives
+    // its page's, the scroll view the whole book's.
+    override func accessibilityCustomRotors() -> [NSAccessibilityCustomRotor] {
+        super.accessibilityCustomRotors() + [headingRotor]
+    }
+
+    /// The headings an assistive client can reach in this view, in order, each with its text's
+    /// characters and what the rotor's list calls it: its words and, where it has one, its
+    /// level. VoiceOver reads the level it is given in the text to nobody (27.0.1), so the list
+    /// is where a listener hears it. A hidden heading is the one character of its label.
+    private var accessibilityHeadings: [(heading: ReaderHeading, range: NSRange, label: String)] {
+        let all = headingCache ?? contentStorage.textStorage?.readerHeadings() ?? []
+        headingCache = all
+        let reach = isPageColumn ? shownCharacters : NSRange(location: 0, length: textLength)
+        return all.compactMap { heading, range in
+            let shown = NSIntersectionRange(range, reach)
+            guard shown.length > 0 else { return nil }
+            let words = plainText(in: shown).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            guard !words.isEmpty else { return nil }
+            return (heading, shown, heading.level > 0 ? "\(words), heading level \(heading.level)" : words)
+        }
+    }
+}
+
+extension ReaderTextView: @MainActor NSAccessibilityCustomRotorItemSearchDelegate {
+    /// The heading after or before where the search stands, and none past either end. VoiceOver
+    /// stands on the characters under its cursor, or on the heading it was last given. To list
+    /// the headings it asks for the one after an item that is nowhere, with no element or with
+    /// the first character and none of it, and then for the one after each it is given: from
+    /// nowhere the search begins with the first heading, or the last. Standing inside a
+    /// heading, the one before is the heading before that one, as in a browser.
+    func rotor(_ rotor: NSAccessibilityCustomRotor,
+               resultFor searchParameters: NSAccessibilityCustomRotor.SearchParameters) -> NSAccessibilityCustomRotor.ItemResult? {
+        var headings = accessibilityHeadings
+        let filter = searchParameters.filterString
+        if !filter.isEmpty { headings = headings.filter { $0.label.localizedCaseInsensitiveContains(filter) } }
+        let forward = searchParameters.searchDirection == .next
+        let found: (heading: ReaderHeading, range: NSRange, label: String)?
+        if let current = searchParameters.currentItem, current.targetElement != nil,
+           current.targetRange.location != NSNotFound, current.targetRange != NSRange(location: 0, length: 0) {
+            let place = current.targetRange.location
+            found = forward ? headings.first { $0.range.location > place } : headings.last { NSMaxRange($0.range) <= place }
+        } else { found = forward ? headings.first : headings.last }
+        guard let found else { return nil }
+        let result = NSAccessibilityCustomRotor.ItemResult(targetElement: self)
+        result.targetRange = found.range
+        result.customLabel = found.label
+        return result
+    }
+}
+
+extension NSAttributedString.Key {
+    /// The heading level of text an assistive client reads, 1 to 6: the Accessibility
+    /// framework's own attribute, which AppKit has no name for.
+    static let accessibilityHeadingLevel = NSAttributedString.Key(AttributeScopes.AccessibilityAttributes.HeadingLevelAttribute.name)
 }
 #endif

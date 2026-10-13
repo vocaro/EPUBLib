@@ -36,8 +36,12 @@ bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
-of the book is a few screens from the start of its last chapter. Do not import private books
-for this check.
+of the book is a few screens from the start of its last chapter. The first book's headings
+are "Page boundary verification" (level 1), which opens it, "Link target reached" (level 2)
+after the numbered paragraph, the two parked ones (level 1), each opening its section, and
+"Pictures and their words" and "Scenes set apart" (level 1), each opening one of the last
+two; the second book's are "Chapter one", "Chapter two" and "Chapter three", screens apart.
+Do not import private books for this check.
 
 On a Mac the same application can show AppKit's own text view in the reader's place, with
 none of the reader's code: `-VerificationPlainText YES` a TextKit 2 view, as the reader's
@@ -117,6 +121,14 @@ new phrase is recorded:
   or End).
 - `linecount`: Control-Option-F3 twice, the total and visible line counts.
 - `readall`: read from the cursor onward.
+- `nextheading`: VoiceOver's own move to the next heading, Control-Option-Command-H. There is
+  no step for the one before: with Shift added VoiceOver asked the reader for the next heading
+  again (macOS 27.0.1). Go back with the rotor's list.
+- `rotor`: Control-Option-U, which opens VoiceOver's rotor: lists of what the item under its
+  cursor holds, the reader's Headings among them. `listright` and `listleft` go from list to
+  list, `listdown` and `listup` along one, `listchoose` (Return) moves VoiceOver to the item
+  named and `listclose` (Escape) closes the rotor. These six are plain keys. Send them only
+  while the rotor is open: otherwise the reader takes an arrow as a page turn.
 - `activate=LABEL`: Control-Option-Space, sent only if one of VoiceOver's last two phrases
   contains LABEL, as in `"activate=Next Page"`. Without a label it is sent whatever was said.
 - `nextlink`, `previouslink`: VoiceOver's Find Next Link and Find Previous Link,
@@ -124,12 +136,8 @@ new phrase is recorded:
   cursor and name it.
 - `describe`: Control-Option-F3 once, what is in the VoiceOver cursor. `attributes`:
   Control-Option-T, the text attributes there.
-- `actions`: Control-Option-Command-Space, the menu of the item's actions. `rotor`:
-  Control-Option-U, VoiceOver's rotor, lists of what the item under its cursor holds.
-  `listright` and `listleft` go from list to list, `listdown` and `listup` along one,
-  `listchoose` (Return) takes the item named and `listclose` (Escape) closes the list. These
-  six are plain keys. Send them only while a list is open: otherwise the reader takes an
-  arrow as a page turn.
+- `actions`: Control-Option-Command-Space, the menu of the item's actions. The `list` keys
+  of `rotor` move in it and close it.
 - `pagedown`, `pageup`: the reader's own page keys, without VoiceOver modifiers.
 - `ax:STEP`: a step of the observer described below, through the accessibility API.
 
@@ -301,7 +309,7 @@ read against it:
 - `activate` follows the link under the cursor. With the cursor on a word it follows a link
   on that word's line, the word's own or not, and on a line without a link it does nothing.
   AppKit's own text view does the same.
-- `rotor` lists Window Spots and no links for a text area.
+- `rotor` has no list of links. For the reader's text it lists the book's headings.
 
 `ax:links` prints what the text gives for its links before anything is said: each link once
 as a `CHILD`, called by its words and never by U+FFFC, with `AXPress` among its actions; and
@@ -498,6 +506,14 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
   performs the chosen one without moving the cursor. On an iPhone in landscape only the
   upward flick registered, which reaches the same actions.
 - `flick=right`, `flick=left`: VoiceOver's next and previous item; `flick=right*12` repeats it.
+- `rotor=LABEL`: two fingers turned on the glass, which turns VoiceOver's rotor, repeated
+  until VoiceOver's phrase begins with LABEL, thirty turns at most: `rotor=Headings`.
+  `flick=down` and `flick=up` then move by that setting, heading to heading. Without a label
+  it turns the rotor once. Turn it after the touch that places the cursor: a touch on an item
+  with actions put an iPad's rotor back on Actions. A turn of one size moved a simulator's
+  rotor one setting in some sessions and three in others, which went round past Headings, so
+  the turns are of several sizes. On a physical iPad the first turn reached Headings; on a
+  physical iPhone no turn moved the rotor, and the step ends in `MISSING`.
 - `rotate=landscape`, `rotate=portrait`: an iPad shows two columns in landscape and one in
   portrait. The probe waits for the screen as after `activate`, three seconds at most. End a
   session in the orientation it started in.
@@ -592,7 +608,9 @@ and the double tap on the heading, the touch arrived on the heading and the page
   does not turn. On the iPhone it lands in the search field and brings up the keyboard.
 - The rotor offers a line's actions and speaks them (`flick=down` says "Next Page"), and
   `doubletap` performs none: the touch goes to the line, and neither the reader's action nor
-  its `accessibilityActivate` is called.
+  its `accessibilityActivate` is called. Turning the rotor and moving by it need no
+  activation and do work: `rotor=Headings` and a flick moved VoiceOver, and the reader with
+  it, to the book's next heading.
 - XCTest's Control-Option-Space reaches VoiceOver, whose log names it Activate, and nothing
   reaches the reader. Control-Option with an arrow does move the cursor, in 0.4 seconds.
 
@@ -663,7 +681,19 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    from there shows "Last words of the scenes.". On Mac it says nothing at a rule: moving
    by line it stops between the two scenes without a phrase, and no transcript has
    "Separator" or "image" in it.
-9. Restore all original VoiceOver/scripting settings and independently verify restoration.
+9. Headings. On an iPhone or iPad VoiceOver says "Heading" after a heading's words, shown or
+   hidden, and reads a heading that takes several lines as one item. With the rotor on
+   Headings (`rotor=Headings`, turned after the touch that places the cursor), `flick=down`
+   moves to the next heading on the page or screen and then to the next one in the book,
+   turning the page or scrolling to it, and `flick=up` goes back the same way; `visible`
+   after a move shows the page or screen the reader went to. Past the book's last or first
+   heading VoiceOver says "Heading not found". Wait a few seconds after the book opens
+   (`wait=8`): a chapter not built yet ends the search. On a Mac `nextheading` moves
+   VoiceOver to the next heading in the text area and reads its words, to "Heading not
+   found" past the last, and the view shows the heading; `rotor` opens on the Heading menu,
+   which lists the page's headings, or the whole book's in continuous scroll, each by its
+   words and level, and `listchoose` moves to the one named.
+10. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
@@ -858,6 +888,75 @@ The Mac runner's transcript is plain text and needs no export.
   "Parked table heading", "Table row group", "Shown", "words". Nobody listened, and no
   workstation was used.
 
+- The same day a book's headings were heard on a Mac: GitHub's hosted `xcode-27` runner (image
+  `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in four
+  [hosted sessions](#hosted-mac-sessions) at `41a458f`, in a window 600 points wide at 17
+  points, at the fixed pause. In continuous scroll `rotor` opened on "Page boundary
+  verification, heading level 1" and `listdown` went on through "Link target reached, heading
+  level 2", "Parked title heading, heading level 1", "Parked table heading, heading level 1"
+  and "Pictures and their words, heading level 1". `listchoose` on the fourth moved VoiceOver
+  to "Parked table heading", which `line` read back. `nextheading` from the first paragraph
+  gave "Link target reached", then "Parked title heading", "Parked table heading", "Pictures
+  and their words" and "Heading not found". At `8baffa1`, with the book a section shorter,
+  the observer's `STATE` after the first of those moves had the insertion point on the
+  heading and the heading's line the first on screen, and the moves were the same from the
+  text area without interacting. In pages the first page's rotor opened on "Page boundary
+  verification, heading level 1" and `nextheading` from that heading gave "Heading not
+  found", the page holding no other; the page that opens with a hidden heading over a table
+  (thirteen `ax:next` steps) listed "Parked table heading, heading level 1" alone, and
+  `listchoose` moved to it. VoiceOver read a heading's words on moving to it and by line,
+  and said its level nowhere but in the rotor's list. At `53a7cbe`, before the list began
+  with the first heading, the page whose only heading was its first line gave "No items in
+  Heading menu" and the scroll view's list lacked the heading that opens the book.
+  Control-Option-Command-Shift-H moved to the next heading, not the one before. Not heard:
+  two columns, a larger text size, a move back by a VoiceOver command, and the hidden-labels
+  page in pages, whose session ended twice in the runner script's check of VoiceOver's state
+  with no transcript written. Nobody listened, and no workstation was used.
+- The same day they were read on a physical iPad Air 13-inch (M3) (iPadOS 27.2), upright at
+  17 points, at `41a458f`, through XCTest's VoiceOver service; nobody listened. In pages a
+  touch on the first page's heading gave "Page boundary verification Heading Use the rotor to
+  access Headings", and one turn of the rotor gave "Headings". Each `flick=down` then moved on
+  through the book: "Link target reached Heading", with the page of `word1013` to `word1200`
+  on screen, "Parked title heading Heading", "Parked table heading Heading", on the page
+  that opens with the table, "Pictures and their words Heading" and "Heading not found".
+  `flick=up` went back through the same four to "Page boundary verification Heading", the
+  first page on screen again, and then gave "Heading not found". In continuous scroll, in
+  the book of ordinary paragraphs: "Chapter one Heading Use the rotor to access Headings",
+  then "Chapter two Heading" with `p040w28` to `p048w40` on screen, "Chapter three Heading"
+  with `p079w29` to `p086w40`, and "Heading not found"; back to "Chapter two Heading"; two
+  moves forward into the chapter's lines, the rotor turned to Headings again, and from a
+  line that is no heading "Chapter two Heading", "Chapter one Heading" and "Heading not
+  found". VoiceOver said a level nowhere. At `64a012b`, where the search looked among the
+  lines listed, the move on from "Parked title heading" gave "Heading not found" on this
+  iPad and on both simulators: VoiceOver asked the rotor twice for the one move, and the
+  second answer, from the same item on a page no longer shown, was not the first.
+- On a physical iPhone 17 Pro Max (iOS 27.2), the same day and commit, a touch on the heading
+  gave "Page boundary verification Heading Actions available Use the rotor to access
+  Headings" in pages. XCTest's two-finger turn did not move VoiceOver's rotor there in thirty
+  turns of several sizes, nor made on the window or on the text, so no move by heading was
+  made on the phone: with the rotor still on Actions `flick=down` gave "Next Page". One run
+  ended in an exception XCTest raised for a gesture, without the probe's `defer`, and left
+  VoiceOver on: it was switched off with `devicectl device settings voiceover --disable`
+  and read back as off, and the probe now restores VoiceOver from a teardown block.
+- The [simulator lane](#simulators) read them the same day at `8c19f15`, on an iPhone 17 Pro
+  and an iPad Air 13-inch (M4) (iOS 27.0), when the book had no section of pictures. In
+  pages at 17 points both gave "Page boundary verification Heading Actions available Use the
+  rot", then with the rotor on Headings "Link target reached Heading" (`word1177` to
+  `word1200` on the iPhone's page, `word1040` to `word1200` on the iPad's), "Parked title
+  heading Heading" and "Parked table heading Heading", and back through them to "Page
+  boundary verification Heading" and "Heading not found". On the iPhone the move to the page
+  that opens with the table left VoiceOver on "Open EPUB… Button", and the next
+  `flick=down` gave "Parked table heading Heading". In continuous scroll both gave "Chapter
+  two Heading", "Chapter three Heading", "Heading not found" and "Chapter two Heading"
+  again, with the screens the iPad showed, and from a line of the chapter "Chapter two
+  Heading". At 28 points the heading takes the whole of the iPhone's first page: one move
+  forward from it gave "Read the numbered words Actions available" and one back "Page
+  boundary verification Heading Actions available", so its lines are one item. At
+  `9b155ec`, with a heading's label ending in its paragraph's break and no rotor of the
+  reader's, the same touch recorded "Page boundary verification" alone, and VoiceOver's
+  own rotor gave "Heading not found" past the last heading on screen.
+- Not done for headings: listening, a move by heading on an iPhone, landscape and two
+  columns, and a larger text size on a device.
 - On 2026-10-12 the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0) recorded, at 17
   points: on an iPhone 17 Pro word0001–word0016 in 4 lines and, after Next Page,
   word0017–word0080 in 16; on an iPad Air 13-inch (M4) in portrait word0001–word0301 in 36
