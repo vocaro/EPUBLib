@@ -193,6 +193,20 @@ level in a column's rich text, and the rotor's headings asked for as VoiceOver w
 ask. None of them drives VoiceOver; the [VoiceOver testing process](voiceover-testing.md) has
 what it said.
 
+Page-turn tests on UIKit (`PageTurnAccessibilityTests`) put an assistive technology's cursor
+on a line of a page as UIKit tells the reader of it, by the line's own callback and the
+focus notification, and read what the canvas posts when the page is shown anew
+(`ReaderCanvasView.postAccessibilityNotification`). A page turned from a line posts one
+layout change with the first line of the page shown, in one column and across a spread, into
+the next chapter and back into the one before; a position shown from a line posts the line
+that holds it; VoiceOver's scroll posts the page's number and then the line; and nothing is
+posted for a cursor on a control, for VoiceOver switched off, for a page shown again as it
+was, or for a move by heading. They also hold an element kept from one page to standing for
+no line of the next, on pages whose lines have the same characters counted from each page's
+first, and to standing for its own line when its page is shown again. That VoiceOver moves
+its cursor for the layout change, and what it then reads, is known only from
+[speech sessions](voiceover-testing.md) on a device.
+
 Table cell line tests on AppKit (`TableCellLineAccessibilityTests`) read the lines a cell's
 own text gives an assistive technology: the layout's lines, numbered from the first the cell
 shows and covering its text once; the offset after its last character on its last line, in a

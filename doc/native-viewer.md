@@ -983,6 +983,39 @@ The following are the defaults. Host commands and accessibility actions stay ena
   stop of its own on iPhone and iPad and from an element in the text on Mac ("Rules" under
   Decisions). On Mac all of this holds inside a table cell too, whose text VoiceOver reads
   once it interacts with the cell's row and then with the cell.
+- A page turned under VoiceOver's cursor, on iPhone and iPad. VoiceOver keeps its cursor on
+  the item it was given, and a page's lines are items of that page: turn the page and the
+  cursor is on a line that is no longer shown. After a line's Next Page it stayed drawn
+  where the line had stood, and the next move went by the old item: to the book's title
+  under the page, or to a line somewhere down the new page, then the line before it, then
+  that line again.
+  So a page column knows which of its lines the cursor is on. UIKit tells a line when the
+  cursor comes to it and names every item the cursor goes to, and whatever is not a line of
+  that column ends it. When a page is shown and the cursor's line is no longer on it, the
+  canvas posts a layout change with the line that holds the position shown
+  (`ReaderCanvasView.accessibilityCursorFollowsThePage`): the first line of the page after
+  a page turn, in the left-hand page of a spread, and the line of a link's target after a
+  link. VoiceOver takes its cursor there and reads the line, so reading goes on from the
+  top of the page. This is so whoever turned the page: a line's own action, VoiceOver's
+  scroll, a key, or the host while the cursor is in the text. The cursor is then on a new
+  item, where VoiceOver's rotor is at its default again: to turn several pages from the
+  text a listener flicks down to Next Page before each double tap, where on the line left
+  behind a second double tap turned again (iPadOS 27.2). Three cursors are left alone.
+  One that is not in the text stays where it is: after the host's Next Page button
+  VoiceOver is still on the button, and moving into the text from there met the new page's
+  first line before this and does now. One whose line is still on the page keeps it, as
+  when the same page is shown again. And a move by heading that turns the page posts
+  nothing, since VoiceOver goes to the item the rotor gives it. VoiceOver's scroll, three
+  fingers swiped, announces "Page N" as before, and the cursor is sent after the
+  announcement. Posted in that order after a page turned under a simulator's cursor,
+  VoiceOver said "Page 2" and then the line; in the other order it said the line alone
+  (iOS 27.0). No session has performed the gesture itself
+  ([#70](https://github.com/vocaro/EPUBLib/issues/70)): XCTest has no three-finger swipe,
+  so what VoiceOver does of its own accord after a scroll has not been heard. An item kept
+  from an earlier list stands for its line by the line's place
+  in the book (`index(ofAccessibilityElement:)`). It was matched by its characters as the
+  view counts them, and a page column counts from its page's first: a line of the page
+  before then stood for whichever line of the page shown had the same ones.
 - VoiceOver on Mac: each text area offers the page turn as actions of its own
   (`NSAccessibilityCustomAction`), Next Page and Previous Page in pages and Scroll Forward
   and Scroll Backward in continuous scroll. Those are the names `EPUBReaderControls` gives

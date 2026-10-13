@@ -282,6 +282,19 @@ import XCUIAutomation
                     if !wanted.isEmpty, phrase.lowercased().hasPrefix(wanted.lowercased()) { found = true; break }
                 }
                 if !found { note(step, "MISSING") }
+            case "listen":
+                // Every phrase VoiceOver speaks in that many seconds, where a step records one:
+                // what it says by itself after a change, in the order it says it.
+                let until = Date().addingTimeInterval(Double(parts.last ?? "") ?? 3)
+                var last: String?
+                while Date() < until {
+                    let phrase = (try? voiceOver.currentSpeech().utterance) ?? "no speech"
+                    if phrase != last {
+                        last = phrase
+                        note("heard", phrase)
+                    }
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+                }
             case "wait":
                 RunLoop.current.run(until: Date().addingTimeInterval(Double(parts.last ?? "") ?? 1))
             case "screenshot":

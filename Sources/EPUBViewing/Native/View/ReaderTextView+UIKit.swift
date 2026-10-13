@@ -27,6 +27,12 @@ final class ReaderTextView: UITextView {
     /// Whether that cursor is on something VoiceOver reaches after the scroll view's lines: one
     /// of the scroll view's own bars, or an item below the reading area.
     private var accessibilityCursorFollowsText = false
+    /// The line of a page column an assistive technology's cursor is on: from the moment the
+    /// line is told so until UIKit's focus notification names something that is not one of
+    /// this column's lines. VoiceOver goes on holding the element when the page is turned
+    /// under it, so this is then a line the column no longer lists
+    /// (`accessibilityCursorHasLeftThePage`).
+    private var pageAccessibilityCursor: ReaderPageAccessibilityElement?
     /// The elements that stand in the list for the scroll view's own bars (`scrollBarListed`).
     private var scrollBarElements: [ReaderScrollBarAccessibilityElement] = []
     /// How many lines the scroll view lists past the screen: as many items as VoiceOver was seen
@@ -60,10 +66,8 @@ final class ReaderTextView: UITextView {
         if pageColumn { selectionGestureDelegate = ReaderSpreadSelectionGestureDelegate.install(on: self) }
         textContainerInset = .zero
         textDragInteraction?.isEnabled = false
-        if !pageColumn {
-            for name in [UIAccessibility.elementFocusedNotification, UIAccessibility.voiceOverStatusDidChangeNotification] {
-                NotificationCenter.default.addObserver(self, selector: #selector(accessibilityFocusChanged(_:)), name: name, object: nil)
-            }
+        for name in [UIAccessibility.elementFocusedNotification, UIAccessibility.voiceOverStatusDidChangeNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(accessibilityFocusChanged(_:)), name: name, object: nil)
         }
         if pageColumn {
             isScrollEnabled = false
@@ -203,9 +207,25 @@ final class ReaderTextView: UITextView {
         if let index = scrollBarListed.firstIndex(where: { $0 === element as AnyObject || $0.bar === element as AnyObject }) {
             return elements.count + index
         }
-        // An element kept from before the list moved away and back stands for its line.
+        // An element kept from before the list moved away and back stands for its line, which
+        // is known by its place in the book. A page column counts characters from its page's
+        // first: by those, a line of the page before stood for whichever line of the page
+        // turned to had the same ones, and VoiceOver went on from the middle of that page.
         guard let kept = element as? ReaderPageAccessibilityElement, kept.view === self else { return NSNotFound }
-        return elements.firstIndex { $0.range == kept.range && $0.url == kept.url } ?? NSNotFound
+        return elements.firstIndex { $0.isSameLine(as: kept) } ?? NSNotFound
+    }
+
+    /// Whether an assistive technology's cursor is on a line of a page this column no longer
+    /// shows: the page was turned under it.
+    var accessibilityCursorHasLeftThePage: Bool {
+        guard let cursor = pageAccessibilityCursor else { return false }
+        return index(ofAccessibilityElement: cursor) == NSNotFound
+    }
+
+    /// The line that holds `location`, in this view's characters, or the first one listed after it.
+    func accessibilityLine(from location: Int) -> Any? {
+        guard listsLines else { return nil }
+        return lineAccessibilityElements.first { NSMaxRange($0.range) > location }
     }
 
     // VoiceOver's own Headings rotor moves among the elements it is given, and a page or a
@@ -247,7 +267,7 @@ final class ReaderTextView: UITextView {
             return nil
         }
         // It can be on the page or the screen already; otherwise the reader goes to it.
-        if shown() == nil { canvas.show(target, selecting: nil) }
+        if shown() == nil { canvas.showForAccessibilityRotor(target) }
         return shown().map { UIAccessibilityCustomRotorItemResult(targetElement: $0, targetRange: nil) }
     }
 
@@ -419,8 +439,9 @@ final class ReaderTextView: UITextView {
         return result
     }
 
-    /// An assistive technology's cursor came to `element`, a line of the scroll view.
+    /// An assistive technology's cursor came to `element`, a line of this view.
     fileprivate func accessibilityCursorMoved(to element: ReaderPageAccessibilityElement) {
+        if isPageColumn { pageAccessibilityCursor = element }
         guard isCanvasScrollView else { return }
         accessibilityCursor = element
         accessibilityCursorFollowsText = false
@@ -437,8 +458,9 @@ final class ReaderTextView: UITextView {
             guard let focused = notification.userInfo?[UIAccessibility.focusedElementUserInfoKey],
                   (focused as? ReaderPageAccessibilityElement)?.view !== self,
                   (focused as? ReaderScrollBarAccessibilityElement)?.view !== self else { return }
-            followsText = accessibilityOrderPutsAfterLines(focused)
+            followsText = isCanvasScrollView && accessibilityOrderPutsAfterLines(focused)
         }
+        pageAccessibilityCursor = nil
         accessibilityCursor = nil
         accessibilityCursorFollowsText = followsText
     }
@@ -709,6 +731,13 @@ private struct ScrollAccessibilityPlace: Equatable {
     var position: ReaderTextPosition?
     /// The image the element stands for, when it is one.
     var image: ReaderImageAttachment?
+
+    /// Whether `other` is the same characters of the book, wherever each view counted them from.
+    func isSameLine(as other: ReaderPageAccessibilityElement) -> Bool {
+        guard url == other.url, range.length == other.range.length else { return false }
+        if let position, let place = other.position { return position == place }
+        return position == nil && other.position == nil && range == other.range
+    }
 
     init(view: ReaderTextView, range: NSRange, url: URL?) {
         self.view = view
