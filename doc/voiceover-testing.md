@@ -467,6 +467,22 @@ TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wai
     [#342](https://github.com/vocaro/EPUBLib/issues/342): VoiceOver had taken the list to
     start there. A line of text read at the flick itself is the harness's: on a busy Mac the
     swipe was taken for a touch and moved the cursor to the line under it.
+11. Have the reader move by something VoiceOver did not do
+    (`-SampleStepAfter`, under "Physical iPhone and iPad"). With the cursor
+    on a line, `touch=p001w01,listen=30,forward=3,backward=4` and the step at 30 seconds:
+    `listen` records the first line of the new screen, which VoiceOver reads by itself, and
+    the moves go on from that line and back past it. A `listen` that records nothing, with
+    the moves reading the lines after `p001w01 …`, is the failure of
+    [#428](https://github.com/vocaro/EPUBLib/issues/428): VoiceOver stayed on its line and
+    the reader went back to it. With the cursor on a control and fifty items held,
+    `activate=Contents,activate=Chapter one,wait=1,forward=5,forward=3,touch=Scroll Forward,listen=40,forward=9,forward=4`
+    and the step at 55 seconds: the ninth move from Scroll Forward gives the first line of
+    the new screen. "Chapter one" there is the failure. The moves before the touch are
+    needed: VoiceOver asks for fifty at its first move after the menu, and a touch straight
+    after the menu has it ask for two. In place of the timed step a simulator can use
+    `activate=Scroll Forward`, and `activate=Verification link` in the first book for the
+    cursor on a line, because its double tap is a plain touch that VoiceOver knows nothing
+    of ("Simulators"). On a device those two read right with the change and without it.
 
 Drive at least one session with `flick=right*20` and `flick=left*30` in place of `forward`
 and `backward`: those are VoiceOver's own gestures for the next and previous item, where the
@@ -485,8 +501,24 @@ read against it:
 - `nextlink` moves through the links of the text on screen. VoiceOver says the name and
   "hyperlink", then the hint "You are currently on a hyperlink, inside of a text area. To
   click this link, press Control-Option-Space", of which the probe records the first 64
-  characters. Past the last link it begins again with the first. `previouslink` went
+  characters. Past the last link it begins again with the first, and where the page or
+  screen has one link it says "Last link" before that link's name. `previouslink` went
   forward too, in AppKit's own elements as in the reader's (macOS 27.0.1).
+- In continuous scroll `nextlink` from the last link on screen goes on to the book's next
+  link, below the screen, and so through the book. The reader shows that link and puts the
+  insertion point on it, and VoiceOver says a word and then the link, role first: "words."
+  and "hyperlink Parked link to the target", the word being the last one before the link,
+  with `AXLayoutChanged` and `SELECTION` at the link between them. `right` then reads the
+  link again and goes on from it, and `line` reads its line. Where that link is in a
+  table's cell the insertion point is on the cell's row, and `right` says the row: "Table
+  row group" when this was heard, and the row's words and "group" since rows are called by
+  them ([Tables on Mac](#tables-on-mac)), which was not heard here again. Only the links
+  with nothing on screen are heard that way: for the others on the
+  screen the reader went to, `nextlink` says the name and "hyperlink" as on a page, and
+  `right` reads on from where VoiceOver last read. Past the book's last link it does what
+  it does on a page. With `tracking` first (cursor tracking off) VoiceOver says the link
+  below the screen by its name, scrolls to it itself, and `right` reads on from where it
+  last read.
 - `activate` follows the link under the cursor. With the cursor on a word it follows a link
   on that word's line, the word's own or not, and on a line without a link it does nothing.
   AppKit's own text view does the same.
@@ -498,9 +530,11 @@ in the `LINK` lines the same element as the link of its characters and, where th
 attachment, a link element as that character's attachment. The text's headings are `CHILD`
 lines too, `AXHeading` with the heading's words as `LABEL`, each where it stands among the
 links: those on the page or on screen, and last the book's next heading, which is below the
-screen in continuous scroll and on a later page in pages. A child whose keyboard focus an
+screen in continuous scroll and on a later page in pages. In continuous scroll the links end
+the same way, with the book's next link below the screen, or with the links of the next
+table row that has one. A child whose keyboard focus an
 assistive client can set ends in `FOCUSABLE`: VoiceOver focuses such an element when it
-moves to it, and a heading's is one. `ax:follow=WORDS` presses a link
+moves to it, and a heading's and a link's are. `ax:follow=WORDS` presses a link
 without VoiceOver. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a link's line, so
 a few `right` steps reach it. After a link is followed the transcript has `AXValueChanged`
 with the page that holds the target, in the fixture the one with "Link target reached".
@@ -521,7 +555,8 @@ was needed. `ax:focus=0.2` gives a cell keyboard focus and does not bring VoiceO
 page's `CHILD` lines hold the links of the cells on screen among the page's own.
 `nextlink` from the page's text goes through all of those. VoiceOver's place in the page's
 text does not move with it, so `right` after one of a cell's links reads on from the word
-VoiceOver had reached before the table. In the runs on links `line` said nothing with
+VoiceOver had reached before the table. A cell's link that the reader had to scroll to in
+continuous scroll is the exception: the insertion point is then on its row. In the runs on links `line` said nothing with
 VoiceOver's cursor on a cell's last word or past it, in main's reader as with the cells'
 own elements. A cell has a line there since: see the record of Read Line in a table cell.
 
@@ -1018,7 +1053,11 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 opens the book in continuous scroll, `TEST_RUNNER_VOICEOVER_HREF` opens a section other than
 the first (`OPS/labels.xhtml`), `TEST_RUNNER_VOICEOVER_BOOK=paragraphs` opens the book of
 ordinary paragraphs and `TEST_RUNNER_VOICEOVER_LAUNCH` gives the reader further launch
-arguments, with spaces between. `TEST_RUNNER_VOICEOVER_OFF=1`
+arguments, with spaces between. `TEST_RUNNER_VOICEOVER_LAUNCH='-SampleStepAfter 30'` has the
+reader make one scroll step or page turn by itself, 30 seconds after the book opens: a move
+VoiceOver did not make, as a key on a keyboard or a host's own command is. Count the steps
+before it into the delay (a touch costs about five and a half seconds) and put a `listen=`
+across the moment. `TEST_RUNNER_VOICEOVER_OFF=1`
 leaves VoiceOver off, so the same steps are plain touches: use it to tell a VoiceOver failure
 from one of the reader's own. The probe stops when the reader is no longer in the foreground.
 Another session's tests on the same device bring their own app forward or switch VoiceOver
@@ -1110,6 +1149,14 @@ and the double tap on the heading, the touch arrived on the heading and the page
   it, to the book's next heading.
 - XCTest's Control-Option-Space reaches VoiceOver, whose log names it Activate, and nothing
   reaches the reader. Control-Option with an arrow does move the cursor, in 0.4 seconds.
+- VoiceOver does not know that anything was activated, so it does nothing of what it does
+  after a double tap of its own. On an iPad, after its double tap on Scroll Forward it asked
+  again for the items round its cursor, and after one on a link it went to the link's
+  target, the reader having told it nothing. In a simulator it went on with the items it
+  held and stayed on the link. An item from before a move, met after `activate=` in a
+  simulator, is not evidence of one on a device
+  ([#428](https://github.com/vocaro/EPUBLib/issues/428), under "Harness pitfalls and
+  current results").
 
 With VoiceOver off the same touches turn the page in both orientations, and on physical
 devices VoiceOver performs every one of these
@@ -1145,6 +1192,14 @@ xcrun simctl spawn DEVICE log stream --level debug --style compact --predicate '
 - A `<null>` in the cache is an end of the list as VoiceOver has it: it asked for one more
   item there and was given none. A move to that side then ends in `Found element: (null)`
   and `BoundaryEncountered`, and the transcript has the same phrase again.
+- VoiceOver asks for fifty items each way (`fetch count: 50`) at a move it makes while it
+  holds nothing, which is how a screen change leaves it, a menu's closing among them. A
+  touch has it ask for two each side of the item touched, so a touch straight after a menu
+  leaves it holding four items, and a move straight after it sixty-one.
+- A layout change is acted on 0.8 s after it arrives, and only if VoiceOver has stayed where
+  it was: `Forced update, so removing all from cache`, then `fetch count: 2` each way from
+  its cursor, and one item at each move after that. Five layout changes that arrived while
+  it moved on every half second were followed by no forced update.
 
 The stop after the scroll bar is adjusted was found this way
 ([#342](https://github.com/vocaro/EPUBLib/issues/342), under "Harness pitfalls and current
@@ -1193,6 +1248,19 @@ button does not. A change to what VoiceOver reads needs no device session, and n
 filed to ask for one. A change to what an activation or an action does needs one, for that
 step. The simulators run iOS 27.0 and are other models than the physical devices, so where a
 simulator and a device differ, the device's result stands and the difference is recorded.
+
+One such difference follows from the first of the three. Once it has activated something
+itself, VoiceOver on an iPad asks again for the items round its cursor, and goes to what is
+shown when its own item has left the screen. A simulator's VoiceOver does not know that
+anything was activated and goes on with the items it held. After `activate=Scroll Forward`
+in continuous scroll it read a line from before the step, and after `activate=` on a link
+it stayed on the link, where the iPad read on from the right place both times
+([#428](https://github.com/vocaro/EPUBLib/issues/428), under "Harness pitfalls and current
+results"). So what VoiceOver reads in the moves after an `activate=` step, until it has
+next asked for items, is the simulator's own where it holds items from before the step:
+run a fault first seen there on a device, or make the same move without an activation
+(`-SampleStepAfter`), before it is filed or fixed. In continuous scroll the reader now
+tells VoiceOver of every move of its own, and the two agree after one.
 
 Sessions that show a change by what VoiceOver said before and after it are recorded on the
 same main. Merge main into the branch first, and take as "before" a commit that holds main
@@ -1373,7 +1441,17 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     reached". Moving by word and by line VoiceOver says "hyperlink Parked link to the
     target", "hyperlink image" after "Bare jump:", "hyperlink" before "Jump with decoration",
     and "hyperlink Described jump, image". It reads "Verification link." as its words and
-    nothing else, and `activate` with the cursor on either word follows that link too.
+    nothing else, and `activate` with the cursor on either word follows that link too. In
+    continuous scroll from the top of the book, `ax:links` has "Parked link to the target"
+    as its last link `CHILD`, though the link is eleven thousand characters down, and two
+    `nextlink` steps say "Verification link hyperlink" and then "words." and "hyperlink
+    Parked link to the target", with `SELECTION` at the link and the link's line the first
+    on screen; `right` says the link again and then "Shown", `line` "hyperlink Parked link
+    to the target Shown last words.", and `activate` straight after the second `nextlink`
+    follows the link. Sixteen `nextlink` steps from the top name the book's fourteen links
+    in order, the cells' among them, and then "Last link Reopened 1978 hyperlink". A
+    reader without the link below among the children says "Verification link hyperlink"
+    and then "Last link Verification link hyperlink".
 11. Actions, on an iPhone and iPad. A line is offered what is in it and nothing else. On a
     page, with the cursor on a line of plain text, `flick=down` reads "Next Page", "Previous
     Page" and "Activate", and then "Next Page" again: each once, and no picture or link that
@@ -1686,9 +1764,10 @@ The Mac runner's transcript is plain text and needs no export.
   (iOS 27.0) did the same after any menu closed, even when the chapter chosen was the one on
   screen, and read on, as the devices did, when VoiceOver came into the text after a step of
   the reader's own or without a menu having closed. Posting a layout change, with no element
-  or with the line under the cursor, did not change that in the simulator; a page-scrolled
-  notification made VoiceOver skip lines; giving it new elements for the same lines once its
-  cursor had moved on made it lose its place
+  or with the line under the cursor, did not change that in the simulator (the entry on
+  [#428](https://github.com/vocaro/EPUBLib/issues/428) below has what a replay showed); a
+  page-scrolled notification made VoiceOver skip lines; giving it new elements for the same
+  lines once its cursor had moved on made it lose its place
   ([#339](https://github.com/vocaro/EPUBLib/issues/339)).
 - What VoiceOver asks for, from a build that logged UIKit's answers to it (not committed; it
   replaced `_accessibilityElementsInDirectionWithCount:options:` to log the count and what
@@ -1971,6 +2050,106 @@ The Mac runner's transcript is plain text and needs no export.
     bar at "16 pages 25%" and "15%" for the swipe up; then `p015w36 … p015w40` and two
     lines above it, and five forward in order. The session's first phrase, before any
     step, was not the book's or the sample's and was withheld unread.
+- A move of the reader's own in continuous scroll, with VoiceOver holding items from before
+  it ([#428](https://github.com/vocaro/EPUBLib/issues/428)), on 2026-10-13. iPhone 17 Pro
+  simulators of the session's own (iOS 27.0, 17 points) and the physical iPad Air 13-inch
+  (M3) (iPadOS 27.2, upright at 23 points), through XCTest's VoiceOver service, VoiceOver
+  switched on for each session and read back as off after it; nobody listened. The book of
+  ordinary paragraphs unless the first book is named. "Before" is main at `0a0dce0` with the
+  sample's `-SampleStepAfter` added, and "after" is `812335c`. VoiceOver's own log is the
+  simulator's ([Simulators](#simulators)), from builds that also logged what the reader
+  posted (not committed).
+
+  The issue's first case is the simulator's own. Its steps are
+  `activate=Contents,activate=Chapter one,wait=2,forward=5,forward=18,activate=Scroll Forward,listen=2,forward=9,forward=6`.
+  - Simulator, before: after the step the eight controls from "Search in book" to
+    "Bookmark", then "Chapter one Heading", then "Scroll Forward" and the controls again.
+    VoiceOver's log has `fetch count: 50` at its first move after the menu and sixty-one
+    items held from then on, the touch on Scroll Forward landing on one of them; at the
+    ninth move `Found element: Chapter one (14, 61)`, at the tenth `currentValid=0`, the
+    cursor set back on Scroll Forward and `fetch count: 2`. Nothing reached it as the step
+    was made.
+  - Simulator, after: the eight controls, then `p003w36 p003w37 p003w38 p003w39`, the first
+    line on screen, and six lines in order, with VoiceOver's own flicks as with the
+    service's moves (`flick=right*12`). The log has `Received note: Layout Changed` with no
+    element as the step is made, `Forced update, so removing all from cache` 0.8 s later
+    and `fetch count: 2` each way from Scroll Forward, where the cursor stayed; nothing was
+    said. After Scroll Backward
+    (`activate=Contents,activate=Chapter two,wait=2,forward=5,forward=3,activate=Scroll Backward,listen=2,forward=10,forward=4`)
+    the tenth move gave `p039w24 …`, the first line on screen, where before it gave
+    "Chapter two Heading", the line VoiceOver held, which the step had taken most of the
+    way down the screen.
+  - iPad, before and after alike: the eight controls, then `p005w15 … p005w21`, the first
+    line on screen, and six lines in order; after Scroll Backward, `p036w15 …`. There the
+    double tap is VoiceOver's own, and it had asked again by itself. A simulator's double
+    tap is a plain touch that VoiceOver knows nothing of, so the stale line after it is
+    not a device's.
+  - A link followed from its line, in the first book
+    (`touch=Verification link,activate=Verification link,listen=3,forward=3,backward=5`).
+    Simulator, before: nothing said, then ". Image:", "Blue verification square" and ".",
+    the lines after the link, with the reader back at the top of the book. After: "Link
+    target reached Heading" by itself, then "This is the end of the numbered paragraph."
+    and on, and back through the heading to `word1198 word1199 word1200`; the log has the
+    layout change with an element, `Will set element: Link target reached` 0.9 s later and
+    the forced update. iPad, before and after alike: "Link target reached Heading" by
+    itself and the same lines.
+
+  A move VoiceOver did not make shows the fault on the iPad too. The sample makes one
+  scroll step by itself (`-SampleStepAfter`).
+  - The cursor on a line (`touch=p001w01,listen=30,forward=3,backward=4`, the step at 30
+    seconds). iPad, before: nothing heard at the step, then `p001w08 …`, `p001w15 …` and
+    `p001w22 …`, the lines after the one the cursor was on, and back to "Chapter one
+    Heading": the reader had gone back with the cursor, and the step was undone. After:
+    `p005w15 … p005w21` heard at the step, the first line of the new screen, then three
+    lines on and four back in order, past that line to `p005w08 …`. The simulator the same
+    with its own lines: before, `p001w06 …` and on; after, `p002w24 …` heard, and its log
+    has the layout change naming that line, `Will set element` 0.8 s later and
+    `fetch count: 2` each way from it.
+  - The cursor on a control with fifty items held
+    (`activate=Contents,activate=Chapter one,wait=1,forward=5,forward=3,touch=Scroll Forward,listen=40,forward=9,forward=4`,
+    the step at 55 seconds). iPad, before: the eight controls, then "Chapter one Heading",
+    `p001w01 …`, `p001w08 …` and on, the screen from before the step. After: the eight
+    controls, then `p005w15 …`, the first line on screen, and four lines in order.
+    Simulator, before: "Chapter one Heading" and back to Scroll Forward, as in the issue;
+    after: `p002w24 …` and on. Without the eight moves before the touch VoiceOver held four
+    items and came in at the first line on screen either way.
+
+  What a layout change does, from the same logs.
+  - With no element, and the cursor's line no longer on screen (a build that posted so
+    after the link): `Will set element: This is the end of the numbered paragraph.` 1.4 s
+    later, the line then drawn where the link had been, not the link's target. So a line
+    is named whenever the cursor is in the text.
+  - During a move by the Headings rotor
+    (`touch=p001w06,rotor=Headings,flick=down,listen=3,forward=3,backward=5`): "Chapter two
+    Heading" and the lines each side in order, with a layout change posted and with none.
+    VoiceOver set its cursor on the rotor's item 30 ms after the notification and made its
+    forced update from there. Nothing is posted for a rotor's move.
+  - After a chapter chosen from the contents the simulator's VoiceOver no longer asks for
+    fifty: the layout change for the chapter arrives while the menu closes, the forced
+    update leaves two items each side of Contents, and the first move finds something
+    held. So the issue's second case
+    (`activate=Contents,activate=Chapter two,wait=2,forward=5,forward=8,backward=12`) went
+    on above the heading there, `p040w39 p040w40` and three lines more, where before it
+    gave "Bookmark". On the iPad it gave "Bookmark" before and after: that case stands.
+  - [#339](https://github.com/vocaro/EPUBLib/issues/339)'s trial again, the lines listed as
+    they were then (the screen alone from a control, two each side with the cursor on a
+    line) and a layout change posted at every change of the list
+    (`activate=Contents,activate=Chapter two,wait=2,forward=5,forward=30`). Without the
+    layout change: the lines to `p042w29 …`, "Vertical scroll bar" and the footer, as
+    recorded. With it, naming nothing or the cursor's line: on past the screen to
+    `p044w14 …` in order. It was not the changes posted as the cursor moved that did it.
+    Five of them arrived while VoiceOver moved on every half second, and no forced update
+    followed any. It was the one posted as the chapter was shown, with the cursor at rest
+    on Contents, which kept VoiceOver from asking for fifty. A chapter chosen that is the
+    one already shown changes no list, and a trial on such a choice would have seen no
+    effect; what the trials of the day did is not on record.
+  - A search (`activate=Search in book,type=p020w01\n,listen=3,forward=12`, with a `type`
+    step that is not committed) and the contents
+    (`activate=Scroll Forward,wait=1,activate=Contents,activate=Chapter two,listen=2,forward=6,backward=3`)
+    read the same before and after in the simulator: into the text at `p020w01 …`, the
+    line of the hit, and at "Chapter two Heading".
+  - On the iPad one session's first phrase, before any step, was not the book's or the
+    sample's and was withheld unread.
 - The two lines that used to be listed each side were one short when VoiceOver moved back up
   the screen, menu or no menu. With its cursor on a line it asks for the item before the
   line two above, so three lines above the cursor must be listed, and two were unless more
@@ -3481,6 +3660,117 @@ The Mac runner's transcript is plain text and needs no export.
   a page's end, which the unit tests read; Read All in a cell with a link; link settings
   other than Speak; and a note's popover. What a cell says of a picture, a formula or a
   hidden label outside a link is in the entry before this one.
+- On 2026-10-13 a link below the screen was reached with Find Next Link in continuous
+  scroll on a Mac ([#425](https://github.com/vocaro/EPUBLib/issues/425)): the hosted
+  `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in a
+  window 600 points wide at 17 points, with VoiceOver's link setting at Speak. Nobody
+  listened. The sessions that are evidence are at the fixed pause and at `dcd0aa8`.
+  Before, main's reader at `3f3ae69` (run 38423727356), in continuous scroll. From the
+  top of the book `ax:links` gave the heading, "Verification link" and the heading below
+  the screen, and three `nextlink` steps said "Verification link hyperlink", "Last link
+  Verification link hyperlink" and nothing more. From two lines into the numbered
+  paragraph `nextlink` said "Verification link hyperlink", the link above, and then "Last
+  link" and its name. Opened at the pictures, four steps said the three links and "image
+  hyperlink" again; at `OPS/offers.xhtml`, "Lone jump hyperlink", "Right cell jump
+  hyperlink" and then the same two again; at `OPS/cells.xhtml`, where VoiceOver's first
+  move after `in` took the view a line up and its cursor to "Below", a line of the
+  section before, "Link not found" and nothing at five more steps.
+  With the next link below the screen among the children (run 38421694695). `ax:links`
+  from the top: four children, each `FOCUSABLE`, the last "Parked link to the target",
+  which is at character 11,073 where `VISIBLE` ends at 10,963. `nextlink nextlink` gave
+  "Verification link hyperlink" and the hint, and then `SELECTION 11073,0`, "words.",
+  `AXLayoutChanged` and "hyperlink Parked link to the target" with the hint; `describe`
+  "hyperlink is in the VoiceOver cursor"; `right` "hyperlink Parked link to the target";
+  `right` "Shown"; `line` "hyperlink Parked link to the target Shown last words.".
+  `activate` straight after the second `nextlink` moved the insertion point to 10,963,
+  the heading "Link target reached": the link was followed.
+  Sixteen `nextlink` steps from the top went through the book's fourteen links in order.
+  Those with nothing on screen when VoiceOver moved to them were said after a word, role
+  first: "words." and "hyperlink Parked link to the target"; "jump:" and "hyperlink
+  image"; "Lone jump hyperlink", "before" and "hyperlink Lone jump"; "worded jump
+  hyperlink", "grid." and "hyperlink worded jump", two sections on, in a table's cell;
+  and "Reopened 1978 hyperlink", "Birch, 1934 table" and "hyperlink Reopened 1978", in a
+  cell of a table of data, where what stands before the row is the table's row before
+  it. Where the probe caught it, the name VoiceOver began with is there too. The others,
+  on the screen the reader had gone to, were said as on a page: "Eighth cell link
+  hyperlink", "Jump with decoration hyperlink", "Described jump, image hyperlink", "Right
+  cell jump hyperlink", "Described entry jump, image hyperlink", "image hyperlink",
+  "Entry jump with decoration hyperlink" and "Parked entry jump hyperlink". The fifteenth
+  step said "Last link Reopened 1978 hyperlink", that link being the only one on screen,
+  and the sixteenth nothing new. `ax:links` then gave it and the heading "A table longer
+  than a page".
+  A row below the screen, with the reader opened at `OPS/offers.xhtml`: `ax:links` gave
+  the heading, "Lone jump", "Right cell jump", "worded jump", which is in a table two
+  sections down, and the heading "Tables of data". Three `nextlink` steps said the first
+  two as main does and then `SELECTION 15738,0`, the row, "grid." and "hyperlink worded
+  jump"; `describe` "hyperlink is in the VoiceOver cursor"; `right` and `line` "Table row
+  group"; `nextlink` from there "worded jump hyperlink", and `activate` followed it.
+  With cursor tracking off (`tracking`, "Cursor Tracking Off"): "Verification link
+  hyperlink", then "Parked link to the target hyperlink" with nothing before it,
+  `SELECTION 11026,0` and "paragraph.", the view having been scrolled by VoiceOver and
+  the insertion point following to the first line on screen; `right` said "Page" and
+  `line` "Page boundary verification", the top of the book, where VoiceOver had last
+  read. `tracking` again said "Cursor Tracking On".
+  The link cases again, in pages (run 38421766784) and in continuous scroll (run
+  38423525194). In pages, as before the change: on the first page `ax:links` the heading,
+  the link and the heading on a later page; "Verification link hyperlink", "Last link
+  Verification link hyperlink", and `activate` the page of `word1187`; by word
+  "Verification", "link.", by line "Verification link. Image:  Blue verification square
+  image .", and `activate` from "link." the same page. The hidden labels: "closing",
+  "words.", "hyperlink Parked link to the target", "Shown", the line "hyperlink Parked
+  link to the target Shown last words.", `nextlink` "Parked link to the target
+  hyperlink", `describe` "hyperlink is in the VoiceOver cursor", and `activate` its
+  target. The pictures: "image hyperlink", "Jump with decoration hyperlink", "Described
+  jump, image hyperlink" and "image hyperlink" again, with `activate` its target; by word
+  "Bare", "jump:", "hyperlink image", "hyperlink", "Jump", "with", "decoration",
+  "hyperlink Described jump, image"; and `activate` on "hyperlink image", reached by
+  word, the target. The links in cells: from the page the five in order, "worded jump
+  hyperlink" again, and `activate` the target; inside a cell "Table row group", "In Table
+  row group 2 items text Plain first entry.", "text Before the worded jump after it",
+  the cell's line, "worded jump hyperlink" and `activate` the target. The move by heading
+  from a link: "heading level 2 Link target reached", `line` "Link target reached",
+  `right` "Link".
+  In continuous scroll the same phrases by word, by line and inside a cell, and each
+  `activate` put the insertion point on "Link target reached". What differs is where
+  `nextlink` goes past the last link on screen. At the pictures the fourth step said
+  "Lone jump hyperlink", "before" and "hyperlink Lone jump", two sections on, where main
+  says "image hyperlink" again, and `activate` followed that link. At `OPS/cells.xhtml`,
+  in the place where main said "Link not found", the first step gave `SELECTION
+  15738,0`, "grid." and "hyperlink worded jump", the next four the other four links as
+  on a page, and the sixth "Reopened 1978 hyperlink", "Birch, 1934 table" and "hyperlink
+  Reopened 1978", which `activate` followed. From two lines into the numbered paragraph
+  `nextlink` said "Verification link hyperlink", as main does, and `right` read on with
+  "word0013": a link on screen is left as it is. The move by heading from a link said
+  "word1200" and "heading level 2 Link target reached" as before, and `nextlink` from
+  the heading's line "Parked link to the target hyperlink", by then on screen.
+  How the reader came to act only for a link with nothing on screen was found in three
+  runs at a pause of 3 seconds, which are no evidence. In 38414908587 (`7bbe60c`) every
+  link's element put the insertion point on its link when VoiceOver focused it, which it
+  did at every `nextlink`. VoiceOver then said the word beside the new place about 60 ms
+  after it began the link's name: "word." and the hint with no "Verification link
+  hyperlink", "grid." and the hint for a cell's link, "hyperlink image", the item before,
+  in place of "Jump with decoration hyperlink", and nothing at all at one step. Reading
+  by word and by line was as on main. In 38417225645 (`fe36bcc`) and 38419320983
+  (`9797f6a`) a launch argument chose among ways to move VoiceOver's place without that
+  word. The text answering a new insertion point with no notification: `right` after
+  "Verification link hyperlink" said "word0001", where VoiceOver had last read, and after
+  the link below the screen, said by its name alone, "word0003", with the view taken back
+  to the top. The same with a layout change that names the text: "Verification link
+  hyperlink", "hyperlink Verification link", and `right` "word0001". A notification of
+  the reader's own that the selection changed, bare, with `AXTextSelectionChangedFocus`
+  or with `AXTextStateSync`: all three moved VoiceOver's place, `right` saying
+  "Verification" and "link.", and all three said the word, "Verification" over the name
+  in continuous scroll and "Verification link hyperlink" and then "Verification" in
+  pages. With the reader acting only for a link with nothing on screen, as built:
+  "Verification link hyperlink", `right` "word0001", and then, from the text two words
+  on, `nextlink` went to the link below with "words." and "hyperlink Parked link to the
+  target". Main's reader at `229a612` said "Link not found" at that same step (run
+  38419459166): having been on the link's element, VoiceOver looked for a link after it.
+  Not heard: listening; a workstation; two columns, which continuous scroll has not; a
+  larger text size; a book whose next link is many screens down, where the place TextKit
+  gives a line not yet laid out is an estimate; a link in a row that is taller than the
+  screen; Find Previous Link, which goes forward on this macOS; and link settings other
+  than Speak.
 - On 2026-10-12 and 13 pages were turned under VoiceOver's cursor before and after the
   reader sent the cursor to the page shown
   ([#449](https://github.com/vocaro/EPUBLib/issues/449)). The device is the physical iPad Air 13-inch

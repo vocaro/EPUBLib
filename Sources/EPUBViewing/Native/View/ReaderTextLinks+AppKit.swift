@@ -31,6 +31,11 @@ struct ReaderLinkElements {
     /// Each link's element as a child of the text the view stands in, by its location: a
     /// table cell's links are listed by its page as well.
     var listed: [Int: ReaderLinkAccessibilityElement] = [:]
+    /// Every link of the text, in order, and where each table row that has a link in a cell
+    /// stands in it: found once for each text the view is given, for the next link after the
+    /// screen (`ReaderTextView.linkChildrenWithCells`).
+    var all: [(url: URL, range: NSRange)]?
+    var linkedRows: [Int]?
 }
 
 /// A text view that gives an assistive client the reader's own elements for its links: a page
@@ -68,6 +73,13 @@ extension ReaderLinkHost {
             result.append((url, whole))
         }
         return result
+    }
+
+    /// The first link that begins at `location` or after it, and none past the last.
+    func accessibilityLink(after location: Int) -> (url: URL, range: NSRange)? {
+        let all = linkElements.all ?? accessibilityLinks(in: linkCharacters)
+        linkElements.all = all
+        return all.first { $0.range.location >= location }
     }
 
     /// Gives `result`, the accessibility string of `range`, the reader's element for each link
@@ -168,15 +180,16 @@ extension ReaderLinkHost {
         accessibilityLinks(in: visibleLinkCharacters).map { linkElement(for: $0.url, at: $0.range) }
     }
 
-    /// The links on screen once more, as children of `listing`, the text this view stands in.
-    /// From a link VoiceOver's Find Next Link goes on through the children of the link's own
-    /// parent, so a link that a page lists has to be a child of the page to be one of its
-    /// links: an element of its own there, with the same name, place and press.
-    func linkChildren(listedIn listing: NSView) -> [ReaderLinkAccessibilityElement] {
+    /// The links on screen once more, as children of `listing`, the text this view stands in
+    /// at `place`. From a link VoiceOver's Find Next Link goes on through the children of the
+    /// link's own parent, so a link that a page lists has to be a child of the page to be one
+    /// of its links: an element of its own there, with the same name, place and press.
+    func linkChildren(listedIn listing: ReaderTextView, at place: Int) -> [ReaderLinkAccessibilityElement] {
         accessibilityLinks(in: visibleLinkCharacters).map { url, range in
             let element = linkElements.listed[range.location] ?? ReaderLinkAccessibilityElement()
             linkElements.listed[range.location] = element
             element.listing = listing
+            element.listedPlace = place
             configure(element, url: url, range: range, title: linkTitle(range))
             return element
         }
@@ -223,12 +236,83 @@ extension ReaderTextView: ReaderLinkHost {
     /// text: its own on screen and, where a table row stands, those of the row's cells. A row
     /// is one character of this text, so a cell's links are no links of its characters:
     /// without these children VoiceOver finds no link from the page that the cell has.
+    ///
+    /// In continuous scroll the book's next link after the screen is one more. VoiceOver takes
+    /// an element for a place only when it is among the children of its text, and from the
+    /// last link on screen Find Next Link began again with the first: the link below was
+    /// reached by reading or scrolling to it. The element is the link's own, kept by its
+    /// place in the text, so it is the same one when the link is on screen. Where the next
+    /// link is in a table row, the row keeps its cells while it is below the screen
+    /// (`ReaderTableInteraction.keepRow`), and its links are the next ones: a row off screen
+    /// has no cells otherwise, and a cell's link is the cell's element.
     func linkChildrenWithCells() -> [(place: Int, element: ReaderLinkAccessibilityElement)] {
         var found = linkChildren().map { (place: $0.range.location, element: $0) }
+        let end = NSMaxRange(visibleLinkCharacters)
+        let next = isPageColumn ? nil : accessibilityLink(after: end)
+        if !isPageColumn { tableInteraction?.keepRow(at: linkedRow(from: end, to: next?.range.location ?? textLength)) }
+        let kept = tableInteraction?.keptRow
+        var below = false
         for (location, cell) in tableInteraction?.accessibilityCellsInOrder ?? [] {
-            found += cell.linkChildren(listedIn: self).map { (place: location, element: $0) }
+            let links = cell.linkChildren(listedIn: self, at: location)
+            found += links.map { (place: location, element: $0) }
+            if location == kept, !links.isEmpty { below = true }
         }
+        // The row's links come before the text's own next one, which is then no child yet.
+        if !below, let next { found.append((next.range.location, linkElement(for: next.url, at: next.range))) }
         return found
+    }
+
+    /// Where the first table row with a link in a cell stands, of those from `lower` up to
+    /// `upper`, or none.
+    private func linkedRow(from lower: Int, to upper: Int) -> Int? {
+        let rows = linkElements.linkedRows ?? linkedRows()
+        linkElements.linkedRows = rows
+        return rows.first { $0 >= lower }.flatMap { $0 < upper ? $0 : nil }
+    }
+
+    /// Where each table row that has a link in a cell stands in the text.
+    private func linkedRows() -> [Int] {
+        guard containsTableRows, let text = contentStorage.textStorage else { return [] }
+        var linked: [ObjectIdentifier: Set<Int>] = [:], rows: [Int] = []
+        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, run, _ in
+            guard let row = value as? TableRowAttachment else { return }
+            let table = ObjectIdentifier(row.table)
+            if linked[table] == nil {
+                linked[table] = Set(row.table.cells.filter { cell in
+                    var found = false
+                    cell.content.enumerateAttribute(.link, in: NSRange(location: 0, length: cell.content.length)) { value, _, stop in
+                        if value != nil { found = true; stop.pointee = true }
+                    }
+                    return found
+                }.map(\.row))
+            }
+            if linked[table]?.contains(row.row) == true { rows.append(run.location) }
+        }
+        return rows
+    }
+
+    /// VoiceOver has moved to the element of the link at `range`, or of a cell's link whose
+    /// row is the character at `range`, and none of it is on screen: the next link after the
+    /// screen in continuous scroll. The reader shows it, as it shows a link's target, and
+    /// puts the insertion point on it. VoiceOver would scroll to the element by the scroll
+    /// bar, which the reader takes for any other scroll, and its next move by word or by line
+    /// would start from where it had last read and take the view back there: its own place
+    /// in the text follows the insertion point, when it is told that has moved, and nothing
+    /// else.
+    ///
+    /// A link with any of it on screen is left as it is. Told that the insertion point has
+    /// moved, VoiceOver says the word beside its new place, and says it over the link's name,
+    /// which it has only begun (macOS 27.0.1). After the reader has shown a place it tells
+    /// VoiceOver that the layout changed (`ReaderCanvasView.placeScrollInsertionPoint`), and
+    /// VoiceOver then says the item under its cursor again, so there the link's name follows
+    /// that word.
+    func showLink(at range: NSRange) {
+        guard let canvas, !isPageColumn, range.location != NSNotFound, range.location < textLength,
+              !linkFrame(range).intersects(visibleRect),
+              let position = canvas.position(at: range.location, in: self) else { return }
+        canvas.show(position, selecting: nil)
+        let place = NSRange(location: range.location, length: 0)
+        if selectedRange != place { selectedRange = place }
     }
 }
 
@@ -240,7 +324,9 @@ final class ReaderLinkAccessibilityElement: NSAccessibilityElement {
     /// The text view whose link it is.
     weak var view: (any ReaderLinkHost)?
     /// The view it is a child of, where that is not `view`: the page a table cell stands in.
-    weak var listing: NSView?
+    weak var listing: ReaderTextView?
+    /// Where the cell's row stands in that page's text: a row is one character of it.
+    var listedPlace = 0
     /// The link's target in the reader's own scheme. Not given to assistive clients: nothing
     /// can open it.
     var url: URL?
@@ -273,6 +359,30 @@ final class ReaderLinkAccessibilityElement: NSAccessibilityElement {
         guard let view, let url else { return false }
         let range = range
         return MainActor.assumeIsolated { view.followLink(url, at: range) }
+    }
+
+    /// The page's text and the character of it this link stands at: its own first character,
+    /// or the row of its cell in the page that lists it. None for a cell's own element, which
+    /// VoiceOver reaches inside the cell, where everything is on screen.
+    private var place: (text: ReaderTextView, range: NSRange)? {
+        if let listing { return (listing, NSRange(location: listedPlace, length: 1)) }
+        return (view as? ReaderTextView).map { ($0, range) }
+    }
+
+    // VoiceOver focuses the element it moves to while its cursor and the keyboard focus go
+    // together (cursor tracking, which is on until a listener turns it off), and that is all
+    // it tells the reader of the move. It focuses an element that says whether it has the
+    // focus and takes it, and none that only takes it (macOS 27.0.1). A link has the focus
+    // while the insertion point is on it, where the reader puts it for a link it has to
+    // show (`ReaderTextView.showLink`).
+    override func isAccessibilityFocused() -> Bool {
+        guard let place else { return false }
+        return MainActor.assumeIsolated { place.text.selectedRange == NSRange(location: place.range.location, length: 0) }
+    }
+
+    override func setAccessibilityFocused(_ focused: Bool) {
+        guard focused, let place else { return }
+        MainActor.assumeIsolated { place.text.showLink(at: place.range) }
     }
 }
 #endif

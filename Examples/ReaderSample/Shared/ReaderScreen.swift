@@ -98,8 +98,9 @@ struct ReaderScreen: View {
 
     /// `-SampleBook <path>` opens a book at launch, for automated and visual checks;
     /// `-SampleFlow scrolled`, `-SampleDark YES` and `-SampleFontSize <points>` set its style,
-    /// `-SampleHref <href>` shows one of its sections, and `-SampleSelectionLine YES` a line
-    /// that says what is selected.
+    /// `-SampleHref <href>` shows one of its sections, `-SampleSelectionLine YES` a line that
+    /// says what is selected, and `-SampleStepAfter <seconds>` sends Next Page once, that long
+    /// after the book is ready: a move the host makes with nothing on screen touched for it.
     private func openFromLaunchArguments() {
         guard reader.session == nil, let path = UserDefaults.standard.string(forKey: "SampleBook") else { return }
         reader.open(url: URL(fileURLWithPath: path))
@@ -113,5 +114,12 @@ struct ReaderScreen: View {
         if defaults.double(forKey: "SampleFontSize") > 0 { style.fontSize = defaults.double(forKey: "SampleFontSize") }
         reader.send(.style(style))
         if let href = defaults.string(forKey: "SampleHref") { reader.send(.navigate(href: href)) }
+        let delay = defaults.double(forKey: "SampleStepAfter")
+        if delay > 0 {
+            Task {
+                try? await Task.sleep(for: .seconds(delay))
+                reader.send(.nextPage)
+            }
+        }
     }
 }
