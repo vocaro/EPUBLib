@@ -980,12 +980,16 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
         a page or of the book, are one line of spaces together, where VoiceOver stops
         once; so is a page that holds nothing else.
       - **Not done.** A table inside a table cell is read from the cell's own text,
-        where such a row is as it was. A row without words whose one cell with anything
-        in it holds a link or a rule is a group in continuous scroll where it has a
-        second cell, and has no element on a page, as before.
+        where such a row is as it was
+        ([#458](https://github.com/vocaro/EPUBLib/issues/458)). A row without words
+        whose one cell with anything in it holds a link or a rule is a group in
+        continuous scroll where it has a second cell, and has no element on a page, as
+        before ([#527](https://github.com/vocaro/EPUBLib/issues/527)).
       - **Not heard.** Rows that end a page, and a page of nothing but such rows; a row
         of spaces; a row that opens a section; two such rows together; a spread of two
-        columns; a note's popover; Safari on this section; anyone listening.
+        columns; a note's popover; Safari on this section; anyone listening. What the
+        line numbering costs on a long book was not measured
+        ([#529](https://github.com/vocaro/EPUBLib/issues/529)).
     - **Beside Safari.** The same sections were heard as web pages in Safari 27.0.1 on
       the same runner, with the same keys
       ([VoiceOver testing](voiceover-testing.md), the second entry of 2026-10-13 on tables

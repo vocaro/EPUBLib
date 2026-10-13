@@ -797,7 +797,14 @@ read from a place of VoiceOver's own, fifty lines off.
 
 After `in` and `line`, the first `nextline` leaves VoiceOver on its line and no phrase in
 the transcript (the line said again would not be recorded a second time), and the second
-moves: `in line nextline nextline in` goes into the table on the line below. With one
+moves: `in line nextline nextline in` goes into the table on the line below. That first
+step is not idle. A move by line from an insertion point that is not at the end of its
+line goes to the end of that line, and the next one to the line after. A transcript shows
+it: the `AXSelectedTextChanged` line after a step has `SELECTION 22,0`, where VoiceOver
+left the insertion point, which also tells a step that said nothing from one that did
+nothing. VoiceOver leaves it at the end of a line it has read, before the break, and
+straight after a word or a row it has moved to, and `in` goes into what stands just
+before it. With one
 `nextline` the `in` is sent on the line of words, where it does nothing, and the moves after
 it go by word through the page, as in four sessions of run 38416874099.
 
@@ -1082,7 +1089,10 @@ does about each:
   table cell that is a link were heard in two runs so, where a build for each would have
   been nine (runs 38425952070 and 38428938679, the entry of 2026-10-13 on such a cell).
 - Keep at most two runs in flight for a branch, and one while any run is waiting for a
-  runner. The script starts no run beyond that and lists the branch's runs.
+  runner. The script starts no run beyond that and lists the branch's runs. A run counts
+  as waiting for its first seconds, before GitHub gives it a runner, so a second run
+  started straight after a first is refused: start it once the script lists the first
+  as on a runner.
 - Cancel a run as soon as it is no longer needed, with `gh run cancel RUN_ID`. Nothing else
   cancels one.
 
@@ -5320,6 +5330,11 @@ The Mac runner's transcript is plain text and needs no export.
   holds a link or a rule, which is not passed over; a table inside a table cell; a spread
   of two columns; a note's popover; Safari on this section; and VoiceOver in another
   language or with its verbosity changed.
+  [#529](https://github.com/vocaro/EPUBLib/issues/529) keeps these,
+  [#527](https://github.com/vocaro/EPUBLib/issues/527) the row that holds a link or a
+  rule, [#458](https://github.com/vocaro/EPUBLib/issues/458) the table inside a cell, and
+  [#528](https://github.com/vocaro/EPUBLib/issues/528) the word said again after a cell
+  is left.
 - Later again on 2026-10-13 a table cell that is a link was heard on a Mac before and
   after it was given a press and a link to hold: "Reopened 1978" in the first table of the
   section of tables of data (`-SampleHref OPS/grids.xhtml`), on GitHub's hosted `xcode-27`
