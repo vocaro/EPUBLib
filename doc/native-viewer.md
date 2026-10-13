@@ -690,14 +690,19 @@ The following are the defaults. Host commands and accessibility actions stay ena
   level, whole however many lines it takes; a link or an image in it is still its own
   element, a heading too. A page gives the part of a heading it shows. In continuous scroll
   a heading keeps one element whichever of its lines are on screen, listed by the part of it
-  in the reading area. VoiceOver says "Heading" after the words; it was not heard to say the
-  level it is given (iOS 27.0). Its own Headings rotor moves among the elements it is given,
-  and a page or a screen holds few of a book's headings, so each text view gives VoiceOver
-  that rotor itself (`UIAccessibilityCustomRotor`, system type heading): a move by heading
-  goes to the next heading listed, one stop for a heading in several elements, and past the
-  page or the screen to the next heading of the book, which the reader turns or scrolls to
-  as it does for a link. A section that is not built yet ends the search, and so does the
-  end of the book: VoiceOver then says "Heading not found".
+  in the reading area. Its label is its words, without the break that ends its paragraph:
+  VoiceOver then says "Heading" in the same phrase. It was not heard to say the level it is
+  given (iOS 27.0). VoiceOver's own Headings rotor moves among the elements it is given, and
+  a page or a screen holds few of a book's headings, so the reader gives VoiceOver that
+  rotor itself (`UIAccessibilityCustomRotor`, system type heading): a move by heading goes
+  to the next heading listed, one stop for a heading in several elements, and past the page
+  or the screen to the next heading of the book, which the reader turns or scrolls to as it
+  does for a link. A section that is not built yet ends the search, and so does the end of
+  the book: VoiceOver then says "Heading not found". VoiceOver says "Actions available"
+  after every item that has such a rotor. A page's lines say so already, for their page
+  actions, and all have the rotor. A line of the scroll view is read as its words and no
+  more, so there only the headings have it: from a heading the reader's rotor goes on
+  through the book, and from any other line VoiceOver's own finds the headings on screen.
   On Mac a text area has no elements for its lines, so the heading's characters carry its
   level (`AXHeadingLevel`) in the rich text an assistive client reads, and each text view
   gives VoiceOver a Headings rotor (`NSAccessibilityCustomRotor`). VoiceOver's move to the

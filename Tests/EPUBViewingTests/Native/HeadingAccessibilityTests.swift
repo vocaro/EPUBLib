@@ -341,7 +341,7 @@ import UIKit
             XCTAssertNotEqual(view.index(ofAccessibilityElement: next), NSNotFound)
             // The lines around the place the cursor left are still listed before it.
             let top = try XCTUnwrap(view.line(containing: try XCTUnwrap(canvas.scrollSpokenCharacters()).location))
-            XCTAssertEqual(view.plainText(in: top.range), next.accessibilityLabel, "at the top of the screen")
+            XCTAssertEqual(view.plainText(in: top.range), (next.accessibilityLabel ?? "") + "\n", "at the top of the screen")
             heard.append(read(next))
             sections.append(try XCTUnwrap(canvas.visibleRange).start.section)
             // VoiceOver's cursor goes to what it is given.
