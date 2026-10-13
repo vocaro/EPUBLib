@@ -24,8 +24,20 @@ struct ReaderTableAction {
     private var updating = false
     private var sourceText: NSAttributedString?
     private var projectedSelections: [Key: NSRange] = [:]
+    /// The place of a row off screen whose cells stand all the same (`keepRow`).
+    private(set) var keptRow: Int?
 
     init(owner: ReaderTextView) { self.owner = owner }
+
+    /// Has the row at `location` keep its cells while it is off screen, in place of the row
+    /// kept before. On Mac the row after the screen that holds the book's next link is one an
+    /// assistive client is given that link from (`ReaderTextView.linkChildrenWithCells`), and
+    /// a link's element is its cell's.
+    func keepRow(at location: Int?) {
+        guard keptRow != location else { return }
+        keptRow = location
+        refresh()
+    }
 
     func removeViews() {
         for cell in cells.values { cell.removeFromSuperview() }
@@ -162,6 +174,7 @@ struct ReaderTableAction {
             cells.removeAll()
             projectedSelections.removeAll()
             sourceText = owner.flowSourceText
+            keptRow = nil
         }
         var retained: Set<Key> = []
         #if os(macOS)
@@ -179,6 +192,9 @@ struct ReaderTableAction {
             if lower >= 0, upper > lower { ranges.append(NSRange(location: lower, length: upper - lower)) }
             return true
         }
+        if let keptRow, keptRow < storage.length, !ranges.contains(where: { NSLocationInRange(keptRow, $0) }) {
+            ranges.append(NSRange(location: keptRow, length: 1))
+        }
         for range in ranges {
             storage.enumerateAttribute(.attachment, in: range) { value, run, _ in
                 guard let row = value as? TableRowAttachment,
@@ -187,7 +203,7 @@ struct ReaderTableAction {
                     let key = Key(location: run.location, cell: item.cell,
                         lower: item.characters.location, upper: item.characters.upperBound)
                     let target = item.frame.offsetBy(dx: frame.minX + origin.x, dy: frame.minY + origin.y)
-                    guard !target.intersection(visible).isEmpty else { continue }
+                    guard !target.intersection(visible).isEmpty || run.location == keptRow else { continue }
                     retained.insert(key)
                     let cell: TableCellTextView
                     if let existing = cells[key] { cell = existing }

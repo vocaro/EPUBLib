@@ -137,9 +137,10 @@ import AppKit
     /// The offset a rest for a new visible height left the scroll view at, until UIKit reports
     /// the scrolling of that inset change (`scrollViewDidChangeAdjustedContentInset`).
     var restedScrollOffset: CGFloat?
-    /// Posts what the canvas tells an assistive technology after a page turn, and the layout
-    /// change the scroll bar's stand-in tells of after it is adjusted (`ReaderTextView`). A
-    /// test puts its own closure here to see what is posted, and with which element.
+    /// Posts what the canvas tells an assistive technology after a page turn and after a move
+    /// of its own in continuous scroll, and the layout change the scroll bar's stand-in tells
+    /// of after it is adjusted (`ReaderTextView`). A test puts its own closure here to see
+    /// what is posted, and with which element.
     var postAccessibilityNotification: @MainActor (UIAccessibility.Notification, Any?) -> Void = {
         UIAccessibility.post(notification: $0, argument: $1)
     }
@@ -329,6 +330,8 @@ import AppKit
     /// only when it differs after a passive one (scrolling, resizing).
     private func updateVisibleRange(force: Bool) {
         let range = configuration.flow == .scrolled ? scrollVisibleRange() : pagesVisibleRange()
+        // Every move of the scroll view ends here, with the viewport laid out where it stands.
+        if configuration.flow == .scrolled { refreshScrollTables() }
         guard let range else { return }
         let changed = range != visibleRange
         visibleRange = range
@@ -338,6 +341,8 @@ import AppKit
                 ?? ReaderTextPosition(section: range.start.section, offset: location) }
             placeScrollInsertionPoint(at: entry ?? range.start, requested: force)
         }
+        #else
+        if force, configuration.flow == .scrolled { accessibilityCursorFollowsTheScrollView(to: anchor) }
         #endif
         if force || changed { delegate?.canvas(self, didShow: range, sectionProgress: progress(of: range.start)) }
     }
@@ -880,15 +885,27 @@ import AppKit
         isScrollingProgrammatically = wasScrolling
     }
 
+    /// Gives the table rows now on screen in the scroll view their cells' text views, with the
+    /// highlights and the selection that run through them. Done as the view moves, and again
+    /// once the reader has read where the view stands (`updateVisibleRange`), which every move
+    /// ends in. The platform tells of a move when the offset changes, before TextKit has laid
+    /// the viewport out there, so the rows are then looked for in the layout of the place
+    /// before. After a step of a page, or the reader's last correction on its way to a
+    /// contents entry, the rows that layout had not reached had no cell to select in, follow
+    /// a link in or offer an assistive technology until the person scrolled; where the
+    /// correction was by more than a screen, as for a section a book opened at, none had (#472).
+    private func refreshScrollTables() {
+        scrollTextView?.setTableHighlights(ReaderHighlight.drawingOrder(highlights))
+        if let range = currentSelection?.range, range.start.tableCell != nil || range.end.tableCell != nil {
+            _ = scrollTextView?.selectTableRange(range, reporting: false)
+        }
+    }
+
     /// The platform scroll view moved; reports the visible range at most every 150 ms. A move
     /// that leaves the view where it was last read is the platform's, and nobody scrolled; nor
     /// has anybody when the platform reports the reader's own scroll late (`byReader`).
     func scrollPositionDidChange(byReader: Bool = false) {
-        let ordered = ReaderHighlight.drawingOrder(highlights)
-        scrollTextView?.setTableHighlights(ordered)
-        if let range = currentSelection?.range, range.start.tableCell != nil || range.end.tableCell != nil {
-            _ = scrollTextView?.selectTableRange(range, reporting: false)
-        }
+        refreshScrollTables()
         guard !byReader, !isScrollingProgrammatically, !scrollViewStandsWhereRead else { return }
         anchorFollowsScroll = true
         guard !scrollReportPending else { return }

@@ -279,11 +279,13 @@ import XCTest
             if value != nil { all.append(range) }
         }
         XCTAssertEqual(all.count, 3, "each section's first paragraph ends in a link")
-        // The first section's link is on screen with its paragraph; the others are not.
+        // The first section's link is on screen with its paragraph; the others are not. The
+        // children are the links on screen and the next one below (the test after this one).
         let visible = view.accessibilityVisibleCharacterRange()
         XCTAssertTrue(NSLocationInRange(all[0].location, visible))
+        XCTAssertFalse(NSLocationInRange(all[1].location, visible))
         XCTAssertFalse(NSLocationInRange(all[2].location, visible))
-        XCTAssertEqual(children(of: view).map(\.range), all.filter { NSLocationInRange($0.location, visible) })
+        XCTAssertEqual(children(of: view).map(\.range), [all[0], all[1]])
         // The text of the whole book is one text: a link far below is still an element there.
         let far = try links(in: view, all[2])
         XCTAssertEqual(far.map(\.range), [all[2]])
@@ -291,6 +293,156 @@ import XCTest
         XCTAssertTrue(try XCTUnwrap(far.first?.element).accessibilityPerformPress())
         XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/two.xhtml#target"))
         XCTAssertEqual(host.recorder.links.last?.position.section, 2)
+    }
+
+    /// A book of three chapters in continuous scroll, each more than a screen, with a link in
+    /// the first chapter's opening, two in the middle of the second and one at the book's end.
+    private func scrolledLinks() throws -> (host: CanvasHost, view: ReaderTextView, all: [NSRange]) {
+        let filler = (0..<12).map { "<p>\(CanvasText.sentence(60, seed: $0))</p>" }.joined()
+        let sections = try [
+            "<p>Opening words and <a href=\"two.xhtml\">a first link</a>.</p>\(filler)",
+            "\(filler)<p>Words with <a href=\"three.xhtml\">a second link</a> and <a href=\"one.xhtml\">a third link</a>.</p>\(filler)",
+            "\(filler)<p>Closing words and <a href=\"one.xhtml\">a last link</a>.</p>",
+        ].map { try BoxLayoutHarness.build($0, css: Self.css).string }
+        let source = FakeCanvasSource(sections)
+        source.book = CanvasText.book(sections)
+        let host = CanvasHost(source, size: CGSize(width: 500, height: 600), configuration: .init(flow: .scrolled))
+        hosts.append(host)
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        host.layOut()
+        let view = try XCTUnwrap(host.canvas.scrollTextView)
+        let all = try links(in: view, NSRange(location: 0, length: view.textLength)).map(\.range)
+        XCTAssertEqual(all.count, 4)
+        return (host, view, all)
+    }
+
+    private func titles(of view: ReaderTextView) -> [String] { children(of: view).map { $0.accessibilityTitle() ?? "" } }
+
+    /// VoiceOver's Find Next Link moves through the children of the text and takes an element
+    /// for a place only when it is one of them (macOS 27.0.1). So in continuous scroll the
+    /// children end with the book's next link after the screen, as they hold the next heading
+    /// there: from the last link on screen the move goes on to it, where it began again with
+    /// the first.
+    func testTheScrollViewsChildrenEndWithTheBooksNextLinkBelowTheScreen() throws {
+        let (host, view, all) = try scrolledLinks()
+        guard all.count == 4 else { return }
+        XCTAssertEqual(titles(of: view), ["a first link", "a second link"], "the one on screen and the next, and none after that")
+        let below = try XCTUnwrap(children(of: view).last)
+        XCTAssertEqual(below.range, all[1])
+        XCTAssertFalse(NSLocationInRange(all[1].location, view.accessibilityVisibleCharacterRange()))
+        XCTAssertGreaterThan(below.accessibilityFrameInParentSpace().minY, view.visibleRect.maxY, "its place is where it stands, below the screen")
+        XCTAssertGreaterThanOrEqual(below.accessibilityFrameInParentSpace().width, 1)
+        XCTAssertTrue(below.accessibilityParent() as AnyObject === view)
+        XCTAssertEqual(below.accessibilityRole(), .link)
+        // It is the link's own element, the one the text's string gives for its characters.
+        XCTAssertTrue(try XCTUnwrap(links(in: view, all[1]).first?.element) === below)
+        XCTAssertTrue(children(of: view).last === below, "kept from one read to the next")
+        XCTAssertTrue(below.accessibilityPerformPress())
+        XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/three.xhtml"))
+        // Scrolled to it: the same element, now on screen, with the link beside it and the
+        // next one below.
+        host.canvas.show(try XCTUnwrap(host.canvas.position(at: all[1].location, in: view)), selecting: nil)
+        host.layOut()
+        XCTAssertEqual(titles(of: view), ["a second link", "a third link", "a last link"])
+        XCTAssertTrue(children(of: view).first === below)
+        XCTAssertLessThan(below.accessibilityFrameInParentSpace().minY, view.visibleRect.maxY)
+        // At the book's last link nothing is below: Find Next Link begins again with the
+        // first link on screen, as it does on a page.
+        host.canvas.show(try XCTUnwrap(host.canvas.position(at: all[3].location, in: view)), selecting: nil)
+        host.layOut()
+        XCTAssertEqual(children(of: view).last?.range, all[3])
+        XCTAssertTrue(children(of: view).allSatisfy { NSIntersectionRange($0.range, view.accessibilityVisibleCharacterRange()).length > 0 })
+        // Above the screen nothing is listed: Find Next Link from the text takes the first
+        // child, wherever VoiceOver's cursor is.
+        XCTAssertFalse(children(of: view).contains { $0.range.location < view.accessibilityVisibleCharacterRange().location })
+    }
+
+    /// VoiceOver focuses the element it moves to, while its cursor and the keyboard focus go
+    /// together, and focuses none that does not say whether it has the focus (macOS 27.0.1).
+    /// That is all it tells the reader of a move to a link, and a link's element takes it. A
+    /// link on the page is left as it is: told that the insertion point has moved, VoiceOver
+    /// says the word beside it over the link's name.
+    func testALinksElementTakesTheFocusAndALinkOnThePageIsLeftAsItIs() throws {
+        let (host, view) = try page("<p>Before <a href=\"two.xhtml\">a first link</a> between.</p><p>Then <a href=\"three.xhtml\">a second link</a> after.</p>")
+        let found = children(of: view)
+        XCTAssertEqual(found.map { $0.accessibilityTitle() ?? "" }, ["a first link", "a second link"])
+        guard found.count == 2 else { return }
+        for selector in [#selector(NSAccessibilityElement.isAccessibilityFocused), #selector(NSAccessibilityElement.setAccessibilityFocused(_:))] {
+            let own = try XCTUnwrap(class_getInstanceMethod(ReaderLinkAccessibilityElement.self, selector))
+            let inherited = try XCTUnwrap(class_getInstanceMethod(NSAccessibilityElement.self, selector))
+            XCTAssertNotEqual(method_getImplementation(own), method_getImplementation(inherited), "\(selector)")
+        }
+        XCTAssertEqual(view.selectedRange, NSRange(location: 0, length: 0))
+        XCTAssertFalse(found.contains { $0.isAccessibilityFocused() })
+        // VoiceOver moves to each: nothing is shown and the insertion point stays, with a
+        // selection or without one.
+        let shown = host.recorder.shown.count, selections = host.recorder.selections.count
+        for selection in [NSRange(location: 0, length: 0), NSRange(location: 2, length: 3)] {
+            view.selectedRange = selection
+            for link in found {
+                link.setAccessibilityFocused(true)
+                link.setAccessibilityFocused(false)
+                XCTAssertEqual(view.selectedRange, selection, link.accessibilityTitle() ?? "")
+                XCTAssertFalse(link.isAccessibilityFocused(), link.accessibilityTitle() ?? "")
+            }
+        }
+        XCTAssertEqual(host.recorder.shown.count, shown)
+        // A link has the focus while the insertion point is on it, as after VoiceOver has
+        // read up to it by word.
+        view.setAccessibilitySelectedTextRange(NSRange(location: found[1].range.location, length: 0))
+        XCTAssertTrue(found[1].isAccessibilityFocused())
+        XCTAssertFalse(found[0].isAccessibilityFocused())
+        view.setAccessibilitySelectedTextRange(NSRange(location: found[1].range.location + 3, length: 0))
+        XCTAssertFalse(found[1].isAccessibilityFocused())
+        // The press is what it was.
+        XCTAssertTrue(found[1].accessibilityPerformPress())
+        XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/three.xhtml"))
+        _ = selections
+    }
+
+    /// In continuous scroll the link below the screen is one VoiceOver moves to with none of
+    /// it on screen. Its cursor is then on the element and not in the text, and its next move
+    /// by word or by line starts from where it last read, which takes the view back there.
+    /// So the reader shows the link, as it shows a link's target, and puts the insertion
+    /// point on it; it is then the same element among the links on screen.
+    func testFocusingTheLinkBelowTheScreenShowsItAndPutsTheInsertionPointOnIt() throws {
+        let (host, view, all) = try scrolledLinks()
+        guard all.count == 4, children(of: view).count == 2 else { return XCTFail("the children are not the first two links") }
+        let first = children(of: view)[0], below = children(of: view)[1]
+        // One on screen is left as it is.
+        let visible = view.accessibilityVisibleCharacterRange(), before = view.selectedRange
+        var shown = host.recorder.shown.count
+        first.setAccessibilityFocused(true)
+        XCTAssertEqual(view.selectedRange, before)
+        XCTAssertEqual(view.accessibilityVisibleCharacterRange(), visible)
+        XCTAssertEqual(host.recorder.shown.count, shown)
+        XCTAssertFalse(below.isAccessibilityFocused())
+        // The one below.
+        shown = host.recorder.shown.count
+        below.setAccessibilityFocused(true)
+        host.layOut()
+        XCTAssertEqual(host.recorder.shown.count, shown + 1, "the reader showed it")
+        XCTAssertEqual(view.selectedRange, NSRange(location: all[1].location, length: 0), "reading on starts at the link")
+        XCTAssertTrue(below.isAccessibilityFocused())
+        XCTAssertTrue(below.accessibilityFrameInParentSpace().intersects(view.visibleRect), "on screen now")
+        XCTAssertEqual(host.canvas.visibleRange?.start, host.canvas.position(at: view.line(containing: all[1].location)?.range.location ?? -1, in: view),
+                       "its line is the first on screen, as a link's target is")
+        XCTAssertTrue(children(of: view).first === below, "the element VoiceOver is on is still the link's")
+        XCTAssertEqual(titles(of: view), ["a second link", "a third link", "a last link"])
+        // Focused again where it is now, and the link beside it: nothing more is shown.
+        shown = host.recorder.shown.count
+        below.setAccessibilityFocused(true)
+        children(of: view)[1].setAccessibilityFocused(true)
+        XCTAssertEqual(host.recorder.shown.count, shown)
+        XCTAssertEqual(view.selectedRange, NSRange(location: all[1].location, length: 0))
+        // Text selected elsewhere is no longer, once the reader has gone to a link below.
+        view.selectedRange = NSRange(location: all[1].location + 2, length: 4)
+        let last = try XCTUnwrap(children(of: view).last)
+        XCTAssertEqual(last.range, all[3])
+        last.setAccessibilityFocused(true)
+        host.layOut()
+        XCTAssertEqual(view.selectedRange, NSRange(location: all[3].location, length: 0))
+        XCTAssertTrue(last.accessibilityFrameInParentSpace().intersects(view.visibleRect))
     }
 }
 #endif
