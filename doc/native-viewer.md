@@ -964,8 +964,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
         neither is one that holds a rule or a formula.
       - **Inside a table of data** the row is still a row. VoiceOver goes into the table
         at a row of words, and its table navigation goes through this row's cells as
-        through any others, "Tree empty cell"; a cell of decoration is said by the
-        attachment's character there, as a cell that holds a picture is (A cell, above).
+        through any others: "Tree empty cell", for a cell of decoration as for a cell
+        with nothing in it (A cell, above).
       - **What it costs.** What an assistive client reads is not character for character
         what the view holds: two spaces stand where the row's attachment and its break
         do. The lines a client counts are fewer than the lines laid out, by one for each

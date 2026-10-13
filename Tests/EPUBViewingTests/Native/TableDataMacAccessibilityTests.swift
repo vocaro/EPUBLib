@@ -781,11 +781,12 @@ import XCTest
             }
             view.selectedRange = NSRange(location: 0, length: 0)
 
-            // Entered at another row, the table of data has every row, and these rows' cells.
+            // Entered at another row, the table of data has every row, and these rows' cells,
+            // which say nothing: VoiceOver calls each an empty cell.
             let table = try XCTUnwrap(given[5].element as? ReaderTableElement, flow)
             XCTAssertEqual(table.accessibilityRowCount(), 8, flow)
             XCTAssertEqual(try self.rows(of: table).map { try cells(of: $0).map(said) },
-                           [["Tree", "Tally"], ["Oak", "Nine"], ["", ""], ["Elm", "Four"], ["\u{FFFC}", "\u{FFFC}"], ["Ash", "Six"], [""], ["Yew", "Two"]], flow)
+                           [["Tree", "Tally"], ["Oak", "Nine"], ["", ""], ["Elm", "Four"], ["", ""], ["Ash", "Six"], [""], ["Yew", "Two"]], flow)
         }
     }
 
