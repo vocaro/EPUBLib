@@ -56,6 +56,14 @@ xcrun xctest -XCTest All -AppleShowScrollBars Always .build/debug/EPUBViewingTes
 xcrun xctest -XCTest All -AppleShowScrollBars WhenScrolling .build/debug/EPUBViewingTests.xctest
 ```
 
+A Mac test takes a window through a live resize, as a drag of its edge does, with
+`setFrame(_:display:animate:)`: AppKit tells every view that a live resize starts, resizes the
+window through the sizes between, and tells every view that it has ended, before the call
+returns. `viewWillStartLiveResize()` called on a view does not reach its subviews, and AppKit's
+text view does its own work when a resize ends
+([Layout](native-viewer.md#layout), "Continuous scroll"). `ScrolledLiveResizeTests` has the
+helper, with a view that counts the calls, and skips where AppKit resizes without one.
+
 A `swift test` that hangs can be made to say where. Written to a file or a pipe, its output
 arrives 16 KB at a time, so the log of a run that hangs stops short of the hang, or is empty.
 With `NSUnbufferedIO=YES` in its environment `swift test` writes each line as a test makes

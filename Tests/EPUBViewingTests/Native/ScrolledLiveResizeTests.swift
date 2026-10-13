@@ -42,6 +42,7 @@ import XCTest
         frame.origin = window.frame.origin
         window.setFrame(frame, display: true, animate: true)
         content.layoutSubtreeIfNeeded()
+        try XCTSkipIf(witness.started == 0, "AppKit resized the window to \(size) without a live resize", file: file, line: line)
         XCTAssertEqual([witness.started, witness.ended], [1, 1], "the window went through one live resize to \(size)", file: file, line: line)
         XCTAssertEqual(content.frame.size, size, file: file, line: line)
     }
