@@ -2009,6 +2009,10 @@ The Mac runner's transcript is plain text and needs no export.
   "image". With a new element for every read, as before, and each given the frame of its
   character, at `a46659e`, run 38356030625: a phrase with nothing in it and a step with no
   phrase in every one of those places, as on `main`.
+  The section was the book's sixth and last in all of these sessions. `main` at `0128fa6`,
+  merged in afterwards, has "What each line offers" as its sixth, so the section of entries
+  is the seventh, with the same content and still opened by name. That merge changes
+  nothing in a cell's code, and the sessions were not recorded again on it.
   Not heard: the Inspect Image action of a picture in a cell chosen through VoiceOver; a
   picture, a formula or a hidden label inside a link in a cell; a part of a cell cut at a
   page's end; a formula without `alttext`, whose reading is generated; a rule or a picture
