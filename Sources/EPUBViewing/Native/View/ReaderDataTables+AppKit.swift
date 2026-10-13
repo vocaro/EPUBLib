@@ -228,7 +228,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     // the header element was (macOS 27.0.1; doc/voiceover-testing.md has the reports).
 
     /// The header of each column, in column order. None where no column has a header cell.
-    private var columnHeaders: [Any] {
+    private var columnHeaders: [NSAccessibilityElement] {
         let heads = (0..<table.columnCount).map { table.columnHeaders($0) }
         guard view != nil, heads.contains(where: { !$0.isEmpty }) else { return [] }
         return heads.enumerated().map { headerElement($1, key: $0) }
@@ -236,7 +236,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 
     /// The header of each row of the whole table, in row order: a page's table answers for
     /// its rows by their numbers in the whole table.
-    private var rowHeaders: [Any] {
+    private var rowHeaders: [NSAccessibilityElement] {
         let heads = table.rows.indices.map { table.rowHeaders($0) }
         guard view != nil, heads.contains(where: { !$0.isEmpty }) else { return [] }
         return heads.enumerated().map { headerElement($1, key: -1 - $0) }
@@ -246,17 +246,10 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// text areas: VoiceOver reads a header cell by what it holds, and does not read a cell
     /// under itself. Otherwise the words of its header cells, top or first one first, as
     /// static text: several header cells, one on another page, or one far off the screen.
-    private func headerElement(_ cells: [Int], key: Int) -> Any {
-        // TRIAL: what the table gives for a header cell that holds a link. "named": its
-        // words, as static text. "inner": the cell's text area. "linked": the cell's link.
-        if cells.count == 1, let listed = listed(cells[0]), listed.holdsText {
-            switch listed.headerTrial {
-            case "named": break
-            case "inner": return listed.textViews[0]
-            case "linked": return listed.trialLink
-            default: return listed
-            }
-        }
+    private func headerElement(_ cells: [Int], key: Int) -> NSAccessibilityElement {
+        // TRIAL: "named" gives a header cell that holds a link by its words.
+        let named = ReaderTableCellElement.headerTrial == "named"
+        if cells.count == 1, let listed = listed(cells[0]), listed.holdsText, !(named && listed.holdsLink) { return listed }
         let words = cells.map { table.cells[$0].text }.filter { !$0.isEmpty }.joined(separator: ", ")
         if let kept = headerNames[key], kept.words == words { return kept }
         let name = ReaderTableHeaderElement(table: self, words: words)
@@ -264,7 +257,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
         return name
     }
 
-    func columnHeader(_ column: Int) -> Any? {
+    func columnHeader(_ column: Int) -> NSAccessibilityElement? {
         let headers = columnHeaders
         return headers.indices.contains(column) ? headers[column] : nil
     }
@@ -397,7 +390,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityHeader() -> Any? { onMain(self) { $0.header } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
 
-    private var header: Any? { table?.columnHeader(column) }
+    private var header: NSAccessibilityElement? { table?.columnHeader(column) }
     private var screenFrame: NSRect {
         let frame = (table?.cells(inColumn: column) ?? []).map { $0.screenFrame }.reduce(NSRect.null) { $0.union($1) }
         return frame.isNull ? .zero : frame
@@ -496,8 +489,6 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     // inside it: that followed the fixture's link in each session, and nothing says it must.
     override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
         if selector == #selector(accessibilityPerformPress) { return onMain(self) { $0.isLink } }
-        // TRIAL: a cell has no value unless the trial gives it one.
-        if selector == #selector(accessibilityValue) { return onMain(self) { $0.headerTrial == "valued" } }
         return super.isAccessibilitySelectorAllowed(selector)
     }
 
@@ -528,24 +519,14 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// and what it would say of a link there was not heard.
     var holdsLink: Bool {
         guard isLink, let table else { return false }
-        return !table.table.cells[cell].isHeader || !Self.headerTrial.isEmpty
+        return !table.table.cells[cell].isHeader || ["holds", "named"].contains(Self.headerTrial)
     }
 
     // TRIAL, not for main: how a header cell that is one link is given, chosen at launch with
     // `-TableHeaderLinkCell NAME`, to hear what VoiceOver says of it and of the cells it
-    // heads. With any name it holds a link as any other such cell does. "holds": no more
-    // than that. "named", "inner", "linked": what the table gives for the header it is
-    // (`ReaderTableElement.headerElement`). "titled", "labelled": the link has the cell's
-    // words for its title or its label while its text area is on screen too. "valued": the
-    // cell has them for its value.
+    // heads. "holds": it holds a link as any other such cell does. "named": that, and the
+    // table gives the header it is by its words, as static text.
     static let headerTrial = UserDefaults.standard.string(forKey: "TableHeaderLinkCell") ?? ""
-    /// The trial's name for a header cell that is one link, and nothing for any other cell.
-    var headerTrial: String {
-        guard isLink, let table, table.table.cells[cell].isHeader else { return "" }
-        return Self.headerTrial
-    }
-    var trialLink: ReaderTableCellLinkElement { link }
-    override func accessibilityValue() -> Any? { onMain(self) { $0.headerTrial == "valued" ? $0.text : nil } }
 
     /// Follows the cell's link, as its Follow Link action does: from the text view that shows
     /// the link. False for a cell off screen, which has none until it is brought there.
@@ -609,13 +590,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityRole() -> NSAccessibility.Role? { .link }
     override func accessibilitySubrole() -> NSAccessibility.Subrole? { .textLink }
     override func accessibilityParent() -> Any? { onMain(self) { $0.cell } }
-    override func accessibilityTitle() -> String? { onMain(self) { $0.cell.flatMap { $0.headerTrial == "titled" ? $0.text : $0.unsaid } } }
-    // TRIAL: the link has no label unless the trial gives it one.
-    override func accessibilityLabel() -> String? { onMain(self) { $0.cell.flatMap { $0.headerTrial == "labelled" ? $0.text : nil } } }
-    override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
-        if selector == #selector(accessibilityLabel) { return onMain(self) { $0.cell?.headerTrial == "labelled" } }
-        return super.isAccessibilitySelectorAllowed(selector)
-    }
+    override func accessibilityTitle() -> String? { onMain(self) { $0.cell?.unsaid } }
     override func accessibilityChildren() -> [Any]? { onMain(self) { $0.held } }
     override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.held } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.cell?.screenFrame ?? .zero } }
