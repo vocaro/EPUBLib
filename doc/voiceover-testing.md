@@ -940,6 +940,10 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    screenshot shows its cursor on that line, and each move forward reads the next line of
    that page. Do it from the first page and from a line in the middle of a later page,
    whose lines hold the same characters as the next page's, and with Previous Page.
+   Then double-tap again with no flick before it: the page turns again and VoiceOver reads
+   the first line of that page, since its cursor is on the item it was on and the action
+   chosen still stands. From a data table's cell, or onto a page that opens with one, the
+   cursor goes to a new item, and there the second double tap turns nothing.
 4. Confirm heading order, the link's label/action and the image's spoken label.
 5. Resize or change typography, wait for the new layout, and repeat the boundary and ordering
    checks. On Mac verify corresponding value-change notifications and fresh text values.
@@ -1077,7 +1081,12 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     (`rotor=Actions` ends in `MISSING`). No item offers a picture or a link that is not its
     own, or "Verification link", which is in the book's first section. On a device, choose
     Inspect Image on a picture and double-tap, and the inspector opens; choose Next Page on a
-    line of a page and double-tap, and the page turns.
+    line of a page and double-tap, and the page turns. After that turn the item under the
+    cursor is the first line of the page shown, "Below line 18." on an iPad, and offers
+    what that line does: turn the page from the link, from "Square with words" and from the
+    row, and step through the rotor each time. It reads "Previous Page", "Activate Default"
+    and "Next Page" and nothing of the item it was, and a double tap on "Activate Default"
+    follows no link and opens no inspector.
 13. Attachments in a table cell, on a Mac, in a window 600 points wide at 17 points, with
     the reader opened at the section of entries (`"launch=-SampleHref OPS/entries.xhtml"`).
     Three `right` steps from the text's first line reach the table's first row, and `in`
@@ -2983,6 +2992,108 @@ The Mac runner's transcript is plain text and needs no export.
   physical iPhone; a page turned by a key with the cursor in the text; and Switch Control
   or any other assistive technology that keeps a cursor. VoiceOver was read back as off
   after every device session.
+- On 2026-10-13 VoiceOver's rotor was kept on a line's page action across the turn. The
+  change recorded above sends the cursor to a new item, where the rotor is at its default.
+  Now the item under the cursor becomes the first line of the page shown and is the item
+  posted with the layout change. The device is the physical iPad Air 13-inch (M3) of the
+  sessions above (iPadOS 27.2, 1024 × 1366, upright, 17 points, Xcode 27.0), through
+  XCTest's VoiceOver service. Nobody listened.
+  The steps, on the book's first section: `point=0.5:0.5`, which put the cursor on
+  "word0089 …" on the first page; `flick=down`, which read "Next Page"; a double tap;
+  `listen=4`; a second double tap with no flick before it; `listen=3`; `visible`; and
+  `forward=3`.
+  Before, on `main` at `593b907`. After the first double tap VoiceOver read "word0294
+  word0295 … word0301" by itself. After the second it read that line again and
+  `word0294`–`word0654` was still on screen: the page had not turned. The moves read
+  "word0302 …", "word0310 …", "word0319 …".
+  After, at `0ea1f28`, the change on that `main`. After the first double tap it read
+  "word0294 …" by itself, and the screenshot shows its cursor on that line. After the
+  second it read "word0655 word0656 … word0662", the first line of the page after, the
+  screenshot shows its cursor there, and `word0655`–`word1012` was on screen. The moves
+  read "word0663 …", "word0671 …", "word0680 …".
+  Back again, in a session of its own: two double taps forward as above, `flick=down` once
+  more, which read "Previous Page", and three double taps. The first read "word0294 …"
+  and the second "Page boundary verification Heading", the first page's first item, with
+  `word0001`–`word0293` on screen. At the third nothing on screen changed in two seconds,
+  and VoiceOver said the heading again: the book has no page before its first.
+  On its side (1366 × 1024), where the first spread shows `word0001`–`word0147` beside
+  `word0148`–`word0350`: with the cursor on "word0232 …" in the right-hand page, Next Page
+  read "word0351 …" by itself, the first line of the left-hand page of the next spread. A
+  second double tap read "word0757 …", the first line of the spread after that, which
+  shows `word0757`–`word0959` beside `word0960`–`word1163`, and the moves read "word0764
+  …", "word0771 …", "word0778 …". The item had been a line of the right-hand column and
+  was then one of the left.
+  What the item is after it has become another line was read in three sections. In
+  "Scenes set apart" (`OPS/scenes.xhtml`), with the cursor on "First scene ends." and Next
+  Page chosen, three double taps in a row read "Separator", the rule alone on its page,
+  then "Last words of the scenes.", then "What each line offers Heading", the first item of
+  the next section. Stepping through the rotor there read "Previous Page", "Activate
+  Default" and "Next Page", and two moves forward read "Plain words above." and "Words
+  before". In "What each line offers" (`OPS/offers.xhtml`) Next Page was chosen and
+  performed from the link "Lone jump", from the picture "Square with words" and from the
+  row "Left cell Right cell jump", each in a session of its own. Each time VoiceOver read
+  "Below line 18." by itself, and the rotor on that item offered "Previous Page", "Activate
+  Default", "Next Page" and "Previous Page" again: no Inspect Image after the picture, and
+  no Select Table Text or Follow Table Link after the row. After the link, a double tap on
+  "Activate Default" left "Below line 18." under the cursor, and Previous Page chosen and
+  performed from it then read "What each line offers Heading": the item that had been a
+  link followed nothing. Each kind still did its own on the page come back to. Three
+  moves forward from the heading reached "Lone jump Link", and a double tap read "Link
+  target reached Heading", the line of the link's target in the first section. On "Square
+  with words" the rotor read "Next Page", "Previous Page" and "Inspect Image: Square with
+  words", and a double tap put VoiceOver on "Zoom Out Button", in the inspector. On the
+  row it read "Next Page", "Previous Page" and "Select Table Text: Left cell", and a
+  double tap said "Select Table Text: Left cell" with nothing on screen changed
+  ([#450](https://github.com/vocaro/EPUBLib/issues/450) has the selection that is not
+  seen).
+  A data table's cell is where the rotor still starts again, since a cell's item becomes
+  no line and no line's item a cell. In "Tables of data" (`OPS/grids.xhtml`), with the
+  cursor on "Twelve metres Row 2 Column 3" and Next Page chosen, a double tap read "Line
+  06 after the grids." by itself, and a second double tap read that line again: the page
+  had not turned. With Next Page chosen anew on that line, three double taps read "Line
+  32 after the grids.", then "A table longer than a page Heading", then "Entry 27 Row 28
+  Column 1 Table start 41 rows 3 columns", the first cell of the page after: from a line
+  the turns went on, and the cell that the last one came to was a new item.
+  A turn by the control strip's button read as it had. With the cursor taken from a line
+  to the button (`activate=Next Page`), VoiceOver stayed on "Next Page Button", and moving
+  forward read the strip's eight other controls and then "word0294 …", "word0302 …",
+  "word0310 …", "word0319 …". After Previous Page it said "Previous Page dimmed", and
+  moving forward read the controls and "Page boundary verification Heading".
+  Three ways of telling VoiceOver were tried before the change was settled, in a build
+  with a launch argument for which to use (not in the branch), on the same steps and the
+  same iPad. That build was the change as first written, on `19a3f7a`, before the data
+  tables of `593b907`. With the item under the cursor made the new line and posted with
+  the layout change, which is what the reader now does: as above. With the item made the
+  new line and the layout change posted with no item: after each double tap "Next Page"
+  was still the phrase standing and VoiceOver said nothing more, the screenshot shows
+  its cursor on the first line, the second double tap turned the page again, and the
+  moves read "word0663 …", "word0671 …", "word0680 …". With that and the line's words
+  posted as an announcement: VoiceOver said the words after each double tap, in a phrase
+  recorded as far as the first letter of the line's last word, and the second double tap
+  turned the page again. An announcement is a string the reader speaks, though, and not
+  the item read: of an item VoiceOver also says what it is, as "Heading" above.
+  A new item for the line is the before of this record.
+  The [simulator lane](#simulators) read the same three with the page turned under the
+  cursor by a plain touch on the control strip's button, since a simulator's VoiceOver
+  performs no action. iPhone 17 Pro simulator, iOS 27.0, 402 × 874, 17 points, the cursor
+  on "Page boundary verification", the heading that opens the first page. With the item
+  posted: VoiceOver read "word0017 word0018 word0019 word0020" by itself, without
+  "Heading", and the moves read "word0021 …", "word0025 …", "word0029 …". With no item
+  posted it said nothing, and the moves were the same three. With the announcement it
+  said the line. With the page's number posted first and then the item, the order
+  VoiceOver's scroll posts: "Page 2", then "word0017 word0018 word0019 word0020", as it
+  was when the line was a new item.
+  VoiceOver was read back as off after every device session. In eight of them a phrase
+  that is not the test book's or the sample's was recorded when VoiceOver came on, the
+  same number of characters each time, and two more at the rotations of the session on
+  the iPad's side. None was read, those sessions' logs and result bundles were deleted,
+  and none of their screenshots was opened: the screenshots cited are of sessions on the
+  first section that recorded no such phrase.
+  Not established: a physical iPhone; VoiceOver's three-finger scroll itself
+  ([#70](https://github.com/vocaro/EPUBLib/issues/70)); a page turned by a key with the
+  cursor in the text; an item that becomes a picture, a link or a table row on a device,
+  which unit tests hold to the answers of a new item; and Switch Control or any other
+  assistive technology that keeps a cursor.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).

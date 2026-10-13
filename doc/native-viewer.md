@@ -467,7 +467,10 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     shows the middle of a table says both, and the row's number says where in the table
     the page is. The first cell VoiceOver comes to in a table is said without its header
     cells. The
-    rows of another page are not there to move to; Next Page goes on, as from a line. A
+    rows of another page are not there to move to; Next Page goes on, as from a line. The
+    cursor is then on a new item with the rotor at its default, where a line's item goes
+    with the page and keeps the action chosen ("A page turned under VoiceOver's cursor"
+    under Input and accessibility). A
     column's header cell on another page is still named before the cells it heads: the
     table answers with an element that has the header's words and is nowhere to go. A
     row taller than a page continues: on each page its cell is the same cell of the table,
@@ -1100,15 +1103,30 @@ The following are the defaults. Host commands and accessibility actions stay ena
   So a page column knows which of its lines the cursor is on. UIKit tells a line when the
   cursor comes to it and names every item the cursor goes to, and whatever is not a line of
   that column ends it. When a page is shown and the cursor's line is no longer on it, the
-  canvas posts a layout change with the line that holds the position shown
-  (`ReaderCanvasView.accessibilityCursorFollowsThePage`): the first line of the page after
-  a page turn, in the left-hand page of a spread, and the line of a link's target after a
-  link. VoiceOver takes its cursor there and reads the line, so reading goes on from the
-  top of the page. This is so whoever turned the page: a line's own action, VoiceOver's
-  scroll, a key, or the host while the cursor is in the text. The cursor is then on a new
-  item, where VoiceOver's rotor is at its default again: to turn several pages from the
-  text a listener flicks down to Next Page before each double tap, where on the line left
-  behind a second double tap turned again (iPadOS 27.2). Three cursors are left alone.
+  item under the cursor becomes the line that holds the position shown: the first line of
+  the page after a page turn, in the left-hand page of a spread, and the line of a link's
+  target after a link. It takes that line's place in its column's list and everything a
+  new item for the line would have, its words, where it stands, what it is and what it
+  offers, and keeps nothing of the line it was
+  (`ReaderTextView.accessibilityCursorStands(for:)`): a link that is now a line of words
+  goes nowhere, and a line that is now a picture offers the picture's inspection. The
+  canvas then posts a layout change with that item
+  (`ReaderCanvasView.accessibilityCursorFollowsThePage`). VoiceOver reads the line and
+  draws its cursor on it, so reading goes on from the top of the page, and what was chosen
+  in its rotor still stands, since its cursor has not changed item: with Next Page chosen,
+  each double tap after the first turns another page (iPadOS 27.2). This is so whoever
+  turned the page: a line's own action, VoiceOver's scroll, a key, or the host while the
+  cursor is in the text.
+  The other ways were tried on the same iPad. Given a new item for the line, VoiceOver
+  read it the same and its rotor was back at its default there, so each page took a flick
+  down to Next Page before its double tap. Told of the change with no item named, the
+  item under its cursor being the new line already, it kept the rotor and drew its cursor
+  on the line, and said nothing. With the line's words announced as well it said them
+  and kept the rotor, but an announcement is the reader's string and not the item read:
+  of an item VoiceOver also says what it is, a heading, a link or an image.
+  A data table's cell is the exception, from it or to it. A cell is an item of another
+  kind, inside its table's, which no line's item can become, so there VoiceOver is given
+  the new item and its rotor starts again. Three cursors are left alone.
   One that is not in the text stays where it is: after the host's Next Page button
   VoiceOver is still on the button, and moving into the text from there met the new page's
   first line before this and does now. One whose line is still on the page keeps it, as
@@ -1116,8 +1134,9 @@ The following are the defaults. Host commands and accessibility actions stay ena
   nothing, since VoiceOver goes to the item the rotor gives it. VoiceOver's scroll, three
   fingers swiped, announces "Page N" as before, and the cursor is sent after the
   announcement. Posted in that order after a page turned under a simulator's cursor,
-  VoiceOver said "Page 2" and then the line; in the other order it said the line alone
-  (iOS 27.0). No session has performed the gesture itself
+  VoiceOver said "Page 2" and then the line, with a new item for the line and with the
+  cursor's own item made the line; in the other order, tried with a new item, it said the
+  line alone (iOS 27.0). No session has performed the gesture itself
   ([#70](https://github.com/vocaro/EPUBLib/issues/70)): XCTest has no three-finger swipe,
   so what VoiceOver does of its own accord after a scroll has not been heard. An item kept
   from an earlier list stands for its line by the line's place
