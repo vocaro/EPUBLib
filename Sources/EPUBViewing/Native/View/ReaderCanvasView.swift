@@ -92,7 +92,7 @@ import AppKit
     private var scrollGeometry: (bounds: CGRect, minX: CGFloat, width: CGFloat)?
     /// The person scrolled since the anchor was set, so the visible start replaces it.
     private var anchorFollowsScroll = false
-    private var isScrollingProgrammatically = false
+    private(set) var isScrollingProgrammatically = false // PROBE: read by the AppKit file.
     private var scrollReportPending = false
     /// Where the first line on screen stood when the scroll view was last read: its location in
     /// the view's text, its top and the visible area's, in text container coordinates. AppKit's
@@ -114,6 +114,10 @@ import AppKit
     #if os(macOS)
     /// Where the reader last put the scroll view's insertion point (`placeScrollInsertionPoint`).
     private var placedScrollInsertionPoint: Int?
+    // PROBE, not for merge.
+    private var probeMoved: Date?
+    private var probeScrollByClient = false
+    private var probeRestoring = false
     /// Posts the canvas's layout changes: the one after a spread is installed and the one after
     /// the reader moves the scroll view itself. A test puts its own closure here to see what an
     /// assistive client is told, and by which element.
@@ -872,6 +876,9 @@ import AppKit
             guard let self else { return }
             self.scrollReportPending = false
             guard self.configuration.flow == .scrolled, self.scrollTextView != nil else { return }
+            #if os(macOS)
+            ReaderProbe.log("REPORT 150 ms after a scroll that was not the reader's")
+            #endif
             self.updateVisibleRange(force: false)
         }
     }
@@ -943,6 +950,15 @@ import AppKit
     /// scroll view lists its lines on screen (`ReaderTextView`).
     private func placeScrollInsertionPoint(at start: ReaderTextPosition, requested: Bool) {
         guard let textView = scrollTextView else { return }
+        // PROBE, not for merge.
+        let target = scrollBook?.location(of: start) ?? start.offset
+        ReaderProbe.log("PLACE requested=\(requested) target=\(target) selection=\(textView.selectedRange.location),\(textView.selectedRange.length) placed=\(placedScrollInsertionPoint.map(String.init) ?? "nil") byClient=\(probeScrollByClient)")
+        if requested { probeMoved = Date() }
+        if requested, ReaderProbe.order == "layoutFirst" { probePostLayoutChange(textView) }
+        if !requested, ReaderProbe.follow == "byHand", probeScrollByClient {
+            ReaderProbe.log("PLACE not followed: the scroll was a client's")
+            return
+        }
         if textView.selectedRange.length == 0, requested || textView.selectedRange.location == placedScrollInsertionPoint {
             let location = scrollBook?.location(of: start) ?? start.offset
             placedScrollInsertionPoint = location
@@ -951,6 +967,10 @@ import AppKit
                 textView.selectedRange = NSRange(location: location, length: 0)
                 isApplyingSelection = false
             }
+        }
+        if ReaderProbe.isOn {
+            if requested, ReaderProbe.order != "layoutFirst" { probePostLayoutChange(textView) }
+            return
         }
         // VoiceOver keeps its own cursor in a text area it has left, and on returning goes back
         // to it, scrolling the view there. A layout change naming the text view makes it enter
@@ -965,6 +985,45 @@ import AppKit
     }
     #endif
 
+    #if os(macOS)
+    // PROBE, not for merge.
+    private func probePostLayoutChange(_ textView: ReaderTextView) {
+        let element: Any? = switch ReaderProbe.layout {
+        case "none": nil
+        case "text": textView
+        case "scroll": NSAccessibility.unignoredAncestor(of: textView)
+        case "ancestor": NSAccessibility.unignoredAncestor(of: self)
+        default: window
+        }
+        ReaderProbe.log("POST layout=\(ReaderProbe.layout) by \(element.map { String(describing: type(of: $0)) } ?? "nobody") selection=\(textView.selectedRange.location)")
+        if let element { postAccessibilityNotification(element, .layoutChanged, [.uiElements: [textView]]) }
+        if ReaderProbe.after == "selection" {
+            ReaderProbe.log("POST selectedTextChanged by the text view")
+            NSAccessibility.post(element: textView, notification: .selectedTextChanged)
+        }
+    }
+
+    /// True for an insertion point a client sets within a second of the reader's own move.
+    func probeRefuses(_ range: NSRange) -> Bool {
+        guard ReaderProbe.hold == "selection" || ReaderProbe.hold == "scroll", range.length == 0,
+              let moved = probeMoved, Date().timeIntervalSince(moved) < 1 else { return false }
+        return true
+    }
+
+    func probeScrolled() {
+        guard !isScrollingProgrammatically else { return }
+        probeScrollByClient = ReaderProbe.client > 0 || NSApp.currentEvent.map { ![.scrollWheel, .leftMouseDragged, .leftMouseDown, .leftMouseUp].contains($0.type) } ?? true
+        guard ReaderProbe.hold == "scroll", let moved = probeMoved, Date().timeIntervalSince(moved) < 1, !probeRestoring else { return }
+        probeRestoring = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            ReaderProbe.log("HOLD scrolling back to the anchor")
+            self.scrollToAnchor()
+            self.probeRestoring = false
+        }
+    }
+    #endif
+
     private func turnScrolledPage(forward: Bool) -> PageTurnResult {
         guard let textView = scrollTextView else { return .atBoundary }
         // The step is taken from the text on screen, wherever a layout since has put it.
@@ -974,6 +1033,17 @@ import AppKit
             let start = textView.lineBoundary(atContainerY: visible.minY, lineEnd: false)
             let line = textView.lineFrame(containing: start)?.height ?? 20
             let step = max(line, visible.height - line)
+            #if os(macOS)
+            ReaderProbe.log("STEP forward=\(forward) from y=\(Int(visible.minY)) selection=\(textView.selectedRange.location)")
+            if ReaderProbe.caret == "beforeScroll", textView.selectedRange.length == 0 {
+                let first = textView.lineBoundary(atContainerY: visible.minY + (forward ? step : -step) + line / 2, lineEnd: false)
+                ReaderProbe.log("CARET before the scroll at \(first)")
+                placedScrollInsertionPoint = first
+                isApplyingSelection = true
+                textView.selectedRange = NSRange(location: first, length: 0)
+                isApplyingSelection = false
+            }
+            #endif
             withProgrammaticScroll { scrollToContainerY(visible.minY + (forward ? step : -step)) }
             anchor = scrollVisibleRange()?.start ?? anchor
             anchorFollowsScroll = false
@@ -1140,6 +1210,11 @@ import AppKit
 
     /// A text view's selection changed, by the person or with new text.
     func textViewSelectionDidChange(_ view: ReaderTextView) {
+        #if os(macOS)
+        if view === scrollTextView {
+            ReaderProbe.log("SELECTION \(view.selectedRange.location),\(view.selectedRange.length) \(isApplyingSelection ? "reader" : "OTHER") client=\(ReaderProbe.client)", stack: !isApplyingSelection)
+        }
+        #endif
         guard !isApplyingSelection else { return }
         // Native delegate notifications may be delivered after a coordinated update or drag
         // completes. An unchanged segment is still part of the same source selection.
