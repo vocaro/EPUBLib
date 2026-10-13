@@ -327,7 +327,7 @@ final class ReaderTextView: NSTextView {
     }
 
     private var linkRotorProbe: String? {
-        UserDefaults.standard.string(forKey: "ReaderLinkProbe").flatMap { $0.hasPrefix("rotor") ? $0 : nil }
+        UserDefaults.standard.string(forKey: "ReaderLinkRotor")
     }
 
     override func accessibilityCustomRotors() -> [NSAccessibilityCustomRotor] {
@@ -353,7 +353,7 @@ final class ReaderTextView: NSTextView {
         guard let found else { return nil }
         let element = linkElement(for: found.url, at: found.range)
         let result: NSAccessibilityCustomRotor.ItemResult
-        if linkRotorProbe == "rotor-element" { result = NSAccessibilityCustomRotor.ItemResult(targetElement: element) }
+        if linkRotorProbe == "element" { result = NSAccessibilityCustomRotor.ItemResult(targetElement: element) }
         else {
             result = NSAccessibilityCustomRotor.ItemResult(targetElement: self)
             result.targetRange = found.range

@@ -107,7 +107,18 @@ new phrase is recorded:
 - `linecount`: Control-Option-F3 twice, the total and visible line counts.
 - `readall`: read from the cursor onward.
 - `activate=LABEL`: Control-Option-Space, sent only if one of VoiceOver's last two phrases
-  contains LABEL, as in `"activate=Next Page"`.
+  contains LABEL, as in `"activate=Next Page"`. Without a label it is sent whatever was said.
+- `nextlink`, `previouslink`: VoiceOver's Find Next Link and Find Previous Link,
+  Control-Option-Command-L and the same with Shift. They move to a link of the text under the
+  cursor and name it.
+- `describe`: Control-Option-F3 once, what is in the VoiceOver cursor. `attributes`:
+  Control-Option-T, the text attributes there.
+- `actions`: Control-Option-Command-Space, the menu of the item's actions. `rotor`:
+  Control-Option-U, VoiceOver's rotor, lists of what the item under its cursor holds.
+  `listright` and `listleft` go from list to list, `listdown` and `listup` along one,
+  `listchoose` (Return) takes the item named and `listclose` (Escape) closes the list. These
+  six are plain keys. Send them only while a list is open: otherwise the reader takes an
+  arrow as a page turn.
 - `pagedown`, `pageup`: the reader's own page keys, without VoiceOver modifiers.
 - `ax:STEP`: a step of the observer described below, through the accessibility API.
 
@@ -167,6 +178,16 @@ selection and the numbered-word span of its value:
 - `focus`, `focus=COLUMN`, `focus=search`: give the last column, a numbered column or the
   search field keyboard focus, without a click.
 - `lines`: print every accessibility line of each column.
+- `links`: print what each column gives an assistive client for its links and attachments.
+  A `CHILD` line is one of the text's own children, which Find Next Link moves through. A
+  `LINK` line is a run of the text's accessibility string with the element given as its
+  link, the element given as its attachment, or both: each one's role, what it is called,
+  and its actions.
+- `caret=WORDS`: put the insertion point before the first of these words, as in
+  `"ax:caret=Bare jump"`. VoiceOver enters a text at its insertion point, so `in` then starts
+  on that line and `right` reads the word.
+- `follow=WORDS`: press the link that names the words or holds them, by its own action and
+  without VoiceOver.
 - `wait=SECONDS`: only observe. Without steps the observer only observes; a single step of
   `-` reads steps from standard input.
 
@@ -289,6 +310,12 @@ gh run download RUN_ID --name voiceover-mac-transcripts --dir .build/voiceover/h
   unless given.
 - `flow`: `paginated`, or `scrolled` for [continuous scroll](#continuous-scroll), which needs
   its own steps.
+- `launch`: further launch arguments of the reader, quoted as on a command line.
+  `-SampleHref OPS/labels.xhtml` opens the book at a section, with no page turns to reach it,
+  and `-VerificationBook paragraphs` opens the other book.
+- `links`: how VoiceOver announces a link or an attachment in text: `Speak`, `Change Pitch`,
+  `Play Tone` or `Do Nothing`. `Unchanged`, the default, leaves the runner's own setting. See
+  [Links](#links).
 - `pause`: the runner's `--pause`, 5 seconds unless given.
 - `advance_after`: the runner's `--advance-after`. Empty keeps the fixed pause.
 
@@ -296,8 +323,9 @@ A job has twenty minutes and a session at most 300 seconds, the runner script's 
 Preparing the runner and building take about two minutes and the boundary session about three
 at the fixed pause, so a run of that one session has uploaded its transcript about five minutes
 after it starts. A session that could not end three minutes before the job's limit is reported
-as not run, and the job fails. A new run for the same ref, width, text size and flow cancels
-one still in progress, so put step lists that share those into one run; runs that differ in
+as not run, and the job fails. A new run for the same ref, width, text size, flow, launch
+arguments and link setting cancels one still in progress, so put step lists that share those
+into one run; runs that differ in
 any of them go on side by side.
 
 With `advance_after` set to `0.5`, stepping took about a quarter of the time in four pairs of
