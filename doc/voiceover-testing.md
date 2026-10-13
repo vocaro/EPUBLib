@@ -352,7 +352,7 @@ point can be followed beside the speech.
    with the one `SELECTION`: AppKit's, and the reader's second notice, which is what brings
    VoiceOver's cursor along there. With one notice VoiceOver named the line it had entered at
    ("text  word:  Read"), `SELECTION 0,0` followed, and `line` read the book's first line:
-   the step was undone.
+   the step was undone ([#473](https://github.com/vocaro/EPUBLib/pull/473)).
 4. `out`, `right` to leave the text, a scroll step, `left` and `in`: VoiceOver enters at the
    new first line. Each of the reader's own moves shows as `AXLayoutChanged`.
 
@@ -2343,8 +2343,9 @@ The Mac runner's transcript is plain text and needs no export.
   selected and a turn under `EPUBPageControls.hostOnly`, which unit tests hold and the
   sample has no switch for; a right-to-left spread; a spread whose next section is not
   built yet; and VoiceOver's cursor on a table's row or cell, which keeps its own actions.
-- The same day what undid that step was found, and the step made to hold. It was heard before
-  and after on the same main: [hosted sessions](#hosted-mac-sessions) on `xcode-27` (image
+- The same day what undid that step was found, and the step made to hold
+  ([#473](https://github.com/vocaro/EPUBLib/pull/473)). It was heard before and after on the
+  same main: [hosted sessions](#hosted-mac-sessions) on `xcode-27` (image
   20261006.0244.1, macOS 27.0.1 `26A434`, Xcode 27.0), 600 wide at 17 points, at a fixed
   pause of four seconds, with VoiceOver brought to the text by `ax:focus=search ax:focus=0`.
   Before is main's reader at `593b907`, run 38380968267. After is the reader of `aa2fbdb`,

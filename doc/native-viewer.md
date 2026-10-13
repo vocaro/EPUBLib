@@ -731,7 +731,8 @@ as they did.
   area's action and with the host's button alike. So after a move the reader makes itself
   the text view tells of the insertion point a second time, before the layout change, and
   VoiceOver goes there, as it does at the first notice once it has moved by line
-  (macOS 27.0.1). Each such move costs an assistive client one notice that reports no
+  (macOS 27.0.1, [#473](https://github.com/vocaro/EPUBLib/pull/473)). Each such move costs
+  an assistive client one notice that reports no
   change. Where the insertion point follows other scrolling it is told of once, as before.
   A page turn is left as it is: putting a page's text into a column already tells twice.
   On iOS, VoiceOver walks a text view's accessibility elements and, moving in from a control,
