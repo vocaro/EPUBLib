@@ -107,6 +107,38 @@ extension ReaderTextView {
         return result
     }
 
+    /// Whether assistive technology passes over `image`, which stands at `range`: one the book
+    /// marks as decoration with an empty `alt`. Decoration that is all its link holds is the
+    /// link and stays, because a link has to be reachable whatever its image's `alt` says.
+    func isPassedOver(_ image: ReaderImageAttachment, at range: NSRange) -> Bool {
+        guard image.alternative == .decorative else { return false }
+        guard let storage = contentStorage.textStorage, range.location < storage.length else { return true }
+        var link = NSRange()
+        guard storage.attribute(.link, at: range.location, longestEffectiveRange: &link,
+                                in: NSRange(location: 0, length: storage.length)) != nil else { return true }
+        // Anything else in the link that can be read carries it.
+        var carried = false
+        storage.enumerateAttribute(.attachment, in: link) { value, run, stop in
+            if let other = value as? ReaderImageAttachment { carried = other.alternative != .decorative }
+            else if let value { carried = (value as? ReaderTextualAttachment)?.textEquivalent.isEmpty == false }
+            else { carried = !(storage.string as NSString).substring(with: run).allSatisfy(\.isWhitespace) }
+            stop.pointee = ObjCBool(carried)
+        }
+        return carried
+    }
+
+    /// The images of `range` that assistive technology is told of: `imageAttachments(in:)`
+    /// without the decoration it passes over, in the text or in a table's cells.
+    func announcedImages(in range: NSRange? = nil) -> [(image: ReaderImageAttachment, range: NSRange)] {
+        let storage = contentStorage.textStorage
+        return imageAttachments(in: range).filter { image, run in
+            guard image.alternative == .decorative else { return true }
+            // A table row's images share the row's character and have no link of the text's.
+            return storage?.attribute(.attachment, at: run.location, effectiveRange: nil) as? ReaderImageAttachment === image
+                && !isPassedOver(image, at: run)
+        }
+    }
+
     func image(at point: CGPoint) -> ReaderImageAttachment? {
         let target = CGPoint(x: point.x - containerOrigin.x, y: point.y - containerOrigin.y)
         guard let fragment = readerLayoutManager.textLayoutFragment(for: target),
