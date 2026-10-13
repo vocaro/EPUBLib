@@ -289,8 +289,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   throwaway branch and is not built
   ([#425](https://github.com/vocaro/EPUBLib/issues/425)). A note's popover keeps AppKit's
   elements, and its links do nothing.
-  A table cell is a text view of its own. VoiceOver meets a row as one stop of the page's
-  text, "Table row group"; interacting with it there shows the row's cells, and interacting
+  A table cell is a text view of its own. VoiceOver meets a row of a table that is not
+  data as one stop of the page's text, a group called by the row's words ("Data tables"
+  below, On Mac); interacting with it there shows the row's cells, and interacting
   with a cell reads the cell's text by word and by line as the page's is read. A cell's
   links were AppKit's. A link of words was found and followed inside its cell, but a link
   that is a picture was "￼ hyperlink", decoration beside a link's words went into its name
@@ -401,7 +402,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   element still offers UIKit's own elements for its text, and VoiceOver took those, every cell
   on the page, before the first line of a page column and then read the rows as well. On Mac
   a table that holds data is given as a table at each of its rows ("Data tables" below), and
-  a row of any other table is a group that holds its cells' text areas. A cell's lines are those its own layout
+  a row of any other table is a group, called by its cells' words, that holds its cells'
+  text areas. A cell's lines are those its own layout
   makes, numbered from the first it shows, and the offset after its last character is on its
   last line, as the offset after a page's last character is on the page's. VoiceOver leaves
   a text's insertion point after a word it has read, so with its cursor on a cell's last
@@ -509,10 +511,11 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     whole table, with the rows the view shows of it, its columns, its cells, each with the
     rows and the columns it covers, and a header for each column and each row, from HTML's
     header cells as `TableModel` has them. The table at a row is called by that row's words
-    and says that row is selected. A table that is not data is as it was, a group for each
-    row. Each part of this was heard on a hosted runner before it was kept
-    ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-13 on tables of data
-    on Mac):
+    and says that row is selected. A table that is not data is a group for each row,
+    called by that row's words (A table that is not data, below). Each part of this was
+    heard on a hosted runner before it was kept
+    ([VoiceOver testing](voiceover-testing.md), the entries of 2026-10-13 on tables of data
+    on Mac and on a table that is not data):
     - **Reading the text.** By line and by word VoiceOver says a row's words and its own
       word for the role: "Alder, 1901, Twelve metres table". Every row of every table said
       "Table row group" before, and none of its words. A table of forty rows is forty
@@ -590,6 +593,50 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       a table at its selected row, or failing that at the first row on screen, so a table
       that selects the row it stands at is entered there, and says only its label and
       "table" as long as it says nothing of selected cells.
+    - **A table that is not data.** A row of a table the book marks as layout, or that
+      nothing marks as data, is a group where its character stands, which holds the text
+      areas of its cells on screen. As it reads the text VoiceOver says what a group is
+      called and "group", and nothing of what the group holds. Called "Table row", every
+      such row said "Table row group": a listener who read on by line, by word or with
+      Read All passed the table's words unsaid, and heard them only by going into each
+      row. The group is now called by its cells' words in column order, with a comma
+      between cells and a cell without words left out, as the table at a row of a table
+      of data is: "Left side, Right side group", "Lower left, Lower right group", by
+      line, by word and with Read All. A cell's words are what the cell reads: a
+      described picture's and a formula's among them ("Drawn Blue entry square shown.",
+      "Sum x squared stated."), a hidden label's, and those of a table inside it.
+      iPhone and iPad read such a row by the same words, "Left side Right side". There a
+      row is one item of text with actions for its cells; on a Mac its cells are text
+      areas to go into, so the row is a group and VoiceOver says so.
+      Control-Option-Shift-Down goes into the row as before: "In Lower left, Lower right
+      group 2 items text Lower left", then "text Lower right" at the next cell, "In text
+      Lower right" on going into that cell, where VoiceOver reads by word and by line,
+      and "Out of Lower left, Lower right group" on leaving the row.
+      The group says what it is called and what it holds when it is asked, and is the
+      same element whether or not its cells are on screen. It was made from what was on
+      screen at the moment the text was asked for it: a row whose cells' text areas were
+      not there was an image called by its words, with nothing to go into, and VoiceOver
+      keeps the element it is given. In continuous scroll that is a row beyond the
+      screen, and one session met it another way: moving by word after leaving a row,
+      VoiceOver said "First cell Second cell image", a tab between the cells, of the row
+      it had just been inside, where it now says "First cell, Second cell group". Why
+      that row's text areas were not there at that moment was not looked into.
+      What it costs. VoiceOver says a row's words again on going into the row, before
+      the first cell's, and on leaving it: into a row of long cells that is some seconds
+      before the cell's own words, which the row's began with. A row is one phrase, so a
+      row of long cells is a long one, which the next key stops; in pages a row taller
+      than a page is called by the words that page shows. "group" follows every row.
+      A row that shows pictures nobody describes and no words has none to be called by,
+      and is still "Table row". A row's pictures are offered from its group as before,
+      Inspect Image with the picture's words.
+      A row of a table of data that shows a picture is its table, as its other rows
+      are. It was given as a row's group, because the text looked for a row's pictures
+      after its tables and put the group in the table's place. The fixture's tables of
+      data hold no picture, so that was read in a unit test and not heard.
+      Not heard: a row called "Table row"; a row off screen that VoiceOver reads to by
+      line before the view has moved; a spread of two columns; a note's popover; and
+      what Safari says of the fixture's two plain tables, which the comparison below
+      did not open.
     - **Beside Safari.** The same sections were heard as web pages in Safari 27.0.1 on
       the same runner, with the same keys
       ([VoiceOver testing](voiceover-testing.md), the second entry of 2026-10-13 on tables
@@ -603,8 +650,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       Control-Option-C says the column's header. The rest of what VoiceOver says differs,
       and most of that is VoiceOver's: it has one way of speaking for a table in a web
       page and another for a table anywhere else (`SCRWebTable` and `SCRTable` in the
-      reports macOS wrote). Four things a listener in the reader does not get, with what
-      closing each would take:
+      reports macOS wrote). Three things a listener in the reader does not get, with what
+      closing each would take, and a fourth that was closed after the two were heard:
       - **The table's size, its name and its end.** Safari: "Stations on the branch
         table 3 columns, 4 rows" on coming to the table, and "end of table" past its last
         cell. The reader: the caption as a line, "Station, Opened, Depth table", and after
@@ -640,12 +687,13 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
         reader has to.
       - **A table that is not data.** Safari reads the four cells of the table marked as
         layout as four items with their words: "Left side", "Right side", "Lower left",
-        "Lower right". The reader says "Table row group" at each row and none of the
-        words, as it did before for every table; they are heard only by going into each
-        group. It is the largest of the four, because words of the book go unsaid to a
-        listener who reads on, and the smallest to close: the group called by its row's
-        words, which the text has at hand where it calls it "Table row", and then heard
-        by line and by word.
+        "Lower right". Beside it the reader said "Table row group" at each row and none
+        of the words, as it had for every table; they were heard only by going into each
+        group. It was the largest of the four, because words of the book went unsaid to
+        a listener who read on. A row's group is called by its words since (A table that
+        is not data, above): "Left side, Right side group", "Lower left, Lower right
+        group". What still differs is that a row is one phrase with VoiceOver's "group"
+        after it, and a cell a step in from its row.
 
       Where the reader gives more: a row's words in one phrase as the text is read; going
       in at the row the listener has reached, where Safari goes in at the first cell;
