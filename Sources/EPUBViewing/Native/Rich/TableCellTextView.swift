@@ -202,10 +202,11 @@ typealias TableNativeTextView = UITextView
         return min(shownCharacters.upperBound, fraction > 0.5 ? composed.upperBound : composed.location)
     }
 
+    /// The images an assistive technology may inspect: all but the decoration it passes over.
     private func imageActions() -> [ReaderImageAttachment] {
         var images: [ReaderImageAttachment] = []
         cellText.enumerateAttribute(.attachment, in: shownCharacters) { value, _, _ in
-            if let image = value as? ReaderImageAttachment { images.append(image) }
+            if let image = value as? ReaderImageAttachment, image.alternative != .decorative { images.append(image) }
         }
         return images
     }

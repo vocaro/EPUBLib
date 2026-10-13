@@ -166,6 +166,34 @@ case without the fix too: in one column on `b79fcf9`, `9b581c4` and `740c073`. T
 the table therefore bring VoiceOver to the column by a focus change from somewhere else:
 `ax:focus=search ax:focus=0`, or `ax:focus` alone in a session that began on a control.
 
+A review of the fix asked about what had not been heard
+([#373](https://github.com/vocaro/EPUBLib/issues/373)). Heard since, on the same runner and
+image at the fixed pause:
+
+- **Page controls in the window's toolbar.** The sample's Use Toolbar takes the page buttons
+  out of the group that holds the columns. With Next Page pressed natively from one item
+  away, `740c073` set `72,0` and said "In text word0237 word0238 word0239 word0240"; with the
+  fix VoiceOver said "In text word0229 word0230 word0231 word0232". It said the same with its
+  cursor on the toolbar during the press, and with Next Page activated through VoiceOver
+  inside the toolbar. So it gives the cursor up wherever its own cursor is when the group
+  posts.
+- **Continuous scroll does not have the fault.** On `1b7bf07`, the merge of the fix, with
+  VoiceOver brought to the text by `ax:focus=search ax:focus`, two lines moved, and Scroll
+  Forward activated through VoiceOver from eight items away, it entered at the new first
+  line, "In text word0131 word0132 word0133 word0134 word0135". It did the same with Scroll
+  Forward pressed natively from one item away. There the window posts the layout change, and
+  still does.
+- **A cursor on the group.** On a page turn it moved into the left column and read it; on
+  `740c073` it stayed on the group and said "2 updated items". `display` posts for every
+  spread it installs, so the same follows for a new text size, a resize or a shown position,
+  none of them heard with the cursor there.
+
+Not heard: whether VoiceOver also gives up a cursor it keeps in another text area of the same
+group, a host's notes field for one. It would then enter that text at its insertion point,
+which VoiceOver moves with its own cursor as it reads; the reader moves only its own columns'.
+Nor a position shown on the page already on screen, which installs the page again: back in a
+column it had left, VoiceOver would enter at the page's first line and not at its own offset.
+
 ## What remains VoiceOver's own
 
 - If the page changes while the VoiceOver cursor rests on a column without interacting,
