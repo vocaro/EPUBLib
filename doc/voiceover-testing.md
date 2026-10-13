@@ -314,10 +314,11 @@ read against it:
 - Moving by word or by line, and in Read All, VoiceOver says the words of a link of words and
   nothing of the link. It announces an element given as a character's attachment, so a link
   that is a picture or a hidden label is said as "hyperlink" and its name there.
-- `nextlink` and `previouslink` move through the links of the text on screen. VoiceOver says
-  the name and "hyperlink", then the hint "You are currently on a hyperlink, inside of a text
-  area. To click this link, press Control-Option-Space", of which the probe records the first
-  64 characters. Past the last link `nextlink` begins again with the first.
+- `nextlink` moves through the links of the text on screen. VoiceOver says the name and
+  "hyperlink", then the hint "You are currently on a hyperlink, inside of a text area. To
+  click this link, press Control-Option-Space", of which the probe records the first 64
+  characters. Past the last link it begins again with the first. `previouslink` went
+  forward too, in AppKit's own elements as in the reader's (macOS 27.0.1).
 - `activate` follows the link under the cursor. With the cursor on a word it follows a link
   on that word's line, the word's own or not, and on a line without a link it does nothing.
   AppKit's own text view does the same.
@@ -1173,9 +1174,11 @@ The Mac runner's transcript is plain text and needs no export.
   the same names with "hyperlink", and Control-Option-Space from there, and from the word
   "link.", scrolled the view to the target: the insertion point's line was then "Link
   target reached" (`ENTRY`).
-  Find Previous Link from the third link said "image hyperlink", the first: where Find Next
-  Link goes past the last. Whether VoiceOver goes back at all with it was not settled here;
-  its Find Previous Heading asked the reader for the next heading.
+  Find Previous Link went forward. From the third link it said "image hyperlink", the
+  first, where Find Next Link goes past the last. Main's reader, through AppKit's own
+  elements, did the same at `a49d12e`: from the third link "￼ hyperlink" and then "￼ Jump
+  with decoration hyperlink", the first and the second. It is VoiceOver's doing on macOS
+  27.0.1, as its Find Previous Heading asked the reader for the next heading.
   What did not work, each heard once and left out: a link element given as the attachment of
   a link's words, with a name and without one, over all of them and over the first letter
   (`0b50784`: the first page read as before, by word, by line and in Read All); the same
