@@ -884,7 +884,13 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 - `find=LABEL`: whether anything on screen has a name that begins with LABEL, and what kind
   of element at what frame: an edit menu's Copy, which is in no item's list of actions.
 - `press=LABEL`: a finger held on the item for a second. With VoiceOver off it selects the
-  word under it and brings up the edit menu.
+  word under it and brings up the edit menu. The finger is put at the middle of the item,
+  so press a cell of a table of data, which is an item of its own and whole on screen. A row
+  of a table that is not data is one item as wide as the column: its middle is beside a
+  narrow table, and the press selected the row's whole line, "Left side	Right side". And a
+  cell cut by the reader's lower edge on an iPhone simulator was pressed at that edge: the
+  press selected its row and the row below as the view moved under it, and the same cell
+  pressed again, then whole on screen, gave its word.
 - `wait=SECONDS`, and `screenshot`, attached to the result bundle: what is on the glass,
   independent of every accessibility snapshot.
 
@@ -1308,7 +1314,12 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     and in continuous scroll. Copy is heard to be offered and is not performed on a device,
     whose clipboard is its owner's; the unit tests perform it. With VoiceOver off
     (`TEST_RUNNER_VOICEOVER_OFF=1`), `press=Alder` selects the word by touch: UIKit draws
-    it, with its handles and once, and the edit menu has Copy.
+    it, with its handles and once, and the edit menu has Copy. In continuous scroll do both
+    in the section the book was opened at (`TEST_RUNNER_VOICEOVER_HREF=OPS/grids.xhtml`)
+    with nothing scrolled first, which is where the cells once had no text views
+    ([#472](https://github.com/vocaro/EPUBLib/issues/472)): the line must say "Selected:
+    Alder." and not the row's three cells, and `touch=Reopened` must bring "Link target
+    reached" on screen.
 17. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
@@ -3605,6 +3616,35 @@ The Mac runner's transcript is plain text and needs no export.
   there opened on a phrase that was not the book's, the sample's or VoiceOver's own,
   something of the device's; its log and result bundle were deleted unread and it was run
   again. No other session recorded such a phrase.
+- On 2026-10-13 a table's cells were touched in continuous scroll where the reader had just
+  gone and nobody had scrolled, before and after the reader looked for the rows on screen
+  again at the end of each move ([#472](https://github.com/vocaro/EPUBLib/issues/472)).
+  The sample opened at the section of tables of data (`--href OPS/grids.xhtml --flow
+  scrolled --launch '-SampleSelectionLine YES'`), VoiceOver off, at 17 points, with steps
+  `state,press=Alder,state,screenshot,find=Copy,point=0.03:0.5,press=Express,state,screenshot,point=0.03:0.5,touch=Reopened,wait=1,find=Link target,screenshot`.
+  Before is `main` at `229a612`, after is `b818fd7`, which is `main` with the change.
+  On an iPad Air 13-inch (M4) simulator (iOS 27.0, 1024 × 1366, upright), before: a finger
+  held on "Alder" gave "Selected: Alder	1901	Twelve metres. Used: nothing.", and the
+  screenshot shows the tint the whole width of the column across that row, a handle at each
+  end, and a menu of Use passage, Copy and Translate, which is the text's own and not a
+  cell's; held on "Express" it gave "Selected: Express	Nine	Noon."; and a touch on the link
+  "Reopened 1978" left the section where it was, with nothing on screen named "Link target".
+  After: "Selected: Alder. Used: nothing.", the tint behind "Alder" alone with its two
+  handles and a menu of Copy, Look Up, Translate, Search Web and an arrow; "Selected:
+  Express. Used: nothing." with the tint behind that word; and after the touch on the link
+  the heading "Link target reached" stood at (152, 199), near the top of the screen.
+  On an iPhone 17 Pro simulator (402 × 874) "Alder" gave the row before and the word after.
+  "Express" is cut by the reader's lower edge there. Pressed at that edge it gave its row at
+  both revisions, and the view moved under the press; pressed again a second later, whole
+  on screen, it gave "Selected: Express." after the change. The link was followed at both
+  revisions, the press at the edge having moved the view first: a scroll is what gave the
+  cells their text views before the change.
+  The unit tests hold the other moves to the same, on both platforms
+  ([testing](testing.md), the table scrolled-cell tests): without the change a contents
+  entry left fifteen to twenty rows of a screen without a text view on any cell, and a step
+  of a page twenty-two to forty-one.
+  Not established here: a physical device, and VoiceOver. No session of this change ran on
+  the physical iPad.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).

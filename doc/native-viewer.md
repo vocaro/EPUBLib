@@ -834,6 +834,11 @@ as they did.
   it, or TextKit 2 lays that line over other text, the text is loaded afresh and the position
   shown again
   ([#12](https://github.com/vocaro/EPUBLib/issues/12), [#41](https://github.com/vocaro/EPUBLib/issues/41)).
+  The scroll view tells of each scroll of such a move, and of a step of a page, when its
+  offset changes, which is before the text is laid out there. What the reader mounts over the
+  rows of a table on screen is therefore looked for again when the move has ended and the
+  visible range is read, with the layout as it is drawn ("Tables" under Decisions;
+  [#472](https://github.com/vocaro/EPUBLib/issues/472)).
   The visible range the reader reports runs from the first line mostly below the top of the
   visible area to the last mostly above its bottom. A rest is accepted within a point of the
   top, and the line above the rested one ends where it starts, so a sliver of that line can
