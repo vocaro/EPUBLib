@@ -952,7 +952,7 @@ import AppKit
         guard let textView = scrollTextView else { return }
         // PROBE, not for merge.
         let target = scrollBook?.location(of: start) ?? start.offset
-        ReaderProbe.log("PLACE requested=\(requested) target=\(target) selection=\(textView.selectedRange.location),\(textView.selectedRange.length) placed=\(placedScrollInsertionPoint.map(String.init) ?? "nil") byClient=\(probeScrollByClient)")
+        ReaderProbe.log("PLACE requested=\(requested) y=\(Int(scrollVisibleContainerRect.minY)) target=\(target) selection=\(textView.selectedRange.location),\(textView.selectedRange.length) placed=\(placedScrollInsertionPoint.map(String.init) ?? "nil") byClient=\(probeScrollByClient)")
         if requested { probeMoved = Date() }
         if requested, ReaderProbe.order == "layoutFirst" { probePostLayoutChange(textView) }
         if !requested, ReaderProbe.follow == "byHand", probeScrollByClient {
@@ -962,6 +962,13 @@ import AppKit
         if textView.selectedRange.length == 0, requested || textView.selectedRange.location == placedScrollInsertionPoint {
             let location = scrollBook?.location(of: start) ?? start.offset
             placedScrollInsertionPoint = location
+            if requested, ReaderProbe.caret == "twiceAfter", let line = textView.lineFrame(containing: location) {
+                let next = textView.lineBoundary(atContainerY: line.maxY + 1, lineEnd: false)
+                ReaderProbe.log("CARET first at \(next), the line after")
+                isApplyingSelection = true
+                textView.selectedRange = NSRange(location: next, length: 0)
+                isApplyingSelection = false
+            }
             if textView.selectedRange.location != location {
                 isApplyingSelection = true
                 textView.selectedRange = NSRange(location: location, length: 0)
@@ -1035,8 +1042,9 @@ import AppKit
             let step = max(line, visible.height - line)
             #if os(macOS)
             ReaderProbe.log("STEP forward=\(forward) from y=\(Int(visible.minY)) selection=\(textView.selectedRange.location)")
-            if ReaderProbe.caret == "beforeScroll", textView.selectedRange.length == 0 {
-                let first = textView.lineBoundary(atContainerY: visible.minY + (forward ? step : -step) + line / 2, lineEnd: false)
+            if ReaderProbe.caret.hasPrefix("before"), textView.selectedRange.length == 0 {
+                let late = ReaderProbe.caret == "beforeOff" ? line / 2 : 0
+                let first = textView.firstShownLine(from: textView.lineBoundary(atContainerY: visible.minY + (forward ? step : -step) + late, lineEnd: false))
                 ReaderProbe.log("CARET before the scroll at \(first)")
                 placedScrollInsertionPoint = first
                 isApplyingSelection = true

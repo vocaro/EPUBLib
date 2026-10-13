@@ -374,6 +374,13 @@ final class ReaderTextView: NSTextView {
         MainActor.assumeIsolated { ReaderProbe.client -= 1 }
     }
 
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        let value = super.accessibilityAttributeValue(attribute)
+        let text = "AXREAD \(attribute.rawValue) = \(String(describing: value).prefix(48).replacingOccurrences(of: "\n", with: " "))"
+        MainActor.assumeIsolated { probe(text) }
+        return value
+    }
+
     override func accessibilityAttributeValue(_ attribute: NSAccessibility.ParameterizedAttribute, forParameter parameter: Any?) -> Any? {
         let value = super.accessibilityAttributeValue(attribute, forParameter: parameter)
         let text = "AXASK \(attribute.rawValue) \(String(describing: parameter).prefix(60)) = \(String(describing: value).prefix(60).replacingOccurrences(of: "\n", with: " "))"
