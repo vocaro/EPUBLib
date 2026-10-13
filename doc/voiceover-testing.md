@@ -1404,6 +1404,58 @@ The Mac runner's transcript is plain text and needs no export.
   and Change Pitch leave nothing in a transcript; a link in a table cell or a note's
   popover; a link that wraps onto a second line or crosses a page's end, which the unit
   tests read; and a link below the screen in continuous scroll.
+- On 2026-10-13 the reader's named actions were looked for on a Mac. `NativeSurface` names Next
+  Page and Previous Page with SwiftUI's `accessibilityAction(named:)` in both flows, and in
+  continuous scroll, which has no pages, the sample's buttons for the same commands are Scroll
+  Forward and Scroll Backward. VoiceOver was offered neither action anywhere, in pages or in
+  continuous scroll, so nothing is heard under a wrong name and the reader was left as it is.
+  [Hosted sessions](#hosted-mac-sessions) on `xcode-27` (image 20261006.0244.1, macOS 27.0.1
+  `26A434`, Xcode 27.0), main's reader at `531a534`, at a fixed pause of four seconds, with
+  VoiceOver brought to the column by `ax:focus=search ax:focus=0`: runs 38351606579, 38353526126
+  and 38354465519, seventeen sessions. Nobody listened.
+  What an assistive client is given, from `ax:actions`. In pages: the window, under it `AXGroup
+  AXHostingView` with `ACTIONS none`, and under that one `AXTextArea` for each column with
+  `ACTIONS AXShowMenu`. In continuous scroll an `AXScrollArea` with AppKit's
+  `AXScrollLeftByPage`, `AXScrollRightByPage`, `AXScrollUpByPage` and `AXScrollDownByPage`
+  stands between the group and the one text area. It was the same in one column and in two, at
+  17 points and at 23, on a later page, two scroll steps into the book of paragraphs, and after
+  `"ax:press=Continuous Scroll"` and `ax:press=Paging` with the reader open. `ax:actions=all`
+  found a named action on no element of the window while the sample's controls were embedded,
+  and with them in the toolbar only the toolbar's own "Move previous", "Move next" and "Remove
+  from toolbar". `"ax:action=Next Page"` printed `MISSING action=Next Page` in both flows, where
+  `"ax:action=Move next"` printed `ACTION Move next ON AXButton LABEL "Search" STATUS 0` and the
+  toolbar's order changed.
+  What VoiceOver said. On the column (Control-Option-F3: "text is in the VoiceOver cursor Line
+  1") `actions` gave "Actions menu 1 item" and `listdown` "show menu"; three more `listdown`
+  gave nothing, and `listclose` "Closing Actions menu". Inside the text, after `in` ("In text
+  Page boundary verifica"), the same two phrases; on the right column of two and on its first
+  line on the second spread ("word0324 word0325 word0326 word0327 word0328") the same; in
+  continuous scroll on the text area, inside it, and on the line "p006w29 p006w30 p006w31
+  p006w32 p006w33 p006w34 p006w35" of the book of paragraphs the same. `"listchoose=show menu"`
+  opened the text's contextual menu: "show menu text Page boundary verification", "menu (11
+  items)", and under two `listdown` "Look Up “wor”" and "Translate “wor”".
+  On the group that holds the columns, which `out` reaches in pages ("Out of group", and
+  Control-Option-F3 "Open EPUB… button Open Sample button Close button Use Toolbar bu"),
+  `actions` was followed by no phrase, three times in two sessions, and no menu opened: in the
+  first session the `listdown` keys after it moved the column's insertion point, and VoiceOver
+  read from there ("tion", "Read the numbered words across two consecutive"). With the sample's
+  controls in the toolbar the same group said "Actions menu 10 items": "cancel" and "press" four
+  times, "show menu" and "cancel", which are the actions of the six elements the group then
+  holds, in their order: four buttons, the column and a static text. In continuous scroll `out`
+  left the cursor on the text area ("You are currently on a text area."), sent once and sent
+  twice.
+  Not established. Why the actions reach no element: `ReaderCanvasView`, the view the surface
+  wraps, is not an accessibility element on Mac, and where SwiftUI puts a named action of such a
+  view was not found. A unit-test host does not show it, so no test holds any of this: a walk of
+  the window's accessibility elements from its content view found nothing under the hosting view
+  there, not even the columns, and the hosting view, the view SwiftUI hosts the canvas in and
+  the canvas had no custom action. What VoiceOver's own scroll commands do with the scroll
+  area's four actions, and whether it has anything to scroll in pages, where no element has a
+  scroll action. Why the group's menu does not open with the controls embedded. Whether
+  VoiceOver ignores its Command-F5 under an open Actions menu as under a rotor: the runner
+  closes one first, and in the one session left under a menu it wrote `STEP listclose, sent by
+  the runner in case the Actions menu is still open`, VoiceOver said "Closing Actions menu" and
+  switched off.
 - On 2026-10-12 the section with a hidden heading over a table, with its second table, was
   read at 17 points before and after a table's rows became single items: at `2053be8` and at
   `1e3e5c3`, in the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and
