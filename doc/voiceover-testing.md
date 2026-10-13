@@ -541,8 +541,9 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
   "Hours, Leaves Nine", and so is the lower of the two itself, "Hours, Leaves Leaves".
 - A session in which VoiceOver starts again in the middle ("ERROR 3" and then "VoiceOver on
   VoiceOverVerificationMac…") is one in which it quit. It did so when a cell named header
-  cells of its own, most often within eight headers at two seconds a key. A session of
-  moves across rows with `columnheader` after each (`pause=2`) is the test for it.
+  cells of its own, most often within eight headers at two seconds a key
+  ([#483](https://github.com/vocaro/EPUBLib/issues/483)). A session of moves across rows
+  with `columnheader` after each (`pause=2`) is the test for it.
 - `in` on a cell goes into its text, "In text 1934", where `right` moves by word; `out`
   comes back to the cell, and `out` again to the row's line in the text.
 - `actions` on a cell says "Actions menu" and its count, and `listdown` each of Select Cell
@@ -3526,8 +3527,11 @@ The Mac runner's transcript is plain text and needs no export.
   ("Hours, Leaves Nine"). The reader keeps the static text.
   Not heard: anyone listening, or any Mac but the runner; a spread of two columns; a table
   in a note's popover; Inspect Image chosen from a cell; a cell's `headers` attribute;
-  VoiceOver in another language or with its verbosity changed; and what Safari or Books
-  says of the same tables on a Mac, which was not compared.
+  VoiceOver in another language or with its verbosity changed; Read All through a table;
+  Control-Option-C and Control-Option-R pressed twice on the shape that was kept; and what
+  Safari or Books says of the same tables on a Mac, which was not compared
+  ([#484](https://github.com/vocaro/EPUBLib/issues/484)). The page turn that leaves
+  VoiceOver out of the text is [#485](https://github.com/vocaro/EPUBLib/issues/485).
 - On 2026-10-13 a table's select action was performed with VoiceOver on the physical iPad
   Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366, upright, 17 points), before and after a
   change to what it does ([#450](https://github.com/vocaro/EPUBLib/issues/450)), with the

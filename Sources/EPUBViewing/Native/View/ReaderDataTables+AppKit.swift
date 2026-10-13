@@ -97,7 +97,10 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
         self.table = table
         self.entry = entry
         super.init()
-        // AppKit tells a client of an attribute that the element has been given a value for.
+        // AppKit tells a client of an attribute that the element has been given a value for,
+        // and of one whose getter a subclass overrides, whatever the getter returns. So
+        // nothing here overrides `accessibilitySelectedCells`: with that attribute VoiceOver
+        // says "No selection" after a table's name, or reads its selected row twice.
         setAccessibilityRole(.table)
         setAccessibilityParent(view)
         setAccessibilityRows([])
