@@ -18,7 +18,7 @@ final class ReaderTextView: NSTextView {
     var tableInteraction: ReaderTableInteraction?
     var containsTableRows = false
     weak var canvas: ReaderCanvasView?
-    /// The accessibility element of each textual attachment, by its location.
+    /// The accessibility element of each attachment VoiceOver is told of, by its location.
     private var attachmentElements: [Int: NSAccessibilityElement] = [:]
     private var menuImage: ReaderImageAttachment?
     /// The headings of the text in the view, found once for each text it is given.
