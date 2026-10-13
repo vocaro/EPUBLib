@@ -908,8 +908,12 @@ The Mac runner's transcript is plain text and needs no export.
   the right column the rotor listed the same six, and `listchoose` on the last turned to
   its page and put VoiceOver in the left column, on the heading; and from the right column
   of the spread of `word0229` to `word0364`, at rest, `nextheading` went to "Link target
-  reached" and then "Parked title heading". Every heading was in the left column of the
-  spread turned to. Four earlier runs, on a throwaway branch that wrote each of the rotor's
+  reached" and then "Parked title heading". Two more sessions, at `36573a5` in two columns
+  at 21 points, met "Link target reached" where it opens its page: `nextheading` from the
+  first page, and `listchoose` on it with VoiceOver in the right column, each gave "text
+  Link target reached" and then "This is the end of the numbered paragraph.", the heading's
+  words first. Every heading was in the left column of the spread turned to, at 17, 21 and
+  23 points. Four earlier runs, on a throwaway branch that wrote each of the rotor's
   queries to a file, found how VoiceOver asks ([native viewer](native-viewer.md#input-and-accessibility),
   Headings). It loaded a heading given as a token only on moving to it, the element and
   then the range, and never while it listed the rotor's items. At `6e2c1f0`, and on that
