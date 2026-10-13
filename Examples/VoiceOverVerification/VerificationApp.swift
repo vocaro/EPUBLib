@@ -12,13 +12,66 @@ import SwiftUI
 
     var body: some Scene {
         WindowGroup {
+            #if os(macOS)
+            // `-VerificationPlainText YES` shows AppKit's own text view in the reader's place.
+            if UserDefaults.standard.bool(forKey: "VerificationPlainText") {
+                PlainTextReference().frame(minWidth: 360, minHeight: 600)
+            } else {
+                NavigationStack { ReaderScreen() }.frame(minWidth: 360, minHeight: 600)
+            }
+            #else
             NavigationStack { ReaderScreen() }
-                #if os(macOS)
-                .frame(minWidth: 360, minHeight: 600)
-                #endif
+            #endif
         }
         #if os(macOS)
         .defaultSize(width: 1100, height: 850)
         #endif
     }
 }
+
+#if os(macOS)
+/// AppKit's own TextKit 2 text view holding a link of words and a link that is a picture,
+/// with none of the reader's code: what VoiceOver says and does here is AppKit's and
+/// VoiceOver's doing, to compare the reader with. Following a link writes its name at the
+/// start of the text, which changes the text's accessibility value.
+struct PlainTextReference: NSViewRepresentable {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSTextView.scrollableTextView()
+        guard let view = scrollView.documentView as? NSTextView else { return scrollView }
+        let font = NSFont.systemFont(ofSize: 17)
+        let text = NSMutableAttributedString(string: "Reference opening words. Before the reference link after it.\nPicture link: ",
+                                             attributes: [.font: font])
+        text.addAttribute(.link, value: URL(string: "reference:words")!, range: (text.string as NSString).range(of: "reference link"))
+        let attachment = NSTextAttachment()
+        attachment.image = NSImage(size: NSSize(width: 32, height: 32), flipped: false) { rect in
+            NSColor.systemBlue.setFill()
+            rect.fill()
+            return true
+        }
+        let picture = NSMutableAttributedString(attachment: attachment)
+        picture.addAttributes([.link: URL(string: "reference:picture")!, .font: font], range: NSRange(location: 0, length: 1))
+        text.append(picture)
+        text.append(NSAttributedString(string: " closing words.\nReference last words.", attributes: [.font: font]))
+        view.isEditable = false
+        view.isAutomaticLinkDetectionEnabled = false
+        view.textContainerInset = NSSize(width: 16, height: 16)
+        view.delegate = context.coordinator
+        view.textStorage?.setAttributedString(text)
+        return scrollView
+    }
+
+    func updateNSView(_ view: NSScrollView, context: Context) {}
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+            let name = (link as? URL)?.absoluteString ?? "\(link)"
+            let font = NSFont.systemFont(ofSize: 17)
+            textView.textStorage?.insert(NSAttributedString(string: "Followed \(name). ", attributes: [.font: font]), at: 0)
+            NSAccessibility.post(element: textView, notification: .valueChanged)
+            return true
+        }
+    }
+}
+#endif

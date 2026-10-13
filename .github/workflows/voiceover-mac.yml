@@ -28,6 +28,11 @@ on:
         type: choice
         options: [paginated, scrolled]
         default: paginated
+      launch:
+        description: >-
+          Further launch arguments of the reader, quoted as on a command line, such as
+          -SampleHref OPS/labels.xhtml for a section other than the first.
+        type: string
       pause:
         description: Seconds of speech to record after each key.
         type: string
@@ -43,9 +48,10 @@ run-name: Mac VoiceOver, ${{ inputs.ref || github.ref_name }}, ${{ inputs.width 
 permissions:
   contents: read
 
-# A newer run for the same ref, window, text size and flow replaces one still in progress.
+# A newer run for the same ref, window, text size, flow and launch arguments replaces one still
+# in progress.
 concurrency:
-  group: ${{ github.workflow }}-${{ inputs.ref || github.ref }}-${{ inputs.width }}-${{ inputs.text_size }}-${{ inputs.flow }}
+  group: ${{ github.workflow }}-${{ inputs.ref || github.ref }}-${{ inputs.width }}-${{ inputs.text_size }}-${{ inputs.flow }}-${{ inputs.launch }}
   cancel-in-progress: true
 
 jobs:
@@ -63,6 +69,7 @@ jobs:
       VOICEOVER_WIDTH: ${{ inputs.width }}
       VOICEOVER_TEXT_SIZE: ${{ inputs.text_size }}
       VOICEOVER_FLOW: ${{ inputs.flow }}
+      VOICEOVER_LAUNCH: ${{ inputs.launch }}
       VOICEOVER_PAUSE: ${{ inputs.pause }}
       VOICEOVER_ADVANCE_AFTER: ${{ inputs.advance_after }}
     steps:
@@ -163,6 +170,10 @@ jobs:
           mkdir -p "$RESULTS"
           screencapture -x "$RESULTS/screen-end.png"
           echo "VoiceOver state: $(defaults read com.apple.universalaccess voiceOverOnOffKey 2>&1), process: $(pgrep -lx VoiceOver || echo none)"
+          # The settings VoiceOver ran with: its verbosity decides what it says of a link or
+          # an attachment in text. A setting never changed is absent and has its default.
+          defaults read com.apple.VoiceOver4/default > "$RESULTS/voiceover-settings.txt" 2>&1
+          echo "VoiceOver settings: $(wc -l < "$RESULTS/voiceover-settings.txt") lines"
           if [ "$JOB_STATUS" != success ]; then
             # The banner's starts and the kernel's kills of it, and anything from Dictation.
             /usr/bin/log show --last 20m --style compact --info --predicate \

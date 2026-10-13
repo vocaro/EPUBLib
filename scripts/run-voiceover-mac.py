@@ -24,9 +24,15 @@ COMMANDS = {
     "line": (37, False), "nextline": (125, False), "previousline": (126, False),
     "word": (13, False), "firstword": (115, False), "lastword": (119, False),
     "textstart": (115, True), "textend": (119, True), "readall": (0, False), "activate": (49, False),
-    "linecount": (99, False)}
+    "linecount": (99, False), "describe": (99, False), "attributes": (17, False), "rotor": (32, False)}
+# VoiceOver commands that take Command as well: its Find commands, and the item's actions menu.
+COMMAND_KEY = {"nextlink": (37, False), "previouslink": (37, True), "actions": (49, False)}
+COMMANDS.update(COMMAND_KEY)
 TWICE = {"linecount"}  # Control-Option-F3 twice reads the total and visible line counts.
-READER_KEYS = {"pagedown": 121, "pageup": 116}  # The reader's own keys, without modifiers.
+# Keys without modifiers: the reader's own page keys, and those that move in VoiceOver's rotor
+# and menus while one is open.
+READER_KEYS = {"pagedown": 121, "pageup": 116, "arrowup": 126, "arrowdown": 125, "arrowleft": 123,
+               "arrowright": 124, "return": 36, "escape": 53}
 PHRASE = re.compile(r"^VOICEOVER_EVENT (\S+) heard: ?(.*)$", re.M)
 BANNER = "Automation Running"  # XCTest's banner, a window of its own that can take the VoiceOver cursor.
 
@@ -207,8 +213,8 @@ def main():
                             keystroke(READER_KEYS[name], "")
                         else:
                             code, shift = COMMANDS[name]
-                            keystroke(code, "control down, option down" + (", shift down" if shift else ""),
-                                      2 if name in TWICE else 1)
+                            keystroke(code, "control down, option down" + (", shift down" if shift else "")
+                                      + (", command down" if name in COMMAND_KEY else ""), 2 if name in TWICE else 1)
                         if args.advance_after is None:
                             time.sleep(args.pause)
                             continue
@@ -243,7 +249,7 @@ def main():
             if events_path.exists():
                 # What the reader reported and exposed, beside what VoiceOver said about it.
                 kinds = (" EVENT AXValueChanged", " EVENT AXLayoutChanged", " EVENT AXSelectedTextChanged", " STATE", " LINE", " PRESS",
-                         " RESIZE", " FOCUS", " MISSING")
+                         " RESIZE", " FOCUS", " MISSING", " CHILD", " LINK", " CARET")
                 transcript += [line for line in events_path.read_text(errors="replace").splitlines() if line[24:].startswith(kinds)]
             transcript_path = args.results / f"mac-{stamp}.transcript.txt"
             transcript_path.write_text("\n".join(sorted(transcript)) + "\n")

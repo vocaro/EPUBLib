@@ -37,7 +37,7 @@ func shortValue(_ element: AXUIElement) -> String { describe(string(element, kAX
 let steps = Array(CommandLine.arguments.dropFirst(3))
 guard CommandLine.arguments.count >= 2,
       let pid = pid_t(CommandLine.arguments[1]), pid > 0 else {
-    fputs("Usage: voiceover-ax-observer PID [seconds] [next|previous|larger|smaller|width=POINTS|focus[=COLUMN|=search]|lines|wait=SECONDS ...]\n"
+    fputs("Usage: voiceover-ax-observer PID [seconds] [next|previous|larger|smaller|width=POINTS|focus[=COLUMN|=search]|lines|links|caret=TEXT|press=TEXT|wait=SECONDS ...]\n"
         + "A single step of - reads one step per line from standard input.\n", stderr)
     exit(1)
 }
@@ -81,6 +81,79 @@ func lines(_ text: AXUIElement) -> [(range: CFRange, text: String)] {
         result.append((line, (value as? String ?? "<no string>").trimmingCharacters(in: .whitespacesAndNewlines)))
     }
     return result
+}
+
+/// What an element embedded in text says of itself: a link, or an attachment's own element.
+func embedded(_ element: AXUIElement) -> String {
+    var names: CFArray?
+    AXUIElementCopyActionNames(element, &names)
+    let said = [("TITLE", kAXTitleAttribute), ("LABEL", kAXDescriptionAttribute), ("VALUE", kAXValueAttribute), ("HELP", kAXHelpAttribute)]
+        .compactMap { name, key in (attribute(element, key) as? String).flatMap { $0.isEmpty ? nil : "\(name) \"\($0)\"" } }
+    let url = (attribute(element, kAXURLAttribute) as? URL).map { " URL \($0.absoluteString)" } ?? ""
+    let children = (attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []).map { string($0, kAXRoleAttribute) }
+    return ([string(element, kAXRoleAttribute), string(element, kAXSubroleAttribute)].filter { !$0.isEmpty } + said).joined(separator: " ")
+        + url + " ACTIONS \((names as? [String] ?? []).joined(separator: ",").isEmpty ? "none" : (names as? [String] ?? []).joined(separator: ","))"
+        + (children.isEmpty ? "" : " CHILDREN \(children.joined(separator: ","))")
+}
+/// Each run of a text's accessibility string that holds a link or an attachment, with the
+/// element the text gives for it: what VoiceOver is told at those characters.
+func embeddedRuns(_ text: AXUIElement) -> [(range: NSRange, words: String, link: AXUIElement?, attachment: AXUIElement?)] {
+    var whole = CFRange(location: 0, length: attribute(text, kAXNumberOfCharactersAttribute) as? Int ?? 0)
+    guard whole.length > 0, let value = AXValueCreate(.cfRange, &whole),
+          let found = parameterized(text, kAXAttributedStringForRangeParameterizedAttribute, value),
+          CFGetTypeID(found) == CFAttributedStringGetTypeID() else { return [] }
+    let attributed = found as! NSAttributedString
+    var result: [(NSRange, String, AXUIElement?, AXUIElement?)] = []
+    attributed.enumerateAttributes(in: NSRange(location: 0, length: attributed.length)) { attributes, range, _ in
+        func element(_ key: String) -> AXUIElement? {
+            guard let value = attributes[NSAttributedString.Key(key)], CFGetTypeID(value as CFTypeRef) == AXUIElementGetTypeID() else { return nil }
+            return (value as! AXUIElement)
+        }
+        let link = element("AXLink"), attachment = element("AXAttachment")
+        guard link != nil || attachment != nil else { return }
+        func same(_ one: AXUIElement?, _ other: AXUIElement?) -> Bool {
+            if let one, let other { return CFEqual(one, other) }
+            return one == nil && other == nil
+        }
+        // A run of one link or attachment can be split by its font or colour.
+        if let last = result.last, NSMaxRange(last.0) == range.location, same(last.2, link), same(last.3, attachment) {
+            result[result.count - 1].0.length += range.length
+            result[result.count - 1].1 += (attributed.string as NSString).substring(with: range)
+        } else {
+            result.append((range, (attributed.string as NSString).substring(with: range), link, attachment))
+        }
+    }
+    return result
+}
+/// The links and attachments of every column: the text's own children, then the runs of its
+/// accessibility string.
+func links() {
+    for (index, text) in columns().enumerated() {
+        let children = attribute(text, kAXChildrenAttribute) as? [AXUIElement] ?? []
+        log("CHILDREN \(index) COUNT \(children.count)")
+        for (number, child) in children.prefix(40).enumerated() { log("CHILD \(index).\(number) \(embedded(child))") }
+        let runs = embeddedRuns(text)
+        log("LINKS \(index) RUNS \(runs.count) OF \(runs.filter { $0.link != nil }.count) LINKS")
+        for run in runs.prefix(60) {
+            let words = run.words.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\u{FFFC}", with: "<attachment>")
+            log("LINK \(index) RANGE \(run.range.location),\(run.range.length) TEXT \"\(words.prefix(60))\""
+                + " LINK \(run.link.map(embedded) ?? "none") ATTACHMENT \(run.attachment.map(embedded) ?? "none")")
+        }
+    }
+}
+/// The first link or attachment element, of a column's children or its runs, that names `words`.
+func embeddedElement(naming words: String) -> AXUIElement? {
+    func names(_ element: AXUIElement) -> Bool {
+        [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute].contains { (attribute(element, $0) as? String)?.contains(words) ?? false }
+    }
+    for text in columns() {
+        if let child = (attribute(text, kAXChildrenAttribute) as? [AXUIElement] ?? []).first(where: names) { return child }
+        for run in embeddedRuns(text) {
+            if let link = run.link, names(link) || run.words.contains(words) { return link }
+            if let attachment = run.attachment, names(attachment) { return attachment }
+        }
+    }
+    return nil
 }
 
 var registered: [AXUIElement] = []
@@ -161,6 +234,25 @@ func perform(_ step: String) {
         pause = 1
     case "wait": pause = parts.last.flatMap(Double.init) ?? 0
     case "lines": pause = 0
+    case "links":
+        links()
+        pause = 0
+    case "caret":
+        // The insertion point before the first of these words: VoiceOver enters a text there.
+        let words = parts.dropFirst().joined(separator: "=")
+        guard let (index, text, offset) = columns().enumerated().lazy.compactMap({ index, text -> (Int, AXUIElement, Int)? in
+            let found = (string(text, kAXValueAttribute) as NSString).range(of: words)
+            return found.location == NSNotFound ? nil : (index, text, found.location)
+        }).first else { log("MISSING \(step)"); break }
+        var place = CFRange(location: offset, length: 0)
+        let status = AXValueCreate(.cfRange, &place).map { AXUIElementSetAttributeValue(text, kAXSelectedTextRangeAttribute as CFString, $0) }
+        log("CARET \(index) AT \(offset) STATUS \(status?.rawValue ?? -1)")
+        pause = 1
+    case "press":
+        // A link's own press, without VoiceOver: what the reader does when an assistive client follows it.
+        let words = parts.dropFirst().joined(separator: "=")
+        guard let element = embeddedElement(naming: words) else { log("MISSING \(step)"); break }
+        log("PRESS \(words) ON \(embedded(element)) STATUS \(AXUIElementPerformAction(element, kAXPressAction as CFString).rawValue)")
     default: log("UNKNOWN STEP \(step)"); pause = 0
     }
     settle(pause)
