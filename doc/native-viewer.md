@@ -601,17 +601,41 @@ as they did.
   holding lines that are no longer listed: it says the first of them and returns to the
   control ([VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current
   results").
-  The scroll bar leaves two more. The view still moves under VoiceOver as it comes in from
-  below: back as the cursor goes to the bar, and forward again as it goes to the line, which
-  UIKit brings clear of the bottom inset. And UIKit has no place in the list for the bar
-  itself: `index(ofAccessibilityElement:)` is `NSNotFound` for it, from UIKit's own
-  implementation as from the reader's, and UIKit then takes the bar to stand at the head of
-  the list. Asked from the bar, UIKit gives the control before the text as the item before
-  it and the first line listed as the item after it. VoiceOver asks from the bar after the
-  book's last line, where the bar is the next item, and then reads the screen again from
-  its first line; moving back from there it goes to the control before the text. A cursor
-  put on the bar by a touch was not run and would be answered the same way
+  UIKit has no place among the lines for the scroll view's own scroll bar, and where it put
+  the bar depended on how it came to it. Going through the scroll view it gave the bar after
+  the last line listed: that is where VoiceOver met it, after the book's last line, and
+  ahead of the last line on screen when it came in from below. Asked for the items each side
+  of the bar it took the bar to stand before the first line. It keeps a scroll view's
+  vertical bar among the views it calls the view's supplementary headers, and from a header
+  the item after is the first element listed and the item before is whatever precedes the
+  scroll view. So VoiceOver read on from the book's last line to the bar and then down the
+  screen a second time from its first line, and went back from the bar to the control
+  before the text. `index(ofAccessibilityElement:)` is not asked on that path, and no answer
+  for the bar changes it.
+  A bar hidden from assistive technology (`accessibilityElementsHidden`) is no such header,
+  and UIKit gives it to nobody. So the scroll view hides its bar and lists an element of its
+  own after its last line, in the bar's place. The element says what the bar says and
+  adjusts as the bar adjusts, by asking the bar: its name, value and hint are UIKit's own,
+  in the language UIKit has them in, and a swipe up or down on it still scrolls by a page.
+  Being an element of the list like any line, it has the last line listed before it and
+  whatever follows the reader after it, however VoiceOver comes to it, a touch on the bar
+  included. The bar is found as the view of the scroll view's own that is an accessibility
+  element, where the lines are no views. It is UIKit's view, and hiding it is all the reader
+  does to it. Where no such view is found nothing is listed for it, and UIKit's bar is as it
+  was.
+  The element is placed where the bar is, less what the insets cover. UIKit scrolls the
+  view until the area the insets leave holds the frame of the item the cursor goes to, and
+  the bar's own frame is as tall as the view: that is why the view went back for the bar.
+  With the element inside that area nothing moves as the cursor comes to it, from the text
+  or from below, and the rule above that keeps a line listed through such a move is left
+  for a bar the reader has not replaced
   ([#342](https://github.com/vocaro/EPUBLib/issues/342)).
+  Two other ways were tried against a log of UIKit's requests and dropped
+  ([VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current results"): a
+  place for the bar from `index(ofAccessibilityElement:)` alone, which UIKit does not ask
+  for while the bar is a header, and the bar hidden only while VoiceOver's cursor was on
+  it, which rested on the order of VoiceOver's questions and let a finger on the bar find
+  the line under it.
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never

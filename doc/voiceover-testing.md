@@ -333,10 +333,11 @@ TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wai
    the scroll bar, then the last line that was on screen, then every line above it in order,
    on past the top of the screen. Run it where the view has room to go back, after two
    scroll steps, and at the end of the book
-   (`activate=Contents,activate=Chapter three,wait=2` and three scroll steps): as the cursor
-   goes to the scroll bar UIKit takes the view back 88 points. "Bookmark" straight after the
-   scroll bar, or after one line, is the failure of
-   [#367](https://github.com/vocaro/EPUBLib/issues/367). The line after the scroll bar is
+   (`activate=Contents,activate=Chapter three,wait=2` and three scroll steps). "Bookmark"
+   straight after the scroll bar, or after one line, is the failure of
+   [#367](https://github.com/vocaro/EPUBLib/issues/367): as the cursor went to the scroll
+   bar UIKit took the view back 88 points, which it no longer does (step 10). The line after
+   the scroll bar is
    the last line in the reader's own view. `visible` gives a later one as the window's last:
    with the cursor on a control before the text it counts every listed line that lies inside
    the window, and the first lines listed after the screen lie under the sample's footer.
@@ -345,6 +346,23 @@ TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wai
    simulator. An iPhone's lines are short enough to show the whole phrase in the 64
    characters a transcript keeps. In the first book the picture's own line says it, and
    `flick=down` there reads "Inspect Image: Blue verification square" and then "Activate".
+10. At the end of the book (`activate=Contents,activate=Chapter three,wait=2` and scroll
+    steps until Scroll Forward is dimmed) put the cursor on a line near the last, with
+    `touch=p086w36` on an iPad at 23 points or `point=0.5:0.6` on an iPhone, and move
+    forward past the last line, back and forward again (`forward=12,backward=8,forward=10`
+    on the iPhone): the book's last line, "Vertical scroll bar", then the item below the
+    reader, where VoiceOver stays; back, the scroll bar, the last line and the lines above
+    it in order; forward, the same lines, the scroll bar and the item below. The first line
+    on screen straight after the scroll bar, or a jump up the screen one move after coming
+    back to the last line, is the failure of
+    [#342](https://github.com/vocaro/EPUBLib/issues/342). Then touch the bar itself, at the
+    reader's right-hand edge (`point=0.955:0.6` on an iPhone 17 Pro, `point=0.982:0.6` on
+    an iPad upright): `backward=4` reads the last line listed and the lines above it, where
+    it read "Bookmark", and `forward=1` from the bar reads the item below the reader. Do
+    the same after two scroll steps, where the last line listed is the last in the reader's
+    view. Nothing scrolls as the cursor goes to the bar: at the end of the book the bar reads
+    100%, where it read 99% while the view went back for it. `flick=down` on the bar scrolls
+    by a page and reads the new value.
 
 Drive at least one session with `flick=right*20` and `flick=left*30` in place of `forward`
 and `backward`: those are VoiceOver's own gestures for the next and previous item, where the
