@@ -222,6 +222,23 @@ first, and to standing for its own line when its page is shown again. That Voice
 its cursor for the layout change, and what it then reads, is known only from
 [speech sessions](voiceover-testing.md) on a device.
 
+Table of data tests on AppKit (`TableDataMacAccessibilityTests`) read what a column and the
+scroll view give an assistive technology at each row of a table that holds data, on a reader
+built by the real pipeline, in pages and in continuous scroll: an `NSAccessibility` table of
+its own at each row's character, called by that row's words and with that row selected; its
+rows, each with its number in the whole table, its columns, and its cells with the rows and
+columns each covers, the text areas each holds on screen, its place, and the header cells
+above and before it; a cell that spans answering for every slot it covers; the actions a cell
+offers, and that selecting a cell's words and following its link do so; a table that is not
+data left a group for each row; a table split across pages, with the page's rows, the whole
+table's count and a header cell named from another page; a row taller than a page, whose
+words each page's table says once; continuous scroll, where a table holds every row, says
+which are on screen and labels a cell that has no text area yet; and a table kept from a
+page that has been turned, which says nothing of the new one. They read the elements through
+AppKit's own accessibility methods. That a client of the accessibility API is given each
+attribute, and what VoiceOver says, is recorded with the
+[VoiceOver testing process](voiceover-testing.md#tables-on-mac).
+
 Table cell line tests on AppKit (`TableCellLineAccessibilityTests`) read the lines a cell's
 own text gives an assistive technology: the layout's lines, numbered from the first the cell
 shows and covering its text once; the offset after its last character on its last line, in a
