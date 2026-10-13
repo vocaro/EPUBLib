@@ -25,11 +25,14 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS = ROOT / ".build/voiceover/results"
 READER = ROOT / ".build/voiceover/mac/Build/Products/Debug/VoiceOverVerificationMac.app"
-# The left column's entry line, a Next Page activated through VoiceOver, then the new page's
-# entry line and its second line. Next Page is eight items left of the left column, with one
-# column or two. The lines are read after the turn: VoiceOver may come back to a column at the
-# character offset it had there, so a line moved before the turn can move the second entry.
-BOUNDARY = ("ax:next ax:lines ax:focus=0 in line out " + "left " * 8
+# The left column's entry line and two lines down, a Next Page activated through VoiceOver, then
+# the new page's entry line and its second line. Next Page is eight items left of the left
+# column, with one column or two. The entry line after the turn must be the page's first: a
+# reader whose window posts the spread's layout change comes back at the line VoiceOver had
+# reached before the turn (#337). VoiceOver is brought to the column by a focus change from the
+# search field, because a session can open with its cursor already on the text, and it then
+# comes back at the first line whatever the reader posts.
+BOUNDARY = ("ax:next ax:lines ax:focus=search ax:focus=0 in line nextline nextline out " + "left " * 8
             + '"activate=Next Page" ax:lines ' + "right " * 8 + "in line nextline nextline")
 OUTCOMES = {0: "completed", 2: "refused by the runner script", 124: "ended early or reached its deadline",
             125: "stopped"}

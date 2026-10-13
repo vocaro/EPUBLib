@@ -128,6 +128,11 @@ line. Start a case with a turn and `ax:focus`, never a click. Eight `left` steps
 left column, nine from the right, reach **Next Page** in the sample's control strip; eight
 `right` steps return from it to the left column. **Previous Page** is one step further.
 
+`"ax:press=Use Toolbar"` moves the sample's controls to the window's toolbar, outside the group
+that holds the columns. From the left column, `out out`, five `left`, `in` and six `right`
+reached Next Page there in three sessions on a reader with the fix of #337; on one without
+it the same keys went elsewhere twice. `activate=Next Page` stops such a session.
+
 A session can open with VoiceOver's cursor on a control, on the reader's group or already on
 the text, and what VoiceOver keeps of a column depends on how it got there. For a case in which
 VoiceOver leaves a column and comes back, bring it to the column by a focus change from
@@ -158,6 +163,8 @@ the application, then performs its steps and prints each event with its time, th
 selection and the numbered-word span of its value:
 
 - `next`, `previous`: press the page buttons, found by label or help rather than index.
+- `press=LABEL`: press any other button by its label, as in `"ax:press=Use Toolbar"`, which
+  moves the sample's controls from the reader's group to the window's toolbar.
 - `larger`, `smaller`: choose the Appearance menu's text-size items.
 - `width=POINTS`: resize the window.
 - `focus`, `focus=COLUMN`, `focus=search`: give the last column, a numbered column or the
@@ -275,10 +282,12 @@ gh run download RUN_ID --name voiceover-mac-transcripts --dir .build/voiceover/h
 - `steps`: the steps `scripts/run-voiceover-mac.py` takes, quoted as on a command line, as in
   `"activate=Next Page"`. A `;` or a line break starts another session. Each session gets a
   fresh reader, and `ax:width` with the `width` input before its own steps. Left empty, one
-  session checks a page boundary: the left column's entry line, a Next Page activated through
-  VoiceOver, and the new page's entry line and second line. It moves no line before the turn:
-  when it was written VoiceOver came back to a column at the character offset it had there
-  ([#337](https://github.com/vocaro/EPUBLib/issues/337)).
+  session checks a page boundary: the left column's entry line and two lines down, a Next Page
+  activated through VoiceOver, and the new page's entry line and second line. The entry line
+  after the turn must be the page's first: with the fault of
+  [#337](https://github.com/vocaro/EPUBLib/issues/337) it is the third. The session brings
+  VoiceOver to the column by `ax:focus=search ax:focus=0`, without which it can pass on a
+  reader that has the fault.
 - `width` and `text_size`: the window width and the launch text size in points, 1100 and 23
   unless given.
 - `flow`: `paginated`, or `scrolled` for [continuous scroll](#continuous-scroll), which needs
@@ -667,6 +676,17 @@ The Mac runner's transcript is plain text and needs no export.
   text word0237…". The
   [Mac verification](issue-55-voiceover-mac.md#coming-back-to-a-column-after-a-page-turn) has
   each case.
+- On 2026-10-12 hosted sessions on the same image, at the fixed pause, heard what a review of
+  that fix had left open ([#373](https://github.com/vocaro/EPUBLib/issues/373)). With the
+  sample's controls in the window's toolbar and two lines moved in the left column: `740c073`
+  came back at "In text word0237 word0238 word0239 word0240" after a native press of Next Page
+  from one item away; the fix said "In text word0229 word0230 word0231 word0232" there, with
+  VoiceOver's cursor on the toolbar during the press, and with Next Page activated through
+  VoiceOver inside the toolbar. In continuous scroll on `1b7bf07`, where the window still
+  posts, VoiceOver brought to the text by a focus change entered at the new first line, "In
+  text word0131 word0132 word0133 word0134 word0135", after Scroll Forward activated from
+  eight items away and after a native press from one item away: that flow did not have the
+  fault.
 - On 2026-10-12, continuous scroll on a physical iPhone 17 Pro Max (iOS 27.2, 440 × 956,
   17 points) and iPad Air 13-inch (iPadOS 27.2, 23 points), the book of ordinary paragraphs,
   through XCTest's VoiceOver service with VoiceOver switched on for each session; its phrases

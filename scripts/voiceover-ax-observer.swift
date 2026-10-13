@@ -37,7 +37,7 @@ func shortValue(_ element: AXUIElement) -> String { describe(string(element, kAX
 let steps = Array(CommandLine.arguments.dropFirst(3))
 guard CommandLine.arguments.count >= 2,
       let pid = pid_t(CommandLine.arguments[1]), pid > 0 else {
-    fputs("Usage: voiceover-ax-observer PID [seconds] [next|previous|larger|smaller|width=POINTS|focus[=COLUMN|=search]|lines|wait=SECONDS ...]\n"
+    fputs("Usage: voiceover-ax-observer PID [seconds] [next|previous|press=LABEL|larger|smaller|width=POINTS|focus[=COLUMN|=search]|lines|wait=SECONDS ...]\n"
         + "A single step of - reads one step per line from standard input.\n", stderr)
     exit(1)
 }
@@ -139,6 +139,8 @@ func perform(_ step: String) {
     // In continuous scroll the page buttons step a screen and are named for that.
     case "next": _ = press(kAXButtonRole, "Next Page", "Scroll Forward")
     case "previous": _ = press(kAXButtonRole, "Previous Page", "Scroll Backward")
+    // Any other button, such as the sample's Use Toolbar, which moves its controls out of the reader's group.
+    case "press": _ = press(kAXButtonRole, parts.dropFirst().joined(separator: "="))
     case "larger", "smaller":
         // The menu tracks events until an item is chosen, so its press may report a timeout.
         if press(kAXMenuButtonRole, "Appearance") {
