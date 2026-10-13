@@ -168,8 +168,11 @@ new phrase is recorded:
   step with `line`, which reads the heading, and `ax:lines`, which shows the page. With
   VoiceOver's cursor on a link, reached by `nextlink`, the step goes to a heading's element
   among the text's children and VoiceOver says the level first, "heading level 2 Link
-  target reached": follow it with `describe`, which says what is in the cursor. `line` and
-  `right` then read from the insertion point, which is not on the heading.
+  target reached": follow it with `describe`, which says what is in the cursor. In pages
+  the reader turns to a heading that is on a later page, and VoiceOver says the heading,
+  the first words it says after any page turn, and the heading again. The reader puts the
+  insertion point on the heading, so `line` then reads the heading and `right` its first
+  word.
 - `rotor`: Control-Option-U, which opens VoiceOver's rotor: lists of what the item under its
   cursor holds, the reader's Headings among them. `listright` and `listleft` go from list to
   list, `listdown` and `listup` along one, `listchoose` (Return) moves VoiceOver to the item
@@ -192,6 +195,10 @@ new phrase is recorded:
   cursor and name it.
 - `describe`: Control-Option-F3 once, what is in the VoiceOver cursor. `attributes`:
   Control-Option-T, the text attributes there.
+- `tracking`: Control-Option-Shift-F3, which turns cursor tracking off, and on again:
+  whether the keyboard focus goes with VoiceOver's cursor. VoiceOver says "Cursor Tracking
+  Off" or "Cursor Tracking On". It keeps the setting from one session of a run to the next,
+  so a session that turns it off ends with the step again.
 - `actions`: Control-Option-Command-Space, VoiceOver's Actions menu, which holds the actions
   of the item under its cursor. VoiceOver says "Actions menu" and how many items it has.
   `listdown` and `listup` say each one, `listchoose` performs the one last said, and
@@ -475,7 +482,10 @@ as a `CHILD`, called by its words and never by U+FFFC, with `AXPress` among its 
 in the `LINK` lines the same element as the link of its characters and, where the link has an
 attachment, a link element as that character's attachment. The text's headings are `CHILD`
 lines too, `AXHeading` with the heading's words as `LABEL`, each where it stands among the
-links: those on the page, and in continuous scroll those on screen and the next one below. `ax:follow=WORDS` presses a link
+links: those on the page or on screen, and last the book's next heading, which is below the
+screen in continuous scroll and on a later page in pages. A child whose keyboard focus an
+assistive client can set ends in `FOCUSABLE`: VoiceOver focuses such an element when it
+moves to it, and a heading's is one. `ax:follow=WORDS` presses a link
 without VoiceOver. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a link's line, so
 a few `right` steps reach it. After a link is followed the transcript has `AXValueChanged`
 with the page that holds the target, in the fixture the one with "Link target reached".
@@ -1169,12 +1179,19 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    From a page in the middle of the book, with VoiceOver's cursor resting on the column
    (`ax:focus=0` without `in`), `nextheading` goes to the first heading after the top of
    that page, not to the book's first. From a link (`nextlink` first) `nextheading` says a
-   heading's level and then its words, "heading level 2 Link target reached": in continuous
-   scroll the book's next heading after the link, in pages the next one on the page, or the
-   page's first when none follows the link. One `right` puts VoiceOver back in the text, and
-   `nextheading` from there goes on through the book. `rotor` from a link has the same
+   heading's level and then its words, "heading level 2 Link target reached", for the
+   book's next heading after the link in both flows: in pages the reader turns to its page,
+   in a window 600 points wide at 17 points from the first page's link to the page of
+   `word1187`. `describe` says the heading is in the VoiceOver cursor, `line` reads it,
+   `right` says its first word, "Link", and `nextheading` goes on through the book, from the
+   heading's element to the next heading's and from the text by the rotor. `ax:links` on
+   the first page lists three children, the last of them the heading "Link target reached",
+   and marks each heading `FOCUSABLE`. From the book's last heading `nextheading` says
+   "Last heading" and the heading again. `rotor` from a link has the same
    Heading menu. VoiceOver opens its rotor on the menu it showed last, so a session that
-   has gone to another menu with `listright` starts the next one there.
+   has gone to another menu with `listright` starts the next one there. With `tracking`
+   sent first, which turns cursor tracking off, the same steps in pages say the heading
+   and leave the page where it is.
 10. Links on a Mac, in pages and in continuous scroll, with VoiceOver's link setting at Speak
     ([Links](#links)). `ax:links` lists each link on screen once as a `CHILD`, by its words:
     "Verification link" on the first page, "Parked link to the target" on the hidden-labels
@@ -1942,6 +1959,114 @@ The Mac runner's transcript is plain text and needs no export.
   none of and the unit tests read; a link after the book's last heading; two columns; a
   larger text size; a link in a table cell, which is the cell's own text view's; and
   listening. Nobody listened, and no workstation was used.
+- On 2026-10-13 the move by heading from a link was heard to reach a later page, and reading
+  on to start at the heading ([#454](https://github.com/vocaro/EPUBLib/issues/454)): the
+  hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), at
+  the fixed pause, in a window 600 points wide at 17 points unless said. Nobody listened.
+  The reader's code is the same at `040d7d1` and at `d634854`.
+  In pages (runs 38385462515 at `040d7d1` and 38388657406 at `d634854`). `ax:links` on the
+  first page gave three children, the heading "Page boundary verification", the link, and
+  the heading "Link target reached", which is on the page of `word1187`, each heading
+  `FOCUSABLE`. `ax:focus=search ax:focus=0 in nextlink nextheading` gave "Verification link
+  hyperlink" and then, with `AXLayoutChanged` and that page as the column's value, "heading
+  level 2 Link target reached", "Page boundary verification" and the heading again, or the
+  last two alone; `describe` "Link target reached heading level 2 is in the VoiceOver
+  cursor"; `line` "Link target reached"; `right` "Link"; and `nextheading` from there, by
+  the rotor, the page of "Parked title heading", which `line` read. From element to
+  element, `nextlink` and three `nextheading` steps gave "heading level 2 Link target
+  reached", "heading level 1 Parked title heading" and "heading level 1 Parked table
+  heading", a page turned for each, with `describe` naming each and `line` reading "Parked
+  title heading By the parked author." and "Parked table heading". Opened at
+  `OPS/offers.xhtml`, the page's children were its heading, "Lone jump", "Right cell jump"
+  and the heading "Tables of data", three sections on, and `nextlink nextheading` turned
+  to it. Opened at `OPS/grids.xhtml`: "Reopened 1978 hyperlink", a cell's link the page
+  lists, then "heading level 1 A table longer than a page", "heading level 1 A row taller
+  than a page", and from that one, the book's last, "Last heading heading level 1 A row
+  taller than a page".
+  In continuous scroll, the same two runs. `nextlink nextheading` gave "word1200", the
+  word before the heading, and "heading level 2 Link target reached"; `describe` named the
+  heading; `right` said "Link" and `line` "Link target reached"; `nextheading` went on to
+  "Parked title heading". With the insertion point before "Words before the stations"
+  (`ax:caret`), `nextlink` and three `nextheading` steps gave "Reopened 1978 hyperlink",
+  the two headings after it and "Last heading heading level 1 A row taller than a page".
+  From the first link of the pictures two `nextheading` steps reached "What each line
+  offers", and `right` said "What" (run 38385503705).
+  Two columns, a window 1100 points wide. At 17 points the turn put "Link target reached"
+  in the left-hand column and the phrases were those of one column, `line` "Link target
+  reached" and `right` "Link". At 20 points it was in the right-hand column (`ax:lines`:
+  `word1048` to `word1147` on the left, `word1148` to `word1200` and the heading on the
+  right, the insertion point on the heading): "heading level 2 Link target reached",
+  "ord1105 word1106 word1107", "2 updated items"; `describe` named the heading; `line` read
+  "word1048 word1049 word1050 word1051 word1052", the left-hand column's first line, and
+  `right` "word1048"; `nextheading` from there said "Link target reached", by the rotor,
+  and `line` read it. From the heading's element in the right-hand column `nextheading`
+  turned to "heading level 1 Parked title heading", on a spread of one page: `describe`
+  named it and `line` said nothing. With the keyboard focus given to the column that shows
+  the heading (run 38387134530, at `26b23f8`, taken out again): after the heading
+  VoiceOver said "text word1148 word1149 word1150", `describe` "text is in the VoiceOver
+  cursor Line 12", `line` "Link target reached", and `right` "VoiceOver Page Boundary
+  Verification", outside the text.
+  With cursor tracking off (`tracking`, "Cursor Tracking Off"; run 38385462515), in pages:
+  `nextlink nextheading` said "heading level 2 Link target reached" and the page stayed;
+  `describe` named the heading, `line` read "Page boundary verification" and `right`
+  "Page"; `nextheading` from there turned to the page of `word1187` by the rotor.
+  The links with the change in place, at `040d7d1` (run 38385503705). In
+  pages: "Verification link hyperlink", "Last link Verification link hyperlink", and
+  `activate` the page of `word1187`, the same again at `d634854`; on the pictures "image hyperlink", "Jump with
+  decoration hyperlink", "Described jump, image hyperlink" and "image hyperlink" again,
+  `ax:links` there listing the heading, the three links with `AXPress` and the heading
+  "Scenes set apart"; on the hidden labels "Parked link to the target hyperlink" and
+  `activate` its target. In continuous scroll the pictures' links the same four phrases.
+  From the text `nextheading` went by the rotor as before, and `rotor` from a link and
+  from a heading's element opened on "Page boundary verification, heading level 1".
+  `lastword line nextline right right` on the first page read its last line, "end of
+  text" and nothing more: the heading at the column's foot is no part of the text.
+  Before the heading's element said whether it has the focus, at `4338642` (run
+  38383603629), VoiceOver said the heading on the later page and the page stayed, with
+  cursor tracking on: it had not focused the element.
+  With main merged in at `a41e642`, where the scroll view tells of its insertion point a
+  second time after a move of the reader's own
+  ([#473](https://github.com/vocaro/EPUBLib/pull/473)), five sessions gave the same phrases
+  in pages and in continuous scroll, "word1200" and the heading among them, with `describe`
+  still naming the heading (run 38415339848).
+  Four runs before those, on a throwaway branch that logged every request to the text view
+  and answered VoiceOver's search for elements in variants chosen by launch arguments
+  (`claude/probe-heading-search-454`, a pause of 3 seconds), are why the reader offers no
+  search ([native viewer](native-viewer.md#input-and-accessibility), Headings):
+  - Run 38372960899. A link's or a heading's element that offers the search is asked
+    `{AXDirection = AXDirectionNext; AXResultsLimit = 1; AXSearchKey = (AXHeadingSearchKey)}`,
+    with no start, and each later child after it, then the first ones; from the text every
+    child is asked with `AXStartRange`, the text cursor's range. A text area that offers it
+    is asked with `AXStartElement` the link's element when no heading among the children
+    follows the link, and from the text with `AXStartRange` and then with `AXStartElement`
+    the text area. On main Find Next Link from the text takes the first link child wherever
+    the text cursor is: with the insertion point after the three links of the pictures it
+    said "image hyperlink".
+  - Run 38375928821. The text area answering with nothing: "Heading not found" from a
+    link, and "Last link Described jump, image hyperlink" from the last link, with no
+    beginning again; answered with the first link from the last, VoiceOver said nothing.
+    An answer that is no child of the text, a heading two screens down or a link below
+    the screen, sent VoiceOver's cursor back into the text without a word.
+  - Run 38378273449. A search for links left unanswered: "Link not found" in continuous
+    scroll, and in pages the column was asked again and again until the session ended with
+    VoiceOver still on. From the last heading's element, answered with nothing, "Last
+    heading heading level 1 What each line offers".
+  - Run 38380756140, the text area offering the search beside main's reader. On main, from
+    the text, `Control-Option-Command-O`, `C` and `P` moved to the next change of font, of
+    style and the next plain text ("Link target reached" for the style), and `U` and `K`
+    to the underlined link and the next change of colour. With the search offered, the
+    first three said "VoiceOver Page Boundary Verification", "VoiceOver Verification" and
+    "No bookmark saved Bookmark menu button": VoiceOver had left the text. `G` from there
+    asked the text area 3,577 times in 25 seconds, said "Searching
+    VoiceOverVerificationMac" and "VoiceOverVerificationMac not responding", and the
+    session ended `NOT_RESTORED`; `B` from a page's text asked the column 6,042 times in
+    34 seconds, with the same two phrases. With the next link below the screen among the
+    children, Find Next Link from "Verification link" said "Parked link to the target
+    hyperlink" and the view scrolled to it
+    ([#425](https://github.com/vocaro/EPUBLib/issues/425)).
+  Not heard: a link after the book's last heading, which the verification book no longer
+  has, so the move that begins again there; a heading that follows a link on the same
+  page; a larger text size; a workstation; and listening.
 - To see what VoiceOver asks of the reader, have the reader write it to a file. `log show`
   on the hosted runner returned no line the sandboxed reader logged. A throwaway branch
   that appends each query to a file in `FileManager.default.temporaryDirectory`, with a
@@ -1961,6 +2086,15 @@ The Mac runner's transcript is plain text and needs no export.
   a session as `"launch=-Name value"`, puts several variants of the reader in one run. A
   call stack logged from the reader's own handler says who moved something: VoiceOver's
   scroll arrives as a set of the scroll bar's value.
+  Log on the view and leave the elements alone where they are what is being heard. With
+  those methods overridden on an `NSAccessibilityElement`, a link reported no `AXPress`
+  (`ax:links` gave `ACTIONS none`), and an element with no title, read from inside its own
+  `accessibilityAttributeValue(_:)`, recursed until the reader crashed. What a probe's
+  element overrides to log can also be what makes VoiceOver act: it focused a heading's
+  element that overrode `isAccessibilityFocused()` to log it, and never one that only took
+  the focus. A step the runner lacks can be added on the throwaway branch, and a run
+  started from that branch with another branch as its `ref` input hears that branch's
+  reader with the added step.
 - The same day they were read on a physical iPad Air 13-inch (M3) (iPadOS 27.2), upright at
   17 points, at `41a458f`, through XCTest's VoiceOver service; nobody listened. In pages a
   touch on the first page's heading gave "Page boundary verification Heading Use the rotor to
