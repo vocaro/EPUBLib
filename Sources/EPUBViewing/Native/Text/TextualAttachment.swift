@@ -19,6 +19,27 @@ extension ReaderTextualAttachment {
     var textLanguage: String? { nil }
 }
 
+#if os(macOS)
+extension NSAccessibilityElement {
+    /// Makes the element what stands at an attachment for an assistive client on Mac, in a
+    /// page's text or in a table cell's. Words that are text, a hidden label's, are static text
+    /// whose value they are, with no label, so that they are said once. Anything else is an
+    /// image named by its words, and without words an image without a name, which VoiceOver
+    /// says in its own word. A rule is neither (`ReaderRuleAttachment.makeSeparator`).
+    func setReaderAttachment(words: String, isText: Bool) {
+        if isText {
+            setAccessibilityRole(.staticText)
+            setAccessibilityValue(words)
+            setAccessibilityLabel(nil)
+        } else {
+            setAccessibilityRole(.image)
+            setAccessibilityLabel(words.isEmpty ? nil : words)
+        }
+        setAccessibilityChildren(nil)
+    }
+}
+#endif
+
 extension NSAttributedString {
     /// The plain text of `range`, each attachment replaced by its text equivalent. Attachments
     /// without one are dropped, never left as U+FFFC. A hidden label is words of its own, set

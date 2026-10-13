@@ -236,7 +236,7 @@ final class ReaderTextView: NSTextView {
             let label = attachments.first { $0.range == run }?.text ?? image.alt
             let element = accessibilityElement(at: run, label: label)
             // VoiceOver reads the help of an element without a label as its name, in the line.
-            element.setAccessibilityHelp(label.isEmpty ? nil : "Double-click or choose Inspect Image to enlarge.")
+            element.setAccessibilityHelp(label.isEmpty ? nil : ReaderImageInspection.accessibilityHelp)
             let actions = images.filter { $0.range == run }.map { entry in
                 NSAccessibilityCustomAction(name: entry.image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(entry.image.alt)") {
                     [weak self] in
@@ -287,15 +287,8 @@ final class ReaderTextView: NSTextView {
             element.setAccessibilityRole(.group)
             element.setAccessibilityLabel("Table row")
             element.setAccessibilityChildren(cells)
-        } else if isText {
-            element.setAccessibilityRole(.staticText)
-            element.setAccessibilityValue(label)
-            element.setAccessibilityLabel(nil)
-            element.setAccessibilityChildren(nil)
         } else {
-            element.setAccessibilityRole(.image)
-            element.setAccessibilityLabel(label.isEmpty ? nil : label)
-            element.setAccessibilityChildren(nil)
+            element.setReaderAttachment(words: label, isText: isText)
         }
         return element
     }
