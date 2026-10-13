@@ -277,12 +277,15 @@ import XCUIAutomation
                 // turns at most; `flick=down` and `flick=up` then move by it. One turn of a given
                 // size moved the rotor one setting in some sessions and three in others, which
                 // went round and round past Headings: the turns are of several sizes. On a
-                // physical iPhone no turn registered, on the screen, the window or the text.
+                // physical iPad the five sizes together came round to the same five settings,
+                // and Rows was never one of them: after two rounds the smallest turn is made
+                // alone, which moved one setting at a time there. On a physical iPhone no turn
+                // registered, on the screen, the window or the text.
                 let wanted = parts.count > 1 ? parts[1] : ""
                 var found = wanted.isEmpty
                 let turns: [CGFloat] = [.pi / 4, .pi / 6, .pi / 9, .pi / 5, .pi / 12]
                 for turn in 0..<(wanted.isEmpty ? 1 : 30) {
-                    app.rotate(turns[turn % turns.count], withVelocity: 2)
+                    app.rotate(turn < 2 * turns.count ? turns[turn % turns.count] : .pi / 12, withVelocity: 2)
                     RunLoop.current.run(until: Date().addingTimeInterval(0.8))
                     let phrase = (try? voiceOver.currentSpeech().utterance) ?? "no speech"
                     note("rotor", phrase)
