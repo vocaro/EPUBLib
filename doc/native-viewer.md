@@ -458,11 +458,18 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     one alone: a located passage in a table, in each cell it runs through that cell's
     share, and a selection carried across a new layout. The reader takes no keyboard focus
     to show it, which would close a keyboard elsewhere in the window.
-  - **Said.** VoiceOver says nothing of its own after an item's action. The reader posts an
-    announcement, queued behind whatever VoiceOver is saying: "Selected:" and the cell's
-    words, their first sixty characters as in a row's action, then "Copied" and
-    "Deselected" for the two below. The words are the reader's and English, as "Separator"
-    is at a rule.
+  - **Said.** VoiceOver says nothing of its own after an item's action, and it keeps what an
+    item says and offers as it found them when its cursor came to the item: on an iPad its
+    rotor went on offering Select Cell Text, and none of the three actions below, after the
+    words were selected. The item of a cell whose words are selected has UIKit's selected
+    trait, and after selecting or deselecting the reader posts a layout change that names
+    the item. VoiceOver then reads the item again, "selected" before its words in
+    VoiceOver's own language or without it, and takes the item's actions as they now are. A
+    listener who comes back to the item later hears "selected" again. On a row it is the
+    row that is read as selected, and its actions name the cell. The reader announces one
+    thing itself, "Copied", because copying changes nothing a listener could tell: the word
+    is the reader's and English, as "Separator" is at a rule, and is queued behind whatever
+    VoiceOver is saying.
   - **What it is for.** A selection made by touch brings up the edit menu, with Copy and the
     host's selection action. No menu comes up for a selection set in code, and VoiceOver
     could not reach one in a view hidden from it. So the item whose cell holds selected
@@ -1114,8 +1121,9 @@ The following are the defaults. Host commands and accessibility actions stay ena
   is suppressed while a selection is active; host commands and these continuation controls
   remain available. `.selectionChanged` settles 150 ms after the selection stops changing.
   With VoiceOver on iPhone and iPad a table's text is selected by an action of its row or
-  cell, which draws it, says so, and then offers Copy and the host's action itself ("A
-  table's text selected with VoiceOver" under Decisions).
+  cell. The cell draws it, VoiceOver reads the item as selected, and the item then offers
+  Copy and the host's action itself ("A table's text selected with VoiceOver" under
+  Decisions).
 
 ## Commands and events
 
