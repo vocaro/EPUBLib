@@ -867,6 +867,100 @@ import XCTest
         XCTAssertEqual(listed.filter { $0.accessibilityLabel == "Separator" }.count, 1)
     }
 
+    /// What VoiceOver is given for a line. UIKit hands it the line's own actions and then those
+    /// of everything that holds the line, up to the window: its text view, the canvas and the
+    /// views above them.
+    private func offered(on element: UIAccessibilityElement) -> [String] {
+        var names = (element.accessibilityCustomActions ?? []).map(\.name)
+        var holder = element.accessibilityContainer as? NSObject
+        while let object = holder {
+            names += (object.accessibilityCustomActions ?? []).map(\.name)
+            holder = (object as? UIView)?.superview
+        }
+        return names
+    }
+
+    /// On 2026-10-12 a simulator's VoiceOver said "Actions available" after every line of
+    /// continuous scroll. With a link and a picture in the book its rotor offered, on a plain
+    /// line, "Verification link", four more links, "Inspect Image: Blue verification square",
+    /// "Previous Page" and "Next Page"; on a plain line of a page, "Next Page", "Previous
+    /// Page", the picture, and "Previous Page" and "Next Page" again. None was the line's.
+    /// The text view gave UIKit's actions for the links of its text and the
+    /// reader's for its pictures and tables, and the canvas had the two the reader's SwiftUI
+    /// surface named. This holds the lines and the text view to their own. SwiftUI gives a
+    /// view no action in a test host, where no assistive technology runs, so what the surface
+    /// names is not seen here: VoiceOver sessions hold that (doc/voiceover-testing.md).
+    func testALineIsOfferedWhatIsInItAndNothingOfWhatHoldsIt() async throws {
+        let picture = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"60\" height=\"60\"><rect width=\"60\" height=\"60\" fill=\"#246\"/></svg>"
+        let prose = (1...30).map { "<p>p\($0) " + CanvasText.sentence(50, seed: $0) + "</p>" }.joined()
+        let body = "<h1>Actions</h1><p>Plain words before.</p><p>A <a href=\"#end\">jump</a> in a line.</p>"
+            + "<p><img alt=\"Blue square\" src=\"square.svg\"/></p>"
+            + "<table><tr><td>First cell</td><td>Second cell</td></tr></table>" + prose + "<p id=\"end\">The end.</p>"
+        let reader = try SessionCoverageReader(try SessionCoverageBook.epub(
+            [SessionCoverageBook.Section("actions", body, title: "Actions")],
+            manifest: "<item id=\"square\" href=\"square.svg\" media-type=\"image/svg+xml\"/>", files: ["OPS/square.svg": picture]))
+        readers.append(reader)
+        reader.window?.resize(to: CGSize(width: 402, height: 874))
+        try await reader.settle()
+        let canvas = try XCTUnwrap(reader.session.canvas)
+
+        func assertEachLineIsOfferedItsOwn(_ label: String, in view: ReaderTextView, pageActions: [String],
+                                           file: StaticString = #filePath, line: UInt = #line) throws {
+            let listed = try elements(of: view, file: file, line: line)
+            var pictures = 0, rows = 0, links = 0
+            for element in listed {
+                let text = element.accessibilityLabel ?? ""
+                let own = (element.accessibilityCustomActions ?? []).map(\.name)
+                XCTAssertEqual(Array(own.prefix(pageActions.count)), pageActions, "\(label): \"\(text)\"", file: file, line: line)
+                let rest = Array(own.dropFirst(pageActions.count))
+                if text == "Blue square" {
+                    pictures += 1
+                    XCTAssertEqual(rest, ["Inspect Image: Blue square"], "\(label): the picture is inspected from its own line", file: file, line: line)
+                } else if text.contains("First cell") {
+                    rows += 1
+                    XCTAssertTrue(rest.contains { $0.hasPrefix("Select Table Text: First cell") },
+                                  "\(label): a row keeps its cells' actions: \(rest)", file: file, line: line)
+                    XCTAssertTrue(rest.allSatisfy { $0.contains("Table") }, "\(label): \(rest)", file: file, line: line)
+                } else {
+                    if element.accessibilityTraits.contains(.link) { links += 1 }
+                    XCTAssertEqual(rest, [], "\(label): \"\(text)\" has nothing in it to act on", file: file, line: line)
+                }
+                XCTAssertEqual(offered(on: element), own, "\(label): \"\(text)\" is offered what something that holds it offers",
+                               file: file, line: line)
+            }
+            XCTAssertEqual([pictures, rows, links], [1, 1, 1], "\(label): the picture, the table and the link are listed: "
+                            + "\(listed.map { $0.accessibilityLabel ?? "" })", file: file, line: line)
+            XCTAssertNil(view.accessibilityCustomActions, "\(label): a view that lists its lines offers nothing for each of them to repeat",
+                         file: file, line: line)
+        }
+
+        // Pages: every line turns the page, and offers that once.
+        let pageActions = ["Next Page", "Previous Page"]
+        try assertEachLineIsOfferedItsOwn("in pages", in: try XCTUnwrap(canvas.textViews.first), pageActions: pageActions)
+
+        // Continuous scroll has no page to turn: a plain line is offered nothing at all, and
+        // VoiceOver has no "Actions available" to say after it.
+        try await reader.session.send(.style(EPUBReaderStyle(flow: .scrolled)))
+        try await reader.wait("the whole book in the scroll view") { canvas.scrollBook != nil }
+        try await reader.settle()
+        let view = try XCTUnwrap(canvas.scrollTextView)
+        try assertEachLineIsOfferedItsOwn("in continuous scroll", in: view, pageActions: [])
+        let plain = try XCTUnwrap(try elements(of: view).first { $0.accessibilityLabel == "Plain words before.\n" })
+        XCTAssertEqual(offered(on: plain), [])
+        let link = try XCTUnwrap(try elements(of: view).first { $0.accessibilityTraits.contains(.link) })
+        XCTAssertEqual(link.accessibilityLabel, "jump")
+        XCTAssertEqual(offered(on: link), [], "a link is followed by activating it")
+        // With VoiceOver's cursor in the text, when lines past the screen are listed as well.
+        focus(plain, from: nil, in: view)
+        try assertEachLineIsOfferedItsOwn("with the cursor in the text", in: view, pageActions: [])
+
+        // A change back to pages gives the lines their page actions again.
+        try await reader.session.send(.style(EPUBReaderStyle(flow: .paginated)))
+        try await reader.wait("pages again") { canvas.scrollBook == nil }
+        try await reader.settle()
+        try assertEachLineIsOfferedItsOwn("in pages again", in: try XCTUnwrap(canvas.textViews.first), pageActions: pageActions)
+    }
+
     func testANoteKeepsUIKitsOwnTextElements() {
         // A note's popover is a text view of its own, never scrolled by the reader: its text
         // starts at its first line, which is where UIKit's elements start.

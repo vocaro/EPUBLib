@@ -37,7 +37,7 @@ func shortValue(_ element: AXUIElement) -> String { describe(string(element, kAX
 let steps = Array(CommandLine.arguments.dropFirst(3))
 guard CommandLine.arguments.count >= 2,
       let pid = pid_t(CommandLine.arguments[1]), pid > 0 else {
-    fputs("Usage: voiceover-ax-observer PID [seconds] [next|previous|press=LABEL|larger|smaller|width=POINTS|focus[=COLUMN|=search]|lines|links|caret=WORDS|follow=WORDS|wait=SECONDS ...]\n"
+    fputs("Usage: voiceover-ax-observer PID [seconds] [next|previous|press=LABEL|larger|smaller|width=POINTS|focus[=COLUMN|=search]|lines|links|actions[=all]|action=NAME|caret=WORDS|follow=WORDS|wait=SECONDS ...]\n"
         + "A single step of - reads one step per line from standard input.\n", stderr)
     exit(1)
 }
@@ -83,16 +83,30 @@ func lines(_ text: AXUIElement) -> [(range: CFRange, text: String)] {
     return result
 }
 
-/// What an element embedded in text says of itself: a link, or an attachment's own element.
-func embedded(_ element: AXUIElement) -> String {
+/// An element's actions as the accessibility API lists them.
+func actionNames(_ element: AXUIElement) -> [String] {
     var names: CFArray?
     AXUIElementCopyActionNames(element, &names)
+    return names as? [String] ?? []
+}
+/// The name of an action an application gives an element itself, which VoiceOver offers in
+/// its Actions menu. AppKit lists one as "Name:NAME", a line break, and its target and selector.
+func named(_ action: String) -> String? {
+    action.hasPrefix("Name:") ? String(action.dropFirst(5).prefix { !$0.isNewline }) : nil
+}
+/// An element's actions on one line, a named one as its name in quotation marks.
+func actions(_ element: AXUIElement) -> String {
+    let names = actionNames(element).map { action in named(action).map { "\"\($0)\"" } ?? action }
+    return names.isEmpty ? "none" : names.joined(separator: ",")
+}
+/// What an element embedded in text says of itself: a link, or an attachment's own element.
+func embedded(_ element: AXUIElement) -> String {
     let said = [("TITLE", kAXTitleAttribute), ("LABEL", kAXDescriptionAttribute), ("VALUE", kAXValueAttribute), ("HELP", kAXHelpAttribute)]
         .compactMap { name, key in (attribute(element, key) as? String).flatMap { $0.isEmpty ? nil : "\(name) \"\($0)\"" } }
     let url = (attribute(element, kAXURLAttribute) as? URL).map { " URL \($0.absoluteString)" } ?? ""
     let children = (attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []).map { string($0, kAXRoleAttribute) }
     return ([string(element, kAXRoleAttribute), string(element, kAXSubroleAttribute)].filter { !$0.isEmpty } + said).joined(separator: " ")
-        + url + " ACTIONS \((names as? [String] ?? []).joined(separator: ",").isEmpty ? "none" : (names as? [String] ?? []).joined(separator: ","))"
+        + url + " ACTIONS \(actions(element))"
         + (children.isEmpty ? "" : " CHILDREN \(children.joined(separator: ","))")
 }
 /// Each run of a text's accessibility string that holds a link or an attachment, with the
@@ -156,6 +170,27 @@ func embeddedElement(naming words: String) -> AXUIElement? {
     return nil
 }
 
+/// A column, whatever holds it up to the window, and any other element with a named action,
+/// each with its depth: where a named action is, and so what VoiceOver's cursor must be on
+/// for its Actions menu to hold it. With `everything`, each element of the window.
+func holders(everything: Bool = false) -> [(depth: Int, element: AXUIElement)] {
+    var visited = 0
+    func walk(_ element: AXUIElement, depth: Int) -> [(Int, AXUIElement)] {
+        guard depth < 20, visited < 400 else { return [] }
+        visited += 1
+        // A column's own children are its links and attachments, which `links` prints.
+        let column = string(element, kAXRoleAttribute) == kAXTextAreaRole
+        let below = column ? [] : (attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []).flatMap { walk($0, depth: depth + 1) }
+        return everything || column || !below.isEmpty || actionNames(element).contains { named($0) != nil } ? [(depth, element)] + below : []
+    }
+    return (attribute(app, kAXWindowsAttribute) as? [AXUIElement] ?? []).flatMap { walk($0, depth: 0) }
+}
+func called(_ element: AXUIElement) -> String {
+    let said = [("TITLE", kAXTitleAttribute), ("LABEL", kAXDescriptionAttribute)]
+        .compactMap { name, key in (attribute(element, key) as? String).flatMap { $0.isEmpty ? nil : "\(name) \"\($0)\"" } }
+    return ([string(element, kAXRoleAttribute), string(element, kAXSubroleAttribute)].filter { !$0.isEmpty } + said).joined(separator: " ")
+}
+
 var registered: [AXUIElement] = []
 var observer: AXObserver?
 let result = AXObserverCreate(pid, { _, element, notification, source in
@@ -192,16 +227,16 @@ func state(showLines: Bool = false) {
     }
 }
 func settle(_ seconds: Double) { RunLoop.current.run(until: Date().addingTimeInterval(seconds)) }
-func press(_ role: String, _ labels: String...) -> Bool {
+func press(_ roles: [String], _ labels: String...) -> Bool {
     // Identify controls by label or help; indexes change with the layout.
     for label in labels {
-        guard let element = elements(role).first(where: {
+        guard let element = roles.lazy.flatMap(elements).first(where: {
             string($0, kAXDescriptionAttribute) == label || string($0, kAXTitleAttribute) == label || string($0, kAXHelpAttribute).hasPrefix(label)
         }) else { continue }
         log("PRESS \(label) STATUS \(AXUIElementPerformAction(element, kAXPressAction as CFString).rawValue)")
         return true
     }
-    log("MISSING \(role) \(labels.joined(separator: " or "))")
+    log("MISSING \(roles.joined(separator: " or ")) \(labels.joined(separator: " or "))")
     return false
 }
 func perform(_ step: String) {
@@ -210,15 +245,16 @@ func perform(_ step: String) {
     var pause = 3.0 // A resize or typography change repaginates after it ends.
     switch parts.first {
     // In continuous scroll the page buttons step a screen and are named for that.
-    case "next": _ = press(kAXButtonRole, "Next Page", "Scroll Forward")
-    case "previous": _ = press(kAXButtonRole, "Previous Page", "Scroll Backward")
-    // Any other button, such as the sample's Use Toolbar, which moves its controls out of the reader's group.
-    case "press": _ = press(kAXButtonRole, parts.dropFirst().joined(separator: "="))
+    case "next": _ = press([kAXButtonRole], "Next Page", "Scroll Forward")
+    case "previous": _ = press([kAXButtonRole], "Previous Page", "Scroll Backward")
+    // Any other button, such as the sample's Use Toolbar, which moves its controls out of the reader's group,
+    // or a segment of its Reading Mode control, Continuous Scroll or Paging.
+    case "press": _ = press([kAXButtonRole, kAXRadioButtonRole], parts.dropFirst().joined(separator: "="))
     case "larger", "smaller":
         // The menu tracks events until an item is chosen, so its press may report a timeout.
-        if press(kAXMenuButtonRole, "Appearance") {
+        if press([kAXMenuButtonRole], "Appearance") {
             settle(1)
-            _ = press(kAXMenuItemRole, parts[0] == "larger" ? "Larger Text" : "Smaller Text")
+            _ = press([kAXMenuItemRole], parts[0] == "larger" ? "Larger Text" : "Smaller Text")
         }
     case "width":
         guard let window = (attribute(app, kAXWindowsAttribute) as? [AXUIElement])?.first, let width = parts.last.flatMap(Double.init) else { break }
@@ -250,6 +286,19 @@ func perform(_ step: String) {
         let status = AXValueCreate(.cfRange, &place).map { AXUIElementSetAttributeValue(text, kAXSelectedTextRangeAttribute as CFString, $0) }
         log("CARET \(index) AT \(offset) STATUS \(status?.rawValue ?? -1)")
         pause = 1
+    case "actions":
+        // Numbered, because a transcript sorts its lines and several of these share a millisecond.
+        for (number, holder) in holders(everything: parts.last == "all").enumerated() {
+            log("ELEMENT \(String(format: "%03d", number)) DEPTH \(holder.depth) \(called(holder.element)) ACTIONS \(actions(holder.element))")
+        }
+        pause = 0
+    case "action":
+        // A named action's own performance, without VoiceOver, on the first element that has it.
+        let name = parts.dropFirst().joined(separator: "=")
+        guard let (element, action) = holders().lazy.compactMap({ holder in
+            actionNames(holder.element).first { named($0) == name }.map { (holder.element, $0) }
+        }).first else { log("MISSING \(step)"); break }
+        log("ACTION \(name) ON \(called(element)) STATUS \(AXUIElementPerformAction(element, action as CFString).rawValue)")
     case "follow":
         // A link's own press, without VoiceOver: what the reader does when an assistive client follows it.
         let words = parts.dropFirst().joined(separator: "=")
