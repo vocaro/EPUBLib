@@ -434,8 +434,14 @@ TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wai
     it read "Bookmark", and `forward=1` from the bar reads the item below the reader. Do
     the same after two scroll steps, where the last line listed is the last in the reader's
     view. Nothing scrolls as the cursor goes to the bar: at the end of the book the bar reads
-    100%, where it read 99% while the view went back for it. `flick=down` on the bar scrolls
-    by a page and reads the new value.
+    100%, where it read 99% while the view went back for it. `flick=down` on the bar takes
+    the view a tenth of the way through the book and reads the new value, with the cursor
+    still on the bar, and `backward=5` from there reads the last line then on screen and
+    the lines above it in order. The second of those lines again at every further move is
+    the failure of the adjustment in
+    [#342](https://github.com/vocaro/EPUBLib/issues/342): VoiceOver had taken the list to
+    start there. A line of text read at the flick itself is the harness's: on a busy Mac the
+    swipe was taken for a touch and moved the cursor to the line under it.
 
 Drive at least one session with `flick=right*20` and `flick=left*30` in place of `forward`
 and `backward`: those are VoiceOver's own gestures for the next and previous item, where the
@@ -951,6 +957,30 @@ devices VoiceOver performs every one of these
 simulator's and not the probe's or the reader's. Page actions, the rotor and turns in
 landscape need a device. To read a later landscape spread on a simulator, turn pages in
 portrait and then rotate: the reader keeps its place.
+
+VoiceOver keeps a log of its own in a simulator, and it says what VoiceOver did where a
+transcript says only what it read. Stream it for the length of a session:
+
+```sh
+xcrun simctl spawn DEVICE log stream --level debug --style compact --predicate 'process == "vot"'
+```
+
+- `VOTElement` has each move: the command and the item it started from (`ElementMovement
+  decision`), the items VoiceOver holds each side of its cursor (`Cache:`), which of them it
+  tried (`Checking element`, `Found element`), what it then asked the app for and was given
+  (`fetch count: 1 -- startFromBehind:`, and `retrieved:` with `AHEAD` and `BEHIND`), and
+  when it threw away all it held (`Forced update, so removing all from cache`).
+- `VOTNotifications` has each notification as it arrived (`VoiceOver Received note: Layout
+  Changed`), and `VOTCommon` the events VoiceOver answered a move with: `DidFocusOnElement`,
+  `DidWrapBackwards`, `BoundaryEncountered`.
+- A `<null>` in the cache is an end of the list as VoiceOver has it: it asked for one more
+  item there and was given none. A move to that side then ends in `Found element: (null)`
+  and `BoundaryEncountered`, and the transcript has the same phrase again.
+
+The stop after the scroll bar is adjusted was found this way
+([#342](https://github.com/vocaro/EPUBLib/issues/342), under "Harness pitfalls and current
+results"). The log of a physical device holds whatever else its owner's device did, and is
+not read.
 
 A move costs half a second and a touch about five and a half, most of it XCTest waiting for
 an event that VoiceOver keeps from the reader. The end of a `read` costs 3.3 seconds and an
@@ -1547,9 +1577,10 @@ The Mac runner's transcript is plain text and needs no export.
     back from there gave the last line on screen and the line above it, and at every
     further move back VoiceOver stayed on that line, in three sessions of three; moves
     forward went on. The log has the line it asked the index of as the element listed,
-    on screen, and nothing after the question. This is not understood, and the iPad did
-    the same (below). With UIKit's own bar the same flick read nothing and left the
-    cursor on no item, in the one simulator session that tried it.
+    on screen, and nothing after the question. The iPad did the same, and the cause is in
+    the entry on the stop after an adjustment (both below). With UIKit's own bar the same
+    flick read nothing and left the cursor on no item, in the one simulator session that
+    tried it.
 
   The same element on the physical iPad Air 13-inch (M3), iPadOS 27.2, at 23 points, on
   2026-10-13 at `b5e135f` (the simulator sessions' code with main merged in), VoiceOver
@@ -1575,6 +1606,81 @@ The Mac runner's transcript is plain text and needs no export.
     back: `p023w36 … p023w40`, `p023w29 … p023w35`, and that line again at each of three
     further moves; forward, the line after it, the bar and the footer. So the stop after
     an adjustment is the device's too.
+
+  The stop after an adjustment was found on 2026-10-13, in an iPhone 17 Pro simulator of
+  the session's own (iOS 27.0, 17 points, the book of ordinary paragraphs), from
+  VoiceOver's own log ([Simulators](#simulators)) beside a build that logged every
+  attribute, action and element VoiceOver asked the reader's elements for (not committed).
+  Nobody listened. The steps were
+  `activate=Scroll Forward,activate=Scroll Forward,wait=2,point=0.955:0.6,flick=down,wait=2,backward=4,forward=2`:
+  - As the touch landed on the bar VoiceOver asked for two items each side of it. It held
+    `p005w37 …` and `p006w01 …`, the last two lines on screen, then the bar and the footer.
+  - The swipe is its decrement of the bar. UIKit's bar added a tenth to the view's
+    progress (`accessibilityScrollIndicator:addProgress:`), 1,490 points at once, and
+    VoiceOver received one notification, "Update element Visuals". It read the bar's own
+    attributes again, said "15%" and asked for no item.
+  - First move back: `Checking element p006w01`, which no longer answered, its element
+    being gone; a request for one item before the bar, which gave `p012w16 …`, the last
+    line on screen; then `fetch count: 1 -- startFromBehind: p005w37`, a request that
+    reached no element of the reader's, and `retrieved:` with `BEHIND: ()`. Second move:
+    `Checking element p005w37`, a request for one item before `p012w16 …`, which gave
+    `p012w11 …`, and `fetch count: 0`. Third move: `Cache:` with `<null>`, `p012w11 …`,
+    `p012w16 …`, the bar and the footer; `Found element: (null)`; the scroll view's own
+    value and the item at its middle asked for; and `BoundaryEncountered`, with the sound
+    `WrapBoundary`. The same at every further move back, and VoiceOver's own flick
+    (`flick=left*5`) did the same.
+  - With every listed element kept alive after it left the list, as an experiment:
+    `p006w01 …` and `p005w37 …`, the two lines from before the swipe, and then "Bookmark".
+  - With a layout change that names the bar's element posted after the adjustment:
+    `VoiceOver Received note: Layout Changed`, `Proposing current element: Vertical scroll
+    bar`, `Forced update, so removing all from cache`, `fetch count: 2` each way from the
+    bar, `BEHIND:` with `p012w16 …` and `p012w11 …`, and no speech after "15%". Five moves
+    back read five lines in order. A layout change that names nothing and a screen change
+    did the same, the screen change with `ScreenDidChange` as well. In one session of
+    seven the flick read `p004w35 …`: no adjustment had been made, the swipe having been
+    taken for a touch at a load average of 630.
+
+  With the element posting that layout change, at `02a5529`, in the same simulator:
+  - The steps above with `backward=6,forward=8`: "15%", then `p012w16 …`, `p012w11 …`,
+    `p012w06 …`, `p012w01 …`, `p011w36 …`, `p011w31 …`; forward, the same lines in order
+    and on past `p012w16 …`, the fifty lines after the screen being listed once the cursor
+    is in the text.
+  - With VoiceOver's own flicks (`…,flick=down,wait=2,flick=left*5,flick=right*7`): "15%",
+    five lines back in order to `p011w36 …`, seven forward in order.
+  - Down, back into the text, the bar again, down and up
+    (`…,flick=down,wait=2,backward=3,point=0.955:0.6,flick=down,wait=2,flick=up,wait=2,backward=4,forward=6`):
+    "15%" and three lines; "Vertical scroll bar, 41 pages 16%", "26%" and "16%"; then
+    `p013w11 …` and three lines above it in order, and six forward.
+  - Step 10's session at the end of the book with an adjustment added
+    (`…,point=0.955:0.6,flick=down,wait=2,backward=3,forward=5`): as recorded above, the
+    bar at 100% each time. The flick read "100%" and moved nothing; back, `p086w40` and
+    two lines above it; forward to the bar and the footer.
+  - An iPad Air 13-inch (M4) simulator at 23 points
+    (`activate=Scroll Forward,activate=Scroll Forward,wait=2,point=0.982:0.6,flick=down,wait=2,backward=6,forward=8,point=0.982:0.6,flick=up,wait=2,backward=3`):
+    "Vertical scroll bar, 15 pages 15%" and "25%"; six lines back in order from
+    `p022w08 … p022w14` to `p021w15 … p021w21` and eight forward in order; the bar again
+    at 25%, "15%" for the swipe up, then `p016w08 … p016w14` and two lines above it.
+  - The iPhone again with main merged in, at `a18e546`
+    (`…,flick=down,wait=2,backward=6,forward=3,point=0.955:0.6,flick=up,wait=2,flick=left*4,flick=right*6`):
+    "15%", six lines back in order and three forward; the bar at 16% and "6%" for the
+    swipe up; four lines back by VoiceOver's own flick from `p006w27 …` and six forward,
+    in order.
+
+  The same on the physical iPad Air 13-inch (M3), iPadOS 27.2, upright at 23 points, on
+  2026-10-13 at `a18e546`: VoiceOver switched on for each session and off after it, the
+  iPad claimed for the runs and released, and the transcripts passed through the filter
+  that keeps the book's and the sample's words, with a bare percentage let through.
+  - `activate=Scroll Forward,activate=Scroll Forward,wait=2,point=0.982:0.6,flick=down,wait=2,backward=6,forward=8`:
+    "Vertical scroll bar, 15 pages 15%" and "25%"; then `p022w01 … p022w07`,
+    `p021w36 … p021w40`, and four lines above them in order to `p021w08 … p021w14`;
+    forward, eight lines in order to `p022w22 … p022w28`. Before the change, in the
+    session above: two lines, and the second three more times.
+  - With VoiceOver's own flicks, and up again
+    (`…,flick=down,wait=2,flick=left*5,flick=right*3,point=0.982:0.6,flick=up,wait=2,backward=3,forward=5`):
+    "25%", five lines back in order from `p022w01 …` to `p021w15 …` and three forward; the
+    bar at "16 pages 25%" and "15%" for the swipe up; then `p015w36 … p015w40` and two
+    lines above it, and five forward in order. The session's first phrase, before any
+    step, was not the book's or the sample's and was withheld unread.
 - The two lines that used to be listed each side were one short when VoiceOver moved back up
   the screen, menu or no menu. With its cursor on a line it asks for the item before the
   line two above, so three lines above the cursor must be listed, and two were unless more

@@ -124,8 +124,9 @@ import AppKit
     /// The offset a rest for a new visible height left the scroll view at, until UIKit reports
     /// the scrolling of that inset change (`scrollViewDidChangeAdjustedContentInset`).
     var restedScrollOffset: CGFloat?
-    /// Posts what the canvas tells an assistive technology after a page turn. A test puts its
-    /// own closure here to see what is posted, and with which element.
+    /// Posts what the canvas tells an assistive technology after a page turn, and the layout
+    /// change the scroll bar's stand-in tells of after it is adjusted (`ReaderTextView`). A
+    /// test puts its own closure here to see what is posted, and with which element.
     var postAccessibilityNotification: @MainActor (UIAccessibility.Notification, Any?) -> Void = {
         UIAccessibility.post(notification: $0, argument: $1)
     }
