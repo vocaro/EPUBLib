@@ -495,7 +495,7 @@ import UIKit
                     let marker = try XCTUnwrap(host.views(FrameMarker.Marker.self).first, name)
                     let stripFrame = host.frame(of: marker)
                     XCTAssertEqual(stripFrame.minY, 0, accuracy: 0.5, name)
-                    XCTAssertLessThan(stripFrame.height, 100, "\(name): the compact strip has left its row")
+                    XCTAssertLessThan(stripFrame.height, 200, "\(name): the compact strip has become a full column")
                     let scroller = try XCTUnwrap(host.paneScroller(), name)
                     XCTAssertLessThan(host.heightOutOfSight(in: scroller), 1, "\(name): a control is out of sight")
                     let field = try XCTUnwrap(host.views(UITextField.self).first, name)

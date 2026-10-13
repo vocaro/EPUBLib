@@ -53,7 +53,7 @@ public struct EPUBReaderToolbar: ToolbarContent {
 /// An embedded alternative. At narrow widths groups stack vertically, including host items,
 /// preserving text size and search focus without clipping controls into a horizontal scroller.
 /// In a compact height, Contents and Appearance show their icons, retaining their accessible
-/// names, so their titles do not force a tall column over the book on a landscape iPhone.
+/// names, and groups wrap into rows so a narrow landscape iPhone still leaves room for the book.
 ///
 /// On iPhone and iPad the strip is as tall as its groups wherever it is offered that much, and
 /// scrolls them where it is not: its own search field raises the keyboard over a stack that
@@ -101,10 +101,15 @@ public struct EPUBReaderControlStrip<Extras: View>: View {
     }
     private var stacked: some View {
         VStack(alignment: .leading) {
-            ViewThatFits(in: .horizontal) {
-                HStack { items }
-                VStack(alignment: .leading) { items }
+            #if os(macOS)
+            rowOrColumn
+            #else
+            if verticalSizeClass == .compact {
+                EPUBControlStripRows { items }
+            } else {
+                rowOrColumn
             }
+            #endif
             // The strip's own search field already states a search it refused.
             if let error = groups.contains(.search) ? controls.commandErrorBesideSearchFeedback : controls.commandError {
                 HStack {
@@ -112,6 +117,12 @@ public struct EPUBReaderControlStrip<Extras: View>: View {
                     Button("Dismiss error") { controls.dismissError() }
                 }.font(.callout)
             }
+        }
+    }
+    private var rowOrColumn: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack { items }
+            VStack(alignment: .leading) { items }
         }
     }
     @ViewBuilder private var items: some View {
@@ -392,6 +403,48 @@ struct EPUBSearchField: View {
         case .completed(_, let found):
             if !found { Text("No matches") }
         case .failed(_, let error): Text(error.message).foregroundStyle(.red)
+        }
+    }
+}
+
+/// Compact-height groups keep their order in rows. A single row at the largest text size is
+/// wider than an iPhone SE even with icon-only menus; a full column leaves no whole book line.
+/// Measure each group at its ideal width (or the offered width for a group wider than that)
+/// and wrap before the next group, keeping every group's own text size and controls whole.
+private struct EPUBControlStripRows: Layout {
+    private struct Arrangement {
+        var frames: [CGRect] = []
+        var size: CGSize = .zero
+    }
+    private func arrangement(width: CGFloat?, subviews: Subviews) -> Arrangement {
+        let room = width ?? .greatestFiniteMagnitude
+        var result = Arrangement()
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for view in subviews {
+            let ideal = view.sizeThatFits(.unspecified)
+            let size = view.sizeThatFits(ProposedViewSize(width: min(ideal.width, room), height: nil))
+            if x > 0, x + size.width > room + 0.5 {
+                x = 0
+                y += rowHeight + 8
+                rowHeight = 0
+            }
+            let frame = CGRect(origin: CGPoint(x: x, y: y), size: size)
+            result.frames.append(frame)
+            result.size.width = max(result.size.width, frame.maxX)
+            result.size.height = max(result.size.height, frame.maxY)
+            rowHeight = max(rowHeight, size.height)
+            x += size.width + 8
+        }
+        return result
+    }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        arrangement(width: proposal.width, subviews: subviews).size
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = arrangement(width: proposal.width ?? bounds.width, subviews: subviews)
+        for (view, frame) in zip(subviews, rows.frames) {
+            view.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                       proposal: ProposedViewSize(frame.size))
         }
     }
 }

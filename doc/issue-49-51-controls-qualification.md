@@ -760,7 +760,9 @@ recorded with the points they resolve.
     on screen. The owner chose on 2026-10-13: "Use icon-only menus in compact height,
     preserving accessibility labels". Contents and Appearance therefore show their icons
     in compact heights, as the toolbar does. Their accessible names remain Contents and
-    Appearance; text sizes, other controls and regular-height labels remain as before.
+    Appearance. Where one row is too wide, compact-height groups wrap into rows in their
+    supplied order instead of a full column. Text sizes and regular-height labels remain
+    as before.
     Landscape qualification evidence follows once the four device/text-size cases have
     been run.
 
