@@ -2269,8 +2269,14 @@ The Mac runner's transcript is plain text and needs no export.
   spread shows `word0001`–`word0147` beside `word0148`–`word0350`: with the cursor on
   "word0232 …" in the right-hand page, Next Page showed `word0351`–`word0553` beside
   `word0554`–`word0756`, VoiceOver read "word0351 …" by itself, the first line of the
-  left-hand page, and the moves read "word0358 …", "word0365 …", "word0372 …".
-  What the change costs was seen in the same session. The cursor is on a new item after a
+  left-hand page, and the moves read "word0358 …", "word0365 …", "word0372 …". A last
+  session at `a38fa29`, after `main`'s change to the scroll bar of continuous scroll had
+  been merged into the same file, read the same, upright: "word0294 …" after Next Page
+  from "word0001 …" and the three lines after it; and after Previous Page from "word0450
+  …", "Page boundary verification Heading", the first line of the first page, then "Read
+  the numbered words across two consecutive pages. The next page must resume at the",
+  "next numbered word." and "Verification link Link".
+  What the change costs was seen in these sessions. The cursor is on a new item after a
   turn, and VoiceOver's rotor is at its default there: with Previous Page chosen and
   performed from "word0818 …", a second double tap, with no flick before it, read the
   first line again and left `word0294`–`word0654` on screen, where before the change it
