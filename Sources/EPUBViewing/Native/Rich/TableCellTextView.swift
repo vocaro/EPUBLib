@@ -30,6 +30,9 @@ typealias TableNativeTextView = UITextView
     private var actionTitle: String?
     private var menuImage: ReaderImageAttachment?
     private var highlightedCharacters: [NSRange] = []
+    #if os(macOS)
+    private var attachmentElements: [Int: NSAccessibilityElement] = [:]
+    #endif
     #if os(iOS)
     private var spreadSelectionDelegate: ReaderSpreadSelectionGestureDelegate?
     var copyTextToPasteboard: (String) -> Void = { UIPasteboard.general.string = $0 }
@@ -247,10 +250,13 @@ typealias TableNativeTextView = UITextView
             super.accessibilityAttributedString(for: full) ?? cellText.attributedSubstring(from: full))
         cellText.enumerateAttribute(.attachment, in: full) { value, characters, _ in
             guard let textual = value as? ReaderTextualAttachment else { return }
-            let element = NSAccessibilityElement()
+            // Probe: the element is kept from one read to the next. No frame.
+            let element = attachmentElements[characters.location] ?? NSAccessibilityElement()
+            attachmentElements[characters.location] = element
             element.setAccessibilityRole(.staticText)
             element.setAccessibilityLabel(textual.textEquivalent)
             element.setAccessibilityParent(self)
+            if value is ReaderRuleAttachment { ReaderRuleAttachment.makeSeparator(element) }
             let relative = NSRange(location: characters.location - full.location, length: characters.length)
             result.addAttribute(.accessibilityAttachment, value: element, range: relative)
         }
