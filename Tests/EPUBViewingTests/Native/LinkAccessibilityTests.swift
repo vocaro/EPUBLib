@@ -130,9 +130,11 @@ import XCTest
             <p><a href="b.xhtml"><img alt="" src="p.png"/> Jump with decoration</a></p>\
             <p><a href="c.xhtml"><img alt="Described jump" src="p.png"/></a></p>\
             <p><a href="e.xhtml">Words and <img alt="a picture" src="p.png"/> both <img alt="" src="p.png"/></a></p>\
+            <p><a href="f.xhtml"><img alt="" src="p.png"/><img alt="Logo" src="p.png"/></a></p>\
             <p>Alone: <img alt="Unlinked" src="p.png"/></p>
             """)
         let found = try links(in: view)
+        XCTAssertEqual(found.count, 5)
         let text = try XCTUnwrap(view.accessibilityValue()) as NSString
         // A picture that is all its link holds is the link's own element.
         for index in [0, 2] {
@@ -163,6 +165,12 @@ import XCTest
         XCTAssertEqual(host.recorder.links.last?.position, ReaderTextPosition(section: 0, offset: among.range.location))
         // Decoration after the link's first character is passed over, as outside a link.
         XCTAssertNil(try attachment(at: NSMaxRange(found[3].range) - 1, in: view))
+        // Decoration that opens a link of pictures alone says nothing: the picture after it is
+        // where the link is announced, once.
+        XCTAssertNil(try attachment(at: found[4].range.location, in: view))
+        let logo = try XCTUnwrap(attachment(at: found[4].range.location + 1, in: view) as? ReaderLinkAccessibilityElement)
+        XCTAssertEqual(logo.accessibilityTitle(), "Logo, \(imageWord)")
+        XCTAssertEqual(found[4].element.accessibilityTitle(), "Logo, \(imageWord)")
         // A picture outside a link is an image, as it was.
         let unlinked = try XCTUnwrap(attachment(at: text.range(of: "Alone: ").upperBound, in: view))
         XCTAssertEqual(unlinked.accessibilityRole(), .image)

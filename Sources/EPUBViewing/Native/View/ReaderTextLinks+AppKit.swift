@@ -81,16 +81,29 @@ extension ReaderTextView {
     /// The link element that stands for the attachment at `run`, inside the link at `whole`,
     /// where VoiceOver reading the text is told of the link. An attachment that is all its
     /// link holds is the link's own element. One that says nothing, decoration passed over,
-    /// has an element without a name when it opens the link, so that VoiceOver says
-    /// "hyperlink" before the link's words, and none elsewhere.
+    /// has an element without a name when it opens a link of words, so that VoiceOver says
+    /// "hyperlink" before them, and none elsewhere.
     private func linkElement(forAttachmentAt run: NSRange, of url: URL, at whole: NSRange) -> ReaderLinkAccessibilityElement? {
         if run == whole { return linkElement(for: url, at: whole) }
         let title = linkTitle(run)
-        guard !title.isEmpty || run.location == whole.location else { return nil }
+        guard !title.isEmpty || (run.location == whole.location && hasWords(whole)) else { return nil }
         let element = linkElements.attachments[run.location] ?? ReaderLinkAccessibilityElement()
         linkElements.attachments[run.location] = element
         configure(element, url: url, range: run, title: title)
         return element
+    }
+
+    /// Whether `range` has characters of its own to read, beside its attachments.
+    private func hasWords(_ range: NSRange) -> Bool {
+        guard let storage = contentStorage.textStorage else { return false }
+        var found = false
+        storage.enumerateAttribute(.attachment, in: NSIntersectionRange(range, NSRange(location: 0, length: storage.length))) { value, run, stop in
+            if value == nil, !(storage.string as NSString).substring(with: run).allSatisfy(\.isWhitespace) {
+                found = true
+                stop.pointee = true
+            }
+        }
+        return found
     }
 
     private func configure(_ element: ReaderLinkAccessibilityElement, url: URL, range: NSRange, title: String) {

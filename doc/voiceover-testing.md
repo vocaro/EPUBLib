@@ -39,6 +39,14 @@ twenty-third), so a line in the middle of a paragraph can be told from its first
 of the book is a few screens from the start of its last chapter. Do not import private books
 for this check.
 
+On a Mac the same application can show AppKit's own text view in the reader's place, with
+none of the reader's code: `-VerificationPlainText YES` a TextKit 2 view, as the reader's
+are, and `-VerificationPlainText TextKit1` a TextKit 1 view. Its text has a link of words,
+"reference link", and a link that is a picture. Following either writes "Followed" and the
+link's name at the start of the text, which changes the text's value. What VoiceOver says and
+does there is AppKit's and VoiceOver's doing: compare it before calling a behaviour the
+reader's ([Links](#links)).
+
 Use Xcode 27, OS 27, XcodeGen, Python 3, and a graphical Mac login. Select a signing team for
 the UI-test runners and physical-device app. Signed Mac UI tests worked in the initial
 session; unsigned runs did not complete. A [hosted Mac session](#hosted-mac-sessions) needs
@@ -276,6 +284,43 @@ Drive at least one session with `flick=right*20` and `flick=left*30` in place of
 and `backward`: those are VoiceOver's own gestures for the next and previous item, where the
 others are the test service's moves. They take about six seconds each under XCTest.
 
+## Links
+
+On a Mac a link is found, named and followed through elements the reader gives VoiceOver
+([the native viewer](native-viewer.md), "Links for VoiceOver on Mac"). VoiceOver's own part
+was heard first, in AppKit's text view (`-VerificationPlainText`), and a session on links is
+read against it:
+
+- Moving by word or by line, and in Read All, VoiceOver says the words of a link of words and
+  nothing of the link. It announces an element given as a character's attachment, so a link
+  that is a picture or a hidden label is said as "hyperlink" and its name there.
+- `nextlink` and `previouslink` move through the links of the text on screen. VoiceOver says
+  the name and "hyperlink", then the hint "You are currently on a hyperlink, inside of a text
+  area. To click this link, press Control-Option-Space", of which the probe records the first
+  64 characters. Past the last link `nextlink` begins again with the first.
+- `activate` follows the link under the cursor. With the cursor on a word it follows a link
+  on that word's line, the word's own or not, and on a line without a link it does nothing.
+  AppKit's own text view does the same.
+- `rotor` lists Window Spots and no links for a text area.
+
+`ax:links` prints what the text gives for its links before anything is said: each link once
+as a `CHILD`, called by its words and never by U+FFFC, with `AXPress` among its actions; and
+in the `LINK` lines the same element as the link of its characters and, where the link has an
+attachment, a link element as that character's attachment. `ax:follow=WORDS` presses a link
+without VoiceOver. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a link's line, so
+a few `right` steps reach it. After a link is followed the transcript has `AXValueChanged`
+with the page that holds the target, in the fixture the one with "Link target reached".
+
+What VoiceOver says of a link as it reads depends on a setting: VoiceOver Utility, Verbosity,
+Text, "When encountering a link/attachment", which can be Speak, Change Pitch, Play Tone or Do
+Nothing. A transcript holds speech and neither tones nor pitch, so every hosted run reads the
+setting and writes it to `runner.txt` as `LINK VERBOSITY`. On the runner it is Speak, the
+setting of a Mac whose VoiceOver has never been configured. The workflow's `links` input
+chooses another. `scripts/voiceover-link-verbosity.swift` does both through VoiceOver
+Utility's own window and refuses to run anywhere but on a hosted runner. Do not write the
+setting with `defaults`: a `com.apple.VoiceOver4/default` domain written before VoiceOver had
+ever run left it silent for the whole run, `ERROR 3` after every key.
+
 ## Hosted Mac sessions
 
 The same reader, probe, observer and runner script record real VoiceOver speech on GitHub's
@@ -341,8 +386,9 @@ The job fails unless every session exits 0. `sessions.txt` in the download gives
 session's outcome, transcript and command: 124 means the deadline was reached, 125 that the
 runner script stopped the session, and 2 that it refused the steps. The download also holds a
 `mac-STAMP.transcript.txt` for each session in order, `runner.txt` with the commit, the runner
-image and its version, macOS, Xcode, System Integrity Protection and the screen, the observer,
-`xcodebuild` and build logs, and a screenshot of the runner's screen at the end. The job's log
+image and its version, macOS, Xcode, System Integrity Protection, the screen and VoiceOver's
+[link setting](#links), the observer, `xcodebuild` and build logs, and a screenshot of the
+runner's screen at the end. The job's log
 prints each transcript, and the script writes each session's steps and speech to the run's
 summary page. The artifacts expire after five days; copy what must be kept. A failed job also uploads
 `voiceover-mac-result-bundles`, 100 MB for four short sessions, and adds
@@ -392,6 +438,9 @@ without it:
    certificate or secret, and the image's own privacy grants were enough for the UI test.
 6. The runner script reads a missing `voiceOverOnOffKey` as off when no `VoiceOver` process
    exists, which is the state of a Mac that has never run VoiceOver.
+7. `scripts/voiceover-link-verbosity.swift` opens VoiceOver Utility to read, and when the
+   `links` input asks to choose, how VoiceOver announces a link ([Links](#links)). Written
+   with `defaults` instead, the setting left VoiceOver silent.
 
 These commands change settings of the logged-in user and belong on a disposable runner. Do
 not run them on a workstation, where the third does nothing in any case; the workflow's first

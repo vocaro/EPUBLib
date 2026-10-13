@@ -197,6 +197,43 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   rule, which is announced like any other. A rule in a table cell has no words in the
   cell's text and is not announced there, and UIKit's own elements in a note's popover were
   not heard with a rule in them.
+- **Links for VoiceOver on Mac.** AppKit gives a text view's links to an assistive client
+  itself: an element for each, as the link of its characters in the text's accessibility
+  string and as a child of the text. VoiceOver (macOS 27.0.1, with "When encountering a
+  link/attachment" at Speak, its default) uses them in two ways. Find Next Link and Find
+  Previous Link move through the children and say each one's name and "hyperlink", and
+  Control-Option-Space follows the link under its cursor, or a link on the line its cursor
+  is in. Reading by word, by line or in Read All it says a link's words and nothing of the
+  link. All of that is so in AppKit's own text views, with TextKit 2 and with TextKit 1.
+  AppKit names a link by its characters, so one that is a picture or a hidden label was
+  called U+FFFC: Find Next Link said "hyperlink" and no name, for a described picture too.
+  A hidden label takes no room, so its link had no size and Find Next Link did not reach
+  it. The reader gives elements of its own in AppKit's place
+  (`ReaderLinkAccessibilityElement`), each with AppKit's role for a link in text and a
+  press that follows the link. A link is called by its words, with the text of each
+  attachment in its place and decoration left out. One that holds pictures and nothing else
+  says after any words that it is a picture, in the system's word for one, because an
+  element that is a link cannot be an image as well. A page column gives its own page's
+  links: one that crosses the page's end is the part on the page, and one in the context
+  laid out after the page is not listed. The scroll view lists the links of the paragraphs
+  on screen, as AppKit does.
+  VoiceOver announces an element given as a character's attachment as it reads, and none at
+  a character of words. So each attachment in a link, a picture, a hidden label or a
+  formula, has a link element for its own: VoiceOver says "hyperlink" and the name there by
+  word, by line and in Read All, and Control-Option-Space follows the link. A picture keeps
+  its Inspect Image action on that element. Decoration that opens a link of words has an
+  element without a name, which says "hyperlink" before the words, and decoration elsewhere
+  in a link is passed over. So is a rule that is all its link holds: the link, without a
+  name. A link of words alone is read as its words, as everywhere on the Mac: an element
+  laid over its characters, or over the first of them, was not announced. A table row in a
+  link stays the group of its cells.
+  Not done: a list of links in VoiceOver's rotor. A custom rotor puts one there, and
+  VoiceOver then goes by it for Find Next Link as well. With a link's characters as its
+  results VoiceOver said the words without "hyperlink" and found no previous link; with the
+  link elements as its results it said "Link not found". So in continuous scroll a link
+  below the screen is reached by reading or scrolling to it. A note's popover keeps AppKit's
+  elements, and its links do nothing. A link in a table cell is the cell's own text view's,
+  and AppKit's.
 - **Image inspection.** Double-click or double-tap an unlinked book image to inspect it in a separate
   native zoomable scroll surface, including images drawn inside table cells. On Mac, images
   also offer an Inspect Image context-menu action; UIKit supplies an attachment action and
