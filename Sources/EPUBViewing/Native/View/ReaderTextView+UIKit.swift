@@ -33,7 +33,13 @@ final class ReaderTextView: UITextView {
     /// is turned under it, so this is then an item the column no longer lists
     /// (`accessibilityCursorHasLeftThePage`), until the element is made an item of the page
     /// shown (`accessibilityCursorStands(for:)`).
-    private var pageAccessibilityCursor: ReaderPageAccessibilityElement?
+    private var pageAccessibilityCursor: ReaderPageAccessibilityElement? {
+        didSet { pageAccessibilityCursorTable = pageAccessibilityCursor?.accessibilityContainer as? ReaderTableAccessibilityElement }
+    }
+    /// The element of the data table that cursor's cell is in. The column's list holds it
+    /// until the page is shown again, and the cell does not: this keeps it for
+    /// `accessibilityCursorKeepsItsLine`.
+    private var pageAccessibilityCursorTable: ReaderTableAccessibilityElement?
     /// The elements that stand in the list for the scroll view's own bars (`scrollBarListed`).
     private var scrollBarElements: [ReaderScrollBarAccessibilityElement] = []
     /// How many lines the scroll view lists past the screen: as many items as VoiceOver was seen
@@ -252,22 +258,58 @@ final class ReaderTextView: UITextView {
     /// of a table needs the row a page begins at more than the rotor's place.
     func accessibilityCursorStands(for line: Any?) -> Any? {
         guard let line = line as? ReaderPageAccessibilityElement, let cursor = pageAccessibilityCursor, cursor !== line,
-              !(cursor.isCell && line.isCell), let view = line.view, var list = view.pageAccessibilityCache,
-              let index = list.elements.firstIndex(where: { $0 === line }) else { return line }
+              !(cursor.isCell && line.isCell), let view = line.view, view.list(cursor, inPlaceOf: line) else { return line }
+        pageAccessibilityCursor = nil
+        view.pageAccessibilityCursor = cursor
+        return cursor
+    }
+
+    /// Has the element an assistive technology's cursor is on in this column go on as the
+    /// item of its line, or of its cell of a data table, when the column's page has been
+    /// shown again and still has that line: the host changed the appearance, or the text was
+    /// built again. A page shown has new elements for all it lists, and VoiceOver, told that
+    /// the layout changed, takes the new element where its cursor is for another item: it
+    /// sets its cursor there without a word, and its rotor is at its default
+    /// (`ReaderCanvasView.accessibilityPageWasShown`). The element it holds, listed where
+    /// that new one was, is the item its cursor is on already. It sets nothing, and what was
+    /// chosen in its rotor still stands (iOS 27.0 simulator).
+    ///
+    /// A cell keeps its element here too, where across a turn it does not
+    /// (`accessibilityCursorStands(for:)`): there the cursor comes to another cell, whose row
+    /// and column VoiceOver is to say, and here it stays on the cell it was on and VoiceOver
+    /// says nothing. Its table's element is kept with it, as the element of the table the
+    /// page now has. With the cell kept and a new element for its table, VoiceOver said the
+    /// cell's header cells and its words whenever it came back to it, and no longer its row
+    /// or its column: "Depth Twelve metres" where it had said "Depth Twelve metres Column
+    /// 3" (iOS 27.0 simulator).
+    func accessibilityCursorKeepsItsLine() {
+        guard let cursor = pageAccessibilityCursor,
+              let line = lineAccessibilityElements.first(where: { $0 !== cursor && cursor.isSameLine(as: $0) }) else { return }
+        let kept = pageAccessibilityCursorTable
+        guard list(cursor, inPlaceOf: line), let kept, let table = cursor.accessibilityContainer as? ReaderTableAccessibilityElement,
+              table !== kept, var list = pageAccessibilityCache, let place = list.listed.firstIndex(where: { $0 === table }) else { return }
+        kept.stand(for: table)
+        list.listed[place] = kept
+        pageAccessibilityCache = list
+    }
+
+    /// Lists `cursor` where this column lists `line`, as that item: a line's place in the
+    /// view's list, a cell's among the cells its table's element lists. Nothing changes when
+    /// `line` is not listed here.
+    private func list(_ cursor: ReaderPageAccessibilityElement, inPlaceOf line: ReaderPageAccessibilityElement) -> Bool {
+        guard var list = pageAccessibilityCache, let index = list.elements.firstIndex(where: { $0 === line }) else { return false }
         if let table = line.accessibilityContainer as? ReaderTableAccessibilityElement {
-            guard table.cells.contains(where: { $0 === line }) else { return line }
+            guard table.cells.contains(where: { $0 === line }) else { return false }
             cursor.stand(for: line)
             table.list(table.cells.map { $0 === line ? cursor : $0 })
         } else {
-            guard let place = list.listed.firstIndex(where: { $0 === line }) else { return line }
+            guard let place = list.listed.firstIndex(where: { $0 === line }) else { return false }
             cursor.stand(for: line)
             list.listed[place] = cursor
         }
         list.elements[index] = cursor
-        view.pageAccessibilityCache = list
-        pageAccessibilityCursor = nil
-        view.pageAccessibilityCursor = cursor
-        return cursor
+        pageAccessibilityCache = list
+        return true
     }
 
     // VoiceOver's own Headings rotor moves among the elements it is given, and a page or a
@@ -1106,7 +1148,7 @@ private struct ReaderTableCellKey: Hashable {
 /// the row and column each stands in and the cells that head them.
 @MainActor private final class ReaderTableAccessibilityElement: UIAccessibilityElement, UIAccessibilityContainerDataTable {
     weak var view: ReaderTextView?
-    let table: TableModel
+    private(set) var table: TableModel
     private(set) var cells: [ReaderPageAccessibilityElement] = []
     private var listedByCell: [Int: ReaderPageAccessibilityElement] = [:]
     /// The cell last asked where it stands. UIKit asks for a row's and a column's header
@@ -1123,6 +1165,17 @@ private struct ReaderTableCellKey: Hashable {
         super.init(accessibilityContainer: view)
         isAccessibilityElement = false
         accessibilityContainerType = .dataTable
+    }
+
+    /// Becomes `other`, the element made for the same table of a page shown again: the table
+    /// as it was built again, and the cells listed of it, which are this element's from then
+    /// on. Nothing of the table as it was is kept.
+    func stand(for other: ReaderTableAccessibilityElement) {
+        view = other.view
+        table = other.table
+        asked = nil
+        unlistedHeaders = [:]
+        list(other.cells)
     }
 
     func list(_ cells: [ReaderPageAccessibilityElement]) {
