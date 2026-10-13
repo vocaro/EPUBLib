@@ -58,17 +58,22 @@ final class TableRowAttachment: ReaderAttachment {
 
     /// The cells that start in this row, joined by tabs. The rows' own line breaks separate rows,
     /// and the caption is a paragraph of its own.
-    override var textEquivalent: String {
+    override var textEquivalent: String { cellWords.joined(separator: "\t") }
+
+    /// The words of each cell read where this row stands, in column order: the cells that
+    /// start in a whole row, and each cell a continuation holds lines of, by those lines. A
+    /// cell without words is there with none.
+    var cellWords: [String] {
         if let fragment, let layout = fragmentLayout {
             return fragment.cells.sorted { table.cells[$0.cell].column < table.cells[$1.cell].column }.map { entry in
                 let lines = layout.cellText[entry.cell].lines
                 let range = NSRange(location: lines[entry.lines.lowerBound].characters.location,
                                     length: lines[entry.lines.upperBound - 1].characters.upperBound - lines[entry.lines.lowerBound].characters.location)
                 return layout.cellText[entry.cell].spokenText(in: range)
-            }.joined(separator: "\t")
+            }
         }
         return table.rowCells[row].map { table.cells[$0] }.filter { $0.row == row }
-            .sorted { $0.column < $1.column }.map(\.text).joined(separator: "\t")
+            .sorted { $0.column < $1.column }.map(\.text)
     }
 
     /// A cell where this row stands, for an assistive technology that is given cells.

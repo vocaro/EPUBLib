@@ -257,12 +257,15 @@ reached Next Page there in three sessions on a reader with the fix of #337; on o
 it the same keys went elsewhere twice. `activate=Next Page` stops such a session.
 
 A table's row is one character of its page's text, and each of its cells on screen is a text
-area of its own. Moving by word (`right`) VoiceOver stops on a row and says "Table row
-group", once for rows that follow one another, because the probe records a repeated phrase
-once. `in` there says "In Table row group 2 items text" and the first cell's words, and puts
+area of its own. Moving by word (`right`) VoiceOver stops on a row of a table that is not
+data and says its cells' words and "group", "First cell, Second cell group"; a row of a
+table of data says its words and "table" ([Tables on Mac](#tables-on-mac)). `in` on a
+group says "In First cell, Second cell group 2 items text First cell", and puts
 the cursor on that cell; `right` goes to the row's next cell; `in` again reads inside the
 cell, by word and by line as in the page's text; `out` leaves the cell, and a second `out`
 the row. With the cursor at the cell's first word, `firstword` says "beginning of text".
+Until 2026-10-13 such a row was called "Table row", and the records from before say "Table
+row group" and "In Table row group 2 items text" where a row's words are now.
 
 A session can open with VoiceOver's cursor on a control, on the reader's group or already on
 the text, and what VoiceOver keeps of a column depends on how it got there. For a case in which
@@ -507,8 +510,10 @@ read against it:
   and "hyperlink Parked link to the target", the word being the last one before the link,
   with `AXLayoutChanged` and `SELECTION` at the link between them. `right` then reads the
   link again and goes on from it, and `line` reads its line. Where that link is in a
-  table's cell the insertion point is on the cell's row, and `right` says "Table row
-  group". Only the links with nothing on screen are heard that way: for the others on the
+  table's cell the insertion point is on the cell's row, and `right` says the row: "Table
+  row group" when this was heard, and the row's words and "group" since rows are called by
+  them ([Tables on Mac](#tables-on-mac)), which was not heard here again. Only the links
+  with nothing on screen are heard that way: for the others on the
   screen the reader went to, `nextlink` says the name and "hyperlink" as on a page, and
   `right` reads on from where VoiceOver last read. Past the book's last link it does what
   it does on a page. With `tracking` first (cursor tracking off) VoiceOver says the link
@@ -535,9 +540,10 @@ a few `right` steps reach it. After a link is followed the transcript has `AXVal
 with the page that holds the target, in the fixture the one with "Link target reached".
 
 A link in a table cell is in a text of its own, inside its row. Moving by word in the
-page's text VoiceOver stops on a row and says "Table row group". Rows that follow one
-another are stops of their own, and the probe records a phrase said twice running once.
-`in` there interacts with the row: "In Table row group 2 items" and the first cell's text.
+page's text VoiceOver stops on a row and says its cells' words and "group": "Plain first
+entry., Before the worded jump after it, and then en…", the 64 characters a phrase has.
+`in` there interacts with the row: "In", the row's words, "group 2 items" and the first
+cell's text, of which a transcript has the first 64 characters too.
 `right` moves to the next cell and a second `in` enters the cell, where `right`, `line`,
 `nextline`, `nextlink` and `activate` do in the cell's text what they do in the page's.
 `"ax:caret=grid."` puts the insertion point one word before the fixture's table of links,
@@ -571,7 +577,10 @@ the element of each row's character ([the native viewer](native-viewer.md), "Dat
 A session on tables is read against these, which are VoiceOver's own part (macOS 27.0.1):
 
 - Moving by line or by word VoiceOver says a row's words and "table". A row of a table that
-  is not data says "Table row group", which is the reader's label and VoiceOver's "group".
+  is not data says its cells' words and "group": "Left side, Right side group", "Lower
+  left, Lower right group". The words are the reader's label, in column order with a comma
+  between cells, and "group" is VoiceOver's. A phrase in a transcript is cut at 64
+  characters, so a long row's has no "group" in it.
 - `in` goes into the table at that row and says the first cell with its headers: "In Birch,
   1934 table Station Birch". `right` and `left` move along the row and on into the next,
   `nextline` and `previousline` (Control-Option-Down and Up) along the column. VoiceOver
@@ -606,11 +615,23 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
   VoiceOver cursor Line 1" on the new page's text area, where `in` goes into the page's
   first line, and "Open EPUB… button is in the VoiceOver cursor" where it has left the text
   for the window's first button ([#485](https://github.com/vocaro/EPUBLib/issues/485)).
+- `in` on a row's group says "In", the row's words, "group 2 items" and "text" with the
+  first cell's words: "In Lower left, Lower right group 2 items text Lower left". `right`
+  and `left` move among the row's cells, "text Lower right"; `in` on one goes into its
+  text, "In text Lower right", where `right` moves by word; `out` comes back to the cell,
+  and `out` again says "Out of Lower left, Lower right group".
 - After `out` VoiceOver is on the table it left. `nextline` reads the next line, and `in`
   there goes back into the table left, at the cell it was on. A row group of a table that
-  is not data does the same. Move by word (`right`) to the next row before `in`.
-- The probe records a phrase once: a second row that says what the row before said, as two
-  rows of a table that is not data do, leaves no line in a transcript.
+  is not data does the same. Move by word (`right`) to the next row before `in`. After
+  `out` of a group reached by moving forward, `right` says the next row. Of one reached by
+  moving back, the first `right` says that row again and the second the next row, which
+  was heard without "group": "Third cell, Fourth cell".
+- The probe records a phrase once: a second row that says what the row before said leaves
+  no line in a transcript. Every row of a table that is not data did while it was called
+  "Table row"; now only two rows of the same words do.
+- `ax:links` prints the group the text gives at each such row: `ATTACHMENT AXGroup LABEL
+  "Left side, Right side" … CHILDREN AXTextArea,AXTextArea`, the label a client is given
+  and the cells' text areas on screen.
 
 `ax:tables` prints what the text gives at each row's character before anything is said. For
 each table a `TABLE` line has its place in the text, its label, how many rows it holds and
@@ -635,6 +656,12 @@ the transcript (the line said again would not be recorded a second time), and th
 moves: `in line nextline nextline in` goes into the table on the line below. With one
 `nextline` the `in` is sent on the line of words, where it does nothing, and the moves after
 it go by word through the page, as in four sessions of run 38416874099.
+
+By word from a line `ax:caret` names, the first `right` says the line's first word, so a row
+below a line of four words is the fifth `right`: `"ax:caret=Words before the layout" ax:focus
+in right right right right right in`. With four the `in` is sent on "layout.", where it does
+nothing, and the `out` meant for the row leaves the text, as in four sessions of runs
+38425341556 to 38427534348.
 
 ## Safari on Mac
 
@@ -1338,8 +1365,12 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    On a Mac the same sections are read at each row and inside its table
    ([Tables on Mac](#tables-on-mac)), in a window 600 points wide at 17 points. By line
    and by word VoiceOver says each row of a table of data by its words and "table":
-   "Station, Opened, Depth table", "Alder, 1901, Twelve metres table"; and "Table row
-   group" at each row of the table with `role="presentation"`. `in` on "Birch, 1934 table"
+   "Station, Opened, Depth table", "Alder, 1901, Twelve metres table"; and each row of the
+   table with `role="presentation"` by its words and "group": "Left side, Right side
+   group", "Lower left, Lower right group", each once. `in` on the second says "In Lower
+   left, Lower right group 2 items text Lower left", `right` "text Lower right", and `out`
+   "Out of Lower left, Lower right group". A reader that calls such a row "Table row" says
+   "Table row group" at both rows and none of their words. `in` on "Birch, 1934 table"
    says "In Birch, 1934 table Station Birch", `right` "Opened 1934" and "Depth empty cell",
    `nextline` "Cedar Forty metres", `columnheader` "Depth" and `rowheader` "Cedar". `in` on
    a cell goes into its words, "In text 1934". The cell that is a link is said with
@@ -1358,8 +1389,9 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    line wherever its cursor is in it. In a window 600 points wide at 17 points, with the
    reader opened at that section (`"launch=-SampleHref OPS/table.xhtml"`), in pages and in
    continuous scroll, `"ax:caret=Shown words after"`, a focus change to the text, `in` and
-   `left` put VoiceOver on the first table's second row, "Table row group"; `in` there says
-   "In Table row group 2 items text Third cell", and `in` again "In text Third cell". `line`
+   `left` put VoiceOver on the first table's second row, "Third cell, Fourth cell group";
+   `in` there says "In Third cell, Fourth cell group 2 items text Third cell", and `in`
+   again "In text Third cell". `line`
    then says "Third cell" on entering, after `right` has said "Third", after a second
    `right` has said "cell", the cell's last word, and after a third has said "end of text".
    A reader whose cells have no line for the end of their text says nothing for the last
@@ -1472,8 +1504,17 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     follows no link and opens no inspector.
 13. Attachments in a table cell, on a Mac, in a window 600 points wide at 17 points, with
     the reader opened at the section of entries (`"launch=-SampleHref OPS/entries.xhtml"`).
-    Three `right` steps from the text's first line reach the table's first row, and `in`
-    there says "In Table row group 2 items text Upper part closes." and then "Separator".
+    Three `right` steps from the text's first line reach the table's first row, "Upper part
+    closes. Lower half opens., Sum x squared stated. grou…" in a transcript, and `in` there
+    says "In", the row's words, "group 2 items" and the first cell's text, of which a
+    transcript has "In Upper part closes. Lower half opens., Sum x squared stated. g…". At
+    four seconds a key the next step comes before VoiceOver has said the cell's "Separator",
+    which followed "In Table row group 2 items text Upper part closes." while a row was
+    called "Table row". The other rows are "Drawn Blue entry square shown., Parked entry
+    words. Seen entry w…", "Ornament passed., Undescribed stands. group" and "Inner one
+    Inner two, Beside the inner grid. group": a described picture's words, a formula's and
+    a hidden label's are in the row's name, and decoration and a picture nobody describes
+    are not.
     Inside that cell VoiceOver says "Upper part closes.", "Separator", "Lower half opens." by
     line and with `readall`, and by word "Separator" between "closes." and "Lower". In the
     cell beside it: "Sum x squared image stated.", and "x squared image" by word. In the
@@ -4247,7 +4288,8 @@ The Mac runner's transcript is plain text and needs no export.
   the row the listener has reached, both header cells over a column ("Hours, Leaves Nine"),
   and the row's header at Control-Option-R, where Safari gave the row's number. The table
   marked as layout is four items with their words in Safari, and in the reader two lines
-  that say "Table row group" and none of the words, as before #476.
+  that say "Table row group" and none of the words, as before #476. The next entry has
+  what the reader says there since.
   Following the link failed in Safari for what is likely a reason of the session's own:
   the section is a file, and Safari was given that file and not the one beside it. In the
   reader Control-Option-Space on the cell followed the link in both sessions that sent it,
@@ -4303,6 +4345,122 @@ The Mac runner's transcript is plain text and needs no export.
   Safari; the same tables parsed as HTML; a header under another in a table whose rows stand
   in `tbody`; the reader in continuous scroll or in two columns beside Safari; and VoiceOver
   in another language or with its verbosity changed.
+- Later still on 2026-10-13 a table that is not data was heard on a Mac before and after
+  its rows were called by their words: GitHub's hosted `xcode-27` runner (image
+  `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), a window 600 points wide at 17
+  points, VoiceOver's link setting at Speak, a fixed pause of four seconds, the same steps
+  both times. Before at `3f3ae69`, which is `main` but for three commits that change no
+  source file built for a Mac: runs 38425341556 (pages), 38425574468 (continuous scroll)
+  and 38428695319 (Read All, and by word into the table marked as layout). After at
+  `292590e`: runs 38426999381, 38427534348 and 38429468415, the last with a session on
+  the section of entries that the run before it did not have. All thirty-five sessions
+  completed. Nobody listened. A phrase is cut at 64 characters, shown by "…".
+  [#494](https://github.com/vocaro/EPUBLib/pull/494) merged while these were recorded: it
+  gives rows in continuous scroll their cells' text areas after every move of the view.
+  The seven sessions in continuous scroll were recorded again on the branch with it, at
+  `4300466` (run 38431271470), and said at every row and cell what they had said at
+  `292590e`, but for the one move marked below.
+  The table marked as layout, on the second page of the section of tables of data
+  (`"launch=-SampleHref OPS/grids.xhtml" ax:next ax:links "ax:caret=Words before the
+  layout" ax:focus in line nextline nextline nextline nextline previousline in right in
+  right out left out`). What the text gives a client at the two rows (`ax:links`): before,
+  `AXGroup LABEL "Table row"` at each, holding two `AXTextArea`; after, `AXGroup LABEL "Left
+  side, Right side"` and `AXGroup LABEL "Lower left, Lower right"`, each holding the same
+  two. By line, before: "Words before the layout.", "Table row group", a step with no new
+  phrase, "Words after the layout.", and back "Table row group". After: "Words before the
+  layout.", "Left side, Right side group", "Lower left, Lower right group", "Words after
+  the layout.", and back "Lower left, Lower right group". `in` there, before: "In Table
+  row group 2 items text Lower left". After: "In Lower left, Lower right group 2 items
+  text Lower left". Then the same both times: `right` "text Lower right", `in` "In text
+  Lower right", `right` "Lower", `out` "Out of text", `left` "text Lower left". The last
+  `out`, before: "Out of Table row group". After: "Out of Lower left, Lower right group".
+  By word from the same line (five `right`, then `in right out right right`), before:
+  "Words", "before", "the", "layout.", "Table row group", `in` "In Table row group 2 items
+  text Left side", `right` "text Right side", `out` "Out of Table row group", `right`
+  "Table row group", `right` "Words". After: the four words, "Left side, Right side
+  group", "In Left side, Right side group 2 items text Left side", "text Right side", "Out
+  of Left side, Right side group", "Lower left, Lower right group", "Words". The steps
+  that followed in that session were sent from a word and are not used.
+  Read All from that line (`readall ax:wait=10`), before: "Words before the layout.",
+  "Table row group", four seconds with nothing new, "Words after the layout.", "North, Wet
+  table". After: "Words before the layout.", "Left side, Right side group", "Lower left,
+  Lower right group", "Words after the layout.", "North, Wet table". In continuous scroll
+  the same, and on to "South, Dry table".
+  The two plain tables of the section with a hidden heading (`OPS/table.xhtml`), pages, by
+  line from the top (`in line`, eight `nextline`, `previousline in right in right out
+  out`). Before: "Parked table heading", "Table row group", a step with no new phrase,
+  "Shown words after the table.", "Line 01 after the table.", "Line 02 after the table.",
+  "Table row group", two steps with no new phrase, `in` "In Table row group 2 items text
+  Fifth cell", "text Sixth cell", "In text Sixth cell", "Sixth", "Out of text", "Out of
+  Table row group". After: "Parked table heading", "First cell, Second cell group", "Third
+  cell, Fourth cell group", the three lines, "Fifth cell, Sixth cell group", "Seventh
+  cell, Eighth cell link group", back "Fifth cell, Sixth cell group", `in` "In Fifth cell,
+  Sixth cell group 2 items text Fifth cell", then the same, and "Out of Fifth cell, Sixth
+  cell group". By word back from "Shown" (`left left in right out right right right`),
+  before: "Table row group", a step with no new phrase, "In Table row group 2 items text
+  First cell", "text Second cell", "Out of Table row group", "Table row group", a step
+  with no new phrase, "Shown". After: "Third cell, Fourth cell group", "First cell, Second
+  cell group", "In First cell, Second cell group 2 items text First cell", "text Second
+  cell", "Out of First cell, Second cell group", "First cell, Second cell group", "Third
+  cell, Fourth cell" without "group", "Shown". Read All from the top, after: "Parked table
+  heading", "First cell, Second cell group", "Third cell, Fourth cell group", the three
+  lines, "Fifth cell, Sixth cell group"; before, "Table row group" in the rows' places.
+  The table of links (`OPS/cells.xhtml`), pages, by line. Before: "Shown words before the
+  grid.", "Table row group", two steps with no new phrase, "Shown words after the grid.",
+  and back the same. After: "Plain first entry., Before the worded jump after it, and
+  then en…", "Described: Described entry jump, Bare: group", "Entry jump with decoration,
+  Parked entry jump Shown last entry.…", "Shown words after the grid.", and back the same
+  three; `ax:links` has the names whole, the first "Plain first entry., Before the worded
+  jump after it, and then enough further words to carry this entry on to another line.".
+  `in` on the first row, before: "In Table row group 2 items text Plain first entry.".
+  After: "In Plain first entry., Before the worded jump after it, and then…", the cell's
+  own words past the 64 characters. Then the same: "text Before the worded jump after it,
+  and then enough further wo…", "In text Before the worded jump after it, and then",
+  "Before", "the", "Out of text". By word, before: "grid.", "Table row group", a step with
+  no new phrase, and back two more and "grid.". After: "grid.", the first row, the second,
+  and back a step with no new phrase, the first row, "grid.".
+  The section of entries, pages, after only (`ax:links ax:focus in line`, five `nextline`,
+  three `previousline`, `in right`); what it said before is in the entry on that section
+  above, "Table row group" at each row. By line: "Entries follow.", "Upper part closes.
+  Lower half opens., Sum x squared stated. grou…", "Drawn Blue entry square shown., Parked
+  entry words. Seen entry w…", "Ornament passed., Undescribed stands. group", "Inner one
+  Inner two, Beside the inner grid. group". `in` on the first: "In Upper part closes.
+  Lower half opens., Sum x squared stated. g…", and `right` "text Sum x squared image
+  stated.". The second and third rows' groups offer Inspect Image (`ax:links`).
+  Continuous scroll, with the same steps from a line `ax:caret` names. The table marked as
+  layout and the table of links said what they said in pages, before and after. The plain tables, back by line from "Shown words after the table."
+  and down again, before: "Table row group", a step with no new phrase, "Parked table
+  heading", "Table row group", a step with no new phrase, `in` "In Table row group 2 items
+  text Third cell". After: "Third cell, Fourth cell group", "First cell, Second cell
+  group", "Parked table heading", "First cell, Second cell group", "Third cell, Fourth
+  cell group", "In Third cell, Fourth cell group 2 items text Third cell". By word back
+  from "Shown", into the first row and out, the next `right` said, before, "First cell
+  Second cell image", a tab between the cells, and 55 milliseconds later "Table row
+  group", and the one after it "Table row"; after, "First cell, Second cell group", and at
+  the one after it "Third cell, Fourth cell group" and 51 milliseconds later "Third cell,
+  Fourth cell"; at `4300466`, "Third cell, Fourth cell group" alone. A session that came up through the layout table from the line below it
+  and into its first row: "Lower left, Lower right group", "Left side, Right side group",
+  "Words before the layout.", "Left side, Right side group", "In Left side, Right side
+  group 2 items text Left side", "text Right side", "Out of Left side, Right side group";
+  before, "Table row group" in each of those places.
+  What was looked for. A row's words are said once as the text is read, by line, by word
+  and by Read All, and no cell's words follow them there. On going into a row they are
+  said before the first cell's, so that cell's words are heard twice in one phrase, and
+  they are said again on leaving. Two rows that follow one another are two lines of a
+  transcript now, where "Table row group" twice was one. The one move with two phrases
+  for a row, by word after leaving a row in continuous scroll, had two before as well,
+  the first of them the row as an image: the second replaces the first within a twentieth
+  of a second, so what a listener hears there is the second.
+  The second session of each of the first four runs sent `in` on the word before the
+  layout table's first row, where it does nothing, and the `out` after it left the text:
+  nothing is taken from those four but "Left side, Right side group" for "Table row
+  group" by word. The third pair of runs has the steps right.
+  Not heard: anyone listening, or any Mac but the runner; a row that shows pictures nobody
+  describes and no words, which is still called "Table row"; a row of a table of data that
+  shows a picture, which unit tests hold to its table; a row beyond the screen that
+  VoiceOver reads to before the view has moved; a spread of two columns; a table in a
+  note's popover; the Actions menu on a row's group; Safari on the two plain tables; and
+  VoiceOver in another language or with its verbosity changed.
 - Later again on 2026-10-13 a table cell that is a link was heard on a Mac before and
   after it was given a press and a link to hold: "Reopened 1978" in the first table of the
   section of tables of data (`-SampleHref OPS/grids.xhtml`), on GitHub's hosted `xcode-27`

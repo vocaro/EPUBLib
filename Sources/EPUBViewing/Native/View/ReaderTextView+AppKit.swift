@@ -249,18 +249,14 @@ final class ReaderTextView: NSTextView {
             let local = NSRange(location: run.location - range.location, length: run.length)
             guard NSMaxRange(local) <= result.length else { continue }
             let element = accessibilityElement(at: run, label: text, isText: attachment is SpokenLabelAttachment)
-            if attachment is TableRowAttachment, let cells = tableInteraction?.accessibilityCells(at: run.location), !cells.isEmpty {
-                element.setAccessibilityRole(.group)
-                element.setAccessibilityLabel("Table row")
-                element.setAccessibilityChildren(cells)
-            }
             result.addAttribute(.accessibilityAttachment, value: element, range: local)
             // A formula's reading has its own voice: the book's language or the generator's.
             if let language = (attachment as? ReaderTextualAttachment)?.textLanguage {
                 result.addAttribute(.accessibilityLanguage, value: language, range: local)
             }
         }
-        var exposed = Set<NSRange>()
+        // A row of a table of data stays its table, whose cells show their own pictures.
+        var exposed = Set(tableRows.map(\.range))
         for (image, run) in images where exposed.insert(run).inserted {
             let local = NSRange(location: run.location - range.location, length: run.length)
             guard NSMaxRange(local) <= result.length else { continue }
@@ -325,19 +321,16 @@ final class ReaderTextView: NSTextView {
 
     private func accessibilityElement(at range: NSRange, label: String, isText: Bool = false) -> NSAccessibilityElement {
         let element = attachmentElement(at: range)
-        if let cells = tableInteraction?.accessibilityCells(at: range.location), !cells.isEmpty {
-            element.setAccessibilityRole(.group)
-            element.setAccessibilityLabel("Table row")
-            element.setAccessibilityChildren(cells)
-        } else {
-            element.setReaderAttachment(words: label, isText: isText)
-        }
+        // A row's group says what it is called and what it holds when it is asked.
+        if !(element is ReaderTableRowGroupElement) { element.setReaderAttachment(words: label, isText: isText) }
         return element
     }
 
-    /// The element kept for the attachment at `range`, where that stands in the view.
+    /// The element kept for the attachment at `range`, where that stands in the view: a group
+    /// for a row of a table, which here is one that is not data.
     private func attachmentElement(at range: NSRange) -> NSAccessibilityElement {
-        let element = attachmentElements[range.location] ?? NSAccessibilityElement()
+        let element = attachmentElements[range.location]
+            ?? (tableRow(at: range.location) == nil ? NSAccessibilityElement() : ReaderTableRowGroupElement(view: self, location: range.location))
         attachmentElements[range.location] = element
         element.setAccessibilityParent(self)
         let frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
@@ -348,7 +341,25 @@ final class ReaderTextView: NSTextView {
         return element
     }
 
+    /// The table row whose character stands at `location`, if one does.
+    private func tableRow(at location: Int) -> TableRowAttachment? {
+        guard let storage = contentStorage.textStorage, location >= 0, location < storage.length else { return nil }
+        return storage.attribute(.attachment, at: location, effectiveRange: nil) as? TableRowAttachment
+    }
+
+    /// What the group of the row at `location` is called: the words of its cells in column
+    /// order, as a table of data is called by its row's (`ReaderTableElement`), so that
+    /// VoiceOver says them as it reads the text and not only inside the row. A row that
+    /// shows pictures and no words has none to be called by, and keeps the reader's name
+    /// for a row.
+    func tableRowLabel(at location: Int) -> String {
+        let words = (tableRow(at: location)?.cellWords ?? []).filter { !$0.isEmpty }.joined(separator: ", ")
+        return words.isEmpty ? "Table row" : words
+    }
+
     func exposeTextualAttachments() {
+        // A client can keep a row's group after the text it was given in has gone.
+        for case let row as ReaderTableRowGroupElement in attachmentElements.values { row.view = nil }
         attachmentElements.removeAll()
         linkElements = ReaderLinkElements()
         headingElements.removeAll()
@@ -684,6 +695,45 @@ extension ReaderTextView {
     private func placeInsertionPoint(at location: Int) {
         let place = NSRange(location: location, length: 0)
         if selectedRange != place { selectedRange = place }
+    }
+}
+
+/// A row of a table that is not data, where it stands in the text (doc/native-viewer.md, "Data
+/// tables", "On Mac"): a group called by its cells' words, which VoiceOver says as it reads
+/// the text, that holds the text areas of the cells on screen, which VoiceOver goes into.
+///
+/// It answers for both when it is asked. In continuous scroll VoiceOver is given a row
+/// beyond the screen before the view shows it, and keeps what it was given: a row made from
+/// what was on screen then was an image called by its words, with nothing in it to go into
+/// once it was shown.
+final class ReaderTableRowGroupElement: NSAccessibilityElement {
+    /// The view, while it shows the text the row was given in.
+    weak var view: ReaderTextView?
+    let location: Int
+
+    init(view: ReaderTextView, location: Int) {
+        self.view = view
+        self.location = location
+        super.init()
+        // AppKit tells a client of an attribute the element has been given a value for.
+        setAccessibilityRole(.group)
+        setAccessibilityChildren([])
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .group }
+
+    // AppKit asks on the main thread.
+    override func accessibilityLabel() -> String? {
+        guard let view else { return nil }
+        let location = location
+        return MainActor.assumeIsolated { view.tableRowLabel(at: location) }
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        guard let view else { return [] }
+        let location = location
+        let cells: [TableCellTextView] = MainActor.assumeIsolated { view.tableInteraction?.accessibilityCells(at: location) ?? [] }
+        return cells
     }
 }
 

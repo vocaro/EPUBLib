@@ -9,7 +9,7 @@ import XCTest
 /// continuous scroll (doc/native-viewer.md, "Data tables"): at each row's character in the
 /// text an `NSAccessibility` table, named by that row's words and with that row selected, that
 /// holds the rows the view shows, the columns, the cells and the cells that head them. A table
-/// that is not data stays a group for each row.
+/// that is not data is a group for each row, called by that row's words.
 ///
 /// No assistive technology is driven here. The tests read the elements through AppKit's own
 /// accessibility methods, which are what its bridge to a client calls. What VoiceOver says of
@@ -368,9 +368,16 @@ import XCTest
         XCTAssertEqual(keptLink.accessibilityFrame(), .zero)
     }
 
+    /// What the text areas a row's group holds say, in order.
+    private func held(_ element: NSAccessibilityElement) -> [String] {
+        (element.accessibilityChildren() ?? []).compactMap { ($0 as? TableCellTextView)?.accessibilityValue() }
+    }
+
     /// A table the book marks as layout, and one that nothing marks as data, are given row by
-    /// row as before: a group for each row that holds its cells' text areas.
-    func testATableThatIsNotDataStaysAGroupForEachRow() async throws {
+    /// row: a group for each row that holds its cells' text areas. VoiceOver says the group's
+    /// label and "group" as it reads the text, so a row is called by its cells' words, as a
+    /// row of a table of data is. Called "Table row", every row said that and none of its words.
+    func testATableThatIsNotDataIsAGroupForEachRowCalledByItsWords() async throws {
         let layout = "<table role='presentation'><tr><th>Left side</th><td>Right side</td></tr><tr><th>Lower left</th><td>Lower right</td></tr></table>"
         let plain = "<table><tr><td>First cell</td><td>Second cell</td></tr><tr><td>Third cell</td><td>Fourth cell</td></tr></table>"
         let book = try book("<p>Words before.</p>" + layout + "<p>Words between.</p>" + plain + "<p>Words after.</p>")
@@ -380,14 +387,121 @@ import XCTest
             let given = try attachments(in: view)
             XCTAssertEqual(given.count, 4, flow)
             XCTAssertTrue(try tables(in: view).isEmpty, flow)
-            for (_, element) in given {
+            XCTAssertEqual(given.map { $0.element.accessibilityLabel() },
+                           ["Left side, Right side", "Lower left, Lower right", "First cell, Second cell", "Third cell, Fourth cell"], flow)
+            for (location, element) in given {
                 XCTAssertEqual(element.accessibilityRole(), .group, flow)
-                XCTAssertEqual(element.accessibilityLabel(), "Table row", flow)
+                XCTAssertTrue(element.accessibilityParent() as AnyObject === view, flow)
+                XCTAssertFalse(element.accessibilityFrameInParentSpace().isEmpty, flow)
                 XCTAssertEqual((element.accessibilityChildren() ?? []).compactMap { ($0 as? TableCellTextView)?.accessibilityRole() }, [.textArea, .textArea], flow)
+                // What it is called is what going into it reads, cell by cell.
+                XCTAssertEqual(element.accessibilityLabel(), held(element).joined(separator: ", "), flow)
+                // Asked for one row's character, as a line or a word is, the text gives the same element.
+                let one = try XCTUnwrap(view.accessibilityAttributedString(for: NSRange(location: location, length: 1)))
+                XCTAssertTrue(one.attribute(.accessibilityAttachment, at: 0, effectiveRange: nil) as AnyObject === element, flow)
             }
-            XCTAssertEqual(given.flatMap { ($0.element.accessibilityChildren() ?? []).compactMap { ($0 as? TableCellTextView)?.accessibilityValue() } },
+            XCTAssertEqual(given.flatMap { held($0.element) },
                            ["Left side", "Right side", "Lower left", "Lower right", "First cell", "Second cell", "Third cell", "Fourth cell"], flow)
         }
+    }
+
+    private static let square = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\"><rect width=\"32\" height=\"32\" fill=\"#07c\"/></svg>"
+
+    /// A row is called by the words its cells have. A cell without any is left out, with no
+    /// pause said for it; a picture's description is among its cell's words; and a row that
+    /// shows pictures nobody describes has no words to be called by, and keeps the reader's
+    /// name for a row. A row of a table of data that shows a picture is still its table.
+    func testARowIsCalledByTheWordsItsCellsHave() async throws {
+        let rows = "<tr><td>Alone</td><td></td><td>After a gap</td></tr>"
+            + "<tr><td><img src='square.svg' alt='Blue square'/></td><td>Beside it</td><td>Decoration <img src='square.svg' alt=''/> passed</td></tr>"
+            + "<tr><td><img src='square.svg'/></td><td></td><td><img src='square.svg'/></td></tr>"
+        let data = "<table><tr><th>Mark</th><th>Meaning</th></tr><tr><td><img src='square.svg' alt='Blue square'/></td><td>Open</td></tr></table>"
+        let book = try EPUBPublication.open(data: SessionCoverageBook.epub([
+            SessionCoverageBook.Section("tables", "<p>Words before.</p><table role='presentation'>" + rows + "</table><p>Words between.</p>" + data, title: "Tables")],
+            manifest: "<item id=\"square\" href=\"square.svg\" media-type=\"image/svg+xml\"/>", files: ["OPS/square.svg": Self.square]))
+        for scrolled in [false, true] {
+            let flow = scrolled ? "continuous scroll" : "pages"
+            let (_, _, view) = try await reader(book, scrolled: scrolled)
+            let given = try attachments(in: view)
+            XCTAssertEqual(given.count, 5, flow)
+            XCTAssertEqual(given.prefix(3).map { $0.element.accessibilityLabel() },
+                           ["Alone, After a gap", "Blue square, Beside it, Decoration passed", "Table row"], flow)
+            XCTAssertTrue(given.prefix(3).allSatisfy { $0.element.accessibilityRole() == .group }, flow)
+            // A row's pictures are shown from the row, whatever it is called.
+            XCTAssertEqual(given.prefix(3).map { ($0.element.accessibilityCustomActions() ?? []).map(\.name) },
+                           [[], ["Inspect Image: Blue square"], ["Inspect Image", "Inspect Image"]], flow)
+            XCTAssertEqual(try tables(in: view).map { $0.accessibilityLabel() }, ["Mark, Meaning", "Blue square, Open"], flow)
+        }
+    }
+
+    /// In continuous scroll VoiceOver is given a row beyond the screen before the view shows
+    /// it, and keeps the element it was given. That row is the same group, called by its
+    /// words, with nothing in it yet: once its cells' text areas are there it holds them,
+    /// for VoiceOver to go into. Made from what was on screen when it was asked for, it was
+    /// an image called by its words, and stayed one.
+    func testInContinuousScrollARowOffScreenIsTheSameGroupAndHoldsItsCellsOnceShown() async throws {
+        let rows = (1...60).map { "<tr><td>Left \($0)</td><td>Right \($0)</td></tr>" }.joined()
+        let book = try book("<p>Words before.</p><table role='presentation'>" + rows + "</table><p>Words after.</p>")
+        let (reader, _, view) = try await reader(book, scrolled: true)
+        let given = try attachments(in: view)
+        XCTAssertEqual(given.map { $0.element.accessibilityLabel() }, (1...60).map { "Left \($0), Right \($0)" })
+        XCTAssertTrue(given.allSatisfy { $0.element.accessibilityRole() == .group })
+        XCTAssertEqual(held(given[0].element), ["Left 1", "Right 1"], "the first row is on screen")
+        let far = given[54]
+        XCTAssertEqual((far.element.accessibilityChildren() ?? []).count, 0, "the fifty-fifth is not")
+
+        let range = try XCTUnwrap(view.textRange(for: NSRange(location: far.location, length: 1)))
+        view.readerLayoutManager.ensureLayout(for: range)
+        let place = try XCTUnwrap(view.segmentFrames(for: NSRange(location: far.location, length: 1)).first)
+        let scrollView = try XCTUnwrap(view.enclosingScrollView)
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: place.minY + view.containerOrigin.y - 100))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        try await reader.wait("the far row's text areas") { self.held(far.element) == ["Left 55", "Right 55"] }
+        XCTAssertEqual(far.element.accessibilityLabel(), "Left 55, Right 55")
+        XCTAssertTrue(try attachments(in: view)[54].element === far.element, "the text gives the element VoiceOver was given before")
+        // The first row is far above the screen now, and holds nothing.
+        try await reader.wait("the first row's text areas gone") { (given[0].element.accessibilityChildren() ?? []).isEmpty }
+        XCTAssertEqual(given[0].element.accessibilityLabel(), "Left 1, Right 1")
+        XCTAssertEqual(given[0].element.accessibilityRole(), .group)
+    }
+
+    /// A row taller than a page continues on the next, and on each page its group is called by
+    /// the words that page shows: across the pages every word is said once.
+    func testARowContinuedAcrossPagesIsCalledByEachPagesOwnWords() async throws {
+        let wording = (1...1_600).map { "w\($0)" }
+        let book = try book("<table role='presentation'><tr><td>Label</td><td>" + wording.joined(separator: " ") + "</td></tr></table>")
+        let (_, canvas, _) = try await reader(book, scrolled: false)
+        var named: [String] = [], pages = 0
+        repeat {
+            let column = try XCTUnwrap(canvas.textViews.first { !$0.isHidden })
+            // The table is all its chapter holds; the page after its last is the next chapter's.
+            let given = try attachments(in: column)
+            guard !given.isEmpty else { break }
+            XCTAssertTrue(given.allSatisfy { $0.element.accessibilityRole() == .group }, "page \(pages + 1)")
+            named += given.flatMap { ($0.element.accessibilityLabel() ?? "").replacingOccurrences(of: ",", with: "").split(whereSeparator: \.isWhitespace).map(String.init) }
+            pages += 1
+        } while pages < 40 && canvas.turnPage(forward: true) == .turned
+        XCTAssertGreaterThan(pages, 2, "the row must be some pages tall for this to show anything")
+        XCTAssertEqual(named.sorted(), (wording + ["Label"]).sorted(), "every word of the row once across \(pages) pages")
+    }
+
+    /// A page turn gives the column other text: a row's group that a client kept from the
+    /// page before says nothing of the new page, whose rows are other elements.
+    func testAnotherPageGivesOtherRowGroups() async throws {
+        let rows = (1...60).map { "<tr><td>Left \($0)</td><td>Right \($0)</td></tr>" }.joined()
+        let book = try book("<p>Words before.</p><table role='presentation'>" + rows + "</table><p>Words after.</p>")
+        let (_, canvas, view) = try await reader(book, scrolled: false)
+        let first = try XCTUnwrap(try attachments(in: view).first)
+        XCTAssertEqual(first.element.accessibilityLabel(), "Left 1, Right 1")
+        XCTAssertEqual(held(first.element), ["Left 1", "Right 1"])
+        XCTAssertEqual(canvas.turnPage(forward: true), .turned)
+        let column = try XCTUnwrap(canvas.textViews.first { !$0.isHidden })
+        let second = try XCTUnwrap(try attachments(in: column).first)
+        XCTAssertFalse(second.element === first.element)
+        XCTAssertNotEqual(second.element.accessibilityLabel(), "Left 1, Right 1")
+        XCTAssertNil(first.element.accessibilityLabel())
+        XCTAssertEqual((first.element.accessibilityChildren() ?? []).count, 0)
+        XCTAssertEqual(first.element.accessibilityRole(), .group)
     }
 
     private static let services = """
