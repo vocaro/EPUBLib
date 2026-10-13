@@ -785,6 +785,28 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
         }
     }
 
+    func testUnusedUnknownNamespaceURIsKeepTheXMLTree() throws {
+        // EPUBCheck's valid ns-epub-unknown-info.xhtml declares the first URI.
+        for uri in ["http://http://www.idpf.org/2007/ops", "relative"] {
+            let document = try page("<p>visible</p>", prolog: "<!DOCTYPE html>", root: " xmlns:epub=\"\(uri)\"")
+            XCTAssertFalse(document.recoveredAsHTML, uri)
+            XCTAssertTrue(document.canResolveCFIs, uri)
+            XCTAssertEqual(bodyText(document), "visible", uri)
+        }
+    }
+
+    func testNamespaceErrorsCannotBeHiddenByLaterURIWarnings() throws {
+        let invalid = "<section epub:type=\"chapter\">visible</section>"
+        let warning = "<p xmlns:other=\"http://http://www.idpf.org/2007/ops\">after</p>"
+        for body in [invalid + warning, warning + invalid] {
+            let document = try page(body)
+            XCTAssertTrue(document.recoveredAsHTML)
+            XCTAssertFalse(document.canResolveCFIs)
+            XCTAssertTrue(bodyText(document).contains("visible"))
+            XCTAssertNil(EPUBCFI.resolve(localPath: "/4/2/1:0", in: document))
+        }
+    }
+
     // MARK: - XML-shaped HTML
 
     /// doc/native-viewer.md lists what the qualified subset holds ("UTF-8 XML-shaped markup with

@@ -78,14 +78,20 @@ public enum SpecConformanceCorpus {
         public var withheld: Set<Int> = []
         /// Spine indices read with the forgiving HTML parser.
         public var recovered: Set<Int> = []
+        /// Explicit indices strict headless extraction must refuse as malformed. When nil,
+        /// use the viewer's withheld and recovered indices. A viewer-only namespace repair
+        /// can disable CFIs even when the extractor's XML reader accepts the characters.
+        public var extractionMalformed: Set<Int>?
         public var checks: [Check] = []
         /// A recommended (SHOULD or MAY) behaviour the reader lacks, or a limit of this run.
         public var note: String?
 
         public init(_ requirement: String, outOfScope: String? = nil, refused: String? = nil, withheld: Set<Int> = [],
-                    recovered: Set<Int> = [], note: String? = nil, _ checks: Check...) {
+                    recovered: Set<Int> = [], extractionMalformed: Set<Int>? = nil,
+                    note: String? = nil, _ checks: Check...) {
             self.requirement = requirement; self.outOfScope = outOfScope; self.refused = refused
-            self.withheld = withheld; self.recovered = recovered; self.note = note; self.checks = checks
+            self.withheld = withheld; self.recovered = recovered; self.extractionMalformed = extractionMalformed
+            self.note = note; self.checks = checks
         }
     }
 
@@ -317,8 +323,9 @@ public enum SpecConformanceCorpus {
         "pub-foreign_xml-spine": .init("epub-rs#confreq-rs-foreign", .rendered(0, fallbackShown), .notRendered(0, "Test fails")),
         "pub-foreign_xml-suffix-spine": .init("epub-rs#confreq-rs-foreign", .rendered(0, fallbackShown), .notRendered(0, "Test fails")),
         "pub-xml-external-id": .init("epub-rs#confreq-rs-xml-extid", outOfScope: entities, withheld: [0], .disclosed(.withheld)),
-        "pub-xml-names": .init("epub-rs#confreq-rs-xml-ns",
-            note: "the test expects an error for an element name with two colons; libxml2 reads past the namespace error and nothing is reported"),
+        "pub-xml-names": .init("epub-rs#confreq-rs-xml-ns", outOfScope: repair, recovered: [0], extractionMalformed: [],
+            note: "the invalid QName is read as HTML under the #102 namespace-error policy; saved positions are refused and disclosed",
+            .disclosed(.positionsUnavailable)),
         "pub-xml-non-validating_comment": .init("epub-rs#confreq-rs-xml-nval", .spine(["EPUB/content_001.xhtml", "EPUB/content_002.xhtml"])),
         "pub-xml-non-validating_unclosed": .init("epub-rs#confreq-rs-xml-nval", outOfScope: repair, recovered: [0],
                                                  .disclosed(.positionsUnavailable)),

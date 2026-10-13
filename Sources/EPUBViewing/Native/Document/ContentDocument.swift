@@ -176,15 +176,32 @@ final class ContentDocument: @unchecked Sendable {
 
     private static func parseXML(_ data: Data, path: String, limits: ContentLimits) throws -> ContentDocument? {
         // libxml2 may return a tree for namespace errors and undeclared entities under
-        // an external DOCTYPE. Inspect this parse's own context, never a global error.
+        // an external DOCTYPE. Inspect this parse's own diagnostics, never a global
+        // error or only lastError: a later URI warning can hide an earlier QName error.
+        let namespaceError = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
+        namespaceError.initialize(to: false)
+        defer { namespaceError.deinitialize(count: 1); namespaceError.deallocate() }
         guard let context = xmlNewParserCtxt() else { return nil }
         defer { xmlFreeParserCtxt(context) }
+        context.pointee._private = UnsafeMutableRawPointer(namespaceError)
+        context.pointee.sax?.pointee.serror = { raw, error in
+            guard let raw, let error, error.pointee.domain == Int32(XML_FROM_NAMESPACE.rawValue) else { return }
+            switch error.pointee.code {
+            // libxml2 marks an unusual namespace URI as an error and clears
+            // nsWellFormed, although an unknown URI does not invalidate a QName.
+            case Int32(XML_WAR_NS_URI.rawValue), Int32(XML_WAR_NS_URI_RELATIVE.rawValue): return
+            default: break
+            }
+            guard error.pointee.level.rawValue >= XML_ERR_ERROR.rawValue else { return }
+            let parser = raw.assumingMemoryBound(to: xmlParserCtxt.self)
+            parser.pointee._private?.assumingMemoryBound(to: Bool.self).pointee = true
+        }
         let doc = data.withUnsafeBytes { buffer in
             xmlCtxtReadMemory(context, buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, nil, xmlOptions)
         }
         guard let doc else { return nil }
         defer { xmlFreeDoc(doc) }
-        guard context.pointee.wellFormed != 0, context.pointee.nsWellFormed != 0 else { return nil }
+        guard context.pointee.wellFormed != 0, !namespaceError.pointee else { return nil }
         do {
             return try convert(doc, path: path, limits: limits, recovered: false, html: false)
         } catch XMLTreeError.unresolvedEntity {
