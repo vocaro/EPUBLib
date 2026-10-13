@@ -203,7 +203,7 @@ import UIKit
         }
         for dark in [false, true] {
             let attachment = ReaderImageAttachment(source: source, sizing: ImageSizing(intrinsic: source.pixelSize),
-                alt: "Reported graph", style: ComputedStyle(), isDark: dark, cache: cache)
+                alternative: .text("Reported graph"), style: ComputedStyle(), isDark: dark, cache: cache)
             let size = CGSize(width: 795, height: 349)
             let platform = try XCTUnwrap(attachment.image(forBounds: CGRect(origin: .zero, size: size), textContainer: nil, characterIndex: 0))
             let drawn = try draw(platform, size: size, darkCanvas: true)

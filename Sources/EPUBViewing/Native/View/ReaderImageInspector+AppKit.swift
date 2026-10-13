@@ -27,7 +27,7 @@ import AppKit
         imageView.image = NSImage(cgImage: bitmap, size: CGSize(width: bitmap.width, height: bitmap.height))
         imageView.imageScaling = .scaleNone
         imageView.frame = CGRect(x: 0, y: 0, width: bitmap.width, height: bitmap.height)
-        imageView.setAccessibilityLabel(label.isEmpty ? "Book image" : label)
+        imageView.setAccessibilityLabel(label.isEmpty ? nil : label)
         scrollView.contentView = ReaderImageClipView()
         scrollView.documentView = imageView
         addSubview(scrollView)

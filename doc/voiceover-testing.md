@@ -18,11 +18,17 @@ justified paragraph, a heading, an internal **Verification link**, and an image 
 **Blue verification square**. Its long paragraph retains the continuation context that
 originally exposed off-page text. A second section, **Hidden labels** (`OPS/labels.xhtml`),
 holds what a book hides from the page and keeps for assistive technology: a heading and a
-byline parked at `left: -999em` above an image without alternative text, words clipped to
-nothing inside a line, and a parked link. It also holds what a book hides from everyone: a
+byline parked at `left: -999em` above an image with an empty `alt`, as a Standard Ebooks title
+page has them, words clipped to nothing inside a line, and a parked link. It also holds what a book hides from everyone: a
 `visibility: hidden` paragraph and an `aria-hidden` one. A third, **Hidden heading over a
 table** (`OPS/table.xhtml`), opens with a parked heading and then a table, so the heading is
-hidden labels alone on a line of no height, and goes on for more than a screen. A second
+hidden labels alone on a line of no height, and goes on for more than a screen. A fourth,
+**Pictures and their words** (`OPS/pictures.xhtml`), holds what a book can say of a picture:
+nothing, that it is decoration (an empty `alt`), or words. Each stands in a line of text; a
+decorative one is also all that a link holds, and stands beside words in a link; and two come
+from a file that has a title of its own, one with an empty `alt` and one with none. None of
+the section's words is one VoiceOver uses for a picture or a link, so those in a transcript
+are VoiceOver's own. A second
 bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
@@ -119,6 +125,11 @@ line. Start a case with a turn and `ax:focus`, never a click. Eight `left` steps
 left column, nine from the right, reach **Next Page** in the sample's control strip; eight
 `right` steps return from it to the left column. **Previous Page** is one step further.
 
+`"ax:press=Use Toolbar"` moves the sample's controls to the window's toolbar, outside the group
+that holds the columns. From the left column, `out out`, five `left`, `in` and six `right`
+reached Next Page there in three sessions on a reader with the fix of #337; on one without
+it the same keys went elsewhere twice. `activate=Next Page` stops such a session.
+
 A session can open with VoiceOver's cursor on a control, on the reader's group or already on
 the text, and what VoiceOver keeps of a column depends on how it got there. For a case in which
 VoiceOver leaves a column and comes back, bring it to the column by a focus change from
@@ -149,6 +160,8 @@ the application, then performs its steps and prints each event with its time, th
 selection and the numbered-word span of its value:
 
 - `next`, `previous`: press the page buttons, found by label or help rather than index.
+- `press=LABEL`: press any other button by its label, as in `"ax:press=Use Toolbar"`, which
+  moves the sample's controls from the reader's group to the window's toolbar.
 - `larger`, `smaller`: choose the Appearance menu's text-size items.
 - `width=POINTS`: resize the window.
 - `focus`, `focus=COLUMN`, `focus=search`: give the last column, a numbered column or the
@@ -279,10 +292,12 @@ gh run download RUN_ID --name voiceover-mac-transcripts --dir .build/voiceover/h
 - `steps`: the steps `scripts/run-voiceover-mac.py` takes, quoted as on a command line, as in
   `"activate=Next Page"`. A `;` or a line break starts another session. Each session gets a
   fresh reader, and `ax:width` with the `width` input before its own steps. Left empty, one
-  session checks a page boundary: the left column's entry line, a Next Page activated through
-  VoiceOver, and the new page's entry line and second line. It moves no line before the turn:
-  when it was written VoiceOver came back to a column at the character offset it had there
-  ([#337](https://github.com/vocaro/EPUBLib/issues/337)).
+  session checks a page boundary: the left column's entry line and two lines down, a Next Page
+  activated through VoiceOver, and the new page's entry line and second line. The entry line
+  after the turn must be the page's first: with the fault of
+  [#337](https://github.com/vocaro/EPUBLib/issues/337) it is the third. The session brings
+  VoiceOver to the column by `ax:focus=search ax:focus=0`, without which it can pass on a
+  reader that has the fault.
 - `width` and `text_size`: the window width and the launch text size in points, 1100 and 23
   unless given.
 - `flow`: `paginated`, or `scrolled` for [continuous scroll](#continuous-scroll), which needs
@@ -455,8 +470,8 @@ once; a simulator build needs no signing team. It creates an iPhone 17 Pro and a
 with `simctl` alone, sets each one's volume to 0 and runs one `xcodebuild
 test-without-building` for each at the same time, under `--timeout`. It deletes its simulators
 however the run ends, also when it is terminated, and never boots, changes or deletes one it
-did not create. `--steps`, `--font-size`, `--flow scrolled` and `--voiceover-off` are the
-probe's settings above. Each simulator gets `simulator-TYPE-STAMP.transcript.txt` beside its
+did not create. `--steps`, `--font-size`, `--flow scrolled`, `--href OPS/labels.xhtml` and
+`--voiceover-off` are the probe's settings above. Each simulator gets `simulator-TYPE-STAMP.transcript.txt` beside its
 log and result bundle in `.build/voiceover/results/`: the device, revision and steps, the
 probe's lines, then the result, with VoiceOver's state and the volume as `devicectl` reports
 them. The exit status is 0 only when every probe ran all its steps and passed, VoiceOver is
@@ -558,13 +573,22 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
 5. Resize or change typography, wait for the new layout, and repeat the boundary and ordering
    checks. On Mac verify corresponding value-change notifications and fresh text values.
 6. On the hidden-labels section, in pages and in continuous scroll: VoiceOver reads "Parked
-   title heading" and "By the parked author." before the image, "Clipped words in the line."
+   title heading" and "By the parked author." and then "Shown opening words.", with nothing
+   for the image between them, which has an empty `alt`; "Clipped words in the line."
    between the two shown sentences, and "Parked link to the target" as a link before "Shown
    last words."; it never reads "Words nobody is given." or "Words kept from assistive
-   technology."; and a screenshot shows none of the hidden words. On the section with a
+   technology."; and a screenshot shows the image and none of the hidden words. On the section with a
    hidden heading over a table, opened in continuous scroll, VoiceOver moving into the text
    meets "Parked table heading" before the table's first row, and the view does not move.
-7. Restore all original VoiceOver/scripting settings and independently verify restoration.
+7. On the section of pictures, in pages and in continuous scroll. VoiceOver stops between
+   "Undescribed picture" and "stands here." and says that an image is there, with no name.
+   It reads "Decoration" and "passed over." with nothing between them, and the same for
+   "Titled decoration". After "Bare jump:" it stops on a link that is an image without a
+   name, and activating it goes to "Link target reached". It reads "Jump with decoration"
+   and "Described jump" as links, the second also as an image, and "Square with a title of
+   its own" as an image between "Titled picture" and "stands here.". It never says "Book
+   image", and says "Square with a title of its own" once.
+8. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
@@ -654,6 +678,17 @@ The Mac runner's transcript is plain text and needs no export.
   text word0237…". The
   [Mac verification](issue-55-voiceover-mac.md#coming-back-to-a-column-after-a-page-turn) has
   each case.
+- On 2026-10-12 hosted sessions on the same image, at the fixed pause, heard what a review of
+  that fix had left open ([#373](https://github.com/vocaro/EPUBLib/issues/373)). With the
+  sample's controls in the window's toolbar and two lines moved in the left column: `740c073`
+  came back at "In text word0237 word0238 word0239 word0240" after a native press of Next Page
+  from one item away; the fix said "In text word0229 word0230 word0231 word0232" there, with
+  VoiceOver's cursor on the toolbar during the press, and with Next Page activated through
+  VoiceOver inside the toolbar. In continuous scroll on `1b7bf07`, where the window still
+  posts, VoiceOver brought to the text by a focus change entered at the new first line, "In
+  text word0131 word0132 word0133 word0134 word0135", after Scroll Forward activated from
+  eight items away and after a native press from one item away: that flow did not have the
+  fault.
 - On 2026-10-12, continuous scroll on a physical iPhone 17 Pro Max (iOS 27.2, 440 × 956,
   17 points) and iPad Air 13-inch (iPadOS 27.2, 23 points), the book of ordinary paragraphs,
   through XCTest's VoiceOver service with VoiceOver switched on for each session; its phrases
@@ -812,6 +847,51 @@ The Mac runner's transcript is plain text and needs no export.
   XCTest's view of the columns agreed. A phrase is cut at 64 characters, so an iPad line
   shows its first seven words. No page action, rotor action or landscape turn was performed
   by VoiceOver there; see the section.
+- On 2026-10-12 the hidden-labels section and the section of pictures were read at 17 points
+  after an image with an empty `alt` was left out of what VoiceOver is given and an image with
+  no `alt` lost its made-up name. Nobody listened, no workstation was used and no physical
+  device: the iPhone and iPad here are the [simulator lane](#simulators)'s, which establishes
+  what VoiceOver reads and not that it can activate anything.
+  On an iPhone 17 Pro and an iPad Air 13-inch (M4) simulator (iOS 27.0, Xcode 27.0), moving
+  forward from the Bookmark control. Hidden labels, in pages and in continuous scroll, at
+  `1213dd0`: "Parked title heading", "By the parked author.", "Shown opening words.", "Clipped
+  words in the line.", "Shown closing words.", "Parked link to the target Link", "Shown last
+  words."; the "Book Image" that came after the author is gone. Pictures, in pages (the iPad
+  at `0819ce1`; the iPhone, whose first page ends at "Described jump", at `1213dd0` with Next
+  Page between its two pages) and in continuous scroll at `1213dd0`: "Pictures and their
+  words", "Undescribed picture", "Image", "stands here.", "Decoration  passed over.", "Bare
+  jump:", "Link Image", "Jump with decoration Link", "Described jump Link Image", "Titled
+  decoration  passed over.", "Titled picture", "Square with a title of its own Image",
+  "stands here.", "Last words about pictures.". "Image" and "Link Image" alone are
+  VoiceOver's words for the traits: those elements have no label. In continuous scroll on the
+  iPad, read on from the hidden labels, VoiceOver went from the twenty-ninth line after the
+  table to the scroll bar, as in [#339](https://github.com/vocaro/EPUBLib/issues/339); the
+  pictures were read there with the reader opened at their section.
+  On the Mac: GitHub's hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1
+  `26A434`, Xcode 27.0), a window 600 points wide, at `81b9401`, runs 38321044607 (pages) and
+  38321046784 (continuous scroll). The labels' page is twelve `ax:next` steps in and the
+  pictures' first page twenty; the pictures take two pages there. Hidden labels by line:
+  "Parked title heading By the parked author. ", "Shown opening words.  Clipped words in the
+  line. Shown closing w", "Parked link to the target Shown last words."; by word: "Parked
+  title heading", "By the parked author.", a step with no phrase, "Shown", "opening",
+  "words.", "Clipped words in the line.", and on as before. The step with no phrase is
+  VoiceOver's cursor crossing the image's character, where "Book image image" was said before.
+  Pictures by line: "Pictures and their words", "Undescribed picture  image  stands here.",
+  "Decoration   passed over.", "Bare jump:  image ", " Jump with decoration", "Described jump
+  image ", "Titled decoration   passed over.", and on their second page (run 38319634156, at
+  `55b16e0`) "Titled picture  Square with a title of its own image  stands her", "Last words
+  about pictures.", "end of text". By word: "Undescribed", "picture", "image", "stands",
+  "here.", "Decoration", a step with no phrase, "passed", "over.", "Bare", "jump:", "image", a
+  step with no phrase, "Jump", "with", "decoration", "Described jump image", "Titled",
+  "decoration", a step with no phrase, "passed". Continuous scroll gave the same lines, the
+  labels' after "This is the end of the numbered paragraph." and the pictures' at the end of
+  the book. No transcript has the word "link": on the Mac "Parked link to the target", "Jump
+  with decoration" and the linked images are read as text and images. At `55b16e0`, before
+  an image without words lost its help text, run 38319737879 heard it as "Undescribed picture
+  Double-click or choose Inspect Image to enl": VoiceOver reads the help of an element that
+  has no label in the label's place.
+  Not heard: VoiceOver activating the link that is an image without a name, which needs a
+  device; a note's popover or a table cell with an image in it.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
