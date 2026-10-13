@@ -18,7 +18,7 @@ final class ReaderTextView: NSTextView {
     var tableInteraction: ReaderTableInteraction?
     var containsTableRows = false
     weak var canvas: ReaderCanvasView?
-    /// The accessibility element of each textual attachment, by its location.
+    /// The accessibility element of each attachment VoiceOver is told of, by its location.
     private var attachmentElements: [Int: NSAccessibilityElement] = [:]
     /// The accessibility elements of the text's links (`ReaderTextLinks+AppKit.swift`).
     var linkElements = ReaderLinkElements()
@@ -188,16 +188,18 @@ final class ReaderTextView: NSTextView {
     /// that stands for text gets an image element labelled with its text equivalent, through
     /// the attachment attribute VoiceOver reads in text. A hidden label is text, not an image.
     /// An image without words is an image element without a label, and one the book marks as
-    /// decoration is left with nothing, for VoiceOver to pass over. A heading's characters
-    /// carry its level, shown or hidden.
+    /// decoration is left with nothing, for VoiceOver to pass over. A rule has no words, and
+    /// its element carries the reader's word for one, for VoiceOver to say that a break is
+    /// there. A heading's characters carry its level, shown or hidden.
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard !isPageColumn || validPageAccessibilityRange(range),
               let base = super.accessibilityAttributedString(for: range) else { return nil }
         let attachments = textualAttachments(in: range)
         let images = announcedImages(in: range)
+        let rules = rules(in: range)
         let headings = contentStorage.textStorage?.readerHeadings(in: range) ?? []
         let links = accessibilityLinks(in: range)
-        guard !attachments.isEmpty || !images.isEmpty || !headings.isEmpty || !links.isEmpty else { return base }
+        guard !attachments.isEmpty || !images.isEmpty || !rules.isEmpty || !headings.isEmpty || !links.isEmpty else { return base }
         let result = NSMutableAttributedString(attributedString: base)
         for (heading, run) in headings where heading.level > 0 {
             let local = NSRange(location: run.location - range.location, length: run.length)
@@ -238,7 +240,25 @@ final class ReaderTextView: NSTextView {
             element.setAccessibilityCustomActions(actions)
             result.addAttribute(.accessibilityAttachment, value: element, range: local)
         }
+        for run in rules {
+            let local = NSRange(location: run.location - range.location, length: run.length)
+            guard NSMaxRange(local) <= result.length else { continue }
+            let element = attachmentElement(at: run)
+            ReaderRuleAttachment.makeSeparator(element)
+            result.addAttribute(.accessibilityAttachment, value: element, range: local)
+        }
+        // After the rules: a rule that is all its link holds, or that opens one, is the link.
         addAccessibilityLinks(links, to: result, of: range)
+        return result
+    }
+
+    /// The character of each rule in `range`.
+    private func rules(in range: NSRange) -> [NSRange] {
+        guard let storage = contentStorage.textStorage else { return [] }
+        var result: [NSRange] = []
+        storage.enumerateAttribute(.attachment, in: NSIntersectionRange(range, NSRange(location: 0, length: storage.length))) { value, run, _ in
+            if value is ReaderRuleAttachment { result.append(run) }
+        }
         return result
     }
 
@@ -250,8 +270,7 @@ final class ReaderTextView: NSTextView {
     }
 
     private func accessibilityElement(at range: NSRange, label: String, isText: Bool = false) -> NSAccessibilityElement {
-        let element = attachmentElements[range.location] ?? NSAccessibilityElement()
-        attachmentElements[range.location] = element
+        let element = attachmentElement(at: range)
         if let cells = tableInteraction?.accessibilityCells(at: range.location), !cells.isEmpty {
             element.setAccessibilityRole(.group)
             element.setAccessibilityLabel("Table row")
@@ -266,6 +285,13 @@ final class ReaderTextView: NSTextView {
             element.setAccessibilityLabel(label.isEmpty ? nil : label)
             element.setAccessibilityChildren(nil)
         }
+        return element
+    }
+
+    /// The element kept for the attachment at `range`, where that stands in the view.
+    private func attachmentElement(at range: NSRange) -> NSAccessibilityElement {
+        let element = attachmentElements[range.location] ?? NSAccessibilityElement()
+        attachmentElements[range.location] = element
         element.setAccessibilityParent(self)
         let frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
         if !frame.isNull {

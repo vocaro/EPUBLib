@@ -200,7 +200,12 @@ import Foundation
         let count = events.count
         session.close(); session.close()
         try await expect(.nextPage, error: .closed)
+        // The quiet period. The yield lets what the engine queued while closing start first, so
+        // that a timer it starts there is due before the 150 ms end. The second sleep is for a
+        // callback delivered with that end: two sleeps overdue together resume in either order.
+        await Task.yield()
         try await Task.sleep(for: .milliseconds(150))
+        try await Task.sleep(for: .milliseconds(20))
         try require(events.count == count, "Callback after close")
     }
 }
