@@ -263,7 +263,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   Not changed: an attachment in a cell that is no part of a link, a picture, a formula or a
   hidden label. The cell makes a static text element for it with each string it gives and
   does not keep it, and the element answers nothing when asked what it is. And VoiceOver's
-  Read Line said nothing once its cursor had passed a cell's last word.
+  Read Line said nothing with its cursor on a cell's last word or past it, as before.
 - **Image inspection.** Double-click or double-tap an unlinked book image to inspect it in a separate
   native zoomable scroll surface, including images drawn inside table cells. On Mac, images
   also offer an Inspect Image context-menu action; UIKit supplies an attachment action and

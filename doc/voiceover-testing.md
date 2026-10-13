@@ -362,9 +362,9 @@ was needed. `ax:focus=0.2` gives a cell keyboard focus and does not bring VoiceO
 page's `CHILD` lines hold the links of the cells on screen among the page's own.
 `nextlink` from the page's text goes through all of those. VoiceOver's place in the page's
 text does not move with it, so `right` after one of a cell's links reads on from the word
-VoiceOver had reached before the table. In a cell `line` said nothing once VoiceOver's
-cursor had passed the cell's last word, with a link in the cell or without: send it on
-entering, before the words.
+VoiceOver had reached before the table. In a cell `line` said nothing with VoiceOver's
+cursor on the cell's last word or past it, in main's reader as with the cells' own
+elements: send it on entering, before the words.
 
 What VoiceOver says of a link as it reads depends on a setting: VoiceOver Utility, Verbosity,
 Text, "When encountering a link/attachment", which can be Speak, Change Pitch, Play Tone or Do
@@ -426,7 +426,8 @@ A job has twenty minutes and a session at most 300 seconds, the runner script's 
 Preparing the runner and building take about two minutes and the boundary session about three
 at the fixed pause, so a run of that one session has uploaded its transcript about five minutes
 after it starts. A session that could not end three minutes before the job's limit is reported
-as not run, and the job fails. A new run for the same ref, width, text size, flow, launch
+as not run, and the job fails. At the fixed pause a session took about 35 seconds and 5 more
+for each key, so seven sessions of ninety keys between them filled a job. A new run for the same ref, width, text size, flow, launch
 arguments and link setting cancels one still in progress, so put step lists that share those
 into one run; runs that differ in
 any of them go on side by side.
@@ -1239,6 +1240,79 @@ The Mac runner's transcript is plain text and needs no export.
   and Change Pitch leave nothing in a transcript; a link in a table cell or a note's
   popover; a link that wraps onto a second line or crosses a page's end, which the unit
   tests read; and a link below the screen in continuous scroll.
+- On 2026-10-13 links in a table's cells were heard on a Mac: GitHub's hosted `xcode-27`
+  runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in a window 600 points
+  wide at 17 points, on the fixture's last section (`-SampleHref OPS/cells.xhtml`), with
+  VoiceOver's link setting at Speak, at the fixed pause. Nobody listened, and no workstation
+  was used.
+  The way into a cell was the same in every session. By word in the page's text: "grid."
+  and then "Table row group". `in` there: "In Table row group 2 items text Plain first
+  entry.". `right`: "text Before the worded jump after it, and then enough further wo".
+  `in`: "In text Before the worded jump after it, and then".
+  First main's reader with the new section, at `e3536cd`, in pages (run 38348189249) and in
+  continuous scroll (run 38349867508), the same in both but for where one line of the first
+  cell ends. `ax:links`: no child of the
+  page's text, each row a group of two text areas, and each cell's link AppKit's, titled
+  "worded jump", "￼", "￼", "￼ Entry jump with decoration" and "￼"; the element a cell gave
+  as an attachment's printed neither a role nor a name. The cell with the link of words: by
+  word "Before", "the", "worded", "jump", "after"; by line "Before the worded jump after it,
+  and then", " it, and then" (the rest of the line, as after entering a page), "enough
+  further words to carry this entry on to", back to the first, and "beginning of text";
+  Find Next Link "worded jump hyperlink" and the hint; Control-Option-Space the page with
+  "Link target reached" (`AXValueChanged` with `word1187` to `word1200`), and in continuous
+  scroll the view at the target (`ENTRY`). The described picture: the cell was "text
+  Described: "; by word "Described:", a step with no phrase, "end of text"; Find Next Link
+  "￼ hyperlink", followed from there. The decoration alone: "Bare:", a step with no phrase,
+  "end of text"; "￼ hyperlink", followed. Decoration and words: a step with no phrase,
+  "Entry", "jump", "with", "decoration"; "￼ Entry jump with decoration hyperlink",
+  followed. The hidden label: a step with no phrase, "Shown", "last", "entry."; Find Next
+  Link said "text Shown last entry.", the cell again, and Control-Option-Space then did
+  nothing. From the page's text Find Next Link said "Link not found". With VoiceOver on a
+  cell of the row and not in it, Find Next Link went to the page's first line, and in
+  continuous scroll to the book's first line, which the view then showed. `line` said
+  nothing in the four cells where the cursor was on the cell's last word or past it.
+  Then the reader's own elements in the cells, at `69917b1`, in pages (run 38352961195)
+  and in continuous scroll (run 38352965104), again the same in both. `ax:links`: each
+  cell's child and link titled "worded jump",
+  "Described entry jump, image", "image", "Entry jump with decoration" and "Parked entry
+  jump", a link element as the attachment of each picture and label, one without a name
+  for the decoration before "Entry", and the five again as children of the page's text. The
+  link of words as before, phrase for phrase. The described picture: the row was "In Table
+  row group 2 items text Described:  hyperlink Described" and the cell "In text Described:
+  hyperlink Described entry jump, image"; `line` on entering "Described:  hyperlink
+  Described entry jump, image"; by word "Described:", "hyperlink Described entry jump,
+  image", "end of text"; Find Next Link "Described entry jump, image hyperlink", and
+  "actions available" before the hint. The decoration alone: by line "Bare:  hyperlink
+  image"; by word "Bare:", "hyperlink image"; "image hyperlink". Decoration and words: by
+  line "hyperlink  Entry jump", the cell's first; by word "hyperlink", "Entry", "jump",
+  "with", "decoration"; "Entry jump with decoration hyperlink". The hidden label: by line
+  "hyperlink Parked entry jump Shown last entry."; by word "hyperlink Parked entry jump",
+  "Shown", "last", "entry."; "Parked entry jump hyperlink". Control-Option-Space after Find
+  Next Link followed each of the five, and so it did from "hyperlink image", reached by
+  word; in pages it also followed "worded jump" from the word "after" on that link's line.
+  Each time the page with "Link target reached" came, or in continuous scroll the view
+  went to it.
+  From the page's text, in pages (run 38352309093, at `69917b1`) and in the last session
+  of the scroll run: Find Next Link "worded jump hyperlink", "Described entry jump, image
+  hyperlink", "image hyperlink", "Entry jump with decoration hyperlink", "Parked entry jump
+  hyperlink" and "worded jump hyperlink" again, each with "You are currently on a
+  hyperlink, inside of a text area", and Control-Option-Space from there the target. In
+  pages, after the second of them `right` said "grid." and `line` "Shown words before the
+  grid.": VoiceOver's place in the page's text had not moved, and Control-Option-Space
+  then did nothing. With VoiceOver on a cell of the row, Find Next Link went to the page's
+  first line as before, and a second one said "worded jump hyperlink".
+  What did not work, heard once and left out, at `e54ad50` (run 38350087032): the cells'
+  own elements as the page's children. From the page Find Next Link said "worded jump
+  hyperlink" and then "Last link worded jump hyperlink" at every further press. VoiceOver
+  goes on from a link through the children of that link's parent, which was the cell. In
+  the same run `line` still said nothing after a cell's last word.
+  The way in was found in two runs with `--advance-after 0.5` (38346989450 in pages,
+  38346991372 in continuous scroll), which are no evidence. `ax:focus=0.2` there gave a
+  cell keyboard focus, and `in` then entered the page's text.
+  Not heard: listening; a workstation; two columns; a picture, a formula or a hidden label
+  in a cell outside a link; a cell's link where a row goes on over a page's end, which the
+  unit tests read; Read All in a cell; link settings other than Speak; and a note's
+  popover.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
