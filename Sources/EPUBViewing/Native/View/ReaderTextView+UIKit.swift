@@ -382,6 +382,10 @@ final class ReaderTextView: UITextView {
         guard let storage = contentStorage.textStorage else { return [] }
         let text = storage.string as NSString
         var elements: [ReaderPageAccessibilityElement] = []
+        // A table's cells by table and cell, those listed before and those listed so far: a
+        // table of a thousand cells is listed in time linear in them.
+        var keptCells: [ReaderTableCellKey: ReaderTableCellAccessibilityElement] = [:], cells = keptCells
+        for case let cell as ReaderTableCellAccessibilityElement in existing { keptCells[cell.key] = cell }
         for line in lines {
             // Layout flags (often stored on a paragraph's first UTF-16 unit), colors and
             // fonts do not define AX reading units. Keep each actual line intact except
@@ -405,7 +409,7 @@ final class ReaderTextView: UITextView {
             for (run, url, attachment, heading) in runs {
                 // A data table's row is its cells, each an element inside the table's.
                 if let row = attachment as? TableRowAttachment, row.table.isData {
-                    appendCells(of: row, at: run, line: line, reusing: existing, to: &elements)
+                    appendCells(of: row, at: run, line: line, reusing: keptCells, listed: &cells, to: &elements)
                     continue
                 }
                 var range = run
@@ -538,16 +542,15 @@ final class ReaderTextView: UITextView {
 
     /// The cells read where a row of a data table stands, after `elements`. A cell that spans
     /// rows is read where it starts; the lines of it that later rows of the same page hold are
-    /// added to it there.
+    /// added to it there. `kept` are the cells of the listing before, and `cells` those of this one.
     private func appendCells(of row: TableRowAttachment, at range: NSRange, line: ReaderVisualLine,
-                             reusing existing: [ReaderPageAccessibilityElement], to elements: inout [ReaderPageAccessibilityElement]) {
+                             reusing kept: [ReaderTableCellKey: ReaderTableCellAccessibilityElement],
+                             listed cells: inout [ReaderTableCellKey: ReaderTableCellAccessibilityElement],
+                             to elements: inout [ReaderPageAccessibilityElement]) {
         let rowFrame = segmentFrames(for: range).first ?? line.frame
         for spoken in row.spokenCells(size: rowFrame.size, viewportHeight: readerContainer.viewportSize.height) {
-            func isThisCell(_ element: ReaderPageAccessibilityElement) -> Bool {
-                guard let cell = element as? ReaderTableCellAccessibilityElement else { return false }
-                return cell.table === row.table && cell.cell == spoken.cell
-            }
-            if let listed = elements.last(where: isThisCell) as? ReaderTableCellAccessibilityElement {
+            let key = ReaderTableCellKey(table: ObjectIdentifier(row.table), cell: spoken.cell)
+            if let listed = cells[key] {
                 if !spoken.text.isEmpty {
                     listed.accessibilityLabel = [listed.accessibilityLabel ?? "", spoken.text].filter { !$0.isEmpty }.joined(separator: " ")
                     listed.accessibilityTraits.remove(.image)
@@ -557,8 +560,9 @@ final class ReaderTextView: UITextView {
                 continue
             }
             guard spoken.starts || !spoken.text.isEmpty else { continue }
-            let element = existing.first { isThisCell($0) && $0.range == range } as? ReaderTableCellAccessibilityElement
+            let element = kept[key].flatMap { $0.range == range ? $0 : nil }
                 ?? ReaderTableCellAccessibilityElement(view: self, range: range, table: row.table, cell: spoken.cell)
+            cells[key] = element
             element.accessibilityLabel = spoken.text.isEmpty ? nil : spoken.text
             element.position = canvas?.position(at: range.location, in: self)
             element.continuations = []
@@ -681,10 +685,17 @@ private struct ReaderAccessibilityList {
     }
 }
 
+/// A cell among the cells listed: its table, and its index in the table's cells.
+private struct ReaderTableCellKey: Hashable {
+    let table: ObjectIdentifier
+    let cell: Int
+}
+
 /// A cell of a data table: an element inside the table's, where its row stands among the lines.
 @MainActor private final class ReaderTableCellAccessibilityElement: ReaderPageAccessibilityElement, UIAccessibilityContainerDataTableCell {
     let table: TableModel
     let cell: Int
+    var key: ReaderTableCellKey { ReaderTableCellKey(table: ObjectIdentifier(table), cell: cell) }
 
     /// The pictures the cell shows here that say something.
     var images: [ReaderImageAttachment] = []
@@ -772,6 +783,7 @@ private struct ReaderAccessibilityList {
     weak var view: ReaderTextView?
     let table: TableModel
     private(set) var cells: [ReaderTableCellAccessibilityElement] = []
+    private var listedByCell: [Int: ReaderTableCellAccessibilityElement] = [:]
     /// The cell last asked where it stands. UIKit asks for a row's and a column's header
     /// cells, not a cell's, and VoiceOver says them before the cell it comes to. A cell is
     /// headed by the header cells above it and before it, so those after the cell asked are
@@ -790,7 +802,11 @@ private struct ReaderAccessibilityList {
 
     func list(_ cells: [ReaderTableCellAccessibilityElement]) {
         self.cells = cells
-        for cell in cells { cell.accessibilityContainer = self }
+        listedByCell = [:]
+        for cell in cells {
+            cell.accessibilityContainer = self
+            listedByCell[cell.cell] = cell
+        }
         accessibilityFrameInContainerSpace = cells.reduce(CGRect.null) { $0.union($1.accessibilityFrameInContainerSpace) }
     }
 
@@ -813,10 +829,11 @@ private struct ReaderAccessibilityList {
     }
 
     func accessibilityDataTableCellElement(forRow row: Int, column: Int) -> UIAccessibilityContainerDataTableCell? {
-        listedCells.first { cell in
-            let place = table.cells[cell.cell]
-            return place.row <= row && row < place.row + place.rowSpan && place.column <= column && column < place.column + place.columnSpan
-        }
+        guard table.rowCells.indices.contains(row) else { return nil }
+        _ = listedCells
+        // The cell that covers the slot, among the few the row holds.
+        let cell = table.rowCells[row].first { table.cells[$0].column <= column && column < table.cells[$0].column + table.cells[$0].columnSpan }
+        return cell.flatMap { listedByCell[$0] }
     }
 
     func accessibilityRowCount() -> Int { table.rows.count }
@@ -857,7 +874,7 @@ private struct ReaderAccessibilityList {
     }
 
     private func header(_ cell: Int) -> UIAccessibilityContainerDataTableCell? {
-        if let listed = cells.first(where: { $0.cell == cell }) { return listed }
+        if let listed = listedByCell[cell] { return listed }
         if let kept = unlistedHeaders[cell] { return kept }
         guard !table.cells[cell].text.isEmpty else { return nil }
         let name = ReaderTableHeaderName(table: self, cell: table.cells[cell])
