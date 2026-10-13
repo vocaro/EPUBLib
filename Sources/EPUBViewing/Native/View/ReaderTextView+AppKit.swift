@@ -187,8 +187,14 @@ final class ReaderTextView: NSTextView {
               let base = super.accessibilityAttributedString(for: range) else { return nil }
         let attachments = textualAttachments(in: range)
         let images = announcedImages(in: range)
-        guard !attachments.isEmpty || !images.isEmpty else { return base }
+        let rules = rules(in: range)
+        guard !attachments.isEmpty || !images.isEmpty || !rules.isEmpty else { return base }
         let result = NSMutableAttributedString(attributedString: base)
+        for run in rules {
+            let local = NSRange(location: run.location - range.location, length: run.length)
+            guard NSMaxRange(local) <= result.length else { continue }
+            result.addAttribute(.accessibilityAttachment, value: ruleElement(at: run), range: local)
+        }
         for (attachment, text, run) in attachments {
             let local = NSRange(location: run.location - range.location, length: run.length)
             guard NSMaxRange(local) <= result.length else { continue }
@@ -224,6 +230,30 @@ final class ReaderTextView: NSTextView {
             result.addAttribute(.accessibilityAttachment, value: element, range: local)
         }
         return result
+    }
+
+    /// The character of each rule in `range`.
+    private func rules(in range: NSRange) -> [NSRange] {
+        guard let storage = contentStorage.textStorage else { return [] }
+        var result: [NSRange] = []
+        storage.enumerateAttribute(.attachment, in: NSIntersectionRange(range, NSRange(location: 0, length: storage.length))) { value, run, _ in
+            if value is ReaderRuleAttachment { result.append(run) }
+        }
+        return result
+    }
+
+    // Candidate A: AppKit's splitter role and nothing else.
+    private func ruleElement(at range: NSRange) -> NSAccessibilityElement {
+        let element = attachmentElements[range.location] ?? NSAccessibilityElement()
+        attachmentElements[range.location] = element
+        element.setAccessibilityRole(.splitter)
+        element.setAccessibilityParent(self)
+        let frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
+        if !frame.isNull {
+            let origin = containerOrigin
+            element.setAccessibilityFrameInParentSpace(frame.offsetBy(dx: origin.x, dy: origin.y))
+        }
+        return element
     }
 
     private func accessibilityElement(at range: NSRange, label: String, isText: Bool = false) -> NSAccessibilityElement {
