@@ -144,12 +144,27 @@ extension ReaderCanvasView: NSTextViewDelegate {
     /// behind the view, which an assistive technology asking where a far range is does, the
     /// estimates that placed the visible lines are gone, and the next scroll would draw whatever
     /// the finished layout has at the old offset, a chapter away. While the view has not moved
-    /// since it was last read, this scrolls it by as much as the first line on screen has moved.
+    /// since it was last read, this scrolls it by as much as the first line on screen has moved:
+    /// the line goes back as far below the top of the visible area as it stood. Straight after
+    /// the layout that moved it, the document can still be as tall as it was, which stops the
+    /// scroll short of a line near its end. The viewport laid out where the scroll stopped
+    /// gives the document its height, and the next pass has room. The rows on screen keep
+    /// their cells throughout (`scrollPositionDidChange`), which then go where the rows stand.
     func settleScrollViewport() {
-        guard let place = scrollPlace, scrollViewStandsWhereRead,
-              let line = scrollTextView?.lineFrame(containing: place.location), abs(line.minY - place.lineTop) > 0.5 else { return }
-        scrollToContainerY(scrollVisibleContainerRect.minY + line.minY - place.lineTop)
+        guard let place = scrollPlace, scrollViewStandsWhereRead, let textView = scrollTextView,
+              var line = textView.lineFrame(containing: place.location), abs(line.minY - place.lineTop) > 0.5 else { return }
+        let below = place.lineTop - place.visibleTop
+        isHoldingScrollPlace = true
+        for _ in 0..<8 {
+            let stood = scrollVisibleContainerRect.minY
+            scrollToContainerY(line.minY - below)
+            guard let moved = textView.lineFrame(containing: place.location) else { break }
+            line = moved
+            if abs(line.minY - below - scrollVisibleContainerRect.minY) <= 0.5 || abs(scrollVisibleContainerRect.minY - stood) < 0.5 { break }
+        }
+        isHoldingScrollPlace = false
         scrollPlace = (place.location, line.minY, scrollVisibleContainerRect.minY)
+        refreshScrollTables()
     }
 
     /// Runs `scroll`, in which AppKit moves the scroll view by itself, and puts the view back

@@ -353,6 +353,117 @@ import XCTest
         XCTAssertTrue(cells(of: early.view).isEmpty)
     }
 
+    /// A book in continuous scroll opened at one of its sections, as a reader opened at a
+    /// contents entry is: the sections before it are not laid out, and TextKit 2 only
+    /// estimates how tall they are.
+    private func scrolled(_ bodies: [String], openedAt section: Int) async throws -> (host: CanvasHost, view: ReaderTextView) {
+        let sections = try bodies.map { try TableCoverage.section($0, css: Self.css).string }
+        let source = FakeCanvasSource(sections)
+        source.book = CanvasText.book(sections)
+        let host = CanvasHost(source, size: CGSize(width: 600, height: 700), configuration: .init(flow: .scrolled))
+        hosts.append(host)
+        host.canvas.show(ReaderTextPosition(section: section, offset: 0), selecting: nil)
+        host.layOut()
+        try await host.settle(50)
+        return (host, try XCTUnwrap(host.canvas.textViews.first))
+    }
+
+    private func lines(_ name: String, _ count: Int) -> String {
+        (1...count).map { "<p>Line \($0) after the \(name).</p>" }.joined()
+    }
+
+    /// The view's visible part on the screen, where an assistive client is given places.
+    private func screen(of view: ReaderTextView) -> NSRect { NSAccessibility.screenRect(fromView: view, rect: view.visibleRect) }
+
+    /// VoiceOver's Find Next Link to a link in a table row some screens below, in a reader
+    /// opened at a section (doc/voiceover-testing.md, "Tables on Mac"). The reader shows the
+    /// row where TextKit 2 estimates it stands: a row taller than a screen lies between, and
+    /// until it is laid out its height is a guess. VoiceOver then asks the text which line
+    /// its insertion point is on, and AppKit counts the lines from the first: all the text
+    /// above is laid out, the tall row takes its height, and the row shown stands a screen
+    /// and more below where the view draws it, while the rows after it stand where they were
+    /// drawn. Read off that layout, the row was off screen: its cells went, its link left the
+    /// text's children, and VoiceOver, whose cursor was on that link, was left on the text.
+    /// The view is held to its text first, as it is before the reader's own read of it.
+    func testALinkInARowShownBelowEstimatedTextStaysTheTextsLinkWhenTheTextAboveIsLaidOut() async throws {
+        let filler = (0..<30).map { "<p>\(CanvasText.sentence(60, seed: $0))</p>" }.joined()
+        let tall = "<table><tr><td>Clause</td><td>Wording</td></tr><tr><td>Tall clause</td><td>"
+            + (1...2600).map { String(format: "t%04d", $0) }.joined(separator: " ") + "</td></tr></table><p>Words after the clauses.</p>"
+        let tables = [
+            "the table's first row": "<table><tr><td>Route</td><td><a href=\"two.xhtml#t\">Built</a></td></tr>"
+                + "<tr><td><a href=\"two.xhtml#t\">Dogwood</a></td><td>1912</td></tr></table>",
+            "a later row": "<table><tr><td>Route</td><td>Length</td></tr><tr><td>Fir</td><td><a href=\"two.xhtml#t\">Built</a></td></tr>"
+                + "<tr><td><a href=\"two.xhtml#t\">Dogwood</a></td><td>1912</td></tr></table>",
+        ]
+        for (label, table) in tables.sorted(by: { $0.key < $1.key }) {
+            let (host, view) = try await scrolled([
+                "<h1>Opening</h1>" + filler,
+                "<p>Words with a <a href=\"one.xhtml#near\">near jump</a> in them.</p>" + lines("jump", 90),
+                tall,
+                "<p>Words before the routes.</p>" + table + lines("routes", 40),
+            ], openedAt: 1)
+            XCTAssertEqual(titles(of: view), ["near jump", "Built"], "\(label): the link on screen, and the next one in a row below it")
+            let link = try XCTUnwrap(children(of: view).last)
+            let row = try XCTUnwrap(view.tableInteraction?.keptRow, label)
+            // VoiceOver moves to the link: the reader shows its row, with the insertion point on it.
+            link.setAccessibilityFocused(true)
+            XCTAssertEqual(view.selectedRange, NSRange(location: row, length: 0), label)
+            XCTAssertTrue(link.isAccessibilityFocused(), label)
+            XCTAssertTrue(link.accessibilityFrameInParentSpace().intersects(view.visibleRect), "\(label): shown")
+            let shown = cells(of: view).filter { $0.key.location == row }.map { ObjectIdentifier($0.cell) }
+            XCTAssertFalse(shown.isEmpty, label)
+            let top = view.visibleRect.minY
+            // It asks which line the insertion point is on, and where that line is.
+            let line = view.accessibilityInsertionPointLineNumber()
+            XCTAssertEqual(view.accessibilityRange(forLine: line).location, row, label)
+            let bounds = view.accessibilityFrame(for: view.accessibilityRange(forLine: line))
+            XCTAssertGreaterThan(view.visibleRect.minY - top, view.visibleRect.height, "\(label): the row above took its height, more than a screen, and the view was held to the row shown")
+            XCTAssertTrue(screen(of: view).contains(bounds), "\(label): the line VoiceOver is on is on screen, at \(bounds) of \(screen(of: view))")
+            // Then it asks for the text's children, where the link it is on has to be.
+            let listed = children(of: view)
+            XCTAssertEqual(listed.map { $0.accessibilityTitle() ?? "" }, ["Built", "Dogwood"], label)
+            XCTAssertTrue(listed.first === link, "\(label): the element VoiceOver is on is still the link's")
+            XCTAssertTrue(link.isAccessibilityFocused(), label)
+            XCTAssertTrue(screen(of: view).contains(link.accessibilityFrame()), "\(label): \(link.accessibilityFrame()) of \(screen(of: view))")
+            XCTAssertEqual(cells(of: view).filter { $0.key.location == row }.map { ObjectIdentifier($0.cell) }, shown, "\(label): the row has the cells it had")
+            let section = try XCTUnwrap(host.source.book?.location(of: ReaderTextPosition(section: 3, offset: 0)))
+            XCTAssertTrue(cells(of: view).allSatisfy { $0.key.location >= section }, "\(label): the tall row above is off screen and has no cells")
+            XCTAssertEqual(host.recorder.shown.last?.range.start, host.source.book?.position(at: row), "\(label): the reader is where it showed the row")
+        }
+    }
+
+    /// The rows on screen are read off the layout whenever the canvas is laid out or scrolled.
+    /// After an assistive client has read lines from the top of a book opened further down,
+    /// the text above the screen has its height, and once the row that holds the next link
+    /// is laid out below the layout has other text where the view stands: the rows on screen
+    /// lost their cells, and a link in one of them left the text's children.
+    func testTheRowsOnScreenKeepTheirCellsWhenTheTextAboveIsLaidOutBehindTheView() async throws {
+        let filler = (0..<60).map { "<p>\(CanvasText.sentence(60, seed: $0))</p>" }.joined()
+        let (_, view) = try await scrolled([
+            "<h1>Opening</h1>" + filler,
+            "<p>Words before the stations.</p><table><tr><td>Station</td><td>Opened</td></tr>"
+                + "<tr><td>Cedar</td><td><a href=\"two.xhtml#t\">Reopened 1978</a></td></tr></table>" + lines("stations", 60),
+            "<p>Words before the routes.</p><table><tr><td>Route</td><td><a href=\"two.xhtml#t\">Built</a></td></tr></table>" + lines("routes", 40),
+        ], openedAt: 1)
+        let rows = cells(of: view)
+        XCTAssertEqual(rows.count, 4, "the cells of the two rows on screen")
+        let top = view.visibleRect.minY
+        // An observer reads the book's lines from its first, as `scripts/voiceover-ax-observer.swift` does.
+        var line = 0
+        while line < 300, view.accessibilityRange(forLine: line).location != NSNotFound { line += 1 }
+        XCTAssertEqual(line, 300)
+        // The next link is in a row below, which keeps its cells and is laid out for them.
+        XCTAssertEqual(titles(of: view), ["Reopened 1978", "Built"])
+        let kept = try XCTUnwrap(view.tableInteraction?.keptRow)
+        // Any layout of the canvas, and any scroll, looks for the rows on screen again.
+        view.refreshTableInteractions()
+        XCTAssertGreaterThan(abs(view.visibleRect.minY - top), 100, "the text above took its height, and the view was held to the first line on screen")
+        let shown = cells(of: view).filter { $0.key.location != kept }
+        XCTAssertEqual(shown.map { ObjectIdentifier($0.cell) }, rows.map { ObjectIdentifier($0.cell) }, "the rows on screen have the cells they had")
+        XCTAssertTrue(shown.allSatisfy { !$0.cell.frame.intersection(view.visibleRect).isEmpty }, "and the cells stand on screen")
+        XCTAssertEqual(titles(of: view), ["Reopened 1978", "Built"])
+    }
+
     private func surface(_ text: NSAttributedString, showing shown: NSRange? = nil) -> TableCellTextView {
         let cell = TableCellTextView(text: text, width: 400, characters: shown ?? NSRange(location: 0, length: text.length))
         cell.configure(frame: CGRect(x: 0, y: 0, width: 400, height: 200), scale: 1, textOffset: .zero, actionTitle: nil)
