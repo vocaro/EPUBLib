@@ -38,13 +38,16 @@ let steps = Array(CommandLine.arguments.dropFirst(3))
 guard CommandLine.arguments.count >= 2,
       let pid = pid_t(CommandLine.arguments[1]), pid > 0 else {
     fputs("Usage: voiceover-ax-observer PID [seconds] [next|previous|press=LABEL|larger|smaller|width=POINTS|focus[=COLUMN|=COLUMN.CELL|=search]|lines|links|tables|actions[=all]|action=NAME|caret=WORDS|follow=WORDS|wait=SECONDS ...]\n"
+        + "With Safari's PID the steps are width=POINTS, focus[=address], tables and wait=SECONDS, of the page it shows.\n"
         + "A single step of - reads one step per line from standard input.\n", stderr)
     exit(1)
 }
 let duration = CommandLine.arguments.count > 2 ? Double(CommandLine.arguments[2]) ?? 0 : 20
-guard duration > 0, duration <= 300,
-      NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "org.epubreaderlib.voiceoververify.mac" else {
-    fputs("Use the isolated verification reader PID and a duration of 1–300 seconds.\n", stderr)
+let bundle = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+/// Safari showing a page of the fixture, to set what VoiceOver says of it beside the reader.
+let safari = bundle == "com.apple.Safari"
+guard duration > 0, duration <= 300, safari || bundle == "org.epubreaderlib.voiceoververify.mac" else {
+    fputs("Use the isolated verification reader's PID, or Safari's, and a duration of 1–300 seconds.\n", stderr)
     exit(1)
 }
 let clock = ISO8601DateFormatter()
@@ -253,6 +256,75 @@ func tables() {
     }
 }
 
+/// The first element of a role in Safari's windows that is the page or outside it: the page
+/// itself (`AXWebArea`), or the address field. A page can hold more elements than `elements` visits.
+func safariElement(_ role: String) -> AXUIElement? {
+    var visited = 0
+    func find(_ element: AXUIElement, depth: Int) -> AXUIElement? {
+        guard depth < 30, visited < 2000 else { return nil }
+        visited += 1
+        let found = string(element, kAXRoleAttribute)
+        if found == role { return element }
+        if found == "AXWebArea" { return nil }
+        return elementList(element, kAXChildrenAttribute).lazy.compactMap { find($0, depth: depth + 1) }.first
+    }
+    return elementList(app, kAXWindowsAttribute).lazy.compactMap { find($0, depth: 0) }.first
+}
+func webArea() -> AXUIElement? { safariElement("AXWebArea") }
+/// What Safari gives a client of the accessibility API for the page: each thing the page holds
+/// at its top, by role and words, and each table as `tables` gives the reader's, with the
+/// header cells a cell names for itself. The first table's and its first cell's attributes
+/// are given by name.
+func webTables() {
+    guard let page = webArea() else { log("MISSING AXWebArea"); return }
+    log("WEB PAGE TITLE \"\(string(page, kAXTitleAttribute))\" LABEL \"\(string(page, kAXDescriptionAttribute))\" URL \((attribute(page, kAXURLAttribute) as? URL)?.lastPathComponent ?? "none")")
+    func names(_ element: AXUIElement) -> String {
+        var names: CFArray?
+        AXUIElementCopyAttributeNames(element, &names)
+        return (names as? [String] ?? []).sorted().joined(separator: ",")
+    }
+    func roles(_ element: AXUIElement) -> String {
+        [string(element, kAXRoleAttribute), string(element, kAXSubroleAttribute)].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+    func quoted(_ element: AXUIElement, _ name: String) -> String { elementList(element, name).map { "\"\(said($0).prefix(40))\"" }.joined(separator: ",") }
+    func span(_ element: AXUIElement, _ name: String) -> String { range(attribute(element, name)).map { "\($0.location),\($0.length)" } ?? "none" }
+    for (number, child) in elementList(page, kAXChildrenAttribute).prefix(16).enumerated() {
+        log("WEB CHILD \(String(format: "%02d", number)) \(roles(child)) SAID \"\(said(child).prefix(60))\"")
+    }
+    var found: [AXUIElement] = [], visited = 0
+    func collect(_ element: AXUIElement, depth: Int) {
+        guard depth < 30, visited < 3000 else { return }
+        visited += 1
+        if string(element, kAXRoleAttribute) == kAXTableRole { found.append(element); return }
+        for child in elementList(element, kAXChildrenAttribute) { collect(child, depth: depth + 1) }
+    }
+    collect(page, depth: 0)
+    for (index, table) in found.enumerated() {
+        let number = String(format: "%02d", index)
+        let rows = elementList(table, kAXRowsAttribute)
+        log("WEB TABLE \(number) \(roles(table)) TITLE \"\(string(table, kAXTitleAttribute))\" LABEL \"\(string(table, kAXDescriptionAttribute))\""
+            + " ROWS \(rows.count) VISIBLE \(elementList(table, kAXVisibleRowsAttribute).count) COLUMNS \(elementList(table, kAXColumnsAttribute).count)"
+            + " COUNT \(attribute(table, "AXRowCount") as? Int ?? -1)x\(attribute(table, "AXColumnCount") as? Int ?? -1)"
+            + " COLUMNHEADERS \(quoted(table, kAXColumnHeaderUIElementsAttribute)) ROWHEADERS \(quoted(table, "AXRowHeaderUIElements"))"
+            + " HEADER \(elementList(table, kAXHeaderAttribute).isEmpty ? (attribute(table, kAXHeaderAttribute).map { CFGetTypeID($0) == AXUIElementGetTypeID() ? roles($0 as! AXUIElement) : "\($0)" } ?? "none") : quoted(table, kAXHeaderAttribute))"
+            + " HOLDS \(elementList(table, kAXChildrenAttribute).map { string($0, kAXRoleAttribute) }.joined(separator: ","))")
+        if index == 0 { log("WEB TABLE \(number) NAMES \(names(table))") }
+        for (line, row) in rows.prefix(6).enumerated() {
+            let cells = elementList(row, kAXChildrenAttribute)
+            log("WEB TABLEROW \(number).\(String(format: "%02d", line)) \(roles(row)) INDEX \(attribute(row, kAXIndexAttribute) as? Int ?? -1) CELLS \(cells.count)")
+            for (place, cell) in cells.enumerated() {
+                let held = elementList(cell, kAXChildrenAttribute).map { string($0, kAXRoleAttribute) }.joined(separator: ",")
+                log("WEB TABLECELL \(number).\(String(format: "%02d", line)).\(place) \(roles(cell)) ROWS \(span(cell, "AXRowIndexRange")) COLUMNS \(span(cell, "AXColumnIndexRange"))"
+                    + " SAID \"\(said(cell).prefix(40))\" HOLDS \(held.isEmpty ? "nothing" : held)"
+                    + " COLUMNHEADERS \(quoted(cell, kAXColumnHeaderUIElementsAttribute)) ROWHEADERS \(quoted(cell, "AXRowHeaderUIElements"))"
+                    + " ACTIONS \(actions(cell))")
+                if index == 0, line == 0, place == 0 { log("WEB TABLECELL \(number).00.0 NAMES \(names(cell))") }
+            }
+        }
+    }
+    log("WEB TABLES \(found.count)")
+}
+
 /// A column, whatever holds it up to the window, and any other element with a named action,
 /// each with its depth: where a named action is, and so what VoiceOver's cursor must be on
 /// for its Actions menu to hold it. With `everything`, each element of the window.
@@ -344,6 +416,17 @@ func perform(_ step: String) {
         var target = CGSize(width: width, height: size(window).height)
         let status = AXValueCreate(.cgSize, &target).map { AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, $0) }
         log("RESIZE \(Int(width)) STATUS \(status?.rawValue ?? -1)")
+    case "focus" where safari:
+        // The page, or with `focus=address` the address field, so that VoiceOver can be brought
+        // to the page by a change of keyboard focus wherever its cursor was.
+        let target = parts.last == "address" ? safariElement(kAXTextFieldRole) : webArea()
+        guard let target else { log("MISSING \(step)"); break }
+        NSRunningApplication(processIdentifier: pid)?.activate()
+        log("FOCUS \(parts.last == "address" ? "address" : "page") STATUS \(AXUIElementSetAttributeValue(target, kAXFocusedAttribute as CFString, kCFBooleanTrue).rawValue)")
+        pause = 1
+    case "tables" where safari:
+        webTables()
+        pause = 0
     case "focus":
         // Keyboard focus without a click, which would move the insertion point VoiceOver enters at.
         // `focus=search` leaves the columns, as VoiceOver's own navigation to the page buttons does.
@@ -402,15 +485,20 @@ func perform(_ step: String) {
     default: log("UNKNOWN STEP \(step)"); pause = 0
     }
     settle(pause)
-    registerTexts()
-    state(showLines: parts.first == "lines")
+    // The columns, their lines and their events are the reader's; a page in Safari has none.
+    if !safari {
+        registerTexts()
+        state(showLines: parts.first == "lines")
+    }
     log("STEPPED \(step)")
 }
 
-registerTexts()
-log("OBSERVER \(result.rawValue) TEXTCOUNT \(registered.count)")
-for name in [kAXLayoutChangedNotification, kAXValueChangedNotification] {
-    log("REGISTER APP \(name) STATUS \(AXObserverAddNotification(observer, app, name as CFString, nil).rawValue)")
+if !safari {
+    registerTexts()
+    log("OBSERVER \(result.rawValue) TEXTCOUNT \(registered.count)")
+    for name in [kAXLayoutChangedNotification, kAXValueChangedNotification] {
+        log("REGISTER APP \(name) STATUS \(AXObserverAddNotification(observer, app, name as CFString, nil).rawValue)")
+    }
 }
 CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(observer), .defaultMode)
 log("READY")
@@ -427,7 +515,7 @@ if steps == ["-"] {
 if steps.isEmpty || steps == ["-"] {
     RunLoop.current.run(until: deadline)
 } else {
-    state()
+    if !safari { state() }
     for step in steps where Date() < deadline { perform(step) }
 }
 for (index, element) in registered.enumerated() { log("FINAL \(index) VALUE \(shortValue(element))") }

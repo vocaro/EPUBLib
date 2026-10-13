@@ -14,8 +14,9 @@ on:
         description: >-
           Steps of scripts/run-voiceover-mac.py, quoted as on a command line, with ; between
           sessions. A session may open with settings of its own, as in width=600 text_size=17
-          flow=scrolled "launch=-SampleHref OPS/labels.xhtml". Empty runs the page-boundary
-          session.
+          flow=scrolled "launch=-SampleHref OPS/labels.xhtml", or with safari=OPS/grids.xhtml
+          for that section of the fixture in Safari in place of the reader. Empty runs the
+          page-boundary session.
         type: string
       width:
         description: >-
@@ -119,6 +120,8 @@ jobs:
             echo "System: $(sw_vers -productName) $(sw_vers -productVersion) $(sw_vers -buildVersion)"
             csrutil status 2>&1 | head -n 1
             echo "Xcode: $(xcodebuild -version | tr '\n' ' ')"
+            # For a session of Safari, whose WebKit decides what VoiceOver is given of a page.
+            echo "Safari: $(plutil -extract CFBundleShortVersionString raw /Applications/Safari.app/Contents/Info.plist 2>&1) ($(plutil -extract CFBundleVersion raw /Applications/Safari.app/Contents/Info.plist 2>&1))"
             echo "Processors: $(sysctl -n hw.ncpu), memory: $(($(sysctl -n hw.memsize) / 1073741824)) GB"
           } | tee "$RESULTS/runner.txt"
 
@@ -204,7 +207,7 @@ jobs:
           sleep 5
           for report in "$HOME"/Library/Logs/DiagnosticReports/*.ips /Library/Logs/DiagnosticReports/*.ips; do
             case "$(basename "$report")" in
-              VoiceOver*|VoiceOverVerificationMac*) cp "$report" "$RESULTS/crash-$(basename "$report").txt" && echo "Crash report: $(basename "$report")" ;;
+              VoiceOver*|VoiceOverVerificationMac*|Safari*) cp "$report" "$RESULTS/crash-$(basename "$report").txt" && echo "Crash report: $(basename "$report")" ;;
             esac
           done
           if [ "$JOB_STATUS" != success ]; then
@@ -216,7 +219,7 @@ jobs:
           fi
           echo "Finished $(($(date +%s) - JOB_START)) s after the job started"
 
-      - name: Upload the transcripts, logs and last screenshot
+      - name: Upload the transcripts, logs and screenshots
         if: always() && runner.environment == 'github-hosted'
         uses: actions/upload-artifact@v7
         with:
@@ -224,7 +227,7 @@ jobs:
           path: |
             .build/voiceover/results/*.txt
             .build/voiceover/results/*.log
-            .build/voiceover/results/screen-end.png
+            .build/voiceover/results/*.png
           include-hidden-files: true
           retention-days: 5
           if-no-files-found: warn
