@@ -247,7 +247,9 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// under itself. Otherwise the words of its header cells, top or first one first, as
     /// static text: several header cells, one on another page, or one far off the screen.
     private func headerElement(_ cells: [Int], key: Int) -> NSAccessibilityElement {
-        if cells.count == 1, let listed = listed(cells[0]), listed.holdsText { return listed }
+        // TRIAL: "named" gives a header cell that holds a link by its words.
+        let named = ReaderTableCellElement.headerTrial == "named"
+        if cells.count == 1, let listed = listed(cells[0]), listed.holdsText, !(named && listed.holdsLink) { return listed }
         let words = cells.map { table.cells[$0].text }.filter { !$0.isEmpty }.joined(separator: ", ")
         if let kept = headerNames[key], kept.words == words { return kept }
         let name = ReaderTableHeaderElement(table: self, words: words)
@@ -517,8 +519,14 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// and what it would say of a link there was not heard.
     var holdsLink: Bool {
         guard isLink, let table else { return false }
-        return !table.table.cells[cell].isHeader
+        return !table.table.cells[cell].isHeader || ["holds", "named"].contains(Self.headerTrial)
     }
+
+    // TRIAL, not for main: how a header cell that is one link is given, chosen at launch with
+    // `-TableHeaderLinkCell NAME`, to hear what VoiceOver says of it and of the cells it
+    // heads. "holds": it holds a link as any other such cell does. "named": that, and the
+    // table gives the header it is by its words, as static text.
+    static let headerTrial = UserDefaults.standard.string(forKey: "TableHeaderLinkCell") ?? ""
 
     /// Follows the cell's link, as its Follow Link action does: from the text view that shows
     /// the link. False for a cell off screen, which has none until it is brought there.
