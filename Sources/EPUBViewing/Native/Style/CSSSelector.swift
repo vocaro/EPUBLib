@@ -86,6 +86,8 @@ struct CSSComplexSelector: Equatable, Sendable {
     var specificity: UInt32
     /// Selectors with pseudo-elements never match an element.
     var hasPseudoElement = false
+    /// Present when a `~` combinator is, for `SiblingSearchMemo` to tell this selector from others.
+    var identity: CSSSelectorIdentity?
 
     /// The bucket that a rule using this selector is indexed under: the subject's id, a class,
     /// an attribute value or token it requires, its type, or an attribute it requires.
@@ -119,6 +121,12 @@ struct CSSComplexSelector: Equatable, Sendable {
         }
         return Array(names.prefix(8))
     }
+}
+
+/// Which parsed selector this is. A selector's copies share it, and it is no part of a selector's
+/// value: any two compare equal.
+final class CSSSelectorIdentity: Equatable, Sendable {
+    static func == (_: CSSSelectorIdentity, _: CSSSelectorIdentity) -> Bool { true }
 }
 
 enum CSSBucketKey: Hashable {
@@ -251,7 +259,8 @@ struct CSSSelectorParser {
             _ = skipWhitespace()
         }
         return (CSSComplexSelector(compounds: compounds.reversed(), combinators: combinators.reversed(),
-                                   specificity: specificity.packed, hasPseudoElement: hasPseudoElement), specificity)
+                                   specificity: specificity.packed, hasPseudoElement: hasPseudoElement,
+                                   identity: combinators.contains(.subsequentSibling) ? CSSSelectorIdentity() : nil), specificity)
     }
 
     private func namespaceConstraint(prefix: String?) throws(Failure) -> CSSNamespaceConstraint {
