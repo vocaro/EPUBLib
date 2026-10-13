@@ -38,6 +38,8 @@ import XCUIAutomation
         if let href = environment["VOICEOVER_HREF"] { app.launchArguments += ["-SampleHref", href] }
         // `VOICEOVER_BOOK=paragraphs` opens the book of ordinary paragraphs.
         if let book = environment["VOICEOVER_BOOK"] { app.launchArguments += ["-VerificationBook", book] }
+        // Further launch arguments of the reader, with spaces between: `-SampleSelectionLine YES`.
+        if let more = environment["VOICEOVER_LAUNCH"] { app.launchArguments += more.split(separator: " ").map(String.init) }
         app.launch()
         let snapshots = true
         #endif
@@ -294,6 +296,51 @@ import XCUIAutomation
                     if !wanted.isEmpty, phrase.lowercased().hasPrefix(wanted.lowercased()) { found = true; break }
                 }
                 if !found { note(step, "MISSING") }
+            case "choose":
+                // One finger down through the rotor until VoiceOver names the action asked for,
+                // twelve steps at most: where an action stands in an item's list depends on what
+                // else the item offers. The item must already hold the cursor.
+                let wanted = parts.count > 1 ? parts[1] : ""
+                var found = false
+                for _ in 0..<12 where !found {
+                    let before = try? voiceOver.currentSpeech().utterance
+                    app.swipeDown(velocity: .fast)
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+                    let limit = Date().addingTimeInterval(3)
+                    while Date() < limit, (try? voiceOver.currentSpeech().utterance) == before {
+                        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+                    }
+                    let phrase = (try? voiceOver.currentSpeech().utterance) ?? "no speech"
+                    note("flick=down", phrase)
+                    found = phrase.hasPrefix(wanted)
+                }
+                if !found { note(step, "MISSING") }
+            case "listen":
+                // Every phrase VoiceOver comes to in that many seconds, and that there was none:
+                // what an action says for itself, where the phrase after a step is only the last.
+                let limit = Date().addingTimeInterval(Double(parts.last ?? "") ?? 3)
+                var last = try? voiceOver.currentSpeech().utterance, new = 0
+                while Date() < limit {
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+                    guard let phrase = try? voiceOver.currentSpeech().utterance, phrase != last else { continue }
+                    last = phrase
+                    new += 1
+                    note("listen", phrase)
+                }
+                if new == 0 { note("listen", "nothing new in \(parts.last ?? "3") s; still: \(last ?? "no speech")") }
+            case "state":
+                // The sample's own line of what the reader reports as selected and what its
+                // selection action was last given (`-SampleSelectionLine YES`). Reading it moves
+                // nothing: it is XCTest's snapshot, not a touch.
+                let line = app.staticTexts["sample.selection"].firstMatch
+                note(step, line.exists ? line.label : "MISSING")
+            case "find":
+                // Whether anything on screen is named so, and what it is: an edit menu's Copy,
+                // which is in no item's list of actions. Nothing is touched.
+                let label = parts.last ?? ""
+                let found = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label))
+                    .allElementsBoundByIndex.map { "\($0.elementType.rawValue) at \($0.frame.integral)" }
+                note(step, found.isEmpty ? "nothing on screen is named so" : "\(found.count) on screen: " + found.joined(separator: "; "))
             case "wait":
                 RunLoop.current.run(until: Date().addingTimeInterval(Double(parts.last ?? "") ?? 1))
             case "screenshot":

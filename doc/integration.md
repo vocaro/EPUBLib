@@ -21,6 +21,7 @@ final class BookReader {
     private(set) var savedPosition: EPUBLocation?
     private(set) var disclosure: String?
     private(set) var notice: String?
+    private(set) var selection: String?
     private(set) var selectedText: String?
     private(set) var error: String?
     private var opening: Task<Void, Never>?
@@ -72,7 +73,8 @@ final class BookReader {
                 case .disclosure(let value): disclosure = value
                 case .notice(let value): notice = value
                 case .failed(let value): error = String(describing: value); ready = false
-                case .selectionChanged, .searchChanged, .searchResultsChanged: break
+                case .selectionChanged(let value): selection = value?.text
+                case .searchChanged, .searchResultsChanged: break
                 }
             })
         if let session { controls = EPUBReaderControls(publication: book, session: session) }
@@ -118,7 +120,7 @@ final class BookReader {
         controls?.cancelPendingCommands(); controls = nil
         session?.close(); session = nil
         publication = nil; ready = false; loading = false
-        location = nil; disclosure = nil; notice = nil; selectedText = nil; error = nil
+        location = nil; disclosure = nil; notice = nil; selection = nil; selectedText = nil; error = nil
         savedPosition = nil
     }
 }
