@@ -56,8 +56,8 @@ button named Continuous Scroll or Paging, with the current mode selected.
 For an embedded reader use `EPUBReaderControlStrip(controls: controls) { /* host views */ }`.
 It lays out horizontally when it fits and stacks groups and custom views vertically at narrow
 widths or larger accessibility text sizes. In a compact height, such as an iPhone on its side,
-Contents and Appearance show icons only, retaining their accessible names. This keeps the strip
-in a row at accessibility text sizes on the qualified iPhones, leaving room for the book.
+Contents and Appearance show icons only, retaining their accessible names. This reduces the width the menus need so the strip can keep a row and leave more room for
+the book at accessibility text sizes.
 The runnable sample starts with this strip and host-owned
 bookmark menu; “Use Toolbar” switches to the window/navigation toolbar. The menu offers
 Save Bookmark, Return to Bookmark and Clear Bookmark for one bookmark per book. Its icon fills

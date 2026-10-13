@@ -755,16 +755,14 @@ recorded with the points they resolve.
     with the field at its top edge, 197 points from its end, where the swipe began. The
     touches were synthetic; a touch that lifts on the control was not tried.
 
-
 16. **The strip leaves no book in landscape at the largest text size.** [#368](https://github.com/vocaro/EPUBLib/issues/368)
     measured a strip 339 points tall on iPhones on their sides, leaving no text of the book
-    on screen. Under the owner's delegated request to close the priority issues on 2026-10-13,
-    the implementation decision was to show Contents and Appearance as icons in compact
-    heights, as the toolbar does. Their accessible names remain Contents and Appearance;
-    text sizes, other controls and regular-height labels remain as before. This was the
-    recommended remedy, adopted after an optional preference question received no reply;
-    it is not a quoted owner policy choice. Landscape qualification evidence follows once
-    the four device/text-size cases have been run.
+    on screen. The owner chose on 2026-10-13: "Use icon-only menus in compact height,
+    preserving accessibility labels". Contents and Appearance therefore show their icons
+    in compact heights, as the toolbar does. Their accessible names remain Contents and
+    Appearance; text sizes, other controls and regular-height labels remain as before.
+    Landscape qualification evidence follows once the four device/text-size cases have
+    been run.
 
 ## Not verified
 
