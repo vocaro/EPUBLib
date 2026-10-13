@@ -316,16 +316,17 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// of a page that has been turned is no element of the page shown: the cursor stayed drawn
     /// where the line had stood, and the next move went by that element, out of the text to
     /// whatever follows the reader, or to the middle of the new page (`index(ofAccessibilityElement:)`).
-    /// So the element VoiceOver holds becomes the line that holds `position`, the position
-    /// shown: the page's first line after a page turn, and the line of a link's target after
-    /// a link (`ReaderTextView.accessibilityCursorStands(for:)`). VoiceOver is told the layout
-    /// changed and given that element. It reads the line, draws its cursor there and goes on
+    /// So the element VoiceOver holds becomes the item that holds `position`, the position
+    /// shown: the page's first line, or the first cell of a data table that opens it, after a
+    /// page turn, and the line of a link's target after a link
+    /// (`ReaderTextView.accessibilityCursorStands(for:)`). VoiceOver is told the layout
+    /// changed and given that element. It reads the item, draws its cursor there and goes on
     /// from it, and its cursor has not changed item, so what was chosen in its rotor still
     /// stands: a second double tap turns the page again. Given a new element for that line it
     /// read the same and its rotor was back at its default (iPadOS 27.2), and so it is still
-    /// from a data table's cell or to one, which no line's element can become. A cursor that
-    /// is not in the text, as on a host's page button, is left where it is, and so is one
-    /// whose line is still on the page.
+    /// from a data table's cell to another cell, where a new element is the one read with
+    /// its row and column. A cursor that is not in the text, as on a host's page button, is
+    /// left where it is, and so is one whose line is still on the page.
     func accessibilityCursorFollowsThePage(to position: ReaderTextPosition?) {
         guard !accessibilityCursorIsHeld, let left = columns.first(where: \.accessibilityCursorHasLeftThePage) else { return }
         let shown = columns.filter { !$0.isHidden }
