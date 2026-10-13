@@ -135,14 +135,18 @@ new phrase is recorded:
 - `readall`: read from the cursor onward.
 - `nextheading`: VoiceOver's own move to the next heading, Control-Option-Command-H. There is
   no step for the one before: with Shift added VoiceOver asked the reader for the next heading
-  again (macOS 27.0.1). Go back with the rotor's list.
+  again (macOS 27.0.1). Go back with the rotor's list. In pages a move to a heading on
+  another page turns to that page, and VoiceOver reads the page from its top: follow the
+  step with `line`, which reads the heading, and `ax:lines`, which shows the page.
 - `rotor`: Control-Option-U, which opens VoiceOver's rotor: lists of what the item under its
   cursor holds, the reader's Headings among them. `listright` and `listleft` go from list to
   list, `listdown` and `listup` along one, `listchoose` (Return) moves VoiceOver to the item
   named and `listclose` (Escape) closes the rotor. These six are plain keys. Send them only
-  while the rotor is open: otherwise the reader takes an arrow as a page turn. A list with
-  nothing in it stays open after `listchoose`: on a page that has no heading the rotor says
-  "No items in Heading menu" and Return chooses nothing. VoiceOver ignores its own Command-F5
+  while the rotor is open: otherwise the reader takes an arrow as a page turn. The Headings
+  list opens on its first item, the book's first heading, wherever VoiceOver's cursor is. A
+  list with nothing in it stays open after `listchoose`: where the rotor says "No items in
+  Heading menu", as it did on a page with no heading while a page's rotor held that page's
+  headings alone, Return chooses nothing. VoiceOver ignores its own Command-F5
   while the rotor is open, so the runner closes one before it restores VoiceOver. After the
   steps of a session that sent `rotor` and no `listclose` after it, the runner sends Escape
   itself, writes `STEP listclose, sent by the runner in case the rotor is still open` and
@@ -875,10 +879,16 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    after a move shows the page or screen the reader went to. Past the book's last or first
    heading VoiceOver says "Heading not found". Wait a few seconds after the book opens
    (`wait=8`): a chapter not built yet ends the search. On a Mac `nextheading` moves
-   VoiceOver to the next heading in the text area and reads its words, to "Heading not
-   found" past the last, and the view shows the heading; `rotor` opens on the Heading menu,
-   which lists the page's headings, or the whole book's in continuous scroll, each by its
-   words and level, and `listchoose` moves to the one named.
+   VoiceOver to the book's next heading, to "Heading not found" past the last, and the view
+   shows the heading. In continuous scroll, and in pages where the heading is on the page,
+   VoiceOver reads the heading's words. In pages where it is on another page the reader
+   turns to it and VoiceOver reads that page from its top: `line` then reads the heading,
+   and `ax:lines` shows the page with the insertion point on the heading's line. `rotor`
+   opens on the Heading menu, which lists the whole book's headings in both flows, each by
+   its words and level, and `listchoose` moves to the one named, turning the page for it.
+   From a page in the middle of the book, with VoiceOver's cursor resting on the column
+   (`ax:focus=0` without `in`), `nextheading` goes to the first heading after the top of
+   that page, not to the book's first.
 10. Links on a Mac, in pages and in continuous scroll, with VoiceOver's link setting at Speak
     ([Links](#links)). `ax:links` lists each link on screen once as a `CHILD`, by its words:
     "Verification link" on the first page, "Parked link to the target" on the hidden-labels
@@ -1287,6 +1297,63 @@ The Mac runner's transcript is plain text and needs no export.
   page in pages, whose session ended twice in the runner script's check of VoiceOver's state
   with no transcript written: the rotor was still open, as the pitfall above describes.
   Nobody listened, and no workstation was used.
+- The same day a move by heading was heard to go through the whole book in pages on a Mac:
+  the hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0),
+  in six [hosted sessions](#hosted-mac-sessions) at `08cd4a7`, at the fixed pause, in a
+  window 600 points wide at 17 points, which is one column, and 1100 wide at 23, which is
+  two. From the first page `rotor` opened on "Page boundary verification, heading level 1"
+  and `listdown` went on through "Link target reached, heading level 2", "Parked title
+  heading, heading level 1", "Parked table heading, heading level 1", "Pictures and their
+  words, heading level 1" and "Scenes set apart, heading level 1": the whole book's, with
+  the first page still on screen. `listchoose` on the last turned to its page, where `line`
+  read "Scenes set apart". The rotor opened there on the book's first heading again, and
+  `listchoose` turned back to the first page. From the first page's heading `nextheading`
+  turned to the page of `word1187` to `word1200`, where `line` read "Link target reached"
+  and `STATE` had the insertion point on that line; then to the pages of "Parked title
+  heading", "Parked table heading", "Pictures and their words" and "Scenes set apart"; and
+  then gave "Heading not found". At each turn VoiceOver read the new page from its top, as
+  after any page turn ("text word1187 word1188", "text Parked table heading" and "Table row
+  group"), and `line` read the heading. From the page of `word0286` to `word0395`, with
+  VoiceOver's cursor resting on the column, three `nextheading` steps went to "Link target
+  reached", "Parked title heading" and "Parked table heading". In two columns `nextheading`
+  from the left column went through the same five to "Heading not found"; with VoiceOver in
+  the right column the rotor listed the same six, and `listchoose` on the last turned to
+  its page and put VoiceOver in the left column, on the heading; and from the right column
+  of the spread of `word0229` to `word0364`, at rest, `nextheading` went to "Link target
+  reached" and then "Parked title heading". Two more sessions, at `36573a5` in two columns
+  at 21 points, met "Link target reached" where it opens its page: `nextheading` from the
+  first page, and `listchoose` on it with VoiceOver in the right column, each gave "text
+  Link target reached" and then "This is the end of the numbered paragraph.", the heading's
+  words first. Every heading was in the left column of the spread turned to, at 17, 21 and
+  23 points. Four earlier runs, on a throwaway branch that wrote each of the rotor's
+  queries to a file, found how VoiceOver asks ([native viewer](native-viewer.md#input-and-accessibility),
+  Headings). It loaded a heading given as a token only on moving to it, the element and
+  then the range, and never while it listed the rotor's items. At `6e2c1f0`, and on that
+  branch with the same code, a token's result had no range: the list showed all six labels
+  and VoiceOver read each row of another page out as the column's own text, "text Page
+  boundary verification" from the first page and "text word0076 word0077" from a right
+  column. There too the search took a cursor resting on a column for nowhere, and
+  `nextheading` from the page of `word0286` went back to the first page. Leaving out the
+  reader's layout-change notice for the page turned to, or putting the insertion point on
+  the heading before posting it, did not change what VoiceOver read on arriving. At
+  `c3313e2`, with the link elements of #412 merged, a session in one column repeated the
+  list, a choice from it and two moves, with the same result. With VoiceOver's cursor on a
+  link, reached by `nextlink`, `nextheading` said "Heading not found" there, and so did
+  main at `150698b` in continuous scroll, where the same step from the text gave "Link
+  target reached": a link's element has no rotor
+  ([#431](https://github.com/vocaro/EPUBLib/issues/431)). Not heard: a heading that lands
+  in the right column of a spread, a book still being built, a section that page turns
+  step over, words typed in the rotor's list, and a move back by a VoiceOver command.
+  Nobody listened, and no workstation was used.
+- To see what VoiceOver asks of the reader, have the reader write it to a file. `log show`
+  on the hosted runner returned no line the sandboxed reader logged. A throwaway branch
+  that appends each query to a file in `FileManager.default.temporaryDirectory`, with a
+  workflow step after the sessions that finds the file under `~/Library/Containers` and
+  copies it into the results as a `.log`, records them; with times in the transcript's
+  format the two sort into one account. VoiceOver's rotor is a window of its own and shows
+  in nothing but a screenshot, which the observer can take with `screencapture -x` into the
+  results folder. A run builds the commit its branch had when it was started; to build what
+  the branch holds when the job begins, give the branch's name as the `ref` input too.
 - The same day they were read on a physical iPad Air 13-inch (M3) (iPadOS 27.2), upright at
   17 points, at `41a458f`, through XCTest's VoiceOver service; nobody listened. In pages a
   touch on the first page's heading gave "Page boundary verification Heading Use the rotor to

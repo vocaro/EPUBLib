@@ -29,6 +29,16 @@ struct ReaderTextRange: Hashable, Sendable {
     var isEmpty: Bool { start == end }
 }
 
+/// A heading and where it is in the book: its section, and its characters in that section's
+/// string.
+struct ReaderBookHeading {
+    var heading: ReaderHeading
+    var section: Int
+    var range: NSRange
+    /// Where it begins.
+    var position: ReaderTextPosition { ReaderTextPosition(section: section, offset: range.location) }
+}
+
 /// The whole book as one string for continuous scroll: every section's string in spine order,
 /// each followed by one paragraph break except the last. Sections in `omitted` (nonlinear spine
 /// items, which page turns step over too) are left out; the canvas shows one of them on its own

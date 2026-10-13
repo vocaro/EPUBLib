@@ -72,6 +72,18 @@ import AppKit
     /// Pagination this far past what is known runs over several turns of the run loop.
     private static let quickPagination = 50_000
 
+    /// The headings of one section's text. The text is not kept alive for them: a section
+    /// built again has another text, and its headings are then found again.
+    private final class SectionHeadings {
+        weak var text: NSAttributedString?
+        let headings: [(heading: ReaderHeading, range: NSRange)]
+        init(text: NSAttributedString, headings: [(heading: ReaderHeading, range: NSRange)]) {
+            self.text = text
+            self.headings = headings
+        }
+    }
+    private var sectionHeadings: [Int: SectionHeadings] = [:]
+
     // Continuous scroll.
     private(set) var scrollContainer: PlatformView?
     private(set) var scrollTextView: ReaderTextView?
@@ -484,6 +496,7 @@ import AppKit
         scrollBook = nil
         paginators.removeAll()
         paginatorUse.removeAll()
+        sectionHeadings.removeAll()
     }
 
     var cachedPaginatorCount: Int { paginators.count }
@@ -1221,24 +1234,55 @@ import AppKit
     }
 
     /// Where the heading of the book after `position` begins, or the one before it: where an
-    /// assistive technology's move by heading goes when the page or the screen has no more. A
-    /// heading is after a position it begins after and before one it ends at or before, so the
-    /// heading a position is inside is neither. A section that page turns step over is passed
-    /// over unless the search starts in it, and a section not built yet ends the search.
+    /// assistive technology's move by heading goes when the page or the screen has no more
+    /// (`bookHeading`).
     func heading(from position: ReaderTextPosition, forward: Bool) -> ReaderTextPosition? {
-        guard let dataSource else { return nil }
-        var section = position.section
+        bookHeading(from: position, forward: forward)?.position
+    }
+
+    /// The heading of the book after `position`, or the one before it. A heading is after a
+    /// position it begins after and before one it ends at or before, so the heading a position
+    /// is inside is neither. A section that page turns step over is passed over unless the
+    /// search starts in it or it is the one on screen, and a section not built yet ends the
+    /// search. From no position the search takes in every heading it can reach from the section
+    /// on screen, and begins before the first of them, or after the last: the whole book once
+    /// it is built, and until then the sections built so far around the reader.
+    func bookHeading(from position: ReaderTextPosition?, forward: Bool) -> ReaderBookHeading? {
+        guard let dataSource, dataSource.sectionCount > 0 else { return nil }
+        let shown = visibleRange?.start.section
+        func searched(_ section: Int) -> Bool { section == position?.section || section == shown || dataSource.isLinear(section: section) }
+        var section: Int
+        if let position { section = position.section } else {
+            // Back from the section on screen, against the search, through the sections built.
+            section = min(max(0, shown ?? 0), dataSource.sectionCount - 1)
+            let back = forward ? -1 : 1
+            while section + back >= 0, section + back < dataSource.sectionCount,
+                  !searched(section + back) || dataSource.text(forSection: section + back) != nil { section += back }
+        }
         while section >= 0, section < dataSource.sectionCount {
-            if section == position.section || dataSource.isLinear(section: section) {
-                guard let text = dataSource.text(forSection: section) else { return nil }
-                let headings = text.readerHeadings()
-                let found = forward ? headings.first { section > position.section || $0.range.location > position.offset }
-                    : headings.last { section < position.section || NSMaxRange($0.range) <= position.offset }
-                if let found { return ReaderTextPosition(section: section, offset: found.range.location) }
+            if searched(section) {
+                guard let headings = headings(inSection: section) else { return nil }
+                let found: (heading: ReaderHeading, range: NSRange)?
+                if let position {
+                    found = forward ? headings.first { section > position.section || $0.range.location > position.offset }
+                        : headings.last { section < position.section || NSMaxRange($0.range) <= position.offset }
+                } else { found = forward ? headings.first : headings.last }
+                if let found { return ReaderBookHeading(heading: found.heading, section: section, range: found.range) }
             }
             section += forward ? 1 : -1
         }
         return nil
+    }
+
+    /// A section's headings, found once for each text the data source gives for it; nil while
+    /// the section is not built.
+    func headings(inSection section: Int) -> [(heading: ReaderHeading, range: NSRange)]? {
+        guard let dataSource, section >= 0, section < dataSource.sectionCount,
+              let text = dataSource.text(forSection: section) else { return nil }
+        if let known = sectionHeadings[section], known.text === text { return known.headings }
+        let found = SectionHeadings(text: text, headings: text.readerHeadings())
+        sectionHeadings[section] = found
+        return found.headings
     }
 
     /// A non-empty `range` in a text view's own characters, clipped to what the view shows;
