@@ -217,17 +217,18 @@ files["OPS/tallrow.xhtml"] = (
     + "</td></tr><tr><td>Short clause</td><td>Short wording</td></tr></table><p>Words after the clauses.</p></body></html>")
 # A jump with a heading after it on the same page, which no other section has: every other
 # heading opens its section or stands pages after the jump before it. A second heading
-# follows a second jump and opens the next page, so that in a spread it is in the column
-# beside the jump, and on one screen with it in continuous scroll. A last jump follows the
-# book's last heading. The section opens with plain words, and no word here is one VoiceOver
-# uses for a heading or a link, so those in a transcript are VoiceOver's or the reader's own.
+# follows a second jump on the next page, a line down it, so that in a spread it is in the
+# column beside the jump, and on one screen with it in continuous scroll. A last jump follows
+# the book's last heading. The section opens with plain words, and no word here is one
+# VoiceOver uses for a heading or a link, so those in a transcript are VoiceOver's or the
+# reader's own.
 files["OPS/parts.xhtml"] = (
     '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Parts below a '
     "jump</title><style>.turned { break-before: page; }</style></head><body><p>Parts below a jump</p>"
     '<p>First part runs here.</p><p>Before an <a href="body.xhtml#link-target">upper jump</a> and beyond.</p>'
     "<p>Earlier words finish.</p><h3>Second part opens</h3><p>Second part runs here.</p>"
-    '<p>Nearing a <a href="body.xhtml#link-target">lower jump</a> and onward.</p><p>Middle words cease.</p>'
-    '<h4 class="turned">Third part opens</h4><p>Third part runs here.</p>'
+    '<p>Nearing a <a href="body.xhtml#link-target">lower jump</a> and onward.</p><p class="turned">Middle words cease.</p>'
+    "<h4>Third part opens</h4><p>Third part runs here.</p>"
     '<p>Toward the <a href="body.xhtml#link-target">last jump</a> and after.</p>'
     + "".join(f"<p>Line {i:02d} after the parts.</p>" for i in range(1, 61)) + "</body></html>")
 
