@@ -290,8 +290,8 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
 
     /// VoiceOver's three-finger swipes turn pages: towards the left or up reads forward (mirrored
     /// right to left), and the page is announced. The cursor is sent to the new page after
-    /// the announcement, so that if one phrase cuts the other short it is the page's number
-    /// that is lost and not a line of the book.
+    /// the announcement: VoiceOver then says the page's number and the line, where for the
+    /// two posted the other way round it said the line alone (iOS 27.0 simulator).
     override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
         guard imageInspector == nil, configuration.flow == .paginated, !hasSelection, !isDraggingSelection else { return false }
         let forward: Bool

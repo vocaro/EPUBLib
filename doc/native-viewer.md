@@ -890,11 +890,13 @@ The following are the defaults. Host commands and accessibility actions stay ena
   first line before this and does now. One whose line is still on the page keeps it, as
   when the same page is shown again. And a move by heading that turns the page posts
   nothing, since VoiceOver goes to the item the rotor gives it. VoiceOver's scroll, three
-  fingers swiped, announces "Page N" as before and the cursor is sent after that, so that if
-  one phrase cuts the other short it is the number that is lost and not a line of the
-  book. No session has performed that gesture
-  ([#70](https://github.com/vocaro/EPUBLib/issues/70)): the order is held by a test and has
-  not been heard. An item kept from an earlier list stands for its line by the line's place
+  fingers swiped, announces "Page N" as before, and the cursor is sent after the
+  announcement. Posted in that order after a page turned under a simulator's cursor,
+  VoiceOver said "Page 2" and then the line; in the other order it said the line alone
+  (iOS 27.0). No session has performed the gesture itself
+  ([#70](https://github.com/vocaro/EPUBLib/issues/70)): XCTest has no three-finger swipe,
+  so what VoiceOver does of its own accord after a scroll has not been heard. An item kept
+  from an earlier list stands for its line by the line's place
   in the book (`index(ofAccessibilityElement:)`). It was matched by its characters as the
   view counts them, and a page column counts from its page's first: a line of the page
   before then stood for whichever line of the page shown had the same ones, which is what
