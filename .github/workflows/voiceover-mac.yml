@@ -13,25 +13,29 @@ on:
       steps:
         description: >-
           Steps of scripts/run-voiceover-mac.py, quoted as on a command line, with ; between
-          sessions. Empty runs the page-boundary session.
+          sessions. A session may open with settings of its own, as in width=600 text_size=17
+          flow=scrolled "launch=-SampleHref OPS/labels.xhtml". Empty runs the page-boundary
+          session.
         type: string
       width:
-        description: Window width in points. 600 gives one column and 1100 two.
+        description: >-
+          Window width in points for a session that gives none. 600 gives one column and 1100
+          two.
         type: string
         default: '1100'
       text_size:
-        description: Text size in points at launch.
+        description: Text size in points at launch, for a session that gives none.
         type: string
         default: '23'
       flow:
-        description: Reading flow at launch.
+        description: Reading flow at launch, for a session that gives none.
         type: choice
         options: [paginated, scrolled]
         default: paginated
       launch:
         description: >-
-          Further launch arguments of the reader, quoted as on a command line, such as
-          -SampleHref OPS/labels.xhtml for a section other than the first.
+          Further launch arguments of the reader for a session that gives none, quoted as on a
+          command line, such as -SampleHref OPS/labels.xhtml for a section other than the first.
         type: string
       links:
         description: >-
@@ -41,13 +45,13 @@ on:
         options: [Unchanged, Speak, Change Pitch, Play Tone, Do Nothing]
         default: Unchanged
       pause:
-        description: Seconds of speech to record after each key.
+        description: Seconds of speech to record after each key, for a session that gives none.
         type: string
         default: '5'
       advance_after:
         description: >-
           Empty keeps the fixed pause. A number sends the next key that many seconds after a
-          key's first new phrase.
+          key's first new phrase, in a session that gives none.
         type: string
 
 run-name: Mac VoiceOver, ${{ inputs.ref || github.ref_name }}, ${{ inputs.width || '1100' }} wide at ${{ inputs.text_size || '23' }} points
@@ -55,11 +59,11 @@ run-name: Mac VoiceOver, ${{ inputs.ref || github.ref_name }}, ${{ inputs.width 
 permissions:
   contents: read
 
-# A newer run for the same ref, window, text size, flow, launch arguments and link setting
-# replaces one still in progress.
-concurrency:
-  group: ${{ github.workflow }}-${{ inputs.ref || github.ref }}-${{ inputs.width }}-${{ inputs.text_size }}-${{ inputs.flow }}-${{ inputs.launch }}-${{ inputs.links }}
-  cancel-in-progress: true
+# No concurrency group: nothing cancels a run but the session that started it. A group of the
+# ref, width, text size, flow, launch arguments and link setting served while each run had one
+# of each. Now that a session has its own, runs that agree in those inputs can hear different
+# things, and a second run would cancel a first that is still wanted. scripts/hosted-run.py
+# holds a branch to two runs in flight instead.
 
 jobs:
   sessions:

@@ -22,16 +22,17 @@ byline parked at `left: -999em` above an image with an empty `alt`, as a Standar
 page has them, words clipped to nothing inside a line, and a parked link. It also holds what a book hides from everyone: a
 `visibility: hidden` paragraph and an `aria-hidden` one. A third, **Hidden heading over a
 table** (`OPS/table.xhtml`), opens with a parked heading and then a table, so the heading is
-hidden labels alone on a line of no height, and goes on for more than a screen. A fourth,
-**Pictures and their words** (`OPS/pictures.xhtml`), holds what a book can say of a picture:
-nothing, that it is decoration (an empty `alt`), or words. Each stands in a line of text; a
-decorative one is also all that a link holds, and stands beside words in a link; and two come
-from a file that has a title of its own, one with an empty `alt` and one with none. None of
-the section's words is one VoiceOver uses for a picture or a link, so those in a transcript
-are VoiceOver's own. A fifth, **Scenes set apart** (`OPS/scenes.xhtml`), the book's last,
-holds rules: an `<hr>` between two paragraphs, one the book gives `role="presentation"`, and
-one alone on a page of its own, with a last paragraph on the page after it. None of its words
-is one a screen reader uses for a rule either. A second
+hidden labels alone on a line of no height. A second table stands between shown lines on the
+section's first page, its last cell a link, and the section goes on for more than a screen. A
+fourth, **Pictures and their words** (`OPS/pictures.xhtml`), holds what a book can say of a
+picture: nothing, that it is decoration (an empty `alt`), or words. Each stands in a line of
+text; a decorative one is also all that a link holds, and stands beside words in a link; and
+two come from a file that has a title of its own, one with an empty `alt` and one with none.
+None of the section's words is one VoiceOver uses for a picture or a link, so those in a
+transcript are VoiceOver's own. A fifth, **Scenes set apart** (`OPS/scenes.xhtml`), the
+book's last, holds rules: an `<hr>` between two paragraphs, one the book gives
+`role="presentation"`, and one alone on a page of its own, with a last paragraph on the page
+after it. None of its words is one a screen reader uses for a rule either. A second
 bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
@@ -358,30 +359,42 @@ ever run left it silent for the whole run, `ERROR 3` after every key.
 ## Hosted Mac sessions
 
 The same reader, probe, observer and runner script record real VoiceOver speech on GitHub's
-hosted `xcode-27` runner. A session there takes over no workstation, several can run at once,
-and the standard runner costs nothing in this public repository. It is acceptance evidence
-for the Mac, under the same rules as a workstation session; see
-[Acceptance and evidence](#acceptance-and-evidence). The
-[Mac VoiceOver workflow](../.github/workflows/voiceover-mac.yml) builds the reader at a ref,
-runs one or more sessions and uploads their transcripts. It starts only by hand:
+hosted `xcode-27` runner. A session there takes over no workstation, and the standard runner
+costs nothing in this public repository. It is acceptance evidence for the Mac, under the
+same rules as a workstation session; see [Acceptance and evidence](#acceptance-and-evidence).
+The [Mac VoiceOver workflow](../.github/workflows/voiceover-mac.yml) builds the reader at a
+ref, runs one or more sessions and uploads their transcripts.
+
+The runner is shared. GitHub runs five macOS jobs at a time for the whole account, for the
+runs of every agent's session together, and its queue has no priorities. So one run holds
+every session a piece of work needs, whatever their window widths, text sizes, flows and
+launch arguments, and it is started through `scripts/hosted-run.py`, which looks at what is
+running first; [Sharing the runner](#sharing-the-runner) has the rules. The workflow starts
+only by hand:
 
 ```sh
-gh workflow run voiceover-mac.yml --ref YOUR_BRANCH -f width=600 -f text_size=17 \
-  -f steps='ax:next ax:lines ax:focus in line nextline ; ax:next ax:focus in lastword line nextline'
-gh run list --workflow voiceover-mac.yml --limit 3
+python3 scripts/hosted-run.py voiceover-mac.yml -f width=600 -f text_size=17 \
+  -f steps='ax:next ax:lines ax:focus in line nextline ; ax:next ax:focus in lastword line nextline
+            width=1100 text_size=23 ax:next ax:lines ax:focus in line nextline
+            flow=scrolled ax:next ax:next ax:focus in line nextline'
 gh run watch RUN_ID --exit-status
 gh run download RUN_ID --name voiceover-mac-transcripts --dir .build/voiceover/hosted/RUN_ID
 ```
 
-`--ref` chooses the branch whose workflow file is used, and that branch is built unless the
-`ref` input names another one. The inputs, all optional:
+That is four sessions in one run: two in a window 600 points wide at 17 points, one in a
+window 1100 wide at 23, and one in continuous scroll. The script takes the `-f` inputs of
+`gh workflow run`. It checks the steps as the runner would and prints each session with its
+settings, starts the run unless the branch already has its share in flight, and prints the
+run's number. It starts the run from the branch checked out, or from the one `--ref` names.
+That branch's workflow file is used, and that branch is built unless the `ref` input names
+another one. The inputs, all optional:
 
 - `ref`: a branch, a tag or a full commit SHA whose reader and probe are built. The runner,
   observer, session and link-setting scripts still come from the `--ref` branch, so a commit
   older than this workflow can be heard, and two commits compared, with one harness.
 - `steps`: the steps `scripts/run-voiceover-mac.py` takes, quoted as on a command line, as in
   `"activate=Next Page"`. A `;` or a line break starts another session. Each session gets a
-  fresh reader, and `ax:width` with the `width` input before its own steps. Left empty, one
+  fresh reader, and `ax:width` with its width before its own steps. Left empty, one
   session checks a page boundary: the left column's entry line and two lines down, a Next Page
   activated through VoiceOver, and the new page's entry line and second line. The entry line
   after the turn must be the page's first: with the fault of
@@ -389,26 +402,46 @@ gh run download RUN_ID --name voiceover-mac-transcripts --dir .build/voiceover/h
   VoiceOver to the column by `ax:focus=search ax:focus=0`, without which it can pass on a
   reader that has the fault.
 - `width` and `text_size`: the window width and the launch text size in points, 1100 and 23
-  unless given.
+  unless given, for a session that gives none.
 - `flow`: `paginated`, or `scrolled` for [continuous scroll](#continuous-scroll), which needs
-  its own steps.
-- `launch`: further launch arguments of the reader, quoted as on a command line.
-  `-SampleHref OPS/labels.xhtml` opens the book at a section, with no page turns to reach it,
-  and `-VerificationBook paragraphs` opens the other book.
+  its own steps, for a session that gives none.
+- `launch`: further launch arguments of the reader, quoted as on a command line, for a
+  session that gives none. `-SampleHref OPS/labels.xhtml` opens the book at a section, with
+  no page turns to reach it, and `-VerificationBook paragraphs` opens the other book.
 - `links`: how VoiceOver announces a link or an attachment in text: `Speak`, `Change Pitch`,
   `Play Tone` or `Do Nothing`. `Unchanged`, the default, leaves the runner's own setting. See
-  [Links](#links).
-- `pause`: the runner's `--pause`, 5 seconds unless given.
-- `advance_after`: the runner's `--advance-after`. Empty keeps the fixed pause.
+  [Links](#links). It is set once, before the first session, so it is the one thing sessions
+  of a run cannot differ in.
+- `pause`: the runner's `--pause`, 5 seconds unless given, for a session that gives none.
+- `advance_after`: the runner's `--advance-after`, for a session that gives none. Empty keeps
+  the fixed pause.
+
+A session can open with settings of its own, in any order before its first step: `width=600`,
+`text_size=17`, `flow=scrolled`, `"launch=-SampleHref OPS/labels.xhtml"`, `pause=3` and
+`advance_after=0.5`. `launch=` with nothing after it is no further argument, and
+`advance_after=` the fixed pause. The inputs of those names are what a session has when it
+gives none, so one run holds sessions that differ in them. A setting that follows a step, is
+given twice or has a value it cannot have is refused before anything is built, and a session
+of settings alone is the page-boundary session with them. The job's log, `sessions.txt` and
+the run's summary page give each session's settings before its outcome, where the run's name
+gives the `width` and `text_size` inputs only:
+
+```text
+Session 3: 600 wide at 17 points, scrolled, 4 s pause; completed (exit 0) in 45 s; mac-20261013-042246-037894.transcript.txt; -SampleFlow scrolled -SampleFontSize 17 --pause 4 ax:width=600 ax:next ax:next ax:focus in line nextline
+Session 4: 1100 wide at 30 points, paginated, 3 s pause, next key 0.5 s after a phrase; completed (exit 0) in 29 s; mac-20261013-042347-959280.transcript.txt; -SampleFlow paginated -SampleFontSize 30 --pause 3 --advance-after 0.5 ax:width=1100 ax:next ax:lines ax:focus in line nextline
+```
 
 A job has twenty minutes and a session at most 300 seconds, the runner script's limit.
 Preparing the runner and building take about two minutes and the boundary session about three
 at the fixed pause, so a run of that one session has uploaded its transcript about five minutes
-after it starts. A session that could not end three minutes before the job's limit is reported
-as not run, and the job fails. A new run for the same ref, width, text size, flow, launch
-arguments and link setting cancels one still in progress, so put step lists that share those
-into one run; runs that differ in
-any of them go on side by side.
+after it has a runner. A session that could not end three minutes before the job's limit is
+reported as not run, and the job fails. That leaves the sessions of a run about fifteen
+minutes between them: four of the boundary session's length, or a dozen short ones. On
+2026-10-13 four sessions of five or six steps, each with a width, text size, flow or pause of
+its own, took 239 seconds of a job of 5 minutes 50 seconds, the build 82 of them (run
+38344667427); as four runs they would have built four times, on four runners. Nothing cancels
+a run but `gh run cancel RUN_ID`: a second run from a branch does not replace its first,
+whatever their inputs, so cancel a run that a newer one makes useless.
 
 With `advance_after` set to `0.5`, stepping took about a quarter of the time in four pairs of
 sessions, and 95 of 97 keys recorded the same first phrase as at the fixed pause. The hint that
@@ -417,9 +450,9 @@ exploring and walks across controls. A transcript offered as acceptance evidence
 at a fixed pause; see [Acceptance and evidence](#acceptance-and-evidence).
 
 The job fails unless every session exits 0. `sessions.txt` in the download gives each
-session's outcome, transcript and command: 124 means the deadline was reached, 125 that the
-runner script stopped the session, 2 that it refused the steps, and 126 that VoiceOver would
-not switch back off after it ("VoiceOver not restored"). Such a session still has its
+session's settings, outcome, transcript and command: 124 means the deadline was reached, 125
+that the runner script stopped the session, 2 that it refused the steps, and 126 that VoiceOver
+would not switch back off after it ("VoiceOver not restored"). Such a session still has its
 transcript, with the reason in a `NOT_RESTORED` line, and the sessions after it in the job
 begin with VoiceOver already on and leave it on. The download also holds a
 `mac-STAMP.transcript.txt` for each session in order, `runner.txt` with the commit, the runner
@@ -427,7 +460,8 @@ image and its version, macOS, Xcode, System Integrity Protection, the screen and
 [link setting](#links), the observer, `xcodebuild` and build logs, and a screenshot of the
 runner's screen at the end. The job's log
 prints each transcript, and the script writes each session's steps and speech to the run's
-summary page. The artifacts expire after five days; copy what must be kept. A failed job also uploads
+summary page, under its settings and outcome. The artifacts expire after five days; copy what
+must be kept. A failed job also uploads
 `voiceover-mac-result-bundles`, 100 MB for four short sessions, and adds
 `banner-and-dictation.log` to the transcripts: the banner's starts and anything from Dictation
 in the system log. A stopped session's bundle has no `Info.plist`, so `xcresulttool` cannot
@@ -489,6 +523,49 @@ as `xcode-27-xlarge`, is billed even in a public repository. To see what a run c
 gh api repos/vocaro/EPUBLib/actions/runs/RUN_ID/timing
 ```
 
+### Sharing the runner
+
+GitHub runs five macOS jobs at a time for the whole account, on its Free, Pro and Team plans
+([its limits](https://docs.github.com/en/actions/reference/limits)). The VoiceOver runs of
+every agent's session draw on those five, and nothing else runs there
+([notes for agents](../AGENTS.md#the-hosted-runner)). A run beyond the five waits for a
+runner. The queue has no priorities: runs get a runner in the order they were started,
+whatever they are for.
+
+While fewer than five jobs ran, a job started within ten seconds. On the evening of
+2026-10-12, when the unit tests ran there too, all five were busy for hours and a job waited
+a median of 13 minutes for a runner and 75 at worst. Four runs in five were VoiceOver runs
+even so, and a single branch started four to nine of them within 90 seconds on sixteen
+occasions, each on a runner of its own with a build of its own.
+
+So a run is started with `scripts/hosted-run.py`:
+
+```sh
+python3 scripts/hosted-run.py
+python3 scripts/hosted-run.py voiceover-mac.yml -f steps='width=600 text_size=17 in line ; in line'
+```
+
+With no workflow it prints how many runs are on a runner and how many wait, then each run in
+flight, and starts nothing; `gh run list --status in_progress` and
+`gh run list --status queued` list the same runs. With the workflow it prints the two counts
+and starts the run, unless a rule below is against it: then it says why, starts nothing and
+exits with status 1. It sees this repository's runs only. The rules, with what the script
+does about each:
+
+- Look at what is running and waiting before you start a run. The script prints it each time.
+- Put the sessions you need into one run. Each can have its own window width, text size, flow
+  and launch arguments, so that step lists that differ in them share one run, one build and
+  one runner. The script checks the steps as the runner would, before anything waits for a
+  runner, and prints each session with its settings.
+- Keep at most two runs in flight for a branch, and one while any run is waiting for a
+  runner. The script starts no run beyond that and lists the branch's runs.
+- Cancel a run as soon as it is no longer needed, with `gh run cancel RUN_ID`. Nothing else
+  cancels one.
+
+`--force` starts a run the script would refuse; a slow queue is not a reason for it. The
+script also says when GitHub's copy of the branch is not the commit checked out, because a
+run uses what is pushed.
+
 ## Physical iPhone and iPad
 
 Choose each connected device explicitly and run the native probe on it:
@@ -508,6 +585,21 @@ VoiceOver if necessary and restores its original state on normal test completion
 transcript's `voiceOver` line says which. Put a deadline around device runs and independently
 check the device state afterward, especially after cancellation. A user must enter any
 required XCTest UI Automation passcode directly on the device. Never collect it in logs or chat.
+
+A probe that fails or is stopped part way leaves VoiceOver on, on a device its owner then
+picks up. Read the state from the Mac and switch it off there:
+
+```sh
+xcrun devicectl device info voiceover --device YOUR_DEVICE_ID
+xcrun devicectl device settings voiceover --device YOUR_DEVICE_ID --disable
+```
+
+Count the start into the deadline. On a busy Mac `xcodebuild` took nearly five minutes to
+begin a session on an iPhone whose steps then took one, and a deadline of five minutes
+stopped it in the middle. While VoiceOver is on it also reads whatever else the device shows:
+a notification that arrives, or the app that was in front when it came on. Such a phrase
+takes the place of the one a step should have recorded. Its text is the device owner's and
+not the book's, so leave it out of every record, and a screenshot that shows it with it.
 
 The probe launches the reader and performs the comma-separated steps, recording VoiceOver's
 phrase after each, and ends with `finished`: a transcript without that line stopped early.
@@ -672,6 +764,13 @@ three, and the job's "Set up job" log prints the image. Everything else here app
 unchanged. A hosted session that completes is no more an acceptance result than any other:
 read its transcript against the visible text. The iPhone and iPad still need physical devices.
 
+Sessions that show a change by what VoiceOver said before and after it are recorded on the
+same main. Merge main into the branch first, and take as "before" a commit that holds main
+and nothing of the change but its fixture. Main gains commits within the hour, and one that
+landed between two such recordings changed what VoiceOver did in continuous scroll, which
+was then taken for the change's own. A second worktree at that commit keeps the branch free;
+the probe built there in under two minutes.
+
 Record a Mac transcript offered as evidence at a fixed pause, the runner's default, on a
 workstation or hosted. `--advance-after` is for exploring: it cuts short whatever follows a
 key's first phrase, and in the paired sessions it once recorded a control's hint in place of
@@ -694,6 +793,14 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    technology."; and a screenshot shows the image and none of the hidden words. On the section with a
    hidden heading over a table, opened in continuous scroll, VoiceOver moving into the text
    meets "Parked table heading" before the table's first row, and the view does not move.
+   In pages and in continuous scroll alike, each row of that section's tables is one item
+   where it stands, read as its cells' words and not as an image: "First cell Second cell"
+   and "Third cell Fourth cell" after the heading, "Fifth cell Sixth cell" and "Seventh cell
+   Eighth cell link" between "Line 02 after the table." and "Line 03 after the table.". No
+   cell is an item by itself, and moving back gives the same items in reverse. On the last
+   row the rotor offers Select Table Text for its two cells and Follow Table Link: Eighth
+   cell link, which opens the first section at "Link target reached"; a line beside the
+   tables offers none of them.
 7. On the section of pictures, in pages and in continuous scroll. VoiceOver stops between
    "Undescribed picture" and "stands here." and says that an image is there, with no name.
    It reads "Decoration" and "passed over." with nothing between them, and the same for
@@ -997,7 +1104,8 @@ The Mac runner's transcript is plain text and needs no export.
   the rows to "Parked table heading". The screenshots before and after are the same but for
   VoiceOver's cursor, a point above the table: the view did not move. In pages the table's
   four cells came first, each an item, then "Parked table heading", then the rows: a
-  table's cells are read before the lines of their page there, whatever those are.
+  table's cells are read before the lines of their page there, whatever those are. That is
+  since changed; see the entry on a table's rows below.
 - The same day the section was heard on a Mac: GitHub's hosted `xcode-27` runner (image
   `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in three
   [hosted sessions](#hosted-mac-sessions) at `d010812`, in a window 600 points wide at 17
@@ -1276,6 +1384,55 @@ The Mac runner's transcript is plain text and needs no export.
   and Change Pitch leave nothing in a transcript; a link in a table cell or a note's
   popover; a link that wraps onto a second line or crosses a page's end, which the unit
   tests read; and a link below the screen in continuous scroll.
+- On 2026-10-12 the section with a hidden heading over a table, with its second table, was
+  read at 17 points before and after a table's rows became single items: at `2053be8` and at
+  `1e3e5c3`, in the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and
+  an iPad Air 13-inch (M4)), in pages and in continuous scroll. Before, in pages, sixteen
+  moves forward from Bookmark gave the eight cells of both tables, each an item ("First
+  cell" to "Eighth cell link Double tap to activate embedded link"), then "Parked table
+  heading", "First cell Second cell Image", "Third cell Fourth cell Image", "Shown words
+  after the table.", two lines, "Fifth cell Sixth cell Image" and "Seventh cell Eighth cell
+  link Image"; moving back from "Parked table heading" gave "First cell" and then Bookmark.
+  In continuous scroll the rows came where they stand, each as an image, and no cell before
+  them; but a touch on a cell put the cursor on the cell, and on the iPhone, where reading on
+  had scrolled the view, moving back left the text at "Line 02 after the table." by way of
+  the second table's four cells. In both flows the rotor offered Select Table Text for every
+  cell on screen on any line, in pages after Next Page and Previous Page. After, in both
+  flows on both simulators: "Parked table heading", "First cell Second cell", "Third cell
+  Fourth cell", "Shown words after the table.", "Line 01 after the table.", "Line 02 after
+  the table.", "Fifth cell Sixth cell", "Seventh cell Eighth cell link", "Line 03 after the
+  table." and on, with no cell by itself and no "Image", and the same items in reverse on
+  the way back, to Bookmark in pages and to the last line of the section before in
+  continuous scroll. A touch on the last row put the cursor on the row. There the rotor offered
+  Select Table Text: Seventh cell, Select Table Text: Eighth cell link and Follow Table
+  Link: Eighth cell link, after Next Page and Previous Page in pages, and on "Line 03 after
+  the table." none of the three. Two things are not this change's. In continuous scroll on
+  the iPhone, moving back left the text at "Line 02 after the table." for Bookmark in one
+  session of two at `1e3e5c3`, as it had at `2053be8`; a session at `1e0eb8c`, seven commits
+  of main earlier, and every iPad session read back to the heading. And in continuous scroll
+  the rotor offered on every line, before and after, "Verification link", "￼" and "Inspect
+  Image"; the first is a link in the book's first section.
+- The same day a physical iPad Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366) read the section
+  at `1e3e5c3` in both flows as the simulators had, forward and back, and VoiceOver followed
+  the link in the cell: with Follow Table Link: Eighth cell link chosen in the rotor, the
+  fifth action in pages and the third in continuous scroll, a double tap on the row changed
+  the screen and a touch then found "Link target reached". VoiceOver was off afterward. The
+  physical iPhone 17 Pro Max (iOS 27.2, 440 × 956) gave no result at first: one run ended in
+  "Timed out while enabling automation mode", and a second lost its authorization for UI
+  testing after eighteen seconds, with another app's control under VoiceOver's cursor, and
+  left VoiceOver on. Later, with the phone free, it read the section at `edb13b1`, which has
+  the changes to images, rules and headings merged in, as the iPad had. In pages: "Parked
+  table heading" as a heading, the rows where they stand, on to "Line 06 after the table."
+  at the foot of the page, and back to Bookmark. In continuous scroll: on to "Line 10 after
+  the table." and back past the heading to the last line of the section before. In both
+  flows a double tap with Follow Table Link: Eighth cell link chosen opened "Link target
+  reached". A notification from another app took the place of one phrase in two sessions, a
+  move forward in pages and a step of the rotor in continuous scroll. xcodebuild took nearly
+  five minutes to start a session on the phone while the Mac was busy, so a deadline of five
+  minutes stopped the first continuous scroll session part way through the rotor and left
+  VoiceOver on; the rotor steps were run again alone. Each time VoiceOver was left on it was
+  switched off with `devicectl device settings voiceover --disable` and read back as off.
+  Nobody listened to any of these sessions.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
