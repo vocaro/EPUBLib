@@ -263,8 +263,10 @@ import XCTest
 
     /// A row is called by the words its cells have. A cell without any is left out, with no
     /// pause said for it; a picture's description is among its cell's words; and a row that
-    /// shows pictures nobody describes has no words to be called by, and keeps the reader's
-    /// name for a row. A row of a table of data that shows a picture is still its table.
+    /// shows pictures nobody describes has no words to be called by, and is called nothing,
+    /// for VoiceOver to say its own word for a group. Such a row has no help either, which
+    /// VoiceOver would read in a missing name's place. A row of a table of data that shows
+    /// a picture is still its table.
     func testARowIsCalledByTheWordsItsCellsHave() async throws {
         let rows = "<tr><td>Alone</td><td></td><td>After a gap</td></tr>"
             + "<tr><td><img src='square.svg' alt='Blue square'/></td><td>Beside it</td><td>Decoration <img src='square.svg' alt=''/> passed</td></tr>"
@@ -279,8 +281,10 @@ import XCTest
             let given = try attachments(in: view)
             XCTAssertEqual(given.count, 5, flow)
             XCTAssertEqual(given.prefix(3).map { $0.element.accessibilityLabel() },
-                           ["Alone, After a gap", "Blue square, Beside it, Decoration passed", "Table row"], flow)
+                           ["Alone, After a gap", "Blue square, Beside it, Decoration passed", nil], flow)
             XCTAssertTrue(given.prefix(3).allSatisfy { $0.element.accessibilityRole() == .group }, flow)
+            XCTAssertEqual(given.prefix(3).map { $0.element.accessibilityHelp() },
+                           [nil, ReaderImageInspection.accessibilityHelp, nil], flow)
             // A row's pictures are shown from the row, whatever it is called.
             XCTAssertEqual(given.prefix(3).map { ($0.element.accessibilityCustomActions() ?? []).map(\.name) },
                            [[], ["Inspect Image: Blue square"], ["Inspect Image", "Inspect Image"]], flow)
