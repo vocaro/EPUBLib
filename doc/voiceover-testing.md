@@ -1266,7 +1266,12 @@ The Mac runner's transcript is plain text and needs no export.
   Actions available", and the rotor read "Next Page", "Previous Page", "Activate Default"
   and the three again; on "Blue verification square Image" it read "Next Page", "Previous
   Page", "Inspect Image: Blue verification square", "Activate Default" and the first three
-  again.
+  again. At `7934820`, with fifty lines past the screen listed while the cursor is in the
+  text, continuous scroll in the first book read the same: "Read the numbered words across
+  two consecu Use the rotor to acce" and "R Romeo", "e Echo", "a Alpha"; "Verification link
+  Link" and "V Victor", "e Echo", "r Romeo"; "Blue verification square Image Actions
+  available" and "Inspect Image: Blue verification square", "Activate Default", "Inspect
+  Image: Blue verification square".
   The Mac's load averages were in the hundreds throughout. Three more sessions read
   nothing and were run again: one was not started, one ended with "Failed to send
   moveForward command" and one with "VoiceOver is on but says nothing" after three minutes.
