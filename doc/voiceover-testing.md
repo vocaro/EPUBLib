@@ -4647,7 +4647,14 @@ The Mac runner's transcript is plain text and needs no export.
   fixture's new last section (`"launch=-SampleHref OPS/squares.xhtml"`). Before at
   `e02ea32`, which is `main` at `6928200` with the section added and nothing of the
   reader changed: run 38436431887. After at `37f2225`: runs 38438620999 and 38440867205.
-  All seventeen sessions completed, and each run reports `"billable": {}`. Nobody
+  [#508](https://github.com/vocaro/EPUBLib/pull/508) and
+  [#511](https://github.com/vocaro/EPUBLib/pull/511) merged while these were recorded.
+  The first gives a table cell that is one link a press and a link to hold, and the
+  second added the section `OPS/parts.xhtml` to the fixture, which this section now
+  follows. The six sessions of run 38438620999 were recorded again on the branch merged
+  with both, at `eec2108` (run 38443323478): every phrase from the first `in` of each was
+  what it had been at `37f2225`, and so was what the text gives at each row. All
+  twenty-three sessions completed, and each run reports `"billable": {}`. Nobody
   listened. A phrase is cut at 64 characters, shown by "…".
   The row of two pictures nobody describes, in the table marked as layout, on the
   section's first page (`ax:links "ax:caret=Words before the squares" ax:focus in line`,
