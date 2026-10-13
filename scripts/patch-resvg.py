@@ -34,3 +34,38 @@ spec = importlib.util.spec_from_file_location("panic_boundary", Path(__file__).w
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 module.patch(Path(sys.argv[1]), text)
+
+# tiny-skia flushes its last antialias row from Drop. When a raster panic left
+# that row inconsistent, flushing during unwinding can panic again and abort
+# before catch_unwind gets control. Normal Drop must still flush the final row.
+root = Path(sys.argv[1])
+cleanup = root / 'vendor/tiny-skia/src/scan/path_aa.rs'
+text = cleanup.read_text()
+old = """impl Drop for SuperBlitter<'_> {
+    fn drop(&mut self) {
+        self.flush();
+    }
+}"""
+new = """impl Drop for SuperBlitter<'_> {
+    fn drop(&mut self) {
+        // EPUBLib: discard a row interrupted by a panic; never double-panic in Drop.
+        #[cfg(feature = "std")]
+        if std::thread::panicking() { return; }
+        self.flush();
+    }
+}"""
+assert text.count(old) == 1, 'Unexpected tiny-skia cleanup: unwind guard does not apply'
+cleanup.write_text(text.replace(old, new))
+manifest = root / 'Cargo.toml'
+text = manifest.read_text()
+assert '[patch.crates-io]' not in text
+manifest.write_text(text + '\n[patch.crates-io]\ntiny-skia = { path = "vendor/tiny-skia" }\n')
+lockfile = root / 'Cargo.lock'
+text = lockfile.read_text()
+old = """name = "tiny-skia"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47ffee5eaaf5527f630fb0e356b90ebdec84d5d18d937c5e440350f88c5a91ea"
+"""
+assert text.count(old) == 1, 'Unexpected tiny-skia lock entry'
+lockfile.write_text(text.replace(old, 'name = "tiny-skia"\nversion = "0.12.0"\n'))

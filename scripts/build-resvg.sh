@@ -12,6 +12,13 @@ curl --fail --location --retry 3 "https://codeload.github.com/linebender/resvg/t
 echo "$checksum  $work/source.tar.gz" | shasum -a 256 -c -
 mkdir -p "$work/source"
 tar -xzf "$work/source.tar.gz" --strip-components=1 -C "$work/source"
+# Pin the one dependency cleanup guard needed for panic unwinding. A path patch
+# keeps Cargo's registry cache untouched and makes the exact changed source reviewable.
+tiny_skia_checksum=47ffee5eaaf5527f630fb0e356b90ebdec84d5d18d937c5e440350f88c5a91ea
+curl --fail --location --retry 3 "https://static.crates.io/crates/tiny-skia/tiny-skia-0.12.0.crate" -o "$work/tiny-skia.crate"
+echo "$tiny_skia_checksum  $work/tiny-skia.crate" | shasum -a 256 -c -
+mkdir -p "$work/source/vendor/tiny-skia"
+tar -xzf "$work/tiny-skia.crate" --strip-components=1 -C "$work/source/vendor/tiny-skia"
 python3 "$root/scripts/patch-resvg.py" "$work/source"
 
 # Use an isolated toolchain. No changes to the developer's global Rust installation.

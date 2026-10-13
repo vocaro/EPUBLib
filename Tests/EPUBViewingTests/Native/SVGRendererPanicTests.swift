@@ -16,6 +16,7 @@ final class SVGRendererPanicTests: XCTestCase {
         let name: String
         let body: String
         var canvas = "0 0 100 100"
+        var failsInitialRaster = true
     }
     private static var inputs: [Input] {
         let png = RichMediaImages.solid(width: 40, height: 20).base64EncodedString()
@@ -29,7 +30,7 @@ final class SVGRendererPanicTests: XCTestCase {
             Input(name: "float bounds", body: mask + "<g mask='url(#m)'>" + String(repeating: "<g transform='scale(1e9)'>", count: 4) + "<rect width='300' height='1'/>" + String(repeating: "</g>", count: 5)),
             Input(name: "float curve", body: "<path d='M0 0 Q 1e20 1e20 3e20 1e20' fill='none' stroke='black'/>") ,
             Input(name: "raster arc", body: "<path d='M5 5 a1e12 1e12 0 1 0 0 1e12 z'/>", canvas: "0 0 10 10"),
-            Input(name: "raster circle", body: "<circle cx='5' cy='5' r='1e7'/>", canvas: "0 0 10 10"),
+            Input(name: "raster circle", body: "<circle cx='5' cy='5' r='1e7'/>", canvas: "0 0 10 10", failsInitialRaster: false),
             Input(name: "zero-length repeating gradient", body: "<linearGradient id='g' x1='0' x2='0' spreadMethod='repeat'><stop offset='0.07' stop-color='#fff'/><stop offset='0.29' stop-color='#fff'/><stop offset='1' stop-color='#fff'/></linearGradient><rect width='50' height='50' fill='url(#g)'/>") ,
         ]
     }
@@ -63,21 +64,43 @@ final class SVGRendererPanicTests: XCTestCase {
     private static let ordinary = Data("<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><rect width='16' height='16' fill='red'/></svg>".utf8)
 
     /// Raw C parse/render fail and then the same options render an unrelated ordinary tree.
-    private static func exercise(_ input: Input) throws {
+    private static func exercise(_ input: Input, dimension: Int = 4096) throws {
         let options = try XCTUnwrap(resvg_options_create())
         defer { resvg_options_destroy(options) }
-        let (status, parsed) = rawParse(Data(svg(input).utf8), options: options)
+        let drawing = svg(input).replacingOccurrences(of: "</svg>", with: "<rect id='probe' width='1' height='1'/></svg>")
+        let (status, parsed) = rawParse(Data(drawing.utf8), options: options)
         if let tree = parsed {
             defer { resvg_tree_destroy(tree) }
             XCTAssertEqual(status, 0, input.name)
-            XCTAssertFalse(rawRender(tree, dimension: 4096), input.name)
-            // A panic consumes the renderer state, keeping only the stable opaque handle.
-            XCTAssertTrue(resvg_is_image_empty(tree), input.name)
-            XCTAssertEqual(resvg_get_image_size(tree).width, 0, input.name)
-            var bbox = resvg_rect(x: 0, y: 0, width: 0, height: 0)
-            XCTAssertFalse(resvg_get_image_bbox(tree, &bbox), input.name)
-            XCTAssertFalse(resvg_get_object_bbox(tree, &bbox), input.name)
-            XCTAssertFalse(rawRender(tree, dimension: 16), "A failed tree cannot be reused: \(input.name)")
+            var beforeBox = resvg_rect(x: 0, y: 0, width: 0, height: 0)
+            var beforeTransform = resvg_transform_identity()
+            "probe".withCString { node in
+                XCTAssertTrue(resvg_node_exists(tree, node), input.name)
+                XCTAssertTrue(resvg_get_node_transform(tree, node, &beforeTransform), input.name)
+                XCTAssertTrue(resvg_get_node_bbox(tree, node, &beforeBox), input.name)
+                XCTAssertTrue(resvg_get_node_stroke_bbox(tree, node, &beforeBox), input.name)
+            }
+            let shouldFail = input.failsInitialRaster || dimension != 64
+            XCTAssertEqual(rawRender(tree, dimension: dimension), !shouldFail, "\(input.name) at \(dimension) pixels")
+            if shouldFail {
+                // A panic consumes the renderer state, keeping only the stable opaque handle.
+                XCTAssertTrue(resvg_is_image_empty(tree), input.name)
+                XCTAssertEqual(resvg_get_image_size(tree).width, 0, input.name)
+                var bbox = resvg_rect(x: 0, y: 0, width: 0, height: 0)
+                XCTAssertFalse(resvg_get_image_bbox(tree, &bbox), input.name)
+                XCTAssertFalse(resvg_get_object_bbox(tree, &bbox), input.name)
+                var transform = resvg_transform_identity()
+                "probe".withCString { node in
+                    XCTAssertFalse(resvg_node_exists(tree, node), input.name)
+                    XCTAssertFalse(resvg_get_node_transform(tree, node, &transform), input.name)
+                    XCTAssertFalse(resvg_get_node_bbox(tree, node, &bbox), input.name)
+                    XCTAssertFalse(resvg_get_node_stroke_bbox(tree, node, &bbox), input.name)
+                }
+                XCTAssertFalse(rawRender(tree, dimension: 16), "A failed tree cannot be reused: \(input.name)")
+            } else {
+                XCTAssertFalse(resvg_is_image_empty(tree), "The small-raster neighbour remains usable")
+                XCTAssertTrue(rawRender(tree, dimension: 64), input.name)
+            }
         } else {
             XCTAssertNotEqual(status, 0, input.name)
         }
@@ -89,12 +112,21 @@ final class SVGRendererPanicTests: XCTestCase {
     }
 
     func testEveryKnownPanicIsContainedWithoutSwiftScreeningAndTheNextDrawingRenders() throws {
-        for input in Self.inputs { try Self.exercise(input) }
+        for input in Self.inputs { for dimension in [64, 4096] { try Self.exercise(input, dimension: dimension) } }
     }
 
-    func testKnownPanicsShowSectionFallbackAndDiscloseUnsupportedSVG() throws {
+    func testKnownPanicsShowInitialOrLaterFallbackWithoutAbort() throws {
         for input in Self.inputs {
-            let text = try RichMediaBook(body: "<p>\(Self.svg(input))</p>").build()
+            let png = RichMediaImages.solid(width: 40, height: 20)
+            let drawing = Self.svg(input).replacingOccurrences(of: "data:image/png;base64,\(png.base64EncodedString())", with: "w.png")
+            let text = try RichMediaBook(body: "<p>\(drawing)</p>", files: ["w.png": png]).build()
+            if !input.failsInitialRaster {
+                let image = try XCTUnwrap(text.richMediaImages.first, input.name)
+                XCTAssertNil(image.source.decode(maxPixelSize: 4096), input.name)
+                XCTAssertEqual(image.textEquivalent, "Fallback", input.name)
+                XCTAssertNil(text.report.unsupportedElements["svg"], "A later failure cannot change the immutable section report")
+                continue
+            }
             XCTAssertTrue(text.richMediaImages.isEmpty, input.name)
             XCTAssertEqual(text.richMediaPlain, "Fallback", input.name)
             XCTAssertEqual(text.report.unsupportedElements["svg"], 1, input.name)
@@ -119,10 +151,28 @@ final class SVGRendererPanicTests: XCTestCase {
         }
     }
 
+    func testRefreshingCellAttachmentWordsPreservesCompleteTokenOwnership() throws {
+        let section = try RichMediaBook(body: "<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><text x='1' y='5' font-size='2'>Retained diagram words</text><circle cx='5' cy='5' r='1e7'/></svg>").build()
+        let image = try XCTUnwrap(section.richMediaImages.first)
+        let word = "supercalifragilisticexpialidocious"
+        let text = NSMutableAttributedString(attributedString: CanvasText.body(word + " "))
+        text.append(NSAttributedString(attachment: image))
+        text.append(CanvasText.body(" tail"))
+        let layout = TableCellLayout(text, width: 40, viewportHeight: 200)
+        let first = try XCTUnwrap(layout.lines.first?.characters)
+        XCTAssertLessThan(first.upperBound, word.utf16.count, "The first line ends inside a word")
+        let rest = NSRange(location: first.upperBound, length: text.length - first.upperBound)
+        XCTAssertEqual(layout.spokenText(in: first), word)
+        XCTAssertEqual(layout.spokenText(in: rest), "tail")
+        XCTAssertNil(image.source.decode(maxPixelSize: 4096))
+        XCTAssertEqual(layout.spokenText(in: first, refreshingAttachments: true), word, "The slice that starts a word still speaks it whole")
+        XCTAssertEqual(layout.spokenText(in: rest, refreshingAttachments: true), "Retained diagram words tail", "Later slices speak the current attachment without repeating a clipped word")
+    }
+
     func testReadableAlternativeBitmapForALaterRasterFailure() throws {
-        // Within tiny-skia's coordinate reach at the initial 64-pixel raster, but outside
-        // it when the inspector asks for 4096. The checked draw must still contain it.
-        let text = try RichMediaBook(body: "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><text x='1' y='5' font-size='2'>Diagram unavailable</text><circle cx='5' cy='5' r='100000'/></svg>").build()
+        // This circle draws at the initial 64-pixel raster but panics when the inspector
+        // asks for 4096. Each checked draw independently contains that failure.
+        let text = try RichMediaBook(body: "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><text x='1' y='5' font-size='2'>Diagram unavailable</text><circle cx='5' cy='5' r='1e7'/></svg>").build()
         let image = try XCTUnwrap(text.richMediaImages.first)
         XCTAssertNotNil(image.cache.image(for: image.source, maxPixelSize: 64))
         XCTAssertNil(image.source.decode(maxPixelSize: 4096))
@@ -144,9 +194,39 @@ final class SVGRendererPanicTests: XCTestCase {
 
 #if os(iOS)
 extension SVGRendererPanicTests {
+    @MainActor func testCachedDataTableCellReadsItsWordsBesideLaterFailureWords() throws {
+        for flow in [EPUBReadingFlow.paginated, .scrolled] {
+            let text = try RichMediaBook(body: "<table border='1'><tr><td>Before <svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><text x='1' y='5' font-size='2'>Retained diagram words</text><circle cx='5' cy='5' r='1e7'/></svg> after.</td><td>Other cell.</td></tr></table>").build()
+            var configuration = ReaderCanvasConfiguration()
+            configuration.flow = flow
+            let host = CanvasHost(FakeCanvasSource([text.string]), configuration: configuration)
+            defer { host.close() }
+            host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+            host.layOut()
+            let view = try XCTUnwrap(flow == .scrolled ? host.canvas.scrollTextView : host.canvas.textViews.first)
+            let listed = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+            let table = try XCTUnwrap(listed.first { $0 is UIAccessibilityContainerDataTable })
+            let cells = try XCTUnwrap(table.accessibilityElements as? [UIAccessibilityElement])
+            let item = try XCTUnwrap(cells.first { $0.accessibilityLabel == "Before after." })
+            let cellView = try XCTUnwrap(view.tableInteraction?.cells.values.first { $0.cellText.string.hasPrefix("Before") })
+            var retainedImage: ReaderImageAttachment?
+            cellView.cellText.enumerateAttribute(.attachment, in: cellView.shownCharacters) { value, _, _ in
+                if let image = value as? ReaderImageAttachment { retainedImage = image }
+            }
+            let image = try XCTUnwrap(retainedImage)
+            XCTAssertNil(image.source.decode(maxPixelSize: 4096))
+            XCTAssertEqual(item.accessibilityLabel, "Before Retained diagram words after.", "The cached cell reads its words and the failure alternative in order")
+            XCTAssertEqual(cells.last?.accessibilityLabel, "Other cell.")
+            view.tableInteraction?.removeViews()
+            XCTAssertEqual(item.accessibilityLabel, "Before Retained diagram words after.", "Retained fragments keep their words after mounted views are removed")
+            let retainedTable = try XCTUnwrap((view.accessibilityElements as? [UIAccessibilityElement])?.first { $0 === table })
+            XCTAssertTrue((retainedTable.accessibilityElements as? [UIAccessibilityElement] ?? []).contains { $0 === item }, "The cell under the cursor is retained")
+        }
+    }
+
     @MainActor func testCachedPageAndScrollAccessibilityElementsReadLaterFailureWords() throws {
         for flow in [EPUBReadingFlow.paginated, .scrolled] {
-            let text = try RichMediaBook(body: "<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><text x='1' y='5' font-size='2'>Retained diagram words</text><circle cx='5' cy='5' r='100000'/></svg>").build()
+            let text = try RichMediaBook(body: "<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><text x='1' y='5' font-size='2'>Retained diagram words</text><circle cx='5' cy='5' r='1e7'/></svg>").build()
             let image = try XCTUnwrap(text.richMediaImages.first)
             var configuration = ReaderCanvasConfiguration()
             configuration.flow = flow

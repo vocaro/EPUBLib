@@ -62,6 +62,13 @@ query or draw fails. Separate trees can still render concurrently. The upstream
 void `resvg_render` remains available; EPUBLib calls the added boolean
 `resvg_render_checked` so it can distinguish failure from a transparent image.
 
+The pinned tiny-skia 0.12.0 dependency also has one cleanup guard: its antialias
+`SuperBlitter` drops an interrupted row without flushing it while the thread is
+unwinding. Otherwise its `Drop` can panic a second time on that inconsistent row
+and abort before the boundary catch runs. Normal drop still flushes the final row.
+The build downloads the crate archive with its Cargo.lock SHA-256 and uses an
+isolated path patch; it never modifies Cargo's registry cache.
+
 The default Rust panic hook is deliberately unchanged: caught panic diagnostics
 still go to stderr. There is no process-global hook replacement that could silence
 a host's own Rust panics. EPUBLib never invokes `resvg_init_log`.

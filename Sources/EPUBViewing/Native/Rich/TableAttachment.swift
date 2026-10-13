@@ -127,7 +127,7 @@ final class TableRowAttachment: ReaderAttachment {
     /// those from rows above with lines of their own in it. A whole row gives a cell all its
     /// words where it starts, like `textEquivalent`, and none where it goes on. A continuation
     /// gives each cell the words of the lines it holds.
-    func spokenCells(size: CGSize, viewportHeight: CGFloat) -> [SpokenCell] {
+    func spokenCells(size: CGSize, viewportHeight: CGFloat, refreshingAttachments: Bool = false) -> [SpokenCell] {
         let layout = layout(width: size.width, viewportHeight: viewportHeight)
         let slice = fragment ?? layout.fragments(ofRow: row, maximumHeight: .greatestFiniteMagnitude)[0]
         let scale = layout.scale * slice.fitScale
@@ -141,10 +141,13 @@ final class TableRowAttachment: ReaderAttachment {
             let starts = isTop && table.cells[index].row == row
             var words = "", lines = 0..<0
             if fragment == nil {
-                if starts { (words, lines) = (table.cells[index].text, 0..<text.lines.count) }
+                if starts {
+                    words = refreshingAttachments ? TableMeasure.spokenText(table.cells[index].content) : table.cells[index].text
+                    lines = 0..<text.lines.count
+                }
             } else if let own = shown[index], !own.isEmpty {
                 let first = text.lines[own.lowerBound].characters.location
-                words = text.spokenText(in: NSRange(location: first, length: text.lines[own.upperBound - 1].characters.upperBound - first))
+                words = text.spokenText(in: NSRange(location: first, length: text.lines[own.upperBound - 1].characters.upperBound - first), refreshingAttachments: refreshingAttachments)
                 lines = own
             }
             let isBlank = table.cells[index].text.isEmpty
