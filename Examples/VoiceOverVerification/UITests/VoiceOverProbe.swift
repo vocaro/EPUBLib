@@ -17,9 +17,13 @@ import XCUIAutomation
         let snapshots = environment["VOICEOVER_SNAPSHOTS"] != nil
         if snapshots { app.activate() }
         #else
-        defer {
-            if !wasEnabled && voiceOver.isEnabled {
-                do { try voiceOver.disable() }
+        // In a teardown block, which runs however the test ends. An exception XCTest raises
+        // for a gesture ends the test without unwinding it: a `defer` here did not run, and
+        // VoiceOver stayed on on a phone.
+        addTeardownBlock { @MainActor in
+            let service = XCUIDevice.shared.voiceOverService
+            if !wasEnabled && service.isEnabled {
+                do { try service.disable() }
                 catch { XCTFail("VoiceOver restoration failed: \(error)") }
             }
         }
@@ -241,6 +245,7 @@ import XCUIAutomation
                 // `flick=right*12` repeats it: VoiceOver's own next and previous item.
                 let flick = (parts.last ?? "").split(separator: "*").map(String.init)
                 for _ in 0..<(flick.count > 1 ? Int(flick[1]) ?? 1 : 1) {
+                    let before = try? voiceOver.currentSpeech().utterance
                     switch flick.first {
                     case "up": app.swipeUp(velocity: .fast)
                     case "down": app.swipeDown(velocity: .fast)
@@ -248,8 +253,35 @@ import XCUIAutomation
                     default: app.swipeRight(velocity: .fast)
                     }
                     RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+                    // A move that turns pages, or a busy Mac under a simulator, can leave the
+                    // phrase before the flick standing for a while: three seconds more for a
+                    // new one. A flick that brings the same phrase again waits them out.
+                    let limit = Date().addingTimeInterval(3)
+                    while Date() < limit, (try? voiceOver.currentSpeech().utterance) == before {
+                        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+                    }
                     heard("flick=\(flick.first ?? "")")
                 }
+            case "rotor":
+                // Two fingers turned on the glass turn VoiceOver's rotor, which names the setting
+                // it comes to. `rotor=Headings` turns it until its phrase begins with that, thirty
+                // turns at most; `flick=down` and `flick=up` then move by it. One turn of a given
+                // size moved the rotor one setting in some sessions and three in others, which
+                // went round and round past Headings: the turns are of several sizes. On a
+                // physical iPhone no turn registered, on the screen, the window or the text.
+                let wanted = parts.count > 1 ? parts[1] : ""
+                var found = wanted.isEmpty
+                let turns: [CGFloat] = [.pi / 4, .pi / 6, .pi / 9, .pi / 5, .pi / 12]
+                for turn in 0..<(wanted.isEmpty ? 1 : 30) {
+                    app.rotate(turns[turn % turns.count], withVelocity: 2)
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+                    let phrase = (try? voiceOver.currentSpeech().utterance) ?? "no speech"
+                    note("rotor", phrase)
+                    // The setting's name comes first. Elsewhere in the phrase it can be the item's own
+                    // hint, "Use the rotor to access Headings", when a turn did not register.
+                    if !wanted.isEmpty, phrase.lowercased().hasPrefix(wanted.lowercased()) { found = true; break }
+                }
+                if !found { note(step, "MISSING") }
             case "wait":
                 RunLoop.current.run(until: Date().addingTimeInterval(Double(parts.last ?? "") ?? 1))
             case "screenshot":

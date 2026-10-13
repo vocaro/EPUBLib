@@ -35,6 +35,10 @@ final class ReaderTextView: UITextView {
     private static let accessibilityScrollMargin: CGFloat = 40
     private var imageGestureDelegate: ReaderImageGestureDelegate?
     private var selectionGestureDelegate: ReaderSpreadSelectionGestureDelegate?
+    /// VoiceOver's Headings rotor for the lines this view lists.
+    private lazy var headingRotor = UIAccessibilityCustomRotor(systemType: .heading) { [weak self] predicate in
+        self?.heading(for: predicate)
+    }
 
     init(pageColumn: Bool) {
         (contentStorage, readerLayoutManager, readerContainer) = Self.makeTextKitStack()
@@ -166,8 +170,9 @@ final class ReaderTextView: UITextView {
 
     // UIKit's native text accessibility can traverse TextKit's hidden paragraph context even
     // with a shortened accessibilityValue. Expose only measured visible lines, splitting links
-    // and attachments into independently actionable elements. Visual text and selection retain
-    // the original TextKit 2 storage and all of its paragraph layout context.
+    // and attachments into independently actionable elements, and a heading as one element
+    // with the header trait and its level. Visual text and selection retain the original
+    // TextKit 2 storage and all of its paragraph layout context.
     //
     // The canvas's scroll view lists its lines too. UIKit's own elements are every paragraph of
     // the book, and VoiceOver moving into the text takes the first: the book's first paragraph,
@@ -199,6 +204,49 @@ final class ReaderTextView: UITextView {
         // An element kept from before the list moved away and back stands for its line.
         guard let kept = element as? ReaderPageAccessibilityElement, kept.view === self else { return NSNotFound }
         return elements.firstIndex { $0.range == kept.range && $0.url == kept.url } ?? NSNotFound
+    }
+
+    // VoiceOver's own Headings rotor moves among the elements it is given, and a page or a
+    // screen holds few of a book's headings: past the last of them it finds none. So the lines'
+    // container gives VoiceOver that rotor itself, and goes on to the book's next heading.
+    // What VoiceOver says of a line is the same with it: every line said "Actions available"
+    // before, in pages and in continuous scroll.
+    override var accessibilityCustomRotors: [UIAccessibilityCustomRotor]? {
+        get { listsLines ? [headingRotor] : super.accessibilityCustomRotors }
+        set { super.accessibilityCustomRotors = newValue }
+    }
+
+    /// The heading of the book after or before the item under VoiceOver's cursor: on the page
+    /// or the screen when it is there, and otherwise wherever it is, which the reader turns or
+    /// scrolls to. A heading in several elements, around a link, is one stop, at its first
+    /// words. The search goes by the item's place in the book, not by where it is listed:
+    /// VoiceOver asks twice for one move, the second time from the same item, though the first
+    /// answer may have turned the page that item was on, and both answers must be the same.
+    private func heading(for predicate: UIAccessibilityCustomRotorSearchPredicate) -> UIAccessibilityCustomRotorItemResult? {
+        guard let canvas else { return nil }
+        let forward = predicate.searchDirection == .next
+        var from = (predicate.currentItem.targetElement as? ReaderPageAccessibilityElement)?.position
+        if from == nil {
+            // With the cursor on none of the reader's lines: from before the first listed, or after the last.
+            let listed = lineAccessibilityElements
+            if forward {
+                from = listed.first?.position.map { ReaderTextPosition(section: $0.section, offset: $0.offset - 1) }
+            } else {
+                from = listed.last.flatMap { canvas.position(at: NSMaxRange($0.range), in: self) }
+            }
+        }
+        guard let from, let target = canvas.heading(from: from, forward: forward) else { return nil }
+        func shown() -> ReaderPageAccessibilityElement? {
+            for view in canvas.textViews {
+                guard let local = canvas.localRange(of: ReaderTextRange(section: target.section, target.offset..<(target.offset + 1)), in: view)
+                else { continue }
+                if let element = view.lineAccessibilityElements.first(where: { NSLocationInRange(local.location, $0.range) }) { return element }
+            }
+            return nil
+        }
+        // It can be on the page or the screen already; otherwise the reader goes to it.
+        if shown() == nil { canvas.show(target, selecting: nil) }
+        return shown().map { UIAccessibilityCustomRotorItemResult(targetElement: $0, targetRange: nil) }
     }
 
     /// A page column and the canvas's scroll view list their lines; a note keeps UIKit's elements.
@@ -241,8 +289,10 @@ final class ReaderTextView: UITextView {
         let past = Self.accessibilityLinesPastScreen
         var listed = [withLines(before: 0, after: accessibilityCursorFollowsText ? 0 : past, shown)]
         if accessibilityCursorFollowsText, let kept = lastLineKept(past: shown) { listed = [shown.union(kept)] }
-        if let cursor = accessibilityCursor, let line = line(containing: cursor.range.location) {
-            let screen = withLines(before: past, after: past, shown), around = withLines(before: past, after: past, line.range)
+        if let cursor = accessibilityCursor, var held = line(containing: cursor.range.location)?.range {
+            // A heading under the cursor can take several lines.
+            if let last = line(containing: NSMaxRange(cursor.range) - 1) { held.formUnion(last.range) }
+            let screen = withLines(before: past, after: past, shown), around = withLines(before: past, after: past, held)
             // The cursor can rest on a line the person has since scrolled away from.
             if NSMaxRange(around) < screen.location { listed = [around, screen] }
             else if NSMaxRange(screen) < around.location { listed = [screen, around] }
@@ -250,11 +300,11 @@ final class ReaderTextView: UITextView {
         }
         let lines = listed.flatMap(measuredLines(in:))
         let existing = (scrollAccessibilityCache?.elements ?? []) + [accessibilityCursor].compactMap { $0 }
-        var elements = accessibilityElements(for: lines, reusing: existing, keepingDecorationIn: nil)
+        var elements = accessibilityElements(for: lines, reusing: existing)
         // A screen of decoration alone lists it, whatever is listed past the screen: VoiceOver
         // would otherwise come in at a line below the screen, and the reader would go there.
         if !elements.contains(where: { NSIntersectionRange($0.range, shown).length > 0 }) {
-            elements = accessibilityElements(for: lines, reusing: existing, keepingDecorationIn: shown)
+            elements = accessibilityElements(for: lines, reusing: existing, passingOverDecoration: true, keepingDecorationIn: shown)
         }
         // UIKit scrolls the line the cursor comes to until the area the insets leave holds its
         // frame, and then 40 points further. A first line on screen that the top inset cuts
@@ -290,8 +340,9 @@ final class ReaderTextView: UITextView {
         guard let cache = scrollAccessibilityCache, cache.place.cursorFollowsText, cache.place.size == bounds.size,
               cache.place.insets == adjustedContentInset, let last = cache.elements.last?.range,
               NSMaxRange(last) > NSMaxRange(shown) else { return nil }
-        let back = cache.place.offset.y - contentOffset.y
-        return back <= adjustedContentInset.top + Self.accessibilityScrollMargin + 1 ? last : nil
+        guard cache.place.offset.y - contentOffset.y <= adjustedContentInset.top + Self.accessibilityScrollMargin + 1 else { return nil }
+        // The last element can be part of its line: a link, or the words before one.
+        return line(containing: NSMaxRange(last) - 1).map { last.union($0.range) } ?? last
     }
 
     /// `range` with as many lines before it and after it, where the text has them.
@@ -340,51 +391,61 @@ final class ReaderTextView: UITextView {
         return frame.minY >= UIAccessibility.convertToScreenCoordinates(area, in: self).maxY - 1
     }
 
-    /// One element for each line, except where a link or attachment needs its own. An image
-    /// the book marks as decoration has none, unless nothing on the page can be read without
-    /// it, or nothing on screen in continuous scroll: a page or a screen that holds decoration
-    /// alone would leave VoiceOver no place there to turn the page or read on from, so its
-    /// images are listed, as images without a name. A rule always has one, so a page that
-    /// holds a rule alone is turned from the rule.
+    /// One element for each line, except where a link or attachment needs its own, and one for
+    /// a heading's text however many lines it takes: VoiceOver reads it whole, says it is a
+    /// heading once and stops on it once when it moves by heading. An image the book marks as
+    /// decoration has none, unless nothing on the page can be read without it, or nothing on
+    /// screen in continuous scroll: a page or a screen that holds decoration alone would leave
+    /// VoiceOver no place there to turn the page or read on from, so its images are listed, as
+    /// images without a name.
+    /// A rule always has one, so a page that holds a rule alone is turned from the rule.
     private func accessibilityElements(for lines: [ReaderVisualLine],
                                        reusing existing: [ReaderPageAccessibilityElement]) -> [ReaderPageAccessibilityElement] {
-        let elements = accessibilityElements(for: lines, reusing: existing, keepingDecorationIn: nil)
-        return elements.isEmpty
-            ? accessibilityElements(for: lines, reusing: existing, keepingDecorationIn: NSRange(location: 0, length: textLength)) : elements
+        let elements = accessibilityElements(for: lines, reusing: existing, passingOverDecoration: true)
+        return elements.isEmpty ? accessibilityElements(for: lines, reusing: existing, passingOverDecoration: false) : elements
     }
 
-    /// The elements of `lines`, with decoration passed over except in `kept`.
+    /// The elements of `lines`. Decoration that is passed over is still listed in `kept`.
     private func accessibilityElements(for lines: [ReaderVisualLine], reusing existing: [ReaderPageAccessibilityElement],
-                                       keepingDecorationIn kept: NSRange?) -> [ReaderPageAccessibilityElement] {
+                                       passingOverDecoration: Bool, keepingDecorationIn kept: NSRange? = nil) -> [ReaderPageAccessibilityElement] {
         guard let storage = contentStorage.textStorage else { return [] }
+        let text = storage.string as NSString
         var elements: [ReaderPageAccessibilityElement] = []
         for line in lines {
             // Layout flags (often stored on a paragraph's first UTF-16 unit), colors and
             // fonts do not define AX reading units. Keep each actual line intact except
-            // where a link or attachment needs its own label and activation behavior.
-            var runs: [(range: NSRange, url: URL?, attachment: NSTextAttachment?)] = []
+            // where a link, an attachment or a heading needs its own label and behavior.
+            var runs: [(range: NSRange, url: URL?, attachment: NSTextAttachment?, heading: ReaderHeading?)] = []
             storage.enumerateAttributes(in: line.range) { attributes, range, _ in
                 let url = attributes[.link] as? URL ?? (attributes[.link] as? String).flatMap(URL.init(string:))
-                var attachment = attributes[.attachment] as? NSTextAttachment
-                // Decoration is part of the text it stands in, with nothing to say. One that
-                // was listed keeps its element while the cursor is on it.
-                if let image = attachment as? ReaderImageAttachment, isPassedOver(image, at: range),
-                   NSIntersectionRange(kept ?? NSRange(), range).length == 0,
-                   accessibilityCursor?.image !== image || accessibilityCursor?.range != range { attachment = nil }
+                let attachment = listedAttachment(attributes, at: range, passingOverDecoration: passingOverDecoration
+                                                  && NSIntersectionRange(kept ?? NSRange(), range).length == 0)
+                var heading = attributes[.readerHeading] as? ReaderHeading
                 if let previous = runs.last, NSMaxRange(previous.range) == range.location,
                    previous.url == url, previous.attachment === attachment {
-                    runs[runs.count - 1].range.length += range.length
-                } else { runs.append((range, url, attachment)) }
+                    // The break that ends a heading's line is read with it, as any line's is.
+                    if heading == nil, attachment == nil, previous.heading != nil, Self.isBreak(text, range) { heading = previous.heading }
+                    if previous.heading === heading {
+                        runs[runs.count - 1].range.length += range.length
+                        return
+                    }
+                }
+                runs.append((range, url, attachment, heading))
             }
-            for (range, url, attachment) in runs {
-                let label = plainText(in: range)
+            for (run, url, attachment, heading) in runs {
+                var range = run
+                if heading != nil, attachment == nil {
+                    range = headingText(at: run.location, passingOverDecoration: passingOverDecoration)
+                    // The line before this one gave the same heading.
+                    if let last = elements.last, last.range == range, last.url == url { continue }
+                }
+                var label: String? = plainText(in: range)
                 // The break after an attachment that ends its paragraph is a run of its own
                 // with nothing to say, and so is decoration between two of them: no element,
                 // or VoiceOver stops on silence.
-                if attachment == nil, label.allSatisfy(\.isWhitespace) { continue }
+                if attachment == nil, label?.allSatisfy(\.isWhitespace) != false { continue }
                 let element = existing.first { $0.range == range && $0.url == url }
                     ?? ReaderPageAccessibilityElement(view: self, range: range, url: url)
-                element.accessibilityLabel = label
                 element.image = attachment as? ReaderImageAttachment
                 var traits: UIAccessibilityTraits = url == nil ? .staticText : .link
                 // A hidden label is words the page does not show, not a picture.
@@ -394,23 +455,35 @@ final class ReaderTextView: UITextView {
                     // not a picture, which VoiceOver would call an image, and not words of
                     // the book. UIKit has no trait for a separator, so VoiceOver has no word
                     // of its own for one and the reader names it.
-                    element.accessibilityLabel = ReaderRuleAttachment.spokenName
+                    label = ReaderRuleAttachment.spokenName
                     traits.remove(.staticText)
                 } else if attachment != nil {
                     if !isSpoken { traits.insert(.image) }
                     // An image without words is an image and no more: the trait says so, in
                     // VoiceOver's own language, and the reader makes up no name for it.
-                    if let image = attachment as? ReaderImageAttachment {
-                        element.accessibilityLabel = image.alt.isEmpty ? nil : image.alt
-                    }
+                    if let image = attachment as? ReaderImageAttachment { label = image.alt.isEmpty ? nil : image.alt }
                     // A formula's reading has its own voice: the book's language or the generator's.
                     if let language = (attachment as? ReaderTextualAttachment)?.textLanguage {
                         element.accessibilityLanguage = language
                     }
                 }
+                // A heading is read as its words: with its paragraph's break after them VoiceOver
+                // ends the phrase there, before it has said that this is a heading.
+                if heading != nil, let words = label, let end = words.lastIndex(where: { !$0.isNewline }) { label = String(words[...end]) }
+                element.accessibilityLabel = label
+                element.position = canvas?.position(at: range.location, in: self)
+                if let heading {
+                    traits.insert(.header)
+                    // VoiceOver takes a heading's level from its label's attributes; 0 is none.
+                    if let label {
+                        element.accessibilityAttributedLabel = NSAttributedString(
+                            string: label, attributes: [.accessibilityTextHeadingLevel: heading.level])
+                    }
+                }
                 element.accessibilityTraits = traits
                 // A scroll view's bounds move with its content, and a line listed past the
                 // screen is outside them.
+                if range != run { ensureLayout(from: range.location, through: NSMaxRange(range) - 1) }
                 var frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
                 if frame.isNull { frame = line.frame }
                 // It takes no room; a point where it stands lets VoiceOver rest on it.
@@ -421,6 +494,62 @@ final class ReaderTextView: UITextView {
             }
         }
         return elements
+    }
+
+    /// The attachment an element is made for at `range`, or nil. Decoration that is passed
+    /// over is part of the text it stands in, with nothing to say; one that was listed keeps
+    /// its element while the cursor is on it.
+    private func listedAttachment(_ attributes: [NSAttributedString.Key: Any], at range: NSRange,
+                                  passingOverDecoration: Bool) -> NSTextAttachment? {
+        let attachment = attributes[.attachment] as? NSTextAttachment
+        if passingOverDecoration, let image = attachment as? ReaderImageAttachment, isPassedOver(image, at: range),
+           accessibilityCursor?.image !== image || accessibilityCursor?.range != range { return nil }
+        return attachment
+    }
+
+    /// Whether `range` holds nothing but the characters that end a line or a paragraph.
+    private static func isBreak(_ text: NSString, _ range: NSRange) -> Bool {
+        range.length > 0 && text.rangeOfCharacter(from: CharacterSet.newlines.inverted, range: range).location == NSNotFound
+    }
+
+    /// What one element reads of the heading at `location`: its text there over every line it
+    /// takes, as far as a link or an attachment in it begins or ends, with the break that ends
+    /// its paragraph. A page column gives the part on its page. The same characters whichever
+    /// of the heading's lines is asked for, so a line listed later finds the element already
+    /// there, and a heading half above the screen in continuous scroll keeps one element as
+    /// more of its lines are listed.
+    private func headingText(at location: Int, passingOverDecoration: Bool) -> NSRange {
+        let unknown = NSRange(location: location, length: 0)
+        guard let storage = contentStorage.textStorage else { return unknown }
+        let bounds = isPageColumn ? shownCharacters : NSRange(location: 0, length: storage.length)
+        var whole = NSRange()
+        guard NSLocationInRange(location, bounds),
+              storage.attribute(.readerHeading, at: location, longestEffectiveRange: &whole, in: bounds) != nil else { return unknown }
+        func link(_ attributes: [NSAttributedString.Key: Any]) -> URL? {
+            attributes[.link] as? URL ?? (attributes[.link] as? String).flatMap(URL.init(string:))
+        }
+        let own = link(storage.attributes(at: location, effectiveRange: nil))
+        var found = unknown, ended = false
+        storage.enumerateAttributes(in: whole) { attributes, range, stop in
+            if listedAttachment(attributes, at: range, passingOverDecoration: passingOverDecoration) == nil, link(attributes) == own {
+                found = found.length > 0 ? found.union(range) : range
+            } else if range.location > location {
+                ended = true
+                stop.pointee = true
+            } else { found = unknown }
+        }
+        guard !ended else { return found }
+        let text = storage.string as NSString
+        var end = NSMaxRange(found)
+        while end < NSMaxRange(bounds) {
+            let attributes = storage.attributes(at: end, effectiveRange: nil)
+            let character = NSRange(location: end, length: 1)
+            guard attributes[.readerHeading] == nil, attributes[.attachment] == nil, link(attributes) == own,
+                  Self.isBreak(text, character) else { break }
+            end += 1
+            if text.character(at: end - 1) == 0x0A { break }
+        }
+        return NSRange(location: found.location, length: end - found.location)
     }
 
     // VoiceOver reads the page, not the clipped context after it, with attachments as their text.
@@ -458,6 +587,9 @@ private struct ScrollAccessibilityPlace: Equatable {
     weak var view: ReaderTextView?
     let range: NSRange
     let url: URL?
+    /// Where the element's first character is in the book. It holds when the page the element
+    /// was on has been turned, which is when VoiceOver asks the Headings rotor about it again.
+    var position: ReaderTextPosition?
     /// The image the element stands for, when it is one.
     var image: ReaderImageAttachment?
 
