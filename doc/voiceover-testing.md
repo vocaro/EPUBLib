@@ -643,6 +643,12 @@ moves: `in line nextline nextline in` goes into the table on the line below. Wit
 `nextline` the `in` is sent on the line of words, where it does nothing, and the moves after
 it go by word through the page, as in four sessions of run 38416874099.
 
+By word from a line `ax:caret` names, the first `right` says the line's first word, so a row
+below a line of four words is the fifth `right`: `"ax:caret=Words before the layout" ax:focus
+in right right right right right in`. With four the `in` is sent on "layout.", where it does
+nothing, and the `out` meant for the row leaves the text, as in four sessions of runs
+38425341556 to 38427534348.
+
 ## Safari on Mac
 
 A session of Safari records what VoiceOver says of a section of the fixture as a web page:
