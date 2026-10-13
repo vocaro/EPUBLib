@@ -47,18 +47,19 @@ enum SVGRenderingCostScreen {
     static func verdict(_ svg: ContentNode, nodes: [ContentNode], ids: [String: [ContentNode]]) -> Verdict {
         typealias Subject = SVGReferenceScreen.Subject
         var styles: [Subject: Style] = [:]
-        var selectors = 0
+        var selectorWork = 0
         var sheetCopies = 0
         for node in nodes where node.name == "style" && SVGContent.serializeKeepsSheet(node.textContent) {
             for rule in SVGReferenceScreen.CSSReader.rules(of: node.textContent, referencesOnly: false) {
-                selectors += rule.subjects.count
+                selectorWork += rule.selectorBytes.reduce(0, +)
                 // simplecss clones a block for every selector, before matching any elements.
                 sheetCopies = min(maximumStylesheetCopies + 1,
                                   sheetCopies + min(maximumStylesheetCopies + 1, rule.declarationBytes * rule.subjects.count))
-                for (subject, descendants) in zip(rule.subjects, rule.descendants) {
+                for (i, subject) in rule.subjects.enumerated() {
+                    let descendants = rule.descendants[i]
                     var style = styles[subject, default: Style()]
                     style.copies = min(maximumStylesheetCopies + 1, style.copies + rule.copiedBytes)
-                    style.descendants[descendants, default: 0] += 1
+                    style.descendants[descendants, default: 0] += rule.selectorBytes[i]
                     style.references.targets += rule.references.targets
                     style.references.inherits = style.references.inherits || rule.references.inherits
                     styles[subject] = style
@@ -71,7 +72,7 @@ enum SVGRenderingCostScreen {
         if sheetCopies > maximumStylesheetCopies { return refused(copies: sheetCopies) }
         // Refuse the original XML's minimum matching/copying cost before resolving any reference
         // lists. This also bounds the screen's own rules-times-elements work.
-        if selectors * nodes.count > maximumStylesheetWork { return refused(work: maximumStylesheetWork + 1) }
+        if selectorWork * nodes.count > maximumStylesheetWork { return refused(work: maximumStylesheetWork + 1) }
         var minimumCopies = sheetCopies
         for node in nodes where node.isElement {
             for subject in SVGReferenceScreen.subjects(of: node) {
@@ -103,6 +104,10 @@ enum SVGRenderingCostScreen {
             var targets: [ObjectIdentifier: ContentNode] = [:]
             let candidates = references.targets + (references.inherits ? allResources.map { (role: $0.role, id: $0.id) } : [])
             for target in candidates where target.role == .mask || target.role == .clipPath {
+                resourceLookups += 1
+                if resourceLookups > SVGContent.maximumExpandedBytes / 32 {
+                    return refused(bytes: SVGContent.maximumExpandedBytes + 1)
+                }
                 for found in ids[target.id] ?? [] where target.role.admits(found.name) {
                     resourceLookups += 1
                     if resourceLookups > SVGContent.maximumExpandedBytes / 32 {
@@ -157,7 +162,7 @@ enum SVGRenderingCostScreen {
             var result = Cost(bytes: 32 + node.text.utf8.count + node.attributes.reduce(0) { $0 + $1.name.utf8.count + $1.value.utf8.count })
             if node.name == "text" { result.text = node.textContent.unicodeScalars.count }
             if node.isElement {
-                result.work = selectors
+                result.work = selectorWork
                 for subject in SVGReferenceScreen.subjects(of: node) {
                     if let style = styles[subject] {
                         result.copies = min(maximumStylesheetCopies + 1, result.copies + style.copies)

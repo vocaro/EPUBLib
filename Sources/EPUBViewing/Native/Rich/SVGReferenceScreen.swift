@@ -525,6 +525,7 @@ enum SVGReferenceScreen {
             var subjects: [Subject]
             var references: References
             var descendants: [Int]
+            var selectorBytes: [Int]
             var declarationBytes: Int
             var copiedBytes: Int
         }
@@ -589,11 +590,16 @@ enum SVGReferenceScreen {
         private mutating func ruleSet() -> Rule? {
             var subjects: [Subject] = []
             var descendants: [Int] = []
+            var selectorBytes: [Int] = []
             while true {
                 guard current != nil else { return nil }
                 guard at(",") || subjects.isEmpty else { break }
                 if at(",") { position += 1 }
-                if let selector = selector() { subjects.append(selector.subject); descendants.append(selector.descendants) }
+                let start = position
+                if let selector = selector() {
+                    subjects.append(selector.subject); descendants.append(selector.descendants)
+                    selectorBytes.append(max(1, position - start))
+                }
                 skipSpaces()
                 guard current != nil else { return nil }
                 if at("{") { break }
@@ -620,7 +626,7 @@ enum SVGReferenceScreen {
                 if mayReference(declaration.name) { references.add(name, string(declaration.value)) }
             }
             if at("}") { position += 1 }
-            return Rule(subjects: subjects, references: references, descendants: descendants, declarationBytes: declarationBytes, copiedBytes: copiedBytes)
+            return Rule(subjects: subjects, references: references, descendants: descendants, selectorBytes: selectorBytes, declarationBytes: declarationBytes, copiedBytes: copiedBytes)
         }
 
         /// To the end of a block, counting brackets wherever they stand, and past its `}`.
