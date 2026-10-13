@@ -691,11 +691,14 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
 - A row that has nothing to say, of cells that hold nothing or decoration alone, is
   passed over: `nextline` and `right` go from the row of words above it to the row of
   words below, and back, so a step list counts no step for it. `ax:lines` prints the row
-  above and the row as one line of four characters, `LINE 0.1 RANGE 23,4`, and `ax:links`
-  no run at the row. Between two rows of words, a step with no new phrase, "group", "text
-  text group" or a bare "table" is a reader that gives such a row to stop on (the entry
-  of 2026-10-13 on rows that have nothing to say). Inside a table of data the row is
-  still there: `nextline` down a column says "empty cell" at it.
+  and the row of words after it as one line of four characters, `LINE 0.2 RANGE 25,4`,
+  whose text is two spaces before the attachment's character, and `ax:links` no run at
+  the row. Between two rows of words, a step with no new phrase, "group", "text text
+  group" or a bare "table" is a reader that gives such a row to stop on, and a row of
+  words that says nothing by line, or that `in` does nothing on, is one that has the row
+  in the wrong line or with its break (the entry of 2026-10-13 on rows that have nothing
+  to say). Inside a table of data the row is still there: `nextline` down a column says
+  "empty cell" at it, and the attachment's character at a cell of decoration.
 - `left` straight after `right` says the item VoiceOver is on again, which leaves no
   line in a transcript, and the second `left` moves back. A step list that turns round
   to come back to a row needs both.
@@ -1486,6 +1489,21 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    given as a row's group in its table's place. The cell that holds the picture is said
    by the attachment's character in both rows, and not by "Blue badge", which is open
    (the entry of 2026-10-13 on rows that show pictures).
+   On the section of gaps inside grids (`"launch=-SampleHref OPS/gaps.xhtml"`), in pages
+   and in continuous scroll, VoiceOver says the rows of words and nothing between them:
+   by line, by word and with `readall`, forward and back, "Upper near, Upper far group",
+   "Middle near, Middle far group", "Lower near, Lower far group" and "Last near, Last far
+   group", and on the second page (`ax:next`) "Tree, Tally table", "Oak, Nine table",
+   "Elm, Four table", "Ash, Six table" and "Yew, Two table". Between two of them a step
+   with no new phrase, a phrase with nothing in it, "group", "text text group" or a bare
+   "table" is a row with nothing to say that the reader has given VoiceOver to stop on.
+   `in` on "Middle near, Middle far group", reached by `nextline` or by `right`, says "In
+   Middle near, Middle far group 2 items text Middle near", and on "Elm, Four table" "In
+   Elm, Four table Tree Elm", where `right` says "Tally Four" and `nextline` the cell of
+   the row passed over below it. A reader on which `in` does nothing there has put the
+   row passed over in that row's line behind it, and one that says nothing at "Middle
+   near, Middle far" by line has left the break after the row passed over in the line
+   (the entry of 2026-10-13 on rows that have nothing to say).
    On a Mac a cell is a text of its own, and VoiceOver reads its
    line wherever its cursor is in it. In a window 600 points wide at 17 points, with the
    reader opened at that section (`"launch=-SampleHref OPS/table.xhtml"`), in pages and in
@@ -4765,6 +4783,177 @@ The Mac runner's transcript is plain text and needs no export.
   note's popover; Safari on this section; and VoiceOver in another language or with its
   verbosity changed. [#509](https://github.com/vocaro/EPUBLib/issues/509) keeps what is
   left of the rows that entry did not hear.
+- On 2026-10-13 the rows of a table that have nothing to say were heard on a Mac, as they
+  were and in six other ways, and VoiceOver was then given nothing to stop on at one:
+  GitHub's hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`,
+  Xcode 27.0), a window 600 points wide at 17 points, VoiceOver's link setting at Speak, a
+  fixed pause of four seconds, on the fixture's new last section
+  (`"launch=-SampleHref OPS/gaps.xhtml"`). Before at `560fc83`, which is `main` at
+  `808ab79` with the section added and nothing of the reader changed: runs 38450767639
+  (pages) and 38453220012 (continuous scroll). After at `4dbdc1c`: runs 38459405662
+  (pages) and 38459438011 (continuous scroll). Between them, three runs of other ways of
+  giving such a row, none of which is the change: 38450810943 at `3971778` and
+  38457032228 at `98076a8`, two commits that chose a way at launch and were taken out
+  again, and 38454467578 (pages) with 38455014795 (continuous scroll) at `5cd6818`, the
+  change as it first stood. Run 38461506908, at `560fc83` again, has one session of each
+  flow for a single step of the sessions after. All forty-three sessions completed, and
+  each run reports `"billable": {}`. Nobody listened. A phrase with nothing in it is the probe's record of
+  VoiceOver speaking no words. Where VoiceOver left the insertion point after a step (a
+  `SELECTION` line of the transcript) tells a step that said nothing from one that did
+  nothing.
+  The section's first page, before (`ax:lines`): "Words before the gaps." at 0, the table
+  marked as layout as seven lines of two characters at 23 to 35, and "Words after the
+  gaps." at 37. What the text gave at each row (`ax:links`), in pages: `AXGroup LABEL
+  "Upper near, Upper far" … CHILDREN AXTextArea,AXTextArea` at each of the four rows of
+  words; at the row of two cells of decoration (29) `AXGroup ACTIONS none CHILDREN
+  AXTextArea,AXTextArea` with no label, each text area's value U+FFFC; and nothing at the
+  row of two empty cells (25) or at the row of one (33). In continuous scroll
+  (`"ax:links=Words before the gaps"`) the same but at the row of two empty cells, which
+  had `AXGroup ACTIONS none` with no label and no children.
+  By line, before, in pages (`"ax:caret=Words before the gaps" ax:focus in line`, nine
+  `nextline`, six `previousline`): "Words before the gaps.", a step with no new phrase,
+  "Upper near, Upper far group", a phrase with nothing in it, "Middle near, Middle far
+  group", "text text group", "Lower near, Lower far group", a phrase with nothing in it,
+  "Last near, Last far group", "Words after the gaps.", and back the same as far as the
+  row of two empty cells. The insertion point went to each row in turn, 24, 26, 28 and on
+  by twos, the silent ones among them. `in` on that row did nothing, and `describe` said
+  "Line 3  word:  is in the VoiceOver cursor Line 3". In continuous scroll (nineteen
+  `nextline` through both tables and eighteen `previousline`): "group" at the row of two
+  empty cells, and the rest the same.
+  By word, before, in pages (`in`, eight `right`): "Words", "before", "the", "gaps.",
+  "Upper near, Upper far group", a step with no phrase, "Middle near, Middle far group",
+  "text text group". `in` there: "In group 2 items text", `right` "text", `in` "In text",
+  `right` nothing, `out` "Out of text", `out` "Out of group". Then "Lower near, Lower far
+  group", a step with no phrase, "Last near, Last far group", "Words", "after", and back
+  by thirteen `left` the same, a step with no phrase at each of the two rows of empty
+  cells. In continuous scroll: "group" at the sixth step, where `in` said "In group
+  content is empty" and `describe` "empty group is in the VoiceOver cursor".
+  Read All, before (`in readall ax:wait=14`), in pages: the phrases heard by line, in
+  order, with a phrase with nothing in it at each of the two rows of empty cells; in
+  continuous scroll "group" at the first of those.
+  The table of data, at the top of the second page (`ax:next`), before. The text gave
+  `AXTable` at each of its eight rows, with that row selected, eight rows and two columns
+  under "Tree" and "Tally", and those at the three rows with nothing to say have no label
+  (`ax:links`, `ax:tables`). By line, by word and with Read All, in pages and in
+  continuous scroll: "Tree, Tally table", "Oak, Nine table", "table", "Elm, Four table",
+  "table", "Ash, Six table", "table", "Yew, Two table", forward and back. `in` on the row
+  of two empty cells: "In table Tree empty cell", `right` "Tally empty cell", `nextline`
+  "Four", `out` "Out of table", and `describe` "table 2 columns, 8 rows is in the
+  VoiceOver cursor". On the row of decoration: "In table Tree ￼", `right` "Tally ￼". On
+  the row of one empty cell: "In table Tree empty cell", and `right` went on to "Yew".
+  Four other ways, run 38450810943, in pages on the table marked as layout, each for all
+  three rows (`in line`, `nextline` to the page's last line, `previousline` back to its
+  first, fourteen `right`). Static text without words as the element at the row's
+  character: a phrase with nothing in it by line and a step with no phrase by word at
+  each of the three rows, as with no element. No element and the character given as a
+  space, in the text's value, its string and its attributed string: by line still a
+  phrase with nothing in it at each row, in both directions; by word "Upper near, Upper
+  far group", "Middle near, Middle far group", "Lower near, Lower far group", "Last near,
+  Last far group", "Words", with no step between them, the insertion point going from 24
+  to 28, 32 and 36. No element, the attachment's character left, and the row's line given
+  as part of the line before (`ax:lines` prints six lines, the first three rows of words
+  four characters long): by line the four rows of words and no phrase between them,
+  forward and back, the insertion point at 26, 30, 34 and 36; by word a step with no
+  phrase after each of the first three. Both, a space and the line before: no stop by
+  line, forward or back, and none by word.
+  That last way as the change first stood, at `5cd6818`, runs 38454467578 and 38455014795,
+  in pages and in continuous scroll and on both tables: by line and by word, forward and
+  back, the rows of words and nothing between them, "Tree, Tally table", "Oak, Nine
+  table", "Elm, Four table", "Ash, Six table", "Yew, Two table" in the table of data. Two
+  things were wrong with it. Read All still had a phrase with nothing in it after each
+  row of words that a row with nothing to say follows. And `in` on such a row of words
+  reached by line did nothing, in pages and in continuous scroll: after two `nextline` to
+  "Middle near, Middle far group", with the insertion point at 30, after the space, `in`
+  left no phrase, `right` said "Lower near, Lower far group", and `out` said "Out of
+  text" and left the text area, "text is in the VoiceOver cursor"; the same on "Elm, Four
+  table". Reached by word, with the insertion point straight after the row's own
+  character, `in` went in: "In Middle near, Middle far group 2 items text Middle near",
+  "In Elm, Four table Tree Elm". Before the change `in` on a row reached by line went in,
+  as on the row of two empty cells of the table of data above.
+  Two more ways, run 38457032228, in pages, with the row's line part of the line after it
+  (`ax:lines`: "Upper near, Upper far" alone at 23, and three lines of four characters at
+  25, 29 and 33). With the break after the row left as it is: by line "Upper near, Upper
+  far group" and then a phrase with nothing in it for each of the three lines that begin
+  with such a row, forward and back, the insertion point at 28, 32 and 36, which is after
+  each row of words; `in` on the first of them went in, "In Middle near, Middle far group
+  2 items text Middle near", `right` "text Middle far", `out` "Out of Middle near, Middle
+  far group". Read All had the phrases with nothing in them still. In the table of data
+  the same: nothing said for "Elm, Four", and `in` there "In Elm, Four table Tree Elm",
+  `right` "Tally Four", `nextline` "￼", the cell of decoration below, `nextline` "Six".
+  With the break given as a space too: by line "Upper near, Upper far group", "Middle
+  near, Middle far group", "Lower near, Lower far group", "Last near, Last far group",
+  forward and back; `in` after two `nextline` "In Middle near, Middle far group 2 items
+  text Middle near", and `describe` after `out` "Middle near, Middle far group is in the
+  VoiceOver cursor"; by word the same four rows, forward and back, and `in` on the
+  second; Read All "Words before the gaps.", the four rows and "Words after the gaps.",
+  with no phrase between them.
+  After, at `4dbdc1c`, in pages. The first page's lines (`ax:lines`): "Words before the
+  gaps." at 0, "Upper near, Upper far" alone at 23, three lines of four characters at 25,
+  29 and 33, each two spaces and a row of words, and "Words after the gaps." at 37. The
+  text gives the four groups, at 23, 27, 31 and 35, and nothing at the three rows between
+  them (`ax:links`, four runs). By line (`in line`, six `nextline`, five `previousline`):
+  "Words before the gaps.", a step with no new phrase, "Upper near, Upper far group",
+  "Middle near, Middle far group", "Lower near, Lower far group", "Last near, Last far
+  group", "Words after the gaps.", and back the four rows and "Words before the gaps.",
+  the insertion point at 24, 28, 32 and 36, straight after each row of words. `in` after
+  two `nextline` from there: "In Middle near, Middle far group 2 items text Middle near",
+  `right` "text Middle far", `out` "Out of Middle near, Middle far group", `describe`
+  "Middle near, Middle far group is in the VoiceOver cursor". By word (`in`, six `right`):
+  "Words", "before", "the", "gaps.", "Upper near, Upper far group", "Middle near, Middle
+  far group"; `in` there the same, `right` "text Middle far", `in` "In text Middle far",
+  `right` "Middle", `out` "Out of text", `out` "Out of Middle near, Middle far group";
+  then "Last near, Last far group", "Words", "after" at the second, third and fourth
+  `right`, and back by ten `left` a step with no new phrase, "Words", "Last near, Last
+  far group", "Lower near, Lower far group", "Middle near, Middle far group", "Upper near,
+  Upper far group", "gaps.", "the", "before", "Words". The first `right` after that last
+  `out` took the insertion point to 32, the row "Lower near, Lower far", and the phrase
+  recorded for it is "Middle", the word last read inside the cell, 35 milliseconds
+  after the move. That is VoiceOver's own and not the change: on the reader as it was
+  (run 38461506908, the same steps on the same row, in pages) the step went to the row of
+  decoration, and the transcript has "text text group" and 52 milliseconds later
+  "Middle"; in continuous scroll there, "group" and then "text text". So in pages, with
+  either reader, a listener who has read a word of a cell hears that word again at the
+  first move by word after leaving the row, where the next row is due, and the `right`
+  after that says the row after it. A move by line after
+  moves by word (five `right` to "Upper near, Upper far group", two `nextline`): "Middle
+  near, Middle far group", "Lower near, Lower far group". Read All (`readall
+  ax:wait=12`): "Words before the gaps.", the four rows and "Words after the gaps.", and no
+  phrase between them.
+  The table of data, after, on the second page: "Tree, Tally" at 24 and "Oak, Nine" at 26
+  as lines of two characters, three lines of four at 28, 32 and 36, and "Words after the
+  tally." at 40. The text gives five tables, at 24, 26, 30, 34 and 38, each with all
+  eight rows and its own row selected, the first, second, fourth, sixth and eighth
+  (`ax:links`, `ax:tables`). By line (seven `nextline`, six `previousline`) and by word
+  (seven `right` and four more, eleven `left`): "Tree, Tally table", "Oak, Nine table",
+  "Elm, Four table", "Ash, Six table", "Yew, Two table", forward and back. `in` on the
+  third, reached by line: "In Elm, Four table Tree Elm", `right` "Tally Four", `nextline`
+  "￼", which is the cell of decoration in the row below, `nextline` "Six", `out` "Out of
+  Elm, Four table", and `describe` "Elm, Four table 2 columns, 8 rows is in the VoiceOver
+  cursor". Reached by word: "In Elm, Four table Tree Elm", "Tally Four", "Out of Elm,
+  Four table". Read All: "Words before the tally.", the five rows, "Words after the
+  tally." and "Line 01 after the tally.".
+  After, in continuous scroll (`"ax:links=Words before the gaps"`, `"ax:tables=Words
+  before the tally"`): the four groups are four characters apart, at 23053 to 23065, and
+  the text gives five tables. By line through both tables (thirteen `nextline`, twelve
+  `previousline`): "Words before the gaps.", the four rows, "Words after the gaps.",
+  "Words before the tally.", the five rows, "Words after the tally.", and back the same.
+  `in` on "Middle near, Middle far group" and on "Elm, Four table", each reached by line
+  and by word, said what it says in pages, and inside the table `nextline` said "￼" and
+  "Six". By word forward, and back from "Words after the tally." by nineteen `left`: the
+  same rows and words, none between them. Read All from "Words before the gaps." read on
+  through both tables to "Line 02 after the tally." with no phrase between two rows. As
+  before the change, each row said by `right` after an `out` there left its phrase and
+  then its words again without "group" or "table".
+  So a row with nothing to say is passed over when the text gives no element at its
+  character, gives the character and its break as spaces, and has the row's line begin
+  the line of what follows. Each of the other six ways left VoiceOver something: a stop
+  in silence, a line it said nothing of, or a row of words it would not go into.
+  Not heard: anyone listening, or any Mac but the runner; rows with nothing to say that
+  end a page or the book, which are one line together, and a page of nothing else; a row
+  that opens a section; two such rows together; a row of spaces; a row without words that
+  holds a link or a rule, which is not passed over; a table inside a table cell; a spread
+  of two columns; a note's popover; Safari on this section; and VoiceOver in another
+  language or with its verbosity changed.
 - Later again on 2026-10-13 a table cell that is a link was heard on a Mac before and
   after it was given a press and a link to hold: "Reopened 1978" in the first table of the
   section of tables of data (`-SampleHref OPS/grids.xhtml`), on GitHub's hosted `xcode-27`

@@ -807,13 +807,13 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     - **A row that has nothing to say.** A row whose cells hold nothing, or decoration
       alone (a picture with an empty `alt`), spaces out a table used for layout, and a
       table of data can have one too. iPhone and iPad list no element for such a row. On
-      Mac VoiceOver is given nothing to stop on there: the text gives no element at the
-      row's character, gives that character as a space, and gives the row's line as part
-      of the line before it. Moving by line or by word, forward or back, and reading on
-      with Read All, VoiceOver goes from the row of words above to the row of words
-      below, "Upper near, Upper far group" and then "Middle near, Middle far group", in
-      pages and in continuous scroll. It takes all three, which was found on a hosted
-      runner one part at a time
+      Mac VoiceOver is given nothing to stop on there. The text gives no element at the
+      row's character, gives that character and the break after it as spaces, and gives
+      the row's line as part of the line after it. Moving by line or by word, forward or
+      back, and reading on with Read All, VoiceOver goes from the row of words above to
+      the row of words below, "Upper near, Upper far group" and then "Middle near, Middle
+      far group", in pages and in continuous scroll, and it goes into either of them as
+      before. It takes all four parts, which was found on a hosted runner one at a time
       ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-13 on rows that
       have nothing to say):
       - **As such rows were.** What one was turned on things a listener could not know.
@@ -835,11 +835,20 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
         text's value, its string and its attributed string give one, at the attachment's
         place, so that every range still matches the text. Moving by line it still
         stopped on the row's line and said nothing.
-      - **No line of its own** is what it passes over moving by line. The row's line is
-        part of the line before it in the lines the text numbers for an assistive
-        client, and of the line after it where nothing but such rows comes before. With
-        the attachment's character left in that line, moving by word stopped there in
-        silence as before.
+      - **No line of its own** is what it passes over moving by line: the row's line is
+        part of another, in the lines the text numbers for an assistive client. Which
+        other matters. Part of the line before, the row was passed over by line, and the
+        row of words in that line could no longer be gone into from a move by line:
+        Control-Option-Shift-Down did nothing there, and Control-Option-Shift-Up then
+        left the text. VoiceOver leaves its place at the end of a line it has read and
+        goes into what stands there, which was the space. So the row is part of the line
+        after it, which ends with the row of words.
+      - **A space for the break** after the row is what lets VoiceOver say that line. It
+        says of a line what comes before the line's first break: with the row's own break
+        left in the line, it said nothing where "Middle near, Middle far group" was due,
+        though it went into that row. As spaces the row and its break are the blank
+        start of the next row's paragraph, and Read All, which had said a phrase with
+        nothing in it for the row's paragraph, says nothing of it.
       - **Which rows.** What a row has to hold to be passed over is nothing: no words,
         and nothing besides but spaces and decoration, in the cells a page shows of it,
         and in a table inside one of its cells likewise
@@ -852,23 +861,24 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
         through any others, "Tree empty cell"; a cell of decoration is said by the
         attachment's character there, as a cell that holds a picture is (A cell, above).
       - **What it costs.** What an assistive client reads is not character for character
-        what the view holds: a space stands where the row's attachment does. The lines a
-        client counts are fewer than the lines laid out, by one for each such row, and
-        VoiceOver's cursor is drawn round the row above and the row together, which are
-        one line to it. In continuous scroll the lines are AppKit's and are numbered
-        through the whole book, so the number given for a line is AppKit's less the rows
-        passed over before that place, and a line asked for by number takes a further
-        question to AppKit for each run of such rows on the way to it. The rows are
-        found once for each text a view is given, by reading every table row's cells.
-        Nothing in the text leads to such a row: its cells are reached only inside a
-        table of data. And a page that holds nothing but such rows is one line of
-        spaces.
+        what the view holds: two spaces stand where the row's attachment and its break
+        do. The lines a client counts are fewer than the lines laid out, by one for each
+        such row, and VoiceOver's cursor is drawn round the row and the row of words
+        after it together, which are one line to it. In continuous scroll the lines are
+        AppKit's and are numbered through the whole book, so the number given for a line
+        is AppKit's less the rows passed over before that line, and a line asked for by
+        number takes a further question to AppKit for each run of such rows on the way
+        to it. The rows are found once for each text a view is given, by reading every
+        table row's cells. Nothing in the text leads to such a row: its cells are
+        reached only inside a table of data. Rows with no line after them, at the end of
+        a page or of the book, are one line of spaces together, where VoiceOver stops
+        once; so is a page that holds nothing else.
       - **Not done.** A table inside a table cell is read from the cell's own text,
         where such a row is as it was. A row without words whose one cell with anything
         in it holds a link or a rule is a group in continuous scroll where it has a
         second cell, and has no element on a page, as before.
-      - **Not heard.** A row that opens a page or a section, which is part of the line
-        after it; a page of nothing but such rows; a row of spaces; a spread of two
+      - **Not heard.** Rows that end a page, and a page of nothing but such rows; a row
+        of spaces; a row that opens a section; two such rows together; a spread of two
         columns; a note's popover; Safari on this section; anyone listening.
     - **Beside Safari.** The same sections were heard as web pages in Safari 27.0.1 on
       the same runner, with the same keys
