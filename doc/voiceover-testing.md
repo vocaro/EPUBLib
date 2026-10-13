@@ -741,28 +741,30 @@ The Mac runner's transcript is plain text and needs no export.
   snapshot. The scroll view measured a list of some 120 lines in about 11 ms on the iPad and
   5 ms in the simulator, in debug builds, a little more than once a move.
 - With the fifty lines after the screen listed, and fifty each side while the cursor is on a
-  line (`667b110`), the same day, through XCTest's VoiceOver service, VoiceOver switched on
-  for each session and off after it; nobody listened. iPad on its side at 23 points,
+  line, the same day, through XCTest's VoiceOver service, VoiceOver switched on for each
+  session and off after it; nobody listened. The iPad's two sessions were run at `667b110`
+  and again at `b2760c6`, which has main merged in, with the same phrases. iPad on its side
+  at 23 points,
   `rotate=landscape,activate=Contents,activate=Chapter two,wait=2,visible,screenshot,forward=5,screenshot,forward=62,visible,backward=72,visible,rotate=portrait`:
   the fifth move gave "Chapter two", the sixty-two after it every line once and in order
   from `p041w01` to `p051w08 … p051w14`, past `p043w36 … p043w40` to `p044w01` and on with
   no scroll bar among them, and seventy-two back every line in order to `p039w21`, through
   the heading into the chapter before. The first `visible` counted 68 numbered lines, those
   on screen and the fifty after them. The screenshots before and after the fifth move
-  differ only in VoiceOver's cursor. iPad upright, the two-step session above with forty
+  differ only in VoiceOver's cursor, and in one run the status bar's clock. iPad upright, the two-step session above with forty
   moves forward and fifty-six back: the ninth move gave `p010w15 … p010w21`, as before the
   change, with every line once and in order both ways, and the screenshots before and after
   coming in differ only in the cursor. With an earlier build that listed the same lines,
   twenty-seven of VoiceOver's own flicks after the menu on the iPad on its side
   (`flick=right*27`) gave the four controls, the heading and twenty-two lines in order to
-  `p044w22 … p044w28`. iPhone 17 Pro simulator (iOS 27.0), the same commit: after
+  `p044w22 … p044w28`. iPhone 17 Pro simulator (iOS 27.0), at `667b110`: after
   `activate=Contents,activate=Chapter one`, seventy lines forward from `p001w01` to
   `p008w22`, in order, where it had stopped at `p002w29 … p002w33`, and sixty-nine back to
   the heading in order. In one run of two the service gave a phrase twice where
   `p004w39 p004w40` was due, on a move that took 2.4 s with the Mac's load average at 750.
   The two-step session, a touch on Bookmark, `point=0.5:0.8` and six and eight flicks: in
   order.
-- Coming into the text from below, the same day and commit, from the sample's footer
+- Coming into the text from below, the same day at `667b110`, from the sample's footer
   (`touch=VoiceOver Paragraph,backward=6`). At the top of the book, in the simulator: the
   scroll bar, the last line on screen and the lines above it in order. Further in, on the
   iPad upright after two scroll steps and in the simulator: the scroll bar and then
