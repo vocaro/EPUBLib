@@ -1323,7 +1323,11 @@ The Mac runner's transcript is plain text and needs no export.
   word, no phrase for a move right and "end of text". Those two revisions also gave a rule
   in a table cell the element, which the change as it is does not; the scenes hold no
   table. The change as it is, at `6e9b055`, run 38346365216, pages: the same phrases by
-  line, by word, with `readall` and on the page of a rule alone as at `e3f5240`.
+  line, by word, with `readall` and on the page of a rule alone as at `e3f5240`. With
+  `main` at `449182f` merged in as well, which gives the links of the same rich text
+  elements of the reader's own, at `14b2696`, run 38349644406, three sessions in one run:
+  "Separator" at every rule in pages by line, with `readall` and by word, on the page of a
+  rule alone, and in continuous scroll back by line, with `readall` and back by word.
   The other elements, each a commit that differs in nothing but what a rule's character
   carries, heard in pages by line, by word, with `readall` and on the page of a rule alone.
   AppKit's splitter role and nothing else, `3073331`, run 38333879354: "horizontal splitter
