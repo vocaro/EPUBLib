@@ -507,24 +507,465 @@ import UIKit
         XCTAssertEqual(try rotorHeadings(of: try XCTUnwrap(prose.canvas.textViews.first)).count, 0)
     }
 
-    func testAPageColumnsRotorStopsAtItsPage() throws {
-        let section = try chapter()
-        let all = ["A chapter title long enough to take two lines of a narrow page column, heading level 1", "Second level, heading level 2",
-                   "Third level on two lines, heading level 3", "Fourth level, heading level 4"]
-        let host = host(section.string, size: CGSize(width: 320, height: 560))
-        var seen: [String] = [], turns = 0
+    // MARK: A page column's rotor and the rest of the book
+
+    /// A heading as a page column's rotor gives it: what the list calls it, and its column and
+    /// characters there when it begins on the page or spread. One on another page has a token
+    /// and no column, and the rotor loads it when VoiceOver moves to it.
+    private struct RotorHeading {
+        var label: String
+        var column: ReaderTextView?
+        var range: NSRange
+        var token: (any NSAccessibilityLoadingToken)?
+        var item: NSAccessibilityCustomRotor.ItemResult
+    }
+
+    private func headingRotor(of view: ReaderTextView, file: StaticString = #filePath, line: UInt = #line) throws -> NSAccessibilityCustomRotor {
+        try XCTUnwrap(view.accessibilityCustomRotors().first { $0.type == .heading }, "the column has a Headings rotor", file: file, line: line)
+    }
+
+    /// The heading `view`'s rotor gives after `item`, or before it.
+    private func rotorHeading(of view: ReaderTextView, from item: NSAccessibilityCustomRotor.ItemResult?, forward: Bool = true,
+                              filter: String = "", file: StaticString = #filePath, line: UInt = #line) throws -> RotorHeading? {
+        let rotor = try headingRotor(of: view, file: file, line: line)
+        let parameters = NSAccessibilityCustomRotor.SearchParameters()
+        parameters.currentItem = item
+        parameters.searchDirection = forward ? .next : .previous
+        parameters.filterString = filter
+        guard let result = try XCTUnwrap(rotor.itemSearchDelegate, file: file, line: line).rotor(rotor, resultFor: parameters) else { return nil }
+        let column = result.targetElement as? ReaderTextView
+        XCTAssertNotEqual(column == nil, result.itemLoadingToken == nil, "\(result.customLabel ?? "") is a column or a token, never both", file: file, line: line)
+        return RotorHeading(label: result.customLabel ?? "", column: column, range: result.targetRange, token: result.itemLoadingToken, item: result)
+    }
+
+    /// The item VoiceOver asks from with its cursor on `range` of a column. At the first
+    /// character and none of it, its cursor rests on the column with no place in it yet.
+    private func place(_ range: NSRange, in view: ReaderTextView) -> NSAccessibilityCustomRotor.ItemResult {
+        let item = NSAccessibilityCustomRotor.ItemResult(targetElement: view)
+        item.targetRange = range
+        return item
+    }
+
+    private static let resting = NSRange(location: 0, length: 0)
+
+    /// The item VoiceOver asks from once it has been given `heading` (macOS 27.0.1): the
+    /// column and characters of one on the page, and for one on another page its token and
+    /// the range it came with, with no element and no label.
+    private func given(_ heading: RotorHeading) -> NSAccessibilityCustomRotor.ItemResult {
+        if let column = heading.column { return place(heading.range, in: column) }
+        let item = NSAccessibilityCustomRotor.ItemResult(itemLoadingToken: heading.token ?? ("" as NSString), customLabel: "")
+        item.targetRange = heading.range
+        return item
+    }
+
+    /// The rotor's list as VoiceOver was seen to build it when the rotor opens (macOS 27.0.1):
+    /// it asks for the item after one that is nowhere, with no element and the first character
+    /// and none of it, and then for the one after each item it is given.
+    private func listedHeadings(by view: ReaderTextView, forward: Bool = true, filter: String = "",
+                                file: StaticString = #filePath, line: UInt = #line) throws -> [RotorHeading] {
+        // An item can only be made with an element or a token: this token names no place.
+        let nowhere = NSAccessibilityCustomRotor.ItemResult(itemLoadingToken: "nowhere" as NSString, customLabel: "")
+        nowhere.targetRange = Self.resting
+        XCTAssertNil(nowhere.targetElement, file: file, line: line)
+        var next = try rotorHeading(of: view, from: nowhere, forward: forward, filter: filter, file: file, line: line)
+        var found: [RotorHeading] = []
+        while let heading = next, found.count < 200 {
+            found.append(heading)
+            next = try rotorHeading(of: view, from: given(heading), forward: forward, filter: filter, file: file, line: line)
+        }
+        // At each move along the list it asks once more from the last item.
+        if forward, filter.isEmpty, let last = found.last {
+            XCTAssertNil(try rotorHeading(of: view, from: given(last)), "none past the last", file: file, line: line)
+        }
+        return found
+    }
+
+    /// Where VoiceOver is put when it moves to a heading: the column and characters the rotor
+    /// gave, or for a heading on another page what the rotor's loading delegate gives for its
+    /// token, the element first and then its range.
+    private func move(to heading: RotorHeading, givenBy view: ReaderTextView,
+                      file: StaticString = #filePath, line: UInt = #line) throws -> (column: ReaderTextView, range: NSRange)? {
+        if let column = heading.column { return (column, heading.range) }
+        let loading = try XCTUnwrap(try headingRotor(of: view).itemLoadingDelegate, "the rotor loads the headings it gives as tokens", file: file, line: line)
+        let token = try XCTUnwrap(heading.token, file: file, line: line)
+        guard let element = loading.accessibilityElement(withToken: token) else { return nil }
+        let column = try XCTUnwrap(element as? ReaderTextView, file: file, line: line)
+        return (column, try XCTUnwrap(loading.accessibilityRangeInTargetElement?(withToken: token), file: file, line: line))
+    }
+
+    /// A book of five chapters: one of several pages with four headings, one that page turns
+    /// step over, one that opens with a hidden heading over a table, one without a heading and
+    /// one with two headings.
+    private func book() throws -> (sections: [SectionText], linear: [Bool], labels: [String]) {
+        let after = "<h1>The chapter after</h1><p>\(CanvasText.sentence(120, seed: 7))</p><h2>Its last heading</h2><p>End.</p>"
+        return ([try chapter(), try H.build("<h1>In a chapter page turns step over</h1><p>Aside.</p>", css: Self.css),
+                 try H.build("<h1 class=\"sr\">Hidden over a table</h1><table><tr><td>One</td><td>Two</td></tr></table><p>After.</p>", css: Self.css),
+                 try H.build("<p>No heading here.</p>", css: Self.css), try H.build(after, css: Self.css)],
+                [true, false, true, true, true],
+                ["A chapter title long enough to take two lines of a narrow page column, heading level 1", "Second level, heading level 2",
+                 "Third level on two lines, heading level 3", "Fourth level, heading level 4", "Hidden over a table, heading level 1",
+                 "The chapter after, heading level 1", "Its last heading, heading level 2"])
+    }
+
+    /// The section and first character of the page each column shows.
+    private func pages(of host: CanvasHost) -> [ReaderTextPosition] {
+        host.canvas.textViews.map { ReaderTextPosition(section: $0.placement.section ?? -1, offset: $0.placement.offset) }
+    }
+
+    func testAPageColumnsRotorListsTheWholeBooksHeadingsFromAPageInTheMiddle() throws {
+        let (sections, linear, labels) = try book()
+        let host = CanvasHost(FakeCanvasSource(sections.map(\.string), linear: linear), size: CGSize(width: 320, height: 560))
+        hosts.append(host)
+        // The page of the first chapter's third heading: headings before it and after it in the
+        // chapter, and more in the chapters after.
+        let third = H.range("Third level", in: sections[0])
+        host.canvas.show(ReaderTextPosition(section: 0, offset: third.location + 3), selecting: nil)
+        host.layOut()
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        let page = NSRange(location: view.placement.offset, length: view.placement.visibleLength)
+        XCTAssertGreaterThan(page.location, 0, "a page in the middle of the chapter")
+        XCTAssertLessThan(NSMaxRange(page), sections[0].string.length)
+        let shown = host.recorder.shown.count, standing = pages(of: host)
+        let listed = try listedHeadings(by: view)
+        XCTAssertEqual(listed.map(\.label), labels, "the whole book's, but for the chapter page turns step over")
+        XCTAssertEqual(try listedHeadings(by: view, forward: false).map(\.label), labels.reversed())
+        // VoiceOver walks the whole list when its rotor opens: nothing is shown for it.
+        XCTAssertEqual(host.recorder.shown.count, shown)
+        XCTAssertEqual(pages(of: host), standing)
+        // A heading that begins on the page is its column and its characters there, with its
+        // level in the text; any other is a token, with no element to ask anything of.
+        let starts = sections[0].string.readerHeadings().map(\.range.location)
+        XCTAssertEqual(listed.prefix(4).map { $0.column != nil }, starts.map { NSLocationInRange($0, page) })
+        XCTAssertTrue(listed[2].column === view, "the third heading is on this page")
+        XCTAssertEqual(listed[2].range, NSRange(location: third.location - page.location, length: sections[0].string.readerHeadings()[2].range.length))
+        XCTAssertEqual(try levels(in: view, listed[2].range), ["3 Third level\u{2028}on two lines"])
+        XCTAssertTrue(listed.dropFirst(4).allSatisfy { $0.column == nil && $0.token != nil }, "none of another chapter's is on the page")
+        XCTAssertEqual(Set(listed.compactMap { $0.token as? String }).count, listed.filter { $0.token != nil }.count, "each token names one heading")
+        // A token comes with a range, which VoiceOver needs before it calls the row by its
+        // label: the heading's characters in its own chapter. Its words are the label's.
+        let everyHeading = sections.enumerated().flatMap { index, section in linear[index] ? section.string.readerHeadings().map(\.range) : [] }
+        XCTAssertEqual(listed.filter { $0.token != nil }.map(\.range), zip(listed, everyHeading).filter { $0.0.token != nil }.map(\.1))
+        XCTAssertTrue(listed.allSatisfy { $0.range.location != NSNotFound && $0.range.length > 0 && !$0.label.isEmpty })
+        // With its cursor resting on the column, VoiceOver asks from the first character and
+        // none of it: its move to the next heading, and the heading its rotor's list opens on.
+        // That is the next heading from the top of this page, not the book's first.
+        let onPage = try XCTUnwrap(starts.firstIndex { $0 >= page.location })
+        XCTAssertGreaterThan(onPage, 0)
+        let resting = try XCTUnwrap(try rotorHeading(of: view, from: place(Self.resting, in: view)))
+        XCTAssertEqual(resting.label, labels[onPage], "the first heading on this page")
+        XCTAssertTrue(resting.column === view)
+        XCTAssertEqual(try rotorHeading(of: view, from: place(NSRange(location: NSNotFound, length: 0), in: view))?.label, labels[onPage])
+        // Going back it stands after the page's last character.
+        let ends = sections[0].string.readerHeadings().map { NSMaxRange($0.range) }
+        XCTAssertEqual(try rotorHeading(of: view, from: place(Self.resting, in: view), forward: false)?.label,
+                       labels[try XCTUnwrap(ends.lastIndex { $0 <= NSMaxRange(page) })])
+        XCTAssertEqual(pages(of: host), standing)
+        // What is typed in the rotor's list narrows the whole book's, by words or by level.
+        XCTAssertEqual(try listedHeadings(by: view, filter: "LAST").map(\.label), [labels[6]])
+        XCTAssertEqual(try listedHeadings(by: view, filter: "level 1").map(\.label), [labels[0], labels[4], labels[5]])
+        XCTAssertEqual(try listedHeadings(by: view, filter: "no such words").count, 0)
+        XCTAssertEqual(pages(of: host), standing)
+
+        // Chosen from the list, a heading on another page is loaded: the reader turns to its
+        // page, and VoiceOver is given the column that now shows it and its characters there.
+        let last = try XCTUnwrap(try move(to: listed[6], givenBy: view))
+        XCTAssertTrue(last.column === host.canvas.textViews.first)
+        XCTAssertEqual(last.column.placement.section, 4)
+        XCTAssertEqual(last.column.plainText(in: last.range), "Its last heading")
+        XCTAssertEqual(try levels(in: last.column, last.range), ["2 Its last heading"])
+        XCTAssertLessThanOrEqual(NSMaxRange(last.range), last.column.shownCharacters.length)
+        XCTAssertEqual(host.recorder.shown.count, shown + 1, "one page turn")
+        XCTAssertEqual(host.recorder.shown.last?.range.start.section, 4, "the reader reports the place it was taken to")
+        // Loaded again, as a client may: the same answer, and nothing shown again.
+        let again = try XCTUnwrap(try move(to: listed[6], givenBy: view))
+        XCTAssertTrue(again.column === last.column)
+        XCTAssertEqual(again.range, last.range)
+        XCTAssertEqual(host.recorder.shown.count, shown + 1)
+        // The list from there is the same list, with this chapter's headings on the page.
+        let later = try listedHeadings(by: last.column)
+        XCTAssertEqual(later.map(\.label), labels)
+        XCTAssertEqual(later.map { $0.column != nil }, [false, false, false, false, false] + sections[4].string.readerHeadings().map {
+            NSLocationInRange($0.range.location, NSRange(location: last.column.placement.offset, length: last.column.placement.visibleLength))
+        })
+        // Back to a hidden heading, which is the one character of its label, and to the book's first.
+        let hidden = try XCTUnwrap(try move(to: later[4], givenBy: last.column))
+        XCTAssertEqual(hidden.column.placement.section, 2)
+        XCTAssertEqual(hidden.range, NSRange(location: 0, length: 1))
+        XCTAssertEqual(hidden.column.plainText(in: hidden.range), "Hidden over a table")
+        XCTAssertEqual(try levels(in: hidden.column, hidden.range), ["1 Hidden over a table"])
+        let first = try XCTUnwrap(try move(to: later[0], givenBy: hidden.column))
+        XCTAssertEqual(pages(of: host), [ReaderTextPosition(section: 0, offset: 0)])
+        XCTAssertEqual(first.range, sections[0].string.readerHeadings()[0].range)
+    }
+
+    func testAMoveByHeadingGoesOnPastThePageThroughTheBook() throws {
+        let (sections, linear, labels) = try book()
+        let host = CanvasHost(FakeCanvasSource(sections.map(\.string), linear: linear), size: CGSize(width: 320, height: 560))
+        hosts.append(host)
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        host.layOut()
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        // VoiceOver's move to the next heading asks from the line under its cursor, and then
+        // from the characters it was last given.
+        var cursor = (column: view, range: try XCTUnwrap(view.pageAccessibilityLines.first).range)
+        var heard: [String] = [], places: [ReaderTextPosition] = [], turned: [Bool] = []
+        while let next = try rotorHeading(of: cursor.column, from: place(cursor.range, in: cursor.column)) {
+            let before = pages(of: host)
+            // Asked again before it moves, VoiceOver is given the same heading and nothing is shown.
+            XCTAssertEqual(try rotorHeading(of: cursor.column, from: place(cursor.range, in: cursor.column))?.label, next.label)
+            XCTAssertEqual(pages(of: host), before, "the search shows nothing")
+            cursor = try XCTUnwrap(try move(to: next, givenBy: cursor.column), next.label)
+            XCTAssertTrue(host.canvas.textViews.contains { $0 === cursor.column }, "\(next.label) is in a column on screen")
+            XCTAssertLessThanOrEqual(NSMaxRange(cursor.range), cursor.column.shownCharacters.length)
+            XCTAssertEqual(next.column == nil, pages(of: host) != before, "the page turns for a heading that was not on it, and only then")
+            heard.append(next.label)
+            places.append(try XCTUnwrap(host.canvas.position(at: cursor.range.location, in: cursor.column)))
+            turned.append(next.column == nil)
+            // From the token itself, as from the characters it was loaded at.
+            XCTAssertEqual(try rotorHeading(of: cursor.column, from: given(next))?.label,
+                           try rotorHeading(of: cursor.column, from: place(cursor.range, in: cursor.column))?.label)
+            XCTAssertLessThan(heard.count, 20)
+        }
+        XCTAssertEqual(heard, Array(labels.dropFirst()), "each heading of the book after the first, and none past the last")
+        XCTAssertEqual(places.map(\.section), [0, 0, 0, 2, 4, 4])
+        XCTAssertEqual(places, places.sorted(), "onward through the book")
+        XCTAssertTrue(turned[3] && turned[4], "a heading of another chapter is never on the page")
+        XCTAssertEqual(host.recorder.shown.last?.range.start.section, 4)
+        // And back, for a client that asks for the one before.
+        var back: [String] = []
+        while let previous = try rotorHeading(of: cursor.column, from: place(cursor.range, in: cursor.column), forward: false) {
+            cursor = try XCTUnwrap(try move(to: previous, givenBy: cursor.column), previous.label)
+            back.append(previous.label)
+            XCTAssertLessThan(back.count, 20)
+        }
+        XCTAssertEqual(back, Array(labels.dropLast().reversed()))
+        XCTAssertEqual(pages(of: host), [ReaderTextPosition(section: 0, offset: 0)])
+        // From a line that is no heading, on the first page of the chapter that holds none.
+        let starts = sections[0].string.readerHeadings().map(\.range.location)
+        var page = NSRange(location: 0, length: 0), turns = 0
         repeat {
-            let view = try XCTUnwrap(host.canvas.textViews.first)
-            let found = try rotorHeadings(of: view, listing: true)
-            for heading in found {
-                XCTAssertLessThanOrEqual(NSMaxRange(heading.range), view.shownCharacters.length, "\(heading.label) is on the page that gives it")
-                XCTAssertEqual(try levels(in: view, heading.range).count, 1)
-            }
-            seen += found.map(\.label)
+            XCTAssertEqual(host.canvas.turnPage(forward: true), .turned)
+            page = NSRange(location: try XCTUnwrap(host.canvas.textViews.first).placement.offset,
+                           length: try XCTUnwrap(host.canvas.textViews.first).placement.visibleLength)
             turns += 1
-        } while turns < 100 && host.canvas.turnPage(forward: true) == .turned
-        XCTAssertGreaterThan(turns, 4, "several pages")
-        XCTAssertEqual(seen, all, "each heading on the page that shows it, and nowhere else")
+        } while turns < 50 && starts.contains { NSLocationInRange($0, page) }
+        let middle = try XCTUnwrap(host.canvas.textViews.first)
+        XCTAssertEqual(middle.placement.section, 0)
+        XCTAssertTrue(try listedHeadings(by: middle).allSatisfy { $0.column == nil }, "this page holds no heading")
+        let line = try XCTUnwrap(middle.pageAccessibilityLines.dropFirst(2).first).range
+        let after = try XCTUnwrap(starts.firstIndex { $0 >= NSMaxRange(page) }), standing = pages(of: host)
+        XCTAssertEqual(try rotorHeading(of: middle, from: place(line, in: middle))?.label, labels[after])
+        XCTAssertEqual(try rotorHeading(of: middle, from: place(line, in: middle), forward: false)?.label, labels[after - 1])
+        // And with the cursor resting on the column, which is how VoiceOver comes to a page
+        // it has not read: the next heading of the book from here, on a later page, and
+        // going back the last one before this page. Neither is the book's first or last.
+        let onward = try XCTUnwrap(try rotorHeading(of: middle, from: place(Self.resting, in: middle)))
+        XCTAssertEqual(onward.label, labels[after])
+        XCTAssertNil(onward.column)
+        XCTAssertEqual(try rotorHeading(of: middle, from: place(Self.resting, in: middle), forward: false)?.label, labels[after - 1])
+        XCTAssertEqual(pages(of: host), standing)
+        // VoiceOver has the element first and then its range: the request for a range shows nothing.
+        let loading = try XCTUnwrap(try headingRotor(of: middle).itemLoadingDelegate)
+        XCTAssertEqual(loading.accessibilityRangeInTargetElement?(withToken: try XCTUnwrap(onward.token)).location, NSNotFound)
+        XCTAssertEqual(pages(of: host), standing)
+        let arrived = try XCTUnwrap(try move(to: onward, givenBy: middle))
+        XCTAssertEqual(host.canvas.position(at: arrived.range.location, in: arrived.column), ReaderTextPosition(section: 0, offset: starts[after]))
+    }
+
+    func testAPageColumnsRotorEndsAtAChapterThatIsNotBuiltYet() throws {
+        let (sections, _, labels) = try book()
+        let late = try H.build("<h1>Built late</h1><p>Words.</p>", css: Self.css)
+        let end = try H.build("<h3>Past the gap</h3><p>Words.</p><h4>The book's last</h4>", css: Self.css)
+        let source = FakeCanvasSource([sections[0].string, sections[4].string, nil, end.string])
+        let host = CanvasHost(source, size: CGSize(width: 320, height: 560))
+        hosts.append(host)
+        host.canvas.show(ReaderTextPosition(section: 1, offset: 0), selecting: nil)
+        host.layOut()
+        let built = Array(labels.prefix(4)) + Array(labels.suffix(2)), past = ["Past the gap, heading level 3", "The book's last, heading level 4"]
+        // The list holds the chapters built so far around the page, and ends at the first that is not.
+        var view = try XCTUnwrap(host.canvas.textViews.first)
+        XCTAssertEqual(try listedHeadings(by: view).map(\.label), built)
+        XCTAssertEqual(try listedHeadings(by: view, forward: false).map(\.label), built.reversed())
+        // A move from the last heading before it finds none, and the reader stays.
+        let last = try XCTUnwrap(try listedHeadings(by: view).last)
+        let standing = pages(of: host)
+        XCTAssertNil(try rotorHeading(of: view, from: given(last)))
+        XCTAssertEqual(pages(of: host), standing)
+        // Past it, the list is of the chapters built on that side.
+        host.canvas.show(ReaderTextPosition(section: 3, offset: 0), selecting: nil)
+        host.layOut()
+        view = try XCTUnwrap(host.canvas.textViews.first)
+        XCTAssertEqual(try listedHeadings(by: view).map(\.label), past)
+        XCTAssertEqual(try listedHeadings(by: view, forward: false).map(\.label), past.reversed())
+        XCTAssertNil(try rotorHeading(of: view, from: place(NSRange(location: 0, length: 12), in: view), forward: false))
+        // A token kept from before for a place that has no heading, or no chapter, loads nothing.
+        let loading = try XCTUnwrap(try headingRotor(of: view).itemLoadingDelegate)
+        for stale in ["2:0", "3:5", "9:0", "-1:0", "nowhere", "1"] {
+            XCTAssertNil(loading.accessibilityElement(withToken: stale as NSString), stale)
+            XCTAssertEqual(loading.accessibilityRangeInTargetElement?(withToken: stale as NSString).location, NSNotFound, stale)
+        }
+        XCTAssertEqual(pages(of: host), [ReaderTextPosition(section: 3, offset: 0)])
+        // Once it is built the list is the whole book's, from either side.
+        source.sections[2] = late.string
+        let whole = built + ["Built late, heading level 1"] + past
+        XCTAssertEqual(try listedHeadings(by: view).map(\.label), whole)
+        let gap = try XCTUnwrap(try move(to: try listedHeadings(by: view)[6], givenBy: view))
+        XCTAssertEqual(gap.column.placement.section, 2)
+        XCTAssertEqual(gap.column.plainText(in: gap.range), "Built late")
+        XCTAssertEqual(try listedHeadings(by: gap.column).map(\.label), whole)
+        // Built again, as for a new text size, a chapter is another text: its headings are
+        // found in that one, and a token for a place that is a heading no longer loads nothing.
+        let moved = try XCTUnwrap(try listedHeadings(by: gap.column).last?.token)
+        source.sections[3] = try H.build("<p>Words first.</p><h3>Past the gap, built again</h3>", css: Self.css).string
+        XCTAssertEqual(try listedHeadings(by: gap.column).map(\.label), built + ["Built late, heading level 1", "Past the gap, built again, heading level 3"])
+        XCTAssertNil(try XCTUnwrap(try headingRotor(of: gap.column).itemLoadingDelegate).accessibilityElement(withToken: moved))
+        XCTAssertEqual(gap.column.placement.section, 2)
+    }
+
+    func testTheRotorOfAChapterPageTurnsStepOverListsItInItsPlace() throws {
+        let (sections, linear, labels) = try book()
+        let host = CanvasHost(FakeCanvasSource(sections.map(\.string), linear: linear), size: CGSize(width: 320, height: 560))
+        hosts.append(host)
+        // Reached by a link, the chapter is where the reader is: its heading is in the list
+        // while it is on screen, between the chapters either side.
+        host.canvas.show(ReaderTextPosition(section: 1, offset: 0), selecting: nil)
+        host.layOut()
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        let aside = "In a chapter page turns step over, heading level 1"
+        let listed = try listedHeadings(by: view)
+        XCTAssertEqual(listed.map(\.label), Array(labels.prefix(4)) + [aside] + Array(labels.suffix(3)))
+        XCTAssertTrue(listed[4].column === view)
+        XCTAssertEqual(try rotorHeading(of: view, from: place(listed[4].range, in: view))?.label, labels[4])
+        XCTAssertEqual(try rotorHeading(of: view, from: place(listed[4].range, in: view), forward: false)?.label, labels[3])
+        // Left for another chapter, it is passed over again.
+        let next = try XCTUnwrap(try move(to: listed[5], givenBy: view))
+        XCTAssertEqual(next.column.placement.section, 2)
+        XCTAssertEqual(try listedHeadings(by: next.column).map(\.label), labels)
+    }
+
+    func testEitherColumnOfASpreadGivesTheBooksHeadingsEachInItsColumn() throws {
+        // Each heading opens a page, so the first spread holds two and the second the other two.
+        let css = Self.css + "h1 { break-before: page } "
+        let section = try H.build((1...4).map { "<h1>Heading \($0)</h1><p>Words of part \($0).</p>" }.joined(), css: css)
+        let after = try H.build("<h2>In the chapter after</h2><p>End.</p>", css: Self.css)
+        let host = CanvasHost(FakeCanvasSource([section.string, after.string]), size: CGSize(width: 1100, height: 420))
+        hosts.append(host)
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        host.layOut()
+        let columns = host.canvas.textViews
+        XCTAssertEqual(columns.count, 2, "a spread of two columns")
+        let labels = (1...4).map { "Heading \($0), heading level 1" } + ["In the chapter after, heading level 2"]
+        let starts = section.string.readerHeadings().map(\.range)
+        for asked in columns {
+            let listed = try listedHeadings(by: asked)
+            XCTAssertEqual(listed.map(\.label), labels)
+            // The spread's two are given in the column that shows each, whichever column is asked.
+            XCTAssertTrue(listed[0].column === columns[0])
+            XCTAssertTrue(listed[1].column === columns[1])
+            XCTAssertEqual(listed[0].range, starts[0])
+            XCTAssertEqual(listed[1].range, NSRange(location: 0, length: starts[1].length), "its characters in the right column's own text")
+            XCTAssertEqual(try levels(in: columns[1], listed[1].range), ["1 Heading 2"])
+            XCTAssertTrue(listed.dropFirst(2).allSatisfy { $0.column == nil && $0.token != nil })
+            XCTAssertEqual(try listedHeadings(by: asked, forward: false).map(\.label), labels.reversed())
+        }
+        // With VoiceOver's cursor in the left column, the next heading is in the right one, and
+        // from there the one before is back in the left: no page is turned for either.
+        let standing = pages(of: host)
+        let words = (columns[0].contentStorage.textStorage?.string as NSString?)?.range(of: "Words of part 1") ?? NSRange(location: NSNotFound, length: 0)
+        let right = try XCTUnwrap(try rotorHeading(of: columns[0], from: place(words, in: columns[0])))
+        XCTAssertTrue(right.column === columns[1])
+        XCTAssertEqual(right.label, labels[1])
+        let left = try XCTUnwrap(try rotorHeading(of: columns[1], from: place(right.range, in: columns[1]), forward: false))
+        XCTAssertTrue(left.column === columns[0])
+        XCTAssertEqual(left.label, labels[0])
+        XCTAssertEqual(pages(of: host), standing)
+        // A cursor resting on a column stands at the top of that column's page.
+        XCTAssertEqual(try rotorHeading(of: columns[0], from: place(Self.resting, in: columns[0]))?.label, labels[0])
+        XCTAssertEqual(try rotorHeading(of: columns[1], from: place(Self.resting, in: columns[1]))?.label, labels[1])
+        XCTAssertEqual(try rotorHeading(of: columns[0], from: place(Self.resting, in: columns[0]), forward: false)?.label, labels[0])
+        XCTAssertEqual(try rotorHeading(of: columns[1], from: place(Self.resting, in: columns[1]), forward: false)?.label, labels[1])
+        // A cursor in the right column stands after everything in the left: the same range
+        // means another place in the book there.
+        XCTAssertEqual(try rotorHeading(of: columns[1], from: place(NSRange(location: 3, length: 4), in: columns[1]))?.label, labels[2])
+        XCTAssertEqual(try rotorHeading(of: columns[0], from: place(NSRange(location: 3, length: 4), in: columns[0]))?.label, labels[1])
+        // The fourth heading is in the right column of the next spread: the reader turns to
+        // it, and VoiceOver is given that column.
+        let listed = try listedHeadings(by: columns[0])
+        let fourth = try XCTUnwrap(try move(to: listed[3], givenBy: columns[0]))
+        XCTAssertEqual(pages(of: host), [ReaderTextPosition(section: 0, offset: starts[2].location), ReaderTextPosition(section: 0, offset: starts[3].location)])
+        XCTAssertTrue(fourth.column === host.canvas.textViews[1])
+        XCTAssertEqual(fourth.column.plainText(in: fourth.range), "Heading 4")
+        let turned = try listedHeadings(by: fourth.column)
+        XCTAssertEqual(turned.map(\.label), labels)
+        XCTAssertEqual(turned.map { $0.column.flatMap { column in host.canvas.textViews.firstIndex { $0 === column } } }, [nil, nil, 0, 1, nil])
+        // On to the next chapter, whose one page leaves the right column empty, and back.
+        let last = try XCTUnwrap(try move(to: turned[4], givenBy: fourth.column))
+        XCTAssertEqual(pages(of: host), [ReaderTextPosition(section: 1, offset: 0)])
+        XCTAssertTrue(last.column === host.canvas.textViews[0])
+        let back = try XCTUnwrap(try rotorHeading(of: last.column, from: place(last.range, in: last.column), forward: false))
+        XCTAssertEqual(back.label, labels[3])
+        XCTAssertNil(back.column, "it is on the spread before")
+        XCTAssertTrue(try XCTUnwrap(try move(to: back, givenBy: last.column)).column === host.canvas.textViews[1])
+    }
+
+    func testAHeadingThatRunsOntoLaterPagesIsListedOnceWhereItBegins() throws {
+        // A heading too long for a page: it begins on one and ends pages later.
+        let words = (1...140).map { "Word\($0)" }.joined(separator: " ")
+        let section = try H.build("<p>Opening words.</p><h1>\(words)</h1><p>\(CanvasText.sentence(60, seed: 4))</p><h2>The one after</h2><p>End.</p>",
+                                  css: Self.css)
+        let heading = section.string.readerHeadings()[0].range
+        let host = host(section.string, size: CGSize(width: 320, height: 560))
+        host.canvas.show(ReaderTextPosition(section: 0, offset: heading.location), selecting: nil)
+        host.layOut()
+        let first = try XCTUnwrap(host.canvas.textViews.first)
+        let beginning = pages(of: host)
+        let shownEnd = first.placement.offset + first.placement.visibleLength
+        XCTAssertLessThan(shownEnd, NSMaxRange(heading), "the heading must run past its first page for this to show anything")
+        // On the page where it begins it is the column and the part of it there, by all its words.
+        let labels = ["\(words), heading level 1", "The one after, heading level 2"]
+        let listed = try listedHeadings(by: first)
+        XCTAssertEqual(listed.map(\.label), labels)
+        XCTAssertTrue(listed[0].column === first)
+        XCTAssertEqual(listed[0].range, NSRange(location: heading.location - first.placement.offset, length: shownEnd - heading.location))
+        // On a page it runs onto it is the same one item, a token for where it begins.
+        XCTAssertEqual(host.canvas.turnPage(forward: true), .turned)
+        let second = try XCTUnwrap(host.canvas.textViews.first)
+        XCTAssertTrue(heading.location < second.placement.offset && second.placement.offset + second.placement.visibleLength < NSMaxRange(heading),
+                      "this page holds the heading's middle and nothing else")
+        let onward = try listedHeadings(by: second)
+        XCTAssertEqual(onward.map(\.label), labels)
+        XCTAssertTrue(onward.allSatisfy { $0.column == nil })
+        // From this page the next heading is the one after it, and there is none before:
+        // the heading a cursor is inside is neither.
+        XCTAssertEqual(try rotorHeading(of: second, from: place(Self.resting, in: second))?.label, labels[1])
+        XCTAssertEqual(try rotorHeading(of: second, from: place(NSRange(location: 4, length: 10), in: second))?.label, labels[1])
+        XCTAssertNil(try rotorHeading(of: second, from: place(NSRange(location: 4, length: 10), in: second), forward: false))
+        XCTAssertNil(try rotorHeading(of: second, from: place(Self.resting, in: second), forward: false))
+        // Chosen from the list, it turns back to the page where it begins.
+        let back = try XCTUnwrap(try move(to: onward[0], givenBy: second))
+        XCTAssertEqual(pages(of: host), beginning)
+        XCTAssertEqual(back.range, listed[0].range)
+        XCTAssertEqual(try levels(in: back.column, back.range).count, 1)
+    }
+
+    func testATokenLoadsNothingOnceTheReaderHasLeftPaging() throws {
+        let (sections, linear, _) = try book()
+        let host = CanvasHost(FakeCanvasSource(sections.map(\.string), linear: linear), size: CGSize(width: 320, height: 560))
+        hosts.append(host)
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        host.layOut()
+        let column = try XCTUnwrap(host.canvas.textViews.first)
+        let token = try XCTUnwrap(try XCTUnwrap(try listedHeadings(by: column).last).token)
+        let loading = try XCTUnwrap(try headingRotor(of: column).itemLoadingDelegate)
+        // The reader is changed to continuous scroll with the rotor's list still open.
+        host.canvas.configuration.flow = .scrolled
+        host.layOut()
+        let scroll = try XCTUnwrap(host.canvas.scrollTextView)
+        XCTAssertNil(loading.accessibilityElement(withToken: token), "the column is the canvas's no longer")
+        XCTAssertEqual(loading.accessibilityRangeInTargetElement?(withToken: token).location, NSNotFound)
+        XCTAssertEqual(host.canvas.visibleRange?.start, ReaderTextPosition(section: 0, offset: 0), "and the reader stays where it is")
+        // The scroll view gives every heading as characters of its own text, and loads none.
+        XCTAssertNil(try headingRotor(of: scroll).itemLoadingDelegate)
     }
 
     func testTheScrollViewsRotorGivesTheWholeBooksHeadings() async throws {
