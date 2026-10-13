@@ -30,6 +30,9 @@ final class ReaderTextView: UITextView {
     /// How many lines the scroll view lists past the screen: as many items as VoiceOver was seen
     /// to ask for at once (iOS 27.0).
     private static let accessibilityLinesPastScreen = 50
+    /// How far inside the area the insets leave UIKit brings what VoiceOver's cursor goes to
+    /// (iOS 27.0).
+    private static let accessibilityScrollMargin: CGFloat = 40
     private var imageGestureDelegate: ReaderImageGestureDelegate?
     private var selectionGestureDelegate: ReaderSpreadSelectionGestureDelegate?
 
@@ -218,7 +221,7 @@ final class ReaderTextView: UITextView {
     /// them. Moving into the text from a control it takes the first line listed, the first on
     /// screen. Moving back into it from below it takes the last, so while its cursor is on
     /// something that follows the text the list is the lines on screen alone and that is the
-    /// last of them.
+    /// last of them, or the line it was given as the last a move ago (`lastLineKept`).
     ///
     /// VoiceOver asks for the items after the one its cursor is on, then moves through what it
     /// was given and asks again only when it has used them. As a rule it asks for two. At its
@@ -237,6 +240,7 @@ final class ReaderTextView: UITextView {
         guard let shown = canvas.scrollSpokenCharacters() else { return [] }
         let past = Self.accessibilityLinesPastScreen
         var listed = [withLines(before: 0, after: accessibilityCursorFollowsText ? 0 : past, shown)]
+        if accessibilityCursorFollowsText, let kept = lastLineKept(past: shown) { listed = [shown.union(kept)] }
         if let cursor = accessibilityCursor, let line = line(containing: cursor.range.location) {
             let screen = withLines(before: past, after: past, shown), around = withLines(before: past, after: past, line.range)
             // The cursor can rest on a line the person has since scrolled away from.
@@ -266,6 +270,28 @@ final class ReaderTextView: UITextView {
         }
         scrollAccessibilityCache = (place, elements)
         return elements
+    }
+
+    /// The line the list goes on ending at while VoiceOver's cursor is after the text, where
+    /// that is no longer the last line on screen.
+    ///
+    /// As its cursor comes to a control below the reader VoiceOver is given the scroll bar and
+    /// the last line listed, and at its next move it asks for the line before that one. In
+    /// between it has UIKit bring the bar into view as it would a line. The bar is as tall as
+    /// the view, the top inset cuts it, and the view goes back by that inset and 40 points
+    /// more, wherever it has the room: the line VoiceOver holds is then below the screen, and
+    /// asked from a line that was no longer listed UIKit answered with the control before the
+    /// text. So the list still ends at the line it ended at when it was last made with the
+    /// cursor after the text, with the lines between that line and the screen, while the view
+    /// has gone back no further than one such move since. That holds each time the cursor
+    /// goes to the bar. After a longer move back, the person's or the reader's own, or a move
+    /// forward past that line, the list ends at the last line on screen again.
+    private func lastLineKept(past shown: NSRange) -> NSRange? {
+        guard let cache = scrollAccessibilityCache, cache.place.cursorFollowsText, cache.place.size == bounds.size,
+              cache.place.insets == adjustedContentInset, let last = cache.elements.last?.range,
+              NSMaxRange(last) > NSMaxRange(shown) else { return nil }
+        let back = cache.place.offset.y - contentOffset.y
+        return back <= adjustedContentInset.top + Self.accessibilityScrollMargin + 1 ? last : nil
     }
 
     /// `range` with as many lines before it and after it, where the text has them.

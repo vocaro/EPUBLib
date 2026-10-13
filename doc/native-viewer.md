@@ -499,6 +499,20 @@ as they did.
   while its cursor is on one of the scroll view's own bars or on something below the reading
   area the list is the lines on screen alone, as it was before, and that is the last of
   them.
+  VoiceOver is given that line as its cursor comes to the control below, with the scroll bar
+  before it, and asks for the line above it only at its next move, the one to the bar.
+  Between the two it has UIKit bring the bar into view as it would a line. The bar is as
+  tall as the view, so the top inset cuts it, and the view goes back by that inset and 40
+  points more, 88 points in all, wherever it has the room. The line VoiceOver holds is then
+  below the screen. While the list was the screen alone that line was no longer listed,
+  UIKit answered a question asked from it with the control before the text, and VoiceOver
+  read the scroll bar, at best that one line, and then the host's control. So while the
+  cursor is after the text the list still ends at the line it ended at when it was last
+  made, with the lines between that line and the screen, as long as the view has gone back
+  no further than one such move since. That holds each time the cursor goes to the bar. A
+  longer move back is the person's or the reader's own, and after it, or a move forward past
+  that line, the list ends at the last line on screen again
+  ([#367](https://github.com/vocaro/EPUBLib/issues/367)).
   The cursor counts as on a line from the moment the line is told it has it until UIKit's
   focus notification names something that is not one of the view's lines, or VoiceOver is
   switched. A line left is told so, and a notification naming only it is posted, before the
@@ -507,16 +521,22 @@ as they did.
   A line keeps its element while it is listed or under the cursor. Listing scrolls nothing
   and selects nothing, and lays out no more than the lines it lists
   ([#339](https://github.com/vocaro/EPUBLib/issues/339)).
-  VoiceOver keeps what it was given, which leaves three things as they are. After a menu, a
+  VoiceOver keeps what it was given, which leaves two things as they are. After a menu, a
   move back past the line it came in at, made before it has used the fifty, goes to the
   control before the text and not to the line above. A reader that is moved while VoiceOver
   holds lines it has not reached, by a scroll step with the cursor on a control, leaves it
   holding lines that are no longer listed: it says the first of them and returns to the
-  control. And away from the top of the book, moving back into the text from below gives
-  the last line on screen and then the control before the text: UIKit scrolls the view 88
-  points back as the cursor goes to the scroll bar, and the line VoiceOver was given is
-  then below the screen ([#367](https://github.com/vocaro/EPUBLib/issues/367);
-  [VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current results").
+  control ([VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current
+  results").
+  The scroll bar leaves two more. The view still moves under VoiceOver as it comes in from
+  below: back as the cursor goes to the bar, and forward again as it goes to the line, which
+  UIKit brings clear of the bottom inset. And UIKit has no place in the list for the bar
+  itself: `index(ofAccessibilityElement:)` is `NSNotFound` for it, from UIKit's own
+  implementation as from the reader's, and UIKit then takes the bar to stand at the head of
+  the list. With the cursor put on the bar by a touch, the item before it is the control
+  before the text and the item after it the second line listed; the same answer follows the
+  book's last line, where the bar is the next item
+  ([#342](https://github.com/vocaro/EPUBLib/issues/342)).
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
