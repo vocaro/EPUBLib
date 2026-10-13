@@ -1120,10 +1120,13 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     VoiceOver says the word before that line and "text  word:" with the line's first word,
     and `describe` and `line` give that line. "text  word:" with a word of the line
     VoiceOver had entered at, and then a `SELECTION` back up the book, is the failure of a
-    reader that tells of the insertion point once. Launch that session in continuous
-    scroll: after `"ax:press=Continuous Scroll"` with the reader open the step held without
-    the second notice. `ax:action` reports -25200 for the scroll's two actions though they
-    scroll, which is AppKit's answer and no failure of the step.
+    reader that tells of the insertion point once. Hear it in a reader launched in
+    continuous scroll and in one changed to it while open, and there with nothing focused
+    first (`"ax:press=Continuous Scroll" ax:focus=0 in pagedown`): where a column had
+    keyboard focus before the change, the step held without the second notice. `ax:action`
+    reports -25200 for the scroll's two actions though they scroll, which is AppKit's
+    answer and no failure of the step
+    ([#465](https://github.com/vocaro/EPUBLib/issues/465)).
 15. Links in a table's cells on a Mac, in pages and in continuous scroll, on the fixture's
     last section (`-SampleHref OPS/cells.xhtml`). `ax:links` gives each cell's link by what
     it says, "worded jump", "Described entry jump, image", "image", "Entry jump with
@@ -2344,13 +2347,15 @@ The Mac runner's transcript is plain text and needs no export.
   sample has no switch for; a right-to-left spread; a spread whose next section is not
   built yet; and VoiceOver's cursor on a table's row or cell, which keeps its own actions.
 - The same day what undid that step was found, and the step made to hold
-  ([#473](https://github.com/vocaro/EPUBLib/pull/473)). It was heard before and after on the
+  ([#464](https://github.com/vocaro/EPUBLib/issues/464),
+  [#473](https://github.com/vocaro/EPUBLib/pull/473)). It was heard before and after on the
   same main: [hosted sessions](#hosted-mac-sessions) on `xcode-27` (image
   20261006.0244.1, macOS 27.0.1 `26A434`, Xcode 27.0), 600 wide at 17 points, at a fixed
   pause of four seconds, with VoiceOver brought to the text by `ax:focus=search ax:focus=0`.
   Before is main's reader at `593b907`, run 38380968267. After is the reader of `aa2fbdb`,
-  which is that main and the change, run 38380781111, with the same twelve step lists.
-  Nobody listened.
+  which is that main and the change, run 38380781111, with the same twelve step lists. For
+  a reader changed to continuous scroll while open, four more step lists: before in run
+  38386864653, and after in run 38386814468 at `e850a82`, the same change. Nobody listened.
   A step made straight after `in`, in a session launched in continuous scroll. Before, with
   `pagedown`: `SELECTION 865,0`, "word0078", "text  word:  Read  character:  R", then
   `SELECTION 0,0` and "Page"; `describe` "Line 1  word:  Page", `line` "Page boundary
@@ -2366,20 +2371,35 @@ The Mac runner's transcript is plain text and needs no export.
   from the top of the book to 703 and `pageup` to 0.
   What read the same before and after. After two moves by line, `pagedown` and the menu's
   Scroll Forward: `SELECTION 865,0`, "word0078", "text  word:  word0079  character:",
-  "Line 18". After `"ax:press=Continuous Scroll"` with the reader open, `pagedown` straight
-  after `in` and after two moves by line: `SELECTION 703,0`, "word0060", "text  word:
-  word0061", "Line 15". That step held on main. VoiceOver two lines down, out of the text
-  and one item right, a native press of Scroll Forward, back and `in`: "word0078" at the
-  press and "In text word0079 word0080 word0081 word0082 word0083 word0084". VoiceOver
+  "Line 18". VoiceOver two lines down, out of the text and one item right, a native press
+  of Scroll Forward, back and `in`: "word0078" at the press and "In text word0079 word0080
+  word0081 word0082 word0083 word0084". VoiceOver
   resting on the text area, `pagedown`: "word0078", "text Page boundary verification" and
   the text's first sentence, `describe` "text is in the VoiceOver cursor Line 18", `in` "In
   text word0079…". In pages, `in`, `nextline` and `pagedown`: "word0055 word0056 word0057",
   "text  word:  word0055", "Line 1". A page turn shows two `AXSelectedTextChanged` for each
   column on both readers, from the text put into it.
-  One phrase more, once. After two moves by line the menu's Scroll Forward recorded "text
-  word:  word0079  character:" and, 54 ms later, "Scroll Forward text  word:  word0079
-  character:", where main recorded the second alone. With `pagedown` there, and with the
-  menu's choice straight after `in`, there was one such phrase, as before.
+  A reader changed to continuous scroll while open, with nothing focused first
+  (`"ax:press=Continuous Scroll" ax:focus=0 in`, which enters at "In text Page boundary
+  verification"). Before, with `pagedown`: `SELECTION 703,0`, "word0060", "text  word:  Page
+  character:  P", `SELECTION 0,0`, "Page", "Line 1  word:  Page", and `line` "Page boundary
+  verification". With the menu's Scroll Forward: "Scroll Forward text  word:  Page
+  character:  P", `SELECTION 0,0` and the same line. After, both: two
+  `AXSelectedTextChanged` with `SELECTION 703,0`, "word0060", "text  word:  word0061", with
+  the action's name before it from the menu, "Line 15  word:  word0061", `line` "word0061
+  word0062 word0063 word0064 word0065 word0066", and after the key `nextline`
+  `SELECTION 757,0`. After two moves by line there, `pagedown` read "word0060", "text
+  word:  word0061" and "Line 15" before and after.
+  The same change of flow with a column given keyboard focus first (`ax:focus=search
+  ax:focus=0` before the press) held on main: `pagedown` straight after `in`, and after two
+  moves by line, and the menu's Scroll Forward straight after `in`, each `SELECTION 703,0`,
+  "word0060", "text  word:  word0061" and "Line 15", before and after.
+  A phrase begun twice, on either reader. With the menu's Scroll Forward VoiceOver recorded
+  "text  word:  word0079  character:" and, 54 ms later, "Scroll Forward text  word:
+  word0079  character:" once in the reader with the change (after two moves by line) and
+  the same pair for word0061 once on main (after the change of flow with a column focused
+  first), where the other sessions that choose the action have the second alone. It is
+  not the change's.
   How it was found, in a reader that logs what VoiceOver asks of the text (the entry on
   that, above; `47b700e`, `c293516` and `24c58c0`, runs 38373719273, 38376212379 and
   38378765133, thirty-four sessions over the mains of `6d9be92` and `593b907`). The step
@@ -2408,19 +2428,22 @@ The Mac runner's transcript is plain text and needs no export.
   and then to the first line, before the scroll or after it: held. Moved once, with a
   second `AXSelectedTextChanged` posted by the text view before the layout change: held,
   and that is the change.
-  Where one notice was enough. After `"ax:press=Continuous Scroll"` with the reader open
-  VoiceOver followed the one notice. There it read `AXFocused` at `in` and did not set it,
-  in both sessions logged. In each of the nineteen logged sessions launched in continuous
-  scroll it set `AXFocused` on the text at `in`, the sessions that hold among them, where
-  the selection VoiceOver sets as it moves by line comes before the reader's. So every
-  session agrees with VoiceOver passing over the first change of selection after it has
-  set keyboard focus on a text; that this is its rule was not established.
+  Where one notice was enough: after the change of flow with a column focused first. The
+  reader gives the new text keyboard focus itself there, and VoiceOver read `AXFocused` at
+  `in` and did not set it, in both such sessions logged. In each of the nineteen logged
+  sessions launched in continuous scroll it set `AXFocused` on the text at `in`, the
+  sessions that hold among them, where the selection VoiceOver sets as it moves by line
+  comes before the reader's. So every logged session agrees with VoiceOver passing over
+  the first change of selection after it has set keyboard focus on a text. That this is
+  its rule was not established, and the change of flow with nothing focused first, which
+  fails on main, was not logged.
   The status of `ax:action`: -25200 for Scroll Forward, before and after, though the view
   scrolled and VoiceOver said the new first word. The reader's handler returns true. Its
   return was logged under `_NSAccessibilityPerformActionCustom`, called from
   `NSAccessibilityEntryPointPerformAction`, and the observer had the status 7 ms later. So
   the failure is AppKit's answer and not the reader's. Why AppKit gives it in continuous
-  scroll and 0 in pages was not found.
+  scroll and 0 in pages was not found
+  ([#465](https://github.com/vocaro/EPUBLib/issues/465)).
   Seen besides: a session launched in continuous scroll does not begin at the top of the
   book. `ax:width` ends a live resize, and AppKit's text view then scrolls itself
   (`-[NSTextView viewDidEndLiveResize]`, `scrollToLocation:`) 48 points down. The book's

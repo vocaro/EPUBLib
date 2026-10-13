@@ -731,7 +731,7 @@ as they did.
   area's action and with the host's button alike. So after a move the reader makes itself
   the text view tells of the insertion point a second time, before the layout change, and
   VoiceOver goes there, as it does at the first notice once it has moved by line
-  (macOS 27.0.1, [#473](https://github.com/vocaro/EPUBLib/pull/473)). Each such move costs
+  (macOS 27.0.1, [#464](https://github.com/vocaro/EPUBLib/issues/464)). Each such move costs
   an assistive client one notice that reports no change. Where the insertion point follows
   other scrolling it is told of once, as before. A page turn is left as it is: putting a
   page's text into a column already tells twice.
@@ -1159,7 +1159,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   accessibility API reports a failure for the action in continuous scroll (-25200), though
   the view scrolls and VoiceOver's own choosing works: the reader's handler returns true
   there as in pages, where the API reports success, and the failure is AppKit's answer,
-  for a reason not found.
+  for a reason not found ([#465](https://github.com/vocaro/EPUBLib/issues/465)).
   A step in continuous scroll made straight after VoiceOver enters the text, before it has
   moved in it, holds as any other, with the action and with a page key: the reader tells
   of the insertion point twice ("Continuous scroll" under Layout). Told once, VoiceOver
