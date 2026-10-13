@@ -43,6 +43,14 @@ after the numbered paragraph, the two parked ones (level 1), each opening its se
 two; the second book's are "Chapter one", "Chapter two" and "Chapter three", screens apart.
 Do not import private books for this check.
 
+On a Mac the same application can show AppKit's own text view in the reader's place, with
+none of the reader's code: `-VerificationPlainText YES` a TextKit 2 view, as the reader's
+are, and `-VerificationPlainText TextKit1` a TextKit 1 view. Its text has a link of words,
+"reference link", and a link that is a picture. Following either writes "Followed" and the
+link's name at the start of the text, which changes the text's value. What VoiceOver says and
+does there is AppKit's and VoiceOver's doing: compare it before calling a behaviour the
+reader's ([Links](#links)).
+
 Use Xcode 27, OS 27, XcodeGen, Python 3, and a graphical Mac login. Select a signing team for
 the UI-test runners and physical-device app. Signed Mac UI tests worked in the initial
 session; unsigned runs did not complete. A [hosted Mac session](#hosted-mac-sessions) needs
@@ -134,7 +142,14 @@ new phrase is recorded:
   runner cleans up. Where `listchoose` had closed the rotor, the reader takes that Escape and
   does nothing with it: VoiceOver said nothing and stayed on its line.
 - `activate=LABEL`: Control-Option-Space, sent only if one of VoiceOver's last two phrases
-  contains LABEL, as in `"activate=Next Page"`.
+  contains LABEL, as in `"activate=Next Page"`. Without a label it is sent whatever was said.
+- `nextlink`, `previouslink`: VoiceOver's Find Next Link and Find Previous Link,
+  Control-Option-Command-L and the same with Shift. They move to a link of the text under the
+  cursor and name it.
+- `describe`: Control-Option-F3 once, what is in the VoiceOver cursor. `attributes`:
+  Control-Option-T, the text attributes there.
+- `actions`: Control-Option-Command-Space, the menu of the item's actions. The `list` keys
+  of `rotor` move in it and close it.
 - `pagedown`, `pageup`: the reader's own page keys, without VoiceOver modifiers.
 - `ax:STEP`: a step of the observer described below, through the accessibility API.
 
@@ -194,6 +209,16 @@ selection and the numbered-word span of its value:
 - `focus`, `focus=COLUMN`, `focus=search`: give the last column, a numbered column or the
   search field keyboard focus, without a click.
 - `lines`: print every accessibility line of each column.
+- `links`: print what each column gives an assistive client for its links and attachments.
+  A `CHILD` line is one of the text's own children, which Find Next Link moves through. A
+  `LINK` line is a run of the text's accessibility string with the element given as its
+  link, the element given as its attachment, or both: each one's role, what it is called,
+  and its actions.
+- `caret=WORDS`: put the insertion point before the first of these words, as in
+  `"ax:caret=Bare jump"`. VoiceOver enters a text at its insertion point, so `in` then starts
+  on that line and `right` reads the word.
+- `follow=WORDS`: press the link that names the words or holds them, by its own action and
+  without VoiceOver.
 - `wait=SECONDS`: only observe. Without steps the observer only observes; a single step of
   `-` reads steps from standard input.
 
@@ -248,9 +273,10 @@ area's lines are the whole book's, so a `STATE` read is slow in a long book; the
 269 at this size.
 
 On an iPhone or iPad VoiceOver walks the scroll view's accessibility elements instead, and the
-reader lists the lines on screen, with two more each side while VoiceOver's cursor is in the
-text. Run the probe (see "Physical iPhone and iPad") in that flow, on the book of ordinary
-paragraphs, by adding to its command:
+reader lists the lines on screen and the fifty after them, with the fifty before the screen
+as well while VoiceOver's cursor is in the text (see [the native viewer](native-viewer.md),
+"Continuous scroll", for why fifty). Run the probe (see "Physical iPhone and iPad") in that
+flow, on the book of ordinary paragraphs, by adding to its command:
 
 ```sh
 TEST_RUNNER_VOICEOVER_FLOW=scrolled TEST_RUNNER_VOICEOVER_BOOK=paragraphs \
@@ -259,53 +285,115 @@ TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wai
 ```
 
 1. Two scroll steps end in the middle of a paragraph. The first `visible` gives the first and
-   last lines on screen; nothing above or below them is listed.
+   last lines on screen. Nothing above them is listed; the fifty lines after them are, and
+   are counted as outside the window.
 2. Eight moves forward from Scroll Forward cross the sample's other controls and the ninth
    enters the text. Its phrase is the first line on screen, not `w01` of that line's
    paragraph, and the screenshot after it shows the same lines as the one before: coming in
    scrolled nothing.
-3. The second `visible` counts four more lines, two each side of the screen, and says how
-   many are outside the window.
+3. The second `visible` counts fifty more lines, those before the screen, and says how many
+   are outside the window.
 4. The moves forward give every line once, in order, while the view follows; the moves back
    pass the line VoiceOver came in at and go on above it. A phrase repeated, a line missing,
    or a control's name among them is a failure.
 5. `backward=1` straight after coming in returns to the control before the text. A touch on
-   a control (`touch=Bookmark`) takes the cursor out, and `visible` then lists the lines on
-   screen alone; the next move forward comes in at the first of them.
+   a control (`touch=Bookmark`) takes the cursor out, and `visible` then lists nothing above
+   the first line on screen; the next move forward comes in at that line.
 6. `activate=Contents,activate=Chapter two` moves the reader with the cursor on a control, and
    `point=0.5:0.8` touches a line directly: VoiceOver reads the line under the finger.
+7. Straight after a menu closes VoiceOver asks for fifty items at once and reads through
+   them. `activate=Contents,activate=Chapter two,wait=2,visible,forward=5,forward=62,visible,backward=72`
+   comes into the text at the chapter's heading on the fifth move and must go on past the
+   last line that was on screen when the menu closed, a line at a time. "Vertical scroll
+   bar" among the lines is the failure of
+   [#339](https://github.com/vocaro/EPUBLib/issues/339). On an iPad run it on its side as
+   well, with `rotate=landscape` first and `rotate=portrait` last.
+8. `touch=LABEL` on an item below the reader and `backward=4` come into the text from below:
+   the scroll bar, then the last line on screen, then the lines above it. Away from the top
+   of the book the move after the last line on screen goes to the control before the text
+   ([#367](https://github.com/vocaro/EPUBLib/issues/367)).
 
 Drive at least one session with `flick=right*20` and `flick=left*30` in place of `forward`
 and `backward`: those are VoiceOver's own gestures for the next and previous item, where the
 others are the test service's moves. They take about six seconds each under XCTest.
 
+## Links
+
+On a Mac a link is found, named and followed through elements the reader gives VoiceOver
+([the native viewer](native-viewer.md), "Links for VoiceOver on Mac"). VoiceOver's own part
+was heard first, in AppKit's text view (`-VerificationPlainText`), and a session on links is
+read against it:
+
+- Moving by word or by line, and in Read All, VoiceOver says the words of a link of words and
+  nothing of the link. It announces an element given as a character's attachment, so a link
+  that is a picture or a hidden label is said as "hyperlink" and its name there.
+- `nextlink` moves through the links of the text on screen. VoiceOver says the name and
+  "hyperlink", then the hint "You are currently on a hyperlink, inside of a text area. To
+  click this link, press Control-Option-Space", of which the probe records the first 64
+  characters. Past the last link it begins again with the first. `previouslink` went
+  forward too, in AppKit's own elements as in the reader's (macOS 27.0.1).
+- `activate` follows the link under the cursor. With the cursor on a word it follows a link
+  on that word's line, the word's own or not, and on a line without a link it does nothing.
+  AppKit's own text view does the same.
+- `rotor` has no list of links. For the reader's text it lists the book's headings.
+
+`ax:links` prints what the text gives for its links before anything is said: each link once
+as a `CHILD`, called by its words and never by U+FFFC, with `AXPress` among its actions; and
+in the `LINK` lines the same element as the link of its characters and, where the link has an
+attachment, a link element as that character's attachment. `ax:follow=WORDS` presses a link
+without VoiceOver. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a link's line, so
+a few `right` steps reach it. After a link is followed the transcript has `AXValueChanged`
+with the page that holds the target, in the fixture the one with "Link target reached".
+
+What VoiceOver says of a link as it reads depends on a setting: VoiceOver Utility, Verbosity,
+Text, "When encountering a link/attachment", which can be Speak, Change Pitch, Play Tone or Do
+Nothing. A transcript holds speech and neither tones nor pitch, so every hosted run reads the
+setting and writes it to `runner.txt` as `LINK VERBOSITY`. On the runner it is Speak, the
+setting of a Mac whose VoiceOver has never been configured. The workflow's `links` input
+chooses another. `scripts/voiceover-link-verbosity.swift` does both through VoiceOver
+Utility's own window and refuses to run anywhere but on a hosted runner. Do not write the
+setting with `defaults`: a `com.apple.VoiceOver4/default` domain written before VoiceOver had
+ever run left it silent for the whole run, `ERROR 3` after every key.
+
 ## Hosted Mac sessions
 
 The same reader, probe, observer and runner script record real VoiceOver speech on GitHub's
-hosted `xcode-27` runner. A session there takes over no workstation, several can run at once,
-and the standard runner costs nothing in this public repository. It is acceptance evidence
-for the Mac, under the same rules as a workstation session; see
-[Acceptance and evidence](#acceptance-and-evidence). The
-[Mac VoiceOver workflow](../.github/workflows/voiceover-mac.yml) builds the reader at a ref,
-runs one or more sessions and uploads their transcripts. It starts only by hand:
+hosted `xcode-27` runner. A session there takes over no workstation, and the standard runner
+costs nothing in this public repository. It is acceptance evidence for the Mac, under the
+same rules as a workstation session; see [Acceptance and evidence](#acceptance-and-evidence).
+The [Mac VoiceOver workflow](../.github/workflows/voiceover-mac.yml) builds the reader at a
+ref, runs one or more sessions and uploads their transcripts.
+
+The runner is shared. GitHub runs five macOS jobs at a time for the whole account, for the
+runs of every agent's session together, and its queue has no priorities. So one run holds
+every session a piece of work needs, whatever their window widths, text sizes, flows and
+launch arguments, and it is started through `scripts/hosted-run.py`, which looks at what is
+running first; [Sharing the runner](#sharing-the-runner) has the rules. The workflow starts
+only by hand:
 
 ```sh
-gh workflow run voiceover-mac.yml --ref YOUR_BRANCH -f width=600 -f text_size=17 \
-  -f steps='ax:next ax:lines ax:focus in line nextline ; ax:next ax:focus in lastword line nextline'
-gh run list --workflow voiceover-mac.yml --limit 3
+python3 scripts/hosted-run.py voiceover-mac.yml -f width=600 -f text_size=17 \
+  -f steps='ax:next ax:lines ax:focus in line nextline ; ax:next ax:focus in lastword line nextline
+            width=1100 text_size=23 ax:next ax:lines ax:focus in line nextline
+            flow=scrolled ax:next ax:next ax:focus in line nextline'
 gh run watch RUN_ID --exit-status
 gh run download RUN_ID --name voiceover-mac-transcripts --dir .build/voiceover/hosted/RUN_ID
 ```
 
-`--ref` chooses the branch whose workflow file is used, and that branch is built unless the
-`ref` input names another one. The inputs, all optional:
+That is four sessions in one run: two in a window 600 points wide at 17 points, one in a
+window 1100 wide at 23, and one in continuous scroll. The script takes the `-f` inputs of
+`gh workflow run`. It checks the steps as the runner would and prints each session with its
+settings, starts the run unless the branch already has its share in flight, and prints the
+run's number. It starts the run from the branch checked out, or from the one `--ref` names.
+That branch's workflow file is used, and that branch is built unless the `ref` input names
+another one. The inputs, all optional:
 
 - `ref`: a branch, a tag or a full commit SHA whose reader and probe are built. The runner,
-  observer and session scripts still come from the `--ref` branch, so a commit older than this
-  workflow can be heard, and two commits compared, with one harness.
+  observer, session and link-setting scripts still come from the `--ref` branch, so a commit
+  older than this workflow can be heard, and two commits compared, with one harness.
 - `steps`: the steps `scripts/run-voiceover-mac.py` takes, quoted as on a command line, as in
   `"activate=Next Page"`. A `;` or a line break starts another session. Each session gets a
-  fresh reader, and `ax:width` with the `width` input before its own steps. Left empty, one
+  fresh reader, and `ax:width` with its width before its own steps. Left empty, one
   session checks a page boundary: the left column's entry line and two lines down, a Next Page
   activated through VoiceOver, and the new page's entry line and second line. The entry line
   after the turn must be the page's first: with the fault of
@@ -313,19 +401,46 @@ gh run download RUN_ID --name voiceover-mac-transcripts --dir .build/voiceover/h
   VoiceOver to the column by `ax:focus=search ax:focus=0`, without which it can pass on a
   reader that has the fault.
 - `width` and `text_size`: the window width and the launch text size in points, 1100 and 23
-  unless given.
+  unless given, for a session that gives none.
 - `flow`: `paginated`, or `scrolled` for [continuous scroll](#continuous-scroll), which needs
-  its own steps.
-- `pause`: the runner's `--pause`, 5 seconds unless given.
-- `advance_after`: the runner's `--advance-after`. Empty keeps the fixed pause.
+  its own steps, for a session that gives none.
+- `launch`: further launch arguments of the reader, quoted as on a command line, for a
+  session that gives none. `-SampleHref OPS/labels.xhtml` opens the book at a section, with
+  no page turns to reach it, and `-VerificationBook paragraphs` opens the other book.
+- `links`: how VoiceOver announces a link or an attachment in text: `Speak`, `Change Pitch`,
+  `Play Tone` or `Do Nothing`. `Unchanged`, the default, leaves the runner's own setting. See
+  [Links](#links). It is set once, before the first session, so it is the one thing sessions
+  of a run cannot differ in.
+- `pause`: the runner's `--pause`, 5 seconds unless given, for a session that gives none.
+- `advance_after`: the runner's `--advance-after`, for a session that gives none. Empty keeps
+  the fixed pause.
+
+A session can open with settings of its own, in any order before its first step: `width=600`,
+`text_size=17`, `flow=scrolled`, `"launch=-SampleHref OPS/labels.xhtml"`, `pause=3` and
+`advance_after=0.5`. `launch=` with nothing after it is no further argument, and
+`advance_after=` the fixed pause. The inputs of those names are what a session has when it
+gives none, so one run holds sessions that differ in them. A setting that follows a step, is
+given twice or has a value it cannot have is refused before anything is built, and a session
+of settings alone is the page-boundary session with them. The job's log, `sessions.txt` and
+the run's summary page give each session's settings before its outcome, where the run's name
+gives the `width` and `text_size` inputs only:
+
+```text
+Session 3: 600 wide at 17 points, scrolled, 4 s pause; completed (exit 0) in 45 s; mac-20261013-042246-037894.transcript.txt; -SampleFlow scrolled -SampleFontSize 17 --pause 4 ax:width=600 ax:next ax:next ax:focus in line nextline
+Session 4: 1100 wide at 30 points, paginated, 3 s pause, next key 0.5 s after a phrase; completed (exit 0) in 29 s; mac-20261013-042347-959280.transcript.txt; -SampleFlow paginated -SampleFontSize 30 --pause 3 --advance-after 0.5 ax:width=1100 ax:next ax:lines ax:focus in line nextline
+```
 
 A job has twenty minutes and a session at most 300 seconds, the runner script's limit.
 Preparing the runner and building take about two minutes and the boundary session about three
 at the fixed pause, so a run of that one session has uploaded its transcript about five minutes
-after it starts. A session that could not end three minutes before the job's limit is reported
-as not run, and the job fails. A new run for the same ref, width, text size and flow cancels
-one still in progress, so put step lists that share those into one run; runs that differ in
-any of them go on side by side.
+after it has a runner. A session that could not end three minutes before the job's limit is
+reported as not run, and the job fails. That leaves the sessions of a run about fifteen
+minutes between them: four of the boundary session's length, or a dozen short ones. On
+2026-10-13 four sessions of five or six steps, each with a width, text size, flow or pause of
+its own, took 239 seconds of a job of 5 minutes 50 seconds, the build 82 of them (run
+38344667427); as four runs they would have built four times, on four runners. Nothing cancels
+a run but `gh run cancel RUN_ID`: a second run from a branch does not replace its first,
+whatever their inputs, so cancel a run that a newer one makes useless.
 
 With `advance_after` set to `0.5`, stepping took about a quarter of the time in four pairs of
 sessions, and 95 of 97 keys recorded the same first phrase as at the fixed pause. The hint that
@@ -334,16 +449,18 @@ exploring and walks across controls. A transcript offered as acceptance evidence
 at a fixed pause; see [Acceptance and evidence](#acceptance-and-evidence).
 
 The job fails unless every session exits 0. `sessions.txt` in the download gives each
-session's outcome, transcript and command: 124 means the deadline was reached, 125 that the
-runner script stopped the session, 2 that it refused the steps, and 126 that VoiceOver would
-not switch back off after it ("VoiceOver not restored"). Such a session still has its
+session's settings, outcome, transcript and command: 124 means the deadline was reached, 125
+that the runner script stopped the session, 2 that it refused the steps, and 126 that VoiceOver
+would not switch back off after it ("VoiceOver not restored"). Such a session still has its
 transcript, with the reason in a `NOT_RESTORED` line, and the sessions after it in the job
 begin with VoiceOver already on and leave it on. The download also holds a
 `mac-STAMP.transcript.txt` for each session in order, `runner.txt` with the commit, the runner
-image and its version, macOS, Xcode, System Integrity Protection and the screen, the observer,
-`xcodebuild` and build logs, and a screenshot of the runner's screen at the end. The job's log
+image and its version, macOS, Xcode, System Integrity Protection, the screen and VoiceOver's
+[link setting](#links), the observer, `xcodebuild` and build logs, and a screenshot of the
+runner's screen at the end. The job's log
 prints each transcript, and the script writes each session's steps and speech to the run's
-summary page. The artifacts expire after five days; copy what must be kept. A failed job also uploads
+summary page, under its settings and outcome. The artifacts expire after five days; copy what
+must be kept. A failed job also uploads
 `voiceover-mac-result-bundles`, 100 MB for four short sessions, and adds
 `banner-and-dictation.log` to the transcripts: the banner's starts and anything from Dictation
 in the system log. A stopped session's bundle has no `Info.plist`, so `xcresulttool` cannot
@@ -391,6 +508,9 @@ without it:
    certificate or secret, and the image's own privacy grants were enough for the UI test.
 6. The runner script reads a missing `voiceOverOnOffKey` as off when no `VoiceOver` process
    exists, which is the state of a Mac that has never run VoiceOver.
+7. `scripts/voiceover-link-verbosity.swift` opens VoiceOver Utility to read, and when the
+   `links` input asks to choose, how VoiceOver announces a link ([Links](#links)). Written
+   with `defaults` instead, the setting left VoiceOver silent.
 
 These commands change settings of the logged-in user and belong on a disposable runner. Do
 not run them on a workstation, where the third does nothing in any case; the workflow's first
@@ -401,6 +521,49 @@ as `xcode-27-xlarge`, is billed even in a public repository. To see what a run c
 ```sh
 gh api repos/vocaro/EPUBLib/actions/runs/RUN_ID/timing
 ```
+
+### Sharing the runner
+
+GitHub runs five macOS jobs at a time for the whole account, on its Free, Pro and Team plans
+([its limits](https://docs.github.com/en/actions/reference/limits)). The VoiceOver runs of
+every agent's session draw on those five, and nothing else runs there
+([notes for agents](../AGENTS.md#the-hosted-runner)). A run beyond the five waits for a
+runner. The queue has no priorities: runs get a runner in the order they were started,
+whatever they are for.
+
+While fewer than five jobs ran, a job started within ten seconds. On the evening of
+2026-10-12, when the unit tests ran there too, all five were busy for hours and a job waited
+a median of 13 minutes for a runner and 75 at worst. Four runs in five were VoiceOver runs
+even so, and a single branch started four to nine of them within 90 seconds on sixteen
+occasions, each on a runner of its own with a build of its own.
+
+So a run is started with `scripts/hosted-run.py`:
+
+```sh
+python3 scripts/hosted-run.py
+python3 scripts/hosted-run.py voiceover-mac.yml -f steps='width=600 text_size=17 in line ; in line'
+```
+
+With no workflow it prints how many runs are on a runner and how many wait, then each run in
+flight, and starts nothing; `gh run list --status in_progress` and
+`gh run list --status queued` list the same runs. With the workflow it prints the two counts
+and starts the run, unless a rule below is against it: then it says why, starts nothing and
+exits with status 1. It sees this repository's runs only. The rules, with what the script
+does about each:
+
+- Look at what is running and waiting before you start a run. The script prints it each time.
+- Put the sessions you need into one run. Each can have its own window width, text size, flow
+  and launch arguments, so that step lists that differ in them share one run, one build and
+  one runner. The script checks the steps as the runner would, before anything waits for a
+  runner, and prints each session with its settings.
+- Keep at most two runs in flight for a branch, and one while any run is waiting for a
+  runner. The script starts no run beyond that and lists the branch's runs.
+- Cancel a run as soon as it is no longer needed, with `gh run cancel RUN_ID`. Nothing else
+  cancels one.
+
+`--force` starts a run the script would refuse; a slow queue is not a reason for it. The
+script also says when GitHub's copy of the branch is not the commit checked out, because a
+run uses what is pushed.
 
 ## Physical iPhone and iPad
 
@@ -434,8 +597,8 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 - `forward=COUNT`, `backward=COUNT`: that many moves to the next or previous item, where
   `read` would go on through a whole book in continuous scroll.
 - `visible`: the window size and each column's first and last numbered lines as XCTest sees
-  them, to compare with the speech. Lines listed above or below the window, as in continuous
-  scroll while the cursor is in the text, are counted apart.
+  them, to compare with the speech. Lines listed above or below the window, as continuous
+  scroll lists them, are counted apart.
 - `touch=LABEL`: touch the first item whose label begins with LABEL. Under VoiceOver a touch
   moves its cursor there; `touch=word` is the first numbered line.
 - `activate=LABEL`: touch the item, then double-tap, which is VoiceOver's activation. The
@@ -642,7 +805,17 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    found" past the last, and the view shows the heading; `rotor` opens on the Heading menu,
    which lists the page's headings, or the whole book's in continuous scroll, each by its
    words and level, and `listchoose` moves to the one named.
-10. Restore all original VoiceOver/scripting settings and independently verify restoration.
+10. Links on a Mac, in pages and in continuous scroll, with VoiceOver's link setting at Speak
+    ([Links](#links)). `ax:links` lists each link on screen once as a `CHILD`, by its words:
+    "Verification link" on the first page, "Parked link to the target" on the hidden-labels
+    section, and "image", "Jump with decoration" and "Described jump, image" on the section
+    of pictures. None is called U+FFFC. `nextlink` moves to each in turn, VoiceOver says its
+    name and "hyperlink", and `activate` from there shows the page with "Link target
+    reached". Moving by word and by line VoiceOver says "hyperlink Parked link to the
+    target", "hyperlink image" after "Bare jump:", "hyperlink" before "Jump with decoration",
+    and "hyperlink Described jump, image". It reads "Verification link." as its words and
+    nothing else, and `activate` with the cursor on either word follows that link too.
+11. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
@@ -786,27 +959,98 @@ The Mac runner's transcript is plain text and needs no export.
   the lines read "Page boundary verification", "Verification link Link", ". Image:", "Blue
   verification square Image", and after three steps the ninth move gave `word0550 …
   word0555`, the first on screen.
-- The same day, on the iPad on its side (1366 × 1024), straight after
-  `activate=Contents,activate=Chapter two`: the fifth move gave "Chapter two" and seventeen
-  more the lines down to `p043w36 … p043w40`, the last that had been on screen when the
-  menu closed. The next gave "Vertical scroll bar" and the one after the sample's footer;
-  the lines after `p043w40`, listed by then, were passed over. Moving back from there gave
-  the lines in order to "Chapter two", then three of them a second time, then went on above
-  the heading without a gap. An iPhone 17 Pro simulator (iOS 27.0) does the same after any
-  menu closes, even when the chapter chosen is the one on screen, and reads on, as the
-  devices did, when VoiceOver comes into the text after a step of the reader's own or
-  without a menu having closed. VoiceOver appears to keep the elements it found when the
-  menu closed and to walk those while its cursor stays on them. Posting a layout change,
-  with no element or with the line under the cursor, did not change that in the simulator;
-  a page-scrolled notification made VoiceOver skip lines; giving it new elements for the
-  same lines once its cursor had moved on made it lose its place. It is not resolved
+- The same day, with the scroll view listing the lines on screen alone, on the iPad on its
+  side (1366 × 1024), straight after `activate=Contents,activate=Chapter two`: the fifth move
+  gave "Chapter two" and the moves after it the lines down to `p043w36 … p043w40`, the last
+  that had been on screen when the menu closed. The next gave "Vertical scroll bar" and the
+  one after the sample's footer; the lines after `p043w40`, listed by then, were passed
+  over. Moving back from there gave the lines in order to "Chapter two", then three of them
+  a second time, then went on above the heading without a gap. An iPhone 17 Pro simulator
+  (iOS 27.0) did the same after any menu closed, even when the chapter chosen was the one on
+  screen, and read on, as the devices did, when VoiceOver came into the text after a step of
+  the reader's own or without a menu having closed. Posting a layout change, with no element
+  or with the line under the cursor, did not change that in the simulator; a page-scrolled
+  notification made VoiceOver skip lines; giving it new elements for the same lines once its
+  cursor had moved on made it lose its place
   ([#339](https://github.com/vocaro/EPUBLib/issues/339)).
+- What VoiceOver asks for, from a build that logged UIKit's answers to it (not committed; it
+  replaced `_accessibilityElementsInDirectionWithCount:options:` to log the count and what
+  came back), in the simulator and on the iPad alike. As its cursor lands on an item it asks
+  for the two items after it and the two before; at each move after that, for the one item
+  beyond those it holds. At its first move after a menu has closed it asks for fifty each
+  way and goes through them without asking again, then goes back to one at a time. With the
+  lines on screen listed alone, the fifty after Contents were four controls, those lines,
+  the scroll bar and the footer. It goes through the same fifty after a touch on one of
+  them: in the simulator after the menu, `activate=Scroll Forward` and eight moves went
+  through the controls it had been given, the ninth said "Chapter one", a line no longer
+  listed, and the tenth was Scroll Forward again, from where it asked afresh. UIKit's hit
+  test of the text view reads every element listed, twice at each move, and so does XCTest's
+  snapshot. The scroll view measured a list of some 120 lines in about 11 ms on the iPad and
+  5 ms in the simulator, in debug builds, a little more than once a move.
+- With the fifty lines after the screen listed, and fifty each side while the cursor is on a
+  line, the same day, through XCTest's VoiceOver service, VoiceOver switched on for each
+  session and off after it; nobody listened. The iPad's two sessions were run at `667b110`
+  and again at `b2760c6` and `bcc55f3`, each with main merged in, with the same phrases but
+  for "Chapter two Heading" once main had headings as elements. iPad on its side at 23
+  points,
+  `rotate=landscape,activate=Contents,activate=Chapter two,wait=2,visible,screenshot,forward=5,screenshot,forward=62,visible,backward=72,visible,rotate=portrait`:
+  the fifth move gave "Chapter two", the sixty-two after it every line once and in order
+  from `p041w01` to `p051w08 … p051w14`, past `p043w36 … p043w40` to `p044w01` and on with
+  no scroll bar among them, and seventy-two back every line in order to `p039w21`, through
+  the heading into the chapter before. The first `visible` counted 68 numbered lines, those
+  on screen and the fifty after them. The screenshots before and after the fifth move
+  differ only in VoiceOver's cursor, and in one run the status bar's clock. iPad upright, the two-step session above with forty
+  moves forward and fifty-six back: the ninth move gave `p010w15 … p010w21`, as before the
+  change, with every line once and in order both ways, and the screenshots before and after
+  coming in differ only in the cursor. With an earlier build that listed the same lines,
+  twenty-seven of VoiceOver's own flicks after the menu on the iPad on its side
+  (`flick=right*27`) gave the four controls, the heading and twenty-two lines in order to
+  `p044w22 … p044w28`. iPhone 17 Pro simulator (iOS 27.0), at `667b110`: after
+  `activate=Contents,activate=Chapter one`, seventy lines forward from `p001w01` to
+  `p008w22`, in order, where it had stopped at `p002w29 … p002w33`, and sixty-nine back to
+  the heading in order. In one run of two the service gave a phrase twice where
+  `p004w39 p004w40` was due, on a move that took 2.4 s with the Mac's load average at 750.
+  The two-step session, a touch on Bookmark, `point=0.5:0.8` and six and eight flicks: in
+  order.
+- Coming into the text from below, the same day at `667b110`, from the sample's footer
+  (`touch=VoiceOver Paragraph,backward=6`). At the top of the book, in the simulator: the
+  scroll bar, the last line on screen and the lines above it in order. Further in, on the
+  iPad upright after two scroll steps and in the simulator: the scroll bar and then
+  Bookmark. With an earlier build, on the iPad on its side after a menu and a walk through
+  the text: "Vertical scroll bar", `p045w15 … p045w21`, the last line on screen, then
+  Bookmark. The
+  logging build showed the scroll view 88 points back by the time VoiceOver asked for the
+  line before the one it had been given: UIKit scrolls the scroll bar into view as it does
+  a line, by the 48-point top inset and 40 more, and the line was then below the screen and
+  not listed ([#367](https://github.com/vocaro/EPUBLib/issues/367)). The scroll view has
+  listed the lines on screen alone there since #301, and this is not changed. A first
+  attempt listed the fifty lines before the screen there as well, to mirror the lines after
+  it; the move back went wrong in the same way, and they were taken out.
+- The two lines that used to be listed each side were one short when VoiceOver moved back up
+  the screen, menu or no menu. With its cursor on a line it asks for the item before the
+  line two above, so three lines above the cursor must be listed, and two were unless more
+  of the screen lay above the cursor. UIKit scrolls the line the cursor is going to into
+  view before VoiceOver asks, which lists two more, so the answer was usually right. On
+  2026-10-12 another session saw VoiceOver leave the text for Bookmark at "Line 02 after the
+  table." or "Line 01" in two of three simulator sessions on main
+  (`TEST_RUNNER_VOICEOVER_HREF=OPS/table.xhtml`, `touch=Bookmark,forward=16,backward=16`,
+  with a second table added to the section, as #382 does), and one of ten did here. In the
+  six of those that were logged, the line VoiceOver asked from was the first line listed
+  until the view had scrolled, and the list was made again only as the question arrived.
+  With fifty lines listed, four sessions of the same steps read back to the heading, and
+  the list began fifty lines above that line before the scroll as after it. Two more sessions gave no transcript: VoiceOver's automation
+  failed at the third move in one and the reader did not start in the other, at load
+  averages of 800 to 1,000.
+- `xcodebuild`'s console output lost three of one device run's 160 `VOICEOVER_EVENT` lines,
+  three moves back in a row. The transcript attached to the result bundle had them all.
+  Check a break against the attachment before taking it for VoiceOver's.
 - In the simulator, UIKit scrolled the line VoiceOver's cursor came to until the area inside
   the scroll view's insets held its frame, and then until the line was 40 points below the
   top of that area or about 120 above its bottom. A line that was the first listed when
   VoiceOver took it led back to the control before the text on the next move back, though
-  lines had been listed before it since; and when the list shrank to the screen between the
-  two halves of a move, VoiceOver stopped at a line it had reached above the screen.
+  lines had been listed before it since: it had asked for the two items before that line as
+  it landed. When the list shrank to the screen between the two halves of a move, VoiceOver
+  stopped at a line it had reached above the screen.
 - Not done on a device: a larger text size, VoiceOver's three-finger scroll and its read-all
   gesture, which XCTest cannot make, a book whose lines hold floats or tables, and listening.
 - On 2026-10-12 the hidden-labels section was read on a physical iPhone 17 Pro Max and a
@@ -1108,6 +1352,77 @@ The Mac runner's transcript is plain text and needs no export.
   Not heard: a physical Mac, or anyone listening; a rule in a note's popover; VoiceOver in
   a language other than English or with its verbosity changed; and what Safari or Books
   says at an `<hr>` on a Mac, which was not compared.
+- On 2026-10-12 and 13 links were heard on a Mac: GitHub's hosted `xcode-27` runner (image
+  `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in a window 600 points wide at 17
+  points, with VoiceOver's link setting at Speak, as the runner has it. Nobody listened, and
+  no workstation was used.
+  First what VoiceOver does with AppKit's own text view (`-VerificationPlainText`), with
+  TextKit 2 and with TextKit 1, at `e3efd8a`, `a72154c` and `71f9b77`. By word: "the", "reference",
+  "link", "after". By line: "Reference opening words. Before the reference link after it."
+  and "Picture link:   closing words.". Read All said the same lines. Nothing said that a
+  link was there. Find Next Link: "reference link hyperlink", the hint "You are currently on a
+  hyperlink, inside of a text area. To clic", then "￼ hyperlink" for the link that is a
+  picture. Control-Option-Space after Find Next Link followed the link, and so did
+  Control-Option-Space with the cursor on "Reference", the first word of the line that holds
+  "reference link", and on "after"; on "Reference" in the last line, which has no link,
+  nothing was followed. The rotor listed Window Spots.
+  The reader before the change, at `e3efd8a` (main's reader then) and for the pictures at
+  `62ea392`: the first page as AppKit's view, "Verification", "link." by word and
+  "Verification link hyperlink" for Find Next Link. Its links that are attachments were
+  called by their character: `ax:links` gave the titles "￼" and "￼ Jump with decoration",
+  and Find Next Link said "￼ hyperlink", "￼ Jump with decoration hyperlink" and "￼
+  hyperlink" on the section of pictures, the last for "Described jump". On the hidden-labels
+  section Find Next Link did not move to the parked link: VoiceOver said the text area's
+  first line again. By word the label was "Parked link to the target" and the pictures
+  "image" and "Described jump image", with nothing of a link.
+  With the reader's own elements, at `bd27b89`, at the fixed pause, in pages. The first page:
+  `ax:links` one child, "Verification link", with `AXPress`; by line "Verification link.
+  Image:  Blue verification square image ." and by word "Verification", "link.", as before;
+  Find Next Link "Verification link hyperlink" and the hint, and again "Last link
+  Verification link hyperlink"; Control-Option-Space from there, and in another session from
+  the word "link.", gave `AXValueChanged` with `word1187` to `word1200` and the page whose
+  third line is "Link target reached". The hidden labels: by word "closing", "words.",
+  "hyperlink Parked link to the target", "Shown"; by line and in Read All "hyperlink Parked
+  link to the target Shown last words."; Find Next Link from the top of the page "Parked
+  link to the target hyperlink" and the hint, Control-Option-F3 "hyperlink is in the
+  VoiceOver cursor", and Control-Option-Space the target's page. The pictures: `ax:links`
+  three children, "image", "Jump with decoration" and "Described jump, image"; by line "Bare
+  jump:  hyperlink image", "hyperlink  Jump with decoration", "hyperlink Described jump,
+  image" and "Titled decoration   passed over."; by word "Bare", "jump:", "hyperlink image",
+  "hyperlink", "Jump", "with", "decoration", "hyperlink Described jump, image", "Titled";
+  Read All the same lines; Find Next Link "image hyperlink", "Jump with decoration
+  hyperlink", "Described jump, image hyperlink", the first and third followed by "actions
+  available" before the hint; the actions menu on the third "Actions menu 2 items", "Inspect
+  Image: Described jump", "press"; Control-Option-Space on "hyperlink image", reached by
+  word, the target's page. `ax:follow` on each section's link gave the same page with
+  VoiceOver's cursor elsewhere.
+  In continuous scroll at the same revision, opened at a section with `-SampleHref`. The
+  text's children were the links of the paragraphs on screen, three with the pictures there,
+  one with the hidden labels and one on the first page, while the text's string gave a link
+  element at every link of the book. By word, by line and in Read All VoiceOver said what it
+  said in pages: "Verification", "link."; "hyperlink Parked link to the target"; "hyperlink
+  image", "hyperlink" before "Jump", "hyperlink Described jump, image". Find Next Link gave
+  the same names with "hyperlink", and Control-Option-Space from there, and from the word
+  "link.", scrolled the view to the target: the insertion point's line was then "Link
+  target reached" (`ENTRY`).
+  Find Previous Link went forward. From the third link it said "image hyperlink", the
+  first, where Find Next Link goes past the last. Main's reader, through AppKit's own
+  elements, did the same at `a49d12e`: from the third link "￼ hyperlink" and then "￼ Jump
+  with decoration hyperlink", the first and the second. It is VoiceOver's doing on macOS
+  27.0.1, as its Find Previous Heading asked the reader for the next heading.
+  What did not work, each heard once and left out: a link element given as the attachment of
+  a link's words, with a name and without one, over all of them and over the first letter
+  (`0b50784`: the first page read as before, by word, by line and in Read All); the same
+  over words that follow an attachment (`71f9b77`: VoiceOver said "hyperlink Jump with
+  decoration" and then "Jump with decoration" again); and a rotor of links (`8acc907`), with
+  the links' characters as its results (Find Next Link "image", "Jump with decoration", "Described jump
+  image", without "hyperlink", and Find Previous Link "Link not found") and with the link
+  elements as its results (Find Next Link "Link not found", the rotor's list "Link menu",
+  "On item image hyperlink").
+  Not heard: listening; a workstation; link settings other than Speak, of which Play Tone
+  and Change Pitch leave nothing in a transcript; a link in a table cell or a note's
+  popover; a link that wraps onto a second line or crosses a page's end, which the unit
+  tests read; and a link below the screen in continuous scroll.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).

@@ -61,11 +61,13 @@ import UIKit
         var read: [String] = []
         rich.enumerateAttribute(.accessibilityAttachment, in: NSRange(location: 0, length: rich.length)) { value, range, _ in
             guard let element = value as? NSAccessibilityElement else { return }
+            // A hidden label that is a link is a link, called by its words (`LinkAccessibilityTests`).
+            if element.accessibilityRole() == .link { return read.append("\(range.location) link \(element.accessibilityTitle() ?? "")") }
             let isText = element.accessibilityRole() == .staticText
             read.append("\(range.location) \(isText ? "text" : "image") \((isText ? element.accessibilityValue() as? String : element.accessibilityLabel()) ?? "")")
             if isText { XCTAssertNil(element.accessibilityLabel(), "its words are its value, said once") }
         }
-        XCTAssertEqual(read, ["0 text The Hidden Title", "9 text unseen", "17 text Skip to chapter two"],
+        XCTAssertEqual(read, ["0 text The Hidden Title", "9 text unseen", "17 link Skip to chapter two"],
                        "the image of the title is decoration: nothing stands for it")
         XCTAssertEqual(view.visibleText, "The Hidden Title\nWords unseen after.\nSkip to chapter two End.", "what Copy takes from the page")
     }
@@ -152,26 +154,30 @@ import UIKit
         var read: [String] = [], actions: [[String]] = [], elements: [NSAccessibilityElement] = []
         rich.enumerateAttribute(.accessibilityAttachment, in: NSRange(location: 0, length: rich.length)) { value, range, _ in
             guard let element = value as? NSAccessibilityElement else { return }
-            XCTAssertEqual(element.accessibilityRole(), .image)
             let link = (section.string.attribute(.link, at: range.location, effectiveRange: nil) as? URL).flatMap { url in
                 ["two", "three", "four", "five"].first { ReaderLink.internal(href: "OPS/\($0).xhtml").url == url }
             }
-            read.append("\(range.location) \(element.accessibilityLabel() ?? "nil")" + (link.map { " to \($0)" } ?? ""))
+            // A picture in a link is a link, which says after its words that it is a picture.
+            XCTAssertEqual(element.accessibilityRole(), link == nil ? .image : .link)
+            read.append("\(range.location) \((link == nil ? element.accessibilityLabel() : element.accessibilityTitle()) ?? "nil")"
+                        + (link.map { " to \($0)" } ?? ""))
             actions.append((element.accessibilityCustomActions() ?? []).map(\.name))
             elements.append(element)
             XCTAssertFalse(element.accessibilityFrameInParentSpace().isEmpty, "\(range.location) has a place")
         }
         let text = section.string.string as NSString
         let bare = NSMaxRange(text.range(of: "Bare: ")), described = NSMaxRange(text.range(of: "Jump with decoration\n"))
-        XCTAssertEqual(read, ["12 nil", "49 A described picture", "\(bare) nil to two", "\(described) Described jump to four",
-                              "\(described + 2) nil to five"],
-                       "no element for decoration in a line or in a link that has words; one for decoration that is all its link holds")
-        XCTAssertEqual(actions, [["Inspect Image"], ["Inspect Image: A described picture"], ["Inspect Image"],
+        let picture = try XCTUnwrap(NSAccessibility.Role.image.description(with: nil))
+        XCTAssertEqual(read, ["12 nil", "49 A described picture", "\(bare) \(picture) to two", "\(bare + 2) nil to three",
+                              "\(described) Described jump, \(picture) to four", "\(described + 2) \(picture) to five"],
+                       "no element for decoration in a line; decoration that opens a link with words is where the link is announced, "
+                       + "without a name; decoration that is all its link holds is the link")
+        XCTAssertEqual(actions, [["Inspect Image"], ["Inspect Image: A described picture"], ["Inspect Image"], [],
                                  ["Inspect Image: Described jump"], ["Inspect Image"]])
         // VoiceOver reads the help of an element without a label in the label's place, so an
         // image without words has none: it was heard as "Double-click or choose Inspect Image
-        // to enlarge. image" in the middle of its line.
-        XCTAssertEqual(elements.map { $0.accessibilityHelp() != nil }, [false, true, false, true, false])
+        // to enlarge. image" in the middle of its line. A link has none either.
+        XCTAssertEqual(elements.map { $0.accessibilityHelp() != nil }, [false, true, false, false, false, false])
         XCTAssertTrue(try XCTUnwrap(elements[1].accessibilityCustomActions()?.first).handler?() ?? false)
         XCTAssertNotNil(host.canvas.imageInspector)
         host.canvas.imageInspector?.close()
@@ -332,25 +338,34 @@ import UIKit
 
     /// On Mac the text area is the element and a rule is a character of its value. The
     /// character carries an element that says a separator is there, as an image's carries an
-    /// image, and the value and every range stay those of the characters.
+    /// image, and the value and every range stay those of the characters. A rule that is all
+    /// its link holds is the link, which VoiceOver is told of there, without a name.
     func testARuleIsASeparatorElementWithoutWordsOnMac() throws {
-        let (section, _, view) = try pageWithRules()
+        let (section, host, view) = try pageWithRules()
         let whole = NSRange(location: 0, length: section.string.length)
         XCTAssertEqual(view.accessibilityValue(), section.string.string, "the characters as they are, so every range matches")
         XCTAssertEqual(view.accessibilityNumberOfCharacters(), section.string.length)
         let found = try attachmentElements(of: view, in: whole)
         XCTAssertEqual(found.map(\.location), [18, 41], "one element for each rule, on the rule's own character")
-        for (location, element) in found {
+        for (location, _) in found {
             XCTAssertEqual(view.accessibilityString(for: NSRange(location: location, length: 1)), "\u{FFFC}")
-            assertIsASeparator(element, in: view)
-            XCTAssertFalse(element.accessibilityFrameInParentSpace().isEmpty, "it has a place")
-            let drawn = view.segmentFrames(for: NSRange(location: location, length: 1)).reduce(CGRect.null) { $0.union($1) }
-            XCTAssertEqual(element.accessibilityFrameInParentSpace(), drawn.offsetBy(dx: view.containerOrigin.x, dy: view.containerOrigin.y),
-                           "where the rule is drawn")
         }
-        XCTAssertNotEqual(found.first?.element.accessibilityFrameInParentSpace(), found.last?.element.accessibilityFrameInParentSpace())
-        // The second rule is all its link holds. On Mac a link is text, and the rule in it is a rule.
-        XCTAssertNotNil(section.string.attribute(.link, at: 41, effectiveRange: nil))
+        let rule = try XCTUnwrap(found.first).element
+        assertIsASeparator(rule, in: view)
+        XCTAssertFalse(rule.accessibilityFrameInParentSpace().isEmpty, "it has a place")
+        let drawn = view.segmentFrames(for: NSRange(location: 18, length: 1)).reduce(CGRect.null) { $0.union($1) }
+        XCTAssertEqual(rule.accessibilityFrameInParentSpace(), drawn.offsetBy(dx: view.containerOrigin.x, dy: view.containerOrigin.y),
+                       "where the rule is drawn")
+        // The second rule is all its link holds: the link's element stands there, and no word of the reader's.
+        let link = try XCTUnwrap(found.last).element
+        XCTAssertEqual(link.accessibilityRole(), .link)
+        XCTAssertNil(link.accessibilityTitle())
+        XCTAssertNil(link.accessibilityLabel())
+        XCTAssertNil(link.accessibilityValue())
+        XCTAssertNil(link.accessibilityHelp())
+        XCTAssertNotEqual(link.accessibilityFrameInParentSpace(), rule.accessibilityFrameInParentSpace())
+        XCTAssertTrue(link.accessibilityPerformPress())
+        XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/two.xhtml"))
         // A read of part of the page gives the same elements, at their places in that part.
         let again = try attachmentElements(of: view, in: whole)
         XCTAssertTrue(zip(found, again).allSatisfy { $0.element === $1.element } && again.count == 2, "an element is kept from one read to the next")
