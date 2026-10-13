@@ -1228,7 +1228,8 @@ VoiceOver did not make, as a key on a keyboard or a host's own command is. Count
 before it into the delay (a touch costs about five and a half seconds) and put a `listen=`
 across the moment. `-SampleDarkAfter 18` has the reader turn dark by itself in the same
 way, as a host does that follows the time of day: the page is shown again in place, with
-the same lines and new items for them. `TEST_RUNNER_VOICEOVER_OFF=1`
+the same lines and new items for them, all but the one under VoiceOver's cursor.
+`TEST_RUNNER_VOICEOVER_OFF=1`
 leaves VoiceOver off, so the same steps are plain touches: use it to tell a VoiceOver failure
 from one of the reader's own. The probe stops when the reader is no longer in the foreground.
 Another session's tests on the same device bring their own app forward or switch VoiceOver
@@ -1335,7 +1336,12 @@ devices VoiceOver performs every one of these
 simulator's and not the probe's or the reader's. VoiceOver activating an item, an action
 performed from the rotor and a page turned in landscape need a device. Turning the rotor and
 moving by it do not. To read a later landscape spread on a simulator, turn pages in portrait
-and then rotate: the reader keeps its place.
+and then rotate: the reader keeps its place. A simulator stays the way a session turned
+it, so end a session that rotates with `rotate=portrait`. The next session on that
+simulator otherwise begins on its side, and its `doubletap=Next Page` turns nothing. Its
+transcript says so, `settled: nothing on screen changed in 2.0 s` after the double tap;
+eight sessions read a page that had not turned before that line and a screenshot were
+looked at.
 
 Whether the rotor kept its place across a page turn can be read on a simulator all the same,
 since stepping through the rotor needs no activation. Choose Next Page with `flick=down`,
@@ -1343,7 +1349,9 @@ turn the page under the cursor with `doubletap=Next Page`, which arrives as a pl
 the control strip's button and leaves the cursor where it is, `listen=4` for what VoiceOver
 says by itself, and `flick=down` again. "Previous Page", the action after the one chosen,
 says the rotor kept its place; "Next Page" again says it started anew. That a double tap
-then performs the action is still a device's to show.
+then performs the action is still a device's to show. Across a page that is shown again in
+place it is read the same way, with the sample making the reader dark in place of the
+double tap: `flick=down,listen=22,screenshot,flick=down` under `-SampleDarkAfter 20`.
 
 VoiceOver keeps a log of its own in a simulator, and it says what VoiceOver did where a
 transcript says only what it read. Stream it for the length of a session:
@@ -1371,6 +1379,11 @@ xcrun simctl spawn DEVICE log stream --level debug --style compact --predicate '
   it was: `Forced update, so removing all from cache`, then `fetch count: 2` each way from
   its cursor, and one item at each move after that. Five layout changes that arrived while
   it moved on every half second were followed by no forced update.
+- At a forced update VoiceOver looks again at the item under its cursor (`Proposing current
+  element`). `Will set element` straight after it says the item listed there is another
+  one than the item it held, and that it set its cursor on it: nothing is spoken, and its
+  rotor is at its default from then on. With no `Will set element` its cursor is on the
+  item it was on, and what was chosen in its rotor stands.
 - An item VoiceOver holds is asked about again at a move only if its cursor has not been on
   it. For such an item that is gone, `Checking element` is followed a few milliseconds
   later by a second `Checking element`, for the item the app gave in its place, and
@@ -1504,7 +1517,17 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    with the cursor on its third line, and the moves read the line above, that third line
    again and the two after it. "Bookmark" at the second of those moves is the failure:
    VoiceOver took an item of the page as it was, and was put on the control it had last
-   touched.
+   touched. Then with an action chosen in the rotor on a line,
+   `touch=p001w01,flick=down,listen=22,screenshot,flick=down,forward=2` with the change at
+   20 seconds: "Next Page" at the first flick, nothing during the `listen`, "Previous Page"
+   at the second, which says the rotor kept its place, and the page's second and third
+   lines. "Next Page" again at the second flick is the failure: VoiceOver was given a new
+   item for the line it was on. On an iPad the same from a data table's cell
+   (`OPS/grids.xhtml`,
+   `touch=Twelve metres,flick=down,listen=22,screenshot,flick=down,backward=1,forward=3`):
+   "Previous Page" at the second flick, then "Opened 1901 Column 2" and "Depth Twelve
+   metres Column 3". That cell read without "Column 3" is a failure too: its table has a
+   new item and the cell an old one.
 4. Confirm heading order, the link's label/action and the image's spoken label.
 5. Resize or change typography, wait for the new layout, and repeat the boundary and ordering
    checks. On Mac verify corresponding value-change notifications and fresh text values.
@@ -2495,7 +2518,7 @@ The Mac runner's transcript is plain text and needs no export.
     as it was and `Will set element: p002w05 …`. After: "Next Page" again at the second
     flick, then `p001w06 …` and `p001w11 …`. The rotor is at its default again, because
     VoiceOver set its cursor on the line's new item at the forced update: the cost of the
-    change there is one flick down.
+    change there is one flick down. The entry after this one is where it keeps its place.
   - The iPad, the cursor in a table's cell
     (`OPS/grids.xhtml`, `touch=Twelve metres,backward=2,forward=2,listen=22,screenshot,backward=1,forward=3`).
     Before the change the moves read "Opened 1901 Column 2", "Station Alder Row header
@@ -2539,6 +2562,91 @@ The Mac runner's transcript is plain text and needs no export.
   log says it does not follow with a forced update. VoiceOver's three-finger scroll is as
   it was, announced and with no layout change when its cursor has not left the page;
   XCTest cannot make the gesture.
+- The rotor's place when the same page is shown again under VoiceOver's cursor, which the
+  entry above left at its default
+  ([#516](https://github.com/vocaro/EPUBLib/issues/516)): on 2026-10-13, after that change
+  had merged. Simulators
+  of the session's own on iOS 27.0 with Xcode 27.0, at 17 points: two iPhone 17 Pros (402 ×
+  874) with the book of ordinary paragraphs and the first book, and an iPad Air 13-inch
+  (M4) with the first book, upright (1024 × 1366) but where it says otherwise. Through
+  XCTest's VoiceOver service, VoiceOver switched on for each session and read back as off
+  after it; nobody listened, and no device has run it. "Before" is main at `888fd7b` and
+  "after" is `6dae9ee`. Each step list was a session of its own on each, fifty-six in
+  all, at load averages from 6 to 79, and each ran all its steps and ended with
+  xcodebuild's status 0. The sample makes the reader dark by itself (`-SampleDarkAfter`).
+  VoiceOver's own log is quoted ([Simulators](#simulators)).
+
+  The cursor on a line, with an action chosen in the rotor.
+  - `touch=p001w01,flick=down,listen=22,screenshot,flick=down,forward=2`, dark at 20
+    seconds. Before: "Next Page", nothing during the `listen`, "Next Page" again at the
+    second flick, then `p001w06 …` and `p001w11 …`. The log has `Received note: Layout
+    Changed` with no element at 12:08:44.784, and at 12:08:45.592 `Proposing current
+    element` and `Will set element`, both for `p001w01 …`, then `Forced update, so
+    removing all from cache` and `fetch count: 2`. After: "Next Page", nothing during the
+    `listen`, "Previous Page" at the second flick, and the same two lines. The log has the
+    change at 12:09:44.632, and at 12:09:45.400 `Proposing current element`, the forced
+    update and the fetch, with no `Will set element`. In neither did VoiceOver begin to
+    speak between the change and the screenshot, which shows the page dark and the cursor
+    on its first line.
+  - The rotor stepped both ways afterwards
+    (`touch=p001w11,flick=down,flick=down,listen=22,screenshot,flick=down,flick=up,backward=2,forward=4`,
+    dark at 24 seconds). Before: "Next Page" and "Previous Page", and after the change
+    "Next Page" and "Activate Default": the rotor had started anew. After: "Next Page" and
+    "Previous Page", then "Activate Default", which follows Previous Page, and "Previous
+    Page" at the flick up. The moves read the same in both: `p001w06 …`, `p001w01 …`, and
+    forward through `p001w11 …`, the line the cursor had been on, to `p001w21 …`.
+  - A heading, a link and a picture under the cursor (the first book, dark at 18 seconds,
+    each after one move away and back, as
+    `touch=Page boundary,forward=1,backward=1,listen=22,screenshot,forward=1,backward=1,forward=2`).
+    Before and after alike, and the item the cursor had been on is read as what it is
+    each time VoiceOver comes back to it: "Page boundary verification Heading",
+    "Verification link Link", "Blue verification square Image". Before, each log has `Will
+    set element` at the forced update. After, none has.
+  - The iPad on its side with the book of paragraphs, the cursor in the right-hand page
+    (`rotate=landscape,touch=p005w08,flick=down,listen=22,screenshot,flick=down,backward=1,forward=2,rotate=portrait,visible`,
+    dark at 24 seconds). Before: "Next Page" again at the second flick. After: "Previous
+    Page". `p005w01 …`, `p005w08 …` and `p005w15 …` follow in both.
+
+  The cursor in a data table's cell (the iPad, `OPS/grids.xhtml`).
+  - With an action chosen
+    (`touch=Twelve metres,flick=down,listen=22,screenshot,flick=down,backward=1,forward=3`,
+    dark at 20 seconds). Before: "Next Page" again at the second flick. After: "Previous
+    Page". Then in both "Opened 1901 Column 2", "Depth Twelve metres Column 3", "Station
+    Birch Row header Row 3 Column 1" and "Opened 1934 Column 2".
+  - The entry above's session
+    (`touch=Twelve metres,backward=2,forward=2,listen=22,screenshot,backward=1,forward=3`),
+    and the same with the move forward made first
+    (`…,screenshot,forward=1,backward=1,backward=2`). The first reads those four cells in
+    both, and the second "Station Birch Row header Row 3 Column 1", "Alder Depth Twelve
+    metres Row 2 Column 3", "Opened 1901 Column 2" and "Station Alder Row header Column
+    1". Before, the first move after the change is followed by VoiceOver's hint about the
+    rotor, as a move after a touch is. After, it is not.
+  - The same three with the iPad on its side, where the table is in the left-hand page:
+    as upright in both, and "Previous Page" at the second flick after. They were not
+    meant to be: an earlier session had left the simulator turned.
+  - With the cell's item kept and a new item for its table, on a build that is not in the
+    branch: "Previous Page" at the second flick, the rotor kept, and the cell the cursor
+    had been on read with its header cells and without its place at every return to it,
+    "Depth Twelve metres" for "Depth Twelve metres Column 3" in two sessions and "Alder
+    Depth Twelve metres" for "Alder Depth Twelve metres Row 2 Column 3" in a third. The
+    cells round it were read as before, and VoiceOver's log of those moves is the same
+    item for item as with a new cell: it does not say why the place is left out. With
+    the table's item kept as well, which is the change, the place is said.
+
+  The sessions of the entry above read as they do there, before and after alike. On the
+  iPhone: a page turned with the cursor back on the last control, on the page button with
+  the whole page held (the menu closed, and a chapter chosen), with two lines or the whole
+  page held and not visited, and by the page button touched twice; the page shown again
+  with the cursor on its third line, near and far, and back on the last control; the
+  cursor on a line whose page is turned, with and without the rotor's choice. On the iPad:
+  from a cell to a line, from a line to a cell, and back out by Previous Page. And the
+  lane's default steps on the first book, on both.
+
+  Not established: a device, where that a double tap then performs the action chosen is
+  still to be shown. A move made sooner than 0.8 s after the page is shown, as in the
+  entry above. A page shown again with its lines broken differently, as after a change of
+  text size: the cursor's line is then no line of the page, and the cursor is sent to the
+  page as after a turn.
 - The two lines that used to be listed each side were one short when VoiceOver moved back up
   the screen, menu or no menu. With its cursor on a line it asks for the item before the
   line two above, so three lines above the cursor must be listed, and two were unless more
