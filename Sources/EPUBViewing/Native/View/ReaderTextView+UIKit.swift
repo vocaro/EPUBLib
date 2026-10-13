@@ -27,6 +27,8 @@ final class ReaderTextView: UITextView {
     /// Whether that cursor is on something VoiceOver reaches after the scroll view's lines: one
     /// of the scroll view's own bars, or an item below the reading area.
     private var accessibilityCursorFollowsText = false
+    /// The elements that stand in the list for the scroll view's own bars (`scrollBarListed`).
+    private var scrollBarElements: [ReaderScrollBarAccessibilityElement] = []
     /// How many lines the scroll view lists past the screen: as many items as VoiceOver was seen
     /// to ask for at once (iOS 27.0).
     private static let accessibilityLinesPastScreen = 50
@@ -179,17 +181,17 @@ final class ReaderTextView: UITextView {
     }
 
     override var accessibilityElements: [Any]? {
-        get { listsLines ? lineAccessibilityElements : super.accessibilityElements }
+        get { listsLines ? lineAccessibilityElements + scrollBarListed : super.accessibilityElements }
         set { super.accessibilityElements = newValue }
     }
 
     override func accessibilityElementCount() -> Int {
-        listsLines ? lineAccessibilityElements.count : super.accessibilityElementCount()
+        listsLines ? lineAccessibilityElements.count + scrollBarListed.count : super.accessibilityElementCount()
     }
 
     override func accessibilityElement(at index: Int) -> Any? {
         guard listsLines else { return super.accessibilityElement(at: index) }
-        let elements = lineAccessibilityElements
+        let elements: [UIAccessibilityElement] = lineAccessibilityElements + scrollBarListed
         return elements.indices.contains(index) ? elements[index] : nil
     }
 
@@ -197,6 +199,10 @@ final class ReaderTextView: UITextView {
         guard listsLines else { return super.index(ofAccessibilityElement: element) }
         let elements = lineAccessibilityElements
         if let index = elements.firstIndex(where: { $0 === element as AnyObject }) { return index }
+        // A bar's stand-in follows the last line, and UIKit's own bar is where its stand-in is.
+        if let index = scrollBarListed.firstIndex(where: { $0 === element as AnyObject || $0.bar === element as AnyObject }) {
+            return elements.count + index
+        }
         // An element kept from before the list moved away and back stands for its line.
         guard let kept = element as? ReaderPageAccessibilityElement, kept.view === self else { return NSNotFound }
         return elements.firstIndex { $0.range == kept.range && $0.url == kept.url } ?? NSNotFound
@@ -261,6 +267,64 @@ final class ReaderTextView: UITextView {
         return elements
     }
 
+    /// The scroll view's own scroll bars, as elements the view lists itself after its last line.
+    ///
+    /// UIKit gives VoiceOver a scroll view's bar after the view's last element and then holds
+    /// the bar to stand before the first: it keeps the bar among the views it calls the scroll
+    /// view's supplementary headers, and asked for the items each side of a header it answers
+    /// with the first line listed and with the control before the scroll view. So VoiceOver
+    /// read the screen a second time after the book's last line, and went back from the bar
+    /// to the control before the text. A bar hidden from assistive technology is no such
+    /// header, and is not given to VoiceOver at all. So each bar is hidden, and an element of
+    /// the reader's own is listed in its place: it says what the bar says and adjusts as the
+    /// bar adjusts, by asking the bar, and being an element of the list like any line it has
+    /// the last line before it and whatever follows the scroll view after it. A bar is a view
+    /// of the scroll view's own that is an accessibility element: the lines are no views.
+    private var scrollBarListed: [ReaderScrollBarAccessibilityElement] {
+        guard isCanvasScrollView else { return [] }
+        scrollBarElements.removeAll { $0.bar.superview !== self }
+        for bar in subviews where bar.isAccessibilityElement && !bar.accessibilityElementsHidden {
+            bar.accessibilityElementsHidden = true
+            scrollBarElements.append(ReaderScrollBarAccessibilityElement(view: self, bar: bar))
+        }
+        scrollBarElements.forEach { $0.refresh() }
+        return scrollBarElements
+    }
+
+    /// Where a bar's stand-in is for VoiceOver: the bar's own place, less what the insets
+    /// cover. UIKit scrolls the view until the area the insets leave holds the frame of the
+    /// item the cursor goes to, and a bar is as tall as the view: for the bar itself the view
+    /// went back by the top inset and 40 points at every move to it.
+    fileprivate func accessibilityFrame(ofScrollBar bar: UIView) -> CGRect {
+        let area = UIAccessibility.convertToScreenCoordinates(bounds.inset(by: adjustedContentInset), in: self)
+        let frame = bar.accessibilityFrame
+        return CGRect(x: frame.minX, y: area.minY, width: frame.width, height: area.height)
+    }
+
+    /// `area` of this view, less the side a scroll bar is on. A touch on the bar reached
+    /// UIKit's bar, a view, before any line the scroll view lists. An element in its place is
+    /// one of those the touch is tried against, and VoiceOver took a line that ended within a
+    /// few points of the finger for the one touched: a full line of a paragraph runs under
+    /// the bar's place, which is ten times as wide as the bar is drawn.
+    private func clearOfScrollBars(_ area: CGRect) -> CGRect {
+        var area = area
+        // An element's frame is the screen's. The view is upright on it and at its scale.
+        let origin = UIAccessibility.convertToScreenCoordinates(bounds, in: self).origin
+        for element in scrollBarListed {
+            let bar = element.bar.accessibilityFrame.offsetBy(dx: bounds.minX - origin.x, dy: bounds.minY - origin.y)
+            guard bar.height > bar.width else { continue }
+            let (minX, maxX) = bar.midX > area.midX ? (area.minX, min(area.maxX, bar.minX)) : (max(area.minX, bar.maxX), area.maxX)
+            area = CGRect(x: minX, y: area.minY, width: max(0, maxX - minX), height: area.height)
+        }
+        return area
+    }
+
+    /// An assistive technology's cursor came to a bar's stand-in.
+    fileprivate func accessibilityCursorMovedToScrollBar() {
+        accessibilityCursor = nil
+        accessibilityCursorFollowsText = true
+    }
+
     /// The lines VoiceOver is given in continuous scroll: those on screen and the fifty after
     /// them. Moving into the text from a control it takes the first line listed, the first on
     /// screen. Moving back into it from below it takes the last, so while its cursor is on
@@ -279,7 +343,7 @@ final class ReaderTextView: UITextView {
         guard let canvas else { return [] }
         let place = ScrollAccessibilityPlace(offset: contentOffset, size: bounds.size, content: contentSize,
                                              insets: adjustedContentInset, cursor: accessibilityCursor.map(ObjectIdentifier.init),
-                                             cursorFollowsText: accessibilityCursorFollowsText)
+                                             cursorFollowsText: accessibilityCursorFollowsText, bars: scrollBarListed.count)
         if let cache = scrollAccessibilityCache, cache.place == place { return cache.elements }
         guard let shown = canvas.scrollSpokenCharacters() else { return [] }
         let past = Self.accessibilityLinesPastScreen
@@ -305,8 +369,8 @@ final class ReaderTextView: UITextView {
         // UIKit scrolls the line the cursor comes to until the area the insets leave holds its
         // frame, and then 40 points further. A first line on screen that the top inset cuts
         // would move the reader as VoiceOver came in, so a line on screen is listed by the
-        // part of it in that area.
-        let area = canvas.scrollVisibleContainerRect.offsetBy(dx: containerOrigin.x, dy: containerOrigin.y)
+        // part of it in that area, and by the part clear of the scroll bar.
+        let area = clearOfScrollBars(canvas.scrollVisibleContainerRect.offsetBy(dx: containerOrigin.x, dy: containerOrigin.y))
         for element in elements where NSIntersectionRange(element.range, shown).length > 0 {
             var frame = element.accessibilityFrameInContainerSpace
             // Hidden labels standing at the top with the first line can be a fraction above it.
@@ -371,7 +435,8 @@ final class ReaderTextView: UITextView {
         var followsText = false
         if notification.name == UIAccessibility.elementFocusedNotification {
             guard let focused = notification.userInfo?[UIAccessibility.focusedElementUserInfoKey],
-                  (focused as? ReaderPageAccessibilityElement)?.view !== self else { return }
+                  (focused as? ReaderPageAccessibilityElement)?.view !== self,
+                  (focused as? ReaderScrollBarAccessibilityElement)?.view !== self else { return }
             followsText = accessibilityOrderPutsAfterLines(focused)
         }
         accessibilityCursor = nil
@@ -584,6 +649,53 @@ private struct ScrollAccessibilityPlace: Equatable {
     var insets: UIEdgeInsets
     var cursor: ObjectIdentifier?
     var cursorFollowsText: Bool
+    /// How many scroll bars the lines were listed clear of.
+    var bars: Int
+}
+
+/// A scroll bar of the canvas's scroll view, as the scroll view lists it: UIKit's own bar,
+/// which is hidden from assistive technology, asked for everything it says and does.
+@MainActor private final class ReaderScrollBarAccessibilityElement: UIAccessibilityElement {
+    private(set) weak var view: ReaderTextView?
+    let bar: UIView
+
+    init(view: ReaderTextView, bar: UIView) {
+        self.view = view
+        self.bar = bar
+        super.init(accessibilityContainer: view)
+        isAccessibilityElement = true
+        refresh()
+    }
+
+    /// What the bar says now, and where it is. A subclass of `UIAccessibilityElement` cannot
+    /// answer for its label or value itself, so they are read from the bar whenever the
+    /// scroll view is asked for its elements, and after the bar is adjusted.
+    func refresh() {
+        accessibilityLabel = bar.accessibilityLabel
+        accessibilityValue = bar.accessibilityValue
+        accessibilityHint = bar.accessibilityHint
+        accessibilityTraits = bar.accessibilityTraits
+        if let view { accessibilityFrame = view.accessibilityFrame(ofScrollBar: bar) }
+    }
+
+    override func accessibilityIncrement() {
+        bar.accessibilityIncrement()
+        refresh()
+    }
+
+    override func accessibilityDecrement() {
+        bar.accessibilityDecrement()
+        refresh()
+    }
+
+    override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
+        view?.accessibilityScroll(direction) ?? false
+    }
+
+    override func accessibilityElementDidBecomeFocused() {
+        super.accessibilityElementDidBecomeFocused()
+        view?.accessibilityCursorMovedToScrollBar()
+    }
 }
 
 /// A bounded slice of one visible line. VoiceOver's word/character navigation operates on
