@@ -409,9 +409,10 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   - **Not done.** The Mac is unchanged: a row is a group there. A table inside a cell is
     read as its cell's words, as before. Headings inside a table are not found by the
     Headings rotor, as before.
-  - **Not resolved.** On an iPhone simulator the rotor went from Rows to Actions part of the
-    way back up a column in continuous scroll, which a physical iPad did not do in seventy
-    such moves. A cell offers its actions only once it is on screen, which may be why
+  - **Not resolved.** On an iPhone simulator the rotor once went from Rows to Actions part
+    of the way back up a column in continuous scroll. A physical iPad did not do it in
+    seventy such moves, nor did the simulator in a later session of fifty-four. A cell
+    offers its actions only once it is on screen, which may be why
     ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-12 on tables of data).
     And before fifty lines were listed past the screen
     ([#380](https://github.com/vocaro/EPUBLib/pull/380)), reading back into a table left

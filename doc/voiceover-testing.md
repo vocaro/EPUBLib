@@ -1714,7 +1714,11 @@ The Mac runner's transcript is plain text and needs no export.
   without the rotor moving. In one more iPhone simulator session, after a walk to "Line 10"
   and back, a flick down with the rotor on Rows from "Alder" went to "Last words of the
   scenes." and the flicks after it stepped through actions; the iPad simulator and the
-  iPad moved to "Birch" at the same step. In pages on the iPhone the long table's second
+  iPad moved to "Birch" at the same step. At `25ae60e`, with main merged in, the iPhone
+  simulator made the twenty-six flicks down to "Item 28 Row 29" and twenty-eight back up,
+  a row at a time to "Item 01 Row 2" and "Item Column header Row 1", with the rotor on
+  Rows throughout, and read the long table's 120 cells once and in order each way in 136
+  moves. In pages on the iPhone the long table's second
   page began "Entry 06 Row 7 Column 1 Table start 41 rows 3 columns", "Item Item 06 Column
   2", and Rows moved from "Item 08" down to "Item 11 Row 12" and back up to "Item 06 Row 7".
 - The same day a physical iPad Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366) read the same
