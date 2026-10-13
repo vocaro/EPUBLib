@@ -413,10 +413,11 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     way back up a column in continuous scroll, which a physical iPad did not do in seventy
     such moves. A cell offers its actions only once it is on screen, which may be why
     ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-12 on tables of data).
-    A table's cells are many more stops than its rows, so the batch VoiceOver takes when
-    the screen changes under it covers fewer lines: with two lines listed past the screen,
-    as before [#380](https://github.com/vocaro/EPUBLib/pull/380), reading back into a
-    table left the text on an iPad simulator; with fifty it did not.
+    And before fifty lines were listed past the screen
+    ([#380](https://github.com/vocaro/EPUBLib/pull/380)), reading back into a table left
+    the text on an iPad simulator in two sessions of three, where rows had not in two of
+    two; with the fifty it did not in two of two. Why cells showed it and rows did not is
+    not known, so a table's cells are to be taken as needing that list.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
   in place and also show in popovers.

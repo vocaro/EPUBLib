@@ -1692,8 +1692,9 @@ The Mac runner's transcript is plain text and needs no export.
   both simulators, and the iPhone simulator read the same section on to "Line 10 after
   the grids." and back complete in its one session. The thirty-nine items it read back
   before leaving are those that were listed before "Line 10" at the moment it turned
-  round, two lines above the first on screen: it had taken them all at once and walked
-  only those, as [#339](https://github.com/vocaro/EPUBLib/issues/339) describes. At
+  round, two lines above the first on screen, which is what
+  [#339](https://github.com/vocaro/EPUBLib/issues/339) describes; why the rows before this
+  change did not show it there is not known. At
   `25ae60e`, with main merged in and fifty lines listed each side
   ([#380](https://github.com/vocaro/EPUBLib/pull/380)), the same steps on the iPad
   simulator read back complete in two sessions of two, through "Depth Column header Row 1
