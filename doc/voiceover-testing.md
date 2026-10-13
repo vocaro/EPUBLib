@@ -1,9 +1,11 @@
 # VoiceOver testing
 
-Use real VoiceOver speech to verify the paginated reader on a Mac, physical iPhone and
-physical iPad. Native accessibility API tests support this work but do not establish what
-VoiceOver reads. A [simulator's VoiceOver](#simulators) does read, with no device, window or
-sound, but it activates nothing, and its sessions are not acceptance evidence. The sessions
+Use real VoiceOver speech to verify the paginated reader on a Mac, iPhone and iPad. Native
+accessibility API tests support this work but do not establish what VoiceOver reads. A
+[simulator's VoiceOver](#simulators) does read, with no device, window or sound, and its
+sessions are acceptance evidence for what VoiceOver reads on an iPhone and iPad. It activates
+nothing, so what VoiceOver activates or performs is shown on a physical iPhone and iPad;
+[Acceptance and evidence](#acceptance-and-evidence) says which a check needs. The sessions
 are recorded in the
 [Mac verification](issue-55-voiceover-mac.md) and the
 [iPad and iPhone verification](issue-28-voiceover-devices.md); the acceptance matrix is in
@@ -541,8 +543,9 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
   "Hours, Leaves Nine", and so is the lower of the two itself, "Hours, Leaves Leaves".
 - A session in which VoiceOver starts again in the middle ("ERROR 3" and then "VoiceOver on
   VoiceOverVerificationMac…") is one in which it quit. It did so when a cell named header
-  cells of its own, most often within eight headers at two seconds a key. A session of
-  moves across rows with `columnheader` after each (`pause=2`) is the test for it.
+  cells of its own, most often within eight headers at two seconds a key
+  ([#483](https://github.com/vocaro/EPUBLib/issues/483)). A session of moves across rows
+  with `columnheader` after each (`pause=2`) is the test for it.
 - `in` on a cell goes into its text, "In text 1934", where `right` moves by word; `out`
   comes back to the cell, and `out` again to the row's line in the text.
 - `actions` on a cell says "Actions menu" and its count, and `listdown` each of Select Cell
@@ -921,13 +924,15 @@ XCTest cannot perform VoiceOver's three-finger scroll, and its synthesized hardw
 (Control-Option-Space, Option with an arrow) did not reach VoiceOver on an iPad. The probe
 turns pages by activating the page buttons or a line's Next Page action. A transcript that
 begins in an editing field, with the keyboard's keys after the page, is not a reading-order
-result. Use physical-device sessions for acceptance.
+result. [Acceptance and evidence](#acceptance-and-evidence) says which checks need a physical
+device and which a simulator settles.
 
 ## Simulators
 
 `scripts/run-voiceover-simulator.py` runs the same probe on simulators of its own, with no
-device, no Simulator window and no sound. It is a quick check of what VoiceOver reads, not
-acceptance evidence:
+device, no Simulator window and no sound. Its sessions are acceptance evidence for what
+VoiceOver reads and in what order, and not for what VoiceOver activates
+([Acceptance and evidence](#acceptance-and-evidence)):
 
 ```sh
 python3 scripts/run-voiceover-simulator.py
@@ -1005,9 +1010,10 @@ and the double tap on the heading, the touch arrived on the heading and the page
 With VoiceOver off the same touches turn the page in both orientations, and on physical
 devices VoiceOver performs every one of these
 ([iPad and iPhone verification](issue-28-voiceover-devices.md)), so the difference is the
-simulator's and not the probe's or the reader's. Page actions, the rotor and turns in
-landscape need a device. To read a later landscape spread on a simulator, turn pages in
-portrait and then rotate: the reader keeps its place.
+simulator's and not the probe's or the reader's. VoiceOver activating an item, an action
+performed from the rotor and a page turned in landscape need a device. Turning the rotor and
+moving by it do not. To read a later landscape spread on a simulator, turn pages in portrait
+and then rotate: the reader keeps its place.
 
 Whether the rotor kept its place across a page turn can be read on a simulator all the same,
 since stepping through the rotor needs no activation. Choose Next Page with `flick=down`,
@@ -1044,8 +1050,9 @@ not read.
 A move costs half a second and a touch about five and a half, most of it XCTest waiting for
 an event that VoiceOver keeps from the reader. The end of a `read` costs 3.3 seconds and an
 `activate` or `rotate` a little over one after the gesture. The simulators are not the
-devices of the record: an iPhone 17 Pro shows 402 × 874 points and its pages hold fewer lines
-than the iPhone 17 Pro Max's. In landscape the sample's control strip stacks and leaves its
+physical devices of the record: an iPhone 17 Pro shows 402 × 874 points and its pages hold
+fewer lines than the iPhone 17 Pro Max's, so a page's first and last words are not the
+same on both. In landscape the sample's control strip stacks and leaves its
 reader one line at 17 points, so `visible` finds no numbered line on the first spread. All of
 this is the iOS 27.0 runtime. The 27.1 runtime of Xcode 27.1 offers only the iPhone Duo and
 was not compared.
@@ -1061,7 +1068,27 @@ one on a workstation is. Record its runner image and image version, such as `xco
 20261006.0244.1, beside the OS and Xcode versions; `runner.txt` in the run's download has all
 three, and the job's "Set up job" log prints the image. Everything else here applies to it
 unchanged. A hosted session that completes is no more an acceptance result than any other:
-read its transcript against the visible text. The iPhone and iPad still need physical devices.
+read its transcript against the visible text.
+
+For the iPhone and iPad, a session in the [simulator lane](#simulators) is acceptance
+evidence for what VoiceOver reads, in what order, and where its cursor and its rotor move.
+The owner decided so on 2026-10-13; until then every such result was also owed a physical
+device. Record the session as a simulator's, with its device type and runtime where a
+device's model and OS would stand. A physical iPhone or iPad is needed for what a simulator's
+VoiceOver does not do:
+
+- activating the item under its cursor: a button, a link, a line's default action;
+- performing an action chosen in the rotor: Next Page from a line, Inspect Image, Select Cell
+  Text, Follow Link;
+- turning the page in landscape.
+
+In the steps below that is each double tap whose result is VoiceOver's own doing. A page
+turned in portrait with `activate=Next Page` is turned by a plain touch on the button, so the
+page that follows and VoiceOver's reading of it count, and that VoiceOver activated the
+button does not. A change to what VoiceOver reads needs no device session, and no issue is
+filed to ask for one. A change to what an activation or an action does needs one, for that
+step. The simulators run iOS 27.0 and are other models than the physical devices, so where a
+simulator and a device differ, the device's result stands and the difference is recorded.
 
 Sessions that show a change by what VoiceOver said before and after it are recorded on the
 same main. Merge main into the branch first, and take as "before" a commit that holds main
@@ -1407,6 +1434,26 @@ The Mac runner's transcript is plain text and needs no export.
   same steps on the page with no heading had ended two sessions (runs 38321608082 and
   38322808793) with a traceback and no transcript, the restore having failed ahead of the
   lines that write one. Nobody listened, and no workstation was used.
+- `ax:width` is a live resize, and until
+  [#479](https://github.com/vocaro/EPUBLib/pull/479) a session launched in
+  continuous scroll and then resized did not begin at the top of the book. Setting a window's
+  size through the accessibility API takes it through AppKit's live resize, and AppKit's text
+  view scrolls itself when one ends ([the native viewer](native-viewer.md), "Continuous
+  scroll"). Hosted sessions on 2026-10-13 (`-SampleFlow scrolled`, then `ax:width=600`, on a
+  reader of [#473](https://github.com/vocaro/EPUBLib/pull/473) that logged each scroll with
+  its stack, run 38378765133) saw the clip view go from 0 to 48 under
+  `-[NSView _endLiveResize]` and `-[NSTextView viewDidEndLiveResize]`, the insertion point
+  follow to character 27 a moment later, and `in` read the book's second line. Every
+  transcript of such a session from before the change begins a line down, with the title
+  above the screen; a session that changed to continuous scroll after its resize began at
+  the top. The same scroll is made in a unit test with no assistive client, by a window
+  resized with animation, which ends in the same two calls
+  (`ScrolledLiveResizeTests`): 48 points at the top of a book, 114 under a toolbar, and
+  back to the start of a paragraph anywhere else, 279 and 304 points in the tests' prose
+  and further at each resize. With the change the
+  tests' reader stays at the top and VoiceOver would enter at the title. Not heard: a
+  hosted session after the change. Not made: a drag of the window's edge with a mouse,
+  which ends a live resize the same way.
 - On 2026-10-11 the Mac sessions verified first and last lines, word order, end of text,
   line counts and page-turn continuity in one and two columns at 17 and 23 points, with value
   notifications for page turns, text-size changes and resizes. See the
@@ -2848,8 +2895,10 @@ The Mac runner's transcript is plain text and needs no export.
   (`-[NSTextView viewDidEndLiveResize]`, `scrollToLocation:`) 48 points down. The book's
   title is then above the screen, the insertion point follows to character 27, and `in`
   reads the second line, as in every such session here. A session that changes to
-  continuous scroll after the resize begins at the top. Whether a window resized by hand
-  does the same was not looked at.
+  continuous scroll after the resize begins at the top. Any live resize did the same, and
+  away from the top of a book it took the text back a paragraph; the reader has held its
+  place through one since [#479](https://github.com/vocaro/EPUBLib/pull/479) (the note on
+  `ax:width` at the head of this list).
   Not established: why VoiceOver keeps its cursor for one notice and follows two. Not
   heard: listening; a workstation; a move to a shown position (the contents, a search
   result) or rebuilt text with VoiceOver inside the text, which post the same second
@@ -3704,8 +3753,11 @@ The Mac runner's transcript is plain text and needs no export.
   ("Hours, Leaves Nine"). The reader keeps the static text.
   Not heard: anyone listening, or any Mac but the runner; a spread of two columns; a table
   in a note's popover; Inspect Image chosen from a cell; a cell's `headers` attribute;
-  VoiceOver in another language or with its verbosity changed; and what Safari or Books
-  says of the same tables on a Mac, which was not compared.
+  VoiceOver in another language or with its verbosity changed; Read All through a table;
+  Control-Option-C and Control-Option-R pressed twice on the shape that was kept; and what
+  Safari or Books says of the same tables on a Mac, which was not compared
+  ([#484](https://github.com/vocaro/EPUBLib/issues/484)). The page turn that leaves
+  VoiceOver out of the text is [#485](https://github.com/vocaro/EPUBLib/issues/485).
 - On 2026-10-13 a table's select action was performed with VoiceOver on the physical iPad
   Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366, upright, 17 points), before and after a
   change to what it does ([#450](https://github.com/vocaro/EPUBLib/issues/450)), with the

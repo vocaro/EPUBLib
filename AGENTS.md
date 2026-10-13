@@ -29,8 +29,9 @@ Drive iOS simulators headlessly, with `xcrun simctl` and `xcodebuild`.
   `Executed N tests` line of every filtered run. In zsh a list of names held in one variable
   is passed as one argument, which matches nothing: hold them in an array.
 - VoiceOver runs in a simulator too. `scripts/run-voiceover-simulator.py` records what it
-  reads on simulators of its own, muted; [VoiceOver testing](doc/voiceover-testing.md#simulators)
-  says what that does and does not establish.
+  reads on simulators of its own, muted, and that record is acceptance evidence for what
+  VoiceOver reads on an iPhone and iPad. It is not evidence that VoiceOver activates
+  anything: see [Tests are automated](#tests-are-automated) below.
 - Do not open a live simulator view or any tool that takes control of a simulator's screen
   (in the Claude desktop app, the iOS Simulator tool) unless the owner has asked to watch.
   Such a tool asks him to approve each device, and a test device is new on every run, so he
@@ -46,9 +47,33 @@ what happened. Tests are run by automation.
   swipe scrolls the control strip was put to a finger and answered by a synthetic touch that
   moves at once, with the host recording each touch
   ([reader controls](doc/issue-49-51-controls-qualification.md#evidence-and-repeating-it)).
+- For VoiceOver on an iPhone and iPad, a device shows three things a simulator does not:
+  VoiceOver activating the item under its cursor, an action performed from the rotor, and a
+  page turned in landscape. What VoiceOver reads, in what order, and where its cursor and
+  rotor move is settled in the simulator lane. The owner decided on 2026-10-13 that such a
+  session is acceptance evidence, so do not ask for a device to hear it again, and do not
+  file an issue for a device session that would
+  ([VoiceOver testing](doc/voiceover-testing.md#acceptance-and-evidence)).
 - His approval of a run on his device covers installing and launching there. It is not an
   offer to operate it.
 - Record what automation cannot reach as not verified, and leave it to him.
+
+## Debuggers
+
+Do not launch a process under a debugger on this machine, or attach one: `lldb` with `run` or
+`process launch`, Xcode's debugger, `dtrace`, or `sample` on a process that is not yours.
+
+- Developer Mode is off here (`DevToolsSecurity -status`), so the launch asks for an
+  administrator's password. The dialog takes the keyboard from the owner and from every other
+  session, and only he may answer or dismiss it. On 2026-10-13 two sessions did it within a
+  quarter of an hour of each other, each to read how a system framework answers a call.
+- To read system code, use what starts no process. `dyld_info -disassemble` with a
+  framework's path under `/System/Library` prints its code under its method names, and
+  `lldb -b -o "target create BINARY" -o "disassemble -n 'METHOD'"`, with no `run`, prints one
+  method's. Neither names the selector a call goes to.
+- To see what the reader's own code is asked, log from it.
+- If the dialog was raised all the same, end your own processes, leave the dialog alone, and
+  tell the owner in your next message.
 
 ## The hosted runner
 

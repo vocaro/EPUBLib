@@ -522,7 +522,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       table navigation is then its own: across a row it says the column's header and the
       cell ("Opened 1901", "Depth empty cell"), down a column the row's ("Cedar Forty
       metres"); Control-Option-C and Control-Option-R say the column's and the row's
-      header, and twice the rest of the column and of the row. A cell that spans is one
+      header. Pressed twice they read the rest of the column and of the row, which was
+      heard on an earlier shape and not on this one. A cell that spans is one
       stop that answers for every slot it covers: moving down inside one, and at the
       table's last row, VoiceOver says the cell and its place, "Item 40 column 2, row 41".
       Rows above the one it came in at are there to move up to.
@@ -545,7 +546,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       AppKit's own tables do: one header for each column and one for each row of the whole
       table, and VoiceOver takes the one at a cell's column and at its row. With that it
       said the same headers and did not quit, in seventeen sessions at two or three
-      seconds a key and ten at four.
+      seconds a key and ten at four. Whether to tell Apple is
+      [#483](https://github.com/vocaro/EPUBLib/issues/483).
       What heads a column or a row is its one header cell, where that cell is on screen
       with its text areas: VoiceOver reads a header cell by what it holds, and does not
       read a cell under itself. Otherwise it is a static text with the words of its header
@@ -563,7 +565,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       page are not there to move to: at a page's last row VoiceOver stays, and the page is
       turned as from a line. A page turned with VoiceOver's cursor on a table it has left,
       and not back in the text, leaves VoiceOver on the text area and not in it; with a
-      row group it left the text for the window's first button, before and after.
+      row group it left the text for the window's first button, before and after
+      ([#485](https://github.com/vocaro/EPUBLib/issues/485)).
     - **Continuous scroll.** One text area holds the book, and a table holds every row.
       Moving down a column VoiceOver goes on past the screen and the view follows it,
       twenty-eight rows in one session, each once and in order. Leaving the table puts
@@ -588,12 +591,15 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       "table" as long as it says nothing of selected cells.
     - **Not done.** A cell offers no page turn: the text area does, one step out of the
       table. Nothing gives VoiceOver the table's caption as the table's name; it is a
-      line of the text before the rows or after them, as it is drawn.
+      line of the text before the rows or after them, as it is drawn. Both are to be
+      decided, with the header cell under another and where VoiceOver is after it leaves
+      a table ([#486](https://github.com/vocaro/EPUBLib/issues/486)).
     - **Not heard.** Anyone listening, or a Mac that is not the hosted runner. What Safari
       or Books says of the same table on a Mac was not recorded, so "as Safari does" is
       true of the roles and attributes given and not of the speech. A table in a spread of
       two columns, one in a note's popover, a picture's Inspect Image chosen from a cell,
-      and VoiceOver in a language other than English.
+      Read All through a table, and VoiceOver in a language other than English
+      ([#484](https://github.com/vocaro/EPUBLib/issues/484)).
   - **Not done.** A table inside a cell is read as its cell's words, as before. Headings
     inside a table are not found by the Headings rotor, as before.
   - **Not resolved.** On an iPhone simulator the rotor once went from Rows to Actions part
@@ -842,6 +848,24 @@ as they did.
   of where it was last read has not moved and nobody has scrolled it: its first line is still
   held, and the position kept is still the one shown, not the visible start
   ([#302](https://github.com/vocaro/EPUBLib/issues/302)).
+  AppKit's text view also scrolls itself when a live resize of its window ends, after a drag
+  of the window's edge and after a resize made with animation or by an assistive client: the
+  paragraph under the clip view's top edge goes to that edge, from its first line
+  (`-[NSTextView viewDidEndLiveResize]`, which scrolls to the paragraph's start with no
+  offset, macOS 27.0). That edge is above the first line on screen by the text's 48-point
+  top margin, and by the height of a toolbar over the reader. A reader at the top of its book
+  stood 48 points down, its title above the screen, and 114 points down under a 66-point
+  toolbar. Anywhere else the text went back to the start of a paragraph, 279 and 304 points
+  in the tests' prose, and further at each resize: 574 and 650 points after a second and a
+  third. The reader took that for a scroll by the person: it kept the new
+  place, and put the insertion point VoiceOver enters at on the line then first on screen.
+  AppKit tells a view that the resize has ended before it tells that view's subviews, so the
+  canvas has rested the kept position by the time the text view scrolls. The reader reads
+  where the view stands before that scroll and puts it back straight after, at the offset it
+  had and then with its first line where that line was, before anything is drawn. Nobody
+  has scrolled and the position kept is unchanged: in a pane whose size the resize leaves
+  alone, text the person scrolled to stays where it is, a line cut by the top edge with it
+  ([#479](https://github.com/vocaro/EPUBLib/pull/479)).
   A layout the reader makes itself is not one behind the view, and it
   forgets where that line stood when it makes one: for new text, for a new column width, and
   when a new visible height (the window's, or the safe area's alone) resolves the book's
