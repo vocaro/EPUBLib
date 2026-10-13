@@ -732,9 +732,9 @@ as they did.
   the text view tells of the insertion point a second time, before the layout change, and
   VoiceOver goes there, as it does at the first notice once it has moved by line
   (macOS 27.0.1, [#473](https://github.com/vocaro/EPUBLib/pull/473)). Each such move costs
-  an assistive client one notice that reports no
-  change. Where the insertion point follows other scrolling it is told of once, as before.
-  A page turn is left as it is: putting a page's text into a column already tells twice.
+  an assistive client one notice that reports no change. Where the insertion point follows
+  other scrolling it is told of once, as before. A page turn is left as it is: putting a
+  page's text into a column already tells twice.
   On iOS, VoiceOver walks a text view's accessibility elements and, moving in from a control,
   takes the first. UIKit's own are every paragraph of the book, so it took the book's first
   paragraph and scrolled the reader back to it. The scroll view lists its lines instead, as a
