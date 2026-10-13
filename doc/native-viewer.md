@@ -309,8 +309,18 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   native text interaction surfaces aligned to their drawn glyphs: select and Copy cell text,
   invoke the host's selection action, follow internal links and open notes. External links retain
   the reader's refusal notice. Cell selections, located passages and saved highlights use exact
-  DOM-based character ranges, including Unicode and inline markup. VoiceOver reads each continuation's words, completing
-  a word once if character wrapping splits it between pages. Continuations retain original
+  DOM-based character ranges, including Unicode and inline markup. VoiceOver reads a table by
+  its rows, each where it stands among the lines of its page, and each continuation by the
+  words it shows, completing a word once if character wrapping splits it between pages. On
+  iPhone and iPad a row is one accessibility element, in pages and in continuous scroll alike:
+  text, read as its cells' words in column order, with actions for its own cells (select a
+  cell's text, follow a link in it, inspect an image in it). A row that shows pictures and no
+  words is an image without a name, as a picture without words in a line is, and one that
+  shows nothing, or decoration alone, is no element unless its page lists nothing else. The interaction
+  surfaces are hidden from assistive technology there. A text view that is merely not an
+  element still offers UIKit's own elements for its text, and VoiceOver took those, every cell
+  on the page, before the first line of a page column and then read the rows as well. On Mac
+  a row is a group that holds its cells' text areas. Continuations retain original
   source offsets: several pages can report the same row range. Existing bookmarks naming a
   whole table still resolve to that table; new cell ranges identify the selected characters.
   Interaction surfaces are mounted only for visible cells. Cell TextKit
@@ -612,6 +622,10 @@ as they did.
   ("Alternative text" under Decisions).
   The canvas lists its columns to VoiceOver in source order; by their frames alone a column
   lowered by top spacing, or the first column of a right-to-left spread, would be read second.
+  A column given to VoiceOver that way is searched inside before its own lines are taken: the
+  text views over a table's cells, left visible, were read ahead of the page, which they are
+  not in a text view VoiceOver finds as a subview. Nothing the reader mounts inside a text
+  view is offered to assistive technology (see Tables).
   A paragraph that continues onto the next page is laid out a few lines further (or to
   a line break) and clipped, so its lines break exactly as in the measuring layout; justified
   text takes more, because CoreText justifies a paragraph of up to 8,192 characters as a whole
@@ -1103,6 +1117,63 @@ Go: the native viewer is the bundled engine.
   mean doing its work: a rule is taken to apply to every element its last compound selector
   could match, a declaration counts even where another overrides it, and an `id` that
   several elements share names them all.
+
+  The renderer also copies or re-reads some shared and inherited values once per painted shape,
+  which neither the byte nor the node limit catches, so a file of a few hundred kilobytes can make
+  it allocate hundreds of megabytes or parse for most of a minute. Each is charged per shape, against
+  a ceiling set from measurement (the worst passing drawing costs the renderer on the order of what
+  the other limits allow); each shape is charged the most that it or any ancestor, through every
+  `<use>` that draws it, could ask for, so the count never falls below what the renderer does. A
+  stylesheet's declarations are the exception: they are charged only in part, as their entry below
+  says, and what they cost the renderer is not bounded. The screen's own work is counted too, in
+  steps for the gradients it looks up, the elements it walks and the CSS it reads, and a drawing
+  that spends its budget of steps shows its fallback text with the same disclosure: that limits the
+  screen's own reading and not what the renderer does, and it does not bound all of the screen's
+  work either, since a visit to an element is one step though it goes over every child the element
+  has, and what bounds that is the limit on expanded local references; the one kind of drawing
+  within the other limits known to spend the budget is built to, a `<style>` inside another, whose
+  CSS is read again for each `<style>` it stands in (as measured with a sheet built to be read
+  eight times, megabytes of CSS two `<style>` elements deep where the drawing also holds a `<use>`
+  tree to walk and, without one, megabytes three deep or some 140 KB sixty deep).
+  - A gradient's stops are copied into a fresh paint server for every shape it paints by `fill` or
+    `stroke`, directly or inherited, in an attribute or a `style` declaration, through a gradient
+    `href` chain, and through each `<use>`; each shape is charged the stops its fill names and those
+    its stroke names. A gradient with no stops of its own is charged those its `href` chain leads to,
+    however long the chain. Where the chain meets an `id` that several gradients share, the renderer
+    takes the last element that has the `id`: it goes on from that one when it is a gradient, and
+    paints nothing when it is not. Which is last is not worked out, and the gradient is charged the
+    most stops any gradient in the drawing has. A stylesheet that paints with a gradient is taken to
+    reach every shape.
+  - A stroke's dash array is stored for every stroked shape that has or inherits one; each shape is
+    charged its dash-array bytes, an upper bound on its entries.
+  - Each inherited presentation value the renderer re-parses for every shape — the `fill` and
+    `stroke` paint, the numbers (`stroke-width`, the opacities, `stroke-miterlimit`, offsets) and the
+    keyword enumerations alike — is charged its bytes over 64, summed down the inheritance chain. A
+    `style` value is counted with its white space trimmed, as the renderer trims it before storing.
+  - A stylesheet's declarations are charged only in part, and what storing them costs the renderer
+    is not bounded (#282); a gradient a stylesheet paints with is still charged in full, as the
+    first entry says. The renderer stores every presentation declaration of a rule on every element
+    the rule matches, groups and `<use>` elements included, so that cost goes as declarations times
+    matched elements. Each painted shape, and each character of a text run, is charged one value,
+    the longest presentation declaration's of any `<style>`, so that a single very long value cannot
+    be copied onto thousands of shapes for free. A rule of many declarations is charged as a rule of
+    one, and what a rule costs on the groups and `<use>` elements it matches is not charged, so a
+    drawing of a few kilobytes can still pass and cost the renderer hundreds of megabytes. An
+    at-rule such as `@font-face` is not counted: the renderer never applies it to an element, so an
+    embedded font a stylesheet carries in a `src: url(data:…)` does not count against a drawing, and
+    ordinary Illustrator, Inkscape, Figma and chart-library output that embeds a font renders as
+    before. A stylesheet that is stripped whole before rendering is not counted on either screening.
+  - A `<text>` run clones its resolved style for every span (at most one span per character): the
+    gradient stops its fill and stroke name, into the span and each of three text decorations; the
+    dash array, into the span's stroke and, when the run is decorated, each decoration stroke; the
+    font family; and the `font-variation-settings`, the worst per-span copy, a list held per span and
+    again in the glyph cache. A long inherited value re-parses to a small resolved value the span
+    clones cheaply, so it is not charged per character. A gradient with a handful of stops on
+    thousands of shapes, dashed strokes on a large chart, a short variable-font axis list, and long
+    but ordinary values (a path's `d`, a `points` list, a `transform`, an embedded `data:` image, a
+    normal `font-family`) stay well within the ceiling. A `<switch>` draws one alternative but every
+    one is charged, a sound over-charge. A mask's content is charged once, not once per element that
+    references the mask (#220 covers that multiplication).
 
   Embedded raster images are capped at 4 megapixels each and 16 megapixels in total.
   Output is capped at 4,096 pixels on its long side and 16 megapixels, reduced further for

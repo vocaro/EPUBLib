@@ -247,7 +247,7 @@ import UIKit
         let view = try XCTUnwrap(canvas.textViews.first)
         let controller = try XCTUnwrap(view.tableInteraction)
         XCTAssertFalse(controller.selectedText().isEmpty)
-        XCTAssertTrue(controller.accessibilityActions().contains { $0.name.contains("Follow Table Link: Outside link") })
+        XCTAssertTrue(controller.accessibilityActionsOfEveryRow().contains { $0.name.contains("Follow Table Link: Outside link") })
         #if os(macOS)
         let row = try XCTUnwrap(section.tables().first { $0.row.row == 1 })
         let spoken = try XCTUnwrap(view.accessibilityAttributedString(for: NSRange(location: row.offset, length: 1)))
@@ -255,10 +255,13 @@ import UIKit
         XCTAssertEqual(group.accessibilityRole(), .group)
         XCTAssertEqual(group.accessibilityChildren()?.count, 2)
         #else
-        XCTAssertTrue(view.accessibilityCustomActions?.contains { $0.name.contains("Select Table Text: Alpha") } == true)
+        // The row that holds the cell offers it, and the text view around the rows does not.
+        let rows = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+        XCTAssertEqual(rows.filter { $0.accessibilityCustomActions?.contains { $0.name.contains("Select Table Text: Alpha") } == true }.count, 1)
+        XCTAssertFalse(view.accessibilityCustomActions?.contains { $0.name.contains("Table") } == true)
         #endif
         canvas.clearSelection()
-        let select = try XCTUnwrap(controller.accessibilityActions().first { $0.name.contains("Select Table Text: Alpha") })
+        let select = try XCTUnwrap(controller.accessibilityActionsOfEveryRow().first { $0.name.contains("Select Table Text: Alpha") })
         XCTAssertTrue(select.perform())
         canvas.performSelectionAction()
         XCTAssertEqual(session.selection?.text, "Alpha 😀 beta gamma.")

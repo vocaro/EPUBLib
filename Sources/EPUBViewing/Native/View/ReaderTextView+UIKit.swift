@@ -157,10 +157,9 @@ final class ReaderTextView: UITextView {
                     return self?.canvas != nil
                 }
             }
-            let tableActions = (tableInteraction?.accessibilityActions() ?? []).map { action in
-                UIAccessibilityCustomAction(name: action.name) { _ in action.perform() }
-            }
-            return (super.accessibilityCustomActions ?? []) + actions + tableActions
+            // Nothing for a table here: VoiceOver offers a container's actions on every element
+            // in it, and a row offers its own cells'.
+            return (super.accessibilityCustomActions ?? []) + actions
         }
         set { super.accessibilityCustomActions = newValue }
     }
@@ -417,12 +416,19 @@ final class ReaderTextView: UITextView {
                 // with nothing to say, and so is decoration between two of them: no element,
                 // or VoiceOver stops on silence.
                 if attachment == nil, label?.allSatisfy(\.isWhitespace) != false { continue }
-                let element = existing.first { $0.range == range && $0.url == url }
-                    ?? ReaderPageAccessibilityElement(view: self, range: range, url: url)
-                element.image = attachment as? ReaderImageAttachment
                 var traits: UIAccessibilityTraits = url == nil ? .staticText : .link
                 // A hidden label is words the page does not show, not a picture.
                 let isSpoken = attachment is SpokenLabelAttachment
+                // A table row is its cells' words, read once where the row stands. A row that
+                // shows pictures and no words is an image and no more, as a picture without
+                // words in a line is. One with nothing to say, or decoration alone, has no
+                // element, unless nothing listed can be read without it.
+                let isRow = attachment is TableRowAttachment
+                let isWordlessRow = isRow && label?.allSatisfy(\.isWhitespace) != false
+                if isWordlessRow, passingOverDecoration, announcedImages(in: range).isEmpty { continue }
+                let element = existing.first { $0.range == range && $0.url == url }
+                    ?? ReaderPageAccessibilityElement(view: self, range: range, url: url)
+                element.image = attachment as? ReaderImageAttachment
                 if attachment is ReaderRuleAttachment {
                     // A rule is a break between what stands before it and what follows:
                     // not a picture, which VoiceOver would call an image, and not words of
@@ -430,6 +436,8 @@ final class ReaderTextView: UITextView {
                     // of its own for one and the reader names it.
                     label = ReaderRuleAttachment.spokenName
                     traits.remove(.staticText)
+                } else if isRow {
+                    if isWordlessRow { label = nil; traits.insert(.image) }
                 } else if attachment != nil {
                     if !isSpoken { traits.insert(.image) }
                     // An image without words is an image and no more: the trait says so, in
@@ -609,7 +617,7 @@ private struct ScrollAccessibilityPlace: Equatable {
                 }
             }
             if view.contentStorage.textStorage?.attribute(.attachment, at: range.location, effectiveRange: nil) is TableRowAttachment {
-                actions += (view.tableInteraction?.accessibilityActions() ?? []).map { action in
+                actions += (view.tableInteraction?.accessibilityActions(at: range.location) ?? []).map { action in
                     UIAccessibilityCustomAction(name: action.name) { _ in action.perform() }
                 }
             }
