@@ -33,6 +33,7 @@ enum SVGRenderingCostScreen {
     private struct Resource: Hashable { var role: SVGReferenceScreen.Role; var id: String }
     private struct Style {
         var copies = 0
+        var declarationWork = 0
         var descendants: [Int: Int] = [:]
         var references = SVGReferenceScreen.References()
     }
@@ -58,6 +59,7 @@ enum SVGRenderingCostScreen {
                 for (i, subject) in rule.subjects.enumerated() {
                     let descendants = rule.descendants[i]
                     var style = styles[subject, default: Style()]
+                    style.declarationWork = min(maximumStylesheetWork + 1, style.declarationWork + rule.declarationBytes)
                     style.copies = min(maximumStylesheetCopies + 1, style.copies + rule.copiedBytes)
                     style.descendants[descendants, default: 0] += rule.selectorBytes[i]
                     style.references.targets += rule.references.targets
@@ -74,9 +76,12 @@ enum SVGRenderingCostScreen {
         // lists. This also bounds the screen's own rules-times-elements work.
         if selectorWork * nodes.count > maximumStylesheetWork { return refused(work: maximumStylesheetWork + 1) }
         var minimumCopies = sheetCopies
+        var minimumWork = selectorWork * nodes.count
         for node in nodes where node.isElement {
             for subject in SVGReferenceScreen.subjects(of: node) {
                 minimumCopies += styles[subject]?.copies ?? 0
+                minimumWork += styles[subject]?.declarationWork ?? 0
+                if minimumWork > maximumStylesheetWork { return refused(work: maximumStylesheetWork + 1) }
                 if minimumCopies > maximumStylesheetCopies { return refused(copies: maximumStylesheetCopies + 1) }
             }
         }
@@ -119,16 +124,43 @@ enum SVGRenderingCostScreen {
             resources[ObjectIdentifier(node)] = Array(targets.values)
         }
         func cachedResource(_ node: ContentNode) -> Bool {
-            // usvg mask.rs/clippath.rs share only these user-space resources. Their original
-            // definition is already charged once; all other instances must pay their content again.
+            // usvg caches only after successful conversion. An empty/invalid resource can be
+            // converted repeatedly even in user-space units, exponentially along a chain.
+            // Grant sharing only to a narrow, provably nonempty case: an unstyled direct solid
+            // rectangle, no links/transform/visibility/paint modifiers on it or its ancestors.
+            // Everything else pays per reference, including resources that usvg might cache.
+            guard styles.isEmpty else { return false }
+            let rootAttributes: Set<String> = ["id", "maskUnits", "maskContentUnits", "clipPathUnits", "width", "height", "x", "y"]
+            let ancestorAttributes: Set<String> = ["id", "width", "height", "x", "y", "viewBox", "xmlns"]
+            func positive(_ value: String?) -> Bool { value.flatMap(Double.init).map { $0.isFinite && $0 > 0 } ?? false }
+            func finite(_ value: String?) -> Bool { value.flatMap(Double.init)?.isFinite ?? false }
+            guard node.attributes.allSatisfy({ rootAttributes.contains($0.name) }) else { return false }
+            if node.name == "mask" {
+                for attr in node.attributes where ["width", "height"].contains(attr.name) {
+                    guard positive(attr.value) else { return false }
+                }
+                for attr in node.attributes where ["x", "y"].contains(attr.name) {
+                    guard finite(attr.value) else { return false }
+                }
+            }
+            var ancestor = node.parent
+            while let parent = ancestor {
+                guard parent.attributes.allSatisfy({ ancestorAttributes.contains($0.name) }) else { return false }
+                ancestor = parent.parent
+            }
             func userSpace(_ name: String, byDefault: Bool) -> Bool {
                 let values = node.attributes.filter { $0.name == name }
                 return values.isEmpty ? byDefault : values.allSatisfy { $0.value == "userSpaceOnUse" }
             }
-            if node.name == "mask" {
-                return userSpace("maskUnits", byDefault: false) && userSpace("maskContentUnits", byDefault: true)
+            let units = node.name == "mask"
+                ? userSpace("maskUnits", byDefault: false) && userSpace("maskContentUnits", byDefault: true)
+                : node.name == "clipPath" && userSpace("clipPathUnits", byDefault: true)
+            guard units else { return false }
+            return node.elementChildren.contains { child in
+                child.name == "rect" && child.children.isEmpty
+                    && child.attributes.allSatisfy { ["id", "width", "height", "x", "y"].contains($0.name) && ($0.name == "id" || finite($0.value)) }
+                    && positive(child.attribute("width")) && positive(child.attribute("height"))
             }
-            return node.name == "clipPath" && userSpace("clipPathUnits", byDefault: true)
         }
         // An unsuccessful chain of k descendant combinators explores every ancestor choice,
         // including partial matches: sum C(depth,j), 0 <= j <= k. Charge the sum, capped.
@@ -165,6 +197,7 @@ enum SVGRenderingCostScreen {
                 result.work = selectorWork
                 for subject in SVGReferenceScreen.subjects(of: node) {
                     if let style = styles[subject] {
+                        result.work = min(maximumStylesheetWork + 1, result.work + style.declarationWork)
                         result.copies = min(maximumStylesheetCopies + 1, result.copies + style.copies)
                         for (descendants, count) in style.descendants {
                             result.work = min(maximumStylesheetWork + 1,

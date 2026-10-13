@@ -50,6 +50,18 @@ final class RichMediaSVGRenderingCostCoverageTests: XCTestCase {
         let drawing = svg("<style>\(selectors){fill:" + String(repeating: "x", count: 4_000) + "}</style><rect/>")
         XCTAssertGreaterThan(try verdict(drawing).stylesheetCopies, SVGRenderingCostScreen.maximumStylesheetCopies)
     }
+    func testIgnoredDeclarationsStillCostMatchingWork() throws {
+        let drawing = svg("<title>Costly diagram</title><style>rect{" + String(repeating: "a:x;", count: 100_000)
+            + "}</style>" + String(repeating: "<rect/>", count: 9_000))
+        XCTAssertGreaterThan(try verdict(drawing).stylesheetWork, SVGRenderingCostScreen.maximumStylesheetWork)
+        try fallback(drawing)
+    }
+    func testLongCompoundSelectorCostsWorkEvenWithoutCombinators() throws {
+        let drawing = svg("<title>Costly diagram</title><style>" + String(repeating: ".c", count: 10_000)
+            + "{fill:red}</style>" + String(repeating: "<rect class='c'/>", count: 1_000))
+        XCTAssertGreaterThan(try verdict(drawing).stylesheetWork, SVGRenderingCostScreen.maximumStylesheetWork)
+        try fallback(drawing)
+    }
     func testTotalTextAtAndBeyondTheBoundAndThroughUse() throws {
         func drawing(_ count: Int) -> String {
             let first = String(repeating: "a", count: 20_000)
@@ -108,6 +120,16 @@ final class RichMediaSVGRenderingCostCoverageTests: XCTestCase {
             masks += "<mask id='m\(level)'><rect width='2' height='2' mask='url(#m\(level - 1))'/><rect width='2' height='2' mask='url(#m\(level - 1))'/></mask>"
         }
         try fallback(svg("<title>Costly diagram</title><defs>\(masks)</defs><rect width='2' height='2' mask='url(#m18)'/>"))
+    }
+    func testInvalidUserSpaceResourcesAreNotAssumedToBeCached() throws {
+        for (tag, units, property) in [("mask", "maskUnits='userSpaceOnUse'", "mask"), ("clipPath", "", "clip-path")] {
+            var definitions = "<\(tag) id='r0' \(units)/>"
+            for level in 1...20 {
+                definitions += "<\(tag) id='r\(level)' \(units)>"
+                    + String(repeating: "<rect width='2' height='2' \(property)='url(#r\(level - 1))'/>", count: 2) + "</\(tag)>"
+            }
+            try fallback(svg("<title>Costly diagram</title><defs>\(definitions)</defs><rect width='2' height='2' \(property)='url(#r20)'/>"))
+        }
     }
     func testOrdinaryDiagramStylesRemainWithinAllLimits() throws {
         // Fifty rules of five declarations over a few thousand elements, with class, id,

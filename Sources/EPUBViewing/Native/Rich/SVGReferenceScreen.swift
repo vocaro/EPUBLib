@@ -618,7 +618,7 @@ enum SVGReferenceScreen {
                 }
                 let name = string(declaration.name)
                 let bytes = 64 + declaration.value.count
-                declarationBytes += bytes
+                declarationBytes += bytes + declaration.name.count
                 if SVGContent.copiedStyleProperties.contains(name), name != "filter" {
                     // usvg expands marker into three attributes and font into up to eighteen.
                     copiedBytes += bytes * (name == "marker" ? 3 : name == "font" ? 18 : 1)
