@@ -1062,12 +1062,15 @@ The Mac runner's transcript is plain text and needs no export.
   "Activate Default". Continuous scroll, the first book: "Read the numbered words across two
   consecu Actions available", and the rotor read "Verification link", "￼", "￼", "￼ Jump with
   decoration", "￼", "Inspect Image: Blue verification square", "Previous Page", "Next Page",
-  "Activate Default", and the same on "Verification link Link" and on ". Image:". The first
+  "Activate Default", and the same on "Verification link Link" and on ". Image:"; on the
+  picture's own line it read the picture's inspection and then those nine. The first
   five are UIKit's own for a text view, one for each link of the book by its words, with "￼"
   for a picture or a hidden label in the link: "Jump with decoration" is a link of the
   book's fourth section, offered on a line of its first. In pages, on "Read the numbered
   words across two consecu": "Next Page", "Previous Page", "Inspect Image: Blue verification
-  square", "Previous Page", "Next Page", "Activate Default".
+  square", "Previous Page", "Next Page", "Activate Default". On the picture's own line the
+  inspection came twice: "Next Page", "Previous Page", "Inspect Image: Blue verification
+  square", the same again, "Previous Page", "Next Page", "Activate Default".
   The phrases and the rotor were the same at `cfc7768`, before the Headings rotor, and the
   physical iPhone 17 Pro Max of the sessions above said "p005w21 p005w22 p005w23 p005w24
   p005w25 Actions available" in continuous scroll that morning. Neither the rotor nor the
