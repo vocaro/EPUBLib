@@ -1220,6 +1220,27 @@ import AppKit
         return ReaderTextPosition(section: section, offset: view.placement.offset + location)
     }
 
+    /// Where the heading of the book after `position` begins, or the one before it: where an
+    /// assistive technology's move by heading goes when the page or the screen has no more. A
+    /// heading is after a position it begins after and before one it ends at or before, so the
+    /// heading a position is inside is neither. A section that page turns step over is passed
+    /// over unless the search starts in it, and a section not built yet ends the search.
+    func heading(from position: ReaderTextPosition, forward: Bool) -> ReaderTextPosition? {
+        guard let dataSource else { return nil }
+        var section = position.section
+        while section >= 0, section < dataSource.sectionCount {
+            if section == position.section || dataSource.isLinear(section: section) {
+                guard let text = dataSource.text(forSection: section) else { return nil }
+                let headings = text.readerHeadings()
+                let found = forward ? headings.first { section > position.section || $0.range.location > position.offset }
+                    : headings.last { section < position.section || NSMaxRange($0.range) <= position.offset }
+                if let found { return ReaderTextPosition(section: section, offset: found.range.location) }
+            }
+            section += forward ? 1 : -1
+        }
+        return nil
+    }
+
     /// A non-empty `range` in a text view's own characters, clipped to what the view shows;
     /// nil when they do not meet.
     func localRange(of range: ReaderTextRange, in view: ReaderTextView) -> NSRange? {
