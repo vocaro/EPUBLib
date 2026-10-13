@@ -5274,7 +5274,7 @@ The Mac runner's transcript is plain text and needs no export.
   Upper far group", "gaps.", "the", "before", "Words". The first `right` after that last
   `out` took the insertion point to 32, the row "Lower near, Lower far", and the phrase
   recorded for it is "Middle", the word last read inside the cell, 35 milliseconds
-  after the move. That is VoiceOver's own and not the change: on the reader as it was
+  after the move. That is not the change's doing: on the reader as it was
   (run 38461506908, the same steps on the same row, in pages) the step went to the row of
   decoration, and the transcript has "text text group" and 52 milliseconds later
   "Middle"; in continuous scroll there, "group" and then "text text". So in pages, with
