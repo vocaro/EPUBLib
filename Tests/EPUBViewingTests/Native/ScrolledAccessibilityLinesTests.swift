@@ -21,7 +21,9 @@ import XCTest
 /// one its cursor is on, as the container lists them at that moment, two as a rule and fifty at
 /// its first move after a menu closes, which it then moves through without asking again. For a
 /// move to the scroll view's own scroll bar (`bringScrollBarIntoView`): UIKit brings the bar
-/// into view as it would a line, before VoiceOver asks for anything more.
+/// into view as it would a line, before VoiceOver asks for anything more. For an adjustment of
+/// that bar (`ScrollBar.adjust`), seen on 2026-10-13: UIKit's bar moves the view a tenth of the
+/// way it can go, at once, and VoiceOver asks for nothing until it is told of a change.
 @MainActor final class ScrolledAccessibilityLinesTests: XCTestCase {
     private typealias Subject = (reader: SessionCoverageReader, canvas: ReaderCanvasView, view: ReaderTextView)
     private var readers: [SessionCoverageReader] = []
