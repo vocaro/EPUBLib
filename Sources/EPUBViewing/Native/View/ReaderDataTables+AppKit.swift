@@ -476,8 +476,22 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
         guard let interaction = table?.view?.tableInteraction else { return [] }
         let views = locations.flatMap { interaction.accessibilityCells(at: $0, cell: cell) }
         let holder: NSAccessibilityElement = isLink ? link : self
-        for view in views { view.tableCellElement = holder }
+        for view in views {
+            view.tableCellElement = holder
+            view.trialWords = Self.pictureTrial == "areastring" && !images.isEmpty
+        }
         return views
+    }
+
+    // TRIAL, not for main: two more ways of giving a cell that shows a picture, chosen at
+    // launch with `-TablePictureCell NAME`. "areastring": every cell holds its text areas,
+    // and a text area gives a range's words, a picture's among them, as the string of that
+    // range. "beside": a cell that shows a picture among words holds its text areas and then
+    // an image for each picture.
+    static let pictureTrial = UserDefaults.standard.string(forKey: "TablePictureCell") ?? ""
+    var holdsPicturesBeside: Bool {
+        guard Self.pictureTrial == "beside", let table, table.view != nil, !isLink else { return false }
+        return !table.table.cells[cell].isWordless && !images.isEmpty
     }
 
     /// Whether the cell holds what says its words, which is where VoiceOver reads a header
@@ -513,6 +527,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// image for each of its pictures.
     private var held: [Any] {
         if isLink { return [link] }
+        if holdsPicturesBeside { return textViews + heldPictures }
         return holdsPictures ? heldPictures : textViews
     }
 
@@ -553,7 +568,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// words stays in its cell's text area, where VoiceOver reads it by word
     /// (doc/voiceover-testing.md has what was heard, and the other ways that were tried).
     var holdsPictures: Bool {
-        guard let table, table.view != nil else { return false }
+        guard let table, table.view != nil, Self.pictureTrial != "areastring" else { return false }
         let model = table.table.cells[cell]
         return model.isWordless && !model.isLink
     }
@@ -684,7 +699,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 
     /// The picture, while its cell shows it and holds this image for it.
     private var image: ReaderImageAttachment? {
-        guard let cell, cell.holdsPictures, cell.images.indices.contains(index) else { return nil }
+        guard let cell, cell.holdsPictures || cell.holdsPicturesBeside, cell.images.indices.contains(index) else { return nil }
         return cell.images[index]
     }
 
