@@ -4,11 +4,12 @@
 Build and normally launch the verification reader first; see doc/voiceover-testing.md.
 Steps are VoiceOver commands sent while the probe records speech, or `ax:STEP` for a
 step of scripts/voiceover-ax-observer.swift such as `ax:focus` or `ax:next`.
-`activate=LABEL` presses the item in the VoiceOver cursor only if VoiceOver just named it.
+`activate=LABEL` presses the item in the VoiceOver cursor only if VoiceOver just named it, and
+`listchoose=LABEL` chooses an item of the rotor or of the Actions menu on the same condition.
 The steps, speech and observer events are merged by time into one transcript.
 A session in which VoiceOver names XCTest's Automation Running banner is stopped.
-A rotor the steps can have left open is closed before VoiceOver is restored, because VoiceOver
-ignores its own shortcut under one. A session whose VoiceOver will not return to its original
+A rotor or an Actions menu the steps can have left open is closed before VoiceOver is restored,
+because VoiceOver ignores its own shortcut under one. A session whose VoiceOver will not return to its original
 state still writes its transcript, with the reason in it, and exits with status 126.
 This script never changes the VoiceOver AppleScript setting or the clipboard.
 """
@@ -48,12 +49,13 @@ def unknown(steps):
     """The steps that are no VoiceOver command, reader key or observer step."""
     return [step for step in steps
             if step.split("=")[0] not in COMMANDS and step not in FIND_COMMANDS and step not in READER_KEYS
-            and step not in LIST_KEYS and not step.startswith("ax:")]
+            and step.split("=")[0] not in LIST_KEYS and not step.startswith("ax:")]
 
 
-def rotor_open(sent):
-    """Whether the keys sent can have left the rotor open: `listchoose` closes it only if it chose an item."""
-    return "rotor" in sent and "listclose" not in sent[len(sent) - sent[::-1].index("rotor"):]
+def open_list(sent):
+    """The list the keys sent can have left open, `rotor` or `actions`: `listchoose` closes one only if it chose an item."""
+    opened = max((index for index, name in enumerate(sent) if name in ("rotor", "actions")), default=None)
+    return None if opened is None or "listclose" in sent[opened:] else sent[opened]
 
 
 def enabled():
@@ -179,10 +181,12 @@ def main():
 
     sent = []
 
-    def close_rotor():
-        """Send Escape if the session's keys can have left the rotor open; with none open the reader takes it."""
-        if rotor_open(sent) and keyboard_owner() == READER:
-            transcript.append(f"{now()} STEP listclose, sent by the runner in case the rotor is still open")
+    def close_list():
+        """Send Escape if the session's keys can have left a rotor or an Actions menu open; with none open the reader takes it."""
+        left_open = open_list(sent)
+        if left_open and keyboard_owner() == READER:
+            transcript.append(f"{now()} STEP listclose, sent by the runner in case the "
+                              f"{'rotor' if left_open == 'rotor' else 'Actions menu'} is still open")
             keystroke(LIST_KEYS["listclose"], "")
             sent.append("listclose")
             return True
@@ -255,7 +259,7 @@ def main():
                             time.sleep(0.05)
                         time.sleep(max(0, min(args.advance_after, limit - time.monotonic())))
                 # While the probe still records, so that the transcript has what VoiceOver says to it.
-                if close_rotor():
+                if close_list():
                     time.sleep(args.pause)
                 check_banner("by the end of the steps")
                 finished.touch()
@@ -273,9 +277,9 @@ def main():
                     stop(child)
         finally:
             try:
-                close_rotor()  # For a session stopped before the end of its steps.
+                close_list()  # For a session stopped before the end of its steps.
             except subprocess.SubprocessError as error:
-                print(f"The rotor may still be open: {error}")
+                print(f"A rotor or an Actions menu may still be open: {error}")
             try:
                 set_state(original)
                 print(f"VoiceOver restored to {'on' if original else 'off'}.")
@@ -292,7 +296,7 @@ def main():
             if events_path.exists():
                 # What the reader reported and exposed, beside what VoiceOver said about it.
                 kinds = (" EVENT AXValueChanged", " EVENT AXLayoutChanged", " EVENT AXSelectedTextChanged", " STATE", " LINE", " PRESS",
-                         " RESIZE", " FOCUS", " MISSING", " CHILD", " LINK", " CARET", " CELL")
+                         " RESIZE", " FOCUS", " MISSING", " CHILD", " LINK", " CARET", " CELL", " ELEMENT", " ACTION")
                 transcript += [line for line in events_path.read_text(errors="replace").splitlines() if line[24:].startswith(kinds)]
             transcript_path = args.results / f"mac-{stamp}.transcript.txt"
             transcript_path.write_text("\n".join(sorted(transcript)) + "\n")
