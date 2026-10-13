@@ -243,10 +243,10 @@ final class ReaderTextView: NSTextView {
     }
 
     /// AppKit lists a text view's links as its children and nothing else: the reader's own
-    /// elements take their place.
+    /// elements take their place, with those of the table cells on screen among them.
     override func accessibilityChildren() -> [Any]? {
         guard canvas != nil else { return super.accessibilityChildren() }
-        return (super.accessibilityChildren() ?? []).filter { $0 is NSView } + linkChildren()
+        return (super.accessibilityChildren() ?? []).filter { $0 is NSView } + linkChildrenWithCells()
     }
 
     private func accessibilityElement(at range: NSRange, label: String, isText: Bool = false) -> NSAccessibilityElement {

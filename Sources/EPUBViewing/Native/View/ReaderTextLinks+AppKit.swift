@@ -199,6 +199,17 @@ extension ReaderTextView: ReaderLinkHost {
         canvas?.inspectImage(image)
         return canvas != nil
     }
+
+    /// The links Find Next Link moves through from this text, in reading order: its own on
+    /// screen and, where a table row stands, those of the row's cells. A cell's link is the
+    /// cell's own element, so VoiceOver says the same of it from here as from inside the cell.
+    func linkChildrenWithCells() -> [ReaderLinkAccessibilityElement] {
+        var found = linkChildren().map { (location: $0.range.location, element: $0) }
+        for (location, cell) in tableInteraction?.accessibilityCellsInOrder ?? [] {
+            found += cell.linkChildren().map { (location: location, element: $0) }
+        }
+        return found.enumerated().sorted { ($0.element.location, $0.offset) < ($1.element.location, $1.offset) }.map(\.element.element)
+    }
 }
 
 /// A link in a reader text view as VoiceOver meets it: a child of the text that Find Next Link
