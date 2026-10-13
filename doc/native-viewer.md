@@ -905,7 +905,10 @@ The following are the defaults. Host commands and accessibility actions stay ena
   a page turn, in the left-hand page of a spread, and the line of a link's target after a
   link. VoiceOver takes its cursor there and reads the line, so reading goes on from the
   top of the page. This is so whoever turned the page: a line's own action, VoiceOver's
-  scroll, a key, or the host while the cursor is in the text. Three cursors are left alone.
+  scroll, a key, or the host while the cursor is in the text. The cursor is then on a new
+  item, where VoiceOver's rotor is at its default again: to turn several pages from the
+  text a listener flicks down to Next Page before each double tap (iPadOS 27.2). Three
+  cursors are left alone.
   One that is not in the text stays where it is: after the host's Next Page button
   VoiceOver is still on the button, and moving into the text from there met the new page's
   first line before this and does now. One whose line is still on the page keeps it, as
