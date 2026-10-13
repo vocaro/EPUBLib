@@ -2487,7 +2487,11 @@ Go: the native viewer is the bundled engine.
     bounded as well. The renderer shares user-space masks and clip paths only after successful
     conversion; an invalid resource is repeatedly retried. The screen conservatively charges
     every reference in every unit system, even where the renderer successfully shares it. This
-    also bounds the drawing work of repeatedly using successfully cached content. [Source characterization and measurements](issue-176-220-282-svg-costs.md)
+    also bounds the drawing work of repeatedly using successfully cached content. A marker's
+    content can inherit a mask/clip from the marker root: its external resource bytes, text and
+    stylesheet costs, and resolved gradient/dash/text-span copies, additionally pay the total
+    charged marker instances. That is an upper bound on each marker's actual draw count; plain
+    marker content retains its existing instance bound. [Source characterization and measurements](issue-176-220-282-svg-costs.md)
     describe the units, the cache condition and the reproducible capped experiment.
 
   Embedded raster images are capped at 4 megapixels each and 16 megapixels in total.

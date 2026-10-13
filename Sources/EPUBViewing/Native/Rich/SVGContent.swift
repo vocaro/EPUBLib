@@ -254,10 +254,14 @@ enum SVGContent {
         guard cost(svg, depth: 0) != nil else { return false }
         // Bound stylesheet materialization and reference multiplication before constructing the
         // reference graph or walking per-shape copies. The resource map is shared by those counts.
-        let rendering = SVGRenderingCostScreen.verdict(svg, nodes: nodes, ids: ids)
-        guard rendering.withinLimits, SVGReferenceScreen.accepts(nodes, ids: ids) else { return false }
-        return markerVerdict(svg, nodes: nodes, ids: ids).withinLimits
-            && copyVerdict(svg, nodes: nodes, ids: ids, resourceReferences: rendering.resources).withinLimits
+        let original = SVGRenderingCostScreen.verdict(svg, nodes: nodes, ids: ids)
+        guard original.withinLimits, SVGReferenceScreen.accepts(nodes, ids: ids) else { return false }
+        let markers = markerVerdict(svg, nodes: nodes, ids: ids)
+        guard markers.withinLimits else { return false }
+        let rendering = SVGRenderingCostScreen.chargingMarkers(original, instances: markers.instances)
+        guard rendering.withinLimits else { return false }
+        return copyVerdict(svg, nodes: nodes, ids: ids, resourceReferences: rendering.resources,
+                           markerResourceReferences: rendering.markerResourceReferences, markerInstances: markers.instances).withinLimits
     }
 
     /// Whether every `<text>` element's run is within the per-run character bound. A run is the
@@ -581,7 +585,9 @@ enum SVGContent {
     /// and which `isWithinRenderingLimits` applies before it calls this.
     static func copyVerdict(_ svg: ContentNode, nodes: [ContentNode], ids: [String: [ContentNode]],
                             stepBudget: Int = markerStepBudget,
-                            resourceReferences: [ObjectIdentifier: [ContentNode]]? = nil) -> CopyVerdict {
+                            resourceReferences: [ObjectIdentifier: [ContentNode]]? = nil,
+                            markerResourceReferences: [(source: ContentNode, target: ContentNode)] = [],
+                            markerInstances: Int = 0) -> CopyVerdict {
         var steps = 0
         func step() -> Bool {
             steps += 1
@@ -867,7 +873,17 @@ enum SVGContent {
             return true
         }
         guard walk(svg, above: Copied(), depth: 0) else { return (false, copies, steps) }
-        // A mask's content is drawn where the mask is used; charge it once, from no inherited paint.
+        // A marker's content can take its root's mask/clip by `inherit`. Its external resources
+        // convert again at each vertex, including their gradient, dash and text-span copies.
+        for reference in markerResourceReferences {
+            var inherited = inheritedAbove(reference.source)
+            inherited.raise(to: element(reference.source).copied)
+            inherited.raise(to: inheritedAbove(reference.target))
+            for _ in 0..<markerInstances {
+                guard walk(reference.target, above: inherited, depth: 1) else { return (false, copies, steps) }
+            }
+        }
+        // The standalone shared-value verdict retains its once-per-mask charge.
         for mask in nodes where resourceReferences == nil && mask.name == "mask" {
             for child in mask.children where child.isElement && kind(child) != .undrawn {
                 guard walk(child, above: Copied(), depth: 1) else { return (false, copies, steps) }

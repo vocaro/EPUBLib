@@ -152,15 +152,44 @@ final class RichMediaSVGRenderingCostCoverageTests: XCTestCase {
         XCTAssertTrue(try verdict(drawing).withinLimits, "source expansion alone cannot bound gradient copies")
         try fallback(drawing)
     }
+    func testMarkerInheritedResourcesPayPerInstanceIncludingGradientCopies() throws {
+        let content = String(repeating: "<rect width='1' height='1'/>", count: 5_000)
+        let marker = "<marker id='m' mask='url(#r)'><rect width='1' height='1' mask='inherit'/></marker>"
+        let drawing = svg("<title>Costly diagram</title><defs><mask id='r'>\(content)</mask>\(marker)</defs>"
+            + String(repeating: "<rect width='2' height='2' marker-start='url(#m)'/>", count: 500))
+        let original = try verdict(drawing)
+        let instances = SVGContent.markerVerdict(try root(drawing)).instances
+        XCTAssertTrue(original.withinLimits)
+        XCTAssertFalse(SVGRenderingCostScreen.chargingMarkers(original, instances: instances).withinLimits)
+        try fallback(drawing)
+        // XML stays small here; the repeated resource's resolved gradient copies are the cost.
+        let stops = String(repeating: "<stop stop-color='red'/>", count: 2_000)
+        let gradient = svg("<title>Costly diagram</title><defs><linearGradient id='g'>\(stops)</linearGradient>"
+            + "<mask id='r'><rect width='1' height='1' fill='url(#g)'/></mask>\(marker)</defs>"
+            + String(repeating: "<rect width='2' height='2' marker-start='url(#m)'/>", count: 3_000))
+        XCTAssertTrue(try verdict(gradient).withinLimits)
+        try fallback(gradient)
+    }
     func testSelectorAttributeLookupAndValueScanningAreBoundedBeforeMatches() throws {
         let classes = (0..<5_000).map { ".c\($0){fill:red}" }.joined()
-        let longClass = svg("<title>Costly diagram</title><style>\(classes)</style><rect class='" + String(repeating: "x", count: 1_000_000) + "'/>")
+        let longClass = svg("<title>Costly diagram</title><style>\(classes)</style><rect class='" + String(repeating: "x", count: 100_000) + "'/>")
         XCTAssertGreaterThan(try verdict(longClass).stylesheetWork, SVGRenderingCostScreen.maximumStylesheetWork)
         try fallback(longClass)
-        let attrs = (0..<50_000).map { "a\($0)='x'" }.joined(separator: " ")
-        let missingAttribute = svg("<title>Costly diagram</title><style>" + String(repeating: "[z]{fill:red}", count: 5_000) + "</style><rect \(attrs)/>")
+        let attrs = (0..<10_000).map { "a\($0)='x'" }.joined(separator: " ")
+        let missingAttribute = svg("<title>Costly diagram</title><style>" + String(repeating: "[z]{fill:red}", count: 1_000) + "</style><rect \(attrs)/>")
         XCTAssertGreaterThan(try verdict(missingAttribute).stylesheetWork, SVGRenderingCostScreen.maximumStylesheetWork)
         try fallback(missingAttribute)
+        // Equal-length attribute names can compare a long common prefix on every lookup.
+        let prefix = String(repeating: "a", count: 1_900)
+        let longNames = (0..<1_000).map { "\(prefix)\(1_000 + $0)='x'" }.joined(separator: " ")
+        let queriedNames = svg("<style>" + String(repeating: "[\(prefix)9999]{fill:red}", count: 100) + "</style><rect \(longNames)/>")
+        XCTAssertGreaterThan(try verdict(queriedNames).stylesheetWork, SVGRenderingCostScreen.maximumStylesheetWork)
+        // The screen's own failed resource lookups also pay for long ID strings, even though
+        // none of those references expands renderer content.
+        let longID = String(repeating: "a", count: 100_000)
+        let inheritedMiss = "<svg xmlns='http://www.w3.org/2000/svg' mask='url(#\(longID))'><style>rect{mask:inherit}</style>"
+            + String(repeating: "<rect/>", count: 5_000) + "</svg>"
+        XCTAssertFalse(try verdict(inheritedMiss).withinLimits)
         let tinyRules = svg("<style>" + String(repeating: "a{}", count: 100_000) + "</style><rect/>")
         XCTAssertFalse(try verdict(tinyRules).withinLimits, "materialization stops after the 10,001st selector")
     }

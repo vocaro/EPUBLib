@@ -16,6 +16,23 @@ enum SVGRenderingCostScreen {
         var stylesheetWork: Int
         var stylesheetCopies: Int
         var resources: [ObjectIdentifier: [ContentNode]] = [:]
+        var markerResourceReferences: [(source: ContentNode, target: ContentNode)] = []
+        var markerResourceBytes = 0, markerResourceText = 0, markerResourceWork = 0, markerResourceCopies = 0
+    }
+
+    /// The marker verdict's weighted instances are an upper bound on every marker's draw count.
+    /// Multiply only external resource content here; ordinary marker content is already bounded
+    /// by that verdict, and multiplying it again by its own size would square its charge.
+    static func chargingMarkers(_ original: Verdict, instances: Int) -> Verdict {
+        var result = original
+        result.expandedBytes = min(SVGContent.maximumExpandedBytes + 1, result.expandedBytes + result.markerResourceBytes * instances)
+        result.textCharacters = min(maximumTextCharacters + 1, result.textCharacters + result.markerResourceText * instances)
+        result.stylesheetWork = min(maximumStylesheetWork + 1, result.stylesheetWork + result.markerResourceWork * instances)
+        result.stylesheetCopies = min(maximumStylesheetCopies + 1, result.stylesheetCopies + result.markerResourceCopies * instances)
+        result.withinLimits = result.withinLimits && result.expandedBytes <= SVGContent.maximumExpandedBytes
+            && result.textCharacters <= maximumTextCharacters && result.stylesheetWork <= maximumStylesheetWork
+            && result.stylesheetCopies <= maximumStylesheetCopies
+        return result
     }
 
     private struct Cost {
@@ -56,7 +73,7 @@ enum SVGRenderingCostScreen {
             for attribute in node.attributes { attributeBytes[attribute.name] = max(attributeBytes[attribute.name, default: 0], attribute.value.utf8.count) }
         }
         func attributeWork(_ queries: [String: Int]) -> Int {
-            queries.reduce(0) { $0 + $1.value * (attributeCount + attributeBytes[$1.key, default: 0]) }
+            queries.reduce(0) { $0 + $1.value * (attributeCount * max(1, $1.key.utf8.count) + attributeBytes[$1.key, default: 0]) }
         }
         var selectorWork = 0
         var selectorCount = 0
@@ -131,16 +148,16 @@ enum SVGRenderingCostScreen {
             var targets: [ObjectIdentifier: ContentNode] = [:]
             let candidates = references.targets + (references.inherits ? allResources.map { (role: $0.role, id: $0.id) } : [])
             for target in candidates where target.role == .mask || target.role == .clipPath {
-                resourceLookups += 1
-                if resourceLookups > SVGContent.maximumExpandedBytes / 32 {
+                resourceLookups += 1 + target.id.utf8.count
+                if resourceLookups > SVGContent.maximumExpandedBytes {
                     return refused(bytes: SVGContent.maximumExpandedBytes + 1)
                 }
-                for found in ids[target.id] ?? [] where target.role.admits(found.name) {
-                    resourceLookups += 1
-                    if resourceLookups > SVGContent.maximumExpandedBytes / 32 {
+                for found in ids[target.id] ?? [] {
+                    resourceLookups += 32
+                    if resourceLookups > SVGContent.maximumExpandedBytes {
                         return refused(bytes: SVGContent.maximumExpandedBytes + 1)
                     }
-                    targets[ObjectIdentifier(found)] = found
+                    if target.role.admits(found.name) { targets[ObjectIdentifier(found)] = found }
                 }
             }
             resources[ObjectIdentifier(node)] = Array(targets.values)
@@ -204,7 +221,31 @@ enum SVGRenderingCostScreen {
         }
         var result = cost(svg, depth: 0)
         result.copies = min(maximumStylesheetCopies + 1, result.copies + sheetCopies)
+        guard result.within else {
+            return Verdict(withinLimits: false, expandedBytes: result.bytes, textCharacters: result.text,
+                           stylesheetWork: result.work, stylesheetCopies: result.copies, resources: resources)
+        }
+        var markerSources = Set<ObjectIdentifier>()
+        func markerContent(_ node: ContentNode, inside: Bool) {
+            let here = inside || node.name == "marker"
+            if here { markerSources.insert(ObjectIdentifier(node)) }
+            for child in node.children { markerContent(child, inside: here) }
+        }
+        markerContent(svg, inside: false)
+        var markerResources = Cost()
+        var markerReferences: [(source: ContentNode, target: ContentNode)] = []
+        for node in nodes where markerSources.contains(ObjectIdentifier(node)) {
+            guard markerResources.within else { break }
+            for target in resources[ObjectIdentifier(node)] ?? [] {
+                guard markerResources.within else { break }
+                markerReferences.append((node, target))
+                markerResources.add(cost(target, depth: 0))
+            }
+        }
         return Verdict(withinLimits: result.within, expandedBytes: result.bytes, textCharacters: result.text,
-                       stylesheetWork: result.work, stylesheetCopies: result.copies, resources: resources)
+                       stylesheetWork: result.work, stylesheetCopies: result.copies, resources: resources,
+                       markerResourceReferences: markerReferences, markerResourceBytes: markerResources.bytes,
+                       markerResourceText: markerResources.text, markerResourceWork: markerResources.work,
+                       markerResourceCopies: markerResources.copies)
     }
 }

@@ -27,7 +27,7 @@ simplecss 0.2.2. The following is from those sources, not a reproduction of syst
   includes selector bytes per element, matched ancestor-choice work, and all matched declarations,
   including unrecognized properties. Long compound selectors also pay their full byte length.
   Attribute lookup/value scanning is charged even on failed matches, using the largest source
-  attribute count and largest field queried by a selector. This bounds a long class list scanned
+  attribute count, query-name width and largest field queried by a selector. This bounds a long class list scanned
   once per rule and a missing field searched through many XML attributes, including ancestor
   candidates. Collection stops at 10,000 selectors and at the cloned-block storage budget before
   rule-list materialization or selector/reference multiplication can grow beyond those ceilings.
@@ -39,7 +39,8 @@ simplecss 0.2.2. The following is from those sources, not a reproduction of syst
   that product before allocating per-selector reference lists. Every property counts for the
   block-clone cost, including names usvg later drops. The ceilings are 32 Mi work units and
   16 MiB estimated stylesheet storage. Original XML counts are checked before reference lists
-  are resolved, and reference lookups have their own bounded counter.
+  are resolved, and reference lookups have their own bounded byte counter: each ID's bytes
+  for a lookup and 32 bytes for each candidate element examined, even where its type is wrong.
 - `usvg/src/parser/mask.rs` shares a converted mask only if both `maskUnits` and
   `maskContentUnits` are `userSpaceOnUse`. The defaults are respectively `objectBoundingBox`
   and `userSpaceOnUse`. `clippath.rs` shares `userSpaceOnUse` clip paths, the default;
@@ -106,7 +107,7 @@ python3 scripts/svg-cost-probe.py --output /private/tmp/svg-cost-probe
 elements, declarations on shapes/groups/use copies, long selector lists, long compound selectors,
 ignored declarations, failed attribute comparisons and bounded tiny-rule collection, both sides of the total-text bound, scalar accounting, text via `<use>`,
 ordinary and oversized resource reuse, an exact expanded-byte boundary, CSS/inline references,
-branching mask chains, multiplied gradient/dash copies, and invalid user-space mask and clip chains. Expensive cases are given to
+branching mask chains, marker-inherited resources and resolved gradient copies, and invalid user-space mask and clip chains. Expensive cases are given to
 the screen only; pipeline refusal cases verify fallback text and the `svg` disclosure. A drawing
 with fifty five-declaration exporter-style rules and 3,000 elements remains within every limit
 and renders. Existing automated SVG fixture tests remain the regression suite. The old synthetic
