@@ -1203,8 +1203,8 @@ as they did.
   stood. The rows on screen keep their cells through the hold: the view's offset changes
   before the viewport is laid out there, and rows looked for in the layout of the place
   before would have their cells taken away and made again, and with them the links
-  VoiceOver holds ([VoiceOver testing](voiceover-testing.md#harness-pitfalls-and-current-results)
-  has the sessions).
+  VoiceOver holds ([#517](https://github.com/vocaro/EPUBLib/issues/517); [VoiceOver
+  testing](voiceover-testing.md#harness-pitfalls-and-current-results) has the sessions).
   AppKit's text view also scrolls itself when a live resize of its window ends, after a drag
   of the window's edge and after a resize made with animation or by an assistive client: the
   paragraph under the clip view's top edge goes to that edge, from its first line

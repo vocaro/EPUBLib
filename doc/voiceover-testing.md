@@ -5125,8 +5125,9 @@ The Mac runner's transcript is plain text and needs no export.
   links of the section of parts below a jump after these, "Built hyperlink" was begun
   before "routes.", the text's links were the three and "upper jump", and the steps went
   on through that section's (run 38446095467, session 4). Walked to from the top of the
-  book the same link was said, as above. The fault is the reader's, and the entry after
-  this one has its cause and the change made for it.
+  book the same link was said, as above. The fault is the reader's
+  ([#517](https://github.com/vocaro/EPUBLib/issues/517)), and the entry after this one
+  has its cause and the change made for it.
   Not heard: anyone listening, or any Mac but the runner; a header cell that is a link
   while it is off screen in continuous scroll or on another page than the cells it heads,
   where the table gives the header by its words as for any header cell, which unit tests
@@ -5136,7 +5137,8 @@ The Mac runner's transcript is plain text and needs no export.
 - After that on 2026-10-13 the fault the entry above found on the way was traced to the
   reader and put right: in continuous scroll, in a reader opened at a section, Find Next
   Link to a link in a table row some screens below left VoiceOver on the text area, with
-  the row on screen and its link out of the text's links. Hosted `xcode-27` runner, macOS
+  the row on screen and its link out of the text's links
+  ([#517](https://github.com/vocaro/EPUBLib/issues/517)). Hosted `xcode-27` runner, macOS
   27.0.1, 600 wide at 17 points, a fixed pause of four seconds, link setting Speak, nobody
   listening. The steps, in a reader launched with `-SampleHref OPS/grids.xhtml`:
   `ax:caret=Stations on ax:focus in nextlink nextlink ax:links describe` and four more
