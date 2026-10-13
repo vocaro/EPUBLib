@@ -1,3 +1,4 @@
+import EPUBTestSupport
 import CoreGraphics
 import Foundation
 import XCTest
@@ -33,9 +34,9 @@ import UIKit
             // appending ordinary prose so that the float remains a separate native paragraph.
             text.append(NSAttributedString(string: "\n", attributes: caption.attributes(at: caption.length - 1, effectiveRange: nil)))
             text.append(prose)
-            let start = Date()
+            let start = TestCPUClock.seconds()
             let paginator = ReaderPaginator(text: text, size: size)
-            let initialized = Date().timeIntervalSince(start)
+            let initialized = TestCPUClock.seconds() - start
             let plan = try XCTUnwrap((paginator.text.attribute(.readerBoxPage, at: 0, effectiveRange: nil) as? ReaderBoxPage)?.geometry)
             let plannedLines = plan.paragraphs.flatMap(\.lines)
             XCTAssertFalse(plan.regions.isEmpty, "The performance fixture must retain its actual float")
@@ -45,9 +46,9 @@ import UIKit
             XCTAssertEqual(paginator.text.string, text.string, "Bounded preflight must retain all source characters")
             XCTAssertTrue(paginator.pages.isEmpty)
 
-            let firstStart = Date()
+            let firstStart = TestCPUClock.seconds()
             let first = try XCTUnwrap(paginator.page(at: 0))
-            let firstTime = Date().timeIntervalSince(firstStart)
+            let firstTime = TestCPUClock.seconds() - firstStart
             XCTAssertEqual(paginator.pages.count, 1)
             XCTAssertFalse(paginator.isComplete)
             XCTAssertTrue(paginator.holdsLayout)
@@ -67,9 +68,9 @@ import UIKit
             XCTAssertLessThanOrEqual(openingFrame.maxY, first.height + 0.75)
             XCTAssertEqual(firstView.visibleText, (text.string as NSString).substring(with: first.range))
 
-            let restStart = Date()
+            let restStart = TestCPUClock.seconds()
             let pages = paginator.allPages
-            let remaining = Date().timeIntervalSince(restStart)
+            let remaining = TestCPUClock.seconds() - restStart
             XCTAssertGreaterThan(pages.count, 100)
             XCTAssertTrue(paginator.isComplete)
             XCTAssertFalse(paginator.holdsLayout)
@@ -91,7 +92,7 @@ import UIKit
             let tailFrame = try XCTUnwrap(lastView.lineFrame(containing: tail.location))
             XCTAssertGreaterThanOrEqual(tailFrame.minY, -0.75)
             XCTAssertLessThanOrEqual(tailFrame.maxY, last.height + 0.75)
-            print("1 MB float preflight: oneParagraph=\(singleParagraph), plannedLines=\(plannedLines.count), init=\(initialized)s, firstPage=\(firstTime)s, remaining \(pages.count) pages=\(remaining)s")
+            print("1 MB float preflight (CPU seconds): oneParagraph=\(singleParagraph), plannedLines=\(plannedLines.count), init=\(initialized)s, firstPage=\(firstTime)s, remaining \(pages.count) pages=\(remaining)s")
         }
     }
 

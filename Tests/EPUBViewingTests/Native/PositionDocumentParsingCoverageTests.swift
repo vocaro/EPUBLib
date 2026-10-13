@@ -1,3 +1,4 @@
+import EPUBTestSupport
 import EPUBCore
 import Foundation
 import libxml2
@@ -646,9 +647,9 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
         for (prefix, repeated) in [("", "<"), ("", "< "), ("< ", "</"), ("< ", "&#"), ("< ", "&#x0"), ("< &#", "0"), ("< &#x", "0"), ("< ", String(Self.noncharacter()))] {
             let label = prefix + repeated
             let data = Data((prefix + String(repeating: repeated, count: 300_000 / repeated.utf8.count)).utf8)
-            let start = Date()
+            let start = TestCPUClock.seconds()
             let result = try XCTUnwrap(HTMLStraySigns.replaced(in: data, limit: .max), label)
-            XCTAssertLessThan(Date().timeIntervalSince(start), 30, label)
+            XCTAssertLessThan(TestCPUClock.seconds() - start, 30, label)
             XCTAssertNotNil(result.placeholder, label)
             XCTAssertLessThanOrEqual(result.data.count, data.count * 3, label)
             XCTAssertNil(HTMLStraySigns.replaced(in: data, limit: result.data.count - 1), label)

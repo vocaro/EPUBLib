@@ -19,6 +19,32 @@ None of this runs on a hosted runner, and nothing starts by itself for a pull re
 `main`: GitHub's runner is for [Mac VoiceOver sessions](voiceover-testing.md#hosted-mac-sessions)
 only ([notes for agents](../AGENTS.md#the-hosted-runner)).
 
+Run one gate at a time on this shared Mac, with its Mac and iOS suites one after the other.
+Several worktrees may edit and build, but should coordinate full test runs rather than start
+simulator suites together. Synchronous performance assertions use thread CPU time, excluding
+scheduling delay while retaining their work bounds; asynchronous readiness waits still have
+wall-clock deadlines, and simulator startup and UI event delivery can stall under saturation.
+For acceptance runs, use a quiet machine: three samples a minute apart with at least 70% CPU
+idle and a one-minute load below 20. Read idle CPU from the last `CPU usage` line of
+`top -l 2 -n 0 -s 2`, and load from `sysctl -n vm.loadavg`. Idle CPU is the primary check:
+load can stay high after work ends and has wrapped at 1,024 on this Mac. Bound a wait for quiet
+and report when the machine never becomes quiet; do not call a busy rerun acceptance evidence.
+
+`scripts/test-ios.sh` reports `Passed` or `Failed` for each device, continues to the second
+after a creation, boot or test failure, and exits nonzero if either failed. Each first boot has
+a 600-second limit (`EPUB_SIM_BOOT_TIMEOUT` overrides it with a positive number of seconds).
+The device and last boot stage, including any migration plugin, are retained in
+`.build/validation/<device-kind>-boot.log`; the test log remains `<device-kind>.log`.
+A first-boot migration can stall even at low CPU load, so a boot timeout is reported separately
+from a test failure. TERM or INT stops this script's active command and deletes its own device.
+Creation writes its identifier to `<device-kind>-create.log` before any boot. If creation is
+interrupted before that identifier arrives, cleanup looks up only this run's unique device name.
+Destination discovery gets 600 seconds and automatic test diagnostics are disabled to avoid
+an extra ten-minute `simctl diagnose` wait after a failure. Nothing retries a failed test.
+The failure, timeout and interruption paths can be checked without creating a simulator:
+`python3 scripts/test-test-ios.py` substitutes fake `xcrun` and `xcodebuild` commands in a
+fresh temporary directory and checks that every created device is deleted.
+
 For narrower checks:
 
 ```sh
@@ -27,6 +53,42 @@ swift test --filter NativeSessionTests
 swift test --filter CFI
 bash scripts/test-ios.sh
 ```
+
+On the Mac, the harness calls `makeMacTestWindow`, which runs `prepareMacTestApplication`
+before constructing an `NSWindow` or starting `NSApplication`. It puts
+`ApplePersistenceIgnoreState=YES` in the volatile `NSArgumentDomain`, preserving other
+arguments and writing no user default. This disables restoration of saved windows for both
+`swift test` and bare `xctest` runs; it avoids a modal restoration alert blocking the suite.
+The opt-in `ReaderTestWindowTests.testKilledWindowProcessProbe` mounts a window and kills
+only its own test process with SIGKILL, so a normal pass can check that it restarts without
+that alert. After building the tests, run the probe by itself (a nonzero exit is expected),
+then run the ordinary window tests under both launch paths without a restoration argument:
+
+```sh
+EPUBLIB_TEST_KILL_WINDOW_PROCESS=YES xcrun xctest -XCTest EPUBViewingTests.ReaderTestWindowTests/testKilledWindowProcessProbe .build/debug/EPUBViewingTests.xctest
+swift test --skip-build --filter ReaderTestWindowTests
+xcrun xctest -XCTest EPUBViewingTests.ReaderTestWindowTests .build/debug/EPUBViewingTests.xctest
+```
+
+The canvas harness waits up to ten seconds for the current selection report or a new visible
+range matching the move the test made. A previous non-nil selection does not satisfy that wait.
+The delayed-observer regression keeps such a previous report and delays delivery of the next
+one by 450 ms, longer than the former 300 ms sleep. The session harness also waits until the
+book's completion callback has been announced: storing its last section makes `isComplete`
+true before that callback reloads the mounted continuous-scroll view.
+
+Qualification on 2026-10-13, based on `main` at `24400a9e0203f9e325ca98f5917e1d2e17955189`:
+all five cases named in [#268](https://github.com/vocaro/EPUBLib/issues/268) passed five times
+without added CPU workers and five times with two owned CPU workers (50 executions). This
+capped contention did not reproduce the historical failure or establish load as its cause.
+With the matching report waits, those five and the delayed-observer case passed ten times
+without added workers and five times with two workers (90 executions). The workers were
+stopped after the run. The focused Swift run passed 202 cases with one intentionally skipped
+kill probe, and the killed-window restart above passed four cases with one skip under each
+launch path, without an external restoration argument. The simulator-free iOS gate checks
+cover both-device reporting, creation/boot/test failure, stalled boot, and interruption during
+creation and testing, including a creation that ignores TERM. Real simulator qualification is
+part of the local gate; fake-tool checks do not establish simulator boot or iOS test success.
 
 A window that mounts a reader for a test calls `keepLightAppearance()` (`ReaderTestWindow.swift`),
 so a reader whose style is System opens light on a Mac or simulator in dark appearance, and the

@@ -1,3 +1,4 @@
+import EPUBTestSupport
 import EPUBCore
 import Foundation
 import XCTest
@@ -170,9 +171,9 @@ final class EPUBCFITests: XCTestCase {
     func testLongAndDeepCFIsStayWithinBounds() throws {
         XCTAssertThrowsError(try EPUBCFI.parse("epubcfi(" + String(repeating: "/2", count: 40_000) + ")"))
         let deep = "epubcfi(/4/3" + String(repeating: "/2", count: 30_000) + "/1:0)"
-        let clock = ContinuousClock()
+        let clock = TestCPUClock.self
         let elapsed = clock.measure { XCTAssertNil(EPUBCFI.resolve(localPath: deep, in: document)) }
-        XCTAssertLessThan(elapsed, .seconds(1))
+        XCTAssertLessThan(elapsed, 1)
         XCTAssertThrowsError(try EPUBCFI.parse("epubcfi(/6/99999999999999999999)"))
         XCTAssertEqual(resolve("/4/2/1:99999999999999"), at(node("One "), 4))
         XCTAssertEqual(resolve("/4/2/1:9007199254740992"), at(node("One "), 4))

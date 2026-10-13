@@ -54,6 +54,9 @@ import AppKit
     func section(_ index: Int) -> SectionText? { sections.indices.contains(index) ? sections[index] : nil }
     func isCurrent(_ index: Int) -> Bool { builtTypography[index] == typography }
     var isComplete: Bool { builtTypography.allSatisfy { $0 == typography } }
+    /// The completion callback has finished its synchronous notification for this typography.
+    /// Test harnesses waiting for the mounted reader need that notification as well as its data.
+    var hasAnnouncedCompletion: Bool { announcedComplete }
 
     /// The section built for the current typography, building it first if needed.
     func build(_ index: Int) async -> SectionText {

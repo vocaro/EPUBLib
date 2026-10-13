@@ -128,10 +128,11 @@ import XCTest
     func testATestWindowKeepsItsReaderLightUntilTheTestAsksForDark() async throws {
         #if os(macOS)
         // Dark for this process alone, as a machine in dark appearance gives every window that sets none.
+        prepareMacTestApplication()
         let application = NSApplication.shared, own = application.appearance
         application.appearance = NSAppearance(named: .darkAqua)
         defer { application.appearance = own }
-        let plain = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        let plain = makeMacTestWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
         XCTAssertEqual(plain.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]), .darkAqua, "the machine is not dark to this test")
         #endif
 

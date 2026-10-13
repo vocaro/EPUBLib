@@ -1,3 +1,4 @@
+import EPUBTestSupport
 import Foundation
 import XCTest
 @testable import EPUBViewing
@@ -117,7 +118,7 @@ final class TextSearchTests: XCTestCase {
         let count = 1_048_576 / paragraph.utf8.count + 1
         let body = String(repeating: paragraph, count: count) + "<p>The final unique sentence ends here.</p>"
         let document = try document(body)
-        let clock = ContinuousClock()
+        let clock = TestCPUClock.self
         var matches: [TextSearch.Match] = []
         let unique = clock.measure {
             matches = TextSearch.matches(of: "the final UNIQUE sentence ends here.", in: document, locale: "en")
@@ -131,11 +132,11 @@ final class TextSearchTests: XCTestCase {
             matches = TextSearch.matches(of: "naive resume", in: document, locale: "en")
         }
         XCTAssertEqual(matches.count, count)
-        print("1 MB search: unique \(unique), common \(common), accented \(accented)")
+        print("1 MB search CPU seconds: unique \(unique), common \(common), accented \(accented)")
         #if DEBUG
-        let bound = Duration.seconds(2)
+        let bound = 2.0
         #else
-        let bound = Duration.milliseconds(100)
+        let bound = 0.1
         #endif
         XCTAssertLessThan(unique, bound)
         XCTAssertLessThan(common, bound)

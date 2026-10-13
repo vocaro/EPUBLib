@@ -8,8 +8,8 @@ import XCTest
 /// Books are untrusted: adversarial sizes and nesting must build in time proportional to their
 /// size, without trapping, and anything withheld must be reported.
 ///
-/// The time bounds are loose (other work shares the machine); what they catch is quadratic growth,
-/// which at these sizes takes minutes.
+/// The bounds measure thread CPU time, excluding scheduling delays from other work.
+/// What they catch is quadratic growth, which at these sizes takes minutes of CPU work.
 final class SectionContentRobustnessCoverageTests: XCTestCase {
     private typealias H = BuilderHarness
     private typealias S = SectionContentSupport
@@ -19,10 +19,10 @@ final class SectionContentRobustnessCoverageTests: XCTestCase {
     private func timed(_ body: String, rules: [H.Rule] = [], rich: any RichContentFactory = PlaceholderRichContent(),
                        file: StaticString = #filePath, line: UInt = #line) throws -> SectionText {
         let document = try H.document(body)
-        let start = Date()
+        let start = TestCPUClock.seconds()
         let text = H.build(document: document, rich: rich, rules: rules)
-        let elapsed = Date().timeIntervalSince(start)
-        XCTAssertLessThan(elapsed, Self.bound, "built in \(elapsed) s", file: file, line: line)
+        let elapsed = TestCPUClock.seconds() - start
+        XCTAssertLessThan(elapsed, Self.bound, "built in \(elapsed) CPU s", file: file, line: line)
         XCTAssertFalse(text.report.withheld, file: file, line: line)
         XCTAssertEqual(text.map.length, text.string.length, file: file, line: line)
         return text
@@ -86,10 +86,10 @@ final class SectionContentRobustnessCoverageTests: XCTestCase {
         let body = String(repeating: "<i/>", count: 260_000)
         let data = try Fixture.epub(overrides: ["OPS/one.xhtml": "<html xmlns='http://www.w3.org/1999/xhtml'><head><title>T</title></head><body><p>\(body)</p></body></html>"])
         let book = try EPUBPublication.open(data: data)
-        let start = Date()
+        let start = TestCPUClock.seconds()
         let text = SectionBuilder.build(SectionBuildRequest(publication: book, spineIndex: 0, typography: NativeTypography(),
                                                             fonts: FontRegistry(publication: book), rich: PlaceholderRichContent()))
-        XCTAssertLessThan(Date().timeIntervalSince(start), Self.bound)
+        XCTAssertLessThan(TestCPUClock.seconds() - start, Self.bound)
         XCTAssertTrue(text.report.withheld)
         XCTAssertEqual(text.string.string, "This section could not be shown.")
     }

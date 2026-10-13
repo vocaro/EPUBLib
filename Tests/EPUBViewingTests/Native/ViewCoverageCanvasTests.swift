@@ -364,7 +364,7 @@ import UIKit
     /// A canvas filling a window whose title bar (and toolbar, when it has one) lies over its
     /// content view, as a host makes it with `ignoresSafeArea()`.
     private func underTitleBar(flow: EPUBReadingFlow) -> (canvas: ReaderCanvasView, window: NSWindow) {
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .fullSizeContentView],
+        let window = makeMacTestWindow(contentRect: CGRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let canvas = ReaderCanvasView(frame: .zero)

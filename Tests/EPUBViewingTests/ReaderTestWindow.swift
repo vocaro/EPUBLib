@@ -9,6 +9,23 @@ import UIKit
 #endif
 
 #if os(macOS)
+/// Opt out before AppKit first creates an application or a window. A crashed or killed test
+/// process can otherwise leave restoration state that makes the next run wait behind an alert.
+/// The argument domain is volatile: this changes this process alone, not a user's defaults.
+@MainActor func prepareMacTestApplication(defaults: UserDefaults = .standard) {
+    var arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+    arguments["ApplePersistenceIgnoreState"] = true
+    defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+}
+
+/// Every Mac test window goes through this factory, including windows in filtered runs that
+/// do not mount `ReaderTestWindow`. Set the argument before `NSWindow` initializes AppKit.
+@MainActor func makeMacTestWindow(contentRect: NSRect, styleMask: NSWindow.StyleMask,
+                                  backing: NSWindow.BackingStoreType, defer flag: Bool) -> NSWindow {
+    prepareMacTestApplication()
+    return NSWindow(contentRect: contentRect, styleMask: styleMask, backing: backing, defer: flag)
+}
+
 typealias PlatformTestWindow = NSWindow
 #else
 typealias PlatformTestWindow = UIWindow
@@ -54,7 +71,7 @@ private struct ControlledTestReader: View {
 
     init(session: any EPUBReaderSession) {
         #if os(macOS)
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700),
+        window = makeMacTestWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700),
                           styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.keepLightAppearance()

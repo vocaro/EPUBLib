@@ -28,7 +28,7 @@ import UIKit
         let frame = CGRect(origin: .zero, size: size)
         #if os(macOS)
         view = NSTextView(frame: frame, textContainer: container)
-        window = NSWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window = makeMacTestWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = view
         window.orderFront(nil)
