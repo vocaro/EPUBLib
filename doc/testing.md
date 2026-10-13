@@ -15,7 +15,9 @@ sources, runs the Mac tests and the full test suite on dedicated iPhone 17 Pro a
 deleted on exit; existing devices are never selected or shut down. Agents working in the
 repository drive simulators the same way, headlessly ([notes for agents](../AGENTS.md)). iOS logs live in
 `.build/validation/`. `EPUB_SIM_RUNTIME` selects a different installed runtime by identifier.
-The Mac tests and the two checks also run on a [hosted runner](#hosted-mac-tests), for a pull request and for `main`.
+None of this runs on a hosted runner, and nothing starts by itself for a pull request or for
+`main`: GitHub's runner is for [Mac VoiceOver sessions](voiceover-testing.md#hosted-mac-sessions)
+only ([notes for agents](../AGENTS.md#the-hosted-runner)).
 
 For narrower checks:
 
@@ -53,156 +55,6 @@ whatever is attached and with no setting changed:
 xcrun xctest -XCTest All -AppleShowScrollBars Always .build/debug/EPUBViewingTests.xctest
 xcrun xctest -XCTest All -AppleShowScrollBars WhenScrolling .build/debug/EPUBViewingTests.xctest
 ```
-
-## Hosted Mac tests
-
-The [Mac unit tests workflow](../.github/workflows/unit-tests-mac.yml) runs `swift test` on
-GitHub's hosted `xcode-27` runner, under a stated kind of scroll bar, and then the gate's
-module and documentation checks. Nothing else runs on that machine, so a result does not
-depend on what other worktrees are building, and the standard runner costs nothing in this
-public repository. A run starts for a pull request, which is tested as merged into its base,
-for a push to `main`, and by hand:
-
-```sh
-python3 scripts/hosted-run.py unit-tests-mac.yml
-python3 scripts/hosted-run.py unit-tests-mac.yml -f scroll_bars=both
-python3 scripts/hosted-run.py unit-tests-mac.yml -f filter=ReaderCanvasViewTests -f repeat=20
-gh run watch RUN_ID --exit-status
-gh run view RUN_ID
-```
-
-A change to nothing but `doc/` and Markdown files starts no run. `scripts/hosted-run.py`
-takes the place of `gh workflow run`, with the same `-f` inputs: the runner is
-[shared](#sharing-the-runner), and the script looks at what is running there first, then
-prints the new run's number. It starts the run from the branch checked out, or from the one
-`--ref` names. That branch's workflow file is used, and that branch is tested unless the
-`ref` input names another. The inputs, all optional:
-
-- `ref`: a branch, a tag or a full commit SHA to build and test. The steps still come from the
-  `--ref` branch, so a commit older than this workflow can be tested, and two commits compared.
-- `filter`: the regular expression `swift test --filter` takes, such as `ReaderCanvasViewTests`
-  or `CFI`. Empty runs every test. A filter that matches no test fails the run.
-- `repeat`: the number of passes, 1 unless given. The tests are built once and run that many
-  times, each pass a new process. It is for a test that fails now and then: the runner is the
-  quiet machine that tells a test's own timing from a workstation's load.
-- `scroll_bars`: the [scroll bars](#local-gate) the tests run under: `legacy` unless given,
-  `overlay`, `both` for a job under each, or `automatic` for the runner's own setting.
-
-Each job runs under one kind of scroll bar, which its name gives: `swift test, legacy scroll
-bars`. A pull request's run has one job, under legacy ones, the kind that takes its width from
-the text. A push to `main` has two, one under each kind, and so has a run by hand with
-`scroll_bars=both`. The two are on runners of their own, so the second adds nothing to the
-time of a run once it has a runner, and about twelve minutes of a runner to its cost; a pull
-request has one job because every run in the repository waits for the same few runners. A
-failure that needs overlay scroll bars therefore shows first in the run for `main`, unless a
-run by hand asked for both before the merge.
-
-A job gets its kind from the runner's "Show scroll bars" setting, which it writes before it
-builds: `defaults write -g AppleShowScrollBars Always` for legacy ones and `WhenScrolling`
-for overlay ones. It does that only on GitHub's machine, which is discarded after the job,
-and stops on any other; never run it on a workstation, where the arguments
-[above](#local-gate) give one process either kind and change no setting. The job then starts
-a process that reads the kind as it starts and two seconds later, prints both
-(`Scroll bars: legacy as a process starts, legacy two seconds later`) and fails unless both
-are the job's kind. The tests say it too: `ScrolledAccessibilityReadTests` prints
-`Scroll bars this Mac prefers: legacy` in the log of a pass that runs it.
-
-Left alone, the runner is a Mac on the automatic setting with a pointing device, the virtual
-machine's `Virtual USB Digitizer`. A process there reads overlay when it first asks and
-legacy a second later, as on a Mac with a mouse. `scroll_bars=automatic` runs the tests so:
-the first test of a process to ask meets overlay scroll bars and the tests after it legacy
-ones. It is for a failure that needs the change itself. Every hosted run was like that before
-the jobs set a kind, and printed `Scroll bars: overlay`, having asked once.
-
-The job fails unless every pass exits 0, and no test is retried: a test that fails there
-failed on a machine doing nothing else. `gh run view RUN_ID` lists each failed assertion with
-its test, file and line, and a notice with the count of tests. The log has one line for each
-pass, `Pass 1 of 1: … tests, … failed, … skipped, … s, swift test exit …`, and after several
-passes the failed tests with the number of passes each failed in; the run's summary page has
-the same as a table.
-
-After the tests, and whatever their result, a job runs the two checks of the gate that need
-no simulator, `scripts/check-modules.py` and `scripts/check-docs.py`, in under ten seconds.
-The second compares the documentation's snippets with the sample's shared sources, which the
-job's build has compiled by then as the `ReaderSampleSupport` target. A change to
-documentation alone starts no run, so a snippet that such a change leaves stale fails the
-next run that does start, whoever's it is.
-
-A job has forty minutes. On 2026-10-13 a job took eleven to fifteen minutes, the build two
-or three of them and a pass of every test nine to twelve. A pass was 2,534 tests then, 2,483
-of XCTest's and 51 of Swift Testing's, with 52 skipped, most of them the opt-in
-[corpus runs](#corpus-runs).
-Fifty passes of `ReaderCanvasViewTests` took fourteen minutes. A pass is started only if one
-as long as the longest so far would end three minutes before the job's limit; otherwise the
-passes left are reported as not run, and the job fails. A pass that hangs is not stopped: the
-job runs to its limit and is cancelled there, and what the pass had printed, which reaches
-the log in blocks, is lost with it. A new run for the same pull request, or by hand for the
-same ref, filter, count and scroll bars, cancels one still in progress. A run for `main` is
-not cancelled; of the runs waiting behind it only the newest is kept.
-
-A job waits for a runner before it starts, at times for longer than it then runs; see
-[Sharing the runner](#sharing-the-runner).
-
-A hosted run differs from the [local gate](#local-gate):
-
-- It runs the Mac tests and the module and documentation checks. The simulator suites and the
-  sample builds are the gate's.
-- The runner has three processors and 7 GB of memory, and macOS and Xcode are the image's,
-  which the job prints before it builds: on 2026-10-12, macOS 27.0.1 (`26A434`) and Xcode 27.0.
-- A job's scroll bars are one kind from the start of every process, and a test that says which
-  kind it means runs as it does anywhere. A pull request's run has no job under overlay ones,
-  and only `scroll_bars=automatic` has a process change from overlay to legacy a moment after
-  it starts, as one does on a Mac with a mouse.
-- It holds no corpora and no `epubcheck`, so the opt-in runs are skipped.
-
-### Sharing the runner
-
-GitHub runs five macOS jobs at a time for the whole account, on its Free, Pro and Team plans
-([its limits](https://docs.github.com/en/actions/reference/limits)). The runs of every
-agent's session draw on those five: these tests, for pull requests, for `main` and by hand,
-and the [Mac VoiceOver sessions](voiceover-testing.md#hosted-mac-sessions). A job beyond the
-five waits for a runner. The queue has no priorities, so a pull request's run waits behind
-whatever was started before it.
-
-While fewer than five jobs ran, a job started within ten seconds. On the evening of
-2026-10-12, with eleven or twelve branches starting runs, all five were busy for hours, ten
-to fifteen jobs waited at any time, 27 at worst, and a job waited a median of 13 minutes for
-a runner and 75 at worst. Four runs in five were VoiceOver runs, and a single branch started
-four to nine of them within 90 seconds on sixteen occasions, each on a runner of its own with
-a build of its own.
-
-So a run by hand is started with `scripts/hosted-run.py`:
-
-```sh
-python3 scripts/hosted-run.py
-python3 scripts/hosted-run.py voiceover-mac.yml -f steps='width=600 text_size=17 in line ; in line'
-python3 scripts/hosted-run.py unit-tests-mac.yml -f filter=ReaderCanvasViewTests -f repeat=20
-```
-
-With no workflow it prints the jobs running and waiting and each run in flight, and starts
-nothing; `gh run list --status in_progress` and `gh run list --status queued` list the same
-runs. With a workflow it prints the two counts and starts the run, unless a rule below is
-against it: then it says why, starts nothing and exits with status 1. It counts jobs, since a
-run for `main` has two, and it sees this repository's runs only. The rules, with what the
-script does about each:
-
-- Look at what is running and waiting before you start a run. The script prints it each time.
-- Put the speech sessions you need into one VoiceOver run. Each can have its own window
-  width, text size, flow and launch arguments, so that step lists that differ in them share
-  one run, one build and one runner. The script checks the steps as the runner would, before
-  anything waits for one, and prints each session with its settings.
-- Keep at most two runs in flight for a branch, and one while any job is waiting for a
-  runner. A pull request's run counts as its branch's, and a run for `main` as nobody's. The
-  script starts no run beyond that and lists the branch's runs.
-- Do not start every test by hand for a commit that a pull request's run already tests. The
-  script starts no single pass of every test under legacy scroll bars for such a commit, and
-  names the pull request's run. `scroll_bars=overlay` is the kind that run does not have.
-- Cancel a run as soon as it is no longer needed, with `gh run cancel RUN_ID`. Nothing else
-  cancels a VoiceOver run. A new unit-test run cancels an older one only as described above.
-
-`--force` starts a run the script would refuse; a slow queue is not a reason for it. The
-script also says when GitHub's copy of the branch is not the commit checked out, because a
-run uses what is pushed.
 
 ## Coverage
 

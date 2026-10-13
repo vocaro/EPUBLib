@@ -42,6 +42,25 @@ what happened. Tests are run by automation.
   offer to operate it.
 - Record what automation cannot reach as not verified, and leave it to him.
 
+## The hosted runner
+
+GitHub's hosted Mac runner is for one thing in this repository: the
+[Mac VoiceOver sessions](#mac-voiceover-sessions) below. Every other test runs on this
+machine, by the [local gate](doc/testing.md#local-gate) and the narrower commands beside it.
+
+- Do not add a workflow, a trigger or a job that runs anything else on the runner, and do not
+  make one start by itself, unless the owner asks for it. The one workflow here starts by
+  hand only.
+- Do not move a test there because its result depends on what else this machine is doing. Say
+  that the machine was busy and run the test again when it is quiet;
+  [#62](https://github.com/vocaro/EPUBLib/issues/62) is where tests that fail under load are
+  dealt with.
+- The reason is the queue. GitHub runs five macOS jobs at a time for the whole account, and
+  every session's VoiceOver runs share them. On 2026-10-12 a `swift test` job for each pull
+  request and each push to `main` took over a third of the runner's time within hours of
+  being added, and jobs that had started in seconds waited up to 75 minutes. It was removed
+  the same day.
+
 ## Mac VoiceOver sessions
 
 Run a Mac VoiceOver speech session on GitHub's hosted runner, not on this machine. On the

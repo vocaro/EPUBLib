@@ -24,6 +24,12 @@ final class ReaderTextView: UITextView {
     /// line is told so until UIKit's focus notification names something that is not one of this
     /// view's lines.
     private var accessibilityCursor: ReaderPageAccessibilityElement?
+    /// Whether that cursor is on something VoiceOver reaches after the scroll view's lines: one
+    /// of the scroll view's own bars, or an item below the reading area.
+    private var accessibilityCursorFollowsText = false
+    /// How many lines the scroll view lists past the screen: as many items as VoiceOver was seen
+    /// to ask for at once (iOS 27.0).
+    private static let accessibilityLinesPastScreen = 50
     private var imageGestureDelegate: ReaderImageGestureDelegate?
     private var selectionGestureDelegate: ReaderSpreadSelectionGestureDelegate?
     /// VoiceOver's Headings rotor for the lines this view lists.
@@ -256,32 +262,46 @@ final class ReaderTextView: UITextView {
         return elements
     }
 
-    /// The lines on screen in continuous scroll, so VoiceOver moving into the text from a
-    /// control meets the first of them. While its cursor is on a line, two lines before the
-    /// screen and two after it are listed as well, and two each side of the cursor's own line:
-    /// it moves on to them, UIKit scrolls the one it lands on into view, and so it reads on
-    /// through the book in either direction. Two, so that it never takes the first or last line
-    /// listed: from a line that was first when it took it, it went back to the control before
-    /// the text, though lines had been listed before that one since. A line keeps its element
-    /// while it is listed or under the cursor.
+    /// The lines VoiceOver is given in continuous scroll: those on screen and the fifty after
+    /// them. Moving into the text from a control it takes the first line listed, the first on
+    /// screen. Moving back into it from below it takes the last, so while its cursor is on
+    /// something that follows the text the list is the lines on screen alone and that is the
+    /// last of them.
+    ///
+    /// VoiceOver asks for the items after the one its cursor is on, then moves through what it
+    /// was given and asks again only when it has used them. As a rule it asks for two. At its
+    /// first move after the screen has changed under it, as when a menu closes, it asks for
+    /// fifty each way: given the lines on screen alone, it read to the last of them and went on
+    /// to the scroll bar. While its cursor is on a line, fifty are listed each side of the
+    /// screen and of that line: UIKit scrolls the line it lands on into view, and so it reads on
+    /// through the book in either direction. A line keeps its element while it is listed or
+    /// under the cursor.
     private var scrollAccessibilityElements: [ReaderPageAccessibilityElement] {
         guard let canvas else { return [] }
         let place = ScrollAccessibilityPlace(offset: contentOffset, size: bounds.size, content: contentSize,
-                                             insets: adjustedContentInset, cursor: accessibilityCursor.map(ObjectIdentifier.init))
+                                             insets: adjustedContentInset, cursor: accessibilityCursor.map(ObjectIdentifier.init),
+                                             cursorFollowsText: accessibilityCursorFollowsText)
         if let cache = scrollAccessibilityCache, cache.place == place { return cache.elements }
         guard let shown = canvas.scrollSpokenCharacters() else { return [] }
-        var listed = [shown]
+        let past = Self.accessibilityLinesPastScreen
+        var listed = [withLines(before: 0, after: accessibilityCursorFollowsText ? 0 : past, shown)]
         if let cursor = accessibilityCursor, var held = line(containing: cursor.range.location)?.range {
             // A heading under the cursor can take several lines.
             if let last = line(containing: NSMaxRange(cursor.range) - 1) { held.formUnion(last.range) }
-            let screen = withLinesAround(shown), around = withLinesAround(held)
+            let screen = withLines(before: past, after: past, shown), around = withLines(before: past, after: past, held)
             // The cursor can rest on a line the person has since scrolled away from.
             if NSMaxRange(around) < screen.location { listed = [around, screen] }
             else if NSMaxRange(screen) < around.location { listed = [screen, around] }
             else { listed = [screen.union(around)] }
         }
-        let elements = accessibilityElements(for: listed.flatMap(measuredLines(in:)),
-                                             reusing: (scrollAccessibilityCache?.elements ?? []) + [accessibilityCursor].compactMap { $0 })
+        let lines = listed.flatMap(measuredLines(in:))
+        let existing = (scrollAccessibilityCache?.elements ?? []) + [accessibilityCursor].compactMap { $0 }
+        var elements = accessibilityElements(for: lines, reusing: existing)
+        // A screen of decoration alone lists it, whatever is listed past the screen: VoiceOver
+        // would otherwise come in at a line below the screen, and the reader would go there.
+        if !elements.contains(where: { NSIntersectionRange($0.range, shown).length > 0 }) {
+            elements = accessibilityElements(for: lines, reusing: existing, passingOverDecoration: true, keepingDecorationIn: shown)
+        }
         // UIKit scrolls the line the cursor comes to until the area the insets leave holds its
         // frame, and then 40 points further. A first line on screen that the top inset cuts
         // would move the reader as VoiceOver came in, so a line on screen is listed by the
@@ -298,19 +318,25 @@ final class ReaderTextView: UITextView {
         return elements
     }
 
-    /// `range` with the two lines before it and the two after it.
-    private func withLinesAround(_ range: NSRange) -> NSRange {
+    /// `range` with as many lines before it and after it, where the text has them.
+    private func withLines(before: Int, after: Int, _ range: NSRange) -> NSRange {
         var result = range
-        for _ in 0..<2 {
-            if result.location > 0, let before = line(containing: result.location - 1) { result.formUnion(before.range) }
-            if NSMaxRange(result) < textLength, let after = line(containing: NSMaxRange(result)) { result.formUnion(after.range) }
+        for _ in 0..<before {
+            guard result.location > 0, let line = line(containing: result.location - 1) else { break }
+            result.formUnion(line.range)
+        }
+        for _ in 0..<after {
+            guard NSMaxRange(result) < textLength, let line = line(containing: NSMaxRange(result)) else { break }
+            result.formUnion(line.range)
         }
         return result
     }
 
     /// An assistive technology's cursor came to `element`, a line of the scroll view.
     fileprivate func accessibilityCursorMoved(to element: ReaderPageAccessibilityElement) {
-        if isCanvasScrollView { accessibilityCursor = element }
+        guard isCanvasScrollView else { return }
+        accessibilityCursor = element
+        accessibilityCursorFollowsText = false
     }
 
     /// The cursor went to something that is not one of this view's lines, or VoiceOver was
@@ -319,19 +345,32 @@ final class ReaderTextView: UITextView {
     /// either for the cursor leaving the text shrank the list to the screen for a moment, and
     /// VoiceOver then stopped at a line it had reached above the screen.
     @objc private func accessibilityFocusChanged(_ notification: Notification) {
+        var followsText = false
         if notification.name == UIAccessibility.elementFocusedNotification {
             guard let focused = notification.userInfo?[UIAccessibility.focusedElementUserInfoKey],
                   (focused as? ReaderPageAccessibilityElement)?.view !== self else { return }
+            followsText = accessibilityOrderPutsAfterLines(focused)
         }
         accessibilityCursor = nil
+        accessibilityCursorFollowsText = followsText
+    }
+
+    /// Whether VoiceOver reaches `element` after this scroll view's lines: UIKit lists the
+    /// scroll view's own bars after them, and what lies below the reading area follows those.
+    private func accessibilityOrderPutsAfterLines(_ element: Any) -> Bool {
+        if let view = element as? UIView, view.isDescendant(of: self) { return true }
+        guard let canvas, let frame = (element as? NSObject)?.accessibilityFrame, !frame.isEmpty else { return false }
+        let area = canvas.scrollVisibleContainerRect.offsetBy(dx: containerOrigin.x, dy: containerOrigin.y)
+        return frame.minY >= UIAccessibility.convertToScreenCoordinates(area, in: self).maxY - 1
     }
 
     /// One element for each line, except where a link or attachment needs its own, and one for
     /// a heading's text however many lines it takes: VoiceOver reads it whole, says it is a
     /// heading once and stops on it once when it moves by heading. An image the book marks as
-    /// decoration has none, unless nothing listed can be read without it: a page or a screen
-    /// that holds decoration alone would leave VoiceOver no place in the text to turn the page
-    /// or read on from, so its images are listed, as images without a name.
+    /// decoration has none, unless nothing on the page can be read without it, or nothing on
+    /// screen in continuous scroll: a page or a screen that holds decoration alone would leave
+    /// VoiceOver no place there to turn the page or read on from, so its images are listed, as
+    /// images without a name.
     /// A rule always has one, so a page that holds a rule alone is turned from the rule.
     private func accessibilityElements(for lines: [ReaderVisualLine],
                                        reusing existing: [ReaderPageAccessibilityElement]) -> [ReaderPageAccessibilityElement] {
@@ -339,8 +378,9 @@ final class ReaderTextView: UITextView {
         return elements.isEmpty ? accessibilityElements(for: lines, reusing: existing, passingOverDecoration: false) : elements
     }
 
+    /// The elements of `lines`. Decoration that is passed over is still listed in `kept`.
     private func accessibilityElements(for lines: [ReaderVisualLine], reusing existing: [ReaderPageAccessibilityElement],
-                                       passingOverDecoration: Bool) -> [ReaderPageAccessibilityElement] {
+                                       passingOverDecoration: Bool, keepingDecorationIn kept: NSRange? = nil) -> [ReaderPageAccessibilityElement] {
         guard let storage = contentStorage.textStorage else { return [] }
         let text = storage.string as NSString
         var elements: [ReaderPageAccessibilityElement] = []
@@ -351,7 +391,8 @@ final class ReaderTextView: UITextView {
             var runs: [(range: NSRange, url: URL?, attachment: NSTextAttachment?, heading: ReaderHeading?)] = []
             storage.enumerateAttributes(in: line.range) { attributes, range, _ in
                 let url = attributes[.link] as? URL ?? (attributes[.link] as? String).flatMap(URL.init(string:))
-                let attachment = listedAttachment(attributes, at: range, passingOverDecoration: passingOverDecoration)
+                let attachment = listedAttachment(attributes, at: range, passingOverDecoration: passingOverDecoration
+                                                  && NSIntersectionRange(kept ?? NSRange(), range).length == 0)
                 var heading = attributes[.readerHeading] as? ReaderHeading
                 if let previous = runs.last, NSMaxRange(previous.range) == range.location,
                    previous.url == url, previous.attachment === attachment {
@@ -510,6 +551,7 @@ private struct ScrollAccessibilityPlace: Equatable {
     var content: CGSize
     var insets: UIEdgeInsets
     var cursor: ObjectIdentifier?
+    var cursorFollowsText: Bool
 }
 
 /// A bounded slice of one visible line. VoiceOver's word/character navigation operates on
