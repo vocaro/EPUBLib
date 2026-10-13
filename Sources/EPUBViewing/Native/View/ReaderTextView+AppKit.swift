@@ -229,9 +229,9 @@ final class ReaderTextView: NSTextView {
     /// Where the table rows that have nothing to say stand in the view's text, in order
     /// (`TableRowAttachment.saysNothing`): rows of empty cells and of decoration alone, which
     /// space out a table used for layout. VoiceOver is given nothing to stop on there, as
-    /// iPhone and iPad list no element for such a row. Each part was heard, and VoiceOver
-    /// stops without any one of them (doc/voiceover-testing.md, the entry of 2026-10-13 on
-    /// rows that have nothing to say):
+    /// iPhone and iPad list no element for such a row. It takes four things, and what
+    /// VoiceOver does without each was heard (doc/voiceover-testing.md, the entry of
+    /// 2026-10-13 on rows that have nothing to say):
     ///
     /// - The text gives no element at the row's character. With a group there VoiceOver said
     ///   "text text group" of two cells of decoration, and with a table of data's table a
@@ -243,8 +243,8 @@ final class ReaderTextView: NSTextView {
     ///   line holds. Part of the line before, it kept VoiceOver out of the row of words
     ///   there: VoiceOver goes into what stands where a line it has read ends.
     /// - The break after the row is given as a space too. VoiceOver says of a line what
-    ///   comes before its first break, which was nothing, and with Read All it said
-    ///   nothing for the paragraph the row was.
+    ///   comes before the line's first break, which was the row and so nothing, and with
+    ///   Read All it said a phrase with nothing in it for the paragraph the row was.
     private var silentRows: [Int] {
         if let silentRowCache { return silentRowCache }
         var found: [Int] = []
