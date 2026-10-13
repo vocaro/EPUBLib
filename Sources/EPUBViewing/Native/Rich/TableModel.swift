@@ -54,6 +54,18 @@ final class TableModel: @unchecked Sendable {
         /// Min-content and max-content widths of `content`.
         var minContent: CGFloat
         var maxContent: CGFloat
+
+        /// The cell's words are one link and nothing else: to an assistive technology the
+        /// cell is that link, and following it is what the cell does.
+        var isLink: Bool {
+            var links = 0, linked = 0, words = 0
+            content.enumerateAttribute(.link, in: NSRange(location: 0, length: content.length)) { value, range, _ in
+                let count = (content.string as NSString).substring(with: range).filter { !$0.isWhitespace }.count
+                words += count
+                if value != nil { links += 1; linked += count }
+            }
+            return links == 1 && linked == words && words > 0
+        }
     }
     struct Row {
         var background: CGColor?

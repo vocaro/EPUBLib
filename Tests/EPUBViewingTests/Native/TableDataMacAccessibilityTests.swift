@@ -222,6 +222,87 @@ import XCTest
         }
     }
 
+    private static let press = #selector(NSAccessibilityElement.accessibilityPerformPress)
+
+    private static let branches = """
+    <table><thead><tr><th>Branch</th><th>Opened</th><th>Notes</th></tr></thead><tbody>
+    <tr><th scope="row">Cedar</th><td><a href="notes.xhtml">Reopened <em>1978</em></a></td><td>See <a href="notes.xhtml">the note</a></td></tr>
+    <tr><th scope="row">Dogwood</th><td><a href="notes.xhtml">First</a> <a href="notes.xhtml#second">Second</a></td><td></td></tr>
+    </tbody></table>
+    """
+
+    /// A cell whose words are one link and nothing else is pressed to follow it, which is what
+    /// VoiceOver asks of the item under its cursor at Control-Option-Space. Without a press it
+    /// clicks the middle of the cell, which follows a link only where its words stand there.
+    /// A cell with words beside its link, with two links or with none has no press: its links
+    /// are actions by their words.
+    func testACellThatIsOneLinkIsPressedToFollowIt() async throws {
+        let book = try book("<p>Words before the table.</p>" + Self.branches + "<p>Words after the table.</p>" + SessionCoverageBook.filler(120))
+        for scrolled in [false, true] {
+            let flow = scrolled ? "continuous scroll" : "pages"
+            let (reader, _, view) = try await reader(book, scrolled: scrolled)
+            let table = try XCTUnwrap(try tables(in: view).last, flow)
+            let cells = try cells(of: table)
+            XCTAssertEqual(cells.map(said), ["Branch", "Opened", "Notes", "Cedar", "Reopened 1978", "See the note", "Dogwood", "First Second", ""], flow)
+            XCTAssertEqual(cells.map { $0.isAccessibilitySelectorAllowed(Self.press) }, [false, false, false, false, true, false, false, false, false],
+                           "\(flow): the cell that is one link, however its words are styled, and no other")
+            XCTAssertTrue(cells.allSatisfy { $0.accessibilityRole() == .cell }, "\(flow): a cell that is pressed is still a cell of its row")
+            XCTAssertEqual(actions(cells[4]), ["Select Cell Text", "Follow Link: Reopened 1978"], "\(flow): the link is an action by its words as well")
+            XCTAssertEqual(actions(cells[5]), ["Select Cell Text", "Follow Link: the note"], flow)
+            XCTAssertEqual(actions(cells[7]), ["Select Cell Text", "Follow Link: First", "Follow Link: Second"], flow)
+
+            let linked = ReaderTextPosition(section: 1, offset: 0)
+            XCTAssertFalse(reader.isVisible(linked), "\(flow): the link's target must be off screen for this to show anything")
+            for index in cells.indices where index != 4 {
+                XCTAssertFalse(cells[index].accessibilityPerformPress(), "\(flow): \(said(cells[index])) is not pressed")
+            }
+            XCTAssertFalse(reader.isVisible(linked), "\(flow): and a press of one follows nothing")
+            XCTAssertTrue(cells[4].accessibilityPerformPress(), flow)
+            try await reader.wait("\(flow): the linked chapter") { reader.isVisible(linked) }
+        }
+    }
+
+    /// A cell's press follows its link from the text view that shows the link. In continuous
+    /// scroll a cell far off the screen has none: it says it is pressed, since that is what it
+    /// is, and its press does nothing until it is brought on screen, where VoiceOver's cursor
+    /// brings it. A cell kept from text the view no longer shows has no press.
+    func testACellThatIsOneLinkIsPressedWhereItIsOnScreen() async throws {
+        let entries = (1...60).map { String(format: "<tr><td>Entry %02d</td><td><a href=\"notes.xhtml\">Note %02d</a></td></tr>", $0, $0) }.joined()
+        let book = try book("<p>Words before the ledger.</p><table><thead><tr><th>Entry</th><th>Note</th></tr></thead><tbody>" + entries
+                            + "</tbody></table><p>Words after the ledger.</p>")
+        let (reader, _, view) = try await reader(book, scrolled: true)
+        let table = try XCTUnwrap(try tables(in: view).first)
+        let far = try XCTUnwrap(table.accessibilityCell(forColumn: 1, row: 55) as? ReaderTableCellElement)
+        XCTAssertEqual(far.accessibilityLabel(), "Note 55", "off screen: labelled, and holding no text area")
+        XCTAssertEqual(actions(far), [], "its actions come from its text area")
+        XCTAssertTrue(far.isAccessibilitySelectorAllowed(Self.press))
+        let linked = ReaderTextPosition(section: 1, offset: 0)
+        XCTAssertFalse(far.accessibilityPerformPress(), "nothing shows the link to follow it from")
+        XCTAssertFalse(reader.isVisible(linked))
+
+        let scrollView = try XCTUnwrap(view.enclosingScrollView)
+        let place = try XCTUnwrap(table.frame(ofRowAt: try rows(of: table)[55].location))
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: place.minY - 100))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        try await reader.wait("the far cell's text area") { (far.accessibilityChildren() ?? []).count == 1 }
+        XCTAssertEqual(actions(far), ["Select Cell Text", "Follow Link: Note 55"])
+        XCTAssertFalse(reader.isVisible(linked), "the link's target must be off screen for this to show anything")
+        XCTAssertTrue(far.accessibilityPerformPress())
+        try await reader.wait("the linked chapter") { reader.isVisible(linked) }
+
+        // In pages the linked chapter is other text in the column: the cell is of a table
+        // that has gone, and is pressed for nothing.
+        let (paged, canvas, column) = try await self.reader(book, scrolled: false)
+        let kept = try XCTUnwrap(try XCTUnwrap(try tables(in: column).first).accessibilityCell(forColumn: 1, row: 1) as? ReaderTableCellElement)
+        XCTAssertEqual(said(kept), "Note 01")
+        XCTAssertTrue(kept.isAccessibilitySelectorAllowed(Self.press))
+        XCTAssertTrue(kept.accessibilityPerformPress())
+        try await paged.wait("the linked chapter in pages") { paged.isVisible(linked) }
+        XCTAssertNotNil(canvas.textViews.first { !$0.isHidden })
+        XCTAssertFalse(kept.isAccessibilitySelectorAllowed(Self.press), "the page that held the cell has gone")
+        XCTAssertFalse(kept.accessibilityPerformPress())
+    }
+
     /// A table the book marks as layout, and one that nothing marks as data, are given row by
     /// row as before: a group for each row that holds its cells' text areas.
     func testATableThatIsNotDataStaysAGroupForEachRow() async throws {

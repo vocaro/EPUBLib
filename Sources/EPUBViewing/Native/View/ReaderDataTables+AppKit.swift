@@ -419,7 +419,8 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 
 /// A cell of a table of data, where the view shows it. It holds the text areas of its words
 /// while they are on screen, so that VoiceOver can go into it and read by word, and is
-/// labelled with its words where it has none.
+/// labelled with its words where it has none. A cell whose words are one link and nothing
+/// else is pressed to follow it.
 @MainActor final class ReaderTableCellElement: NSAccessibilityElement {
     /// A client can keep the element after its table has gone, with the page it was on.
     private weak var table: ReaderTableElement?
@@ -476,9 +477,39 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? { onMain(self) { $0.actions } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
 
+    // AppKit lists a press among an element's actions where its class answers one, unless the
+    // element says the selector is not allowed. Without a press of the cell's own VoiceOver
+    // clicks the middle of the cell at Control-Option-Space, which follows a link only where
+    // the link's words happen to stand there.
+    override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
+        if selector == #selector(accessibilityPerformPress) { return onMain(self) { $0.isLink } }
+        return super.isAccessibilitySelectorAllowed(selector)
+    }
+
+    override func accessibilityPerformPress() -> Bool { onMain(self) { $0.followLink() } }
+
     /// The cell's words, where no text view says them: off screen, and for a header cell
     /// given by name.
     private var label: String? { text.isEmpty || !textViews.isEmpty ? nil : text }
+
+    /// The cell's words are one link and nothing else, where a link goes somewhere: the cell
+    /// is pressed to follow it, as a double tap follows it on iPhone and iPad. A cell with
+    /// words beside its link, or with several links, has no press: which of them a press
+    /// would mean is not the cell's to say, and each link is an action by its words.
+    private var isLink: Bool {
+        guard let table, table.view?.canvas != nil else { return false }
+        return table.table.cells[cell].isLink
+    }
+
+    /// Follows the cell's link, as its Follow Link action does: from the text view that shows
+    /// the link. False for a cell off screen, which has none until it is brought there.
+    private func followLink() -> Bool {
+        guard isLink, let interaction = table?.view?.tableInteraction else { return false }
+        for location in locations {
+            if let link = interaction.accessibilityActions(at: location, cell: cell).links.first { return link.perform() }
+        }
+        return false
+    }
 
     /// What the cell can do itself: show each picture, select its words, follow each link.
     private var actions: [NSAccessibilityCustomAction]? {
