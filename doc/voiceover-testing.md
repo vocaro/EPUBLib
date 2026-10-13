@@ -1431,7 +1431,8 @@ The Mac runner's transcript is plain text and needs no export.
   point was on the line of "word0178", and after `ax:width=700 ax:width=600` on the line
   above it, "word0171", which `in` and `line` read. The paragraph begins 28 lines above
   that. Not looked at: whether the line is lost to the reader's own rule for text wrapped
-  to another width and back, or to what is left of AppKit's scroll. `ax:lines` shows none of
+  to another width and back, or to what is left of AppKit's scroll
+  ([#500](https://github.com/vocaro/EPUBLib/issues/500)). `ax:lines` shows none of
   this: in continuous scroll it lists the text area's first 500 lines, whatever is on
   screen, and the place is in `SELECTION` and `ENTRY`. Nobody listened. Not made: a drag of
   the window's edge with a mouse, which ends a live resize the same way.
