@@ -30,18 +30,17 @@ COMMANDS = {
     "textstart": (115, True), "textend": (119, True), "readall": (0, False), "activate": (49, False),
     "linecount": (99, False), "describe": (99, False), "attributes": (17, False), "rotor": (32, False),
     # VoiceOver's commands for a table, with its cursor on a cell: the header of the cell's row
-    # (R) and of its column (C), and its row and column numbers (Shift-T).
+    # (R) and of its column (C), and Apple's key for its row and column numbers (Shift-T).
     "rowheader": (15, False), "columnheader": (8, False), "rowcolumn": (17, True),
     "readrow": (15, False), "readcolumn": (8, False), "dimensions": (17, True)}
 # Keys VoiceOver takes twice: Control-Option-F3 for the total and visible line counts, R and C
 # for the rest of a table's row and of its column, and Shift-T for the table's size.
 TWICE = {"linecount", "readrow", "readcolumn", "dimensions"}
 # VoiceOver commands that take Command as well, as (key code, with Shift): its moves to the
-# next heading, to the next and previous link and to the next table, and the menu of the
-# item's actions. With Shift the move by heading asked the reader's rotor for the next heading
-# too, on macOS 27.0.1, so it has no step.
-FIND_COMMANDS = {"nextheading": (4, False), "nextlink": (37, False), "previouslink": (37, True), "actions": (49, False),
-                 "nexttable": (17, False)}
+# next heading and to the next and previous link, and the menu of the item's actions. With
+# Shift the move by heading asked the reader's rotor for the next heading too, on macOS
+# 27.0.1, so it has no step.
+FIND_COMMANDS = {"nextheading": (4, False), "nextlink": (37, False), "previouslink": (37, True), "actions": (49, False)}
 READER_KEYS = {"pagedown": 121, "pageup": 116}  # The reader's own keys, without modifiers.
 # Plain keys for the lists `rotor` and `actions` open: across the lists, along one, choose,
 # close. With no list open the reader takes them as its own.

@@ -73,7 +73,10 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 /// otherwise at the first row on screen. With selected cells among its attributes as well, it
 /// says "No selection" of a table with none and reads a selected row's cells a second time.
 @MainActor final class ReaderTableElement: NSAccessibilityElement {
+    /// The view while it shows the text the table was given in.
     private(set) weak var view: ReaderTextView?
+    /// The view, whatever it shows: what holds the table.
+    private weak var host: ReaderTextView?
     private weak var owner: ReaderDataTables?
     let table: TableModel
     /// The character of the row the table stands at.
@@ -89,6 +92,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 
     init(view: ReaderTextView, owner: ReaderDataTables, table: TableModel, entry: Int) {
         self.view = view
+        host = view
         self.owner = owner
         self.table = table
         self.entry = entry
@@ -110,7 +114,8 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
         columns = (0..<table.columnCount).map { ReaderTableColumnElement(table: self, column: $0) }
     }
 
-    /// The view shows other text than the table was given in: the table has nothing in it.
+    /// The view shows other text than the table was given in: the table has nothing in it,
+    /// and is still the view's.
     func detach() {
         view = nil
         listedRows = nil
@@ -247,7 +252,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     // MARK: NSAccessibility
 
     override func accessibilityRole() -> NSAccessibility.Role? { .table }
-    override func accessibilityParent() -> Any? { onMain(self) { $0.view } }
+    override func accessibilityParent() -> Any? { onMain(self) { $0.host } }
     override func accessibilityLabel() -> String? { onMain(self) { $0.words } }
     override func accessibilityRows() -> [Any]? { onMain(self) { $0.rowElements } }
     override func accessibilityVisibleRows() -> [Any]? { onMain(self) { $0.visibleRows } }

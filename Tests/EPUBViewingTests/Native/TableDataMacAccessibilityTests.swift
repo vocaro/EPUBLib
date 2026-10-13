@@ -450,6 +450,7 @@ import XCTest
         XCTAssertFalse(second === first)
         XCTAssertGreaterThan(try XCTUnwrap(try rows(of: second).first?.accessibilityIndex()), 0)
         XCTAssertEqual(first.accessibilityRows()?.count, 0)
+        XCTAssertTrue(first.accessibilityParent() as AnyObject === view, "still the column's")
         XCTAssertNil(first.accessibilityLabel())
         XCTAssertEqual(first.accessibilitySelectedRows()?.count, 0)
         XCTAssertNil(first.accessibilityCell(forColumn: 0, row: 0))

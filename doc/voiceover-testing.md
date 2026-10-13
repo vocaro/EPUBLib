@@ -192,6 +192,13 @@ new phrase is recorded:
   Down Arrow moves the insertion point. The runner closes a menu a session can have left
   open as it does a rotor, with `STEP listclose, sent by the runner in case the Actions menu
   is still open`.
+- `columnheader`, `rowheader`: Control-Option-C and Control-Option-R, which inside a table
+  say the header of the cell's column and of its row. `readcolumn` and `readrow` send each
+  twice, for the rest of the column and of the row. Outside a table Control-Option-C reads
+  the character under the cursor. `rowcolumn` and `dimensions` are Control-Option-Shift-T
+  once and twice, which Apple's guide gives for a cell's row and column numbers and a
+  table's size: in the reader's tables VoiceOver said the attachment's character at the
+  first and nothing at the second (macOS 27.0.1). See [Tables on Mac](#tables-on-mac).
 - `pagedown`, `pageup`: the reader's own page keys, without VoiceOver modifiers.
 - `ax:STEP`: a step of the observer described below, through the accessibility API.
 
@@ -448,6 +455,48 @@ Utility's own window and refuses to run anywhere but on a hosted runner. Do not 
 setting with `defaults`: a `com.apple.VoiceOver4/default` domain written before VoiceOver had
 ever run left it silent for the whole run, `ERROR 3` after every key.
 
+## Tables on Mac
+
+On a Mac a table of data is a table at each of its rows: the text gives AppKit's table as
+the element of each row's character ([the native viewer](native-viewer.md), "Data tables").
+A session on tables is read against these, which are VoiceOver's own part (macOS 27.0.1):
+
+- Moving by line or by word VoiceOver says a row's words and "table". A row of a table that
+  is not data says "Table row group", which is the reader's label and VoiceOver's "group".
+- `in` goes into the table at that row and says the first cell with its headers: "In Birch,
+  1934 table Station Birch". `right` and `left` move along the row and on into the next,
+  `nextline` and `previousline` (Control-Option-Down and Up) along the column. VoiceOver
+  says a header cell when it has changed since the cell before, then the cell: "Opened
+  1934", "Cedar Forty metres". An empty cell is "empty cell". Where it cannot go on, at the
+  table's last row or moving down inside a cell that spans, it says the cell and "column 2,
+  row 41". In the table's first row, on a header cell, `columnheader` read the table's name
+  and `rowheader` said "row 1 of 4".
+- `in` on a cell goes into its text, "In text 1934", where `right` moves by word; `out`
+  comes back to the cell, and `out` again to the row's line in the text.
+- `actions` on a cell says "Actions menu" and its count, and `listdown` each of Select Cell
+  Text, Follow Link: WORDS and Inspect Image that the cell has.
+- After `out` VoiceOver is on the table it left. `nextline` reads the next line, and `in`
+  there goes back into the table left, at the cell it was on. A row group of a table that
+  is not data does the same. Move by word (`right`) to the next row before `in`.
+- The probe records a phrase once: a second row that says what the row before said, as two
+  rows of a table that is not data do, leaves no line in a transcript.
+
+`ax:tables` prints what the text gives at each row's character before anything is said. For
+each table a `TABLE` line has its place in the text, its label, how many rows it holds and
+shows, the row it says is selected, its count of rows and columns in the whole table, and
+its column and row header cells by their words. The first table of a column is given whole:
+its attributes by name, a `TABLEROW` line for each of its first twelve rows, and for each
+cell a `TABLECELL` line with the rows and columns it covers, what it says, what it holds
+(`AXTextArea` on screen, nothing off it), its own header cells and its actions.
+
+Open the reader at a section of tables (`"launch=-SampleHref OPS/grids.xhtml"`,
+`OPS/ledger.xhtml`, `OPS/tallrow.xhtml`). At 600 points and 17, the first page of the tables
+of data holds the first table and the second page the next two and one row of the fourth;
+the long table's first page holds its header row and seven entries, and the tall row's first
+page its header row alone. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a line
+near a table, which continuous scroll needs: a session that came into the text without it
+read from a place of VoiceOver's own, fifty lines off.
+
 ## Hosted Mac sessions
 
 The same reader, probe, observer and runner script record real VoiceOver speech on GitHub's
@@ -550,7 +599,10 @@ begin with VoiceOver already on and leave it on. The download also holds a
 `mac-STAMP.transcript.txt` for each session in order, `runner.txt` with the commit, the runner
 image and its version, macOS, Xcode, System Integrity Protection, the screen and VoiceOver's
 [link setting](#links), the observer, `xcodebuild` and build logs, and a screenshot of the
-runner's screen at the end. The job's log
+runner's screen at the end. If VoiceOver or the reader quit during the run, the report macOS
+wrote is there as `crash-NAME.ips.txt`: a transcript in which VoiceOver's opening phrase
+("VoiceOver on VoiceOverVerificationMac…") follows an `ERROR` in the middle of a session is
+one in which VoiceOver started again. The job's log
 prints each transcript, and the script writes each session's steps and speech to the run's
 summary page, under its settings and outcome. The artifacts expire after five days; copy what
 must be kept. A failed job also uploads
