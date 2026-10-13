@@ -1182,7 +1182,9 @@ import UIKit
     /// a page's children end with the book's next heading, which is on a later page: an
     /// element at the foot of the column, called by the heading's words. VoiceOver focuses the
     /// element it moves to. The reader then turns to the heading's page, and that element is
-    /// the heading's own there, with the insertion point on the heading.
+    /// the heading's own there, with the insertion point on the heading. A heading on the
+    /// page VoiceOver is on is left as it is: told that the insertion point has moved,
+    /// VoiceOver says the word before it over the heading's level and words (macOS 27.0.1).
     func testAPagesChildrenEndWithTheBooksNextHeadingAndFocusingItTurnsToItsPage() throws {
         let host = try pagedBook()
         var view = try column(host)
@@ -1225,10 +1227,20 @@ import UIKit
         XCTAssertGreaterThan(second.accessibilityFrame().height, 2, "where its words are")
         XCTAssertTrue(view.accessibilityFrame().insetBy(dx: -1, dy: -1).contains(second.accessibilityFrame()))
         XCTAssertEqual(view.selectedRange, NSRange(location: second.range.location, length: 0), "reading on starts at the heading")
-        // A heading on the page: the insertion point goes to it, and nothing turns.
+        // A heading on the page: nothing turns, and the insertion point stays where it is.
         shown = host.recorder.shown.count
         let third = try XCTUnwrap(headingChildren(of: view).dropFirst().first)
-        third.setAccessibilityFocused(true)
+        XCTAssertGreaterThan(third.range.location, 20)
+        for place in [NSRange(location: second.range.location, length: 0), NSRange(location: 12, length: 0), NSRange(location: 12, length: 5)] {
+            view.selectedRange = place
+            third.setAccessibilityFocused(true)
+            XCTAssertEqual(view.selectedRange, place)
+        }
+        XCTAssertEqual(host.recorder.shown.count, shown)
+        // So is the page's first, which the move from a link past the book's last heading goes
+        // back to.
+        view.selectedRange = NSRange(location: third.range.location, length: 0)
+        second.setAccessibilityFocused(true)
         XCTAssertEqual(view.selectedRange, NSRange(location: third.range.location, length: 0))
         XCTAssertEqual(host.recorder.shown.count, shown)
         // The next chapter's, which is the book's last: nothing follows it.
@@ -1264,12 +1276,15 @@ import UIKit
 
     /// Each column of a spread gives the next heading after its own page. For the left column
     /// that can be one the right column shows: no page is turned for it, and the element
-    /// VoiceOver moved to becomes the right column's own. A turn can put the heading in
-    /// either column.
+    /// VoiceOver moved to becomes the right column's own. The right column's insertion point
+    /// goes to the heading, and VoiceOver, which is in the left column's text, says no word
+    /// for it (macOS 27.0.1); the left column's stays. A turn can put the heading in either
+    /// column.
     func testEachColumnOfASpreadGivesTheNextHeadingAfterItsOwnPage() throws {
-        // Each heading opens a page, so the first spread holds two and the second the other two.
-        let body = (1...4).map { "<h1>Heading \($0)</h1><p>Words of part \($0) and <a href=\"two.xhtml\">link \($0)</a>.</p>" }.joined()
-        let section = try H.build(body, css: Self.css + "h1 { break-before: page } ")
+        // Each page opens with a line and a heading under it, so the first spread holds two
+        // headings and the second the other two.
+        let body = (1...4).map { "<p class=\"turn\">Page \($0) opens.</p><h1>Heading \($0)</h1><p>Words of part \($0) and <a href=\"two.xhtml\">link \($0)</a>.</p>" }.joined()
+        let section = try H.build(body, css: Self.css + ".turn { break-before: page } ")
         let host = CanvasHost(FakeCanvasSource([section.string]), size: CGSize(width: 1100, height: 420))
         hosts.append(host)
         host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
@@ -1280,13 +1295,16 @@ import UIKit
         let second = try XCTUnwrap(headingChildren(of: left).last)
         XCTAssertTrue(second.accessibilityParent() as AnyObject === left)
         XCTAssertFalse(second === headingChildren(of: right).first)
+        left.selectedRange = NSRange(location: 5, length: 0)
         second.setAccessibilityFocused(true)
         XCTAssertEqual(host.recorder.shown.count, shown, "the right column shows it")
         XCTAssertTrue(headingChildren(of: right).first === second, "the right column's own element now")
         XCTAssertTrue(second.accessibilityParent() as AnyObject === right)
-        XCTAssertEqual(second.range.location, 0)
+        XCTAssertEqual(right.plainText(in: second.range), "Heading 2")
+        XCTAssertGreaterThan(second.range.location, 0, "under the page's first line")
         XCTAssertTrue(right.accessibilityFrame().insetBy(dx: -1, dy: -1).contains(second.accessibilityFrame()))
-        XCTAssertEqual(right.selectedRange, NSRange(location: 0, length: 0))
+        XCTAssertEqual(right.selectedRange, NSRange(location: second.range.location, length: 0))
+        XCTAssertEqual(left.selectedRange, NSRange(location: 5, length: 0), "the text VoiceOver is in is left as it is")
         // The left column gives the same heading again, with another element.
         let again = try XCTUnwrap(headingChildren(of: left).last)
         XCTAssertEqual(again.accessibilityLabel(), "Heading 2")
@@ -1299,6 +1317,8 @@ import UIKit
         left = try column(host, 0)
         right = try column(host, 1)
         XCTAssertTrue(headingChildren(of: left).first === third)
+        XCTAssertEqual(left.selectedRange, NSRange(location: third.range.location, length: 0), "reading on starts at the heading")
+        XCTAssertGreaterThan(third.range.location, 0)
         XCTAssertEqual(children(of: left), ["heading Heading 3", "link link 3", "heading Heading 4"])
         XCTAssertEqual(children(of: right), ["heading Heading 4", "link link 4"])
 
@@ -1329,20 +1349,24 @@ import UIKit
 
     /// In continuous scroll the next heading below the screen is a child already. VoiceOver's
     /// cursor is on the element it moves to and not in the text, and its next move by word or
-    /// by line starts from the insertion point: the reader puts that on the heading, and
-    /// shows one that is below the screen as it shows a link's target.
-    func testFocusingAHeadingsElementInContinuousScrollPutsTheInsertionPointOnTheHeading() throws {
+    /// by line starts from the insertion point: the reader shows a heading that is below the
+    /// screen, as it shows a link's target, and puts the insertion point on it. A heading on
+    /// screen is left as it is, the insertion point too: told that it has moved, VoiceOver
+    /// says the word before it over the heading's level and words (macOS 27.0.1).
+    func testFocusingAHeadingsElementInContinuousScrollShowsOneBelowTheScreenAndLeavesOneOnScreen() throws {
         let (host, view) = try scrolledChapters()
         let headings = headingChildren(of: view)
         XCTAssertEqual(headings.map { $0.accessibilityLabel() ?? "" }, ["First chapter", "Second chapter"])
         guard headings.count == 2 else { return }
         XCTAssertTrue(headings.allSatisfy { $0.elsewhere == nil }, "characters of the view's own text, on screen or below it")
         let visible = view.accessibilityVisibleCharacterRange()
-        view.selectedRange = NSRange(location: 40, length: 5)
         var shown = host.recorder.shown.count
-        headings[0].setAccessibilityFocused(true)
-        XCTAssertEqual(view.selectedRange, NSRange(location: headings[0].range.location, length: 0))
-        XCTAssertEqual(view.accessibilityVisibleCharacterRange(), visible, "one on screen is left where it is")
+        for place in [NSRange(location: 40, length: 0), NSRange(location: 40, length: 5)] {
+            view.selectedRange = place
+            headings[0].setAccessibilityFocused(true)
+            XCTAssertEqual(view.selectedRange, place, "one on screen is left as it is")
+        }
+        XCTAssertEqual(view.accessibilityVisibleCharacterRange(), visible)
         XCTAssertEqual(host.recorder.shown.count, shown)
         shown = host.recorder.shown.count
         headings[1].setAccessibilityFocused(true)
