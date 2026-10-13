@@ -768,7 +768,8 @@ final class ReaderTextView: UITextView {
             // A cell of pictures without words is an image and no more, as a picture in a line is.
             var traits: UIAccessibilityTraits = .staticText
             if spoken.text.isEmpty, !spoken.images.isEmpty { traits.insert(.image) }
-            if element.isLink { traits = .link }
+            // A cell whose words are one link and nothing else is that link.
+            if row.table.cells[spoken.cell].isLink { traits = .link }
             element.accessibilityTraits = traits
             let placed = spoken.frame.offsetBy(dx: rowFrame.minX + containerOrigin.x, dy: rowFrame.minY + containerOrigin.y)
             element.accessibilityFrameInContainerSpace = isPageColumn ? placed.intersection(bounds) : placed
@@ -984,18 +985,6 @@ private struct ReaderAccessibilityList {
         guard let table else { return NSRange(location: NSNotFound, length: 0) }
         (accessibilityContainer as? ReaderTableAccessibilityElement)?.asked = self
         return NSRange(location: table.cells[cell].column, length: table.cells[cell].columnSpan)
-    }
-
-    /// A cell's words are one link and nothing else: the cell is that link.
-    var isLink: Bool {
-        guard let content = table?.cells[cell].content else { return false }
-        var links = 0, linked = 0, words = 0
-        content.enumerateAttribute(.link, in: NSRange(location: 0, length: content.length)) { value, range, _ in
-            let count = (content.string as NSString).substring(with: range).filter { !$0.isWhitespace }.count
-            words += count
-            if value != nil { links += 1; linked += count }
-        }
-        return links == 1 && linked == words && words > 0
     }
 
     /// What a cell's text views offer for the words shown here, where it is on screen.

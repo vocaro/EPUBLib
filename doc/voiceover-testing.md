@@ -66,18 +66,28 @@ cells span two rows and two columns, as two of its data cells do; one given
 **A table longer than a page** (`OPS/ledger.xhtml`), has forty numbered rows under a header
 row, and an eleventh, **A row taller than a page** (`OPS/tallrow.xhtml`), a
 cell of 2,600 numbered words. None of their words is one VoiceOver uses for a table, so
-"row", "column" and "table" in a transcript are its own. A twelfth, **Squares inside
-grids** (`OPS/squares.xhtml`), the book's last, holds pictures in rows that have no words
-of their own. Its first table is given `role="presentation"`: a row of two pictures nobody
-describes and nothing else, between the rows "Top near", "Top far" and "Foot near", "Foot
-far". Its second, which begins a page of its own, is a table of data under the header
-cells "Sign" and "Sense": a picture described as "Blue badge" beside "Open", and one
-nobody describes beside "Shut". "Words before the squares." and "Words after the squares."
-stand round the first table, "Words before the signs." and "Words after the signs." round
-the second, and sixty numbered lines follow. The section has no heading and no link, so
-the book's last heading and its last link are where they were, and none of its words is
-one VoiceOver uses for a table, a picture or a group. A second
-bundled book, opened with
+"row", "column" and "table" in a transcript are its own. A twelfth, **Parts below a jump**
+(`OPS/parts.xhtml`), has a heading after a link on the same page, which no
+other section has: every other heading opens its section or stands pages after the link
+before it. It opens with plain words. A link, "upper jump", stands two lines above the
+heading "Second part opens", with "Earlier words finish." between them. A second link,
+"lower jump", ends the page, and the next page opens with "Middle words cease." and the
+heading "Third part opens" under it, so in a spread that heading is in the column beside
+the link, and in continuous scroll all of it is on one screen. A third link, "last jump",
+follows the book's last heading, and sixty numbered lines follow it. Each line before a
+heading ends in a word no other line has, so a word VoiceOver says of itself shows where it
+took it from. None of the section's words is one VoiceOver uses for a heading or a link. A
+thirteenth, **Squares inside grids** (`OPS/squares.xhtml`), the book's last, holds pictures
+in rows that have no words of their own. Its first table is given `role="presentation"`: a
+row of two pictures nobody describes and nothing else, between the rows "Top near", "Top
+far" and "Foot near", "Foot far". Its second, which begins a page of its own, is a table
+of data under the header cells "Sign" and "Sense": a picture described as "Blue badge"
+beside "Open", and one nobody describes beside "Shut". "Words before the squares." and
+"Words after the squares." stand round the first table, "Words before the signs." and
+"Words after the signs." round the second, and sixty numbered lines follow. The section
+has no heading and no link, so the book's last heading and its last link are still those
+of the section before it, and none of its words is one VoiceOver uses for a table, a
+picture or a group. A second bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
@@ -86,9 +96,10 @@ are "Page boundary verification" (level 1), which opens it, "Link target reached
 after the numbered paragraph, the two parked ones (level 1), each opening its section, and
 "Pictures and their words", "Scenes set apart", "What each line offers", "Tables of data",
 "A table longer than a page" and "A row taller than a page" (level 1), each opening its
-section; the sections of entries and of jumps inside a grid, between "What each line
-offers" and "Tables of data", have none, and neither has the last, of squares inside
-grids. The second book's are "Chapter one", "Chapter two"
+section, and "Second part opens" (level 3) and "Third part opens" (level 4) inside the
+section of parts below a jump; the sections of entries and of jumps inside a grid, between
+"What each line offers" and "Tables of data", have none, and neither has the last, of
+squares inside grids. The second book's are "Chapter one", "Chapter two"
 and "Chapter three", screens apart.
 Do not import private books for this check.
 
@@ -183,9 +194,13 @@ new phrase is recorded:
   among the text's children and VoiceOver says the level first, "heading level 2 Link
   target reached": follow it with `describe`, which says what is in the cursor. In pages
   the reader turns to a heading that is on a later page, and VoiceOver says the heading,
-  the first words it says after any page turn, and the heading again. The reader puts the
-  insertion point on the heading, so `line` then reads the heading and `right` its first
-  word.
+  the first words it says after any page turn, and the heading again. Where the reader had
+  to turn or scroll for the heading it puts the insertion point on it, so `line` then
+  reads the heading and `right` its first word. A heading that was on the page or on screen
+  already is left as it is, and `line` and `right` read from where VoiceOver last read in
+  the text: a word said straight after the heading's level and words there, the one before
+  the heading, is the reader moving the insertion point
+  ([#454](https://github.com/vocaro/EPUBLib/issues/454)).
 - `rotor`: Control-Option-U, which opens VoiceOver's rotor: lists of what the item under its
   cursor holds, the reader's Headings among them. `listright` and `listleft` go from list to
   list, `listdown` and `listup` along one, `listchoose` (Return) moves VoiceOver to the item
@@ -613,6 +628,19 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
   comes back to the cell, and `out` again to the row's line in the text.
 - `actions` on a cell says "Actions menu" and its count, and `listdown` each of Select Cell
   Text, Follow Link: WORDS and Inspect Image that the cell has.
+- A cell whose words are one link and nothing else is said with "hyperlink" after its
+  words, "Opened Reopened 1978 hyperlink" along the row and "Cedar Reopened 1978 hyperlink"
+  down the column, and its hint says "You are currently on a hyperlink cell". `describe`
+  says "Reopened 1978 hyperlink hyperlink cell is in the VoiceOver cursor": what the cell
+  holds, then VoiceOver's name for such a cell. `actions` says three items, the third
+  VoiceOver's own "press", and `activate` follows the link. `in` says "In hyperlink
+  Reopened 1978 text Reopened 1978" and `in` again "In text Reopened 1978", where `right`
+  moves by word; `out` says "Out of text" and `out` again "Out of hyperlink Reopened 1978",
+  which is back on the cell.
+- After a link is followed in pages, `describe` says where VoiceOver is: "text is in the
+  VoiceOver cursor Line 1" on the new page's text area, where `in` goes into the page's
+  first line, and "Open EPUB… button is in the VoiceOver cursor" where it has left the text
+  for the window's first button ([#485](https://github.com/vocaro/EPUBLib/issues/485)).
 - `in` on a row's group says "In", the row's words, "group 2 items" and "text" with the
   first cell's words: "In Lower left, Lower right group 2 items text Lower left". `right`
   and `left` move among the row's cells, "text Lower right"; `in` on one goes into its
@@ -665,9 +693,10 @@ the header it gives for each column and each row by its words, with nothing betw
 quotation marks where a row or a column has none. The first table of a column is given
 whole: its attributes by name, a `TABLEROW` line for each of its first twelve rows, and for
 each cell a `TABLECELL` line with the rows and columns it covers, what it says, what it
-holds (`AXTextArea` on screen, nothing off it) and its actions. `"ax:tables=WORDS"` prints
-the tables from those words on, the first of them whole, which in continuous scroll is the
-way to a table that is not the book's first.
+holds (`AXTextArea` on screen and nothing off it, or `AXLink` for a cell that is a link) and
+its actions, `AXPress` first for a cell that is pressed. `"ax:tables=WORDS"` prints the
+tables from those words on, the first of them whole, which in continuous scroll is the way
+to a table that is not the book's first.
 
 Open the reader at a section of tables (`"launch=-SampleHref OPS/grids.xhtml"`,
 `OPS/ledger.xhtml`, `OPS/tallrow.xhtml`). At 600 points and 17, the first page of the tables
@@ -960,6 +989,11 @@ does about each:
   and launch arguments, so that step lists that differ in them share one run, one build and
   one runner. The script checks the steps as the runner would, before anything waits for a
   runner, and prints each session with its settings.
+- To hear several ways of doing one thing, put them in one commit behind a launch argument
+  that the reader's code reads from `UserDefaults`, give each session its own with
+  `launch=`, and take the commit out again when one way is kept. Nine ways of giving a
+  table cell that is a link were heard in two runs so, where a build for each would have
+  been nine (runs 38425952070 and 38428938679, the entry of 2026-10-13 on such a cell).
 - Keep at most two runs in flight for a branch, and one while any run is waiting for a
   runner. The script starts no run beyond that and lists the branch's runs.
 - Cancel a run as soon as it is no longer needed, with `gh run cancel RUN_ID`. Nothing else
@@ -1401,12 +1435,14 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    "Table row group" at both rows and none of their words. `in` on "Birch, 1934 table"
    says "In Birch, 1934 table Station Birch", `right` "Opened 1934" and "Depth empty cell",
    `nextline` "Cedar Forty metres", `columnheader` "Depth" and `rowheader` "Cedar". `in` on
-   a cell goes into its words, "In text 1934". On "Reopened 1978" `actions` holds Select
-   Cell Text and Follow Link: Reopened 1978, and choosing the second opens the first
-   section at "Link target reached". In the second table VoiceOver says "Hours, Leaves
-   Nine" and "Service Express", and moving down from "Stopper" it stays, "Stopper column 1,
-   row 4". On the long table's second page `in` on the first row says "In Entry 08, Item
-   08, Sum 08 table Entry Entry 08": the header is named from the page before, and
+   a cell goes into its words, "In text 1934". The cell that is a link is said with
+   "hyperlink", "Opened Reopened 1978 hyperlink" along its row and "Cedar Reopened 1978
+   hyperlink" down its column. `actions` there holds Select Cell Text, Follow Link:
+   Reopened 1978 and "press", and choosing the second, or `activate` on the cell, opens
+   the first section at "Link target reached". In the second table VoiceOver says "Hours,
+   Leaves Nine" and "Service Express", and moving down from "Stopper" it stays, "Stopper
+   column 1, row 4". On the long table's second page `in` on the first row says "In Entry
+   08, Item 08, Sum 08 table Entry Entry 08": the header is named from the page before, and
    `rowheader` says "row 9 of 41". In continuous scroll, `in` on "Entry 38, Item 38, Sum 38
    table" says "Entry Entry 38", and twenty-eight `nextline` steps from the header row read
    "Entry 01" to "Entry 28", each once, the view following.
@@ -1490,7 +1526,14 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    `right` says its first word, "Link", and `nextheading` goes on through the book, from the
    heading's element to the next heading's and from the text by the rotor. `ax:links` on
    the first page lists three children, the last of them the heading "Link target reached",
-   and marks each heading `FOCUSABLE`. From the book's last heading `nextheading` says
+   and marks each heading `FOCUSABLE`. Where the heading is on the page or on screen
+   already, VoiceOver says its level and words and nothing over them: opened at the last
+   section (`"launch=-SampleHref OPS/parts.xhtml"`), `nextlink nextheading` says "upper jump
+   hyperlink" and "heading level 3 Second part opens", in pages and in continuous scroll.
+   "finish.", the word before that heading, in place of it or straight after it is the
+   failure. `describe` says the heading is in the VoiceOver cursor, and `line` reads the
+   line VoiceOver last read, "Parts below a jump", since nothing was turned or scrolled.
+   From the book's last heading `nextheading` says
    "Last heading" and the heading again. `rotor` from a link has the same
    Heading menu. VoiceOver opens its rotor on the menu it showed last, so a session that
    has gone to another menu with `listright` starts the next one there. With `tracking`
@@ -1512,8 +1555,10 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     Parked link to the target", with `SELECTION` at the link and the link's line the first
     on screen; `right` says the link again and then "Shown", `line` "hyperlink Parked link
     to the target Shown last words.", and `activate` straight after the second `nextlink`
-    follows the link. Sixteen `nextlink` steps from the top name the book's fourteen links
-    in order, the cells' among them, and then "Last link Reopened 1978 hyperlink". A
+    follows the link. Twenty `nextlink` steps from the top name the book's seventeen links
+    in order, the cells' among them, and then the last three again, "upper jump", "lower
+    jump" and "last jump": those share one screen, and past the book's last link
+    VoiceOver begins again with the first one on screen. A
     reader without the link below among the children says "Verification link hyperlink"
     and then "Last link Verification link hyperlink".
 11. Actions, on an iPhone and iPad. A line is offered what is in it and nothing else. On a
@@ -2534,6 +2579,98 @@ The Mac runner's transcript is plain text and needs no export.
   Not heard: a link after the book's last heading, which the verification book no longer
   has, so the move that begins again there; a heading that follows a link on the same
   page; a larger text size; a workstation; and listening.
+- On 2026-10-13 the move by heading from a link was heard to a heading already on the page
+  or on screen ([#454](https://github.com/vocaro/EPUBLib/issues/454)), which the two
+  entries above list as not heard: the hosted `xcode-27` runner (image `20261006.0244.1`,
+  macOS 27.0.1 `26A434`, Xcode 27.0), at the fixed pause, in a window 600 points wide at 17
+  points unless said, the reader opened at the fixture's last section
+  (`"launch=-SampleHref OPS/parts.xhtml"`), which was added for it. Nobody listened.
+  On main's reader, `ed747d8` with the section added (run 38431856142 at `ec871c2`). In
+  pages `ax:links` gave the first page four children: "upper jump", the heading "Second
+  part opens", "lower jump" and the heading "Third part opens", which is on the next page.
+  `ax:focus=search ax:focus=0 in nextlink nextheading` gave "upper jump hyperlink" and
+  then, with `AXSelectedTextChanged` at the heading, "heading level 3 Second part opens"
+  and 58 ms later "finish.", the word before the heading; `describe` "Second part opens
+  heading level 3 is in the VoiceOver cursor", `line` "Second part opens" and `right`
+  "Second". In continuous scroll (`ax:focus in nextlink nextheading`) "finish." alone was
+  recorded. From "last jump", after the book's last heading, the move began again with the
+  first heading on the page or on screen: on the second page (`ax:next` first) "cease."
+  alone, where the heading is "Third part opens", and in continuous scroll, three
+  `nextlink` steps in, "heading level 3 Second part opens" and 114 ms later "finish.".
+  The hint followed each time, "You are currently on a heading level 3, inside of a text
+  area" or the same of level 4. In a window 1100 points wide, from "lower jump" in the
+  left-hand column to "Third part opens" in the right-hand one, with no page turned,
+  `AXSelectedTextChanged` came from the right-hand column and VoiceOver said "heading
+  level 4 Third part opens" and no word; `line` read "Parts below a jump", the left-hand
+  column's first line, and `right` "Parts"
+  ([#482](https://github.com/vocaro/EPUBLib/issues/482)). Opened at the pictures in
+  continuous scroll, where "Scenes set apart" is below the screen: "heading level 1 Scenes
+  set apart", "pictures." and the heading again, with `AXLayoutChanged`.
+  With a heading on the page or on screen left as it is, at `f59de08` (runs 38433616775
+  and 38435841497). The same steps gave "heading level 3 Second part opens" and nothing
+  more until the hint three seconds later, in pages and in continuous scroll, with no
+  `AXSelectedTextChanged`; from "last jump", "heading level 4 Third part opens" on the
+  second page and "heading level 3 Second part opens" in continuous scroll. `describe`
+  named the heading each time. `line` read "Parts below a jump", and "Middle words cease."
+  on the second page, and `right` "Parts" and "Middle": the line VoiceOver had entered the
+  text at. From a heading's element to the next (`nextlink nextheading nextheading`), in
+  continuous scroll "heading level 3 Second part opens" and "heading level 4 Third part
+  opens", both on screen and both whole, and a third `nextheading`, from the book's last
+  heading with another on screen, "heading level 3 Second part opens" again. In pages the
+  second step turned the page: "heading level 4 Third part opens", "Middle words cease."
+  and the heading again, then `line` "Third part opens" and `right` "Third". Two columns
+  as on main; the pictures "pictures." and "heading level 1 Scenes set apart", then `line`
+  "Scenes set apart". From the text, by the rotor, `nextheading` said "Second part opens",
+  which `line` read, and a second one turned to "Third part opens".
+  The heading cases of the entries above again at `f59de08` (run 38433623312), with their
+  phrases. In pages: "Page boundary verification" and "heading level 2 Link target
+  reached" on the page of `word1187`, `describe`, `line` "Link target reached", `right`
+  "Link", and from there by the rotor the page of "Parked title heading"; from element to
+  element "heading level 1 Parked title heading" and "heading level 1 Parked table
+  heading". In continuous scroll: "word1200" and "heading level 2 Link target reached",
+  `right` "Link", `line` "Link target reached", and "Parked title heading" by the rotor.
+  Opened at `OPS/grids.xhtml` in pages: "Reopened 1978 hyperlink", then a page turned for
+  each of "heading level 1 A table longer than a page", "heading level 1 A row taller than
+  a page", "heading level 3 Second part opens" and "heading level 4 Third part opens", and
+  from that one, now the book's last, "Last heading heading level 4 Third part opens".
+  `rotor` from a link opened on "Page boundary verification, heading level 1", and
+  `listdown listchoose` turned to "Link target reached", which `line` read. With `tracking`
+  first, "heading level 2 Link target reached" and the page stayed. In two columns at 17
+  points "heading level 2 Link target reached", `line` "Link target reached" and `right`
+  "Link"; at 20 points, with the heading in the right-hand column after the turn,
+  "ord1105 word1106 word1107" and "2 updated items" with no heading recorded before
+  them, `describe` naming it, and `line` and `right` at `word1048` (run 38433616775).
+  Opened at `OPS/grids.xhtml` in continuous scroll the link was not reached: after `in`,
+  with `AXSelectedTextChanged` at a line of an earlier section, VoiceOver said "Below",
+  `nextlink` said "Link not found", and five `nextheading` steps went by the rotor from
+  "Tables of data" to "Third part opens". Main's reader moved the same way after `in` at
+  the pictures, to "Line" (run 38431856142).
+  One other way was heard, on a throwaway branch (`claude/probe-heading-on-screen-454` at
+  `fc425ac`, run 38435847638, the variant chosen by a launch argument): the insertion
+  point moved to a heading on the page or on screen, as on main, and then a layout change
+  that names the text. Posted by the window, as after a scroll: "heading level 3 Second
+  part opens", "finish." and the heading again, in pages and in continuous scroll, with
+  `line` "Second part opens" and `right` "Second"; from heading to heading "cease."
+  between two sayings of "heading level 4 Third part opens". Posted by the element that
+  holds the text, as after a page turn: "finish." and the heading in pages, and "finish."
+  alone in continuous scroll. Posted by the window it keeps reading on at the heading and
+  puts a word before every heading moved to
+  ([native viewer](native-viewer.md#input-and-accessibility), Headings).
+  With main merged in at `f79c7ac`, which has the link below the screen of
+  [#503](https://github.com/vocaro/EPUBLib/pull/503) (run 38437858538): the same phrases
+  at the last section in pages and in continuous scroll, "heading level 3 Second part
+  opens" whole and `line` "Parts below a jump", and at the first section, "Page boundary
+  verification" and "heading level 2 Link target reached" in pages and "heading level 2
+  Link target reached", "word1200" and the heading again in continuous scroll, with
+  `line` "Link target reached" and `right` "Link" in both. The section's three links
+  follow "Reopened 1978", which was the book's last link. In continuous scroll from the
+  top of the book twenty `nextlink` steps named seventeen links: the fourteen as before,
+  "Reopened 1978 hyperlink", "Birch, 1934 table" and "hyperlink Reopened 1978" for the
+  fourteenth, then "an" and "hyperlink upper jump" with `AXLayoutChanged`, "lower jump
+  hyperlink" and "last jump hyperlink", and then the same three again, where "Last link
+  Reopened 1978 hyperlink" was said before.
+  Not heard: a heading only part of which is on screen; a larger text size; a workstation;
+  and listening.
 - To see what VoiceOver asks of the reader, have the reader write it to a file. `log show`
   on the hosted runner returned no line the sandboxed reader logged. A throwaway branch
   that appends each query to a file in `FileManager.default.temporaryDirectory`, with a
@@ -4597,6 +4734,96 @@ The Mac runner's transcript is plain text and needs no export.
   table of data that holds a picture among words; a spread of two columns; a table in a
   note's popover; Safari on this section; and VoiceOver in another language or with its
   verbosity changed.
+- Later again on 2026-10-13 a table cell that is a link was heard on a Mac before and
+  after it was given a press and a link to hold: "Reopened 1978" in the first table of the
+  section of tables of data (`-SampleHref OPS/grids.xhtml`), on GitHub's hosted `xcode-27`
+  runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in a window 600 points
+  wide at 17 points, with VoiceOver's link setting at Speak, at a fixed pause of four
+  seconds, the same steps both times. Before at `3f3ae69`, which was `main`: run
+  38426000629. After at `0474384`: runs 38428891242 and 38430983860; the commits after it
+  change comments and documents. With `main` at `b515264` merged in (`9bd3d3f`), the first
+  session and the fourth were recorded once more and said the same (run 38433434953).
+  Nobody listened. The harness was the branch's own, before and after `main` with the
+  sessions of Safari was merged into it.
+  Four sessions each time: along the row to the cell with its Actions menu, and down the
+  column to it, in pages and then in continuous scroll. The way in was `ax:caret=Stations
+  on`, a focus change to the text, `in`, `line` and five `nextline` to "Cedar, Reopened 1978,
+  Forty metres table", `in` and `right`; or four `nextline` to "Birch, 1934 table", `in`,
+  `right` and `nextline`. A phrase is cut at 64 characters, shown by "…".
+
+  | Move | Before | After |
+  | --- | --- | --- |
+  | Along the row to the cell | "Opened Reopened 1978" | "Opened Reopened 1978 hyperlink" |
+  | Down the column to it | "Cedar Reopened 1978" | "Cedar Reopened 1978 hyperlink" |
+  | The hint that follows | "actions available You are currently on a cell, inside of a table…" | "actions available You are currently on a hyperlink cell, inside…" |
+  | Control-Option-F3 | "Reopened 1978 cell is in the VoiceOver cursor" | "Reopened 1978 hyperlink hyperlink cell is in the VoiceOver curso…" |
+  | The Actions menu | "Actions menu 2 items", "Select Cell Text", "Follow Link: Reopened 1978" | "Actions menu 3 items", "Select Cell Text", "Follow Link: Reopened 1978", "press" |
+  | Closing the menu | "Closing Actions menu", "Reopened 1978 cell" | "Closing Actions menu", "Reopened 1978 hyperlink hyperlink cell" |
+  | Control-Option-Space in pages | the page with "Link target reached" was shown; "VoiceOver Verification window Open EPUB… button" | the same page; "word1187 word1188 …", "text word1187 …" |
+  | Control-Option-F3 after it | "Open EPUB… button is in the VoiceOver cursor" | "text is in the VoiceOver cursor Line 1" |
+  | Control-Option-Down, Control-Option-Shift-Down and Control-Option-L after that | "Previous Page button", "Interact with the title of button", nothing | nothing new, "In text word1187 …", "word1187 … word1193" |
+  | Control-Option-Space in continuous scroll | the view at "Link target reached"; "Link", "text Page boundary verification" | the same, phrase for phrase |
+  | Control-Option-F3 after it | "text is in the VoiceOver cursor Line 202" | the same |
+  | Control-Option-Shift-Down and Control-Option-L after that | "In text Link target reached", "Link target reached" | the same |
+  | The cell in `ax:tables` | `AXCell` that holds `AXTextArea`, with the actions "Select Cell Text" and "Follow Link: Reopened 1978" | `AXCell` that holds `AXLink`, with `AXPress` and the same two |
+
+  Every row but the two for a flow was the same in pages and in continuous scroll, and
+  along the row as down the column. By line the row was "Cedar, Reopened 1978, Forty metres
+  table" before and after.
+  Into the cell's words, after (run 38430983860, session 1, in pages): `in` "In hyperlink
+  Reopened 1978 text Reopened 1978", `in` "In text Reopened 1978", `right` "Reopened", `out`
+  "Out of text" and the hint "You are currently on a text area, inside of a hyperlink.",
+  `out` "Out of hyperlink Reopened 1978", and Control-Option-F3 the cell again. Before, one
+  `in` went into the text, "In text Reopened 1978" (run 38422077936). Find Next Link from
+  the page's first lines, after (session 2): "Reopened 1978 hyperlink", "You are currently
+  on a hyperlink, inside of a text area…", and Control-Option-Space followed it. It was not
+  sent before.
+  Where VoiceOver was after the link was followed, for
+  [#485](https://github.com/vocaro/EPUBLib/issues/485). In pages, pressed from the cell
+  with VoiceOver not having been in its words, it was on the new page's text area and not
+  in it, a Control-Option-Shift-Down from the page's first line: both sessions after, and
+  the two of the trial below that had a press and a cell holding its text area. Before,
+  with no press, it was on the window's first button, "Open EPUB…", out of the text, in
+  both sessions; the one session of run 38422077936 on the same reader, which had been
+  into the cell's words and along the row first, ended on the new page's text. After,
+  pressed once VoiceOver had been into the cell's words and back out (run 38430983860,
+  session 1), it was on "Open EPUB…" again, as in the three sessions of the trial that
+  went into the cell first. Find Next Link from the page and Control-Option-Space left it
+  on the new page's text area. In continuous scroll it was on the text area each time,
+  entering at the target's line.
+  What makes VoiceOver say that the cell is a link was found by trial, at `a9a2d30` (run
+  38425952070, seven sessions) and `dbca416` (run 38428938679, two), each a way of giving
+  the cell chosen at launch, all with the press, in pages, along the row:
+
+  | The cell | Coming to it | Control-Option-F3 | Going in | Control-Option-Space |
+  | --- | --- | --- | --- | --- |
+  | Holds its text area, with a press and no more | "Opened Reopened 1978", "…on a cell, inside of a table…" | "Reopened 1978 cell is in the VoiceOver cursor"; the Actions menu has 3 items | not sent | followed; "text is in the VoiceOver cursor Line 1" |
+  | The same with the subrole of a link in text | the same | the same | not sent | not sent |
+  | The same with a link's role description | "Opened Reopened 1978", "…on a hyperlink, inside of a…" | "Reopened 1978 hyperlink is in the VoiceOver cursor" | not sent | not sent |
+  | The same with both | as with the role description | the same | not sent | followed; "text is in the VoiceOver cursor Line 1" |
+  | Has a link's role itself | passed over: from "Station Cedar", "Depth Forty metres" | "Forty metres cell is in the VoiceOver cursor" | not sent | on "Forty metres", nothing |
+  | Holds a link called by its words, and no text area | "Opened Reopened 1978 hyperlink", "…on a hyperlink cell, inside…" | "Reopened 1978 hyperlink hyperlink cell is in the VoiceOver curso…" | "In hyperlink Reopened 1978 content is empty", and the next move left the cell | not sent on the cell |
+  | Holds a link that holds its text area | the same | the same | "In hyperlink Reopened 1978 text Reopened 1978", "Out of hyperlink Reopened 1978" | followed; "Open EPUB… button is in the VoiceOver cursor" |
+  | Holds a link and then its text area | "Opened hyperlink, Reopened 1978 hyperlink" | "hyperlink, Reopened 1978 hyperlink cell 2 items is in the VoiceO…" | "In hyperlink, Reopened 1978 hyperlink cell 2 items text Reopened…", then "hyperlink" | followed; "Open EPUB… button is in the VoiceOver cursor" |
+  | Holds its text area and then a link | "Opened Reopened 1978 hyperlink, hyperlink" | "Reopened 1978 hyperlink, hyperlink cell 2 items is in the VoiceO…" | "In Reopened 1978 hyperlink, hyperlink cell 2 items text Reopened…", then "hyperlink" | followed; "Open EPUB… button is in the VoiceOver cursor" |
+
+  The reader keeps the link that holds the text area: the one way that said "hyperlink"
+  once on coming to the cell and left its words to be read by word. The three sessions
+  that ended on "Open EPUB…" had gone into the cell before the press.
+  VoiceOver did not quit. Three sessions at two seconds a key on the code as it is, two in
+  pages and one in continuous scroll (run 38428891242, session 5, and run 38430983860,
+  sessions 3 and 4), each went through the first table's cells with Control-Option-C after
+  each of eleven moves and Control-Option-R after each of eleven back, the link cell twice
+  among them: "Opened Reopened 1978 hyperlink", "Opened", and on the way back "Cedar".
+  None has "ERROR" in it or VoiceOver's opening phrase a second time, and no run has a
+  crash report; the same is so of the other twenty-one sessions here.
+  Not heard: anyone listening, or any Mac but the runner; "press" chosen from the Actions
+  menu; a link cell far off the screen in continuous scroll, whose link is called by the
+  cell's words and holds nothing; a cell whose link is a picture; a link cell continued on
+  the next page; a header cell that is a link, which has the press and holds its own text
+  area; a cell with words beside its link or with two links, which unit tests hold to no
+  press; a link whose target is already on the page; a spread of two columns; and Safari
+  beside it again.
 - On 2026-10-13 a table's select action was performed with VoiceOver on the physical iPad
   Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366, upright, 17 points), before and after a
   change to what it does ([#450](https://github.com/vocaro/EPUBLib/issues/450)), with the
