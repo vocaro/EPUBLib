@@ -11,12 +11,6 @@ import Foundation
         public var errorDescription: String? { description }
     }
 
-    // TEMPORARY, for the probe at the end of EngineContractTests.swift: which of the search
-    // check's three fixed waits get a yield before them and 20 ms after. Not for main.
-    public static var probeTreated: Set<Int> = []
-    /// Called with a wait's number at the moment its 150 ms ends.
-    public static var probeEnded: ((Int) -> Void)?
-
     /// Tests lifecycle, advertised commands, cancellation, location identity and bookmark restoration.
     /// Rendering fidelity, input gestures and resource release require adapter-specific tests.
     /// The mount closure returns cleanup; it must retain its window until cleanup runs.
@@ -53,6 +47,15 @@ import Foundation
             }
             throw Failure(description: "Accepted command that should throw \(expected)")
         }
+        /// A fixed wait for what the engine has still to send, before events are counted or a
+        /// late one is looked for. The yield lets what the engine has queued start first, so that
+        /// a timer it starts there is due before the 150 ms end. The second sleep is for an event
+        /// delivered with that end: two sleeps overdue together resume in either order.
+        func settle() async throws {
+            await Task.yield()
+            try await Task.sleep(for: .milliseconds(150))
+            try await Task.sleep(for: .milliseconds(20))
+        }
         func locations(since index: Int = 0) -> [EPUBLocation] {
             events.dropFirst(index).compactMap {
                 if case .relocated(let location) = $0 { return location }; return nil
@@ -73,14 +76,6 @@ import Foundation
                 do { try await session.send(command) }
                 catch EPUBReaderError.invalidCommand { return }
                 throw Failure(description: message)
-            }
-            // TEMPORARY, for the probe: one of the three fixed waits, as it is or treated.
-            func pause(_ number: Int) async throws {
-                let treated = EPUBEngineContract.probeTreated.contains(number)
-                if treated { await Task.yield() }
-                try await Task.sleep(for: .milliseconds(150))
-                EPUBEngineContract.probeEnded?(number)
-                if treated { try await Task.sleep(for: .milliseconds(20)) }
             }
             let navigates = session.capabilities.contains(.search)
             try require(navigates || session.capabilities.contains(.searchHighlight), "Search results need a search command")
@@ -123,20 +118,23 @@ import Foundation
             }
 
             guard session.capabilities.contains(.searchHighlight) else { return }
-            // Let the last step's relocation arrive before judging what a stale command does.
-            try await pause(1)
+            // Let the last step's relocation arrive before judging what a stale command does. An
+            // event that comes just after this wait is still counted before the stale commands,
+            // by the wait after the clear.
+            try await Task.sleep(for: .milliseconds(150))
             let cleared = events.count
             try await session.send(.clearSearch)
             try await wait("withdrawn search results") { published(since: cleared).last == .some(nil) }
             if let state = session.readerState {
                 try require(state.status.searchResults == nil, "Reader state kept cleared search results")
             }
-            try await pause(2)
+            // What the engine still sends for the clear is not a stale command's effect.
+            try await settle()
             let quiet = events.count
             try await session.send(.nextSearchResult)
             try await session.send(.previousSearchResult)
             try await refused(.showSearchResult(listed.results[0]), "Accepted a result of a cleared search")
-            try await pause(3)
+            try await settle()
             try require(events.count == quiet, "A step or result of a cleared search still had an effect")
         }
         let cancelled = Task { try await session.send(.nextPage) }
@@ -214,12 +212,8 @@ import Foundation
         let count = events.count
         session.close(); session.close()
         try await expect(.nextPage, error: .closed)
-        // The quiet period. The yield lets what the engine queued while closing start first, so
-        // that a timer it starts there is due before the 150 ms end. The second sleep is for a
-        // callback delivered with that end: two sleeps overdue together resume in either order.
-        await Task.yield()
-        try await Task.sleep(for: .milliseconds(150))
-        try await Task.sleep(for: .milliseconds(20))
+        // The quiet period.
+        try await settle()
         try require(events.count == count, "Callback after close")
     }
 }

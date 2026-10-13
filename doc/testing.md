@@ -299,10 +299,12 @@ The verifier checks:
 - Close is idempotent; closed commands fail and later callbacks are suppressed.
 
 A minimal SwiftUI test engine runs the same checks with no renderer at all, as an engine with no
-search, one that only highlights and one that lists results. Deliberately broken
+search, one that only highlights, one that lists results, and one that lists them and reports a
+step's relocation and a clear's idle state 30 ms late, from a timer of its own. Deliberately broken
 engines demonstrate that missing/duplicate readiness, ignored cancellation, incompatible restoration,
 late callbacks, results published after completion, steps that do not wrap, stale results that
-still navigate and results kept after a clear fail the verifier. Adapter-specific tests must additionally check actual rendering,
+still navigate, results kept after a clear and a step of a cleared search that still moves the
+reader fail the verifier. Adapter-specific tests must additionally check actual rendering,
 selection gestures, precise bookmark semantics and resource release.
 
 A bounded quiet period after close detects late callbacks; it cannot prove that an engine will
