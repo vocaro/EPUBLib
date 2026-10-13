@@ -66,6 +66,24 @@ final class TableModel: @unchecked Sendable {
             }
             return links == 1 && linked == words && words > 0
         }
+
+        /// The pictures the cell shows, where it shows pictures and nothing else: no words
+        /// and nothing that is read as words. Decoration is not among them, because an
+        /// assistive technology passes over it, so a cell of decoration alone has none, as
+        /// an empty cell does. Nil for a cell that shows anything else.
+        var pictures: [ReaderImageAttachment]? {
+            var found: [ReaderImageAttachment] = [], other = false
+            content.enumerateAttribute(.attachment, in: NSRange(location: 0, length: content.length)) { value, range, _ in
+                if let image = value as? ReaderImageAttachment {
+                    if image.alternative != .decorative { found.append(image) }
+                } else if value != nil {
+                    other = true
+                } else if !(content.string as NSString).substring(with: range).allSatisfy(\.isWhitespace) {
+                    other = true
+                }
+            }
+            return other ? nil : found
+        }
     }
     struct Row {
         var background: CGColor?

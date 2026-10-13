@@ -462,9 +462,35 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     var textViews: [TableCellTextView] {
         guard let interaction = table?.view?.tableInteraction else { return [] }
         let views = locations.flatMap { interaction.accessibilityCells(at: $0, cell: cell) }
-        let holder: NSAccessibilityElement = holdsLink ? link : self
-        for view in views { view.tableCellElement = holder }
+        let around = Self.pictureTrial == "around" && pictures?.count == 1
+        let holder: NSAccessibilityElement = holdsLink ? link : around ? pictureElements[0] : self
+        for view in views {
+            view.tableCellElement = holder
+            view.trialLabel = Self.pictureTrial == "arealabel" && !images.isEmpty && !text.isEmpty ? text : nil
+        }
         return views
+    }
+
+    // TRIAL, not for main: how a cell that shows a picture is given, chosen at launch with
+    // `-TablePictureCell NAME`, to hear what VoiceOver says of it. "inplace": a cell that
+    // shows pictures and nothing else holds an image for each, called by the picture's
+    // words, and no text area; one of decoration alone holds nothing. "around": a cell that
+    // is one picture and nothing else holds an image with its text areas inside. For any
+    // cell that shows a picture that says something: "arealabel", its text areas are called
+    // by the cell's words; "celllabel", the cell is.
+    static let pictureTrial = UserDefaults.standard.string(forKey: "TablePictureCell") ?? ""
+    /// The pictures the cell shows, where it shows nothing else and is no link.
+    var pictures: [ReaderImageAttachment]? { holdsLink ? nil : table?.table.cells[cell].pictures }
+    private var kept: [ReaderTableCellImageElement] = []
+    var pictureElements: [ReaderTableCellImageElement] {
+        let count = pictures?.count ?? 0
+        while kept.count < count { kept.append(ReaderTableCellImageElement(cell: self, index: kept.count)) }
+        return Array(kept.prefix(count))
+    }
+    func inspect(_ image: ReaderImageAttachment) -> Bool {
+        guard let canvas = table?.view?.canvas else { return false }
+        canvas.inspectImage(image)
+        return true
     }
 
     /// Whether the cell's words are in text areas it holds, which is where VoiceOver reads a
@@ -477,7 +503,12 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityColumnIndexRange() -> NSRange { onMain(self) { $0.columns } }
     override func accessibilityChildren() -> [Any]? { onMain(self) { $0.held } }
     override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.held } }
-    override func accessibilityLabel() -> String? { onMain(self) { $0.holdsLink ? nil : $0.unsaid } }
+    override func accessibilityLabel() -> String? {
+        onMain(self) {
+            if $0.holdsLink || (Self.pictureTrial == "inplace" && $0.pictures != nil) { return nil }
+            return Self.pictureTrial == "celllabel" && !$0.images.isEmpty && !$0.text.isEmpty ? $0.text : $0.unsaid
+        }
+    }
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? { onMain(self) { $0.actions } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
 
@@ -497,7 +528,12 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     var unsaid: String? { text.isEmpty || !textViews.isEmpty ? nil : text }
 
     /// What the cell holds: the text areas of its words, or the link they are inside.
-    private var held: [Any] { holdsLink ? [link] : textViews }
+    private var held: [Any] {
+        if holdsLink { return [link] }
+        if Self.pictureTrial == "inplace", pictures != nil { return pictureElements }
+        if Self.pictureTrial == "around", pictures?.count == 1 { return pictureElements }
+        return textViews
+    }
 
     /// The cell's words are one link and nothing else, where a link goes somewhere: the cell
     /// is pressed to follow it, as a double tap follows it on iPhone and iPad. A cell with
@@ -592,6 +628,54 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     private var held: [TableCellTextView] {
         guard let cell, cell.holdsLink else { return [] }
         return cell.textViews
+    }
+}
+
+// TRIAL, not for main: an image a cell holds that shows pictures and nothing else, called by
+// the picture's words, with the cell's text areas inside it in the shape "around".
+@MainActor final class ReaderTableCellImageElement: NSAccessibilityElement {
+    private weak var cell: ReaderTableCellElement?
+    private let index: Int
+
+    init(cell: ReaderTableCellElement, index: Int) {
+        self.cell = cell
+        self.index = index
+        super.init()
+        setAccessibilityRole(.image)
+        setAccessibilityParent(cell)
+        setAccessibilityChildren([])
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .image }
+    override func accessibilityParent() -> Any? { onMain(self) { $0.cell } }
+    override func accessibilityLabel() -> String? { onMain(self) { $0.words } }
+    // VoiceOver reads the help of an element without a label as its name.
+    override func accessibilityHelp() -> String? { onMain(self) { $0.words == nil ? nil : ReaderImageInspection.accessibilityHelp } }
+    override func accessibilityChildren() -> [Any]? { onMain(self) { $0.held } }
+    override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.held } }
+    override func accessibilityFrame() -> NSRect { onMain(self) { $0.cell?.screenFrame ?? .zero } }
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? { onMain(self) { $0.actions } }
+
+    private var image: ReaderImageAttachment? {
+        guard let pictures = cell?.pictures, pictures.indices.contains(index) else { return nil }
+        return pictures[index]
+    }
+
+    private var words: String? {
+        guard let alt = image?.alt, !alt.isEmpty else { return nil }
+        return alt
+    }
+
+    private var held: [TableCellTextView] {
+        guard let cell, ReaderTableCellElement.pictureTrial == "around", cell.pictures?.count == 1 else { return [] }
+        return cell.textViews
+    }
+
+    private var actions: [NSAccessibilityCustomAction]? {
+        guard let cell, let image else { return nil }
+        return [NSAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") { [weak cell] in
+            cell?.inspect(image) ?? false
+        }]
     }
 }
 #endif
