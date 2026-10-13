@@ -2947,7 +2947,7 @@ The Mac runner's transcript is plain text and needs no export.
   one swipe up and one down it found thirty cells, and the held finger selected "Alder"
   alone. So a table the reader goes to itself in continuous scroll has no cell to select
   in or act on until the person scrolls, with VoiceOver or without. The row of the other
-  section had its actions because that section's layout stood where the view did.
+  section had its actions; what the layout was there when the book opened was not read.
   With VoiceOver off, a finger held on "Alder" for a second selected it ("Selected: Alder.
   Used: nothing."): the screenshot shows UIKit's tint and its two handles, once, and an
   edit menu of Copy, a symbol, Look Up, Translate and an arrow for more. Nothing on screen
