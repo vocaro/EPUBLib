@@ -249,7 +249,19 @@ enum TableMeasure {
     /// take none of that box, so a tall table hides neither itself nor what follows it.)
     static func maximumWidth(_ text: NSAttributedString) -> CGFloat {
         guard text.length > 0 else { return 0 }
-        let rect = measuringRowWidths(text).boundingRect(with: CGSize(width: 100_000, height: 100_000),
+        // String drawing justifies even a one-letter drop cap across the whole measuring
+        // rectangle when it inherits a justified list item. Resolve that full-width
+        // justification for intrinsic measurement; other alignment behavior stays unchanged.
+        let measured = NSMutableAttributedString(attributedString: measuringRowWidths(text))
+        var paragraphs: [(NSRange, NSParagraphStyle)] = []
+        measured.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: measured.length)) { value, range, _ in
+            guard let style = value as? NSParagraphStyle, style.alignment == .justified else { return }
+            let neutral = style.mutableCopy() as! NSMutableParagraphStyle
+            neutral.alignment = .left
+            paragraphs.append((range, neutral))
+        }
+        for (range, style) in paragraphs { measured.addAttribute(.paragraphStyle, value: style, range: range) }
+        let rect = measured.boundingRect(with: CGSize(width: 100_000, height: 100_000),
                                                          options: [.usesLineFragmentOrigin], context: nil)
         return ceil(rect.width)
     }

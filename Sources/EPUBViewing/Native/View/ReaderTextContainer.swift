@@ -18,8 +18,10 @@ final class ReaderTextContainer: NSTextContainer {
     var boxPage: ReaderBoxPage?
     var boxOverride: CGRect?
     var boxColumn: CGRect?
+    var proposalCorrection: ((Int) -> CGFloat)?
     var boxScope: UUID?
-    var paragraphText: NSAttributedString?
+    var paragraphText: NSAttributedString? { didSet { indentClampCache = nil } }
+    private var indentClampCache: (width: CGFloat, needed: Bool)?
     /// The space an aligned flex or grid box keeps above the text's first line
     /// (`.readerAlignmentLead`). TextKit drops the spacing before a document's first paragraph,
     /// so the layout manager restores this much as that fragment's top margin.
@@ -34,8 +36,44 @@ final class ReaderTextContainer: NSTextContainer {
     // The default becomes false merely because lineFragmentRect is overridden. Ordinary
     // sections remain rectangular and must retain TextKit's fast viewport/paragraph layout.
     override var isSimpleRectangularTextContainer: Bool {
-        !hasNonlinearGeometry && boxOverride == nil && boxColumn == nil
+        !hasNonlinearGeometry && !needsIndentClamping && boxOverride == nil && boxColumn == nil
             && exclusionPaths.isEmpty && maximumNumberOfLines == 0
+    }
+
+    /// Ordinary paragraphs keep TextKit's fast rectangular path. An indent that consumes
+    /// the column needs our delegate too: native layout can stop at that paragraph entirely.
+    private var needsIndentClamping: Bool {
+        guard size.width > 0, let text = layoutText else { return false }
+        if let cached = indentClampCache, cached.width == size.width { return cached.needed }
+        var needed = false
+        text.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: text.length)) { value, _, stop in
+            guard let style = value as? NSParagraphStyle else { return }
+            let tail = max(0, style.tailIndent <= 0 ? -style.tailIndent : self.size.width - style.tailIndent)
+            if max(0, style.headIndent, style.firstLineHeadIndent) + tail >= self.size.width {
+                needed = true; stop.pointee = true
+            }
+        }
+        indentClampCache = (size.width, needed)
+        return needed
+    }
+
+    /// Leave a visible place for a glyph when authored insets consume the entire column.
+    /// A one-point width lets TextKit advance, but still clips nearly every glyph at its edge.
+    private func minimumLineWidth(at index: Int, width: CGFloat) -> CGFloat {
+        let font = layoutText.flatMap { text in
+            index >= 0 && index < text.length ? text.attribute(.font, at: index, effectiveRange: nil) as? PlatformFont : nil
+        }
+        return min(width, max(1, (font?.pointSize ?? 16) * 2))
+    }
+
+    private func visibleRect(_ rect: CGRect, within bounds: CGRect, at index: Int) -> CGRect {
+        guard bounds.width > 0 else { return rect }
+        let right = min(bounds.maxX, rect.maxX)
+        let left = max(bounds.minX, rect.minX)
+        if right > left { return CGRect(x: left, y: rect.minY, width: right - left, height: rect.height) }
+        let width = minimumLineWidth(at: index, width: bounds.width)
+        let x = min(max(bounds.minX, left), bounds.maxX - width)
+        return CGRect(x: x, y: rect.minY, width: width, height: rect.height)
     }
 
     func configureBoxes(in text: NSAttributedString) {
@@ -73,11 +111,25 @@ final class ReaderTextContainer: NSTextContainer {
         let opensParagraph = index == 0 || ReaderAlignmentLayout.isParagraphBreak((text.string as NSString).character(at: index - 1))
         let leading = max(0, opensParagraph ? style.firstLineHeadIndent : style.headIndent)
         let trailing = max(0, style.tailIndent <= 0 ? -style.tailIndent : width - style.tailIndent)
-        return writingDirection == .rightToLeft ? (trailing, leading) : (leading, trailing)
+        var insets = writingDirection == .rightToLeft ? (left: trailing, right: leading) : (left: leading, right: trailing)
+        if insets.left + insets.right >= width {
+            let available = max(0, width - minimumLineWidth(at: index, width: width))
+            insets.left = min(insets.left, available)
+            insets.right = min(insets.right, available - insets.left)
+        }
+        return insets
     }
 
     override func lineFragmentRect(forProposedRect proposed: CGRect, at index: Int,
                                    writingDirection: NSWritingDirection, remaining: UnsafeMutablePointer<CGRect>?) -> CGRect {
+        let correction = proposalCorrection?(boxPage?.geometry.paragraph(at: index + boxSourceOffset).map { $0.range.location - boxSourceOffset } ?? index) ?? 0
+        let result = lineRect(forProposedRect: proposed.offsetBy(dx: 0, dy: -correction), at: index, writingDirection: writingDirection, remaining: remaining)
+        if correction != 0, let remaining, remaining.pointee != .zero { remaining.pointee.origin.y += correction }
+        return result.offsetBy(dx: 0, dy: correction)
+    }
+
+    private func lineRect(forProposedRect proposed: CGRect, at index: Int,
+                          writingDirection: NSWritingDirection, remaining: UnsafeMutablePointer<CGRect>?) -> CGRect {
         // The entry point is only reached for a container that is not a plain rectangle.
         let delivers = deliversIndents && !isSimpleRectangularTextContainer
         let ownRegion = boxPage?.geometry.regions.first(where: { !$0.reserved && NSLocationInRange(index + boxSourceOffset, $0.range) })
@@ -86,7 +138,7 @@ final class ReaderTextContainer: NSTextContainer {
             guard delivers else { return CGRect(x: frame.minX, y: proposed.minY, width: frame.width, height: proposed.height) }
             let insets = lineInsets(at: index, writingDirection: writingDirection, width: frame.width)
             let minX = frame.minX + insets.left
-            return CGRect(x: minX, y: proposed.minY, width: max(1, frame.maxX - insets.right - minX), height: proposed.height)
+            return visibleRect(CGRect(x: minX, y: proposed.minY, width: max(1, frame.maxX - insets.right - minX), height: proposed.height), within: frame, at: index)
         }
         let column = boxColumn ?? boxPage?.geometry.paragraph(at: index + boxSourceOffset)?.column
         var proposal = proposed
@@ -115,6 +167,7 @@ final class ReaderTextContainer: NSTextContainer {
                 proposal.size.width = max(1, min(proposal.maxX, right) - proposal.minX)
             }
         }
+        proposal = visibleRect(proposal, within: column ?? CGRect(x: 0, y: 0, width: size.width, height: 0), at: index)
         guard !boxRegions.isEmpty || column != nil else {
             return super.lineFragmentRect(forProposedRect: proposal, at: index, writingDirection: writingDirection, remaining: remaining)
         }
@@ -125,10 +178,11 @@ final class ReaderTextContainer: NSTextContainer {
         }
         remaining?.pointee = .zero
         var rect = proposal
-        rect.size.width = max(0, min(rect.maxX, size.width) - rect.minX)
+        rect = visibleRect(rect, within: CGRect(x: 0, y: 0, width: size.width, height: 0), at: index)
         if let column, !delivers {
             rect.origin.x = max(rect.minX, column.minX)
             rect.size.width = max(1, min(size.width, column.maxX) - rect.minX)
+            rect = visibleRect(rect, within: column, at: index)
         }
         // The plan's regions are where it put them, and this container's lines are wherever
         // TextKit has got to. The two agree while everything above is laid out. In a long text
@@ -142,7 +196,7 @@ final class ReaderTextContainer: NSTextContainer {
         if let page = boxPage {
             guard let paragraph = page.geometry.paragraph(at: sourceIndex) else { return rect }
             if index > 0, sourceIndex == paragraph.range.location {
-                planned = (sourceIndex, paragraph.flowStart + paragraph.topAdjustment - proposed.minY)
+                planned = (sourceIndex, paragraph.flowStart + paragraph.topAdjustment - proposed.minY - (proposalCorrection?(paragraph.range.location - boxSourceOffset) ?? 0))
             }
             if let planned, planned.paragraph == paragraph.range.location { origin = planned.shift }
         }
@@ -205,10 +259,15 @@ extension ReaderTextContainer: NSTextContentStorageDelegate {
         let flat = style.mutableCopy() as! NSMutableParagraphStyle
         let origin = max(0, style.firstLineHeadIndent)
         flat.headIndent = 0; flat.firstLineHeadIndent = 0; flat.tailIndent = 0
-        if origin != 0, !style.tabStops.isEmpty {
+        if !style.tabStops.isEmpty {
+            let trailing = max(0, style.tailIndent <= 0 ? -style.tailIndent : size.width - style.tailIndent)
+            let consumed = max(0, style.headIndent, style.firstLineHeadIndent) + trailing >= size.width
+            let lastStop = max(1, size.width - minimumLineWidth(at: range.location, width: size.width))
             flat.tabStops = style.tabStops.map {
-                NSTextTab(textAlignment: $0.alignment, location: max(0, $0.location - origin), options: $0.options)
+                let location = max(0, $0.location - origin)
+                return NSTextTab(textAlignment: $0.alignment, location: consumed ? min(location, lastStop) : location, options: $0.options)
             }
+            if consumed { flat.defaultTabInterval = min(flat.defaultTabInterval, lastStop) }
         }
         let paragraph = NSMutableAttributedString(attributedString: text.attributedSubstring(from: range))
         paragraph.addAttribute(.paragraphStyle, value: flat, range: NSRange(location: 0, length: paragraph.length))

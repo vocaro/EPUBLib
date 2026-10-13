@@ -10,49 +10,34 @@ import AppKit
 final class ReaderBoxLayoutFragment: NSTextLayoutFragment {
     var topAdjustment: CGFloat = 0
     var bottomAdjustment: CGFloat = 0
-    override var topMargin: CGFloat { super.topMargin + topAdjustment }
+    var repairsPageFlow = false
+    var previousHeldBack: (() -> CGFloat)?
+    var heldBack: CGFloat {
+        let frame = super.layoutFragmentFrame
+        return max(0, -(frame.origin.y + frame.size.height))
+    }
+    override var topMargin: CGFloat { super.topMargin + topAdjustment - (previousHeldBack?() ?? 0) }
     override var bottomMargin: CGFloat { super.bottomMargin + bottomAdjustment }
 
-    /// The most a frame may end above its container's top by, in points, and be taken to end
-    /// at it. It corrects no margin: it tells apart two things that lie far to either side of
-    /// it in the sections generated to measure them, on macOS and on iOS.
-    ///
-    /// - What rounding leaves when a box's margins take back its height. `ReaderBoxLayout`
-    ///   computes the bottom margin as `cursor - (cursor + height)` where the box stands in
-    ///   its section, so what is left is counted in ulps of that depth: usually under one, and
-    ///   up to about twenty (7.1e-11 at 16,543 points down, 1.7e-9 at 904,000).
-    /// - How far a page's first box was pushed down from where the page's text flows from,
-    ///   which a style sheet's lengths decide: a tenth of a point at the least, with nothing
-    ///   between that and those residuals. TextKit lays a one-line fragment out correctly from
-    ///   up there, and does not once the frame before it is held at the top, so such a frame
-    ///   stays as it is (https://github.com/vocaro/EPUBLib/issues/242).
-    ///
-    /// Twenty ulps reach the limit about 2.7e8 points down a section. Ordinary prose in the
-    /// 4 MiB a content document may have stays under about 6e7 even in 96-point type, and its
-    /// residual under about 2e-7, a fifth of the limit. A hostile section (a character a line
-    /// at 400 points and five times the line height) can reach about 8e9, where a page is at
-    /// worst laid out as it would be without the limit. A box pushed down by less than the
-    /// limit is held at the top, and what follows stands that much lower.
+    /// Unplanned fragments keep the established rounding-only correction. A planned page
+    /// can have a real negative end after its first box's visual displacement is truncated.
     static let roundingLimit: CGFloat = 1e-6
 
-    /// TextKit starts the next fragment where this frame ends, and cannot lay out a fragment
-    /// that starts above the top of a container with boxes in it: every line after its first
-    /// goes to the container's top, one over another. A box ends where it starts because its
-    /// bottom margin takes back its lines' height, but TextKit reads the margins before it
-    /// lays the lines out and adds them to the height in the container's coordinates, so the
-    /// sum comes to nothing only within rounding: a box that opens a section could end a few
-    /// 1e-14 above the top, and one that opens a page further down it by more. A frame that
-    /// ends less than `roundingLimit` above the top ends at it; one that ends further above it
-    /// is left as it is.
+    /// TextKit starts the next fragment at this end and stacks its lines if the end is above
+    /// the container. Hold the flow at zero without moving this fragment's glyphs. The next
+    /// planned fragment returns precisely the distance held back through its top margin.
     override var layoutFragmentFrame: CGRect {
         var frame = super.layoutFragmentFrame
         let end = frame.origin.y + frame.size.height
-        if end < 0, end > -Self.roundingLimit { frame.size.height = -frame.origin.y }
+        if end < 0, repairsPageFlow || end > -Self.roundingLimit { frame.size.height = -frame.origin.y }
         return frame
     }
 }
 
 final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDelegate {
+    var repairsPageFlow = true
+    private var pageFragments: [Int: ReaderBoxLayoutFragment] = [:]
+
     override init() {
         super.init()
         delegate = nil
@@ -61,6 +46,13 @@ final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDele
 
     func configureGeometry() {
         let container = textContainer as? ReaderTextContainer
+        pageFragments.removeAll()
+        container?.proposalCorrection = { [weak self] index in
+            guard self?.repairsPageFlow == true, let fragment = self?.pageFragments[index] else { return 0 }
+            // TextKit proposes a fragment's first line before adding its top margin. At
+            // the page start, exclusions must see where that margin actually puts it.
+            return -(index == 0 ? fragment.topAdjustment : 0)
+        }
         delegate = container?.boxPage != nil || (container?.alignmentLead ?? 0) > 0 ? self : nil
     }
 
@@ -82,6 +74,12 @@ final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDele
         let fragment = ReaderBoxLayoutFragment(textElement: element, range: nil)
         fragment.topAdjustment = paragraph.topAdjustment
         fragment.bottomAdjustment = paragraph.bottomAdjustment
+        fragment.repairsPageFlow = repairsPageFlow
+        if repairsPageFlow, offset > 0, let before = page.geometry.paragraph(at: offset + page.offset - 1) {
+            let previousOffset = max(0, before.range.location - page.offset)
+            fragment.previousHeldBack = { [weak self] in self?.pageFragments[previousOffset]?.heldBack ?? 0 }
+        }
+        pageFragments[offset] = fragment
         // A page's first paragraph starts at its visual origin, rather than the full section's
         // flow cursor. Preserve the total advance while removing only that leading displacement.
         if offset == 0, page.offset > paragraph.range.location || page.beginsTableContinuation {
@@ -96,6 +94,12 @@ final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDele
             // and even a rounding residual below zero moves every line of the page up with it.
             let shift = paragraph.flowStart - page.origin
             fragment.topAdjustment = max(0, fragment.topAdjustment + shift)
+            // A positioned first box can stand above the flow cursor (bottom positioning).
+            // Its glyphs start at the page top, but the following paragraph still begins at
+            // that cursor, so keep the positive remainder in its advance.
+            if repairsPageFlow, paragraph.isBox, paragraph.topAdjustment < 0, shift > 0 {
+                fragment.bottomAdjustment += min(shift, -paragraph.topAdjustment)
+            }
         }
         return fragment
     }
@@ -113,7 +117,7 @@ final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDele
                 let start = content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location) + page.offset
                 guard start < region.range.upperBound else { return false }
                 let frame = fragment.layoutFragmentFrame
-                if fragment.textLineFragments.contains(where: { $0.typographicBounds.offsetBy(dx: frame.minX, dy: frame.minY).contains(position) }) {
+                if fragment.textLineFragments.contains(where: { $0.typographicBounds.offsetBy(dx: frame.minX, dy: frame.origin.y).contains(position) }) {
                     found = fragment; return false
                 }
                 return true
@@ -133,7 +137,7 @@ final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDele
         let start = content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location) + page.offset
         guard let paragraph = page.geometry.paragraph(at: start), paragraph.range.location == start,
               let planned = paragraph.lines.first else { return page.origin }
-        return planned.frame.minY - (fragment.layoutFragmentFrame.minY + line.typographicBounds.minY)
+        return planned.frame.origin.y - (fragment.layoutFragmentFrame.origin.y + line.typographicBounds.minY)
     }
 
     override func lineFragmentRange(for point: CGPoint, inContainerAt location: any NSTextLocation) -> NSTextRange? {
@@ -143,8 +147,8 @@ final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDele
         guard let fragment = textLayoutFragment(for: point), let content = textContentManager else { return nil }
         let frame = fragment.layoutFragmentFrame
         let lines = fragment.textLineFragments.filter { $0.characterRange.length > 0 }
-        let line = lines.first { $0.typographicBounds.offsetBy(dx: frame.minX, dy: frame.minY).contains(point) }
-            ?? lines.min { abs(frame.minY + $0.typographicBounds.midY - point.y) < abs(frame.minY + $1.typographicBounds.midY - point.y) }
+        let line = lines.first { $0.typographicBounds.offsetBy(dx: frame.minX, dy: frame.origin.y).contains(point) }
+            ?? lines.min { abs(frame.origin.y + $0.typographicBounds.midY - point.y) < abs(frame.origin.y + $1.typographicBounds.midY - point.y) }
         guard let line, let start = content.location(fragment.rangeInElement.location, offsetBy: line.characterRange.location),
               let end = content.location(start, offsetBy: line.characterRange.length) else { return nil }
         return NSTextRange(location: start, end: end)

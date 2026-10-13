@@ -39,6 +39,9 @@ struct ReaderPage: Equatable {
     /// These exceptional pages keep their measured source line lengths, independent of the
     /// released section layout. Ordinary pages need no additional line metadata.
     var measuredLineLengths: [Int]? = nil
+    /// A planned page whose positioned content cannot fit in its clip retains its source
+    /// as native in-flow text, just as an oversized box does during section preflight.
+    var usesFlowFallback = false
 }
 
 struct ReaderTableFragment: Equatable {
@@ -198,7 +201,7 @@ struct ReaderTableFragment: Equatable {
         // Alignment is resolved too, and a page's own top spacing carries an aligned box's lead.
         slice.removeAttribute(.readerAlignment, range: NSRange(location: 0, length: slice.length))
         slice.removeAttribute(.readerAlignmentLead, range: NSRange(location: 0, length: slice.length))
-        if let geometry = boxGeometry, slice.length > 0 {
+        if let geometry = boxGeometry, !page.usesFlowFallback, slice.length > 0 {
             slice.addAttribute(.readerBoxPage, value: ReaderBoxPage(geometry: geometry,
                 offset: page.range.location, origin: page.layoutTop - page.layoutSpacing,
                 beginsTableContinuation: page.tableFragments.first.map { entry in
@@ -207,9 +210,78 @@ struct ReaderTableFragment: Equatable {
                     return fragment.top > layout.rowTops[entry.attachment.row] + 0.5
                 } ?? false), range: NSRange(location: 0, length: slice.length))
         }
-        for entry in page.tableFragments {
+        for entry in page.tableFragments where entry.offset >= range.location && entry.offset < range.upperBound {
             slice.addAttribute(.attachment, value: entry.attachment,
                                range: NSRange(location: entry.offset - page.range.location, length: 1))
+        }
+        if boxGeometry == nil {
+            // A section preflight can reject every box. Its already-resolved ordinary styles
+            // must not be replanned through leftover scoped-flow metadata on each page.
+            slice.removeAttribute(.readerParagraphFlow, range: NSRange(location: 0, length: slice.length))
+        }
+        if page.usesFlowFallback {
+            let full = NSRange(location: 0, length: slice.length)
+            slice.removeAttribute(.readerBoxPage, range: full)
+            // Resolved indents/fonts and all source/semantic attributes remain. Relative-flow
+            // metadata must not cause the view to reconstruct the rejected box plan.
+            slice.removeAttribute(.readerParagraphFlow, range: full)
+            let height = max(1, size.height - page.topSpacing - 1)
+            slice.enumerateAttributes(in: full) { attributes, run, _ in
+                var natural: CGFloat = 0
+                // A baseline shift must not leave fitted fallback glyphs offscreen.
+                slice.removeAttribute(.baselineOffset, range: run)
+                if let font = attributes[.font] as? PlatformFont {
+                    natural = InlineStyling.naturalLineHeight(font)
+                    if natural > height {
+                        let points = font.pointSize * height / natural
+                        #if os(iOS)
+                        let fitted = UIFont(descriptor: font.fontDescriptor, size: points)
+                        #else
+                        let fitted = NSFont(descriptor: font.fontDescriptor, size: points) ?? font
+                        #endif
+                        slice.addAttribute(.font, value: fitted, range: run)
+                        natural = InlineStyling.naturalLineHeight(fitted)
+                    }
+                }
+                if let row = attributes[.attachment] as? TableRowAttachment {
+                    let layout = row.layout(width: size.width, viewportHeight: size.height)
+                    let fragment = row.fragment ?? layout.fragments(ofRow: row.row, maximumHeight: .greatestFiniteMagnitude)[0]
+                    let actualHeight = fragment.height * layout.scale * fragment.fitScale
+                    if actualHeight > height {
+                        let fitted = TableRowFragment(row: fragment.row, top: fragment.top, bottom: fragment.bottom,
+                            height: fragment.height, fitScale: fragment.fitScale * height / actualHeight, cells: fragment.cells)
+                        slice.addAttribute(.attachment, value: TableRowAttachment(table: row.table, row: row.row,
+                            fragment: fitted, layout: layout), range: run)
+                    }
+                } else if let image = attributes[.attachment] as? ReaderImageAttachment {
+                    let drawn = image.sizing.size(lineWidth: size.width, viewport: size, heightLimit: size.height)
+                    if drawn.height > height {
+                        let ratio = height / drawn.height
+                        var sizing = ImageSizing(intrinsic: image.sizing.intrinsic)
+                        sizing.width = .points(drawn.width * ratio); sizing.height = .points(height)
+                        var style = ComputedStyle()
+                        style.display = image.isBlock ? .block : .inline
+                        style.verticalAlign = image.verticalAlign
+                        style.fontSize = min(image.fontSize, (slice.attribute(.font, at: run.location, effectiveRange: nil) as? PlatformFont)?.pointSize ?? image.fontSize)
+                        style.invertsColors = image.invertsColors
+                        slice.addAttribute(.attachment, value: ReaderImageAttachment(source: image.source, sizing: sizing,
+                            alternative: image.alternative, style: style, contentRect: image.contentRect,
+                            isDark: image.isDark, cache: image.cache), range: run)
+                    }
+                }
+                if let original = attributes[.paragraphStyle] as? NSParagraphStyle {
+                    let style = original.mutableCopy() as! NSMutableParagraphStyle
+                    style.minimumLineHeight = min(max(0, style.minimumLineHeight), height)
+                    style.maximumLineHeight = min(max(0, style.maximumLineHeight), height)
+                    if natural > 0, style.lineHeightMultiple > 0 {
+                        style.lineHeightMultiple = min(style.lineHeightMultiple, height / natural)
+                    }
+                    style.lineSpacing = min(max(0, style.lineSpacing), max(0, height - natural))
+                    style.paragraphSpacingBefore = min(max(0, style.paragraphSpacingBefore), height / 2)
+                    style.paragraphSpacing = min(max(0, style.paragraphSpacing), height / 2)
+                    slice.addAttribute(.paragraphStyle, value: style, range: run)
+                }
+            }
         }
         guard page.continuesParagraph, range.length > 0 else { return slice }
         let paragraph = (slice.string as NSString).paragraphRange(for: NSRange(location: 0, length: 0))
@@ -315,22 +387,20 @@ struct ReaderTableFragment: Equatable {
             continuesParagraph: !first.startsParagraph,
             tableFragments: lines[firstIndex..<end].compactMap(\.tableFragment), layoutTop: pageTop,
             layoutSpacing: first.startsParagraph && first.range.location > 0 ? max(0, first.spacingBefore) : 0)
-        if first.requiresPageMeasurement || (first.isJustified && !first.startsParagraph &&
+        if page.height > available + 0.5 || boxGeometry != nil || first.requiresPageMeasurement || (first.isJustified && !first.startsParagraph &&
            first.paragraph.length > Self.wholeParagraphJustification &&
            first.paragraph.upperBound - first.range.location <= Self.wholeParagraphJustification) {
-            // A long paragraph's short tail uses CoreText's whole-paragraph algorithm when
-            // this page also includes a following block. Measure exactly the same bounded
-            // slice the column receives, rather than trusting the full section's algorithm.
-            // Keep layoutEnd fixed: changing the context after this measurement
-            // would itself change those last line breaks.
-            // Exact measurement makes unseen synthetic padding unnecessary: the short tail
-            // can use its own algorithm without changing any visible source characters.
+            // Box margins and a long justified paragraph's short tail can differ in the
+            // displayed slice. Measure that exact bounded context before committing a clip
+            // or advancing its characters. Keep layoutEnd fixed so changing the visible range
+            // cannot itself change the final line breaks.
             let originalEnd = page.range.upperBound
-            page = measuredTailPage(page)
+            page = measuredDisplayPage(page)
             while end > firstIndex, lines[end - 1].range.upperBound > page.range.upperBound { end -= 1 }
             while layOutLines(through: end), lines[end].range.location >= originalEnd,
                   lines[end].range.upperBound <= page.range.upperBound { end += 1 }
-            if layOutLines(through: end), lines[end].range.location < page.range.upperBound {
+            if layOutLines(through: end), lines[end].tableFragment == nil,
+               lines[end].range.location < page.range.upperBound {
                 // The next column starts at the displayed layout's line boundary, which can
                 // lie inside a line of the section layout. Never repeat that line's prefix.
                 lines[end].range.length = lines[end].range.upperBound - page.range.upperBound
@@ -345,10 +415,10 @@ struct ReaderTableFragment: Equatable {
         return true
     }
 
-    /// Only the final <=8,192 source characters of a continued long justified paragraph need
-    /// this second layout. Its storage is precisely the bounded display slice, including the
-    /// existing lookahead; no preceding paragraph text is copied or laid out per page.
-    private func measuredTailPage(_ page: ReaderPage) -> ReaderPage {
+    /// A displayed page, including its existing lookahead, without preceding section text.
+    /// Overflow carries to the next page. A positioned line outside the clip, or a first line
+    /// too tall to fit, uses native in-flow text with bounded typography for this slice.
+    private func measuredDisplayPage(_ page: ReaderPage) -> ReaderPage {
         let storage = NSTextContentStorage()
         let manager = ReaderBoxLayoutManager()
         storage.addTextLayoutManager(manager)
@@ -361,7 +431,13 @@ struct ReaderTableFragment: Equatable {
         manager.configureGeometry()
         container.deliverIndents(for: storage)
         storage.attributedString = pageText
+        // A page is a bounded slice. Finish that slice before inspecting its frames: later
+        // fragment requests can replace estimates used by earlier box-margin fragments.
+        let defendsClip = boxGeometry != nil || page.usesFlowFallback
+            || page.height > size.height - page.topSpacing + 0.5
+        if defendsClip { manager.ensureLayout(for: storage.documentRange) }
         var visibleEnd = 0
+        var needsFlowFallback = false
         var visibleBottom: CGFloat = 0
         var lineLengths: [Int] = []
         var lineBottoms: [CGFloat] = []
@@ -370,21 +446,33 @@ struct ReaderTableFragment: Equatable {
             for line in fragment.textLineFragments where line.characterRange.length > 0 {
                 let range = NSRange(location: start + line.characterRange.location, length: line.characterRange.length)
                 guard range.location < page.range.length else { return false }
-                let bottom = fragment.layoutFragmentFrame.minY + line.typographicBounds.maxY
+                let originY = boxGeometry == nil && !page.usesFlowFallback
+                    ? fragment.layoutFragmentFrame.minY : fragment.layoutFragmentFrame.origin.y
+                let bottom = originY + line.typographicBounds.maxY
+                let top = originY + line.typographicBounds.minY
+                if defendsClip && (top < -0.5 || (visibleEnd == 0 && bottom > size.height - page.topSpacing + 0.5)) {
+                    needsFlowFallback = true
+                    return false
+                }
                 if visibleEnd > 0, bottom > size.height - page.topSpacing + 0.5 { return false }
                 visibleEnd = range.upperBound
                 lineLengths.append(visibleEnd - range.location)
-                visibleBottom = bottom
-                lineBottoms.append(bottom)
+                visibleBottom = max(visibleBottom, bottom)
+                lineBottoms.append(visibleBottom)
                 if visibleEnd >= page.range.length { return false }
             }
             return true
+        }
+        if needsFlowFallback, !page.usesFlowFallback {
+            var fallback = page
+            fallback.usesFlowFallback = true
+            return measuredDisplayPage(fallback)
         }
         guard visibleEnd > 0 else { return page }
         // A tail's changed line count must not strand a heading or cut a visual box group
         // that the section paginator already kept together.
         var boundary = page.range.location + visibleEnd
-        if let group = boxGeometry?.group(containing: max(page.range.location, boundary - 1)),
+        if !page.usesFlowFallback, let group = boxGeometry?.group(containing: max(page.range.location, boundary - 1)),
            boundary < group.upperBound, group.location > page.range.location {
             while lineLengths.count > 1, page.range.location + visibleEnd > group.location {
                 visibleEnd -= lineLengths.removeLast()
@@ -405,7 +493,8 @@ struct ReaderTableFragment: Equatable {
         visibleBottom = lineBottoms.last ?? visibleBottom
         var measured = page
         measured.range.length = visibleEnd
-        measured.height = visibleBottom
+        measured.height = boxGeometry != nil && visibleEnd >= page.range.length
+            ? max(visibleBottom, min(page.height, size.height - page.topSpacing)) : visibleBottom
         measured.measuredLineLengths = lineLengths
         measured.tableFragments = page.tableFragments.filter { NSLocationInRange($0.offset, measured.range) }
         return measured
@@ -493,7 +582,11 @@ struct ReaderTableFragment: Equatable {
         for (index, line) in fragmentLines.enumerated() {
             let bounds = line.typographicBounds
             let range = NSRange(location: start + line.characterRange.location, length: line.characterRange.length)
-            let top = frame.minY + bounds.minY
+            // Keep the established section flow envelope for page anchoring. A signed
+            // box frame can reserve leading space that the displayed page already honors.
+            // Exact page measurement and interaction geometry use actual glyph origins.
+            let originY = frame.minY
+            let top = originY + bounds.minY
             if let row = text.attribute(.attachment, at: range.location, effectiveRange: nil) as? TableRowAttachment {
                 let layout = row.layout(width: max(1, bounds.width), viewportHeight: size.height)
                 let firstSpacing = start == 0 || attributes[.readerPageBreakBefore] as? Bool == true
@@ -514,7 +607,7 @@ struct ReaderTableFragment: Equatable {
                 }
             } else {
                 lines.append(Line(range: range,
-                                  top: top, bottom: frame.minY + bounds.maxY,
+                                  top: top, bottom: originY + bounds.maxY,
                                   startsParagraph: index == 0, endsParagraph: index == fragmentLines.count - 1,
                                   breaksBefore: index == 0 && attributes[.readerPageBreakBefore] as? Bool == true,
                                   keepsWithNext: attributes[.readerKeepWithNext] as? Bool == true,
