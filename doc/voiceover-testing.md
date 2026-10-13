@@ -1913,6 +1913,10 @@ The Mac runner's transcript is plain text and needs no export.
   window 600 points wide, at the fixed pause. Nobody listened and no workstation was used.
   Before is `main` at `0128fa6`, runs 38360769105 and 38363804998. After is `774f82c`, that
   `main` with the change, runs 38361875335 and 38363855146. Each step list was run on both.
+  The two readers differ in one answer, the line of the offset after a cell's last
+  character, so what changed in the speech is what VoiceOver asks of that offset. The
+  observer prints no cell's selection; in a page's text the selection after `right` is the
+  end of the word VoiceOver said, `SELECTION 7,0` after "Entries".
   A cell of one line, "Third cell" in the section with a hidden heading over a table, at 17
   points: in pages `"launch=-SampleHref OPS/table.xhtml" "ax:caret=Shown words after"
   ax:focus=search ax:focus=0 in left in in`, and in continuous scroll the same with
