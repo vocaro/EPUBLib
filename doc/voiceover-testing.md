@@ -4043,6 +4043,11 @@ The Mac runner's transcript is plain text and needs no export.
   `292590e`: runs 38426999381, 38427534348 and 38429468415, the last with a session on
   the section of entries that the run before it did not have. All thirty-five sessions
   completed. Nobody listened. A phrase is cut at 64 characters, shown by "…".
+  [#494](https://github.com/vocaro/EPUBLib/pull/494) merged while these were recorded: it
+  gives rows in continuous scroll their cells' text areas after every move of the view.
+  The seven sessions in continuous scroll were recorded again on the branch with it, at
+  `4300466` (run 38431271470), and said at every row and cell what they had said at
+  `292590e`, but for the one move marked below.
   The table marked as layout, on the second page of the section of tables of data
   (`"launch=-SampleHref OPS/grids.xhtml" ax:next ax:links "ax:caret=Words before the
   layout" ax:focus in line nextline nextline nextline nextline previousline in right in
@@ -4110,9 +4115,8 @@ The Mac runner's transcript is plain text and needs no export.
   Inner two, Beside the inner grid. group". `in` on the first: "In Upper part closes.
   Lower half opens., Sum x squared stated. g…", and `right` "text Sum x squared image
   stated.". The second and third rows' groups offer Inspect Image (`ax:links`).
-  Continuous scroll, with the same steps from a line `ax:caret` names, to which the view
-  goes. The table marked as layout and the table of links said what they said in pages,
-  before and after. The plain tables, back by line from "Shown words after the table."
+  Continuous scroll, with the same steps from a line `ax:caret` names. The table marked as
+  layout and the table of links said what they said in pages, before and after. The plain tables, back by line from "Shown words after the table."
   and down again, before: "Table row group", a step with no new phrase, "Parked table
   heading", "Table row group", a step with no new phrase, `in` "In Table row group 2 items
   text Third cell". After: "Third cell, Fourth cell group", "First cell, Second cell
@@ -4122,7 +4126,7 @@ The Mac runner's transcript is plain text and needs no export.
   Second cell image", a tab between the cells, and 55 milliseconds later "Table row
   group", and the one after it "Table row"; after, "First cell, Second cell group", and at
   the one after it "Third cell, Fourth cell group" and 51 milliseconds later "Third cell,
-  Fourth cell". A session that came up through the layout table from the line below it
+  Fourth cell"; at `4300466`, "Third cell, Fourth cell group" alone. A session that came up through the layout table from the line below it
   and into its first row: "Lower left, Lower right group", "Left side, Right side group",
   "Words before the layout.", "Left side, Right side group", "In Left side, Right side
   group 2 items text Left side", "text Right side", "Out of Left side, Right side group";
