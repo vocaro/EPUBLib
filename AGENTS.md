@@ -141,9 +141,25 @@ Every session's worktree shares one `.git`, and `main` gains commits several tim
 - Another session's `git fetch` moves `origin/main` in your worktree. To squash, rebase or
   compare, name the commit your branch was last based on, read once with
   `git merge-base HEAD origin/main`, not the ref. A `git reset --soft origin/main` made after
-  the ref had moved staged main's new commits as deletions.
+  the ref had moved staged main's new commits as deletions. A patch made with
+  `git diff origin/main -- <files>` to take a session's own change out of a tree held another
+  pull request's changes as well, 187 lines for a change of 30, and the tree a test then ran
+  on was neither main's nor the branch's. To take your own change out, reverse the patch of
+  your own commit, and see that `git diff origin/main` is empty before calling the tree main's.
 - A pull request that a brief names as open may have merged since the brief was written. Look
   on GitHub before building on its branch, and once it has merged, build on `main`.
+- Fetch before the last verification, not only the first, and do not chase `main`. On
+  2026-10-11 `main` gained nine commits in about three hours while one pull request was
+  verified, and a full verification (the Mac tests, the corpus runs and `scripts/test-ios.sh`)
+  took about half an hour, so verifying again after each rebase did not end. Open the pull
+  request once the Mac tests pass on a commit that holds `main`, merge `main` into the branch
+  when it conflicts again, and say in the pull request which commit each run was on.
+- A test merged since your branch was cut may pin what the owner has since decided against.
+  On 2026-10-11 two pull requests merged new tests that held a colon in a rootfile path and in
+  an entry name to be refused, hours after the owner had decided that both are read
+  ([#84](https://github.com/vocaro/EPUBLib/issues/84),
+  [#171](https://github.com/vocaro/EPUBLib/issues/171)). Hold such a test against the decision
+  recorded on the issue before changing the test or your own code.
 
 ## Test corpora
 
