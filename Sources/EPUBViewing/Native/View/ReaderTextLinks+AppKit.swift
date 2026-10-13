@@ -31,8 +31,10 @@ struct ReaderLinkElements {
     /// Each link's element as a child of the text the view stands in, by its location: a
     /// table cell's links are listed by its page as well.
     var listed: [Int: ReaderLinkAccessibilityElement] = [:]
-    /// Where each table row that has a link in a cell stands in the text, in order, found
-    /// once for each text the view is given.
+    /// Every link of the text, in order, and where each table row that has a link in a cell
+    /// stands in it: found once for each text the view is given, for the next link after the
+    /// screen (`ReaderTextView.linkChildrenWithCells`).
+    var all: [(url: URL, range: NSRange)]?
     var linkedRows: [Int]?
 }
 
@@ -73,23 +75,11 @@ extension ReaderLinkHost {
         return result
     }
 
-    /// The first link that begins at `location` or after it, whole, and none past the last.
+    /// The first link that begins at `location` or after it, and none past the last.
     func accessibilityLink(after location: Int) -> (url: URL, range: NSRange)? {
-        guard let text = linkText else { return nil }
-        let exposed = NSIntersectionRange(linkCharacters, NSRange(location: 0, length: text.length))
-        guard location < NSMaxRange(exposed) else { return nil }
-        let rest = NSRange(location: max(location, exposed.location), length: NSMaxRange(exposed) - max(location, exposed.location))
-        var found: (URL, NSRange)?
-        text.enumerateAttribute(.link, in: rest) { value, run, stop in
-            guard let url = value as? URL ?? (value as? String).flatMap(URL.init(string:)) else { return }
-            var whole = run
-            _ = text.attribute(.link, at: run.location, longestEffectiveRange: &whole, in: exposed)
-            // One that began before `location` is not after it.
-            guard whole.location >= location else { return }
-            found = (url, whole)
-            stop.pointee = true
-        }
-        return found
+        let all = linkElements.all ?? accessibilityLinks(in: linkCharacters)
+        linkElements.all = all
+        return all.first { $0.range.location >= location }
     }
 
     /// Gives `result`, the accessibility string of `range`, the reader's element for each link
@@ -260,12 +250,14 @@ extension ReaderTextView: ReaderLinkHost {
         let end = NSMaxRange(visibleLinkCharacters)
         let next = isPageColumn ? nil : accessibilityLink(after: end)
         if !isPageColumn { tableInteraction?.keepRow(at: linkedRow(from: end, to: next?.range.location ?? textLength)) }
+        let kept = tableInteraction?.keptRow
         var below = false
         for (location, cell) in tableInteraction?.accessibilityCellsInOrder ?? [] {
             let links = cell.linkChildren(listedIn: self, at: location)
             found += links.map { (place: location, element: $0) }
-            if location >= end, !links.isEmpty { below = true }
+            if location == kept, !links.isEmpty { below = true }
         }
+        // The row's links come before the text's own next one, which is then no child yet.
         if !below, let next { found.append((next.range.location, linkElement(for: next.url, at: next.range))) }
         return found
     }
