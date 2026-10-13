@@ -320,6 +320,11 @@ TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wai
    the last line in the reader's own view. `visible` gives a later one as the window's last:
    with the cursor on a control before the text it counts every listed line that lies inside
    the window, and the first lines listed after the screen lie under the sample's footer.
+9. No line of plain text has "Actions available" after it, and `flick=down` with the cursor on
+   one reads no action: it steps by the rotor's own setting, a character of the line on a
+   simulator. An iPhone's lines are short enough to show the whole phrase in the 64
+   characters a transcript keeps. In the first book the picture's own line says it, and
+   `flick=down` there reads "Inspect Image: Blue verification square" and then "Activate".
 
 Drive at least one session with `flick=right*20` and `flick=left*30` in place of `forward`
 and `backward`: those are VoiceOver's own gestures for the next and previous item, where the
@@ -629,9 +634,11 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
   seconds at most, and a `settled` line says which.
 - `point=X:Y`: touch a place in the window, as fractions of its width and height, whatever is
   listed there.
-- `flick=down`, `flick=up`: one finger steps through the rotor. With the cursor on a line it
-  offers the line's actions, Next Page first; `doubletap=LABEL` on that same line then
-  performs the chosen one without moving the cursor. On an iPhone in landscape only the
+- `flick=down`, `flick=up`: one finger steps through the rotor. With the cursor on a line of
+  a page it offers the line's actions, Next Page first; `doubletap=LABEL` on that same line
+  then performs the chosen one without moving the cursor. A line with no action, as plain
+  text is in continuous scroll, leaves the rotor on its own setting, and the flick steps by
+  that. On an iPhone in landscape only the
   upward flick registered, which reaches the same actions.
 - `flick=right`, `flick=left`: VoiceOver's next and previous item; `flick=right*12` repeats it.
 - `rotor=LABEL`: two fingers turned on the glass, which turns VoiceOver's rotor, repeated
@@ -853,7 +860,16 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     target", "hyperlink image" after "Bare jump:", "hyperlink" before "Jump with decoration",
     and "hyperlink Described jump, image". It reads "Verification link." as its words and
     nothing else, and `activate` with the cursor on either word follows that link too.
-11. Restore all original VoiceOver/scripting settings and independently verify restoration.
+11. Actions, on an iPhone and iPad. A line is offered what is in it and nothing else. On a
+    page, with the cursor on a line of plain text, `flick=down` reads "Next Page", "Previous
+    Page" and "Activate", and then "Next Page" again: each once, and no picture or link that
+    stands elsewhere on the page. On the picture's own line it reads "Inspect Image: Blue
+    verification square" after the two. In continuous scroll VoiceOver says no "Actions
+    available" after a line of plain text or a link, and `flick=down` there reads no action;
+    the picture's line says it and offers the inspection alone. A reader that offered more
+    said, on any line of continuous scroll, "Previous Page", "Next Page", and the book's
+    links by their words.
+12. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
@@ -1390,6 +1406,87 @@ The Mac runner's transcript is plain text and needs no export.
   Not heard: a physical device; VoiceOver reading on by itself across a rule; a rule in a
   note's popover or in a table cell; a rule that is all a link holds; and what Safari or
   Books says at an `<hr>` on an iPhone, which was not compared.
+- On 2026-10-12 the [simulator lane](#simulators) read what VoiceOver offers on a line,
+  before and after a line was left with its own actions alone: an iPhone 17 Pro simulator
+  (iOS 27.0, Xcode 27.0, 402 × 874) at the launch text size, a touch or a move to the line
+  and then `flick=down` to read the rotor. A physical iPad read the change afterwards, as
+  told below. Nobody listened.
+  Before, at `fc8ed77`. Continuous scroll, the book of paragraphs: "p001w11 p001w12 p001w13
+  p001w14 p001w15 Actions available", and the rotor read "Previous Page", "Next Page",
+  "Activate Default". Continuous scroll, the first book: "Read the numbered words across two
+  consecu Actions available", and the rotor read "Verification link", "￼", "￼", "￼ Jump with
+  decoration", "￼", "Inspect Image: Blue verification square", "Previous Page", "Next Page",
+  "Activate Default", and the same on "Verification link Link" and on ". Image:"; on the
+  picture's own line it read the picture's inspection and then those nine. The first
+  five are UIKit's own for a text view, one for each link of the book by its words, with "￼"
+  for a picture or a hidden label in the link: "Jump with decoration" is a link of the
+  book's fourth section, offered on a line of its first. In pages, on "Read the numbered
+  words across two consecu": "Next Page", "Previous Page", "Inspect Image: Blue verification
+  square", "Previous Page", "Next Page", "Activate Default". On the picture's own line the
+  inspection came twice: "Next Page", "Previous Page", "Inspect Image: Blue verification
+  square", the same again, "Previous Page", "Next Page", "Activate Default".
+  The phrases and the rotor were the same at `cfc7768`, before the Headings rotor, and the
+  physical iPhone 17 Pro Max of the sessions above said "p005w21 p005w22 p005w23 p005w24
+  p005w25 Actions available" in continuous scroll that morning. Neither the rotor nor the
+  simulator is the cause.
+  A reader built at `cfc7768` to write down what it gives VoiceOver, and to change one thing
+  at a time, showed what is. With the cursor on a line of the book of paragraphs the line
+  had no action of its own and its text view none; the canvas had "Previous Page" and "Next
+  Page", put there by SwiftUI for the reader's surface; and UIKit handed VoiceOver those two
+  for the line. In the first book the scroll view had UIKit's five and the reader's "Inspect
+  Image: Blue verification square", and a page column the reader's alone. A line cut off
+  from what holds it, still answering with an empty list and still answering activation
+  itself, was read as "p001w11 p001w12 p001w13 p001w14 p001w15" and no more, and the rotor
+  stepped by character ("p Papa", "0", "0"). A line that answered with no list at all, and
+  nothing else changed, said "Actions available" as before.
+  After, at `69230b2`. Continuous scroll, the book of paragraphs: "Chapter one Heading Use
+  the rotor to access Headings", then "p001w01 p001w02 p001w03 p001w04 p001w05", "p001w06
+  p001w07 p001w08 p001w09 p001w10" and "p001w11 p001w12 p001w13 p001w14 p001w15" with
+  nothing after them, and the flicks read "0", "0", "1", characters of the line. The first
+  book: "Read the numbered words across two consecu", and ten flicks read "R Romeo", "e
+  Echo", "a Alpha", "d Delta" and on along the line; "Verification link Link", and the
+  flicks read "V Victor", "e Echo", "r Romeo"; "Blue verification square Image Actions
+  available", and the rotor read "Inspect Image: Blue verification square" and "Activate
+  Default" in turn, five times. In pages: "Read the numbered words across two consecu
+  Actions available", and the rotor read "Next Page", "Previous Page", "Activate Default"
+  and the three again; on "Blue verification square Image" it read "Next Page", "Previous
+  Page", "Inspect Image: Blue verification square", "Activate Default" and the first three
+  again. At `7934820`, with fifty lines past the screen listed while the cursor is in the
+  text, continuous scroll in the first book read the same: "Read the numbered words across
+  two consecu Use the rotor to acce" and "R Romeo", "e Echo", "a Alpha"; "Verification link
+  Link" and "V Victor", "e Echo", "r Romeo"; "Blue verification square Image Actions
+  available" and "Inspect Image: Blue verification square", "Activate Default", "Inspect
+  Image: Blue verification square".
+  The Mac's load averages were in the hundreds throughout. Three more sessions read
+  nothing and were run again: one was not started, one ended with "Failed to send
+  moveForward command" and one with "VoiceOver is on but says nothing" after three minutes.
+  One session's result is "Critical process xctest crashed" with all its steps in the
+  transcript, as under "Other sessions" in [Simulators](#simulators). In the after session
+  of the book of paragraphs each phrase was recorded a step late, so the first line is
+  there twice and the first flick has the third line's phrase. One simulator came back at
+  volume 60 before its VoiceOver had been switched on, and was muted again. After most
+  sessions `devicectl` gave no answer in twenty seconds when asked for the simulator's
+  VoiceOver state; the simulator was then deleted, as every one was.
+  The same evening the physical iPad Air 13-inch (M3) of the sessions above (1024 × 1366,
+  upright, 17 points) read the change, built at `8d7397b`, through XCTest's VoiceOver
+  service. In pages, with the cursor on "Read the numbered words across two consecutive
+  pages. …", four flicks read "Next Page", "Previous Page", "Activate Default" and "Next
+  Page", and a double tap on the line then performed Next Page: the page went from
+  `word0001`–`word0293` to `word0294`–`word0654`. In continuous scroll the same line left
+  the rotor on Headings: the flicks read "Link target reached Heading", "Parked title
+  heading Heading", "Parked table heading Heading" and "Pictures and their words Heading",
+  the reader scrolling to each, and no action. On the picture's line there the flicks read
+  "Inspect Image: Blue verification square" and "Activate Default", and with the first
+  chosen a double tap opened the inspector: VoiceOver was on "Zoom Out Button" and a touch
+  found "Zoom In Button". An iPad's phrase for a line does not tell whether the line has
+  actions. It ended in "Use the rotor to access Headings" for the page's line, which has
+  two, and for the same line in continuous scroll, which has none; the rotor tells.
+  VoiceOver was off after each session. A first session in pages was deleted with its log
+  and result bundle, and run again: a notification arrived on the iPad and was read in
+  place of the first flick's phrase.
+  Not established: a physical iPhone after the change; a table row's actions under
+  VoiceOver, which a unit test holds; and anything on a Mac, where the text areas and the
+  surface's two actions are unchanged.
 - On 2026-10-12 the section of scenes was read on a Mac before and after a rule was given an
   element that says a separator is there, and with each other element that was tried.
   GitHub's hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode
