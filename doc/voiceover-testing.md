@@ -788,9 +788,9 @@ The Mac runner's transcript is plain text and needs no export.
   (`TEST_RUNNER_VOICEOVER_HREF=OPS/table.xhtml`, `touch=Bookmark,forward=16,backward=16`,
   with a second table added to the section, as #382 does), and one of ten did here. In the
   six of those that were logged, the line VoiceOver asked from was the first line listed
-  until the scroll came, four milliseconds before the question. With fifty lines listed,
-  four sessions of the same steps read back to the heading, and the list at that question
-  began fifty lines above. Two more sessions gave no transcript: VoiceOver's automation
+  until the view had scrolled, and the list was made again only as the question arrived.
+  With fifty lines listed, four sessions of the same steps read back to the heading, and
+  the list began fifty lines above that line before the scroll as after it. Two more sessions gave no transcript: VoiceOver's automation
   failed at the third move in one and the reader did not start in the other, at load
   averages of 800 to 1,000.
 - `xcodebuild`'s console output lost three of one device run's 160 `VOICEOVER_EVENT` lines,
