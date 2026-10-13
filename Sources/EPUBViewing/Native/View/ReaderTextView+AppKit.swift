@@ -631,9 +631,6 @@ extension ReaderTextView {
             shown.view.headingElements[shown.range.location] = element
             guard shown.view.headingChildren().contains(where: { $0 === element }) else { return }
             shown.view.placeInsertionPoint(at: shown.range.location)
-            // In a spread the heading can be in the other column: the keyboard focus goes
-            // with it, and VoiceOver's text cursor with that.
-            canvas.focus(shown.view)
         } else if range.location != NSNotFound, range.location <= textLength {
             if !isPageColumn, NSIntersectionRange(range, accessibilityVisibleCharacterRange()).length == 0,
                let position = canvas.position(at: range.location, in: self) {
