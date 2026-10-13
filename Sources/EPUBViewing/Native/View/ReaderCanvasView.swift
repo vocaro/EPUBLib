@@ -124,6 +124,16 @@ import AppKit
     /// The offset a rest for a new visible height left the scroll view at, until UIKit reports
     /// the scrolling of that inset change (`scrollViewDidChangeAdjustedContentInset`).
     var restedScrollOffset: CGFloat?
+    /// Posts what the canvas tells an assistive technology after a page turn. A test puts its
+    /// own closure here to see what is posted, and with which element.
+    var postAccessibilityNotification: @MainActor (UIAccessibility.Notification, Any?) -> Void = {
+        UIAccessibility.post(notification: $0, argument: $1)
+    }
+    /// A page shown now leaves an assistive technology's cursor to whoever asked for the page:
+    /// VoiceOver's rotor, which takes the cursor to the item it is given
+    /// (`showForAccessibilityRotor`), and its scroll, which sends the cursor once the page is
+    /// announced (`accessibilityScroll`).
+    var accessibilityCursorIsHeld = false
     #endif
 
     var wheelTurner = ReaderWheelPageTurner()
@@ -555,6 +565,8 @@ import AppKit
             postAccessibilityNotification(NSAccessibility.unignoredAncestor(of: self) ?? window, .layoutChanged,
                                           [.uiElements: columns.filter { !$0.isHidden }])
         }
+        #else
+        accessibilityCursorFollowsThePage(to: anchor)
         #endif
         trimPaginators()
         applyHighlights()

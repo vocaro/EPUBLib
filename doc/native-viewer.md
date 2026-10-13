@@ -870,6 +870,35 @@ The following are the defaults. Host commands and accessibility actions stay ena
   name ("Alternative text" under Decisions). At a rule VoiceOver says "Separator", from a
   stop of its own on iPhone and iPad and from an element in the text on Mac ("Rules" under
   Decisions).
+- A page turned under VoiceOver's cursor, on iPhone and iPad. VoiceOver keeps its cursor on
+  the item it was given, and a page's lines are items of that page: turn the page and the
+  cursor is on a line that is no longer shown. After a line's Next Page it stayed drawn
+  where the line had stood, and the next move went by the old item: to the book's title
+  under the page, or, from a page whose lines hold as many characters as the next page's,
+  to a line in the middle of the new page, then the line before it, then that line again.
+  So a page column knows which of its lines the cursor is on. UIKit tells a line when the
+  cursor comes to it and names every item the cursor goes to, and whatever is not a line of
+  that column ends it. When a page is shown and the cursor's line is no longer on it, the
+  canvas posts a layout change with the line that holds the position shown
+  (`ReaderCanvasView.accessibilityCursorFollowsThePage`): the first line of the page after
+  a page turn, in the left-hand page of a spread, and the line of a link's target after a
+  link. VoiceOver takes its cursor there and reads the line, so reading goes on from the
+  top of the page. This is so whoever turned the page: a line's own action, VoiceOver's
+  scroll, a key, or the host while the cursor is in the text. Three cursors are left alone.
+  One that is not in the text stays where it is: after the host's Next Page button
+  VoiceOver is still on the button, and moving into the text from there met the new page's
+  first line before this and does now. One whose line is still on the page keeps it, as
+  when the same page is shown again. And a move by heading that turns the page posts
+  nothing, since VoiceOver goes to the item the rotor gives it. VoiceOver's scroll, three
+  fingers swiped, announces "Page N" as before and the cursor is sent after that, so that if
+  one phrase cuts the other short it is the number that is lost and not a line of the
+  book. No session has performed that gesture
+  ([#70](https://github.com/vocaro/EPUBLib/issues/70)): the order is held by a test and has
+  not been heard. An item kept from an earlier list stands for its line by the line's place
+  in the book (`index(ofAccessibilityElement:)`). It was matched by its characters as the
+  view counts them, and a page column counts from its page's first: a line of the page
+  before then stood for whichever line of the page shown had the same ones, which is what
+  took VoiceOver to the middle of a page.
 - VoiceOver on Mac is offered neither named action, in pages or in continuous scroll
   (macOS 27.0.1), so the names Next Page and Previous Page, wrong for a flow without pages,
   are heard nowhere there. The window gives an assistive client the hosting view's group

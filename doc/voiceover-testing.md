@@ -676,6 +676,9 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 - `rotate=landscape`, `rotate=portrait`: an iPad shows two columns in landscape and one in
   portrait. The probe waits for the screen as after `activate`, three seconds at most. End a
   session in the orientation it started in.
+- `listen=SECONDS`: every phrase VoiceOver speaks in that time, each as a `heard` line, where
+  another step records the one phrase standing when it ends. Use it after a step that makes
+  VoiceOver speak by itself, as a page turn under its cursor does.
 - `wait=SECONDS`, and `screenshot`, attached to the result bundle: what is on the glass,
   independent of every accessibility snapshot.
 
@@ -820,6 +823,12 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    another line; hidden continuation must not become reachable.
 3. Activate Next through VoiceOver and verify that the next visible/spoken word is exactly
    the successor of the prior page's last word, without duplication. Check Previous as well.
+   On an iPhone and iPad also turn the page from a line: with the cursor on a line of the
+   page, choose Next Page in the rotor (`flick=down`) and perform it (`doubletap=LABEL`).
+   VoiceOver then reads the first line of the page shown by itself (`listen=4`), a
+   screenshot shows its cursor on that line, and each move forward reads the next line of
+   that page. Do it from the first page and from a line in the middle of a later page,
+   whose lines hold the same characters as the next page's, and with Previous Page.
 4. Confirm heading order, the link's label/action and the image's spoken label.
 5. Resize or change typography, wait for the new layout, and repeat the boundary and ordering
    checks. On Mac verify corresponding value-change notifications and fresh text values.
