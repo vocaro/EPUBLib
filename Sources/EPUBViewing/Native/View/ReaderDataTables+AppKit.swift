@@ -97,7 +97,10 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
         self.table = table
         self.entry = entry
         super.init()
-        // AppKit tells a client of an attribute that the element has been given a value for.
+        // AppKit tells a client of an attribute that the element has been given a value for,
+        // and of one whose getter a subclass overrides, whatever the getter returns. So
+        // nothing here overrides `accessibilitySelectedCells`: with that attribute VoiceOver
+        // says "No selection" after a table's name, or reads its selected row twice.
         setAccessibilityRole(.table)
         setAccessibilityParent(view)
         setAccessibilityRows([])
@@ -487,14 +490,17 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
                 return true
             }
         }
-        var select: (@MainActor () -> Bool)?
+        // Of what a cell offers for its words, selecting them alone is offered here. What a
+        // selection is for is the cell's own text area's on a Mac, and VoiceOver's to reach
+        // there; iPhone and iPad offer it on the cell, where the text views are hidden.
+        var select: ReaderTableAction?
         var links: [NSAccessibilityCustomAction] = []
         for location in locations {
             guard let found = view.tableInteraction?.accessibilityActions(at: location, cell: cell) else { continue }
-            select = select ?? found.select
+            if !found.selected { select = select ?? found.selection.first }
             links += found.links.map { link in NSAccessibilityCustomAction(name: "Follow Link: " + link.name) { link.perform() } }
         }
-        if let select { actions.append(NSAccessibilityCustomAction(name: "Select Cell Text") { select() }) }
+        if let select { actions.append(NSAccessibilityCustomAction(name: select.name) { select.perform() }) }
         actions += links
         return actions.isEmpty ? nil : actions
     }

@@ -31,6 +31,8 @@ COMMANDS = {
     "word": (13, False), "firstword": (115, False), "lastword": (119, False),
     "textstart": (115, True), "textend": (119, True), "readall": (0, False), "activate": (49, False),
     "linecount": (99, False), "describe": (99, False), "attributes": (17, False), "rotor": (32, False),
+    # Cursor tracking off, or on again: VoiceOver keeps the setting from one session to the next.
+    "tracking": (99, True),
     # VoiceOver's commands for a table, with its cursor on a cell: the header of the cell's row
     # (R) and of its column (C), and Apple's key for its row and column numbers (Shift-T).
     "rowheader": (15, False), "columnheader": (8, False), "rowcolumn": (17, True),

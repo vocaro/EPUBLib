@@ -73,7 +73,9 @@ extension ReaderCanvasView: NSTextViewDelegate {
     }
 
     @objc private func scrollBoundsDidChange(_ notification: Notification) {
-        if (notification.object as? NSClipView)?.documentView === scrollTextView { scrollPositionDidChange() }
+        guard (notification.object as? NSClipView)?.documentView === scrollTextView else { return }
+        // Nobody scrolled when the text view moved itself, or was put back (`holdingScrollPlace`).
+        scrollPositionDidChange(byReader: scrollTextView?.isEndingLiveResize == true)
     }
 
     @objc private func scrollViewportDidChange(_ notification: Notification) {
@@ -148,6 +150,17 @@ extension ReaderCanvasView: NSTextViewDelegate {
               let line = scrollTextView?.lineFrame(containing: place.location), abs(line.minY - place.lineTop) > 0.5 else { return }
         scrollToContainerY(scrollVisibleContainerRect.minY + line.minY - place.lineTop)
         scrollPlace = (place.location, line.minY, scrollVisibleContainerRect.minY)
+    }
+
+    /// Runs `scroll`, in which AppKit moves the scroll view by itself, and puts the view back
+    /// where it stood: at the offset it had, and then with its first line where that line was,
+    /// should the layout AppKit's scroll made have moved it. The view is as it was before
+    /// anything is drawn, and the position the reader keeps is the one it kept before.
+    func holdingScrollPlace(through scroll: () -> Void) {
+        guard scrollVisibleCharacters() != nil, let place = scrollPlace else { return scroll() }
+        scroll()
+        scrollToContainerY(place.visibleTop)
+        settleScrollViewport()
     }
 
     private var maximumScrollOffset: CGFloat {
@@ -293,8 +306,12 @@ extension ReaderCanvasView: NSTextViewDelegate {
 
     /// The heading `token` names, when one still begins there.
     private func heading(for token: any NSAccessibilityLoadingToken) -> ReaderBookHeading? {
-        guard let position = Self.headingPosition(of: token),
-              let found = headings(inSection: position.section)?.first(where: { $0.range.location == position.offset }) else { return nil }
+        Self.headingPosition(of: token).flatMap(heading(at:))
+    }
+
+    /// The heading that begins at `position`, when one still does.
+    private func heading(at position: ReaderTextPosition) -> ReaderBookHeading? {
+        guard let found = headings(inSection: position.section)?.first(where: { $0.range.location == position.offset }) else { return nil }
         return ReaderBookHeading(heading: found.heading, section: position.section, range: found.range)
     }
 
@@ -312,6 +329,33 @@ extension ReaderCanvasView: NSTextViewDelegate {
     /// asks straight after it has had the column, so nothing is shown for this.
     func loadedHeadingRange(_ token: any NSAccessibilityLoadingToken) -> NSRange? {
         heading(for: token).flatMap(shownHeading)?.range
+    }
+
+    /// The book's next heading after the page `column` shows, with its words: the one a
+    /// column gives last among its children, for VoiceOver to find from a link on the page
+    /// (`ReaderTextView.headingChildren`). One that begins on the page is the column's own,
+    /// and a heading without words is passed over, as in the rotor. None past the book's last
+    /// heading, and none where a chapter is not built yet (`bookHeading`).
+    func headingAfterPage(of column: ReaderTextView) -> (heading: ReaderBookHeading, words: String)? {
+        guard column.isPageColumn, column.shownCharacters.length > 0,
+              var from = position(at: column.shownCharacters.length - 1, in: column) else { return nil }
+        while let found = bookHeading(from: from, forward: true) {
+            from = found.position
+            guard let text = dataSource?.text(forSection: found.section) else { return nil }
+            let words = text.readerPlainText(in: found.range).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            if !words.isEmpty { return (found, words) }
+        }
+        return nil
+    }
+
+    /// VoiceOver has moved to the element of the heading that begins at `position`, which a
+    /// column gave as the next one after its page: the reader turns to the heading's page,
+    /// unless a column shows it already, and this is the column that shows it and the
+    /// heading's characters there.
+    func showHeading(at position: ReaderTextPosition) -> (view: ReaderTextView, range: NSRange)? {
+        guard let heading = heading(at: position) else { return nil }
+        if shownHeading(heading) == nil { show(heading.position, selecting: nil) }
+        return shownHeading(heading)
     }
 
     /// A heading's place in the book as VoiceOver keeps it for a heading on another page.

@@ -46,6 +46,18 @@ import AppKit
     private var selectionDragAnchor: ReaderTextPosition?
     private var selectionDragOverridesNative = false
     private(set) var selectionContinuation: ReaderSelectionContinuation?
+    #if os(iOS)
+    /// Tells an assistive technology of something the reader did at its asking, which it
+    /// would not learn otherwise: that an item it holds has changed, to be read again with
+    /// the actions it now offers. UIKit's own post, which a test takes in its place.
+    var postToAccessibility: (UIAccessibility.Notification, Any?) -> Void = { UIAccessibility.post(notification: $0, argument: $1) }
+
+    /// Has an assistive technology say what nothing else would tell a listener, after
+    /// whatever it is saying.
+    func announce(_ words: String) {
+        postToAccessibility(.announcement, NSAttributedString(string: words, attributes: [.accessibilitySpeechQueueAnnouncement: true]))
+    }
+    #endif
 
     // Paginated flow.
     private(set) var spread: ReaderCanvasGeometry.Spread?
@@ -114,18 +126,20 @@ import AppKit
     #if os(macOS)
     /// Where the reader last put the scroll view's insertion point (`placeScrollInsertionPoint`).
     private var placedScrollInsertionPoint: Int?
-    /// Posts the canvas's layout changes: the one after a spread is installed and the one after
-    /// the reader moves the scroll view itself. A test puts its own closure here to see what an
-    /// assistive client is told, and by which element.
+    /// Posts what the canvas tells an assistive client itself: the layout change after a spread
+    /// is installed, and after the reader moves the scroll view the insertion point's second
+    /// notice and the layout change (`placeScrollInsertionPoint`). A test puts its own closure
+    /// here to see what is posted, and by which element.
     var postAccessibilityNotification: @MainActor (Any, NSAccessibility.Notification, [NSAccessibility.NotificationUserInfoKey: Any]) -> Void = {
-        NSAccessibility.post(element: $0, notification: $1, userInfo: $2)
+        NSAccessibility.post(element: $0, notification: $1, userInfo: $2.isEmpty ? nil : $2)
     }
     #else
     /// The offset a rest for a new visible height left the scroll view at, until UIKit reports
     /// the scrolling of that inset change (`scrollViewDidChangeAdjustedContentInset`).
     var restedScrollOffset: CGFloat?
-    /// Posts what the canvas tells an assistive technology after a page turn. A test puts its
-    /// own closure here to see what is posted, and with which element.
+    /// Posts what the canvas tells an assistive technology after a page turn, and the layout
+    /// change the scroll bar's stand-in tells of after it is adjusted (`ReaderTextView`). A
+    /// test puts its own closure here to see what is posted, and with which element.
     var postAccessibilityNotification: @MainActor (UIAccessibility.Notification, Any?) -> Void = {
         UIAccessibility.post(notification: $0, argument: $1)
     }
@@ -951,8 +965,10 @@ import AppKit
     /// makes itself (`requested`) puts it at the visible start. After any other scrolling it
     /// follows only while it is where the reader last put it: one placed by a click, or by an
     /// assistive client that scrolls the view as it reads, stays there. A selection is never
-    /// moved. On iOS VoiceOver reads the text view's elements and enters at none: there the
-    /// scroll view lists its lines on screen (`ReaderTextView`).
+    /// moved. A move the reader makes itself is for VoiceOver to come along with, wherever its
+    /// cursor is, so the text view tells of the insertion point a second time and the window
+    /// of a layout change. On iOS VoiceOver reads the text view's elements and enters at none:
+    /// there the scroll view lists its lines on screen (`ReaderTextView`).
     private func placeScrollInsertionPoint(at start: ReaderTextPosition, requested: Bool) {
         guard let textView = scrollTextView else { return }
         if textView.selectedRange.length == 0, requested || textView.selectedRange.location == placedScrollInsertionPoint {
@@ -962,6 +978,17 @@ import AppKit
                 isApplyingSelection = true
                 textView.selectedRange = NSRange(location: location, length: 0)
                 isApplyingSelection = false
+                // AppKit has told an assistive client of that move, once. VoiceOver, inside the
+                // text and not yet moved in it, kept its cursor on its line for the one notice:
+                // it said the word before the insertion point, and at the layout change below,
+                // or without one at its next command, scrolled the view back to its line by
+                // the scroll bar's value. The reader's step was undone, and the insertion
+                // point, still the reader's, followed that scroll. Told a second time,
+                // VoiceOver takes its cursor to the insertion point, as it does at the first
+                // notice once it has moved by line. Moving the insertion point twice did the
+                // same; moving it before the scroll, or posting the layout change from
+                // another element, first or not at all, did not (macOS 27.0.1, #473).
+                if requested { postAccessibilityNotification(textView, .selectedTextChanged, [:]) }
             }
         }
         // VoiceOver keeps its own cursor in a text area it has left, and on returning goes back

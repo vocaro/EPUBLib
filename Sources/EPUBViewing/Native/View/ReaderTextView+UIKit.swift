@@ -31,7 +31,8 @@ final class ReaderTextView: UITextView {
     /// line is told so until UIKit's focus notification names something that is not one of
     /// this column's lines. VoiceOver goes on holding the element when the page is turned
     /// under it, so this is then a line the column no longer lists
-    /// (`accessibilityCursorHasLeftThePage`).
+    /// (`accessibilityCursorHasLeftThePage`), until the element is made a line of the page
+    /// shown (`accessibilityCursorStands(for:)`).
     private var pageAccessibilityCursor: ReaderPageAccessibilityElement?
     /// The elements that stand in the list for the scroll view's own bars (`scrollBarListed`).
     private var scrollBarElements: [ReaderScrollBarAccessibilityElement] = []
@@ -233,6 +234,29 @@ final class ReaderTextView: UITextView {
     func accessibilityLine(from location: Int) -> Any? {
         guard listsLines else { return nil }
         return lineAccessibilityElements.first { NSMaxRange($0.range) > location }
+    }
+
+    /// Has the element an assistive technology's cursor was left on in this column stand for
+    /// `line`, a line of the page now shown, here or in another column, and gives it that
+    /// line's place in the list. The answer is the element the cursor is on: that one, or
+    /// `line` where no cursor was left. VoiceOver keeps what was chosen in its rotor while
+    /// its cursor stays on one item, as a line's Next Page, and on coming to another item
+    /// its rotor is at its default. A data table's cell is an element of another kind, inside
+    /// its table's: it becomes no line and no line becomes one, so from a cell or to one the
+    /// answer is `line`.
+    func accessibilityCursorStands(for line: Any?) -> Any? {
+        guard let line = line as? ReaderPageAccessibilityElement, let cursor = pageAccessibilityCursor, cursor !== line,
+              !(cursor is ReaderTableCellAccessibilityElement), !(line is ReaderTableCellAccessibilityElement),
+              let view = line.view, var list = view.pageAccessibilityCache,
+              let index = list.elements.firstIndex(where: { $0 === line }),
+              let place = list.listed.firstIndex(where: { $0 === line }) else { return line }
+        cursor.stand(for: line)
+        list.elements[index] = cursor
+        list.listed[place] = cursor
+        view.pageAccessibilityCache = list
+        pageAccessibilityCursor = nil
+        view.pageAccessibilityCursor = cursor
+        return cursor
     }
 
     // VoiceOver's own Headings rotor moves among the elements it is given, and a page or a
@@ -796,12 +820,27 @@ private struct ScrollAccessibilityPlace: Equatable {
 
     override func accessibilityIncrement() {
         bar.accessibilityIncrement()
-        refresh()
+        adjusted()
     }
 
     override func accessibilityDecrement() {
         bar.accessibilityDecrement()
+        adjusted()
+    }
+
+    /// The bar has taken the view a tenth of the way through the book, with the cursor still
+    /// here, and UIKit tells VoiceOver nothing of it. VoiceOver holds the two lines it was
+    /// given before this element when its cursor came here. They are screens away now, no
+    /// longer listed, and the elements that stood for them are gone. At its next move back
+    /// VoiceOver found the nearer one gone and asked again from here, and then asked for one
+    /// more from the further: for an element UIKit no longer knew it was given nothing, noted
+    /// that as the start of the list, and two lines up it stayed where it was at every move
+    /// back. A layout change that names this element has VoiceOver drop what it holds and
+    /// ask again for the items each side of it, and it says nothing more for that than the
+    /// bar's new value.
+    private func adjusted() {
         refresh()
+        view?.canvas?.postAccessibilityNotification(.layoutChanged, self)
     }
 
     override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
@@ -826,8 +865,8 @@ private struct ReaderAccessibilityList {
 /// this label rather than the native text view's longer paragraph storage.
 @MainActor private class ReaderPageAccessibilityElement: UIAccessibilityElement {
     weak var view: ReaderTextView?
-    let range: NSRange
-    let url: URL?
+    private(set) var range: NSRange
+    private(set) var url: URL?
     /// Where the element's first character is in the book. It holds when the page the element
     /// was on has been turned, which is when VoiceOver asks the Headings rotor about it again.
     var position: ReaderTextPosition?
@@ -849,6 +888,26 @@ private struct ReaderAccessibilityList {
         isAccessibilityElement = true
     }
 
+    /// Becomes `line`, an element made for a line of the page now shown: its characters, its
+    /// words, where it stands, what it is and so what it offers. Nothing of the line this
+    /// element stood for is kept.
+    func stand(for line: ReaderPageAccessibilityElement) {
+        view = line.view
+        accessibilityContainer = line.accessibilityContainer
+        range = line.range
+        url = line.url
+        position = line.position
+        image = line.image
+        // A heading's level is in its attributed label, which is set after the label, as for
+        // a new element, and is not left on an element that was a heading.
+        accessibilityAttributedLabel = nil
+        accessibilityLabel = line.accessibilityLabel
+        if let label = line.accessibilityAttributedLabel { accessibilityAttributedLabel = label }
+        accessibilityTraits = line.accessibilityTraits
+        accessibilityLanguage = line.accessibilityLanguage
+        accessibilityFrameInContainerSpace = line.accessibilityFrameInContainerSpace
+    }
+
     override func accessibilityActivate() -> Bool {
         guard let view, let canvas = view.canvas else { return false }
         if let url { canvas.activateLink(url, range: range, in: view); return true }
@@ -863,6 +922,31 @@ private struct ReaderAccessibilityList {
     override func accessibilityElementDidBecomeFocused() {
         super.accessibilityElementDidBecomeFocused()
         view?.accessibilityCursorMoved(to: self)
+    }
+
+    /// Words of a table's cell that this item reads are selected.
+    var holdsSelection: Bool {
+        guard let view, let storage = view.contentStorage.textStorage, range.location < storage.length,
+              storage.attribute(.attachment, at: range.location, effectiveRange: nil) is TableRowAttachment else { return false }
+        return view.tableInteraction?.holdsSelection(at: range.location) ?? false
+    }
+
+    // VoiceOver says "Selected" of such an item whenever it comes to it, in its own language.
+    override var accessibilityTraits: UIAccessibilityTraits {
+        get { holdsSelection ? super.accessibilityTraits.union(.selected) : super.accessibilityTraits }
+        set { super.accessibilityTraits = newValue.subtracting(.selected) }
+    }
+
+    /// An action of a table's cell as VoiceOver is given it. VoiceOver keeps what an item says
+    /// and offers as it found them when its cursor came to the item, so after an action that
+    /// changes them, selecting and deselecting, it is told that the item changed: it reads
+    /// the item again, selected or not, and takes its actions as they now are.
+    func customAction(_ action: ReaderTableAction, named name: String? = nil) -> UIAccessibilityCustomAction {
+        UIAccessibilityCustomAction(name: name ?? action.name) { [weak self] _ in
+            guard action.perform() else { return false }
+            if action.changesItem, let self { view?.canvas?.postToAccessibility(.layoutChanged, self) }
+            return true
+        }
     }
 
     /// A page's elements turn the page. Continuous scroll scrolls natively, by VoiceOver's own
@@ -890,9 +974,7 @@ private struct ReaderAccessibilityList {
                 }
             }
             if view.contentStorage.textStorage?.attribute(.attachment, at: range.location, effectiveRange: nil) is TableRowAttachment {
-                actions += (view.tableInteraction?.accessibilityActions(at: range.location) ?? []).map { action in
-                    UIAccessibilityCustomAction(name: action.name) { _ in action.perform() }
-                }
+                actions += (view.tableInteraction?.accessibilityActions(at: range.location) ?? []).map { customAction($0) }
             }
             return actions.isEmpty ? nil : actions
         }
@@ -945,15 +1027,20 @@ private struct ReaderTableCellKey: Hashable {
         return NSRange(location: table.cells[cell].column, length: table.cells[cell].columnSpan)
     }
 
+    override var holdsSelection: Bool {
+        ([range.location] + continuations).contains { view?.tableInteraction?.holdsSelection(at: $0, cell: cell) == true }
+    }
+
     /// What the cell's text views offer for the words shown here, where it is on screen.
-    private var interactions: (select: (@MainActor () -> Bool)?, links: [(name: String, perform: @MainActor () -> Bool)]) {
-        var select: (@MainActor () -> Bool)?, links: [(name: String, perform: @MainActor () -> Bool)] = []
+    private var interactions: (selection: [ReaderTableAction], links: [ReaderTableAction]) {
+        var selection: [ReaderTableAction] = [], selected = false, links: [ReaderTableAction] = []
         for location in [range.location] + continuations {
             guard let found = view?.tableInteraction?.accessibilityActions(at: location, cell: cell) else { continue }
-            select = select ?? found.select
+            // The rows a cell continues into are the same cell: one that holds a selection answers for it.
+            if selection.isEmpty || (found.selected && !selected) { (selection, selected) = (found.selection, found.selected) }
             links += found.links
         }
-        return (select, links)
+        return (selection, links)
     }
 
     // A double tap follows the cell's link when it has one and no other, and otherwise shows
@@ -978,8 +1065,8 @@ private struct ReaderTableCellKey: Hashable {
                 }
             }
             let found = interactions
-            if let select = found.select { actions.append(UIAccessibilityCustomAction(name: "Select Cell Text") { _ in select() }) }
-            actions += found.links.map { link in UIAccessibilityCustomAction(name: "Follow Link: " + link.name) { _ in link.perform() } }
+            actions += found.selection.map { customAction($0) }
+            actions += found.links.map { customAction($0, named: "Follow Link: " + $0.name) }
             return actions.isEmpty ? nil : actions
         }
         set { super.accessibilityCustomActions = newValue }

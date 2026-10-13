@@ -56,6 +56,14 @@ xcrun xctest -XCTest All -AppleShowScrollBars Always .build/debug/EPUBViewingTes
 xcrun xctest -XCTest All -AppleShowScrollBars WhenScrolling .build/debug/EPUBViewingTests.xctest
 ```
 
+A Mac test takes a window through a live resize, as a drag of its edge does, with
+`setFrame(_:display:animate:)`: AppKit tells every view that a live resize starts, resizes the
+window through the sizes between, and tells every view that it has ended, before the call
+returns. `viewWillStartLiveResize()` called on a view does not reach its subviews, and AppKit's
+text view does its own work when a resize ends
+([Layout](native-viewer.md#layout), "Continuous scroll"). `ScrolledLiveResizeTests` has the
+helper, with a view that counts the calls, and skips where AppKit resizes without one.
+
 A `swift test` that hangs can be made to say where. Written to a file or a pipe, its output
 arrives 16 KB at a time, so the log of a run that hangs stops short of the hang, or is empty.
 With `NSUnbufferedIO=YES` in its environment `swift test` writes each line as a test makes
@@ -182,6 +190,21 @@ stand in for VoiceOver's cursor in continuous scroll, as the scrolled-lines test
 reads on through a table of seventy rows and back, finding each next stop as UIKit does, in
 the cell's container and then in the text view, and then moves down a column row by row; the
 other rests the cursor in a table and scrolls away. Neither drives VoiceOver.
+Table select action tests perform Select Table Text on a row and Select Cell Text on a cell,
+in both flows, and hold each to the same: the reader reports the words, the canvas as drawn
+shows them selected, the item has the selected trait, VoiceOver is told that the item
+changed, and the item then offers Deselect, Copy and the host's selection action, each
+performed. The drawing is read from the canvas's pixels, counting those of the cell's ground
+that changed: the cell draws a selected word's ink over the row's own, which changes pixels
+at the letters' edges with no selection shown, and passed a count of any pixel. What the
+reader posts to an assistive technology is taken from the canvas
+(`ReaderCanvasView.postToAccessibility`) instead of posted. A third test selects a passage
+through two cells in code, as a located passage is, and reads each cell's share from the
+pixels, and a fourth holds a cell to painting no selection of its own while its view is first
+responder, when UIKit draws it, and to painting it again when the view gives that up. That
+VoiceOver reads the item again and takes its new actions when told is known only from
+[speech sessions](voiceover-testing.md) on a device: the tests passed before the reader told
+it anything, and an iPad's rotor still offered Select alone.
 
 Accessibility action tests hold each item of a page and of a screen on iPhone and iPad to
 offering its own actions and no more: a line, a heading and a link their page turns in pages
@@ -212,15 +235,23 @@ Page-turn tests on UIKit (`PageTurnAccessibilityTests`) put an assistive technol
 on a line of a page as UIKit tells the reader of it, by the line's own callback and the
 focus notification, and read what the canvas posts when the page is shown anew
 (`ReaderCanvasView.postAccessibilityNotification`). A page turned from a line posts one
-layout change with the first line of the page shown, in one column and across a spread, into
-the next chapter and back into the one before; a position shown from a line posts the line
-that holds it; VoiceOver's scroll posts the page's number and then the line; and nothing is
-posted for a cursor on a control, for VoiceOver switched off, for a page shown again as it
-was, or for a move by heading. They also hold an element kept from one page to standing for
-no line of the next, on pages whose lines have the same characters counted from each page's
-first, and to standing for its own line when its page is shown again. That VoiceOver moves
-its cursor for the layout change, and what it then reads, is known only from
-[speech sessions](voiceover-testing.md) on a device.
+layout change with the element the cursor is on, which is then the first line of the page
+shown and has that line's place in the list, in one column and across a spread, where it
+moves to the left-hand column, into the next chapter and back into the one before, and
+again when the action is performed a second time with the cursor told of no other item; a
+position shown from a line makes that element the line that holds it; VoiceOver's scroll
+posts the page's number and then the element; and nothing is posted for a cursor on a
+control, for VoiceOver switched off, for a page shown again as it was, or for a move by
+heading. One test takes a single element through a book whose every page opens with another
+kind of item, a table row, a picture, a link, a heading, a formula and a rule, and back: on
+each page it must answer what a new element for that page's first item answers, in its
+label, heading level, traits, language, frame and actions, and activating it must do what
+that item does and nothing the last one did. Another holds a data table's cell to being left
+and come to as an element of its own. They also hold an element kept from one page to
+standing for no line of the next, on pages whose lines have the same characters counted
+from each page's first, and to standing for its own line when its page is shown again. That
+VoiceOver reads the line for the layout change, draws its cursor there and keeps its rotor,
+is known only from [speech sessions](voiceover-testing.md) on a device.
 
 Table of data tests on AppKit (`TableDataMacAccessibilityTests`) read what a column and the
 scroll view give an assistive technology at each row of a table that holds data, on a reader
@@ -238,8 +269,11 @@ table's count and a header cell named from another page; a row taller than a pag
 words each page's table says once; continuous scroll, where a table holds every row, says
 which are on screen and labels a cell that has no text area yet; and a table kept from a
 page that has been turned, which says nothing of the new one. They read the elements through
-AppKit's own accessibility methods. That a client of the accessibility API is given each
-attribute, and what VoiceOver says, is recorded with the
+AppKit's own accessibility methods. The older informal ones (`accessibilityAttributeNames()`,
+`accessibilityAttributeValue(_:)`) do not show what a client is given: called on these
+elements in a test they listed five attributes, gave nil for every value, and the test
+process then ended with "freed pointer was not the last allocation". That a client of the
+accessibility API is given each attribute, and what VoiceOver says, is recorded with the
 [VoiceOver testing process](voiceover-testing.md#tables-on-mac).
 
 Table cell line tests on AppKit (`TableCellLineAccessibilityTests`) read the lines a cell's
@@ -325,7 +359,8 @@ typographic review, an accessibility audit or a memory budget measurement. They 
 VoiceOver speech or focus order, keyboard-only traversal, native toolbar overflow or iPhone Duo
 layouts ([#51](https://github.com/vocaro/EPUBLib/issues/51)), which need live sessions.
 The suite runs on OS 27; older platforms are outside the package's deployment targets. Simulator
-coverage does not substitute for hardware performance and accessibility testing.
+coverage does not substitute for hardware performance and accessibility testing, except for
+what a simulator's VoiceOver reads, as the next paragraph says.
 
 For real VoiceOver sessions, use the [VoiceOver testing process](voiceover-testing.md) and
 the isolated `Examples/VoiceOverVerification` reader. Its diagnostic speech probe is outside
@@ -333,8 +368,10 @@ the local gate because it takes control of the user interface and changes VoiceO
 `scripts/run-voiceover-simulator.py` runs that probe on simulators of its own, with no window
 and no sound, and takes over nothing: it records what a
 [simulator's VoiceOver](voiceover-testing.md#simulators) reads, in order and after a page
-turn. That VoiceOver activates nothing it reads, so page actions, the rotor and acceptance
-stay with the Mac and physical devices.
+turn, and that record is
+[acceptance evidence](voiceover-testing.md#acceptance-and-evidence) for it on an iPhone and
+iPad. That VoiceOver activates nothing it reads, so what VoiceOver activates, the actions it
+performs from the rotor and page turns in landscape stay with physical devices.
 
 ## Corpus runs
 
