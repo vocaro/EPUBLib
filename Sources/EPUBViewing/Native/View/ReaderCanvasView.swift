@@ -1347,15 +1347,23 @@ import AppKit
     /// A page-turn key, swipe, wheel tick or edge tap.
     func turnPageFromInput(forward: Bool) {
         guard imageInspector == nil, !hasSelection, !isDraggingSelection else { return }
-        _ = turnPage(forward: forward)
+        if turnPage(forward: forward) != .atBoundary { pageDidTurnFromTheText() }
     }
 
     /// A page turn an assistive technology asks for by name, as a host's command is: nothing
     /// in it could be meant for a selection, so selected text does not hold it back. False at
     /// either end of the book.
     func turnPageFromAccessibility(forward: Bool) -> Bool {
-        guard imageInspector == nil else { return false }
-        return turnPage(forward: forward) != .atBoundary
+        guard imageInspector == nil, turnPage(forward: forward) != .atBoundary else { return false }
+        pageDidTurnFromTheText()
+        return true
+    }
+
+    /// A page turned by something done in the text, where keyboard focus and VoiceOver may be.
+    private func pageDidTurnFromTheText() {
+        #if os(macOS)
+        focusFirstColumnAfterTurn()
+        #endif
     }
 
     /// Text is selected in a text view on screen.

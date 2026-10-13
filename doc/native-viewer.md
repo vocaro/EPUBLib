@@ -314,8 +314,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   characters, "￼" for a link that holds only a picture or a hidden label, six in the
   verification book and none for a picture that is not a link; and a page column none, on a
   page that shows a link. VoiceOver ends the list of an item's actions with "Activate
-  Default" and starts again. On Mac VoiceOver is offered neither of the surface's two
-  actions ("Input and accessibility").
+  Default" and starts again. On Mac a text area has no elements for its lines, so each
+  text area offers the page turn itself, the same command under the name its flow gives
+  it ("Input and accessibility").
 - **Tables.** Attachments drawn natively (TextKit 2 has no `NSTextTable` on iOS), one
   image-drawn attachment per row so pages can break between any two rows; rows a rowspan
   joins, and the header, keep with the next row and share a page when they fit. `colspan`/
@@ -920,10 +921,11 @@ The following are the defaults. Host commands and accessibility actions stay ena
   trackpad gesture or wheel tick turns a page. Continuous scroll scrolls natively.
 - Keys (all flows): Left/Page Up previous, Right/Page Down/Space next, Shift-Space previous.
   In continuous scroll a page turn scrolls by one viewport less a line.
-- VoiceOver: page-turn actions via `accessibilityScrollAction` and Next Page and Previous
-  Page by name; text reads in order from the text views. On Mac the two are named actions
-  of the reader's SwiftUI surface. On iPhone and iPad each line of a page offers them itself
-  and the surface names none. UIKit gives VoiceOver the actions of everything that holds an
+- VoiceOver: the text offers the page turn itself, and reads in order from the text views.
+  On iPhone and iPad each line of a page offers Next Page and Previous Page, and the
+  reader's SwiftUI surface has a page-turn `accessibilityScrollAction`. On Mac each text
+  area offers the pair, named for the flow (the next item). The surface names no action on
+  any platform. UIKit gives VoiceOver the actions of everything that holds an
   element along with the element's own, and SwiftUI puts a view's named actions on the
   canvas, which holds every line: with the two named there, VoiceOver said "Actions
   available" after every line of continuous scroll and offered to turn a page that flow does
@@ -978,22 +980,45 @@ The following are the defaults. Host commands and accessibility actions stay ena
   in the book (`index(ofAccessibilityElement:)`). It was matched by its characters as the
   view counts them, and a page column counts from its page's first: a line of the page
   before then stood for whichever line of the page shown had the same ones.
-- VoiceOver on Mac is offered neither named action, in pages or in continuous scroll
-  (macOS 27.0.1), so the names Next Page and Previous Page, wrong for a flow without pages,
-  are heard nowhere there. The window gives an assistive client the hosting view's group
-  and, under it, each column's text area, or in continuous scroll a scroll area that holds
-  the one text area. `ReaderCanvasView`, the view the surface wraps, is not an accessibility
-  element and is not among them. None of them has a named action: the group has no action
-  at all, a text area has AppKit's Show Menu, and the scroll area AppKit's four scrolls by
-  page, which are the only scroll actions in either flow. VoiceOver's Actions menu
-  (Control-Option-Command-Space) says "Actions menu 1 item" and "show menu" on a column and
-  inside its text. On the group it does not open, or lists what the group's other items
-  offer. A listener on Mac turns the page with the host's controls, which
-  `EPUBReaderControls` calls Scroll Forward and Scroll Backward in continuous scroll, or
-  with the reader's keys, which work while VoiceOver interacts with the text. Under
-  `EPUBPageControls.hostOnly`, which takes the keys away, the host's controls are the only
-  way. [VoiceOver testing](voiceover-testing.md#harness-pitfalls-and-current-results) has
-  the sessions.
+- VoiceOver on Mac: each text area offers the page turn as actions of its own
+  (`NSAccessibilityCustomAction`), Next Page and Previous Page in pages and Scroll Forward
+  and Scroll Backward in continuous scroll. Those are the names `EPUBReaderControls` gives
+  the host's buttons, and `EPUBPageAction.label(in:)` is behind both. VoiceOver's Actions
+  menu (Control-Option-Command-Space) holds the actions of the item under its cursor, and
+  on a column and at every line and word inside it that item is the text area. The menu
+  says "Actions menu 3 items" and lists Previous Page, show menu and Next Page, or Scroll
+  Backward, show menu and Scroll Forward, and the names follow a change of flow made with
+  the reader open (macOS 27.0.1). Choosing one turns the spread, or scrolls one viewport
+  less a line, and VoiceOver's cursor is then on the first line of the new page or screen.
+  It is a turn asked for by name, as a line's is on iPhone and iPad
+  (`turnPageFromAccessibility`): selected text does not hold it back, it fails at either
+  end of the book, and `EPUBPageControls.hostOnly`, which takes the keys away, leaves it.
+  The cost is a phrase. VoiceOver says "actions available" before its hint for a text
+  area ("actions available You are currently on a text area, inside of a group…"), once
+  after it arrives at a column or enters its text, and not after a line or a word it moves
+  to. The group that holds the columns lists in its own menu what each of its items
+  offers, so that menu gains the pair once for each column.
+  A page turn made from the text, by a key or by an action, brings keyboard focus to the
+  first column of the spread when it was in another (`focusFirstColumnAfterTurn`).
+  VoiceOver stays in the column it is in when a spread turns: after a turn made in the
+  second column it was on the first line of the new second column, and the new first
+  column was passed over. It follows keyboard focus to the first column and reads it from
+  its first word, with its cursor on the column and no longer inside the text.
+  The window gives an assistive client the hosting view's group and, under it, each
+  column's text area, or in continuous scroll a scroll area that holds the one text area.
+  `ReaderCanvasView`, the view the surface wraps, is not an accessibility element and is
+  not among them. A named action or a scroll action that SwiftUI is given for that view
+  reached none of them, so the surface has neither on Mac. The scroll area has AppKit's
+  four scrolls by page, which are the only scroll actions in either flow.
+  Three limits. An item of the text that takes VoiceOver's cursor by itself keeps its own
+  menu, without the pair: a link reached with Find Next Link offers "press". In
+  continuous scroll a step made before VoiceOver has moved inside the text it has just
+  entered is undone, VoiceOver going back to the start of the text and the view with it;
+  a page key does the same there, as it did before the actions, and after one move by
+  line the step holds. And the accessibility API reports a failure for the action in
+  continuous scroll, though the view scrolls and VoiceOver's own choosing works.
+  [VoiceOver testing](voiceover-testing.md#harness-pitfalls-and-current-results) has the
+  sessions.
 - Headings: `h1` to `h6`, and any element with `role="heading"`, are headings to VoiceOver,
   at the element's level or its `aria-level` from 1 to 6. `role="heading"` alone is level 2,
   an `aria-level` past 6 leaves a heading with no level, and a heading element whose role is

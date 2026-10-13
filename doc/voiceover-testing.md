@@ -177,7 +177,12 @@ new phrase is recorded:
   `listdown` and `listup` say each one, `listchoose` performs the one last said, and
   `listclose` closes the menu, at which VoiceOver says "Closing Actions menu".
   `"listchoose=show menu"` sends Return only if one of VoiceOver's last two phrases contains
-  the label, as `activate=LABEL` does. On a group the menu held the actions of what the
+  the label, as `activate=LABEL` does. On a column and inside its text the menu holds the
+  reader's two page actions around AppKit's own, in VoiceOver's order: "Previous Page",
+  "show menu", "Next Page", and in continuous scroll "Scroll Backward", "show menu", "Scroll
+  Forward". So `actions listdown listdown listdown "listchoose=Next Page"` turns the page
+  and `actions listdown "listchoose=Previous Page"` turns it back. A fourth `listdown` says
+  nothing: the list does not go round. On a group the menu held the actions of what the
   group holds, one after another, and on the sample's group with its controls embedded
   VoiceOver said nothing and opened no menu: the list keys after it went to the reader, where
   Down Arrow moves the insertion point. The runner closes a menu a session can have left
@@ -264,8 +269,10 @@ selection and the numbered-word span of its value:
   actions of the item under its cursor, so the lines show where the cursor would have to be
   for a named action to be offered. `actions=all` prints every element of the window.
 - `action=NAME`: perform a named action on the first of those elements that has it, without
-  VoiceOver, as in `"ax:action=Next Page"`. It prints `MISSING` when no element has one of
-  that name.
+  VoiceOver, as in `"ax:action=Next Page"`, which a column's text area has in pages. It
+  prints `MISSING` when no element has one of that name, and otherwise the status the
+  accessibility API gave. For `"ax:action=Scroll Forward"` in continuous scroll that status
+  is -25200, a failure, though the view scrolls: read the `STATE` after it.
 - `caret=WORDS`: put the insertion point before the first of these words, as in
   `"ax:caret=Bare jump"`. VoiceOver enters a text at its insertion point, so `in` then starts
   on that line and `right` reads the word.
@@ -315,6 +322,9 @@ point can be followed beside the speech.
 2. `nextline` reads the following lines in order while `SELECTION` follows VoiceOver. The
    first one after entering repeats the rest of the entry line, as in paging.
 3. `pagedown` while interacting moves `SELECTION` to the new first line; `line` then reads it.
+   So does Scroll Forward chosen in the Actions menu. Move by line first: after a step made
+   straight after `in`, VoiceOver goes back to the start of the text, `SELECTION 0,0` follows
+   it, and `line` reads the book's first line.
 4. `out`, `right` to leave the text, a scroll step, `left` and `in`: VoiceOver enters at the
    new first line. Each of the reader's own moves shows as `AXLayoutChanged`.
 
@@ -993,7 +1003,29 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     continuous scroll the first row's cell reads the same. A reader whose cells keep none of
     their elements says nothing in each of those places: a phrase with nothing in it by line
     and with `readall`, and a step with no phrase by word.
-14. Restore all original VoiceOver/scripting settings and independently verify restoration.
+14. Page actions, on a Mac, in pages (one column in a window 600 points wide at 17 points,
+    two in one 1100 wide at 23) and in continuous scroll, with VoiceOver brought to a column
+    by `ax:focus=search ax:focus=0`. `ax:actions` gives each text area `AXShowMenu` and two
+    actions in quotation marks, "Next Page" and "Previous Page" in pages and "Scroll
+    Forward" and "Scroll Backward" in continuous scroll, and the same after
+    `"ax:press=Continuous Scroll"` and `ax:press=Paging` with the reader open. On the column
+    and after `in`, `actions` says "Actions menu 3 items" and three `listdown` steps say
+    "Previous Page", "show menu" and "Next Page", or the scroll's two names around "show
+    menu". After two moves by line, `"listchoose=Next Page"` gives `AXValueChanged` with the
+    next page's words, VoiceOver says the action's name and the page's first word, and
+    `describe` and `line` give "Line 1" and the page's first line; `"listchoose=Previous
+    Page"` comes back the same way. In continuous scroll `"listchoose=Scroll Forward"` moves
+    `SELECTION` to the first line of the next screen, which `line` reads, and "Scroll
+    Backward" to where it was. In two columns, chosen inside the right-hand column
+    (`ax:focus=1`), Next Page turns the spread and VoiceOver says "text" and the first words
+    of the new left-hand column: `describe` gives "text is in the VoiceOver cursor", and
+    `in` and `line` the column's first line. `pagedown` there does the same. A reader
+    without that left VoiceOver on the first line of the new right-hand column. VoiceOver
+    says "actions available" only before its hint for the text area, "actions available You
+    are currently on a text area", and after no line of five moved to. A step in continuous
+    scroll made straight after `in` is undone, with the action and with `pagedown`: that is
+    VoiceOver's return to the start of the text, and no failure of the action.
+15. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
@@ -2095,6 +2127,109 @@ The Mac runner's transcript is plain text and needs no export.
   Actions menu as under a rotor: the runner closes one first, and in the one session left under
   a menu it wrote `STEP listclose, sent by the runner in case the Actions menu is still open`,
   VoiceOver said "Closing Actions menu" and switched off.
+- Later on 2026-10-13 each text area of the Mac reader was given the page turn as actions of
+  its own, named for the flow, and the reader's SwiftUI surface lost its two named actions
+  and its scroll action on Mac. It was heard before and after on the same main:
+  [hosted sessions](#hosted-mac-sessions) on `xcode-27` (image 20261006.0244.1, macOS 27.0.1
+  `26A434`, Xcode 27.0), at a fixed pause of four seconds, with VoiceOver brought to a column
+  by `ax:focus=search ax:focus=0`. Before is main's reader at `7fa9231`, run 38364728057.
+  After is the reader of `07b233b`, which is that main and the change: runs 38364815359, with
+  the eight step lists of the run before, and 38368581010 and 38368509490, which choose the
+  actions. Twenty-three sessions; nobody listened.
+  What an assistive client is given (`ax:actions`). Before, `AXTextArea ACTIONS AXShowMenu`
+  for each column and for the scroll view's text, and `MISSING` for `"ax:action=Next Page"`
+  and `"ax:action=Scroll Forward"`. After, `AXTextArea ACTIONS AXShowMenu,"Next
+  Page","Previous Page"` for each column, one and two, and `AXShowMenu,"Scroll
+  Forward","Scroll Backward"` in continuous scroll, where the scroll area kept AppKit's four
+  scrolls by page; the hosting view's group has `ACTIONS none` as before. With the reader
+  open, `"ax:press=Continuous Scroll"` changed a column's pair to the scroll's and
+  `ax:press=Paging` changed it back.
+  VoiceOver's Actions menu. Before, on a column, inside its text, on the right column of two
+  and in continuous scroll: "Actions menu 1 item", "show menu". After, in each of those
+  places: "Actions menu 3 items", and three `listdown` steps "Previous Page", "show menu",
+  "Next Page", or "Scroll Backward", "show menu", "Scroll Forward". A fourth said nothing.
+  After each change of flow the menu held the new flow's names.
+  The cost. Before, VoiceOver's hint for a text area was "You are currently on a text area,
+  inside of a group. To …", or in continuous scroll "You are currently on a text area." and
+  "You are currently in a text area. To enter text in this area, ty". After, each begins
+  "actions available": "actions available You are currently on a text area, inside of a".
+  VoiceOver says the hint about three seconds after it arrives at the column, enters its
+  text or returns from the menu, once each time. Five moves by line, in pages and in
+  continuous scroll, each read the line and nothing more; where a hint followed one of them
+  it was the one still owed for entering the text. Six moves by line and two by word at a
+  pause of five seconds read the same way on the reader of `c43e88f`, the change on the
+  main before this one (run 38360115206).
+  Choosing an action, in pages. In one column, after five moves by line, `"listchoose=Next
+  Page"` gave `AXValueChanged` with `word0055` to `word0171` where the page had held
+  `word0001` to `word0054`. VoiceOver said "word0055 word0056 word0057 word0058 word0059
+  word0060 word0061 w" and "Next Page text  word:  word0055  character:", Control-Option-F3
+  "Line 1  word:  word0055  character:  is in the VoiceOver cursor", and `line` "word0055
+  word0056 word0057 word0058 word0059 word0060". `"listchoose=Previous Page"` gave the
+  first page's words again, "Previous Page text  word:  Page  character:" and "Page boundary
+  verification". Chosen with the cursor on the column and not in its text, Next Page turned
+  the page and VoiceOver said "Next Page text" and the hint, its cursor still on the column
+  ("text is in the VoiceOver cursor Line 1"); `in` then read "In text word0055 word0056
+  word0057 word0058 word0059 word0060". On the book's first page Previous Page changed
+  nothing, and VoiceOver said "Previous Page text  word:  verification  character:  n", the
+  word it was on. A `nextline` straight after a turn moved the insertion point to the
+  second line, and its phrase was recorded only when the menu was next used, in both
+  sessions in pages.
+  In two columns, chosen inside the right-hand one, which held `word0025` to `word0092`.
+  Next Page gave `AXValueChanged` for both, `word0093` to `word0160` and `word0161` to
+  `word0228`. VoiceOver said "word0161", "Next Page text  word:  word0161  character:" and
+  then "text word0093 word0094 word0095 word0096 word0097 word0098 word0": it was on the
+  left-hand column ("text is in the VoiceOver cursor Line 1"), and `in` and `line` read
+  "word0093 word0094 word0095 word0096". Previous Page from inside that column gave the
+  first spread and left VoiceOver in it, on "Page boundary veri". The reader's Page Down
+  key, pressed inside the right-hand column, was heard on both readers. Before: "word0161",
+  "2 updated items", and Control-Option-F3 "Line 1  word:  word0161  character:  is in the
+  VoiceOver cursor", so that the sixty-eight words of the new left-hand column were passed
+  over. After: "word0161" and "text word0093 word0094 word0095 word0096 word0097 word0098
+  word0", and `line` "word0093 word0094 word0095 word0096".
+  In continuous scroll, five lines down. `"listchoose=Scroll Forward"` moved `SELECTION`
+  from `271,0` to `865,0`; VoiceOver said "word0078" and "Scroll Forward text  word:
+  word0079  character:", Control-Option-F3 "Line 18  word:  word0079", and `line` "word0079
+  word0080 word0081 word0082 word0083 word0084". `"listchoose=Scroll Backward"` moved it to
+  `27,0`: "Scroll Backward text  word:  Read  character:" and "Read the numbered words
+  across two consecutive pages. The next". After a change to continuous scroll with the
+  reader open and two moves by line, Scroll Forward gave `SELECTION 703,0` and "Scroll
+  Forward text  word:  word0061  character:"; back in pages, on the page that then showed
+  `word0055` to `word0171`, Next Page gave `word0172` to `word0285` and "Next Page text
+  word:  word0172  character:".
+  The group that holds the columns, with the sample's controls in the toolbar and one
+  column: "Actions menu 10 items" before and "Actions menu 12 items" after, "cancel" and
+  "press" four times, then "Previous Page", "show menu", "Next Page" where "show menu" stood
+  alone, then "cancel". With two columns it said 11 before and 15 after, and with the
+  controls embedded it opened no menu before or after; those two were heard on the main
+  before this one, at `aeb57f0` and at `c43e88f` (runs 38357370635 and 38358026967).
+  What stayed as it was. A link reached with Find Next Link ("Verification link hyperlink")
+  had "Actions menu 1 item", "press", before and after. And in continuous scroll a step made
+  straight after `in`, before VoiceOver had moved inside the text, was undone on both
+  readers. With Page Down, before and after: `SELECTION 865,0`, "word0078", "text  word:
+  Read  character:  R", then `SELECTION 0,0` and "Page", Control-Option-F3 "Line 1  word:
+  Page", and `line` "Page boundary verification", the book's first line. With Scroll Forward
+  chosen in the menu, after: the same events and "Scroll Forward text  word:  Read
+  character:  R", "Page". After two moves by line the step held, with the key ([continuous
+  scroll](#continuous-scroll), step 3) and with the action.
+  The status the accessibility API gave `ax:action`. In pages `STATUS 0` for Next Page and
+  Previous Page, with the value change, and -25200 for Previous Page on the book's first
+  page, where the reader reports that nothing turned. In continuous scroll -25200 for every
+  Scroll Forward and Scroll Backward, four times, though each scrolled: `ENTRY` went from
+  "word0079" to "word0196" and back, and VoiceOver said the new first word.
+  What did not work, heard once and left out, in a reader with switches for it (`f0d9594`,
+  runs 38362236673 and 38362411656). The turn made after the action's handler had returned:
+  in continuous scroll VoiceOver said "word0078", "text  word:  word0079  character:" and
+  then "word0025", and was on "Line 9  word:  word0025", neither where it had been nor the
+  new first line; the status in continuous scroll was -25200 all the same, and in pages
+  became -25200 where the turn made inside the handler gives 0.
+  Not established: why the status in continuous scroll is a failure, and what another
+  assistive client makes of it. Why VoiceOver goes back to the start of the text after a
+  step it has not moved before, and what would keep it at the new first line. What VoiceOver
+  does when a listener has switched off its following of keyboard focus, which is what
+  takes it to the first column. Not heard: listening; a workstation; a turn with text
+  selected and a turn under `EPUBPageControls.hostOnly`, which unit tests hold and the
+  sample has no switch for; a right-to-left spread; a spread whose next section is not
+  built yet; and VoiceOver's cursor on a table's row or cell, which keeps its own actions.
 - On 2026-10-12 the section with a hidden heading over a table, with its second table, was
   read at 17 points before and after a table's rows became single items: at `2053be8` and at
   `1e3e5c3`, in the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and
