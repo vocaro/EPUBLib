@@ -312,15 +312,28 @@ extension ReaderTextView: ReaderLinkHost {
     /// takes for any other scroll.
     func showLink(at range: NSRange) {
         guard let canvas, range.location != NSNotFound, range.location <= textLength else { return }
-        if !isPageColumn, !linkFrame(range).intersects(visibleRect), let position = canvas.position(at: range.location, in: self) {
+        let below = !isPageColumn && !linkFrame(range).intersects(visibleRect)
+        let variant = UserDefaults.standard.string(forKey: "ProbeLinkFocus") ?? "below"
+        NSLog("PROBE showLink %@ at %d below %d", variant, range.location, below ? 1 : 0)
+        switch variant {
+        case "quiet", "layout":
+            // PROBE: the insertion point an assistive client is told of, with no change of the
+            // selection and so no notification of one.
+            voiceOverPlace = range.location
+            if below, let position = canvas.position(at: range.location, in: self) { canvas.show(position, selecting: nil) }
+            if variant == "layout", let window { NSAccessibility.post(element: window, notification: .layoutChanged, userInfo: [.uiElements: [self]]) }
+        default:
+            // PROBE: a link on screen is left as it is.
+            guard below, let position = canvas.position(at: range.location, in: self) else { return }
             canvas.show(position, selecting: nil)
+            let place = NSRange(location: range.location, length: 0)
+            if selectedRange != place { selectedRange = place }
         }
-        let place = NSRange(location: range.location, length: 0)
-        if selectedRange != place { selectedRange = place }
     }
 
     func showsLink(at range: NSRange) -> Bool {
-        selectedRange == NSRange(location: range.location, length: 0)
+        if let voiceOverPlace { return voiceOverPlace == range.location }
+        return selectedRange == NSRange(location: range.location, length: 0)
     }
 }
 

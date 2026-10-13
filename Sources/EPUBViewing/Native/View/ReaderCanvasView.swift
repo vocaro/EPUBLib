@@ -955,6 +955,8 @@ import AppKit
     /// scroll view lists its lines on screen (`ReaderTextView`).
     private func placeScrollInsertionPoint(at start: ReaderTextPosition, requested: Bool) {
         guard let textView = scrollTextView else { return }
+        // PROBE: an assistive client has been told where the insertion point is.
+        guard textView.voiceOverPlace == nil else { return }
         if textView.selectedRange.length == 0, requested || textView.selectedRange.location == placedScrollInsertionPoint {
             let location = scrollBook?.location(of: start) ?? start.offset
             placedScrollInsertionPoint = location
