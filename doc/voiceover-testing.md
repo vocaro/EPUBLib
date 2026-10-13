@@ -73,7 +73,7 @@ a grid** (`OPS/edges.xhtml`), holds a table of data whose header cells are links
 and a cell that is a link itself, "Relaid 1960". "Words before the routes." stands before
 the table and sixty numbered lines after it. It has no heading, and none of its words is
 one VoiceOver uses for a table, a header or a link. A thirteenth, **Parts below a jump**
-(`OPS/parts.xhtml`), the book's last, has a heading after a link on the same page, which no
+(`OPS/parts.xhtml`), has a heading after a link on the same page, which no
 other section has: every other heading opens its section or stands pages after the link
 before it. It opens with plain words. A link, "upper jump", stands two lines above the
 heading "Second part opens", with "Earlier words finish." between them. A second link,
@@ -83,7 +83,17 @@ the link, and in continuous scroll all of it is on one screen. A third link, "la
 follows the book's last heading, and sixty numbered lines follow it. Each line before a
 heading ends in a word no other line has, so a word VoiceOver says of itself shows where it
 took it from. None of the section's words is one VoiceOver uses for a heading or a link. A
-second bundled book, opened with
+fourteenth, **Squares inside grids** (`OPS/squares.xhtml`), the book's last, holds pictures
+in rows that have no words of their own. Its first table is given `role="presentation"`: a
+row of two pictures nobody describes and nothing else, between the rows "Top near", "Top
+far" and "Foot near", "Foot far". Its second, which begins a page of its own, is a table
+of data under the header cells "Sign" and "Sense": a picture described as "Blue badge"
+beside "Open", and one nobody describes beside "Shut". "Words before the squares." and
+"Words after the squares." stand round the first table, "Words before the signs." and
+"Words after the signs." round the second, and sixty numbered lines follow. The section
+has no heading and no link, so the book's last heading and its last link are still those
+of the section before it, and none of its words is one VoiceOver uses for a table, a
+picture or a group. A second bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
@@ -92,10 +102,10 @@ are "Page boundary verification" (level 1), which opens it, "Link target reached
 after the numbered paragraph, the two parked ones (level 1), each opening its section, and
 "Pictures and their words", "Scenes set apart", "What each line offers", "Tables of data",
 "A table longer than a page" and "A row taller than a page" (level 1), each opening its
-section, and "Second part opens" (level 3) and "Third part opens" (level 4) inside the last
-one; the sections of entries and of jumps inside a grid, between "What each line
-offers" and "Tables of data", have none, and nor has the section of jumps at a grid's edges,
-before the last. The second book's are "Chapter one", "Chapter two"
+section, and "Second part opens" (level 3) and "Third part opens" (level 4) inside the
+section of parts below a jump; the sections of entries and of jumps inside a grid, between
+"What each line offers" and "Tables of data", have none, and neither has the section of
+jumps at a grid's edges nor the last, of squares inside grids. The second book's are "Chapter one", "Chapter two"
 and "Chapter three", screens apart.
 Do not import private books for this check.
 
@@ -661,9 +671,36 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
 - The probe records a phrase once: a second row that says what the row before said leaves
   no line in a transcript. Every row of a table that is not data did while it was called
   "Table row"; now only two rows of the same words do.
+- A row of a table that is not data whose cells show pictures nobody describes and no
+  words has no name, and VoiceOver says what it holds: "text image text image group" for
+  a row of two, by line, by word and with `readall`. `in` says "In group 2 items text
+  image", `right` "text image", `in` on a cell "In text image" and `right` there
+  "image", and the two `out` "Out of text" and "Out of group". In continuous scroll
+  `describe` straight after that `out` says "group is in the VoiceOver cursor", and an
+  Actions menu closed there leaves "group" alone, where a page has the row's whole
+  phrase. Until 2026-10-13 such a row was "Table row group" as the others were.
+- `actions` while VoiceOver reads the text is the text area's menu, on a row's line as
+  on a line of words: "Actions menu 3 items", the two page actions round "show menu",
+  and on closing "text  word:" and the row's phrase. A row's own actions, Inspect Image
+  for each of its pictures, are in the menu when VoiceOver's cursor is on the row's
+  group, which it is after `in` and `out`. For the row of two pictures that is "Actions
+  menu 6 items" on a page, the row's two and then "show menu" and "Inspect Image" for
+  each cell's text, and "Actions menu 2 items" in continuous scroll. Two items of one
+  name that follow one another leave one line in a transcript.
+- A cell of a table of data that holds a picture and no words is said by its header and
+  the attachment's character: "In Blue badge, Open table Sign ￼", and "￼ cell" when its
+  Actions menu closes. `actions` there has "Inspect Image: Blue badge" and "Select Cell
+  Text", or "Inspect Image" alone for a picture nobody describes, and `in` goes into
+  the cell's text, "In text Blue badge image" or "In text image".
+- `left` straight after `right` says the item VoiceOver is on again, which leaves no
+  line in a transcript, and the second `left` moves back. A step list that turns round
+  to come back to a row needs both.
 - `ax:links` prints the group the text gives at each such row: `ATTACHMENT AXGroup LABEL
   "Left side, Right side" … CHILDREN AXTextArea,AXTextArea`, the label a client is given
-  and the cells' text areas on screen.
+  and the cells' text areas on screen. It prints the first sixty of a text's links and
+  attachments, and in continuous scroll one text is the whole book: `"ax:links=WORDS"`
+  prints sixty from those words on, as `"ax:links=Words before the squares"` does for the
+  book's last section.
 
 `ax:tables` prints what the text gives at each row's character before anything is said. For
 each table a `TABLE` line has its place in the text, its label, how many rows it holds and
@@ -673,14 +710,20 @@ quotation marks where a row or a column has none. The first table of a column is
 whole: its attributes by name, a `TABLEROW` line for each of its first twelve rows, and for
 each cell a `TABLECELL` line with the rows and columns it covers, what it says, what it
 holds (`AXTextArea` on screen and nothing off it, or `AXLink` for a cell that is a link) and
-its actions, `AXPress` first for a cell that is pressed.
+its actions, `AXPress` first for a cell that is pressed. `"ax:tables=WORDS"` prints the
+tables from those words on, the first of them whole, which in continuous scroll is the way
+to a table that is not the book's first.
 
 Open the reader at a section of tables (`"launch=-SampleHref OPS/grids.xhtml"`,
 `OPS/ledger.xhtml`, `OPS/tallrow.xhtml`, `OPS/edges.xhtml`). At 600 points and 17, the first
 page of the tables of data holds the first table and the second page the next two and one
 row of the fourth; the long table's first page holds its header row and seven entries, the
 tall row's first page its header row alone, and the first page of the header cells that are
-links their whole table, under two lines of words. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a line
+links their whole table, under two lines of words. The section of squares inside grids (`OPS/squares.xhtml`) has its
+table marked as layout on its first page and its table of data at the top of its second,
+one `ax:next` on. In continuous scroll the reader opened at a section shows that section,
+which the `VISIBLE` range of a `STATE` line says, though VoiceOver's opening phrases are the
+book's first lines. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a line
 near a table, which continuous scroll needs: a session that came into the text without it
 read from a place of VoiceOver's own, fifty lines off.
 
@@ -1115,7 +1158,9 @@ arguments, with spaces between. `TEST_RUNNER_VOICEOVER_LAUNCH='-SampleStepAfter 
 reader make one scroll step or page turn by itself, 30 seconds after the book opens: a move
 VoiceOver did not make, as a key on a keyboard or a host's own command is. Count the steps
 before it into the delay (a touch costs about five and a half seconds) and put a `listen=`
-across the moment. `TEST_RUNNER_VOICEOVER_OFF=1`
+across the moment. `-SampleDarkAfter 18` has the reader turn dark by itself in the same
+way, as a host does that follows the time of day: the page is shown again in place, with
+the same lines and new items for them. `TEST_RUNNER_VOICEOVER_OFF=1`
 leaves VoiceOver off, so the same steps are plain touches: use it to tell a VoiceOver failure
 from one of the reader's own. The probe stops when the reader is no longer in the foreground.
 Another session's tests on the same device bring their own app forward or switch VoiceOver
@@ -1258,6 +1303,13 @@ xcrun simctl spawn DEVICE log stream --level debug --style compact --predicate '
   it was: `Forced update, so removing all from cache`, then `fetch count: 2` each way from
   its cursor, and one item at each move after that. Five layout changes that arrived while
   it moved on every half second were followed by no forced update.
+- An item VoiceOver holds is asked about again at a move only if its cursor has not been on
+  it. For such an item that is gone, `Checking element` is followed a few milliseconds
+  later by a second `Checking element`, for the item the app gave in its place, and
+  `Found element` names that one. An item its cursor has been on is taken as it is,
+  `Checking element` and `Found element` in the same millisecond, and read from what
+  VoiceOver kept of it. It is found out at the next move: `currentValid=0`,
+  `found sonar element` and the cursor set on the item where VoiceOver was last touched.
 
 The stop after the scroll bar is adjusted was found this way
 ([#342](https://github.com/vocaro/EPUBLib/issues/342), under "Harness pitfalls and current
@@ -1318,7 +1370,8 @@ results"). So what VoiceOver reads in the moves after an `activate=` step, until
 next asked for items, is the simulator's own where it holds items from before the step:
 run a fault first seen there on a device, or make the same move without an activation
 (`-SampleStepAfter`), before it is filed or fixed. In continuous scroll the reader now
-tells VoiceOver of every move of its own, and the two agree after one.
+tells VoiceOver of every move of its own, and in paging of every page it shows while the
+cursor is outside the text, and the two agree after one.
 
 Sessions that show a change by what VoiceOver said before and after it are recorded on the
 same main. Merge main into the branch first, and take as "before" a commit that holds main
@@ -1356,6 +1409,34 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    double tap turns nothing. Each of these double taps is a physical device's to show. On
    a simulator the flick after a turn says where the rotor is and no more
    ([Simulators](#simulators)).
+   On an iPhone and iPad also have the page turned by something VoiceOver did not do, with
+   its cursor on a control and a line of the page held that it has been on
+   (`-SampleStepAfter`, under "Physical iPhone and iPad"). In the book of ordinary
+   paragraphs, `touch=Bookmark,forward=2,backward=2,listen=25,screenshot,forward=4,visible`
+   with the turn at 25 seconds: VoiceOver goes into the page and back to Bookmark, the
+   last control before the text, holding the page's first two lines. `listen` records
+   nothing but the button, the screenshot shows the next page with the cursor on the
+   button, and the moves read that page from its first line, the one `visible` names.
+   "Chapter one Heading" at the first move and "Bookmark" at the second is the failure: a
+   line of the page before, and the cursor put back on the control. Then with the whole
+   page held,
+   `activate=Contents,doubletap=VoiceOver Paragraph,wait=1,forward=5,forward=3,touch=Next Page,listen=35,screenshot,forward=9,forward=4,visible`
+   and the turn at 50 seconds: the double tap on the book's title under the reader closes
+   the menu with nothing chosen, the first move after it has VoiceOver ask for fifty
+   items, which is every line of the page, and the touch puts its cursor on Next Page with
+   those still held. The ninth move from the button gives the first line of the page
+   shown. A chapter chosen from the menu (`activate=Chapter one` in place of the double
+   tap) is not that session on a simulator: the reader tells VoiceOver of the page shown
+   for the chapter, and it then holds two items each side and does not ask for fifty.
+   Neither is the same touch with no moves before it: a line VoiceOver holds and has not
+   been on is one it gives up by itself.
+   And have the page shown again under a cursor that is on a line (`-SampleDarkAfter`):
+   `touch=Bookmark,forward=4,listen=22,screenshot,backward=1,forward=3` with the change at
+   18 seconds. `listen` records nothing but the line, the screenshot shows the page dark
+   with the cursor on its third line, and the moves read the line above, that third line
+   again and the two after it. "Bookmark" at the second of those moves is the failure:
+   VoiceOver took an item of the page as it was, and was put on the control it had last
+   touched.
 4. Confirm heading order, the link's label/action and the image's spoken label.
 5. Resize or change typography, wait for the new layout, and repeat the boundary and ordering
    checks. On Mac verify corresponding value-change notifications and fresh text values.
@@ -1423,6 +1504,22 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    table" says "Entry Entry 38", and twenty-eight `nextline` steps from the header row read
    "Entry 01" to "Entry 28", each once, the view following.
    No session has "ERROR 3" in it.
+   On the section of squares inside grids (`"launch=-SampleHref OPS/squares.xhtml"`), in
+   pages and in continuous scroll, the row of two pictures nobody describes is "text
+   image text image group" by line, by word and with `readall`, between "Top near, Top
+   far group" and "Foot near, Foot far group". `in` there says "In group 2 items text
+   image" and `out` "Out of group". A reader that gives such a row a name of its own
+   says the name, "Table row group" while it was called that, and one that gives it help
+   and no name says the help in the name's place. With VoiceOver's cursor on the group,
+   after `in` and `out`, `actions` has Inspect Image for its first two items, and
+   `"listchoose=Inspect Image"` opens the inspector: `ax:actions=all` then lists Zoom
+   Out, Zoom In, Fit and Close. On the section's second page (`ax:next`) the table of
+   data says "Sign, Sense table", "Blue badge, Open table" and "Shut table", and `in` on
+   the second or the third goes into the table at that row, "In Blue badge, Open table
+   Sign" or "In Shut table Sign" and the cell. A row there that says "group" is one
+   given as a row's group in its table's place. The cell that holds the picture is said
+   by the attachment's character in both rows, and not by "Blue badge", which is open
+   (the entry of 2026-10-13 on rows that show pictures).
    On a Mac a cell is a text of its own, and VoiceOver reads its
    line wherever its cursor is in it. In a window 600 points wide at 17 points, with the
    reader opened at that section (`"launch=-SampleHref OPS/table.xhtml"`), in pages and in
@@ -1517,7 +1614,7 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     to the target Shown last words.", and `activate` straight after the second `nextlink`
     follows the link. Twenty-four `nextlink` steps from the top name the book's twenty-one
     links in order, the cells' among them, and then the last three again, "upper jump",
-    "lower jump" and "last jump": those share the book's last screen, and past the last link
+    "lower jump" and "last jump": those share one screen, and past the book's last link
     VoiceOver begins again with the first one on screen. A
     reader without the link below among the children says "Verification link hyperlink"
     and then "Last link Verification link hyperlink".
@@ -2219,6 +2316,136 @@ The Mac runner's transcript is plain text and needs no export.
     line of the hit, and at "Chapter two Heading".
   - On the iPad one session's first phrase, before any step, was not the book's or the
     sample's and was withheld unread.
+- A page shown in paging by something VoiceOver did not do, with items of the page before
+  it still held: what [#428](https://github.com/vocaro/EPUBLib/issues/428)'s change left
+  for paging, on 2026-10-13. Simulators of the session's own on iOS 27.0 with Xcode 27.0,
+  at 17 points: iPhone 17 Pros (402 × 874) with the book of ordinary paragraphs, and an
+  iPad Air 13-inch (M4) (1024 × 1366, upright) with the first book. Through XCTest's
+  VoiceOver service, VoiceOver switched on for each session and read back as off after it;
+  nobody listened, and no device has run it. "Before" is `8328237`, which is main at
+  `9a8e66b` with the sample's `-SampleDarkAfter` and nothing else, and "after" is
+  `f822c8a`; each step list was a session of its own on each, thirty-six in all, at load
+  averages from 4 to 93. The sample itself turns the page (`-SampleStepAfter`) or shows it
+  again dark (`-SampleDarkAfter`), of which VoiceOver knows nothing, as it knows nothing of
+  a key. The iPhone's first page holds "Chapter one" and twelve lines, and its second
+  begins at `p002w19 …`. VoiceOver's own log is quoted ([Simulators](#simulators)).
+
+  A page turned, with the cursor on a control.
+  - Back on the last control after reading into the page
+    (`touch=Bookmark,forward=2,backward=2,listen=25,screenshot,forward=4,visible`, the turn
+    at 25 seconds). Before: nothing heard at the turn, then "Chapter one Heading",
+    "Bookmark", `p002w19 …` and `p002w24 …`. The log has nothing arriving at the turn;
+    at the first move `Checking element Chapter one` and `Found element: Chapter one
+    (2, 5)` in one millisecond; at the second `currentValid=0`, the cursor set on Bookmark
+    and `fetch count: 2`. After: nothing heard at the turn, then `p002w19 …` and the three
+    lines after it. The log has `Received note: Layout Changed` with no element as the
+    page turns, `Forced update, so removing all from cache` 0.8 s later and
+    `fetch count: 2` each way from Bookmark, with no `Will set element` between: the
+    cursor stayed. The screenshot shows the second page with VoiceOver's cursor on
+    Bookmark.
+  - On the page button with the whole page held
+    (`activate=Contents,doubletap=VoiceOver Paragraph,wait=1,forward=5,forward=3,touch=Next Page,listen=35,screenshot,forward=9,forward=4,visible`,
+    the turn at 50 seconds). The double tap closes the menu with nothing chosen, and both
+    logs have `fetch count: 50` at the first move after it and thirty items held from
+    then on, the touch on Next Page landing on one of them. Before: the eight controls
+    from "Search in book" to "Bookmark", then "Chapter one Heading", then "Next Page" and
+    the controls again; `Found element: Chapter one (14, 30)` at the ninth move and
+    `currentValid=0` at the tenth, the cursor set on Next Page. After: the eight controls,
+    then `p002w19 …` and four lines in order; the layout change with no element at the
+    turn and the forced update 0.8 s later. `visible` gives `p002w19 …` as the page's first
+    line in both.
+  - The same with a chapter chosen (`activate=Chapter one` in place of the double tap).
+    Before: the same failure, with `fetch count: 50`. After: `p002w19 …`, and the log has
+    no `fetch count: 50` at all. The layout change for the page shown at the choice
+    arrives as the menu closes, the forced update leaves two items each side of Contents,
+    and the first move finds something held, as in continuous scroll after
+    [#428](https://github.com/vocaro/EPUBLib/issues/428). Whether a device then asks for
+    fifty is not known; an iPad did in continuous scroll.
+  - Lines held that the cursor has not been on. With two each side
+    (`touch=Bookmark,listen=25,screenshot,forward=4,backward=3,visible`), and with the
+    whole page and one move after the menu, which goes to Appearance
+    (`…,wait=1,forward=1,touch=Next Page,listen=35,screenshot,forward=9,forward=3,visible`,
+    the turn at 40 seconds). Before and after alike in both: `p002w19 …` at the first
+    move into the text and the lines after it in order. Before, the log has
+    `Checking element Chapter one` and a few milliseconds later
+    `Found element: p002w19 …`, a new item. The failure needs a line VoiceOver has been
+    on.
+  - The page button touched under the cursor, twice
+    (`touch=Next Page,doubletap=Next Page,listen=4,doubletap=Next Page,listen=4,screenshot,forward=9,forward=2`).
+    Before and after alike: nothing heard but the button, then the eight controls and
+    `p004w01 …`, the third page's first line. After, the log has a layout change with no
+    element at each turn and the forced update 0.8 s after each, the cursor on Next Page
+    throughout.
+
+  The same page shown again, the reader made dark 18 seconds in.
+  - The cursor on the page's third line, and a near return
+    (`touch=Bookmark,forward=4,listen=22,screenshot,backward=1,forward=3`). Before: nothing
+    heard at the change, then `p001w06 …`, "Bookmark", "Chapter one Heading" and
+    `p001w01 …`: out of the text at the second move. The log has `Found element:
+    p001w06 … (3, 5)` taken as it was, `currentValid=0` at the next move and the cursor
+    set on Bookmark, which the session had touched first. After: `p001w06 …`,
+    `p001w11 …`, `p001w16 …` and `p001w21 …`. The log has the layout change with no
+    element, and 0.8 s later `Will set element` for the line the cursor was on,
+    `Forced update` and `fetch count: 2` each way from it; nothing was spoken in the
+    eleven seconds until the next move. The screenshot shows the page dark with the
+    cursor on that line.
+  - The same with three moves back and five forward (`…,backward=3,forward=5`). Before:
+    `p001w06 …`, "Bookmark", "Paging", then forward through Bookmark and the heading to
+    `p001w11 …`. After: back to the heading and forward to `p001w21 …`, every line once.
+  - The cursor back on the last control (`touch=Bookmark,forward=2,backward=2,listen=22,screenshot,forward=4`).
+    Before: "Chapter one Heading", "Bookmark", "Chapter one Heading", `p001w01 …`. After:
+    the heading and three lines in order.
+  - The rotor's choice on a line (`touch=p001w01,flick=down,listen=22,screenshot,flick=down,forward=2`,
+    dark at 20 seconds). Before: "Next Page", and after the change "Previous Page" at the
+    second flick, the rotor where it was, then `p002w05 …` and `p002w01 …`, lines from
+    further down the page and out of order: the log has `Found element: p001w06 …` taken
+    as it was and `Will set element: p002w05 …`. After: "Next Page" again at the second
+    flick, then `p001w06 …` and `p001w11 …`. The rotor is at its default again, because
+    VoiceOver set its cursor on the line's new item at the forced update: the cost of the
+    change there is one flick down.
+  - The iPad, the cursor in a table's cell
+    (`OPS/grids.xhtml`, `touch=Twelve metres,backward=2,forward=2,listen=22,screenshot,backward=1,forward=3`).
+    Before the change the moves read "Opened 1901 Column 2", "Station Alder Row header
+    Column 1", and forward again to "Depth Twelve metres Column 3". After it, before:
+    "1901", a cell without its header or its column, then "Alder Depth Twelve metres Row 2
+    Column 3" as of a table newly come into, with `currentValid=0` between. After: "Opened
+    1901 Column 2", "Depth Twelve metres Column 3", "Station Birch Row header Row 3 Column
+    1", "Opened 1934 Column 2".
+
+  A cursor whose page is turned, which is sent to the page shown.
+  - On a line (`touch=p001w01,listen=25,screenshot,forward=3,backward=4`, the turn at 25
+    seconds). Before and after alike: `p002w19 …` heard at the turn, three lines on, and
+    back through it to "Bookmark". Each log has one layout change at the turn, naming an
+    element.
+  - The rotor's choice
+    (`touch=p001w01,flick=down,doubletap=Next Page,listen=4,screenshot,flick=down,forward=3`).
+    Before and after alike: "Next Page", `p002w19 …` heard by itself, "Previous Page" at
+    the second flick, and three lines in order.
+  - The iPad, with a table under the cursor: the sessions recorded for the rotor's place.
+    From a cell to a line, in `OPS/grids.xhtml`
+    (`touch=Twelve metres,flick=down,doubletap=Next Page,listen=4,screenshot,flick=down,forward=3`):
+    "Line 06 after the grids." by itself, "Previous Page", and "Line 07 …" to "Line 09 …".
+    From a line to a cell (`OPS/ledger.xhtml`, from the heading, with `backward=3`): "Entry
+    28 Row 29 Column 1 Table start 41 rows 3 columns", "Previous Page", and the cells each
+    way. And back out by `doubletap=Previous Page`: "A table longer than a page Heading",
+    "Previous Page", "Words before the ledger." and the table's first cell. Before and
+    after alike in each.
+  - The lane's default steps on the first book, on both simulators: the two transcripts
+    are the same line for line, 54 lines on the iPhone and 110 on the iPad.
+
+  One thing was tried on a build that is not in the branch: a second layout change with no
+  element right beside the one that sends the cursor, before it or after it, as the page
+  shown again for a new size just before a turn would post. Ten sessions of the four
+  cases above with a cursor on a line or a cell. Nine read as before, the line or cell by
+  itself and "Previous Page" at the flick. In the tenth, from a cell to a line with the
+  extra change first, on a simulator booted for it, nothing was heard in the four seconds
+  after the turn and the line was standing at the flick; two repeats read as before.
+
+  Not established: a device, and a key on a hardware keyboard, for which the sample's own
+  turn stands. A move made sooner than 0.8 s after the page is shown, which VoiceOver's
+  log says it does not follow with a forced update. VoiceOver's three-finger scroll is as
+  it was, announced and with no layout change when its cursor has not left the page;
+  XCTest cannot make the gesture.
 - The two lines that used to be listed each side were one short when VoiceOver moved back up
   the screen, menu or no menu. With its cursor on a line it asks for the item before the
   line two above, so three lines above the cursor must be listed, and two were unless more
@@ -4600,6 +4827,108 @@ The Mac runner's transcript is plain text and needs no export.
   VoiceOver reads to before the view has moved; a spread of two columns; a table in a
   note's popover; the Actions menu on a row's group; Safari on the two plain tables; and
   VoiceOver in another language or with its verbosity changed.
+- On 2026-10-13 the two rows that entry left unheard were heard on a Mac, and a row
+  without words lost the name the reader had given it: GitHub's hosted `xcode-27` runner
+  (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), a window 600 points wide
+  at 17 points, VoiceOver's link setting at Speak, a fixed pause of four seconds, on the
+  fixture's new last section (`"launch=-SampleHref OPS/squares.xhtml"`). Before at
+  `e02ea32`, which is `main` at `6928200` with the section added and nothing of the
+  reader changed: run 38436431887. After at `37f2225`: runs 38438620999 and 38440867205.
+  [#508](https://github.com/vocaro/EPUBLib/pull/508) and
+  [#511](https://github.com/vocaro/EPUBLib/pull/511) merged while these were recorded.
+  The first gives a table cell that is one link a press and a link to hold, and the
+  second added the section `OPS/parts.xhtml` to the fixture, which this section now
+  follows. The six sessions of run 38438620999 were recorded again on the branch merged
+  with both, at `eec2108` (run 38443323478): every phrase from the first `in` of each was
+  what it had been at `37f2225`, and so was what the text gives at each row. All
+  twenty-three sessions completed, and each run reports `"billable": {}`. Nobody
+  listened. A phrase is cut at 64 characters, shown by "…".
+  The row of two pictures nobody describes, in the table marked as layout, on the
+  section's first page (`ax:links "ax:caret=Words before the squares" ax:focus in line`,
+  five `nextline`, two `previousline`, `in right in right out out`). What the text gives
+  a client at that row (`ax:links`), before: `AXGroup LABEL "Table row" HELP
+  "Double-click or choose Inspect Image to enlarge." ACTIONS "Inspect Image","Inspect
+  Image" CHILDREN AXTextArea,AXTextArea`. After: the same group with no `LABEL` and no
+  `HELP`. Each of its two text areas has U+FFFC for its value, and an `AXImage` with
+  Inspect Image at that character. By line, before: "Words before the squares.", a step
+  with no new phrase, "Top near, Top far group", "Table row group", "Foot near, Foot far
+  group", "Words after the squares.", and back "Foot near, Foot far group", "Table row
+  group". After: "text image text image group" in both of that row's places, and the
+  rest the same. `in` there, before: "In Table row group 2 items text image". After:
+  "In group 2 items text image". Then the same both times: `right` "text image", `in`
+  "In text image", `right` "image", `out` "Out of text". The last `out`, before: "Out of
+  Table row group". After: "Out of group". By word from the same line, before: "Words",
+  "before", "the", "squares.", "Top near, Top far group", "Table row group", "Foot near,
+  Foot far group", "Words". After: "text image text image group" at the sixth step, and
+  the rest the same. Read All from that line, after only (`readall ax:wait=10`): "Words
+  before the squares.", "Top near, Top far group", "text image text image group", "Foot
+  near, Foot far group", "Words after the squares.", and in continuous scroll on to
+  "Words before the signs.", "Sign, Sense table", "Blue badge, Open table".
+  Continuous scroll (`"ax:links=Words before the squares"` for what the text gives, and
+  the same steps from the same line) said the same by line, on going in, across and on
+  leaving, before and after. One thing differs there, after: with its cursor on the
+  group it had just left, VoiceOver said "group" alone as the Actions menu closed, in
+  two sessions, and in the second `describe` said "group is in the VoiceOver cursor"
+  before the menu and after it. On a page the menu closed on "text image text image
+  group". The application posted `AXValueChanged` at that `out` in continuous scroll and
+  not on a page, before the change as after it. Moving back by word from the row below
+  then said "text image text image group" and 106 milliseconds later "text image text
+  image".
+  The Actions menu on that row. While VoiceOver read the text, on the row's line by word
+  in pages and by line in continuous scroll, after: "Actions menu 3 items", "Previous
+  Page", "show menu", "Next Page", or "Scroll Backward", "show menu", "Scroll Forward",
+  and on closing "text  word:  text image text image". That is the text area's menu,
+  with no picture's action. With its cursor on the group, after `in` and `out`, in
+  pages: "Actions menu 6 items", and for seven `listdown` steps "Inspect Image", a step
+  with no new phrase, "show menu", "Inspect Image", "show menu", "Inspect Image" and
+  nothing: the row's two actions, then two for each cell's text. In continuous scroll:
+  "Actions menu 2 items", "Inspect Image" and two steps with no new phrase. Before, in
+  pages after `in right in right out out`: "Actions menu 4 items", "Inspect Image", a
+  step with no new phrase and "Inspect Image ￼ text"; its fourth item was not stepped
+  to, and the menu closed on "Table row group" and the hint "actions available
+  Double-click or choose Inspect Image to enlarg…". `"listchoose=Inspect Image"` on the
+  menu's first item, after: VoiceOver said "Inspect Image text text", and
+  `ax:actions=all` listed Zoom Out, Zoom In, Fit, Close, "Magnification" and an image
+  with no name, so the inspector had opened.
+  The table of data, at the top of the section's second page (`ax:next ax:lines ax:links
+  ax:tables "ax:caret=Words before the signs" ax:focus in line`, five `nextline`, two
+  `previousline`, `in right left`), the same before and after. The text gives `AXTable`
+  at each of the three rows, called "Sign, Sense", "Blue badge, Open" and "Shut", each
+  with its own row selected, three rows and two columns under the headers "Sign" and
+  "Sense" (`ax:tables`); the cells that hold the pictures have Inspect Image: Blue badge
+  with Select Cell Text, and Inspect Image alone. By line: "Words before the signs.", a
+  step with no new phrase, "Sign, Sense table", "Blue badge, Open table", "Shut table",
+  "Words after the signs.", and back "Shut table", "Blue badge, Open table". By word the
+  same three after "signs.". `in` on the second row: "In Blue badge, Open table Sign ￼",
+  `right` "Sense Open", `left` "Sign ￼"; `actions` there "Actions menu 2 items",
+  "Inspect Image: Blue badge", "Select Cell Text", and on closing "￼ cell"; `in` on the
+  cell "In text Blue badge image", `right` "Blue badge image", and the two `out` "Out of
+  text" and "Out of Blue badge, Open table". `in` on the third row: "In Shut table Sign
+  ￼"; `in` again "In text image", `right` "image", `out` "Out of text"; `actions` on the
+  cell "Actions menu 1 item", "Inspect Image". Continuous scroll said the same
+  (`"ax:tables=Words before the signs"`).
+  So a row of a table of data that shows a picture is its table, and VoiceOver goes in
+  at that row, as the entry above had from a unit test alone. What its cell says was not
+  known before: a cell that holds a picture and no words is said by its header and
+  U+FFFC, "Sign ￼" in a transcript, for the described picture as for the other. "Blue
+  badge" is in the row's name and in the cell's text, and not at the cell. What
+  VoiceOver voices for that character nobody heard.
+  The steps were not the same in every session of the first two runs. In the first, the
+  step meant to open the Actions menu on the row from the text came after a `right` and
+  a `left`: `left` straight after `right` says the item again and leaves no line, so the
+  menu was opened on the row below, "Foot near, Foot far", in pages and in continuous
+  scroll. The second run opened it on the row itself, and went into the described
+  picture's cell, which the first had not. The third stepped through the group's menu to
+  its end and chose from it. A run started before the first, 38436354231, was given a
+  commit that does not exist and was cancelled while it waited for a runner.
+  Not heard: anyone listening, or any Mac but the runner; a row of empty cells or of
+  decoration alone, which was "Table row group" too and has no name now; a row beyond
+  the screen that VoiceOver reads to before the view has moved; the group's Actions menu
+  in continuous scroll before the change, and its fourth item in pages; a cell of a
+  table of data that holds a picture among words; a spread of two columns; a table in a
+  note's popover; Safari on this section; and VoiceOver in another language or with its
+  verbosity changed. [#509](https://github.com/vocaro/EPUBLib/issues/509) keeps what is
+  left of the rows that entry did not hear.
 - Later again on 2026-10-13 a table cell that is a link was heard on a Mac before and
   after it was given a press and a link to hold: "Reopened 1978" in the first table of the
   section of tables of data (`-SampleHref OPS/grids.xhtml`), on GitHub's hosted `xcode-27`
@@ -4793,10 +5122,10 @@ The Mac runner's transcript is plain text and needs no export.
   row at 19713). Further `nextlink` steps said the three and began again with "Dogwood".
   That is the header cell as it was, at `8e99caf` (run 38446046206). After, at `0399bce`,
   the steps said the same (run 38443342254, session 6). At `9537d19`, whose book has the
-  last section's links after these, "Built hyperlink" was begun before "routes.", the
-  text's links were the three and "upper jump", and the steps went on through the last
-  section's (run 38446095467, session 4). Walked to from the top of the book the same link
-  was said, as above. What differs was not found out, nothing was changed for it, and no
+  links of the section of parts below a jump after these, "Built hyperlink" was begun
+  before "routes.", the text's links were the three and "upper jump", and the steps went
+  on through that section's (run 38446095467, session 4). Walked to from the top of the
+  book the same link was said, as above. What differs was not found out, nothing was changed for it, and no
   issue is filed for it yet.
   Not heard: anyone listening, or any Mac but the runner; a header cell that is a link
   while it is off screen in continuous scroll or on another page than the cells it heads,

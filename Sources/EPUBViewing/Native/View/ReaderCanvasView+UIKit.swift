@@ -326,7 +326,8 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// read the same and its rotor was back at its default (iPadOS 27.2), and so it is still
     /// from a data table's cell to another cell, where a new element is the one read with
     /// its row and column. A cursor that is not in the text, as on a host's page button, is
-    /// left where it is, and so is one whose line is still on the page.
+    /// left where it is, and so is one whose line is still on the page
+    /// (`accessibilityPageWasShown`).
     func accessibilityCursorFollowsThePage(to position: ReaderTextPosition?) {
         guard !accessibilityCursorIsHeld, let left = columns.first(where: \.accessibilityCursorHasLeftThePage) else { return }
         let shown = columns.filter { !$0.isHidden }
@@ -340,6 +341,38 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         }
         line = line ?? shown.lazy.compactMap { $0.accessibilityLine(from: 0) }.first
         postAccessibilityNotification(.layoutChanged, left.accessibilityCursorStands(for: line))
+    }
+
+    /// Tells an assistive technology that a page was shown, at `position`. A cursor whose line
+    /// is no longer on the page goes to the page (`accessibilityCursorFollowsThePage`). Any
+    /// other cursor stays where it is, on a control or on a line the page still has, and
+    /// VoiceOver is told that the layout changed, with no element.
+    ///
+    /// VoiceOver keeps the items it was given each side of its cursor, two as a rule and as
+    /// many as fifty at a move it makes while holding nothing, as after a menu closes.
+    /// Nothing told it that a page had been shown under them by something it did not do: a
+    /// page turned by a key on a keyboard or the host's own command, or the same page shown
+    /// again when the host changes the appearance or the text is built again, whose lines
+    /// are new items. An item it held and had not been on it tried as it came to it, found
+    /// gone, and asked again. An item its cursor had been on it took without asking, read
+    /// from what it had kept of it, and at the move after that it found the item gone and
+    /// set its cursor on the item it had last touched (iOS 27.0 simulator). With its cursor
+    /// back on a control after reading into a page that was then turned, it read the first
+    /// line of the page before and was back on the control. With its cursor on a line of a
+    /// page shown again, a move back and a move forward took it out of the text, to the
+    /// control it had touched before it began to read. Told of the layout change it drops
+    /// what it holds 0.8 s later, by its own log, says nothing and stays where it is, and
+    /// its moves from there are through the items of the page shown. On a line of a page
+    /// shown again it sets its cursor on that line's new item, where its rotor is at its
+    /// default.
+    ///
+    /// Nothing is posted for a page VoiceOver asked for itself: by its rotor, which takes
+    /// the cursor to the item it is given, and by its scroll, which is announced
+    /// (`accessibilityCursorIsHeld`).
+    func accessibilityPageWasShown(at position: ReaderTextPosition?) {
+        guard !accessibilityCursorIsHeld else { return }
+        if columns.contains(where: \.accessibilityCursorHasLeftThePage) { accessibilityCursorFollowsThePage(to: position) }
+        else { postAccessibilityNotification(.layoutChanged, nil) }
     }
 
     /// Shows `position` for VoiceOver's rotor, which takes the cursor to the item it is given.

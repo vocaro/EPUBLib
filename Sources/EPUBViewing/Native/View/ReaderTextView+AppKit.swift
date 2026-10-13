@@ -269,7 +269,10 @@ final class ReaderTextView: NSTextView {
             let label = attachments.first { $0.range == run }?.text ?? image.alt
             let element = accessibilityElement(at: run, label: label)
             // VoiceOver reads the help of an element without a label as its name, in the line.
-            element.setAccessibilityHelp(label.isEmpty ? nil : ReaderImageInspection.accessibilityHelp)
+            // A row's group has a label when its cells have words, which is not when the
+            // row has a text equivalent: that of a row of two pictures is the tab between them.
+            let isNamed = element is ReaderTableRowGroupElement ? !tableRowLabel(at: run.location).isEmpty : !label.isEmpty
+            element.setAccessibilityHelp(isNamed ? ReaderImageInspection.accessibilityHelp : nil)
             let actions = images.filter { $0.range == run }.map { entry in
                 NSAccessibilityCustomAction(name: entry.image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(entry.image.alt)") {
                     [weak self] in
@@ -356,11 +359,12 @@ final class ReaderTextView: NSTextView {
     /// What the group of the row at `location` is called: the words of its cells in column
     /// order, as a table of data is called by its row's (`ReaderTableElement`), so that
     /// VoiceOver says them as it reads the text and not only inside the row. A row that
-    /// shows pictures and no words has none to be called by, and keeps the reader's name
-    /// for a row.
+    /// shows pictures and no words has none to be called by, and is called nothing:
+    /// VoiceOver then says what the group holds, "text image text image group", in its
+    /// own words and the listener's language, as it says its own word for a picture
+    /// nobody describes. No name is made up for either.
     func tableRowLabel(at location: Int) -> String {
-        let words = (tableRow(at: location)?.cellWords ?? []).filter { !$0.isEmpty }.joined(separator: ", ")
-        return words.isEmpty ? "Table row" : words
+        (tableRow(at: location)?.cellWords ?? []).filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
     func exposeTextualAttachments() {
@@ -742,11 +746,12 @@ final class ReaderTableRowGroupElement: NSAccessibilityElement {
 
     override func accessibilityRole() -> NSAccessibility.Role? { .group }
 
-    // AppKit asks on the main thread.
+    // AppKit asks on the main thread. A row without words has no label, and not an empty one.
     override func accessibilityLabel() -> String? {
         guard let view else { return nil }
         let location = location
-        return MainActor.assumeIsolated { view.tableRowLabel(at: location) }
+        let label = MainActor.assumeIsolated { view.tableRowLabel(at: location) }
+        return label.isEmpty ? nil : label
     }
 
     override func accessibilityChildren() -> [Any]? {

@@ -130,6 +130,15 @@ import XCTest
         XCTAssertEqual(view.index(ofAccessibilityElement: lower), 0)
     }
 
+    /// How often VoiceOver was told since the last call that a page was shown, with its cursor
+    /// sent nowhere: layout changes with no element, and nothing else posted.
+    private func toldOfAPage(file: StaticString = #filePath, line: UInt = #line) -> Int {
+        defer { posts.removeAll() }
+        XCTAssertTrue(posts.allSatisfy { $0.notification == .layoutChanged && $0.argument == nil },
+                      "\(posts.map { ($0.notification.rawValue, ($0.argument as? NSObject)?.accessibilityLabel ?? "no element") })", file: file, line: line)
+        return posts.count
+    }
+
     func testAnElementOfThePageBeforeStandsForNoLineOfThePageTurnedTo() throws {
         let canvas = host([Self.lines(60)]).canvas
         let view = try XCTUnwrap(canvas.textViews.first)
@@ -154,31 +163,87 @@ import XCTest
     func testACursorThatIsOnNoLineOfThePageIsLeftWhereItIs() throws {
         let canvas = host([Self.lines(120)]).canvas
         let view = try XCTUnwrap(canvas.textViews.first)
-        // VoiceOver is not running, or its cursor has never been in the text.
+        // VoiceOver is not running, or its cursor has never been in the text: no element is
+        // named, so the cursor is sent nowhere.
         XCTAssertEqual(canvas.turnPage(forward: true), .turned)
-        XCTAssertTrue(posts.isEmpty)
+        XCTAssertEqual(toldOfAPage(), 1)
         // It left the text for a control, as for the host's page button.
         let line = try XCTUnwrap(try elements(of: view).first)
         let button = NSObject()
         focus(line)
         focus(button, from: line)
         XCTAssertEqual(canvas.turnPage(forward: true), .turned)
-        XCTAssertTrue(posts.isEmpty, "a cursor on a control stays on it")
+        XCTAssertEqual(toldOfAPage(), 1, "a cursor on a control stays on it")
         // VoiceOver was switched off with its cursor on a line.
         focus(try XCTUnwrap(try elements(of: view).first), from: button)
         NotificationCenter.default.post(name: UIAccessibility.voiceOverStatusDidChangeNotification, object: nil)
         XCTAssertEqual(canvas.turnPage(forward: true), .turned)
-        XCTAssertTrue(posts.isEmpty)
-        // A page shown again as it was keeps the cursor's line, and the cursor with it.
+        XCTAssertEqual(toldOfAPage(), 1)
+        // A page shown again as it was keeps the cursor's line, and the cursor with it: no
+        // element is named.
         let held = try elements(of: view)[1]
         focus(held)
         canvas.reloadContent(keeping: nil)
-        XCTAssertTrue(posts.isEmpty, "the line is still on the page")
+        XCTAssertEqual(toldOfAPage(), 1, "the line is still on the page")
         XCTAssertEqual(view.index(ofAccessibilityElement: held), 1)
         // And that kept element stands for the first line when the page does turn.
         XCTAssertEqual(canvas.turnPage(forward: true), .turned)
         XCTAssertTrue(try cursorSent() === held)
         XCTAssertTrue(try elements(of: view)[0] === held)
+    }
+
+    /// VoiceOver keeps the items it was given each side of its cursor, a page's lines among
+    /// them, and goes to one it has been on without asking when a page is shown by something
+    /// it did not do (`doc/voiceover-testing.md`, "Harness pitfalls and current results"). A
+    /// layout change has it ask again.
+    func testAPageShownUnderACursorThatHasNotLeftItTellsOfALayoutChangeWithNoElement() throws {
+        let canvas = host([Self.lines(120, heading: 70)]).canvas
+        let view = try XCTUnwrap(canvas.textViews.first)
+        let count = try elements(of: view).count
+        // The cursor went from a line to a control, as VoiceOver's does at a touch on the
+        // host's page button, and holds the lines it was given.
+        let line = try elements(of: view)[2]
+        let button = NSObject()
+        focus(line)
+        focus(button, from: line)
+        // A page turned by a key or the host's command: told once, and no element named.
+        XCTAssertEqual(canvas.turnPage(forward: true), .turned)
+        XCTAssertEqual(toldOfAPage(), 1, "the page turned to")
+        XCTAssertEqual(number(try elements(of: view).first), count + 1)
+        XCTAssertEqual(view.index(ofAccessibilityElement: line), NSNotFound, "the line it held is on no page shown")
+        // So for every page the reader shows by itself: a position, from the contents, a search
+        // or a bookmark, and the page shown again when its text is built again.
+        canvas.show(ReaderTextPosition(section: 0, offset: 3 * count * Self.lineLength), selecting: nil)
+        XCTAssertEqual(toldOfAPage(), 1, "a position shown")
+        canvas.reloadContent(keeping: nil)
+        XCTAssertEqual(toldOfAPage(), 1, "the page shown again")
+        XCTAssertEqual(canvas.turnPage(forward: false), .turned)
+        XCTAssertEqual(toldOfAPage(), 1, "the page before")
+        // A turn that shows nothing tells of nothing.
+        canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        posts.removeAll()
+        XCTAssertEqual(canvas.turnPage(forward: false), .atBoundary)
+        XCTAssertTrue(posts.isEmpty)
+        // A page VoiceOver asked for is its own to follow: the rotor's, where it goes to the
+        // item it is given, and its scroll, which is announced.
+        canvas.showForAccessibilityRotor(ReaderTextPosition(section: 0, offset: 69 * Self.lineLength))
+        XCTAssertGreaterThan(canvas.visibleRange?.start.offset ?? 0, 0)
+        XCTAssertTrue(posts.isEmpty, "the rotor's page")
+        XCTAssertTrue(canvas.accessibilityScroll(.next))
+        XCTAssertEqual(posts.map(\.notification), [.pageScrolled], "VoiceOver's scroll")
+        posts.removeAll()
+        // With the cursor on a line the page still has, the page shown again is told of the
+        // same way: its lines are new items. The cursor keeps its line.
+        let held = try elements(of: view)[1]
+        focus(held, from: button)
+        canvas.reloadContent(keeping: nil)
+        XCTAssertEqual(toldOfAPage(), 1, "the line is still on the page")
+        XCTAssertFalse(view.accessibilityCursorHasLeftThePage)
+        XCTAssertEqual(view.index(ofAccessibilityElement: held), 1)
+        XCTAssertFalse(try elements(of: view)[1] === held, "the line has a new item")
+        // A line turned away has the cursor sent to the page, and nothing else is posted.
+        XCTAssertEqual(canvas.turnPage(forward: true), .turned)
+        XCTAssertTrue(try cursorSent() === held, "one layout change, and it names the element under the cursor")
     }
 
     func testVoiceOversScrollAnnouncesThePageAndThenSendsTheCursorToItsFirstLine() throws {
@@ -222,9 +287,9 @@ import XCTest
         XCTAssertGreaterThan(place, 0)
         XCTAssertTrue(try elements(of: view)[place] === sent)
         XCTAssertEqual(try elements(of: view).map(number), Array((2 * count + 1)...(3 * count)), "every line of that page once, in order")
-        // A position on the page the cursor is on turns nothing under it.
+        // A position on the page the cursor is on turns nothing under it, and names no element.
         canvas.show(ReaderTextPosition(section: 0, offset: (target + 1) * Self.lineLength), selecting: nil)
-        XCTAssertTrue(posts.isEmpty)
+        XCTAssertEqual(toldOfAPage(), 1)
         // The end of the text holds no line: the page that ends there is read from its top.
         canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
         XCTAssertTrue(try cursorSent() === sent)
@@ -365,14 +430,14 @@ import XCTest
             if section == 1 { try await reader.wait("the cells' text views") { view.tableInteraction?.cells.isEmpty == false } }
         }
 
-        // Each page with no cursor in the text: its items are new, and nothing is posted.
+        // Each page with no cursor in the text: its items are new, and no element is named.
         var fresh: [[Answers]] = []
         for section in 0..<pages {
             try await shown(section)
             fresh.append(try elements(of: view).map(answers))
             if section < pages - 1 { XCTAssertEqual(canvas.turnPage(forward: true), .turned) }
         }
-        XCTAssertTrue(posts.isEmpty)
+        XCTAssertGreaterThanOrEqual(toldOfAPage(), pages - 1)
         XCTAssertEqual(fresh.map { $0[0].label?.trimmingCharacters(in: .newlines) }, [
             "Plain opening words.", "Left cell\tRight cell jump", "Square with words", "Lone jump", "Heading words",
             "Sum stated", "Separator", "Plain closing words."])
@@ -387,7 +452,7 @@ import XCTest
         XCTAssertEqual(fresh.map { $0[0].language == nil }, [true, true, true, true, true, false, true, true])
         canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
         try await shown(0)
-        XCTAssertTrue(posts.isEmpty)
+        XCTAssertGreaterThanOrEqual(toldOfAPage(), 1)
 
         // The cursor on the first page's second line, and that element through the book.
         let cursor = try elements(of: view)[1]
@@ -503,7 +568,7 @@ import XCTest
             try await reader.wait("another page, \(label)") { canvas.visibleRange?.start != from }
         }
 
-        // Each page with no cursor in the text: its items are new, and nothing is posted.
+        // Each page with no cursor in the text: its items are new, and no element is named.
         var fresh: [[Answers]] = [], sections: [Int] = []
         while true {
             let section = try XCTUnwrap(canvas.visibleRange?.start.section)
@@ -512,7 +577,7 @@ import XCTest
             if section == closing { break }
             try await page("unturned page \(fresh.count)") { XCTAssertNotEqual(canvas.turnPage(forward: true), .atBoundary) }
         }
-        XCTAssertTrue(posts.isEmpty)
+        XCTAssertGreaterThanOrEqual(toldOfAPage(), fresh.count - 1)
         let ledger = sections.indices.filter { sections[$0] == 4 }
         XCTAssertGreaterThan(ledger.count, 2, "the long table must take three pages for a turn from cell to cell inside it")
         XCTAssertEqual(sections.filter { $0 != 4 }, [0, 1, 2, 3, 5], "every other section is one page")
@@ -536,7 +601,7 @@ import XCTest
         }
         canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
         try await reader.wait("the first page") { canvas.visibleRange?.start.section == 0 }
-        XCTAssertTrue(posts.isEmpty)
+        XCTAssertGreaterThanOrEqual(toldOfAPage(), 1)
 
         // The cursor on the first page's second line. From there each page is turned by the
         // action of the element the cursor is on, and the cursor follows as VoiceOver's does:
@@ -642,6 +707,7 @@ import XCTest
         canvas.postAccessibilityNotification = { [weak self] in self?.posts.append(($0, $1)) }
         canvas.show(ReaderTextPosition(section: 4, offset: 0), selecting: nil)
         try await reader.wait("the long table") { canvas.visibleRange?.start.section == 4 }
+        XCTAssertGreaterThanOrEqual(toldOfAPage(), 1, "shown with no cursor in the text")
         let columns = canvas.textViews.filter { !$0.isHidden }
         XCTAssertEqual(columns.count, 2)
         func spread(_ label: String, after turn: () throws -> Void) async throws {

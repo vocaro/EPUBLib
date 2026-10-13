@@ -101,6 +101,8 @@ struct ReaderScreen: View {
     /// `-SampleHref <href>` shows one of its sections, `-SampleSelectionLine YES` a line that
     /// says what is selected, and `-SampleStepAfter <seconds>` sends Next Page once, that long
     /// after the book is ready: a move the host makes with nothing on screen touched for it.
+    /// `-SampleDarkAfter <seconds>` makes the reader dark that long after the book is ready,
+    /// as a host does that follows the time of day: the same text is shown again in place.
     private func openFromLaunchArguments() {
         guard reader.session == nil, let path = UserDefaults.standard.string(forKey: "SampleBook") else { return }
         reader.open(url: URL(fileURLWithPath: path))
@@ -119,6 +121,14 @@ struct ReaderScreen: View {
             Task {
                 try? await Task.sleep(for: .seconds(delay))
                 reader.send(.nextPage)
+            }
+        }
+        let dark = defaults.double(forKey: "SampleDarkAfter")
+        if dark > 0 {
+            Task {
+                try? await Task.sleep(for: .seconds(dark))
+                style.appearance = .dark
+                reader.send(.style(style))
             }
         }
     }

@@ -582,7 +582,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     called by that row's words (A table that is not data, below). Each part of this was
     heard on a hosted runner before it was kept
     ([VoiceOver testing](voiceover-testing.md), the entries of 2026-10-13 on tables of data
-    on Mac and on a table that is not data):
+    on Mac, on a table that is not data and on rows that show pictures):
     - **Reading the text.** By line and by word VoiceOver says a row's words and its own
       word for the role: "Alder, 1901, Twelve metres table". Every row of every table said
       "Table row group" before, and none of its words. A table of forty rows is forty
@@ -603,6 +603,14 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       VoiceOver's Actions menu (Control-Option-Command-Space) on a cell holds what the
       cell can do itself: Select Cell Text, Follow Link with the link's words for each
       link, and Inspect Image for each picture.
+      A cell that holds a picture and no words is not said by the picture's words.
+      VoiceOver says what a cell holds (A cell that is a link, below), and this one
+      holds a text area whose value is the attachment's character: at the cell a
+      transcript has the column's header and that character, "Sign ￼", for a picture
+      described as "Blue badge" as for one nobody describes. The words are in the
+      row's name, "Blue badge, Open table", and inside the cell, "In text Blue badge
+      image". Nobody listened, so what VoiceOver voices for the character is not
+      known; that it does not say "Blue badge" there is open.
     - **A cell that is a link.** A cell whose words are one link and nothing else is
       pressed to follow that link, which is what Control-Option-Space asks of the item
       under VoiceOver's cursor, as a double tap follows it on iPhone and iPad. While a
@@ -786,16 +794,48 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       row of long cells is a long one, which the next key stops; in pages a row taller
       than a page is called by the words that page shows. "group" follows every row.
       A row that shows pictures nobody describes and no words has none to be called by,
-      and is still "Table row". A row's pictures are offered from its group as before,
-      Inspect Image with the picture's words.
+      and its group has no name. VoiceOver then says what the group holds, in its own
+      words and the listener's language: "text image text image group" for a row of two
+      such pictures, by line, by word and with Read All; "In group 2 items text image"
+      on going in, "text image" at each cell and "image" inside one; and "Out of group".
+      The row was called "Table row" and said "Table row group": a name of the reader's
+      own, in English, for something the book does not name, which told a listener
+      nothing of the pictures. A picture nobody describes is given no name either, and
+      VoiceOver says "image"; iPhone and iPad give such a row as an image without a
+      name. Where the group has no name it has no help: VoiceOver reads an element's
+      help in a missing name's place, and the sentence about Inspect Image would have
+      been the row.
+      What a row without a name costs. The phrase is as long as the row is wide, "text
+      image" for each cell. In continuous scroll, with its cursor on the group it has
+      just left, VoiceOver says "group" alone, and "group is in the VoiceOver cursor":
+      the group holds nothing for it at that moment, where on a page it holds its
+      cells. Moving on by line or by word reads the row whole again. The application
+      posts a change of value as VoiceOver leaves a row there and not on a page, and
+      did before the name went, so a named row may be in the same state with its name
+      to hide it; why was not looked into. The hint about Inspect Image that followed
+      "Table row group" is not said, though VoiceOver's own "actions available" is.
+      And a row with nothing to say, of empty
+      cells or of decoration alone, was "Table row group" as well and is now whatever
+      VoiceOver makes of what it holds. No fixture has one and none was heard; iPhone
+      and iPad pass over such a row.
+      A row's pictures are offered from its group, Inspect Image with the picture's
+      words. VoiceOver's Actions menu holds them while its cursor is on the group,
+      which it is after going into the row and out again: the row's own actions first,
+      and on a page those of each cell's text after them, "show menu" and Inspect
+      Image. Chosen there, Inspect Image opens the inspector. While VoiceOver reads
+      the text its cursor is on the text area, and its menu on a row's line holds the
+      page actions and no picture's.
       A row of a table of data that shows a picture is its table, as its other rows
-      are. It was given as a row's group, because the text looked for a row's pictures
-      after its tables and put the group in the table's place. The fixture's tables of
-      data hold no picture, so that was read in a unit test and not heard.
-      Not heard: a row called "Table row"; a row off screen that VoiceOver reads to by
-      line before the view has moved; a spread of two columns; a note's popover; and
-      what Safari says of the fixture's two plain tables, which the comparison below
-      did not open.
+      are: "Blue badge, Open table", and "Shut table" for the row of a picture nobody
+      describes, the words of the cell beside it. VoiceOver goes into the table at
+      that row. It was given as a row's group, because the text looked for a row's
+      pictures after its tables and put the group in the table's place. What the cell
+      that holds the picture says is under A cell, above.
+      Not heard: a row off screen that VoiceOver reads to by line before the view has
+      moved; a row of empty cells or of decoration alone; a spread of two columns; a
+      note's popover; and what Safari says of the fixture's two plain tables, which
+      the comparison below did not open
+      ([#509](https://github.com/vocaro/EPUBLib/issues/509)).
     - **Beside Safari.** The same sections were heard as web pages in Safari 27.0.1 on
       the same runner, with the same keys
       ([VoiceOver testing](voiceover-testing.md), the second entry of 2026-10-13 on tables
@@ -1696,11 +1736,42 @@ The following are the defaults. Host commands and accessibility actions stay ena
   done (iOS 27.0 simulator). A reader of a table needs the row a page begins at more than
   the rotor's place: on each later page of a table longer than a page, Next Page still
   takes its flick down.
-  Three cursors are left alone.
+  Three cursors are left where they are, and two of them are told of the page.
   One that is not in the text stays where it is: after the host's Next Page button
-  VoiceOver is still on the button, and moving into the text from there met the new page's
-  first line before this and does now. One whose line is still on the page keeps it, as
-  when the same page is shown again. And a move by heading that turns the page posts
+  VoiceOver is still on the button. One whose line is still on the page keeps it, as when
+  the same page is shown again: the host changes the appearance, or the text is built
+  again. What VoiceOver holds is not left to it in either. It keeps the items it was given
+  each side of its cursor, two as a rule and as many as fifty at a move it makes while
+  holding nothing, as after a menu closes ("Continuous scroll" above), and nothing told it
+  that a page had been shown under them by something it did not do, a key on a keyboard
+  or the host's own command. A page shown again has new items for its lines, so what
+  VoiceOver holds is gone then as it is after a turn. An item it held and had not been on
+  it tried as it came to it, found gone, and asked again. An item its cursor had been on
+  it took without asking and read from what it had kept of it, and at the move after
+  that it found the item gone and set its cursor on the item it had last touched (iOS
+  27.0 simulator). Back on the last control before the text after reading into a page
+  that was then turned, or on the page button with the whole page held after a menu, its
+  move into the text read the first line of the page before, and its next put it back
+  on the control: the page shown was reached the second time round. On a line of a page
+  that was then shown again, one move back and one forward took it out of the text, to
+  the control it had touched before it began to read.
+  So when a page is shown and no cursor has left it, the canvas posts a layout change with
+  no element (`ReaderCanvasView.accessibilityPageWasShown`), as it does after a move of
+  its own in continuous scroll. VoiceOver drops everything it holds 0.8 s later, by its own
+  log, says nothing and stays where it is, and its moves from there are through the items
+  of the page shown. On a line of a page shown again it sets its cursor on that line's new
+  item as it does so, and its rotor is at its default there: an action chosen before the
+  page was shown again takes one flick down to choose again. Having the item it holds
+  stand for the line, as it does across a turn, would keep the rotor and is not done. A
+  second such change right beside the one that sends the cursor,
+  before it or after it, as a page shown again for a new size just before a turn would
+  post, left what VoiceOver read and its rotor as they were in nine sessions of ten, and
+  in the tenth the line was read some seconds late. On a device VoiceOver asks again by
+  itself once it has activated an item, as an iPad did after its double tap on Scroll
+  Forward ("Continuous scroll" above), so this is for what it did not do itself; no
+  device has run it
+  ([VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current results"). And
+  a move by heading that turns the page posts
   nothing, since VoiceOver goes to the item the rotor gives it. VoiceOver's scroll, three
   fingers swiped, announces "Page N" as before, and the cursor is sent after the
   announcement. Posted in that order after a page turned under a simulator's cursor,

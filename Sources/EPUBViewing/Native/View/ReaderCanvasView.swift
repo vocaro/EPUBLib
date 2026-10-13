@@ -588,7 +588,7 @@ import AppKit
                                           [.uiElements: columns.filter { !$0.isHidden }])
         }
         #else
-        accessibilityCursorFollowsThePage(to: anchor)
+        accessibilityPageWasShown(at: anchor)
         #endif
         trimPaginators()
         applyHighlights()
