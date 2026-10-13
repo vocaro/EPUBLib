@@ -90,7 +90,14 @@ far" and "Foot near", "Foot far". Its second, which begins a page of its own, is
 of data under the header cells "Sign" and "Sense": a picture described as "Blue badge"
 beside "Open", and one nobody describes beside "Shut". "Words before the squares." and
 "Words after the squares." stand round the first table, "Words before the signs." and
-"Words after the signs." round the second, and sixty numbered lines follow. The section
+"Words after the signs." round the second, and sixty numbered lines follow. A third table,
+of data again, ends the section on a page of its own, under the header cells "Crest" and
+"Rank": the words "Worn" and "daily" round a picture described as "Blue crest", beside
+"High"; a header cell that is a picture described as "Blue shield" and nothing else,
+beside "Low"; and a cell of decoration alone (`alt=""`) beside a cell of two pictures,
+"Blue ring" and "Blue star", and no words. "Words before the crests.", whose paragraph is
+the target `crests`, and "Words after the crests." stand round it, and sixty more numbered
+lines follow. The section
 has no heading and no link, so the book's last heading and its last link are still those
 of the section before it, and none of its words is one VoiceOver uses for a table, a
 picture or a group. A second bundled book, opened with
@@ -687,11 +694,41 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
   menu 6 items" on a page, the row's two and then "show menu" and "Inspect Image" for
   each cell's text, and "Actions menu 2 items" in continuous scroll. Two items of one
   name that follow one another leave one line in a transcript.
-- A cell of a table of data that holds a picture and no words is said by its header and
-  the attachment's character: "In Blue badge, Open table Sign ￼", and "￼ cell" when its
-  Actions menu closes. `actions` there has "Inspect Image: Blue badge" and "Select Cell
-  Text", or "Inspect Image" alone for a picture nobody describes, and `in` goes into
-  the cell's text, "In text Blue badge image" or "In text image".
+- A cell of a table of data that shows a picture and nothing else is said by its header
+  and the picture's words with "image": "In Blue badge, Open table Sign Blue badge image",
+  "Blue badge image" down a column, and for a picture nobody describes "Sign image cell"
+  and "image cell". `describe` says "Blue badge image image cell is in the VoiceOver
+  cursor", what the cell holds and then VoiceOver's name for such a cell, or "image cell is
+  in the VoiceOver cursor". `actions` there has "Inspect Image: Blue badge" and "Select
+  Cell Text", or "Inspect Image" alone, and `"listchoose=Inspect Image: Blue badge"` after
+  a `listdown` opens the inspector, which `ax:actions=all` shows by Zoom Out, Zoom In, Fit,
+  Close and an image called "Blue badge". `in` says "In Blue badge image image cell Blue
+  badge image", or "In image cell image", and goes nowhere: the next `right` is the next
+  cell of the row, and one `out` leaves the table. Until 2026-10-13 such a cell held a
+  text area: a transcript had "Sign ￼", "￼ cell" and "In text Blue badge image".
+- A cell of two pictures is "Rank Blue ring image, Blue star image", and `describe` adds
+  "cell 2 items". `in` goes to the first, "In Blue ring image, Blue star image cell 2
+  items Blue ring image", `right` to the next, "Blue star image", where `actions` has that
+  picture's Inspect Image alone, and `out` comes back to the cell. A cell of decoration
+  alone is "empty cell", as a cell with nothing in it is.
+- A header cell that is a picture is read before the cells it heads by the picture's
+  words, without "image": "Blue shield Low" down the column beside it, and "Blue shield"
+  at `rowheader`. On the header cell itself `rowheader` says "row 3 of 4".
+- A cell that shows a picture among words is said by its words, the attachment's
+  character where the picture stands, and then the picture's words with "image": "Crest
+  Worn ￼ daily, Blue crest image". `describe` says "Worn ￼ daily, Blue crest image
+  cell 2 items is in the VoiceOver…". `in` goes to the cell's text area, "In Worn ￼
+  daily, Blue crest image cell 2 items text Worn  Blue c…", and `in` again into it, "In
+  text Worn  Blue crest image  daily", where `right` moves by word, "Worn", "Blue crest
+  image", "daily". `out` comes back to the text area, `right` there is the picture's
+  image, "Blue crest image", and `out` again is the cell, "Out of Worn ￼ daily, Blue
+  crest image cell 2 items". Until 2026-10-13 such a cell was "Crest Worn ￼ daily", and
+  one `in` went into its text.
+- The attachment's character, U+FFFC, is in a transcript wherever VoiceOver was given it
+  to say. Nobody has heard what VoiceOver voices for it. The system's speech synthesizer
+  says nothing: `say -o` writes "Sign ￼" to a file as long as "Sign", 0.70 seconds, and
+  the character alone to one of 0.01 (macOS 27.0 with the default system voice, on a
+  workstation, with no sound played).
 - `left` straight after `right` says the item VoiceOver is on again, which leaves no
   line in a transcript, and the second `left` moves back. A step list that turns round
   to come back to a row needs both.
@@ -709,8 +746,12 @@ the header it gives for each column and each row by its words, with nothing betw
 quotation marks where a row or a column has none. The first table of a column is given
 whole: its attributes by name, a `TABLEROW` line for each of its first twelve rows, and for
 each cell a `TABLECELL` line with the rows and columns it covers, what it says, what it
-holds (`AXTextArea` on screen and nothing off it, or `AXLink` for a cell that is a link) and
-its actions, `AXPress` first for a cell that is pressed. `"ax:tables=WORDS"` prints the
+holds (`AXTextArea` on screen and nothing off it, `AXLink` for a cell that is a link, or
+`AXImage` for each picture of a cell that shows pictures) and
+its actions, `AXPress` first for a cell that is pressed. A `TABLEHELD` line follows for
+each thing a cell holds that is more than a text area of its words, a link, an image or a
+text area that is called something: its role, its label, title, value and help, what it
+holds in turn, and its actions. `"ax:tables=WORDS"` prints the
 tables from those words on, the first of them whole, which in continuous scroll is the way
 to a table that is not the book's first.
 
@@ -721,7 +762,9 @@ row of the fourth; the long table's first page holds its header row and seven en
 tall row's first page its header row alone, and the first page of the header cells that are
 links their whole table, under two lines of words. The section of squares inside grids (`OPS/squares.xhtml`) has its
 table marked as layout on its first page and its table of data at the top of its second,
-one `ax:next` on. In continuous scroll the reader opened at a section shows that section,
+one `ax:next` on. Its last table is some pages further and opens a page of its own:
+`"launch=-SampleHref OPS/squares.xhtml#crests"` opens the reader there, in pages and in
+continuous scroll. In continuous scroll the reader opened at a section shows that section,
 which the `VISIBLE` range of a `STATE` line says, though VoiceOver's opening phrases are the
 book's first lines. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a line
 near a table, which continuous scroll needs: a session that came into the text without it
@@ -1517,9 +1560,19 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    data says "Sign, Sense table", "Blue badge, Open table" and "Shut table", and `in` on
    the second or the third goes into the table at that row, "In Blue badge, Open table
    Sign" or "In Shut table Sign" and the cell. A row there that says "group" is one
-   given as a row's group in its table's place. The cell that holds the picture is said
-   by the attachment's character in both rows, and not by "Blue badge", which is open
-   (the entry of 2026-10-13 on rows that show pictures).
+   given as a row's group in its table's place. The cell that holds the picture is "Sign
+   Blue badge image" in the second row and "Sign image cell" in the third, and `actions`
+   there has Inspect Image for the picture. A reader whose cell holds a text area for the
+   picture says the attachment's character there, "Sign ￼" in a transcript for both
+   rows, and one whose image has help says the help after "image" each time. On the
+   section's last page (`"launch=-SampleHref OPS/squares.xhtml#crests"`), `in` on "Worn
+   Blue crest daily, High table" says "Crest Worn ￼ daily, Blue cr…" and `describe`
+   "Worn ￼ daily, Blue crest image cell 2 items…", the picture among the cell's words
+   said after them; `right nextline` says "Rank High" and "Blue shield Low", the header
+   cell that is a picture read by its words, and `left nextline right` "Crest Blue shield
+   image", "empty cell" for the cell of decoration alone, and "Rank Blue ring image, Blue
+   star image". No session has "ERROR" in it
+   (the entry of 2026-10-13 on a table cell that shows a picture).
    On a Mac a cell is a text of its own, and VoiceOver reads its
    line wherever its cursor is in it. In a window 600 points wide at 17 points, with the
    reader opened at that section (`"launch=-SampleHref OPS/table.xhtml"`), in pages and in
@@ -5245,6 +5298,169 @@ The Mac runner's transcript is plain text and needs no export.
   screen from a link, which was not tried here; pages, where a page is laid out whole. On
   iPhone and iPad nothing changes: the hold is the Mac's, and the package was built for
   the simulator and its tests were not run there.
+- After that on 2026-10-13 a table cell that shows a picture was heard on a Mac, before
+  and after it was given the picture's image to hold: the two tables of data of the
+  fixture's last section (`-SampleHref OPS/squares.xhtml`), the second of which was added
+  for it at the target `crests`, on GitHub's hosted `xcode-27` runner (image
+  `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in a window 600 points wide at
+  17 points, with VoiceOver's link setting at Speak, at a fixed pause of four seconds.
+  Nobody listened. Before is `main` at `808ab79` with the table added and nothing of the
+  reader changed. For the table under "Sign" and "Sense" that is `a462911` (run
+  38449925454, sessions 1, 2 and 4). For the table under "Crest" and "Rank", whose last
+  row was added while that run was on its runner, it is the trial builds `787f805` and
+  `59018bd` with no launch argument (run 38450656619, session 1, in pages, and run
+  38451755191, session 7, in continuous scroll). After is `cdf0101`, which has `main` at
+  `888fd7b` merged in
+  (run 38456300690, five sessions, and run 38456337909, six).
+  [#513](https://github.com/vocaro/EPUBLib/pull/513) and
+  [#514](https://github.com/vocaro/EPUBLib/pull/514) merged between the trials and the
+  sessions after; the second gives a header cell that is a link a link to hold, in the
+  code this changes. All thirty-one sessions of the six runs completed, none has "ERROR"
+  in it or VoiceOver's opening phrase a second time, no run has a crash report, and each
+  reports `"billable": {}`. The harness was the branch's own.
+  The same steps before and after. On the table under "Sign" and "Sense", at the top of
+  the section's second page: `ax:next ax:lines ax:tables "ax:caret=Words before the
+  signs"`, a focus change to the text, `in`, `line` and three `nextline` to "Blue badge,
+  Open table", then `in describe right left nextline previousline actions listdown
+  listdown listdown listclose in right out out`; and four `nextline` to "Shut table", then
+  `in describe right left actions listdown listdown listclose in right out out`. On the
+  table under "Crest" and "Rank" (`"launch=-SampleHref OPS/squares.xhtml#crests" ax:lines
+  ax:tables "ax:caret=Words before the crests"`): three `nextline` to "Worn Blue crest
+  daily, High table", then `in describe right nextline rowheader columnheader left
+  nextline describe right describe in right out actions listdown listdown listdown
+  listclose out`. In continuous scroll the same ways in, with `"ax:tables=Words before
+  the signs"` or `"ax:tables=Words before the crests"`, and shorter walks of the same
+  cells. A phrase is cut at 64 characters, shown by "…", and "￼" is U+FFFC, the
+  attachment's character, where VoiceOver was given it to say.
+
+  | Move | Before | After |
+  | --- | --- | --- |
+  | Into the table at the row of the described picture | "In Blue badge, Open table Sign ￼" | "In Blue badge, Open table Sign Blue badge image" |
+  | Control-Option-F3 | "￼ cell is in the VoiceOver cursor" | "Blue badge image image cell is in the VoiceOver cursor" |
+  | Along the row and back | "Sense Open", "Sign ￼" | "Sense Open", "Sign Blue badge image" |
+  | The hint that follows | "actions available You are currently on a cell, inside of a table…" | "actions available You are currently on a image cell, inside of a…" |
+  | Down the column to the picture nobody describes, and back up | "￼", "￼" | "image cell", "Blue badge image" |
+  | The Actions menu on the described picture's cell | "Actions menu 2 items", "Inspect Image: Blue badge", "Select Cell Text" | the same |
+  | Closing the menu | "￼ cell" | "Blue badge image image cell" |
+  | Control-Option-Shift-Down on that cell | "In text Blue badge image" | "In Blue badge image image cell Blue badge image" |
+  | Control-Option-Right after it | "Blue badge image", in the cell's text | "Sense Open", the next cell of the row |
+  | Control-Option-Shift-Up, twice | "Out of text", "Out of Blue badge, Open table" | "Out of Blue badge, Open table", and nothing |
+  | Into the table at the row of the picture nobody describes | "In Shut table Sign ￼" | "In Shut table Sign image cell" |
+  | Control-Option-F3 | "￼ cell is in the VoiceOver cursor" | "image cell is in the VoiceOver cursor" |
+  | Along the row and back | "Sense Shut", "Sign ￼" | "Sense Shut", "Sign image cell" |
+  | Its Actions menu, and closing it | "Actions menu 1 item", "Inspect Image"; "￼ cell" | the same items; "image cell" |
+  | Control-Option-Shift-Down, Control-Option-Right, Control-Option-Shift-Up twice | "In text image", "image", "Out of text", "Out of Shut table" | "In image cell image", "Sense Shut", "Out of Shut table", nothing |
+  | Into the table at the row of a picture among words | "In Worn Blue crest daily, High table Crest Worn ￼ daily" | "In Worn Blue crest daily, High table Crest Worn ￼ daily, Blue cr…" |
+  | Control-Option-F3 | "Worn ￼ daily cell is in the VoiceOver cursor" | "Worn ￼ daily, Blue crest image cell 2 items is in the VoiceOver …" |
+  | Along the row, and down the column to the cell beside the header cell that is a picture | "Rank High", "￼ Low" | "Rank High", "Blue shield Low" |
+  | Control-Option-R and Control-Option-C there | "￼", "Rank" | "Blue shield", "Rank" |
+  | Back along the row to that header cell | "Crest ￼" | "Crest Blue shield image" |
+  | Down the column to the cell of decoration alone | "￼", and the hint "You are currently on a cell, inside of a table…" | "empty cell", and "You are currently on a empty cell, inside of a table…" |
+  | Control-Option-F3 | "￼ cell is in the VoiceOver cursor" | "empty cell is in the VoiceOver cursor" |
+  | Along the row to the cell of two pictures | "Rank ￼   ￼" | "Rank Blue ring image, Blue star image" |
+  | Control-Option-F3 | "￼   ￼ cell is in the VoiceOver cursor" | "Blue ring image, Blue star image cell 2 items is in the VoiceOve…" |
+  | Control-Option-Shift-Down, Control-Option-Right, Control-Option-Shift-Up there | "In text Blue ring image   Blue star image", "Blue ring image", "Out of text" | "In Blue ring image, Blue star image cell 2 items Blue ring image", "Blue star image", "Out of Blue ring image, Blue star image cell 2 items" |
+  | Its Actions menu, and closing it | "Actions menu 3 items", "Inspect Image: Blue ring", "Inspect Image: Blue star", "Select Cell Text"; "￼   ￼ cell" | the same items; "Blue ring image, Blue star image cell 2 items" |
+  | The picture cells in `ax:tables` | each an `AXCell` that holds `AXTextArea`, said by "￼", "Worn ￼ daily" or "￼ ￼"; the header of the third row "￼" | `AXImage` for a picture alone, `AXImage,AXImage` for two, `AXTextArea,AXImage` for the picture among words, nothing for decoration; the header of the third row "Blue shield" |
+
+  Each move made in continuous scroll said what it said in pages, before and after.
+  Before, with the table of crests far below the screen there, `ax:tables` gave the third
+  row's header as "Blue shield": a header cell off screen is given by its words, as
+  static text, and it was the cell on screen whose text area said the character. Each
+  cell's actions were the same before and after. By line the rows were "Crest, Rank table",
+  "Worn Blue crest daily, High table", "Blue shield, Low table" and "Blue ring Blue star
+  table" after (run 38456337909, session 3), the labels `ax:tables` gave before, and `in`
+  on the last said "In Blue ring Blue star table Crest empty cell".
+  Into the words of the cell with a picture among them. Before (run 38449925454, session
+  3): `in` "In text Worn  Blue crest image  daily", three `right` "Worn", "Blue crest
+  image", "daily", `out` "Out of text". After (run 38456337909, session 1): `in` "In Worn
+  ￼ daily, Blue crest image cell 2 items text Worn  Blue c…", `in` again "In text Worn
+  Blue crest image  daily", the same three words, `out` "Out of text" and the hint "You
+  are currently on a text area, inside of a…", then `right` "Blue crest image" and "You
+  are currently on a image, inside of a cell…", where `actions` said "Actions menu 1
+  item" and "Inspect Image: Blue crest". The cell's own menu was "Actions menu 2 items",
+  "Inspect Image: Blue crest", "Select Cell Text", before and after.
+  Inspect Image chosen from the Actions menu, after only. On the cell of the described
+  picture (run 38456337909, session 2, `actions listdown "listchoose=Inspect Image: Blue
+  badge" ax:wait=2 ax:actions=all`): VoiceOver said "Inspect Image: Blue badge Blue badge
+  image image cell", and the window then held Zoom Out, Zoom In, Fit, Close,
+  "Magnification" and an image called "Blue badge", so the inspector had opened. On the
+  image of the picture among words (session 1): "Inspect Image: Blue crest Blue crest
+  image", and the same with an image called "Blue crest".
+  What says a picture at its cell was found by trial, each way chosen at launch in one
+  build, in pages: `787f805` (run 38450656619), `59018bd` (run 38451755191) and, on the
+  shape kept for a picture alone, `c847750` (run 38454390985). For a cell that is one
+  picture and nothing else, "Blue badge" under "Sign" and the header cell "Blue shield":
+
+  | The cell | Coming to it, and to the picture nobody describes | Control-Option-F3 | Going in | The cell beside the header cell, and Control-Option-R |
+  | --- | --- | --- | --- | --- |
+  | Holds its text area, as before | "Sign ￼"; "￼" | "￼ cell is in the VoiceOver cursor" | "In text Blue badge image" | "￼ Low", "￼" |
+  | The same, the text area called by the picture's words | the same | the same | "In text image", on the other picture | "￼ Low", "￼" |
+  | The same, the cell called by them | "Crest ￼ Blue shield" | not sent | not sent | "￼ Low", "￼" |
+  | The same, the words for the text area's value | "Crest ￼" | not sent | not sent | "Blue shield Low", "Blue shield" |
+  | The same, the words for the string of a range of it | "Sign ￼"; "￼" | "￼ cell is in the VoiceOver cursor" | "In text" and nothing, on the other picture | "￼ Low", not sent |
+  | Holds an image that holds its text area | "Sign ￼"; "￼" | "￼ image cell is in the VoiceOver cursor" | "In Blue badge image text Blue badge image", "Out of Blue badge image" | not sent |
+  | Holds an image with the help of an image in text, and no text area | "Sign Blue badge image Double-click or choose Inspect Image to en…"; "image cell" | "Blue badge image Double-click or choose Inspect Image to enlarge…" | "In Blue badge image Double-click or choose Inspect Image to enla…", and the next move went on along the row | "Blue shield Low", "Blue shield" |
+  | Holds an image without help, and no text area | "Sign Blue badge image"; "image cell" | "Blue badge image image cell is in the VoiceOver cursor" | "In Blue badge image image cell Blue badge image", and the next move went on along the row | "Blue shield Low", "Blue shield" |
+
+  For the cell that shows a picture among words, "Worn", "Blue crest" and "daily" under
+  "Crest":
+
+  | The cell | Coming to it | Control-Option-F3 | Going in |
+  | --- | --- | --- | --- |
+  | Holds its text area, as before | "Crest Worn ￼ daily" | "Worn ￼ daily cell is in the VoiceOver cursor" | "In text Worn  Blue crest image  daily", then by word "Worn", "Blue crest image", "daily" |
+  | The same, the text area called by the cell's words | the same | the same | not sent |
+  | The same, the cell called by them | "Crest Worn ￼ daily Worn Blu…" | "Worn ￼ daily Worn Blue crest daily cell is in the VoiceOver curs…" | not sent |
+  | The same, the words for the text area's value | "Crest Worn ￼ daily" | "Worn ￼ daily cell is in the VoiceOver cursor" | not sent |
+  | The same, the words for the string of a range of it | the same | the same | "In text Worn  Blue crest image  daily", then by word "Worn", "Blue crest image  da", "ily" |
+  | Holds its text area and then an image with help | "Crest Worn ￼ daily, Blue cr…" | "Worn ￼ daily, Blue crest image Double-click or choose Inspect Im…" | "In Worn ￼ daily, Blue crest image Double-click or choose Inspect…", and again "In text Worn  Blue crest image  daily" |
+  | Holds its text area and then an image without help | "Crest Worn ￼ daily, Blue crest image" | "Worn ￼ daily, Blue crest image cell 2 items is in the VoiceOver …" | "In Worn ￼ daily, Blue crest image cell 2 items text Worn  Blue c…", and again "In text Worn  Blue crest image  daily" |
+
+  So at a cell VoiceOver reads a text area by its characters and nothing else of it: not
+  its label, not its value, which it does read where the cell heads a row, and not the
+  string it gives for a range, from which it takes the words it moves by inside the cell.
+  The image the text gives at a picture's character is said inside the cell and not at
+  it. A cell's own label is said after what the cell holds, which says a cell's words
+  twice. An image around the text area is called by the text area's characters, where a
+  link around one is called by them and "hyperlink". What is said at the cell is an
+  image the cell holds itself: its label, VoiceOver's "image", and its help if it has
+  one, each time. The reader keeps the image without help, alone in a cell that shows
+  nothing else and after the text area in a cell of words. The cell of two pictures said
+  "Rank ￼   ￼ Blue ring Blue star" with the cell called by its words, and "Blue ring
+  image   Blue star image" as one word with the string of a range.
+  VoiceOver did not quit. Three sessions at two seconds a key on `cdf0101` (run
+  38456337909, sessions 4 to 6) went through every cell of a table with Control-Option-C
+  after each move on and Control-Option-R after each move back: the six cells under
+  "Sign" and "Sense" in pages, and the eight under "Crest" and "Rank" in pages and in
+  continuous scroll, which said the same as each other at every step. "Sign Blue badge
+  image" and "Sign", "Sign image cell" and "Sign", "Crest Worn ￼ daily, Blue crest
+  image" and "Crest", "Crest empty cell" and "Crest"; on the way back "Rank Low" and
+  "Blue shield", "Crest Blue shield image" and "row 3 of 4", "Sign image cell" and "row
+  3 of 3". On a cell of the header row Control-Option-C said the row's words, "Sign,
+  Sense" and "Crest, Rank".
+  What VoiceOver voices for the attachment's character is still not known. The system's
+  speech synthesizer says nothing for it: on a workstation (macOS 27.0 `26A428`, the
+  default system voice), `say -o` wrote "Sign ￼" to a file of 0.70 seconds, as long as
+  "Sign", "Worn ￼ daily" to one as long as "Worn daily", and the character alone to
+  one of 0.01. No sound was played, and VoiceOver was not running. If VoiceOver passes
+  the character to that voice as it is, a listener heard "Sign" and no more at a cell
+  that was a picture, and "Worn daily" at the cell with a picture among its words.
+  The first run was started with the table of crests two rows long, and its two
+  sessions on that table (3 and 5) made other moves from the header cell on. The row of
+  decoration and of two pictures was added while it ran, so that table's before is from
+  the trial builds with no launch argument, whose reader is `main`'s, at the steps of
+  the sessions after. Where the first run's sessions made the same moves they said the
+  same: "Crest Worn ￼ daily", "Rank High", "￼ Low", "￼" at Control-Option-R and
+  "Crest ￼".
+  Not heard: anyone listening, or any Mac but the runner; a picture's cell far off the
+  screen in continuous scroll, which unit tests hold to the same image; a header cell
+  with a picture among its words, one that is a picture nobody describes, and a column
+  headed by a picture; a cell whose link is a picture, which holds its link; a cell that
+  shows a formula, a rule, a hidden label or a table inside it and no words, which still
+  holds a text area whose one character is the attachment's; a picture that stands
+  before its cell's words, which is said after them; a cell of pictures continued on the
+  next page; Read All through these tables; a larger text size; a spread of two columns;
+  a note's popover; Safari on this section; and VoiceOver in another language.
 - On 2026-10-13 a table's select action was performed with VoiceOver on the physical iPad
   Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366, upright, 17 points), before and after a
   change to what it does ([#450](https://github.com/vocaro/EPUBLib/issues/450)), with the

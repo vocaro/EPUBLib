@@ -261,6 +261,16 @@ func tables(from words: String? = nil) {
                     let held = elementList(cell, kAXChildrenAttribute).map { string($0, kAXRoleAttribute) }.joined(separator: ",")
                     log("TABLECELL \(number).\(String(format: "%02d", line)).\(place) \(string(cell, kAXRoleAttribute)) ROWS \(span("AXRowIndexRange")) COLUMNS \(span("AXColumnIndexRange"))"
                         + " SAID \"\(said(cell).prefix(40))\" HOLDS \(held.isEmpty ? "nothing" : held) ACTIONS \(actions(cell))")
+                    // What the cell holds that is more than a text area of its words: a link, an
+                    // image, or a text area that is called something.
+                    for (order, inner) in elementList(cell, kAXChildrenAttribute).enumerated() {
+                        let role = string(inner, kAXRoleAttribute), label = string(inner, kAXDescriptionAttribute), title = string(inner, kAXTitleAttribute)
+                        guard role != kAXTextAreaRole || !label.isEmpty || !title.isEmpty else { continue }
+                        let within = elementList(inner, kAXChildrenAttribute).map { string($0, kAXRoleAttribute) }.joined(separator: ",")
+                        log("TABLEHELD \(number).\(String(format: "%02d", line)).\(place).\(order) \(role) LABEL \"\(label.prefix(40))\" TITLE \"\(title.prefix(40))\""
+                            + " VALUE \"\(string(inner, kAXValueAttribute).prefix(40))\" HELP \"\(string(inner, kAXHelpAttribute).prefix(20))\""
+                            + " HOLDS \(within.isEmpty ? "nothing" : within) ACTIONS \(actions(inner))")
+                    }
                 }
             }
         }

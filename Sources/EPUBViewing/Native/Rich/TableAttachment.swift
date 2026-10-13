@@ -84,6 +84,8 @@ final class TableRowAttachment: ReaderAttachment {
         var text: String
         /// The pictures among them that say something: not the ones the book marks as decoration.
         var images: [ReaderImageAttachment]
+        /// Where each of those pictures is drawn, in the row's coordinates.
+        var imageFrames: [CGRect]
         /// The cell's box in the row's coordinates, as drawn, not cut to the row.
         var frame: CGRect
         /// The cell begins here: in this row, at its top.
@@ -118,8 +120,13 @@ final class TableRowAttachment: ReaderAttachment {
             }
             let isBlank = table.cells[index].text.isEmpty
                 && text.images(in: 0..<text.lines.count).allSatisfy { $0.image.alternative == .decorative }
-            return SpokenCell(cell: index, text: words,
-                              images: text.images(in: lines).map(\.image).filter { $0.alternative != .decorative },
+            let images = text.images(in: lines).filter { $0.image.alternative != .decorative }
+            let content = layout.contentFrames[index].origin
+            return SpokenCell(cell: index, text: words, images: images.map(\.image),
+                              imageFrames: images.map {
+                                  CGRect(x: (layout.originX + content.x + $0.frame.minX) * scale, y: (content.y + $0.frame.minY - slice.top) * scale,
+                                         width: $0.frame.width * scale, height: $0.frame.height * scale)
+                              },
                               frame: CGRect(x: (layout.originX + box.minX) * scale, y: (box.minY - slice.top) * scale,
                                             width: box.width * scale, height: box.height * scale),
                               starts: starts, isBlank: isBlank)
