@@ -1200,8 +1200,9 @@ The Mac runner's transcript is plain text and needs no export.
   "Tables of data" and the section before in two sessions of two, and the physical iPad at
   `1c4f136` did so cell by cell in two of two, the second from "Line 24 after the grids.".
   Reading back through the long table, which scrolls the view at every row, was complete on
-  both simulators. What the simulator's VoiceOver does there is not known; it is iOS 27.0
-  and the iPad 27.2.
+  both simulators, and the iPhone simulator read the same section on to "Line 10 after
+  the grids." and back complete in its one session. What the iPad simulator's VoiceOver
+  does there is not known; it is iOS 27.0 and the iPad 27.2.
   The sessions ran while the Mac's load average stood between 400 and 1,000. Sessions at an
   earlier revision of this change, before the probe waited out a repeated phrase, recorded
   one cell twice and the next not at all here and there, and on the iPad simulator 136
@@ -1213,7 +1214,12 @@ The Mac runner's transcript is plain text and needs no export.
   flicks after that stepped through actions instead, "Select Cell Text", "Verification
   link", "￼": the rotor was on Actions. A cell offers Select Cell Text only once it is on
   screen, where its interaction surface is. The physical iPad made seventy such flicks
-  without the rotor moving.
+  without the rotor moving. In one more iPhone simulator session, after a walk to "Line 10"
+  and back, a flick down with the rotor on Rows from "Alder" went to "Last words of the
+  scenes." and the flicks after it stepped through actions; the iPad simulator and the
+  iPad moved to "Birch" at the same step. In pages on the iPhone the long table's second
+  page began "Entry 06 Row 7 Column 1 Table start 41 rows 3 columns", "Item Item 06 Column
+  2", and Rows moved from "Item 08" down to "Item 11 Row 12" and back up to "Item 06 Row 7".
 - The same day a physical iPad Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366) read the same
   sections at `bc473cb`, and at `7d8e7f4` for the rotor's Rows, which differs from it in the
   probe and one test. In pages on the tables of data, the simulators' items with whole
