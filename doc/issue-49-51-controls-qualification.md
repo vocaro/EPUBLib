@@ -891,7 +891,7 @@ every platform. The runs were 38330310982 and 38330313378 on `main`, and 3833040
 
 ```sh
 STEPS='ax:next ax:focus left left left left left left left left left left left right right right right right right right right right right right'
-gh workflow run voiceover-mac.yml --ref YOUR_BRANCH -f width=1100 -f steps="$STEPS"
-gh workflow run voiceover-mac.yml --ref YOUR_BRANCH -f ref=SCROLL_VIEW_BRANCH -f width=1100 \
+python3 scripts/hosted-run.py voiceover-mac.yml -f width=1100 -f steps="$STEPS"
+python3 scripts/hosted-run.py voiceover-mac.yml -f ref=SCROLL_VIEW_BRANCH -f width=1100 \
   -f steps='ax:next ax:focus left left in right right right right right right right right right right right out right right'
 ```
