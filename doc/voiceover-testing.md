@@ -2219,7 +2219,8 @@ The Mac runner's transcript is plain text and needs no export.
   page's end; a formula without `alttext`, whose reading is generated; a rule or a picture
   in a table inside a cell; and an iPhone or iPad, where nothing changes.
 - On 2026-10-12 and 13 pages were turned under VoiceOver's cursor before and after the
-  reader sent the cursor to the page shown. The device is the physical iPad Air 13-inch
+  reader sent the cursor to the page shown
+  ([#449](https://github.com/vocaro/EPUBLib/issues/449)). The device is the physical iPad Air 13-inch
   (M3) of the sessions above (iPadOS 27.2, 1024 × 1366, upright, 17 points, Xcode 27.0),
   through XCTest's VoiceOver service, on the book's first section. Nobody listened.
   Before, at `707e776`. With the cursor on "word0001 …", the first numbered line of the
