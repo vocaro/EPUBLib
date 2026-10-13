@@ -929,6 +929,16 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
         XCTAssertEqual(document.body?.children.map { $0.isElement ? "<\($0.name)>" : $0.text }, ["<p>", " \t\n\n "])
     }
 
+    func testQualifiedHTMLKeepsLineEndingsOnBothSidesOfDocumentComments() throws {
+        let document = try parse("<html><head><title>T</title></head><body><p>one</p></body></html>\r<!-- ignored -->\n")
+        XCTAssertTrue(document.canResolveCFIs)
+        XCTAssertEqual(document.body?.children.last?.text, "\n\n")
+        let range = try XCTUnwrap(EPUBCFI.resolve(localPath: "/4,/2/1:0,/3:2", in: document))
+        XCTAssertEqual(range.start.node.text, "one")
+        XCTAssertEqual(range.end.node.text, "\n\n")
+        XCTAssertEqual(range.end.offset, 2)
+    }
+
     func testQualifiedHTMLTailWhitespaceHonorsTheNodeLimit() throws {
         let markup = "<html><head><title>T</title></head><body><p>one</p></body></html>\n"
         var limits = ContentLimits(); limits.nodes = 7

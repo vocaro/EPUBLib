@@ -120,7 +120,12 @@ enum HTMLCFICompatibility {
         var end = bytes.count, reversed: [UInt8] = []
         while end > 0 {
             if [UInt8(9), 10, 13, 32].contains(bytes[end - 1]) {
-                reversed.append(bytes[end - 1]); end -= 1
+                // Normalize only adjacent CR/LF bytes. Ignoring a comment must not
+                // turn the separate runs on its sides into a single CRLF sequence.
+                let byte = bytes[end - 1]
+                reversed.append(byte == 13 ? 10 : byte)
+                if byte == 10, end >= 2, bytes[end - 2] == 13 { end -= 2 }
+                else { end -= 1 }
             } else if end >= 3, bytes[(end - 3)..<end].elementsEqual("-->".utf8) {
                 var start = end - 3
                 while start >= 4, !bytes[(start - 4)..<start].elementsEqual("<!--".utf8) { start -= 1 }
@@ -129,7 +134,6 @@ enum HTMLCFICompatibility {
             } else { break }
         }
         return String(decoding: reversed.reversed(), as: UTF8.self)
-            .replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
     }
 
     private static func asciiWhitespace(_ string: String) -> Bool {
