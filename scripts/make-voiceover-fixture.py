@@ -21,11 +21,15 @@ files = {'mimetype': 'application/epub+zip',
                     'media-type="application/xhtml+xml"/><item id="labels" href="labels.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="table" href="table.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="pictures" href="pictures.xhtml" '
+                    'media-type="application/xhtml+xml"/><item id="grids" href="grids.xhtml" '
+                    'media-type="application/xhtml+xml"/><item id="ledger" href="ledger.xhtml" '
+                    'media-type="application/xhtml+xml"/><item id="tallrow" href="tallrow.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="image" href="square.svg" '
                     'media-type="image/svg+xml"/><item id="titled" href="titled.svg" '
                     'media-type="image/svg+xml"/></manifest><spine><itemref '
                     'idref="body"/><itemref idref="labels"/><itemref '
-                    'idref="table"/><itemref idref="pictures"/></spine></package>',
+                    'idref="table"/><itemref idref="pictures"/><itemref idref="grids"/><itemref '
+                    'idref="ledger"/><itemref idref="tallrow"/></spine></package>',
  'OPS/nav.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
                   'xmlns="http://www.w3.org/1999/xhtml" '
                   'xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav '
@@ -33,7 +37,9 @@ files = {'mimetype': 'application/epub+zip',
                   'verification</a></li><li><a href="labels.xhtml">Hidden '
                   'labels</a></li><li><a href="table.xhtml">Hidden heading over a '
                   'table</a></li><li><a href="pictures.xhtml">Pictures and their '
-                  'words</a></li></ol></nav></body></html>',
+                  'words</a></li><li><a href="grids.xhtml">Tables of data</a></li><li><a '
+                  'href="ledger.xhtml">A table longer than a page</a></li><li><a '
+                  'href="tallrow.xhtml">A row taller than a page</a></li></ol></nav></body></html>',
  'OPS/square.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 '
                    '32"><rect width="32" height="32" fill="#007acc"/></svg>',
  'OPS/titled.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 '
@@ -88,6 +94,44 @@ files = {'mimetype': 'application/epub+zip',
                        'jump"/></a></p><p>Titled decoration <img src="titled.svg" alt=""/> '
                        'passed over.</p><p>Titled picture <img src="titled.svg"/> stands '
                        'here.</p><p>Last words about pictures.</p></body></html>'}
+# Tables that are data, and one that is not. The first has a caption, a header row and a header
+# cell in each row, an empty cell and a link. The second has header cells that span columns and
+# rows and data cells that do. The third is marked as layout, though it is ruled like the
+# others. The fourth has nothing but its rules to say that it is data. No word here is one
+# VoiceOver uses for a table, so "row", "column" and "table" in a transcript are its own.
+CELL_STYLE = "td, th { padding: 0.25em 0.5em; border: 1px solid gray; } table { border-collapse: collapse; }"
+files["OPS/grids.xhtml"] = (
+    '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Tables of '
+    f"data</title><style>{CELL_STYLE}</style></head><body><h1>Tables of data</h1><p>Words before the stations.</p>"
+    "<table><caption>Stations on the branch</caption><thead><tr><th>Station</th><th>Opened</th><th>Depth</th></tr></thead>"
+    '<tbody><tr><th scope="row">Alder</th><td>1901</td><td>Twelve metres</td></tr>'
+    '<tr><th scope="row">Birch</th><td>1934</td><td></td></tr>'
+    '<tr><th scope="row">Cedar</th><td><a href="body.xhtml#link-target">Reopened 1978</a></td><td>Forty metres</td></tr>'
+    "</tbody></table><p>Words between the grids.</p>"
+    '<table><tr><th rowspan="2">Service</th><th colspan="2">Hours</th></tr><tr><th>Leaves</th><th>Arrives</th></tr>'
+    "<tr><td>Express</td><td>Nine</td><td>Noon</td></tr>"
+    '<tr><td rowspan="2">Stopper</td><td>Ten</td><td>Three</td></tr><tr><td colspan="2">Nothing on Sunday</td></tr></table>'
+    '<p>Words before the layout.</p><table role="presentation"><tr><td>Left side</td><td>Right side</td></tr>'
+    "<tr><td>Lower left</td><td>Lower right</td></tr></table><p>Words after the layout.</p>"
+    "<table><tr><td>North</td><td>Wet</td></tr><tr><td>South</td><td>Dry</td></tr></table><p>Words after the ruled grid.</p>"
+    + "".join(f"<p>Line {i:02d} after the grids.</p>" for i in range(1, 41)) + "</body></html>")
+# A table longer than a page or a screen, under a header row: forty numbered rows.
+files["OPS/ledger.xhtml"] = (
+    '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>A table longer '
+    f"than a page</title><style>{CELL_STYLE}</style></head><body><h1>A table longer than a page</h1>"
+    "<p>Words before the ledger.</p><table><thead><tr><th>Entry</th><th>Item</th><th>Sum</th></tr></thead><tbody>"
+    + "".join(f"<tr><td>Entry {i:02d}</td><td>Item {i:02d}</td><td>Sum {i:02d}</td></tr>" for i in range(1, 41))
+    + "</tbody></table><p>Words after the ledger.</p>"
+    + "".join(f"<p>Line {i:02d} after the ledger.</p>" for i in range(1, 41)) + "</body></html>")
+# A row taller than a page at any size the reader shrinks a table to: one cell of 2,600 numbered
+# words, so each page shows a continuation of the row.
+files["OPS/tallrow.xhtml"] = (
+    '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>A row taller '
+    f"than a page</title><style>{CELL_STYLE}</style></head><body><h1>A row taller than a page</h1>"
+    "<table><tr><th>Clause</th><th>Wording</th></tr><tr><td>Tall clause</td><td>"
+    + " ".join(f"t{i:04d}" for i in range(1, 2601))
+    + "</td></tr><tr><td>Short clause</td><td>Short wording</td></tr></table><p>Words after the clauses.</p></body></html>")
+
 files["OPS/body.xhtml"] = files["OPS/body.xhtml"].replace(
     "NUMBERED_WORDS", " ".join(f"word{i:04d}" for i in range(1, 1201)))
 # More than a screen of lines, so that the section's first line can be shown at the top.
@@ -103,7 +147,8 @@ files["OPS/table.xhtml"] = files["OPS/table.xhtml"].replace("LINES_AFTER", "".jo
 # end of the book is a few screens from the start of its last chapter.
 chapters = {"one": range(1, 41), "two": range(41, 81), "three": range(81, 87)}
 paragraphs = dict(files)
-for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "square.svg", "titled.svg"]:
+for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "grids.xhtml", "ledger.xhtml", "tallrow.xhtml",
+             "square.svg", "titled.svg"]:
     del paragraphs["OPS/" + name]
 paragraphs["OPS/package.opf"] = (
     '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
