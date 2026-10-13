@@ -302,7 +302,7 @@ page that has been turned, which says nothing of the new one. For a table that i
 they read the group at each row's character: called by its cells' words in column order,
 holding the text areas of the cells on screen, and the same element when one character is
 asked for; a cell without words left out of the name, a described picture's words in it, a
-row of pictures nobody describes still called "Table row", and a row of a table of data
+row of pictures nobody describes with no name and no help, and a row of a table of data
 that shows a picture still its table; in continuous scroll a row far below the screen the
 same group with nothing in it, which holds its cells once it is scrolled to; a row taller
 than a page called on each page by the words that page shows; and a group kept from a page
