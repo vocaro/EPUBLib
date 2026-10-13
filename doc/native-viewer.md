@@ -174,10 +174,11 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   Mac, where VoiceOver reads the help of an element without a label in the label's place.
   Not read: `role="presentation"`, `aria-hidden` and `aria-label` on an image. An
   image in a table cell is given by its words in the cell's text, and one without words is
-  not announced there. On Mac those words did not reach VoiceOver for a picture in a link,
-  and a picture in a cell outside a link has not been heard ("Links for VoiceOver on Mac").
-  In a note's popover on iPhone and iPad the text is read by UIKit's own elements, which
-  were not heard with an image in them.
+  not announced there. On Mac a picture in a cell's link is announced as the link, by its
+  words; outside a link it has not been heard, and the element the cell gives for it
+  answers nothing when asked what it is ("Links for VoiceOver on Mac"). In a note's popover
+  on iPhone and iPad the text is read by UIKit's own elements, which were not heard with an
+  image in them.
 - **Rules.** An `<hr>` is a break between the paragraphs it parts: a change of scene or of
   subject. A book writes one so that the break need not be seen to be known, and HTML maps
   the element to the separator role for that reason. It is drawn as a line and has no words,
