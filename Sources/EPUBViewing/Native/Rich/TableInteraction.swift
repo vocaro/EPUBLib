@@ -37,6 +37,11 @@ import UIKit
             .map { ($0.key.location, $0.value) }
     }
 
+    /// The text views of one cell of the row at `location`, in the order of the lines they hold.
+    func accessibilityCells(at location: Int, cell index: Int) -> [TableCellTextView] {
+        cells.filter { $0.key.location == location && $0.key.cell == index }.sorted { $0.key.lower < $1.key.lower }.map(\.value)
+    }
+
     func selectionPosition(at point: CGPoint) -> ReaderTextPosition? {
         guard let owner, let canvas = owner.canvas, let storage = owner.contentStorage.textStorage else { return nil }
         for (key, cell) in cells {

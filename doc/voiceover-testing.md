@@ -208,6 +208,13 @@ new phrase is recorded:
   Down Arrow moves the insertion point. The runner closes a menu a session can have left
   open as it does a rotor, with `STEP listclose, sent by the runner in case the Actions menu
   is still open`.
+- `columnheader`, `rowheader`: Control-Option-C and Control-Option-R, which inside a table
+  say the header of the cell's column and of its row. `readcolumn` and `readrow` send each
+  twice, for the rest of the column and of the row. Outside a table Control-Option-C reads
+  the character under the cursor. `rowcolumn` and `dimensions` are Control-Option-Shift-T
+  once and twice, which Apple's guide gives for a cell's row and column numbers and a
+  table's size: in the reader's tables VoiceOver said the attachment's character at the
+  first and nothing at the second (macOS 27.0.1). See [Tables on Mac](#tables-on-mac).
 - `pagedown`, `pageup`: the reader's own page keys, without VoiceOver modifiers.
 - `ax:STEP`: a step of the observer described below, through the accessibility API.
 
@@ -430,8 +437,14 @@ TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wai
     it read "Bookmark", and `forward=1` from the bar reads the item below the reader. Do
     the same after two scroll steps, where the last line listed is the last in the reader's
     view. Nothing scrolls as the cursor goes to the bar: at the end of the book the bar reads
-    100%, where it read 99% while the view went back for it. `flick=down` on the bar scrolls
-    by a page and reads the new value.
+    100%, where it read 99% while the view went back for it. `flick=down` on the bar takes
+    the view a tenth of the way through the book and reads the new value, with the cursor
+    still on the bar, and `backward=5` from there reads the last line then on screen and
+    the lines above it in order. The second of those lines again at every further move is
+    the failure of the adjustment in
+    [#342](https://github.com/vocaro/EPUBLib/issues/342): VoiceOver had taken the list to
+    start there. A line of text read at the flick itself is the harness's: on a busy Mac the
+    swipe was taken for a touch and moved the cursor to the line under it.
 
 Drive at least one session with `flick=right*20` and `flick=left*30` in place of `forward`
 and `backward`: those are VoiceOver's own gestures for the next and previous item, where the
@@ -495,6 +508,57 @@ chooses another. `scripts/voiceover-link-verbosity.swift` does both through Voic
 Utility's own window and refuses to run anywhere but on a hosted runner. Do not write the
 setting with `defaults`: a `com.apple.VoiceOver4/default` domain written before VoiceOver had
 ever run left it silent for the whole run, `ERROR 3` after every key.
+
+## Tables on Mac
+
+On a Mac a table of data is a table at each of its rows: the text gives AppKit's table as
+the element of each row's character ([the native viewer](native-viewer.md), "Data tables").
+A session on tables is read against these, which are VoiceOver's own part (macOS 27.0.1):
+
+- Moving by line or by word VoiceOver says a row's words and "table". A row of a table that
+  is not data says "Table row group", which is the reader's label and VoiceOver's "group".
+- `in` goes into the table at that row and says the first cell with its headers: "In Birch,
+  1934 table Station Birch". `right` and `left` move along the row and on into the next,
+  `nextline` and `previousline` (Control-Option-Down and Up) along the column. VoiceOver
+  says a header when it has changed since the cell before, then the cell: "Opened 1934",
+  "Cedar Forty metres". An empty cell is "empty cell". Where it cannot go on, at the table's
+  last row, at a page's first or last, or moving down inside a cell that spans, it says the
+  cell and "column 2, row 41".
+- `columnheader` and `rowheader` say the header of the cell's column and of its row,
+  "Depth", "Birch". Where nothing heads them VoiceOver says the number: on the first table's
+  header row "Depth column 3, row 1" for a move and "row 1 of 4" for `rowheader`, and on a
+  row's own header cell "row 3 of 4". A column under two header cells is headed by both,
+  "Hours, Leaves Nine", and so is the lower of the two itself, "Hours, Leaves Leaves".
+- A session in which VoiceOver starts again in the middle ("ERROR 3" and then "VoiceOver on
+  VoiceOverVerificationMac…") is one in which it quit. It did so when a cell named header
+  cells of its own, most often within eight headers at two seconds a key. A session of
+  moves across rows with `columnheader` after each (`pause=2`) is the test for it.
+- `in` on a cell goes into its text, "In text 1934", where `right` moves by word; `out`
+  comes back to the cell, and `out` again to the row's line in the text.
+- `actions` on a cell says "Actions menu" and its count, and `listdown` each of Select Cell
+  Text, Follow Link: WORDS and Inspect Image that the cell has.
+- After `out` VoiceOver is on the table it left. `nextline` reads the next line, and `in`
+  there goes back into the table left, at the cell it was on. A row group of a table that
+  is not data does the same. Move by word (`right`) to the next row before `in`.
+- The probe records a phrase once: a second row that says what the row before said, as two
+  rows of a table that is not data do, leaves no line in a transcript.
+
+`ax:tables` prints what the text gives at each row's character before anything is said. For
+each table a `TABLE` line has its place in the text, its label, how many rows it holds and
+shows, the row it says is selected, its count of rows and columns in the whole table, and
+the header it gives for each column and each row by its words, with nothing between the
+quotation marks where a row or a column has none. The first table of a column is given
+whole: its attributes by name, a `TABLEROW` line for each of its first twelve rows, and for
+each cell a `TABLECELL` line with the rows and columns it covers, what it says, what it
+holds (`AXTextArea` on screen, nothing off it) and its actions.
+
+Open the reader at a section of tables (`"launch=-SampleHref OPS/grids.xhtml"`,
+`OPS/ledger.xhtml`, `OPS/tallrow.xhtml`). At 600 points and 17, the first page of the tables
+of data holds the first table and the second page the next two and one row of the fourth;
+the long table's first page holds its header row and seven entries, and the tall row's first
+page its header row alone. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a line
+near a table, which continuous scroll needs: a session that came into the text without it
+read from a place of VoiceOver's own, fifty lines off.
 
 ## Hosted Mac sessions
 
@@ -600,7 +664,10 @@ begin with VoiceOver already on and leave it on. The download also holds a
 `mac-STAMP.transcript.txt` for each session in order, `runner.txt` with the commit, the runner
 image and its version, macOS, Xcode, System Integrity Protection, the screen and VoiceOver's
 [link setting](#links), the observer, `xcodebuild` and build logs, and a screenshot of the
-runner's screen at the end. The job's log
+runner's screen at the end. If VoiceOver or the reader quit during the run, the report macOS
+wrote is there as `crash-NAME.ips.txt`: a transcript in which VoiceOver's opening phrase
+("VoiceOver on VoiceOverVerificationMac…") follows an `ERROR` in the middle of a session is
+one in which VoiceOver started again. The job's log
 prints each transcript, and the script writes each session's steps and speech to the run's
 summary page, under its settings and outcome. The artifacts expire after five days; copy what
 must be kept. A failed job also uploads
@@ -894,6 +961,30 @@ simulator's and not the probe's or the reader's. Page actions, the rotor and tur
 landscape need a device. To read a later landscape spread on a simulator, turn pages in
 portrait and then rotate: the reader keeps its place.
 
+VoiceOver keeps a log of its own in a simulator, and it says what VoiceOver did where a
+transcript says only what it read. Stream it for the length of a session:
+
+```sh
+xcrun simctl spawn DEVICE log stream --level debug --style compact --predicate 'process == "vot"'
+```
+
+- `VOTElement` has each move: the command and the item it started from (`ElementMovement
+  decision`), the items VoiceOver holds each side of its cursor (`Cache:`), which of them it
+  tried (`Checking element`, `Found element`), what it then asked the app for and was given
+  (`fetch count: 1 -- startFromBehind:`, and `retrieved:` with `AHEAD` and `BEHIND`), and
+  when it threw away all it held (`Forced update, so removing all from cache`).
+- `VOTNotifications` has each notification as it arrived (`VoiceOver Received note: Layout
+  Changed`), and `VOTCommon` the events VoiceOver answered a move with: `DidFocusOnElement`,
+  `DidWrapBackwards`, `BoundaryEncountered`.
+- A `<null>` in the cache is an end of the list as VoiceOver has it: it asked for one more
+  item there and was given none. A move to that side then ends in `Found element: (null)`
+  and `BoundaryEncountered`, and the transcript has the same phrase again.
+
+The stop after the scroll bar is adjusted was found this way
+([#342](https://github.com/vocaro/EPUBLib/issues/342), under "Harness pitfalls and current
+results"). The log of a physical device holds whatever else its owner's device did, and is
+not read.
+
 A move costs half a second and a touch about five and a half, most of it XCTest waiting for
 an event that VoiceOver keeps from the reader. The end of a `read` costs 3.3 seconds and an
 `activate` or `rotate` a little over one after the gesture. The simulators are not the
@@ -988,6 +1079,23 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    VoiceOver says "Table start" at the first cell a page lists and "Table end" at the last,
    so a page in the middle of a table says both. On the section with a row taller than a
    page, each page's cell reads the words that page shows.
+   On a Mac the same sections are read at each row and inside its table
+   ([Tables on Mac](#tables-on-mac)), in a window 600 points wide at 17 points. By line
+   and by word VoiceOver says each row of a table of data by its words and "table":
+   "Station, Opened, Depth table", "Alder, 1901, Twelve metres table"; and "Table row
+   group" at each row of the table with `role="presentation"`. `in` on "Birch, 1934 table"
+   says "In Birch, 1934 table Station Birch", `right` "Opened 1934" and "Depth empty cell",
+   `nextline` "Cedar Forty metres", `columnheader` "Depth" and `rowheader` "Cedar". `in` on
+   a cell goes into its words, "In text 1934". On "Reopened 1978" `actions` holds Select
+   Cell Text and Follow Link: Reopened 1978, and choosing the second opens the first
+   section at "Link target reached". In the second table VoiceOver says "Hours, Leaves
+   Nine" and "Service Express", and moving down from "Stopper" it stays, "Stopper column 1,
+   row 4". On the long table's second page `in` on the first row says "In Entry 08, Item
+   08, Sum 08 table Entry Entry 08": the header is named from the page before, and
+   `rowheader` says "row 9 of 41". In continuous scroll, `in` on "Entry 38, Item 38, Sum 38
+   table" says "Entry Entry 38", and twenty-eight `nextline` steps from the header row read
+   "Entry 01" to "Entry 28", each once, the view following.
+   No session has "ERROR 3" in it.
    On a Mac a cell is a text of its own, and VoiceOver reads its
    line wherever its cursor is in it. In a window 600 points wide at 17 points, with the
    reader opened at that section (`"launch=-SampleHref OPS/table.xhtml"`), in pages and in
@@ -1483,9 +1591,10 @@ The Mac runner's transcript is plain text and needs no export.
     back from there gave the last line on screen and the line above it, and at every
     further move back VoiceOver stayed on that line, in three sessions of three; moves
     forward went on. The log has the line it asked the index of as the element listed,
-    on screen, and nothing after the question. This is not understood, and the iPad did
-    the same (below). With UIKit's own bar the same flick read nothing and left the
-    cursor on no item, in the one simulator session that tried it.
+    on screen, and nothing after the question. The iPad did the same, and the cause is in
+    the entry on the stop after an adjustment (both below). With UIKit's own bar the same
+    flick read nothing and left the cursor on no item, in the one simulator session that
+    tried it.
 
   The same element on the physical iPad Air 13-inch (M3), iPadOS 27.2, at 23 points, on
   2026-10-13 at `b5e135f` (the simulator sessions' code with main merged in), VoiceOver
@@ -1511,6 +1620,81 @@ The Mac runner's transcript is plain text and needs no export.
     back: `p023w36 … p023w40`, `p023w29 … p023w35`, and that line again at each of three
     further moves; forward, the line after it, the bar and the footer. So the stop after
     an adjustment is the device's too.
+
+  The stop after an adjustment was found on 2026-10-13, in an iPhone 17 Pro simulator of
+  the session's own (iOS 27.0, 17 points, the book of ordinary paragraphs), from
+  VoiceOver's own log ([Simulators](#simulators)) beside a build that logged every
+  attribute, action and element VoiceOver asked the reader's elements for (not committed).
+  Nobody listened. The steps were
+  `activate=Scroll Forward,activate=Scroll Forward,wait=2,point=0.955:0.6,flick=down,wait=2,backward=4,forward=2`:
+  - As the touch landed on the bar VoiceOver asked for two items each side of it. It held
+    `p005w37 …` and `p006w01 …`, the last two lines on screen, then the bar and the footer.
+  - The swipe is its decrement of the bar. UIKit's bar added a tenth to the view's
+    progress (`accessibilityScrollIndicator:addProgress:`), 1,490 points at once, and
+    VoiceOver received one notification, "Update element Visuals". It read the bar's own
+    attributes again, said "15%" and asked for no item.
+  - First move back: `Checking element p006w01`, which no longer answered, its element
+    being gone; a request for one item before the bar, which gave `p012w16 …`, the last
+    line on screen; then `fetch count: 1 -- startFromBehind: p005w37`, a request that
+    reached no element of the reader's, and `retrieved:` with `BEHIND: ()`. Second move:
+    `Checking element p005w37`, a request for one item before `p012w16 …`, which gave
+    `p012w11 …`, and `fetch count: 0`. Third move: `Cache:` with `<null>`, `p012w11 …`,
+    `p012w16 …`, the bar and the footer; `Found element: (null)`; the scroll view's own
+    value and the item at its middle asked for; and `BoundaryEncountered`, with the sound
+    `WrapBoundary`. The same at every further move back, and VoiceOver's own flick
+    (`flick=left*5`) did the same.
+  - With every listed element kept alive after it left the list, as an experiment:
+    `p006w01 …` and `p005w37 …`, the two lines from before the swipe, and then "Bookmark".
+  - With a layout change that names the bar's element posted after the adjustment:
+    `VoiceOver Received note: Layout Changed`, `Proposing current element: Vertical scroll
+    bar`, `Forced update, so removing all from cache`, `fetch count: 2` each way from the
+    bar, `BEHIND:` with `p012w16 …` and `p012w11 …`, and no speech after "15%". Five moves
+    back read five lines in order. A layout change that names nothing and a screen change
+    did the same, the screen change with `ScreenDidChange` as well. In one session of
+    seven the flick read `p004w35 …`: no adjustment had been made, the swipe having been
+    taken for a touch at a load average of 630.
+
+  With the element posting that layout change, at `02a5529`, in the same simulator:
+  - The steps above with `backward=6,forward=8`: "15%", then `p012w16 …`, `p012w11 …`,
+    `p012w06 …`, `p012w01 …`, `p011w36 …`, `p011w31 …`; forward, the same lines in order
+    and on past `p012w16 …`, the fifty lines after the screen being listed once the cursor
+    is in the text.
+  - With VoiceOver's own flicks (`…,flick=down,wait=2,flick=left*5,flick=right*7`): "15%",
+    five lines back in order to `p011w36 …`, seven forward in order.
+  - Down, back into the text, the bar again, down and up
+    (`…,flick=down,wait=2,backward=3,point=0.955:0.6,flick=down,wait=2,flick=up,wait=2,backward=4,forward=6`):
+    "15%" and three lines; "Vertical scroll bar, 41 pages 16%", "26%" and "16%"; then
+    `p013w11 …` and three lines above it in order, and six forward.
+  - Step 10's session at the end of the book with an adjustment added
+    (`…,point=0.955:0.6,flick=down,wait=2,backward=3,forward=5`): as recorded above, the
+    bar at 100% each time. The flick read "100%" and moved nothing; back, `p086w40` and
+    two lines above it; forward to the bar and the footer.
+  - An iPad Air 13-inch (M4) simulator at 23 points
+    (`activate=Scroll Forward,activate=Scroll Forward,wait=2,point=0.982:0.6,flick=down,wait=2,backward=6,forward=8,point=0.982:0.6,flick=up,wait=2,backward=3`):
+    "Vertical scroll bar, 15 pages 15%" and "25%"; six lines back in order from
+    `p022w08 … p022w14` to `p021w15 … p021w21` and eight forward in order; the bar again
+    at 25%, "15%" for the swipe up, then `p016w08 … p016w14` and two lines above it.
+  - The iPhone again with main merged in, at `a18e546`
+    (`…,flick=down,wait=2,backward=6,forward=3,point=0.955:0.6,flick=up,wait=2,flick=left*4,flick=right*6`):
+    "15%", six lines back in order and three forward; the bar at 16% and "6%" for the
+    swipe up; four lines back by VoiceOver's own flick from `p006w27 …` and six forward,
+    in order.
+
+  The same on the physical iPad Air 13-inch (M3), iPadOS 27.2, upright at 23 points, on
+  2026-10-13 at `a18e546`: VoiceOver switched on for each session and off after it, the
+  iPad claimed for the runs and released, and the transcripts passed through the filter
+  that keeps the book's and the sample's words, with a bare percentage let through.
+  - `activate=Scroll Forward,activate=Scroll Forward,wait=2,point=0.982:0.6,flick=down,wait=2,backward=6,forward=8`:
+    "Vertical scroll bar, 15 pages 15%" and "25%"; then `p022w01 … p022w07`,
+    `p021w36 … p021w40`, and four lines above them in order to `p021w08 … p021w14`;
+    forward, eight lines in order to `p022w22 … p022w28`. Before the change, in the
+    session above: two lines, and the second three more times.
+  - With VoiceOver's own flicks, and up again
+    (`…,flick=down,wait=2,flick=left*5,flick=right*3,point=0.982:0.6,flick=up,wait=2,backward=3,forward=5`):
+    "25%", five lines back in order from `p022w01 …` to `p021w15 …` and three forward; the
+    bar at "16 pages 25%" and "15%" for the swipe up; then `p015w36 … p015w40` and two
+    lines above it, and five forward in order. The session's first phrase, before any
+    step, was not the book's or the sample's and was withheld unread.
 - The two lines that used to be listed each side were one short when VoiceOver moved back up
   the screen, menu or no menu. With its cursor on a line it asks for the item before the
   line two above, so three lines above the cursor must be listed, and two were unless more
@@ -3094,6 +3278,85 @@ The Mac runner's transcript is plain text and needs no export.
   cursor in the text; an item that becomes a picture, a link or a table row on a device,
   which unit tests hold to the answers of a new item; and Switch Control or any other
   assistive technology that keeps a cursor.
+- On 2026-10-13 the three sections of tables were read on a Mac before and after a table of
+  data was given to VoiceOver as a table: GitHub's hosted `xcode-27` runner (image
+  `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), a window 600 points wide at 17
+  points, a fixed pause of four seconds, the same steps both times. Before at `593b907`,
+  which is `main`: runs 38383252896 (pages) and 38388226307 (continuous scroll). After at
+  `66b2f8b`: runs 38391040735 and 38391133441. Nobody listened.
+  The tables of data, pages. Before, by line and by word, each row said "Table row group"
+  and none of its words; `in` on the second row "In Table row group 3 items text Alder",
+  then "text 1901", "text Twelve metres"; Control-Option-Down stayed on "text Twelve
+  metres", Control-Option-C read the character "T" and Control-Option-R said nothing. The
+  Actions menu inside a cell was the text area's "show menu", which opened a menu of
+  thirteen items. After: "Station, Opened, Depth table", "Alder, 1901, Twelve metres
+  table", "Birch, 1934 table", "Cedar, Reopened 1978, Forty metres table", and the same
+  back up. `in` on Alder's: "In Alder, 1901, Twelve metres table Station Alder", "Opened
+  1901", "Depth Twelve metres", down "Birch empty cell", Control-Option-C "Depth",
+  Control-Option-R "Birch". By word "Stations", "on", "the", "branch" and then each row as
+  by line; `in` on Birch's, `right` "Opened 1934", `in` "In text 1934", `right` "1934",
+  `out` "Out of text"; `actions` "Actions menu 1 item", "Select Cell Text", and chosen,
+  "Select Cell Text 1934 cell". On Cedar's row, at "Opened Reopened 1978", "Actions menu 2
+  items", "Select Cell Text", "Follow Link: Reopened 1978", and chosen, the page changed to
+  the one with "Link target reached" (`word1187` first). Before, the same keys chose "show
+  menu" there.
+  The second page, with the table whose cells span, the table marked as layout and the
+  first row of the ruled one. After: "Service, Hours table", "Leaves, Arrives table"; `in`
+  there "In Leaves, Arrives table Hours, Leaves Leaves", `right` "Hours, Arrives Arrives",
+  `right` "Service Express", down "Stopper", down again "Stopper column 1, row 4"; `out`,
+  and by line "Express, Nine, Noon table", "Stopper, Ten, Three table", "Nothing on Sunday
+  table", "Words before the layout.", "Table row group", "Words after the layout.". Before:
+  "Table row group" at each row, `in` on the second "In Table row group 2 items text
+  Leaves", `right` "text Arrives", and Control-Option-Down stayed there.
+  The long table, pages. After: "Entry, Item, Sum table", "Entry 01, Item 01, Sum 01
+  table", `in` "In Entry 01, Item 01, Sum 01 table Entry Entry 01", "Item Item 01", `out`.
+  Then a page turn by the host's button, with VoiceOver's cursor on the table it had left:
+  after, "text Entry 08, Item 08, Sum 08 table", VoiceOver on the text area and not in it,
+  so the steps that followed read the first row from outside; before, "VoiceOver
+  Verification window Open EPUB… button", VoiceOver out of the text altogether. The tall
+  row: its first page says "Clause, Wording table" and the second, after, the page's words
+  and then `in` "In t0001 t0002 …", `in` again "In text t0001 …", `right` "t0001"; before,
+  "Table row group" and "In Table row group text t0001 …".
+  Continuous scroll. Before, by line, "Table row group" at the rows on screen and a row's
+  words and "image" at one off it ("Entry 39 Item 39 Sum 39 image", "Short clause Short
+  wording image"); `in` gave a row's text areas, and Control-Option-Down did not move.
+  After, by line through the section of tables of data, each row by its words and "table"
+  down to "Nothing on Sunday table", "Words before the layout." and "Table row group";
+  `in` on Birch's "In Birch, 1934 table Station Birch", "Opened 1934", "Depth empty cell",
+  down "Cedar Forty metres", "Depth", "Cedar". In the long table, from "Words after the
+  ledger." three lines up to "Entry 38, Item 38, Sum 38 table"; `in` "Entry Entry 38",
+  "Item Item 38", up "Item 37", down "Item 38", "Item 39", "Item 40", and at the end "Item
+  40 column 2, row 41", the header row thirty-eight rows above the screen throughout. From the header row, twenty-eight moves
+  down read "Entry 01" to "Entry 28", each once, with the view following
+  (`AXValueChanged` from the reader as it went), and `out` brought the view back to the
+  header row's line. The tall row is one line there, "Tall clause, t0001 t0002 …", and its
+  cell "Wording t0001 …".
+  How the shape was found, on the same runner. What stands at a row's character was tried
+  as the row itself, as one table for every row, as a table at the first row alone, and as
+  a table for each row (runs 38363647251, 38368626343, 38370804197, 38372891705);
+  [the native viewer](native-viewer.md) ("Data tables", "On Mac") has what VoiceOver did
+  with each. Through `ax:tables` a client of the accessibility API was given, for the table
+  at each row, `AXRows`, `AXVisibleRows`, `AXSelectedRows`, `AXColumns`, `AXVisibleCells`,
+  `AXColumnHeaderUIElements`, `AXRowHeaderUIElements`, `AXRowCount` and `AXColumnCount`, and
+  for each cell its `AXRowIndexRange` and `AXColumnIndexRange`.
+  VoiceOver quit six times while a cell named its own header cells: once at four seconds a
+  key in continuous scroll (run 38368626343, before reports were collected), once at four
+  seconds in pages (run 38379235409), in each of three sessions at two seconds (run
+  38381039862), and in one of five at two seconds once those header cells were elements of
+  their own (run 38383168370). The five reports macOS wrote have one backtrace, an
+  exception from `__CFStringCheckAndReplace` in `-[SCRCell columnHeaderDescription]` under
+  `-[SCRTable _columnHeaderDescriptionForCellElement:headerIndex:]`. With the headers given
+  by the table for each column and row it did not quit: seventeen sessions at two or three
+  seconds a key (runs 38386166417, 38388118801, 38389952858 and, on the code as it is,
+  38392704337), each of about twenty moves among cells with Control-Option-C or
+  Control-Option-R after each, and the ten sessions above. In those, a header that was a
+  cell with a title or a label and nothing in it was not said ("column 2 of 3 Nine"), and
+  one that was a static text, a button with a title or a cell holding a static text was
+  ("Hours, Leaves Nine"). The reader keeps the static text.
+  Not heard: anyone listening, or any Mac but the runner; a spread of two columns; a table
+  in a note's popover; Inspect Image chosen from a cell; a cell's `headers` attribute;
+  VoiceOver in another language or with its verbosity changed; and what Safari or Books
+  says of the same tables on a Mac, which was not compared.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
