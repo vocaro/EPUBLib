@@ -271,10 +271,17 @@ TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wai
    bar" among the lines is the failure of
    [#339](https://github.com/vocaro/EPUBLib/issues/339). On an iPad run it on its side as
    well, with `rotate=landscape` first and `rotate=portrait` last.
-8. `touch=LABEL` on an item below the reader and `backward=4` come into the text from below:
-   the scroll bar, then the last line on screen, then the lines above it. Away from the top
-   of the book the move after the last line on screen goes to the control before the text
-   ([#367](https://github.com/vocaro/EPUBLib/issues/367)).
+8. `touch=LABEL` on an item below the reader and `backward=30` come into the text from below:
+   the scroll bar, then the last line that was on screen, then every line above it in order,
+   on past the top of the screen. Run it where the view has room to go back, after two
+   scroll steps, and at the end of the book
+   (`activate=Contents,activate=Chapter three,wait=2` and three scroll steps): as the cursor
+   goes to the scroll bar UIKit takes the view back 88 points. "Bookmark" straight after the
+   scroll bar, or after one line, is the failure of
+   [#367](https://github.com/vocaro/EPUBLib/issues/367). The line after the scroll bar is
+   the last line in the reader's own view. `visible` gives a later one as the window's last:
+   with the cursor on a control before the text it counts every listed line that lies inside
+   the window, and the first lines listed after the screen lie under the sample's footer.
 
 Drive at least one session with `flick=right*20` and `flick=left*30` in place of `forward`
 and `backward`: those are VoiceOver's own gestures for the next and previous item, where the
