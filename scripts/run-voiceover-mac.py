@@ -11,6 +11,8 @@ A session in which VoiceOver names XCTest's Automation Running banner is stopped
 A rotor or an Actions menu the steps can have left open is closed before VoiceOver is restored,
 because VoiceOver ignores its own shortcut under one. A session whose VoiceOver will not return to its original
 state still writes its transcript, with the reason in it, and exits with status 126.
+With --safari the session is of Safari, already open at a page, in place of the reader: the
+keys go to Safari and to nothing else, and `ax:` steps are the observer's for a web page.
 This script never changes the VoiceOver AppleScript setting or the clipboard.
 """
 import argparse
@@ -39,10 +41,11 @@ COMMANDS = {
 # for the rest of a table's row and of its column, and Shift-T for the table's size.
 TWICE = {"linecount", "readrow", "readcolumn", "dimensions"}
 # VoiceOver commands that take Command as well, as (key code, with Shift): its moves to the
-# next heading and to the next and previous link, and the menu of the item's actions. With
-# Shift the move by heading asked the reader's rotor for the next heading too, on macOS
-# 27.0.1, so it has no step.
-FIND_COMMANDS = {"nextheading": (4, False), "nextlink": (37, False), "previouslink": (37, True), "actions": (49, False)}
+# next heading, to the next and previous link and to the next and previous table, and the menu
+# of the item's actions. With Shift the move by heading asked the reader's rotor for the next
+# heading too, on macOS 27.0.1, so it has no step.
+FIND_COMMANDS = {"nextheading": (4, False), "nextlink": (37, False), "previouslink": (37, True), "actions": (49, False),
+                 "nexttable": (17, False), "previoustable": (17, True)}
 READER_KEYS = {"pagedown": 121, "pageup": 116}  # The reader's own keys, without modifiers.
 # Plain keys for the lists `rotor` and `actions` open: across the lists, along one, choose,
 # close. With no list open the reader takes them as its own.
@@ -51,6 +54,7 @@ PHRASE = re.compile(r"^VOICEOVER_EVENT (\S+) heard: ?(.*)$", re.M)
 BANNER = "Automation Running"  # XCTest's banner, a window of its own that can take the VoiceOver cursor.
 NOT_RESTORED = 126  # The exit status of a session that left VoiceOver on or off against its original state.
 READER = "org.epubreaderlib.voiceoververify.mac"
+SAFARI = "com.apple.Safari"  # The one other application a session's keys may go to, and only with --safari.
 
 
 def unknown(steps):
@@ -150,6 +154,8 @@ def main():
                         help="send the next step this long after a key's first new phrase, and wait "
                              "--pause only when none is recorded; later phrases of that key are cut short")
     parser.add_argument("--xctest-values", action="store_true", help="also record XCTest's snapshot of each column")
+    parser.add_argument("--safari", action="store_true",
+                        help="record VoiceOver in Safari, already open at the page to be read, in place of the reader")
     parser.add_argument("steps", nargs="*", metavar="STEP",
                         help="ax:STEP or one of "
                              + ", ".join(list(COMMANDS) + list(FIND_COMMANDS) + list(READER_KEYS) + list(LIST_KEYS)))
@@ -164,9 +170,15 @@ def main():
     project = root / "Examples/VoiceOverVerification/VoiceOverVerification.xcodeproj"
     if not app.is_dir() or not project.is_dir():
         parser.error("Generate and build the signed verification project first")
-    readers = subprocess.run(["pgrep", "-x", "VoiceOverVerificationMac"], capture_output=True, text=True).stdout.split()
+    if args.safari and args.xctest_values:
+        parser.error("--xctest-values reads the reader's columns, and would open the reader over Safari")
+    # The one application the session's keys may go to, and its process.
+    owner = SAFARI if args.safari else READER
+    readers = subprocess.run(["pgrep", "-x", "Safari" if args.safari else "VoiceOverVerificationMac"],
+                             capture_output=True, text=True).stdout.split()
     if len(readers) != 1:
-        parser.error("Normally launch exactly one verification reader before running this probe")
+        parser.error("Open Safari once, at the page to be read, before running this probe" if args.safari
+                     else "Normally launch exactly one verification reader before running this probe")
     args.results.mkdir(parents=True, exist_ok=True)
     # Compiled once, so each ax: step acts immediately.
     observer = [str(args.results / "voiceover-ax-observer")]
@@ -192,7 +204,7 @@ def main():
     def close_list():
         """Send Escape if the session's keys can have left a rotor or an Actions menu open; with none open the reader takes it."""
         left_open = open_list(sent)
-        if left_open and keyboard_owner() == READER:
+        if left_open and keyboard_owner() == owner:
             transcript.append(f"{now()} STEP listclose, sent by the runner in case the "
                               f"{'rotor' if left_open == 'rotor' else 'Actions menu'} is still open")
             keystroke(LIST_KEYS["listclose"], "")
@@ -240,9 +252,9 @@ def main():
                             time.sleep(0.1)
                     else:
                         # Another controller may have taken the keyboard; never send it VoiceOver commands.
-                        owner = keyboard_owner()
-                        if owner != READER:
-                            raise RuntimeError(f"Keyboard focus went to {owner} before {step}; session stopped")
+                        front = keyboard_owner()
+                        if front != owner:
+                            raise RuntimeError(f"Keyboard focus went to {front} before {step}; session stopped")
                         name, _, label = step.partition("=")
                         if label and not any(label in text for _, text in phrases(log_path)[-2:]):
                             raise RuntimeError(f"VoiceOver did not name {label} before {step}; session stopped")
@@ -304,7 +316,7 @@ def main():
             if events_path.exists():
                 # What the reader reported and exposed, beside what VoiceOver said about it.
                 kinds = (" EVENT AXValueChanged", " EVENT AXLayoutChanged", " EVENT AXSelectedTextChanged", " STATE", " LINE", " PRESS",
-                         " RESIZE", " FOCUS", " MISSING", " CHILD", " LINK", " CARET", " CELL", " ELEMENT", " ACTION", " TABLE")
+                         " RESIZE", " FOCUS", " MISSING", " CHILD", " LINK", " CARET", " CELL", " ELEMENT", " ACTION", " TABLE", " WEB")
                 transcript += [line for line in events_path.read_text(errors="replace").splitlines() if line[24:].startswith(kinds)]
             transcript_path = args.results / f"mac-{stamp}.transcript.txt"
             transcript_path.write_text("\n".join(sorted(transcript)) + "\n")

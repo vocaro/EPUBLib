@@ -1,9 +1,11 @@
 # VoiceOver testing
 
-Use real VoiceOver speech to verify the paginated reader on a Mac, physical iPhone and
-physical iPad. Native accessibility API tests support this work but do not establish what
-VoiceOver reads. A [simulator's VoiceOver](#simulators) does read, with no device, window or
-sound, but it activates nothing, and its sessions are not acceptance evidence. The sessions
+Use real VoiceOver speech to verify the paginated reader on a Mac, iPhone and iPad. Native
+accessibility API tests support this work but do not establish what VoiceOver reads. A
+[simulator's VoiceOver](#simulators) does read, with no device, window or sound, and its
+sessions are acceptance evidence for what VoiceOver reads on an iPhone and iPad. It activates
+nothing, so what VoiceOver activates or performs is shown on a physical iPhone and iPad;
+[Acceptance and evidence](#acceptance-and-evidence) says which a check needs. The sessions
 are recorded in the
 [Mac verification](issue-55-voiceover-mac.md) and the
 [iPad and iPhone verification](issue-28-voiceover-devices.md); the acceptance matrix is in
@@ -222,10 +224,20 @@ new phrase is recorded:
   once and twice, which Apple's guide gives for a cell's row and column numbers and a
   table's size: in the reader's tables VoiceOver said the attachment's character at the
   first and nothing at the second (macOS 27.0.1). See [Tables on Mac](#tables-on-mac).
+- `nexttable`, `previoustable`: VoiceOver's Find Next Table and Find Previous Table,
+  Control-Option-Command-T and the same with Shift. They were sent to Safari only, where
+  each moves to a table of the page and says it as arriving at it does; see
+  [Safari on Mac](#safari-on-mac).
 - `pagedown`, `pageup`: the reader's own page keys, without VoiceOver modifiers.
 - `ax:STEP`: a step of the observer described below, through the accessibility API.
 
-Before every key the runner checks that the reader is frontmost and that no password dialog
+With `--safari` the session is of Safari in place of the reader: open Safari at the page
+first, once. The runner then sends its keys to Safari and to nothing else, and gives the
+observer Safari's process, whose `ax:` steps are those of a web page
+([Safari on Mac](#safari-on-mac)). `--xctest-values` is refused with it.
+
+Before every key the runner checks that the reader is frontmost, or Safari in a session of
+Safari, and that no password dialog
 holds secure keyboard input, and stops the session otherwise. Leave several seconds between
 sessions: VoiceOver ignores the shortcut while it is still quitting. Each run writes
 `mac-STAMP.transcript.txt` beside its log, observer events and result bundle in
@@ -571,6 +583,61 @@ page its header row alone. `ax:caret=WORDS` before `ax:focus in` starts VoiceOve
 near a table, which continuous scroll needs: a session that came into the text without it
 read from a place of VoiceOver's own, fifty lines off.
 
+After `in` and `line`, the first `nextline` leaves VoiceOver on its line and no phrase in
+the transcript (the line said again would not be recorded a second time), and the second
+moves: `in line nextline nextline in` goes into the table on the line below. With one
+`nextline` the `in` is sent on the line of words, where it does nothing, and the moves after
+it go by word through the page, as in four sessions of run 38416874099.
+
+## Safari on Mac
+
+A session of Safari records what VoiceOver says of a section of the fixture as a web page:
+the book's own XHTML, with nothing of the reader in it. It is what the reader is set beside
+where the two are said to agree. On a hosted runner a session opens with
+`safari=OPS/grids.xhtml` ([Hosted Mac sessions](#hosted-mac-sessions)); the runner script
+takes `--safari` with Safari already open at the page. A session there is read against
+these, which are Safari's and VoiceOver's own (Safari 27.0.1 on macOS 27.0.1):
+
+- Safari opens the file with no question, on a runner where it has never run, and the page
+  has the section's title. The runner's screenshots show the page white: Safari's drawing of
+  a page does not reach them, though the page is laid out, and VoiceOver's cursor is drawn
+  where the item it is on stands. A link to another file of the book did not open: "Safari
+  Can’t Open the Page", with the reason past the 64 characters recorded. The section is a
+  file, and Safari was given that file to open and not the one beside it, which is the
+  likely reason. A session that follows a link out of its section would have the book
+  served over HTTP, which the script does not do and nobody has tried.
+- VoiceOver starts on the page, "Tables of data web content", or on the window's toolbar,
+  and then comes to the page by itself. `ax:focus` gives the page the keyboard, and `in`
+  goes into it: "In Tables of data web content heading level 1 Tables of data". If VoiceOver
+  were to stay on the toolbar, `ax:focus=address ax:focus` brings it to the page by a change
+  of keyboard focus, from the address field.
+- `right` and `left` are VoiceOver's next and previous item, and they are how a page is
+  read: a heading, a paragraph, a table, and then each cell of the table in turn, with "end
+  of table" as an item after the last. `nextline` outside a table said nothing in six
+  presses, and `line` reads the item.
+- `nexttable` moves to the next table of the page from anywhere in it, and says the table
+  as arriving at it does.
+- `in` on a table goes to its first cell, "In table No selection." and the cell. Inside,
+  `right` and `left` go along a row and on into the next, `nextline` and `previousline` down
+  and up a column. At the foot of a column `nextline` goes to the top of the next, and at
+  the foot of the last it says "end of table". `out` leaves the table, "Out of table"; sent
+  after "end of table" it left the page, "Out of Tables of data web content".
+- VoiceOver's cursor is on what a cell holds, a text or a link, and not on the cell: its
+  hint is "You are currently on a selectable text, inside of a cell." `actions` there is the
+  text's or the link's own menu.
+- A session in which "ERROR 3" and then "VoiceOver on Safari…" follow a key is one in which
+  VoiceOver quit, as in the reader ([Tables on Mac](#tables-on-mac)); the report macOS wrote
+  is in the download.
+
+The observer's steps for Safari are `ax:width=POINTS`, `ax:focus`, `ax:focus=address`,
+`ax:wait=SECONDS` and `ax:tables`, which prints what Safari gives a client of the
+accessibility API for the page: a `WEB PAGE` line with its title, a `WEB CHILD` line for each
+of the first sixteen things the page holds, by role and words, and for each table a
+`WEB TABLE` line with its title, its counts and the headers it gives for its columns and its
+rows, and `WEB TABLEROW` and `WEB TABLECELL` lines for its first six rows, each cell with the
+rows and columns it covers, what it holds, the header cells it names for itself and its
+actions. The first table's attributes and its first cell's are given by name.
+
 ## Hosted Mac sessions
 
 The same reader, probe, observer and runner script record real VoiceOver speech on GitHub's
@@ -637,7 +704,21 @@ A session can open with settings of its own, in any order before its first step:
 `advance_after=` the fixed pause. The inputs of those names are what a session has when it
 gives none, so one run holds sessions that differ in them. A setting that follows a step, is
 given twice or has a value it cannot have is refused before anything is built, and a session
-of settings alone is the page-boundary session with them. The job's log, `sessions.txt` and
+of settings alone is the page-boundary session with them.
+
+`safari=OPS/grids.xhtml`, among a session's own settings, makes it a session of Safari: that
+section of the fixture as Safari shows it, in place of the reader, so that what VoiceOver
+says of the book's own HTML in a browser can be set beside what it says in the reader
+([Safari on Mac](#safari-on-mac)). The sessions script unpacks the fixture's EPUB on the
+runner, opens the section as a file in a fresh Safari, keeps a picture of the screen from
+before VoiceOver is turned on (`safari-session-N.png` in the download), and gives the runner
+script `--safari`. Such a session has a width and a pace. A text size, a flow or launch
+arguments of its own are refused, and it must give its steps. The workflow has no input for
+it, so it is a session's own word, and sessions of Safari and of the reader share a run.
+`runner.txt` names Safari's version. The script runs a session of Safari on a hosted runner
+only, because it quits Safari first.
+
+The job's log, `sessions.txt` and
 the run's summary page give each session's settings before its outcome, where the run's name
 gives the `width` and `text_size` inputs only:
 
@@ -675,8 +756,8 @@ begin with VoiceOver already on and leave it on. The download also holds a
 `mac-STAMP.transcript.txt` for each session in order, `runner.txt` with the commit, the runner
 image and its version, macOS, Xcode, System Integrity Protection, the screen and VoiceOver's
 [link setting](#links), the observer, `xcodebuild` and build logs, and a screenshot of the
-runner's screen at the end. If VoiceOver or the reader quit during the run, the report macOS
-wrote is there as `crash-NAME.ips.txt`: a transcript in which VoiceOver's opening phrase
+runner's screen at the end. If VoiceOver, the reader or Safari quit during the run, the report
+macOS wrote is there as `crash-NAME.ips.txt`: a transcript in which VoiceOver's opening phrase
 ("VoiceOver on VoiceOverVerificationMac…") follows an `ERROR` in the middle of a session is
 one in which VoiceOver started again. The job's log
 prints each transcript, and the script writes each session's steps and speech to the run's
@@ -908,13 +989,15 @@ XCTest cannot perform VoiceOver's three-finger scroll, and its synthesized hardw
 (Control-Option-Space, Option with an arrow) did not reach VoiceOver on an iPad. The probe
 turns pages by activating the page buttons or a line's Next Page action. A transcript that
 begins in an editing field, with the keyboard's keys after the page, is not a reading-order
-result. Use physical-device sessions for acceptance.
+result. [Acceptance and evidence](#acceptance-and-evidence) says which checks need a physical
+device and which a simulator settles.
 
 ## Simulators
 
 `scripts/run-voiceover-simulator.py` runs the same probe on simulators of its own, with no
-device, no Simulator window and no sound. It is a quick check of what VoiceOver reads, not
-acceptance evidence:
+device, no Simulator window and no sound. Its sessions are acceptance evidence for what
+VoiceOver reads and in what order, and not for what VoiceOver activates
+([Acceptance and evidence](#acceptance-and-evidence)):
 
 ```sh
 python3 scripts/run-voiceover-simulator.py
@@ -992,9 +1075,10 @@ and the double tap on the heading, the touch arrived on the heading and the page
 With VoiceOver off the same touches turn the page in both orientations, and on physical
 devices VoiceOver performs every one of these
 ([iPad and iPhone verification](issue-28-voiceover-devices.md)), so the difference is the
-simulator's and not the probe's or the reader's. Page actions, the rotor and turns in
-landscape need a device. To read a later landscape spread on a simulator, turn pages in
-portrait and then rotate: the reader keeps its place.
+simulator's and not the probe's or the reader's. VoiceOver activating an item, an action
+performed from the rotor and a page turned in landscape need a device. Turning the rotor and
+moving by it do not. To read a later landscape spread on a simulator, turn pages in portrait
+and then rotate: the reader keeps its place.
 
 VoiceOver keeps a log of its own in a simulator, and it says what VoiceOver did where a
 transcript says only what it read. Stream it for the length of a session:
@@ -1023,8 +1107,9 @@ not read.
 A move costs half a second and a touch about five and a half, most of it XCTest waiting for
 an event that VoiceOver keeps from the reader. The end of a `read` costs 3.3 seconds and an
 `activate` or `rotate` a little over one after the gesture. The simulators are not the
-devices of the record: an iPhone 17 Pro shows 402 × 874 points and its pages hold fewer lines
-than the iPhone 17 Pro Max's. In landscape the sample's control strip stacks and leaves its
+physical devices of the record: an iPhone 17 Pro shows 402 × 874 points and its pages hold
+fewer lines than the iPhone 17 Pro Max's, so a page's first and last words are not the
+same on both. In landscape the sample's control strip stacks and leaves its
 reader one line at 17 points, so `visible` finds no numbered line on the first spread. All of
 this is the iOS 27.0 runtime. The 27.1 runtime of Xcode 27.1 offers only the iPhone Duo and
 was not compared.
@@ -1040,7 +1125,27 @@ one on a workstation is. Record its runner image and image version, such as `xco
 20261006.0244.1, beside the OS and Xcode versions; `runner.txt` in the run's download has all
 three, and the job's "Set up job" log prints the image. Everything else here applies to it
 unchanged. A hosted session that completes is no more an acceptance result than any other:
-read its transcript against the visible text. The iPhone and iPad still need physical devices.
+read its transcript against the visible text.
+
+For the iPhone and iPad, a session in the [simulator lane](#simulators) is acceptance
+evidence for what VoiceOver reads, in what order, and where its cursor and its rotor move.
+The owner decided so on 2026-10-13; until then every such result was also owed a physical
+device. Record the session as a simulator's, with its device type and runtime where a
+device's model and OS would stand. A physical iPhone or iPad is needed for what a simulator's
+VoiceOver does not do:
+
+- activating the item under its cursor: a button, a link, a line's default action;
+- performing an action chosen in the rotor: Next Page from a line, Inspect Image, Select Cell
+  Text, Follow Link;
+- turning the page in landscape.
+
+In the steps below that is each double tap whose result is VoiceOver's own doing. A page
+turned in portrait with `activate=Next Page` is turned by a plain touch on the button, so the
+page that follows and VoiceOver's reading of it count, and that VoiceOver activated the
+button does not. A change to what VoiceOver reads needs no device session, and no issue is
+filed to ask for one. A change to what an activation or an action does needs one, for that
+step. The simulators run iOS 27.0 and are other models than the physical devices, so where a
+simulator and a device differ, the device's result stands and the difference is recorded.
 
 Sessions that show a change by what VoiceOver said before and after it are recorded on the
 same main. Merge main into the branch first, and take as "before" a commit that holds main
@@ -1383,6 +1488,26 @@ The Mac runner's transcript is plain text and needs no export.
   same steps on the page with no heading had ended two sessions (runs 38321608082 and
   38322808793) with a traceback and no transcript, the restore having failed ahead of the
   lines that write one. Nobody listened, and no workstation was used.
+- `ax:width` is a live resize, and until
+  [#479](https://github.com/vocaro/EPUBLib/pull/479) a session launched in
+  continuous scroll and then resized did not begin at the top of the book. Setting a window's
+  size through the accessibility API takes it through AppKit's live resize, and AppKit's text
+  view scrolls itself when one ends ([the native viewer](native-viewer.md), "Continuous
+  scroll"). Hosted sessions on 2026-10-13 (`-SampleFlow scrolled`, then `ax:width=600`, on a
+  reader of [#473](https://github.com/vocaro/EPUBLib/pull/473) that logged each scroll with
+  its stack, run 38378765133) saw the clip view go from 0 to 48 under
+  `-[NSView _endLiveResize]` and `-[NSTextView viewDidEndLiveResize]`, the insertion point
+  follow to character 27 a moment later, and `in` read the book's second line. Every
+  transcript of such a session from before the change begins a line down, with the title
+  above the screen; a session that changed to continuous scroll after its resize began at
+  the top. The same scroll is made in a unit test with no assistive client, by a window
+  resized with animation, which ends in the same two calls
+  (`ScrolledLiveResizeTests`): 48 points at the top of a book, 114 under a toolbar, and
+  back to the start of a paragraph anywhere else, 279 and 304 points in the tests' prose
+  and further at each resize. With the change the
+  tests' reader stays at the top and VoiceOver would enter at the title. Not heard: a
+  hosted session after the change. Not made: a drag of the window's edge with a mouse,
+  which ends a live resize the same way.
 - On 2026-10-11 the Mac sessions verified first and last lines, word order, end of text,
   line counts and page-turn continuity in one and two columns at 17 and 23 points, with value
   notifications for page turns, text-size changes and resizes. See the
@@ -2824,8 +2949,10 @@ The Mac runner's transcript is plain text and needs no export.
   (`-[NSTextView viewDidEndLiveResize]`, `scrollToLocation:`) 48 points down. The book's
   title is then above the screen, the insertion point follows to character 27, and `in`
   reads the second line, as in every such session here. A session that changes to
-  continuous scroll after the resize begins at the top. Whether a window resized by hand
-  does the same was not looked at.
+  continuous scroll after the resize begins at the top. Any live resize did the same, and
+  away from the top of a book it took the text back a paragraph; the reader has held its
+  place through one since [#479](https://github.com/vocaro/EPUBLib/pull/479) (the note on
+  `ax:width` at the head of this list).
   Not established: why VoiceOver keeps its cursor for one notice and follows two. Not
   heard: listening; a workstation; a move to a shown position (the contents, a search
   result) or rebuilt text with VoiceOver inside the text, which post the same second
@@ -3539,10 +3666,143 @@ The Mac runner's transcript is plain text and needs no export.
   Not heard: anyone listening, or any Mac but the runner; a spread of two columns; a table
   in a note's popover; Inspect Image chosen from a cell; a cell's `headers` attribute;
   VoiceOver in another language or with its verbosity changed; Read All through a table;
-  Control-Option-C and Control-Option-R pressed twice on the shape that was kept; and what
-  Safari or Books says of the same tables on a Mac, which was not compared
-  ([#484](https://github.com/vocaro/EPUBLib/issues/484)). The page turn that leaves
-  VoiceOver out of the text is [#485](https://github.com/vocaro/EPUBLib/issues/485).
+  and what Books says of the same tables on a Mac
+  ([#484](https://github.com/vocaro/EPUBLib/issues/484)). What Safari says of them, and
+  Control-Option-C and Control-Option-R pressed twice on the shape that was kept, are in
+  the next entry. The page turn that leaves VoiceOver out of the text is
+  [#485](https://github.com/vocaro/EPUBLib/issues/485).
+- Later on 2026-10-13 the same tables were heard in Safari on a Mac and set beside the
+  reader: the section of tables of data and the long table, each opened as a file in Safari
+  27.0.1 (`22625.1.29.11.28`) on the same hosted runner (image `20261006.0244.1`, macOS
+  27.0.1 `26A434`, Xcode 27.0), a window 600 points wide, a fixed pause of four seconds.
+  The reader was `main` at `3f3ae69`, which has
+  [#476](https://github.com/vocaro/EPUBLib/pull/476), built at `e8032b1` with this harness,
+  in pages, 600 wide at 17 points, given the same keys from the table's first cell. Safari:
+  run 38416799829 (four sessions on the tables of data) and run 38419267112 (the long
+  table, and three sessions at two seconds a key). The reader: run 38422077936. The same
+  keys had gone to #476's branch before it merged (`f9eb33b`, runs 38419223106 and
+  38416874099), and what it said was the same but in the two places marked. How Safari is
+  driven was found in run 38414486982, with the next key half a second after a phrase;
+  [Safari on Mac](#safari-on-mac) has it. Nobody listened, and the runner's screenshots
+  show Safari's page white.
+  A phrase is cut at 64 characters, shown by "…". Safari reads on by VoiceOver's next item
+  (Control-Option-Right) and the reader by line (Control-Option-Down); every other key is
+  the same in both. In the reader "going in" is Control-Option-Shift-Down on a row's line,
+  and in Safari Control-Option-Command-T to the table and then Control-Option-Shift-Down,
+  though reading on by item enters a table's cells without it.
+
+  | Move | Safari | The reader |
+  | --- | --- | --- |
+  | Reading on: the caption and the first table | "Stations on the branch table 3 columns, 4 rows" | "Stations on the branch", "Station, Opened, Depth table" |
+  | Its header row | "Station column 1 of 3", "Opened column 2 of 3", "Depth column 3 of 3" | the line above |
+  | Its second row | "row 2 of 4 Station Alder column 1 of 3", "Opened 1901 column 2 of 3", "Depth Twelve metres column 3 of 3" | "Alder, 1901, Twelve metres table" |
+  | The row with an empty cell | "row 3 of 4 Station Birch column 1 of 3", "Opened 1934 column 2 of 3", "Depth blank column 3 of 3" | "Birch, 1934 table" |
+  | The row with a link | "row 4 of 4 Station Cedar column 1 of 3", "Opened link Reopened 1978 column 2 of 3", "Depth Forty metres column 3 of 3" | "Cedar, Reopened 1978, Forty metres table" |
+  | Past the last cell | "end of table", "Words between the grids." | the next line of the text ("Words", by word, run 38416874099) |
+  | The table whose cells span | "table 3 columns, 5 rows", "Service column 1 of 3", "spans 2 columns Hours column 2 of 3", "row 2 of 5 Service Leaves column 1 of 3", "Hours Arrives column 2 of 3", "row 3 of 5 Service Express column 1 of 3", "Hours Nine column 2 of 3", "Noon column 3 of 3", "row 4 of 5 Service Stopper column 1 of 3", "Hours Ten column 2 of 3", "Three column 3 of 3", "row 5 of 5 Service spans 2 columns Nothing on Sunday column 1 of…", "end of table" | "Service, Hours table", "Leaves, Arrives table", "Express, Nine, Noon table", "Stopper, Ten, Three table", "Nothing on Sunday table" |
+  | The table marked as layout | "Left side", "Right side", "Lower left", "Lower right" | "Table row group", recorded once for the two rows |
+  | The ruled table of plain cells | "table 2 columns, 2 rows", "North column 1 of 2", "Wet column 2 of 2", "row 2 of 2 South column 1 of 2", "Dry column 2 of 2", "end of table" | "North, Wet table", the page's last line |
+  | The long table | "table 3 columns, 41 rows", "Entry column 1 of 3", "Item column 2 of 3", "Sum column 3 of 3", "row 2 of 41 Entry Entry 01 column 1 of 3", "Item Item 01 column 2 of 3" | "Entry, Item, Sum table", "Entry 01, Item 01, Sum 01 table" (the second by word, run 38416874099) |
+  | Going into the first table | "In Stations on the branch table No selection. Station row 1 of 4…" | "In Station, Opened, Depth table Station column 1, row 1" |
+  | Into the second | "In table No selection. Service row 1 of 5 column 1 of 3" | "In Service, Hours table Service column 1, row 1" |
+  | Into the ruled one | "In table No selection. column 1 of 2 North row 1 of 2 column 1 o…" | "In North, Wet table column 1 of 2 North" |
+  | Into the long one | "In table No selection. Entry row 1 of 41 column 1 of 3" (at two seconds a key) | "In Entry, Item, Sum table Entry column 1, row 1" |
+  | Into a table at a later row | the first cell, whatever was read before | that row: "In Cedar, Reopened 1978, Forty metres table Station Cedar" |
+  | Across the header row | "Opened column 2 of 3", "Depth column 3 of 3" | "Opened column 2, row 1", "Depth column 3, row 1" |
+  | On into the next row and along it | "row 2 of 4 Station Alder column 1 of 3", "Opened 1901 column 2 of 3", "Depth Twelve metres column 3 of 3" | "Station Alder", "Opened 1901", "Depth Twelve metres" |
+  | Down a column to an empty cell, on, and back | "row 3 of 4 Birch blank column 3 of 3", "row 4 of 4 Cedar Forty metres", "row 3 of 4 Birch blank column 3 of 3" | "Birch empty cell", "Cedar Forty metres", "Birch empty cell" |
+  | Down the first column, of row header cells | "row 2 of 4 Alder", "row 3 of 4 Birch", "row 4 of 4 Cedar" | "Alder column 1, row 2", "Birch column 1, row 3", "Cedar column 1, row 4" |
+  | Down the long table's second column, and up to its header | "row 3 of 41 Item 02", "row 4 of 41 Item 03"; "row 3 of 41 Item 02", "row 2 of 41 Item 01", "row 1 of 41 Item" | "Item 02", "Item 03"; "Item 02", "Item 01", "Item" |
+  | Down from a column's last cell | the top of the next column: after "row 5 of 5 spans 2 columns Nothing on Sunday", "row 1 of 5 Service spans 2 columns Hours"; from the last column "end of table" | it stays: "Stopper column 1, row 4", "Wet column 2, row 1" |
+  | Control-Option-C on the empty cell | " Depth" | "Depth" |
+  | Control-Option-R there | "row 3 of 4" | "Birch" |
+  | Control-Option-C twice | " Depth", "Birch blank Cedar Forty metres" | "Depth", "Birch empty cell Cedar Forty metres cell" |
+  | Control-Option-R twice | nothing recorded | nothing new recorded; on #476's branch "Depth empty cell", "Birch" |
+  | Control-Option-Shift-T, once and twice | nothing recorded | "￼", the row's character in the text, and nothing |
+  | Control-Option-C and R on "Item 03" | " Item", "row 4 of 41" | "Item", "row 4 of 41" |
+  | The header cell that spans two columns | "spans 2 columns Hours column 2 of 3" | "Hours, Leaves Hours" |
+  | The two header cells under it | "row 2 of 5 Service Leaves column 1 of 3", "Hours Arrives column 2 of 3" | "Leaves", "Hours, Arrives Arrives" |
+  | The cells under those | "row 3 of 5 Service Express column 1 of 3", "Hours Nine column 2 of 3", "Noon column 3 of 3" | "Service Express", "Hours, Leaves Nine", "Hours, Arrives Noon" |
+  | Control-Option-C on Nine and on Noon | " Hours", " Hours" | "Hours, Leaves", "Hours, Arrives" |
+  | Control-Option-R on Nine | "row 3 of 5" | "row 3 of 5" |
+  | The cell that spans two rows, and down from it | "row 4 of 5 Service Stopper column 1 of 3", "row 5 of 5 spans 2 columns Nothing on Sunday" | "Service Stopper", "Stopper column 1, row 4" |
+  | The Actions menu on "1934" | "Actions menu 1 item", "show menu" | "Actions menu 1 item", "Select Cell Text" |
+  | Going into that cell, a word, and out | "In text", "1934", "Out of text" | "In text 1934", "1934", "Out of text" |
+  | Coming to the cell that is a link | "Opened link Reopened 1978 column 2 of 3" | "Opened Reopened 1978" |
+  | Control-Option-F3 there | "Reopened 1978 link is in the VoiceOver cursor" | "Reopened 1978 cell is in the VoiceOver cursor" |
+  | Its Actions menu | "Actions menu 2 items", "press", "show menu" | "Actions menu 2 items", "Select Cell Text", "Follow Link: Reopened 1978" |
+  | Going into it and out | "In link Reopened 1978 Reopened 1978", "Out of link Reopened 1978" | "In text Reopened 1978", "Out of text" |
+  | Following the link | "press" chosen from the menu: "press link Reopened 1978", then "Failed to open page web content", "Safari Can’t Open the Page" | Control-Option-Space on the cell: the page with "Link target reached" was shown, and "word1187 word1188 …", "text word1187 …"; on #476's branch "VoiceOver Verification window Open EPUB… button" |
+  | Leaving the table | "Out of table" | "Out of Station, Opened, Depth table" |
+  | VoiceOver's hint on a cell | "You are currently on a selectable text, inside of a cell." | "actions available You are currently on a cell, inside of a table…" |
+
+  What the two have in common: a table is "table" to VoiceOver; crossing a row it says the
+  column's header and then the cell, and down a column the row's header and then the cell,
+  each header once until it changes; Control-Option-C says the column's header; and
+  Control-Option-Shift-Down on a cell goes into its words. What Safari adds is VoiceOver's
+  speech for a table in a web page: the table's size on arriving and "end of table" after
+  it, "row 3 of 4" at each new row and "column 2 of 3" at each cell, "spans 2 columns",
+  "blank" for "empty cell", "No selection." on going in, and "link" for a cell that is
+  one. What the reader adds: a row's words in one phrase as the text is read, going in at
+  the row the listener has reached, both header cells over a column ("Hours, Leaves Nine"),
+  and the row's header at Control-Option-R, where Safari gave the row's number. The table
+  marked as layout is four items with their words in Safari, and in the reader two lines
+  that say "Table row group" and none of the words, as before #476.
+  Following the link failed in Safari for what is likely a reason of the session's own:
+  the section is a file, and Safari was given that file and not the one beside it. In the
+  reader Control-Option-Space on the cell followed the link in both sessions that sent it,
+  though the cell has no press. After it VoiceOver read the new page and was on its text
+  at `e8032b1`, as it was when Follow Link was chosen from the Actions menu (run
+  38391040735); at `f9eb33b` it left the text for the window's first button, which is the
+  page turned under a table's element of
+  [#485](https://github.com/vocaro/EPUBLib/issues/485). One session each.
+  What Safari gives a client of the accessibility API (`ax:tables`): one `AXTable` for a
+  table, its title the caption (`AXTitle` "Stations on the branch") and no label, with
+  `AXRows` (41 for the long table, 28 or 29 of them `AXVisibleRows`), `AXColumns`,
+  `AXVisibleCells`, `AXColumnHeaderUIElements` ("Station", "Opened", "Depth"),
+  `AXRowHeaderUIElements` ("Alder", "Birch", "Cedar": three for four rows), `AXHeader`,
+  `AXRowCount`, `AXColumnCount` and `AXSelectedCells`, and no `AXSelectedRows`. A cell is
+  an `AXCell` with `AXRowIndexRange`, `AXColumnIndexRange` and header cells of its own
+  ("Opened" and "Alder" for "1901"); it holds an `AXStaticText` or an `AXLink`, and nothing
+  where it is empty, and its actions are `AXShowMenu` and `AXScrollToVisible`. The table
+  marked as layout is no table: each of its four cells is a group of the page. The ruled
+  table of plain cells is a table with no header.
+  Safari has the second table's grid wrong. Its two cells that span rows are one row deep
+  (`AXRowIndexRange` 0,1 for "Service" and 3,1 for "Stopper"), so "Leaves" stands in the
+  first column, under "Service" and as the header of its row, the column of "Nine" is headed
+  by "Hours" alone, and "Nothing on Sunday" covers the first two columns. The reader gives
+  "Service" rows 0,2 and "Nothing on Sunday" columns 1,2, as HTML has them. That table's
+  rows are children of `table` itself, which XHTML allows and an HTML parser never leaves,
+  and WebKit's accessibility code ends a row group after each such row:
+  `processTableDescendant` in `AccessibilityNodeObject.cpp` empties its list of
+  downward-growing cells before each child of the table and runs the algorithm for ending a
+  row group after a row (WebKit at `ef9ea9b`, read on 2026-10-13), where HTML's algorithm
+  goes on to the next row. The first table and the long one have `thead` and `tbody`. So how
+  Safari reads a header under another, with the grid right, was not heard: the fixture's one
+  such table has its rows under `table`.
+  VoiceOver quit in Safari at Control-Option-C in three sessions: at the first press, on
+  "Item 03" of the long table, at four seconds a key (run 38416874099, session 5), and at
+  the eighth press and the ninth in two sessions of the tables of data at two seconds (run
+  38419267112, sessions 2 and 4, on the empty cell and on "Three"). It did not in twelve
+  presses down the long table's column at two seconds (session 3), nor in the six other
+  sessions that pressed the key one to three times. Each time the probe recorded "ERROR 3",
+  then "Safari is not responding" or nothing, and VoiceOver's opening phrase. The three
+  reports macOS wrote have one backtrace, an exception from `__CFStringCheckAndReplace` in
+  `-[SCRWebTableCell columnHeaderDescription]` under
+  `-[SCRTable _columnHeaderDescriptionForCellElement:headerIndex:]`: the method for a web
+  page's cell beside the one that failed in the reader while a cell named its own header
+  cells (the entry above). Safari's cells name theirs. The reader, whose cells name none,
+  was pressed Control-Option-C twelve times in its sessions here and did not quit. The
+  reports and the three transcripts are for
+  [#483](https://github.com/vocaro/EPUBLib/issues/483): the fault shows in Safari with an
+  HTML table, without the reader.
+  Four reader sessions of run 38416874099 (the first, third, fourth and sixth) sent
+  Control-Option-Shift-Down a line early and then read by word; nothing is taken from them
+  but the first table and the long one by word. Not heard: anyone listening, or any Mac but
+  the runner; Apple Books; the book served over HTTP, or a link followed out of a section in
+  Safari; the same tables parsed as HTML; a header under another in a table whose rows stand
+  in `tbody`; the reader in continuous scroll or in two columns beside Safari; and VoiceOver
+  in another language or with its verbosity changed.
 - On 2026-10-13 a table's select action was performed with VoiceOver on the physical iPad
   Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366, upright, 17 points), before and after a
   change to what it does ([#450](https://github.com/vocaro/EPUBLib/issues/450)), with the

@@ -56,6 +56,14 @@ xcrun xctest -XCTest All -AppleShowScrollBars Always .build/debug/EPUBViewingTes
 xcrun xctest -XCTest All -AppleShowScrollBars WhenScrolling .build/debug/EPUBViewingTests.xctest
 ```
 
+A Mac test takes a window through a live resize, as a drag of its edge does, with
+`setFrame(_:display:animate:)`: AppKit tells every view that a live resize starts, resizes the
+window through the sizes between, and tells every view that it has ended, before the call
+returns. `viewWillStartLiveResize()` called on a view does not reach its subviews, and AppKit's
+text view does its own work when a resize ends
+([Layout](native-viewer.md#layout), "Continuous scroll"). `ScrolledLiveResizeTests` has the
+helper, with a view that counts the calls, and skips where AppKit resizes without one.
+
 A `swift test` that hangs can be made to say where. Written to a file or a pipe, its output
 arrives 16 KB at a time, so the log of a run that hangs stops short of the hang, or is empty.
 With `NSUnbufferedIO=YES` in its environment `swift test` writes each line as a test makes
@@ -375,7 +383,8 @@ typographic review, an accessibility audit or a memory budget measurement. They 
 VoiceOver speech or focus order, keyboard-only traversal, native toolbar overflow or iPhone Duo
 layouts ([#51](https://github.com/vocaro/EPUBLib/issues/51)), which need live sessions.
 The suite runs on OS 27; older platforms are outside the package's deployment targets. Simulator
-coverage does not substitute for hardware performance and accessibility testing.
+coverage does not substitute for hardware performance and accessibility testing, except for
+what a simulator's VoiceOver reads, as the next paragraph says.
 
 For real VoiceOver sessions, use the [VoiceOver testing process](voiceover-testing.md) and
 the isolated `Examples/VoiceOverVerification` reader. Its diagnostic speech probe is outside
@@ -383,8 +392,10 @@ the local gate because it takes control of the user interface and changes VoiceO
 `scripts/run-voiceover-simulator.py` runs that probe on simulators of its own, with no window
 and no sound, and takes over nothing: it records what a
 [simulator's VoiceOver](voiceover-testing.md#simulators) reads, in order and after a page
-turn. That VoiceOver activates nothing it reads, so page actions, the rotor and acceptance
-stay with the Mac and physical devices.
+turn, and that record is
+[acceptance evidence](voiceover-testing.md#acceptance-and-evidence) for it on an iPhone and
+iPad. That VoiceOver activates nothing it reads, so what VoiceOver activates, the actions it
+performs from the rotor and page turns in landscape stay with physical devices.
 
 ## Corpus runs
 

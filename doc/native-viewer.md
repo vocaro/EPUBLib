@@ -552,11 +552,12 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       the header's row, holding a text area, a label as well or a label alone (three
       sessions of three at two seconds a key, and two of those recorded at four), or an
       element of its own with a label (one session of seven at two seconds). Its method
-      for a row's header is the same code. So no cell names a header. The table does, as
-      AppKit's own tables do: one header for each column and one for each row of the whole
-      table, and VoiceOver takes the one at a cell's column and at its row. With that it
-      said the same headers and did not quit, in seventeen sessions at two or three
-      seconds a key and ten at four. Whether to tell Apple is
+      for a row's header is the same code. It quit the same way in Safari, whose cells
+      do name their header cells (Beside Safari, below). So no cell names a header. The
+      table does, as AppKit's own tables do: one header for each column and one for each
+      row of the whole table, and VoiceOver takes the one at a cell's column and at its
+      row. With that it said the same headers and did not quit, in seventeen sessions at
+      two or three seconds a key and ten at four. Whether to tell Apple is
       [#483](https://github.com/vocaro/EPUBLib/issues/483).
       What heads a column or a row is its one header cell, where that cell is on screen
       with its text areas: VoiceOver reads a header cell by what it holds, and does not
@@ -599,17 +600,92 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       a table at its selected row, or failing that at the first row on screen, so a table
       that selects the row it stands at is entered there, and says only its label and
       "table" as long as it says nothing of selected cells.
+    - **Beside Safari.** The same sections were heard as web pages in Safari 27.0.1 on
+      the same runner, with the same keys
+      ([VoiceOver testing](voiceover-testing.md), the second entry of 2026-10-13 on tables
+      of data on Mac, which has both sets of phrases). Safari gives a table as one
+      `AXTable` with rows, columns, cells that say which rows and columns they cover, and
+      header cells for its columns and rows, which is what the reader gives at each row.
+      Three things differ in what is given: Safari's table is named by its caption, its
+      cells name header cells of their own, and it says which cells are selected and not
+      which row. The headers are heard alike: crossing a row VoiceOver says the column's
+      header and the cell, down a column the row's, each once until it changes, and
+      Control-Option-C says the column's header. The rest of what VoiceOver says differs,
+      and most of that is VoiceOver's: it has one way of speaking for a table in a web
+      page and another for a table anywhere else (`SCRWebTable` and `SCRTable` in the
+      reports macOS wrote). Four things a listener in the reader does not get, with what
+      closing each would take:
+      - **The table's size, its name and its end.** Safari: "Stations on the branch
+        table 3 columns, 4 rows" on coming to the table, and "end of table" past its last
+        cell. The reader: the caption as a line, "Station, Opened, Depth table", and after
+        the last row the next line of the text. VoiceOver says a table's size when its
+        cursor comes to the table itself, and in a text it reads an attachment by what
+        the attachment is called and its role. So the reader would say it: the table at
+        a table's first row called by the count too, or by the caption, in words of the
+        reader's own that need translating, where VoiceOver's are translated for it. The
+        size is worth it, because it tells a listener whether to go in. It is to be heard
+        on a runner first: what VoiceOver does with more in that label is not known.
+        Whether the caption is to name the table is with
+        [#486](https://github.com/vocaro/EPUBLib/issues/486); in Safari it does, and it is
+        no item of its own.
+      - **Where a cell stands.** Safari says "row 3 of 4" at each new row and "column 2 of
+        3" at each cell. The reader says the headers, and a number only where nothing
+        heads a row or a column ("column 2 of 2 Wet"), where VoiceOver cannot move on
+        ("Stopper column 1, row 4"), and at Control-Option-R in a row no cell heads ("row
+        4 of 41"). Down the long table that is "Item 02", "Item 03" against "row 3 of 41
+        Item 02", "row 4 of 41 Item 03". It is VoiceOver's speech for a web page's table;
+        nothing was tried that might bring it to another, and numbers put into each
+        cell's own words would be said in the reader's English at every cell. Not worth
+        closing that way.
+      - **A cell that is a link.** Safari: "Opened link Reopened 1978 column 2 of 3", with
+        VoiceOver's cursor on the link, whose Actions menu has "press". The reader: "Opened
+        Reopened 1978", and "actions available" in the hint that follows; "link" is not
+        said, and Follow Link is in the Actions menu. Control-Option-Space on the cell did
+        follow the link in the two sessions that pressed it, though the cell has no press;
+        after it VoiceOver was on the new page's text in one and out of the text, on the
+        window's first button, in the other, on an earlier build
+        ([#485](https://github.com/vocaro/EPUBLib/issues/485)). Closing it: a cell whose
+        words are one link given a press that follows it, as a double tap does on iPhone
+        and iPad, and then heard, for whether VoiceOver calls such a cell a link or the
+        reader has to.
+      - **A table that is not data.** Safari reads the four cells of the table marked as
+        layout as four items with their words: "Left side", "Right side", "Lower left",
+        "Lower right". The reader says "Table row group" at each row and none of the
+        words, as it did before for every table; they are heard only by going into each
+        group. It is the largest of the four, because words of the book go unsaid to a
+        listener who reads on, and the smallest to close: the group called by its row's
+        words, which the text has at hand where it calls it "Table row", and then heard
+        by line and by word.
+
+      Where the reader gives more: a row's words in one phrase as the text is read; going
+      in at the row the listener has reached, where Safari goes in at the first cell;
+      both header cells over a column ("Hours, Leaves Nine", where Safari said "Hours
+      Nine"); and the row's header at Control-Option-R ("Birch", where Safari said "row 3
+      of 4"). Safari says "spans 2 columns" of a cell that spans, where the reader reads
+      such a header cell under the first of its columns, "Hours, Leaves Hours"; that is
+      the cost of one header for a column, given above.
+      Two things Safari did are faults of its own. It gave the cells that span rows in
+      the table of spans as one row deep, so that "Leaves" stood in the first column
+      under "Service": that table's rows are children of `table`, as XHTML allows, and
+      WebKit's accessibility code ends a row group after each such row. So Safari did not
+      show how it reads a header under another. And VoiceOver quit at Control-Option-C in
+      three of ten sessions of Safari that pressed it, with the exception it raised in
+      the reader, here from its method for a web page's cell
+      (`-[SCRWebTableCell columnHeaderDescription]`). Safari's cells name their own
+      header cells; the reader's name none, and the table gives the headers. So the fault
+      can be shown to Apple with Safari and a table, and no app of ours
+      ([#483](https://github.com/vocaro/EPUBLib/issues/483)).
     - **Not done.** A cell offers no page turn: the text area does, one step out of the
       table. Nothing gives VoiceOver the table's caption as the table's name; it is a
       line of the text before the rows or after them, as it is drawn. Both are to be
       decided, with the header cell under another and where VoiceOver is after it leaves
       a table ([#486](https://github.com/vocaro/EPUBLib/issues/486)).
-    - **Not heard.** Anyone listening, or a Mac that is not the hosted runner. What Safari
-      or Books says of the same table on a Mac was not recorded, so "as Safari does" is
-      true of the roles and attributes given and not of the speech. A table in a spread of
-      two columns, one in a note's popover, a picture's Inspect Image chosen from a cell,
-      Read All through a table, and VoiceOver in a language other than English
-      ([#484](https://github.com/vocaro/EPUBLib/issues/484)).
+    - **Not heard.** Anyone listening, or a Mac that is not the hosted runner. Apple Books
+      on a Mac. Beside Safari, a header under another in a table whose rows stand in
+      `tbody`, a link followed out of its section, and the reader in continuous scroll. A
+      table in a spread of two columns, one in a note's popover, a picture's Inspect Image
+      chosen from a cell, Read All through a table, and VoiceOver in a language other than
+      English ([#484](https://github.com/vocaro/EPUBLib/issues/484)).
   - **Not done.** A table inside a cell is read as its cell's words, as before. Headings
     inside a table are not found by the Headings rotor, as before.
   - **Not resolved.** On an iPhone simulator the rotor once went from Rows to Actions part
@@ -866,6 +942,24 @@ as they did.
   of where it was last read has not moved and nobody has scrolled it: its first line is still
   held, and the position kept is still the one shown, not the visible start
   ([#302](https://github.com/vocaro/EPUBLib/issues/302)).
+  AppKit's text view also scrolls itself when a live resize of its window ends, after a drag
+  of the window's edge and after a resize made with animation or by an assistive client: the
+  paragraph under the clip view's top edge goes to that edge, from its first line
+  (`-[NSTextView viewDidEndLiveResize]`, which scrolls to the paragraph's start with no
+  offset, macOS 27.0). That edge is above the first line on screen by the text's 48-point
+  top margin, and by the height of a toolbar over the reader. A reader at the top of its book
+  stood 48 points down, its title above the screen, and 114 points down under a 66-point
+  toolbar. Anywhere else the text went back to the start of a paragraph, 279 and 304 points
+  in the tests' prose, and further at each resize: 574 and 650 points after a second and a
+  third. The reader took that for a scroll by the person: it kept the new
+  place, and put the insertion point VoiceOver enters at on the line then first on screen.
+  AppKit tells a view that the resize has ended before it tells that view's subviews, so the
+  canvas has rested the kept position by the time the text view scrolls. The reader reads
+  where the view stands before that scroll and puts it back straight after, at the offset it
+  had and then with its first line where that line was, before anything is drawn. Nobody
+  has scrolled and the position kept is unchanged: in a pane whose size the resize leaves
+  alone, text the person scrolled to stays where it is, a line cut by the top edge with it
+  ([#479](https://github.com/vocaro/EPUBLib/pull/479)).
   A layout the reader makes itself is not one behind the view, and it
   forgets where that line stood when it makes one: for new text, for a new column width, and
   when a new visible height (the window's, or the safe area's alone) resolves the book's

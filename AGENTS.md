@@ -29,8 +29,9 @@ Drive iOS simulators headlessly, with `xcrun simctl` and `xcodebuild`.
   `Executed N tests` line of every filtered run. In zsh a list of names held in one variable
   is passed as one argument, which matches nothing: hold them in an array.
 - VoiceOver runs in a simulator too. `scripts/run-voiceover-simulator.py` records what it
-  reads on simulators of its own, muted; [VoiceOver testing](doc/voiceover-testing.md#simulators)
-  says what that does and does not establish.
+  reads on simulators of its own, muted, and that record is acceptance evidence for what
+  VoiceOver reads on an iPhone and iPad. It is not evidence that VoiceOver activates
+  anything: see [Tests are automated](#tests-are-automated) below.
 - Do not open a live simulator view or any tool that takes control of a simulator's screen
   (in the Claude desktop app, the iOS Simulator tool) unless the owner has asked to watch.
   Such a tool asks him to approve each device, and a test device is new on every run, so he
@@ -46,6 +47,13 @@ what happened. Tests are run by automation.
   swipe scrolls the control strip was put to a finger and answered by a synthetic touch that
   moves at once, with the host recording each touch
   ([reader controls](doc/issue-49-51-controls-qualification.md#evidence-and-repeating-it)).
+- For VoiceOver on an iPhone and iPad, a device shows three things a simulator does not:
+  VoiceOver activating the item under its cursor, an action performed from the rotor, and a
+  page turned in landscape. What VoiceOver reads, in what order, and where its cursor and
+  rotor move is settled in the simulator lane. The owner decided on 2026-10-13 that such a
+  session is acceptance evidence, so do not ask for a device to hear it again, and do not
+  file an issue for a device session that would
+  ([VoiceOver testing](doc/voiceover-testing.md#acceptance-and-evidence)).
 - His approval of a run on his device covers installing and launching there. It is not an
   offer to operate it.
 - Record what automation cannot reach as not verified, and leave it to him.
