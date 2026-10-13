@@ -15,15 +15,6 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     }
 }
 
-/// PROTOTYPE switch: `none` gives a table no header cells at all.
-enum ReaderDataTablePrototype {
-    static var headers: String { UserDefaults.standard.string(forKey: "ReaderMacTableHeaders") ?? "table" }
-    /// What a header that is no cell on screen is: `title` (a cell with a title), `text` (a
-    /// static text with a value), `button` (a button with a title) or `child` (a cell that
-    /// holds a static text with a value and the table's frame).
-    static var headerName: String { UserDefaults.standard.string(forKey: "ReaderMacTableHeaderName") ?? "title" }
-}
-
 /// The tables of data in one text view, as an assistive technology on the Mac is given them
 /// (doc/native-viewer.md, "Data tables"). A table is drawn as an attachment for each row, so a
 /// row's character is all the text has to give a table at. Each row's character gives a table
@@ -224,29 +215,38 @@ enum ReaderDataTablePrototype {
         return cells(of: row).first { $0.cell == index }
     }
 
-    /// The header of each column, in column order: VoiceOver takes the one at a cell's
-    /// column (PROTOTYPE text; see `headerElement`). None where no column has a header cell.
+    // MARK: Header cells
+    //
+    // The table gives a header for each column and for each row, and no cell names header
+    // cells of its own. VoiceOver takes the table's header at a cell's column and at its
+    // row, as it does in AppKit's own tables. Asked of the cell instead, it quit: its
+    // `-[SCRCell columnHeaderDescription]` appends the first header's description to a
+    // string without looking, and that description came back nil now and then, whatever
+    // the header element was (macOS 27.0.1; doc/voiceover-testing.md has the reports).
+
+    /// The header of each column, in column order. None where no column has a header cell.
     private var columnHeaders: [NSAccessibilityElement] {
-        guard ReaderDataTablePrototype.headers != "none" else { return [] }
         let heads = (0..<table.columnCount).map { table.columnHeaders($0) }
         guard heads.contains(where: { !$0.isEmpty }) else { return [] }
         return heads.enumerated().map { headerElement($1, key: $0) }
     }
 
-    /// The header of each row of the whole table, in row order.
+    /// The header of each row of the whole table, in row order: a page's table answers for
+    /// its rows by their numbers in the whole table.
     private var rowHeaders: [NSAccessibilityElement] {
-        guard ReaderDataTablePrototype.headers != "none" else { return [] }
         let heads = table.rows.indices.map { table.rowHeaders($0) }
         guard heads.contains(where: { !$0.isEmpty }) else { return [] }
         return heads.enumerated().map { headerElement($1, key: -1 - $0) }
     }
 
-    /// What heads a column or a row: its one header cell where the view lists it, and
-    /// otherwise an element that says the words of its header cells and holds nothing.
+    /// What heads a column or a row. Its one header cell, where that is on screen with its
+    /// text areas: VoiceOver reads a header cell by what it holds, and does not read a cell
+    /// under itself. Otherwise the words of its header cells, top or first one first, as
+    /// static text: several header cells, one on another page, or one far off the screen.
     private func headerElement(_ cells: [Int], key: Int) -> NSAccessibilityElement {
         if cells.count == 1, let listed = listed(cells[0]), listed.holdsText { return listed }
-        if let kept = headerNames[key] { return kept }
         let words = cells.map { table.cells[$0].text }.filter { !$0.isEmpty }.joined(separator: ", ")
+        if let kept = headerNames[key], kept.words == words { return kept }
         let name = ReaderTableHeaderElement(table: self, words: words)
         headerNames[key] = name
         return name
@@ -392,44 +392,26 @@ enum ReaderDataTablePrototype {
     }
 }
 
-/// The header of a column or of a row where it is not one cell the view lists: the words of
-/// its header cells, for VoiceOver to say, in no row and nowhere for its cursor to go.
+/// The header of a column or of a row where it is not one cell on screen: the words of its
+/// header cells as static text, for VoiceOver to say, in no row and nowhere for its cursor to
+/// go. VoiceOver said the words of a static text with a value, of a button with a title and
+/// of a cell that held a static text, and not those of a cell with a title or a label. A
+/// column or a row that nothing heads has an element without words, where VoiceOver says the
+/// column's or the row's number instead.
 @MainActor final class ReaderTableHeaderElement: NSAccessibilityElement {
     private weak var table: ReaderTableElement?
     let words: String
-    private var child: NSAccessibilityElement?
-    private let kind = ReaderDataTablePrototype.headerName
 
     init(table: ReaderTableElement, words: String) {
         self.table = table
         self.words = words
         super.init()
+        setAccessibilityRole(words.isEmpty ? .cell : .staticText)
         setAccessibilityParent(table)
-        switch kind {
-        case "text":
-            setAccessibilityRole(.staticText)
-            setAccessibilityValue(words)
-        case "button":
-            setAccessibilityRole(.button)
-            setAccessibilityTitle(words)
-        case "child":
-            setAccessibilityRole(.cell)
-            let text = NSAccessibilityElement()
-            text.setAccessibilityRole(.staticText)
-            text.setAccessibilityValue(words)
-            text.setAccessibilityParent(self)
-            text.setAccessibilityFrame(table.accessibilityFrame())
-            child = text
-            setAccessibilityChildren([text])
-            setAccessibilityFrame(table.accessibilityFrame())
-        default:
-            setAccessibilityRole(.cell)
-            setAccessibilityTitle(words)
-        }
+        if !words.isEmpty { setAccessibilityValue(words) }
     }
 
     override func accessibilityParent() -> Any? { onMain(self) { $0.table } }
-    override func accessibilityTitle() -> String? { onMain(self) { $0.kind == "title" || $0.kind == "button" ? ($0.words.isEmpty ? nil : $0.words) : nil } }
 }
 
 /// A cell of a table of data, where the view shows it. It holds the text areas of its words

@@ -89,11 +89,11 @@ import XCTest
     private func said(_ cells: [Any]?) -> [String] { (cells ?? []).compactMap { $0 as? ReaderTableCellElement }.map(said) }
 
     /// What VoiceOver says of each header a table gives: a cell's words where the header is
-    /// a cell on screen, and otherwise the title of the element that stands for it.
+    /// a cell on screen, and otherwise the value of the static text that stands for it.
     private func headed(_ headers: [Any]?) -> [String] {
         (headers ?? []).map { header in
             if let cell = header as? ReaderTableCellElement { return said(cell) }
-            return (header as? ReaderTableHeaderElement)?.accessibilityTitle() ?? ""
+            return (header as? ReaderTableHeaderElement)?.accessibilityValue() as? String ?? ""
         }
     }
 
@@ -191,7 +191,9 @@ import XCTest
                 XCTAssertEqual(headed(rowHeaders), ["", "Alder", "Birch", "Cedar"], "\(place): one for each row, and no words for the header row")
                 XCTAssertTrue(rowHeaders.dropFirst().elementsEqual([cells[3], cells[6], cells[9]]) { $0 as AnyObject === $1 }, place)
                 let unheaded = try XCTUnwrap(rowHeaders.first as? ReaderTableHeaderElement, place)
-                XCTAssertNil(unheaded.accessibilityTitle(), place)
+                XCTAssertNil(unheaded.accessibilityValue(), place)
+                XCTAssertNil(unheaded.accessibilityLabel(), place)
+                XCTAssertEqual(unheaded.accessibilityRole(), .cell, "\(place): not a text without words")
                 XCTAssertTrue(unheaded.accessibilityParent() as AnyObject === table, place)
                 XCTAssertTrue(cells.allSatisfy { $0.accessibilityColumnHeaderUIElements() == nil && $0.accessibilityRowHeaderUIElements() == nil }, place)
 
@@ -291,18 +293,18 @@ import XCTest
             let columns = try XCTUnwrap(table.accessibilityColumns() as? [ReaderTableColumnElement], flow)
             XCTAssertEqual(said(columns[2].accessibilityChildren()), ["Hours", "Arrives", "Noon", "Three", "Nothing on Sunday"], flow)
 
-            // A column under two header cells has one header that says both, top first: an
-            // element of its own, in no row, with their words as its title.
+            // A column under two header cells has one header that says both, top first: a
+            // static text of its own, in no row, with their words.
             let headers = table.accessibilityColumnHeaderUIElements() ?? []
             XCTAssertEqual(headed(headers), ["Service", "Hours, Leaves", "Hours, Arrives"], flow)
             XCTAssertTrue(headers.first as AnyObject === (try cell("Service")), flow)
             for header in headers.dropFirst() {
                 let name = try XCTUnwrap(header as? ReaderTableHeaderElement, flow)
-                XCTAssertEqual(name.accessibilityRole(), .cell, flow)
+                XCTAssertEqual(name.accessibilityRole(), .staticText, flow)
                 XCTAssertTrue(name.accessibilityParent() as AnyObject === table, flow)
                 XCTAssertNil(name.accessibilityChildren(), flow)
             }
-            XCTAssertTrue((table.accessibilityColumnHeaderUIElements() ?? []).elementsEqual(headers) { $0 as AnyObject === $1 }, "\(flow): the same elements each time")
+            XCTAssertTrue((table.accessibilityColumnHeaderUIElements() ?? []).elementsEqual(headers) { $0 as AnyObject === $1 as AnyObject }, "\(flow): the same elements each time")
             XCTAssertTrue(columns[2].accessibilityHeader() as AnyObject === headers[2] as AnyObject, flow)
             XCTAssertEqual((table.accessibilityRowHeaderUIElements() ?? []).count, 0, "\(flow): no cell here heads a row")
         }
