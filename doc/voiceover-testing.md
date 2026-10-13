@@ -64,9 +64,15 @@ row and a header cell in each row, an empty cell and a cell that is a link; one 
 cells span two rows and two columns, as two of its data cells do; one given
 `role="presentation"`; and one of plain cells that only its rules mark as data. A tenth,
 **A table longer than a page** (`OPS/ledger.xhtml`), has forty numbered rows under a header
-row, and an eleventh, **A row taller than a page** (`OPS/tallrow.xhtml`), the book's last, a
+row, and an eleventh, **A row taller than a page** (`OPS/tallrow.xhtml`), a
 cell of 2,600 numbered words. None of their words is one VoiceOver uses for a table, so
-"row", "column" and "table" in a transcript are its own. A second
+"row", "column" and "table" in a transcript are its own. A twelfth, **Jumps at the edges of
+a grid** (`OPS/edges.xhtml`), the book's last, holds a table of data whose header cells are
+links: the rows "Dogwood" and "Elm" are each headed by a cell that is one link and nothing
+else, the row "Fir" by plain words, and the middle column by such a link, "Built", over
+"1912", "1947" and a cell that is a link itself, "Relaid 1960". "Words before the routes."
+stands before the table and sixty numbered lines after it. It has no heading, and none of
+its words is one VoiceOver uses for a table, a header or a link. A second
 bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
@@ -77,7 +83,8 @@ after the numbered paragraph, the two parked ones (level 1), each opening its se
 "Pictures and their words", "Scenes set apart", "What each line offers", "Tables of data",
 "A table longer than a page" and "A row taller than a page" (level 1), each opening its
 section; the sections of entries and of jumps inside a grid, between "What each line
-offers" and "Tables of data", have none. The second book's are "Chapter one", "Chapter two"
+offers" and "Tables of data", have none, and nor has the last, of jumps at a grid's edges.
+The second book's are "Chapter one", "Chapter two"
 and "Chapter three", screens apart.
 Do not import private books for this check.
 
