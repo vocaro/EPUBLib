@@ -223,8 +223,15 @@ heading. One test takes a single element through a book whose every page opens w
 kind of item, a table row, a picture, a link, a heading, a formula and a rule, and back: on
 each page it must answer what a new element for that page's first item answers, in its
 label, heading level, traits, language, frame and actions, and activating it must do what
-that item does and nothing the last one did. Another holds a data table's cell to being left
-and come to as an element of its own. They also hold an element kept from one page to
+that item does and nothing the last one did. Another takes the cursor through a book whose
+pages open with a data table's cells of each kind, a header cell, a cell that is a link, a
+cell of one picture and the cells of a table longer than a page, between pages of lines, and
+back. A line's element must become the cell that opens the next page, in the list of that
+page's table and not in the view's, with that cell's row, column, header cells and actions,
+and a cell's element the line; each must be a cell, or not, to one who asks it as UIKit does
+(`conformsToProtocol:` and `respondsToSelector:`). From a cell to a cell the element posted
+must be the new cell's own, and the cell left what it was. A third does the same across an
+iPad's spread, where the element changes column. They also hold an element kept from one page to
 standing for no line of the next, on pages whose lines have the same characters counted
 from each page's first, and to standing for its own line when its page is shown again. That
 VoiceOver reads the line for the layout change, draws its cursor there and keeps its rotor,
