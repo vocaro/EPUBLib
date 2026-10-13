@@ -445,7 +445,16 @@ final class ReaderTextView: NSTextView {
         return (super.accessibilityCustomActions() ?? []) + [EPUBPageAction.next, .previous].map { action in
             NSAccessibilityCustomAction(name: action.label(in: flow)) { [weak self] in
                 guard let canvas = self?.canvas else { return false }
-                canvas.turnPageFromInput(forward: action == .next)
+                // PROBE, not for merge: two switches for one hosted run.
+                let perform = { [weak self] in
+                    guard let self, let canvas = self.canvas else { return }
+                    let shown = canvas.visibleRange
+                    canvas.turnPageFromInput(forward: action == .next)
+                    if UserDefaults.standard.bool(forKey: "ProbeFocusFirst"), canvas.visibleRange != shown,
+                       let first = canvas.textViews.first, first !== self { canvas.focus(first) }
+                }
+                if UserDefaults.standard.bool(forKey: "ProbeDefer") { DispatchQueue.main.async(execute: perform) } else { perform() }
+                _ = canvas
                 return true
             }
         }
