@@ -187,3 +187,151 @@ import XCTest
         }
     }
 }
+
+// TEMPORARY, removed before the pull request: measures which changes to the end of
+// `EPUBEngineContract.verify` catch a callback an engine sends from a 30 ms timer of its own
+// (issue 62). Not for main.
+@MainActor private final class LateCallbackProbe {
+    enum Engine: String { case task = "Task.sleep", dispatch = "main.asyncAfter", timer = "Timer" }
+    var onEvent: (() -> Void)?
+    var started: ContinuousClock.Instant?
+    var called: ContinuousClock.Instant?
+    private func call() { called = .now; onEvent?() }
+    /// As a session's `close()` that sends a callback 30 ms later, from a timer of the kind given.
+    func close(_ engine: Engine) {
+        switch engine {
+        case .task:
+            // As the broken engine of `EngineContractTests` did before pull request 421.
+            Task {
+                started = .now
+                try? await Task.sleep(for: .milliseconds(30))
+                call()
+            }
+        case .dispatch:
+            started = .now
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(30)) { MainActor.assumeIsolated { self.call() } }
+        case .timer:
+            started = .now
+            Timer.scheduledTimer(withTimeInterval: 0.03, repeats: false) { _ in MainActor.assumeIsolated { self.call() } }
+        }
+    }
+}
+
+@MainActor final class EngineContractTimingProbeTests: XCTestCase {
+    /// One thing the verifier's side does: before it first looks for the callback, or between looks.
+    private enum Step {
+        case sleep(Int), exactSleep(Int), slices(Int, of: Int), yields(Int), hops(Int)
+        var name: String {
+            switch self {
+            case .sleep(let ms): "\(ms) ms sleep"
+            case .exactSleep(let ms): "\(ms) ms sleep with no tolerance"
+            case .slices(let count, let ms): "\(count) sleeps of \(ms) ms"
+            case .yields(let count): count == 1 ? "1 yield" : "\(count) yields"
+            case .hops(let count): count == 1 ? "1 hop to a global queue and back" : "\(count) hops"
+            }
+        }
+        @MainActor func run() async throws {
+            switch self {
+            case .sleep(let ms): try await Task.sleep(for: .milliseconds(ms))
+            case .exactSleep(let ms): try await Task.sleep(for: .milliseconds(ms), tolerance: .zero)
+            case .slices(let count, let ms): for _ in 0..<count { try await Task.sleep(for: .milliseconds(ms)) }
+            case .yields(let count): for _ in 0..<count { await Task.yield() }
+            case .hops(let count):
+                // The queue a sleep's timer is delivered on, for a task of this priority.
+                let queue = DispatchQueue.global(qos: Task.currentPriority >= .userInitiated ? .userInitiated : .default)
+                for _ in 0..<count {
+                    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                        queue.async { continuation.resume() }
+                    }
+                }
+            }
+        }
+    }
+    /// A quiet period after close, and what is then tried one after another, with a look after each.
+    private struct Shape {
+        let engine: LateCallbackProbe.Engine
+        let quiet: [Step]
+        let ladder: [Step]
+        let attempts: Int
+        var name: String { "\(engine.rawValue) engine; quiet period: \(quiet.map(\.name).joined(separator: " + "))" }
+    }
+    private func milliseconds(_ duration: Duration) -> Double {
+        Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
+    }
+    /// One attempt as the verifier ends: close, wait, then look for the callback, and look again
+    /// after each step of the ladder. `seen` is the look that first found it: 0 the first, nil none.
+    private func attempt(_ shape: Shape) async throws -> (seen: Int?, start: Double, call: Double, look: Double) {
+        var events = 0
+        let probe = LateCallbackProbe()
+        probe.onEvent = { events += 1 }
+        let closed = ContinuousClock.now
+        probe.close(shape.engine)
+        for step in shape.quiet { try await step.run() }
+        let looked = ContinuousClock.now
+        var seen: Int? = events == 1 ? 0 : nil
+        for (index, step) in shape.ladder.enumerated() {
+            try await step.run()
+            if seen == nil, events == 1 { seen = index + 1 }
+        }
+        while probe.called == nil { try await Task.sleep(for: .milliseconds(5)) }
+        return (seen, milliseconds(probe.started! - closed), milliseconds(probe.called! - closed), milliseconds(looked - closed))
+    }
+    func testWhichHardeningCatchesATimer() async throws {
+        let scale = Double(ProcessInfo.processInfo.environment["EPUBLIB_PROBE_SCALE"] ?? "") ?? 1
+        func count(_ attempts: Int) -> Int { max(Int(Double(attempts) * scale), 2) }
+        print("PROBE priority \(Task.currentPriority.rawValue), scale \(scale)")
+        let rest: [Step] = [.yields(1), .yields(9), .sleep(1), .sleep(20)]
+        let shapes = [
+            // The candidates, each beside the verifier as it is: the first look is the verifier's.
+            Shape(engine: .task, quiet: [.sleep(150)], ladder: [.yields(1), .yields(1), .yields(8), .yields(90)], attempts: count(200)),
+            Shape(engine: .task, quiet: [.sleep(150)], ladder: [.sleep(20)], attempts: count(200)),
+            // A yield first lets what the engine queued while closing start before the quiet
+            // period does, so a timer it starts there is due before the period's own.
+            Shape(engine: .task, quiet: [.yields(1), .sleep(150)], ladder: [.sleep(20)], attempts: count(200)),
+            Shape(engine: .task, quiet: [.sleep(150)], ladder: [.sleep(1), .sleep(20)], attempts: count(100)),
+            Shape(engine: .task, quiet: [.sleep(150)], ladder: [.hops(1), .hops(1), .sleep(20)], attempts: count(50)),
+            // Other ways to spend the quiet period itself.
+            Shape(engine: .task, quiet: [.exactSleep(150)], ladder: rest, attempts: count(50)),
+            Shape(engine: .task, quiet: [.slices(15, of: 10)], ladder: rest, attempts: count(50)),
+            // Other timers an engine might use.
+            Shape(engine: .dispatch, quiet: [.sleep(150)], ladder: rest, attempts: count(100)),
+            Shape(engine: .timer, quiet: [.sleep(150)], ladder: rest, attempts: count(100)),
+        ]
+        for (number, shape) in shapes.enumerated() {
+            var missed = Array(repeating: 0, count: shape.ladder.count + 1), never = 0, late = 0, together = 0
+            var lateness: [Double] = [], calls: [Double] = [], starts: [Double] = []
+            for _ in 0..<shape.attempts {
+                let result = try await attempt(shape)
+                // Missed by a look: the callback had not come by then.
+                for look in missed.indices where result.seen.map({ $0 > look }) ?? true { missed[look] += 1 }
+                if result.seen == nil { never += 1 }
+                if result.seen != 0 { lateness.append(result.call - result.look) }
+                if result.call > 100 { late += 1 }
+                if abs(result.call - result.look) < 1 { together += 1 }
+                calls.append(result.call); starts.append(result.start)
+            }
+            calls.sort(); starts.sort(); lateness.sort()
+            var fields = ["first look=\(missed[0])"]
+            var sofar: [String] = []
+            for (index, step) in shape.ladder.enumerated() {
+                sofar.append(step.name)
+                fields.append("then \(sofar.joined(separator: " + "))=\(missed[index + 1])")
+            }
+            print("PROBE|\(number + 1)|\(shape.name)|attempts=\(shape.attempts)|missed after: " + fields.joined(separator: "; ")
+                + String(format: "|callback over 100 ms after close=%d|within 1 ms of the first look=%d|callback after close: median %.1f ms, most %.1f ms|engine started after close: most %.1f ms|callback after a first look that missed it: most %.3f ms, median %.3f ms",
+                         late, together, calls[calls.count / 2], calls.last!, starts.last!,
+                         lateness.last ?? 0, lateness.isEmpty ? 0 : lateness[lateness.count / 2]))
+        }
+        // A 30 ms sleep with no other timer waiting in the process: how long it takes.
+        var alone: [Double] = []
+        for _ in 0..<count(200) {
+            let began = ContinuousClock.now
+            try await Task.sleep(for: .milliseconds(30))
+            alone.append(milliseconds(ContinuousClock.now - began))
+        }
+        alone.sort()
+        print(String(format: "PROBE|10|a 30 ms sleep alone|attempts=%d|took: median %.1f ms, 99th percentile %.1f ms, most %.1f ms|over 40 ms=%d|over 100 ms=%d",
+                     alone.count, alone[alone.count / 2], alone[alone.count - 1 - alone.count / 100], alone.last!,
+                     alone.filter { $0 > 40 }.count, alone.filter { $0 > 100 }.count))
+    }
+}
