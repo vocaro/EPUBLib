@@ -55,11 +55,6 @@ struct ReaderLinkElements {
     func followLink(_ url: URL, at range: NSRange) -> Bool
     /// Enlarges a picture that stands in a link. False where nothing takes it.
     func inspectLinkedImage(_ image: ReaderImageAttachment) -> Bool
-    /// VoiceOver has moved to the element of the link at `range`: the insertion point goes
-    /// there, and the link is shown where none of it is on screen.
-    func showLink(at range: NSRange)
-    /// Whether the insertion point is on the link at `range`, where `showLink` puts it.
-    func showsLink(at range: NSRange) -> Bool
 }
 
 extension ReaderLinkHost {
@@ -199,7 +194,7 @@ extension ReaderLinkHost {
     /// at `place`. From a link VoiceOver's Find Next Link goes on through the children of the
     /// link's own parent, so a link that a page lists has to be a child of the page to be one
     /// of its links: an element of its own there, with the same name, place and press.
-    func linkChildren(listedIn listing: any ReaderLinkHost, at place: Int) -> [ReaderLinkAccessibilityElement] {
+    func linkChildren(listedIn listing: ReaderTextView, at place: Int) -> [ReaderLinkAccessibilityElement] {
         accessibilityLinks(in: visibleLinkCharacters).map { url, range in
             let element = linkElements.listed[range.location] ?? ReaderLinkAccessibilityElement()
             linkElements.listed[range.location] = element
@@ -304,49 +299,28 @@ extension ReaderTextView: ReaderLinkHost {
         return rows
     }
 
-    /// VoiceOver's cursor is on the link's element and not in the text, and its next move by
-    /// word or by line starts from the insertion point, which was wherever it had last read,
-    /// or the first line on screen. So the insertion point goes to the link. In continuous
-    /// scroll a link with nothing on screen is shown first, as the reader shows a link's
-    /// target: VoiceOver would scroll to the element by the scroll bar, which the reader
-    /// takes for any other scroll.
+    /// VoiceOver has moved to the element of the link at `range`, or of a cell's link whose
+    /// row is the character at `range`, and none of it is on screen: the next link after the
+    /// screen in continuous scroll. The reader shows it, as it shows a link's target, and
+    /// puts the insertion point on it. VoiceOver would scroll to the element by the scroll
+    /// bar, which the reader takes for any other scroll, and its next move by word or by line
+    /// would start from where it had last read and take the view back there: its own place
+    /// in the text follows the insertion point, when it is told that has moved, and nothing
+    /// else.
+    ///
+    /// A link with any of it on screen is left as it is. Told that the insertion point has
+    /// moved, VoiceOver says the word beside its new place, and says it over the link's name,
+    /// which it has only begun (macOS 27.0.1). After the reader has shown a place it tells
+    /// VoiceOver that the layout changed (`ReaderCanvasView.placeScrollInsertionPoint`), and
+    /// VoiceOver then says the item under its cursor again, so there the link's name follows
+    /// that word.
     func showLink(at range: NSRange) {
-        guard let canvas, range.location != NSNotFound, range.location <= textLength else { return }
-        let below = !isPageColumn && !linkFrame(range).intersects(visibleRect)
-        let variant = UserDefaults.standard.string(forKey: "ProbeLinkFocus") ?? "below"
-        NSLog("PROBE showLink %@ at %d below %d", variant, range.location, below ? 1 : 0)
-        switch variant {
-        case "focus", "sync", "plain":
-            // PROBE: the insertion point an assistive client is told of, and a notification of
-            // the reader's own that says, as WebKit's does, why it moved.
-            voiceOverPlace = range.location
-            if below, let position = canvas.position(at: range.location, in: self) { canvas.show(position, selecting: nil) }
-            func key(_ name: String) -> NSAccessibility.NotificationUserInfoKey { NSAccessibility.NotificationUserInfoKey(rawValue: name) }
-            var info: [NSAccessibility.NotificationUserInfoKey: Any] = [:]
-            if variant == "focus" {
-                info = [key("AXTextStateChangeType"): 2, key("AXTextSelectionDirection"): 5, key("AXTextSelectionChangedFocus"): true]
-            } else if variant == "sync" {
-                info = [key("AXTextStateSync"): true, key("AXTextStateChangeType"): 2, key("AXTextSelectionDirection"): 5]
-            }
-            NSAccessibility.post(element: self, notification: .selectedTextChanged, userInfo: info.isEmpty ? nil : info)
-        case "quiet", "layout":
-            // PROBE: the insertion point an assistive client is told of, with no change of the
-            // selection and so no notification of one.
-            voiceOverPlace = range.location
-            if below, let position = canvas.position(at: range.location, in: self) { canvas.show(position, selecting: nil) }
-            if variant == "layout", let window { NSAccessibility.post(element: window, notification: .layoutChanged, userInfo: [.uiElements: [self]]) }
-        default:
-            // PROBE: a link on screen is left as it is.
-            guard below, let position = canvas.position(at: range.location, in: self) else { return }
-            canvas.show(position, selecting: nil)
-            let place = NSRange(location: range.location, length: 0)
-            if selectedRange != place { selectedRange = place }
-        }
-    }
-
-    func showsLink(at range: NSRange) -> Bool {
-        if let voiceOverPlace { return voiceOverPlace == range.location }
-        return selectedRange == NSRange(location: range.location, length: 0)
+        guard let canvas, !isPageColumn, range.location != NSNotFound, range.location < textLength,
+              !linkFrame(range).intersects(visibleRect),
+              let position = canvas.position(at: range.location, in: self) else { return }
+        canvas.show(position, selecting: nil)
+        let place = NSRange(location: range.location, length: 0)
+        if selectedRange != place { selectedRange = place }
     }
 }
 
@@ -358,7 +332,7 @@ final class ReaderLinkAccessibilityElement: NSAccessibilityElement {
     /// The text view whose link it is.
     weak var view: (any ReaderLinkHost)?
     /// The view it is a child of, where that is not `view`: the page a table cell stands in.
-    weak var listing: (any ReaderLinkHost)?
+    weak var listing: ReaderTextView?
     /// Where the cell's row stands in that page's text: a row is one character of it.
     var listedPlace = 0
     /// The link's target in the reader's own scheme. Not given to assistive clients: nothing
@@ -395,25 +369,28 @@ final class ReaderLinkAccessibilityElement: NSAccessibilityElement {
         return MainActor.assumeIsolated { view.followLink(url, at: range) }
     }
 
+    /// The page's text and the character of it this link stands at: its own first character,
+    /// or the row of its cell in the page that lists it. None for a cell's own element, which
+    /// VoiceOver reaches inside the cell, where everything is on screen.
+    private var place: (text: ReaderTextView, range: NSRange)? {
+        if let listing { return (listing, NSRange(location: listedPlace, length: 1)) }
+        return (view as? ReaderTextView).map { ($0, range) }
+    }
+
     // VoiceOver focuses the element it moves to while its cursor and the keyboard focus go
     // together (cursor tracking, which is on until a listener turns it off), and that is all
     // it tells the reader of the move. It focuses an element that says whether it has the
-    // focus and takes it (macOS 27.0.1). A link has the focus while the insertion point is on
-    // it, which is where taking the focus puts it, so the answer holds once VoiceOver has
-    // read on and when it comes back. A cell's link that its page lists is on the page at the
-    // cell's row, one character of the page's text.
+    // focus and takes it, and none that only takes it (macOS 27.0.1). A link has the focus
+    // while the insertion point is on it, where the reader puts it for a link it has to
+    // show (`ReaderTextView.showLink`).
     override func isAccessibilityFocused() -> Bool {
-        guard let view else { return false }
-        let range = range, listing = listing, row = NSRange(location: listedPlace, length: 1)
-        return MainActor.assumeIsolated { listing?.showsLink(at: row) ?? view.showsLink(at: range) }
+        guard let place else { return false }
+        return MainActor.assumeIsolated { place.text.selectedRange == NSRange(location: place.range.location, length: 0) }
     }
 
     override func setAccessibilityFocused(_ focused: Bool) {
-        guard focused, let view else { return }
-        let range = range, listing = listing, row = NSRange(location: listedPlace, length: 1)
-        MainActor.assumeIsolated {
-            if let listing { listing.showLink(at: row) } else { view.showLink(at: range) }
-        }
+        guard focused, let place else { return }
+        MainActor.assumeIsolated { place.text.showLink(at: place.range) }
     }
 }
 #endif

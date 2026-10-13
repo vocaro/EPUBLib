@@ -22,14 +22,6 @@ final class ReaderTextView: NSTextView {
     private var attachmentElements: [Int: NSAccessibilityElement] = [:]
     /// The accessibility elements of the text's links (`ReaderTextLinks+AppKit.swift`).
     var linkElements = ReaderLinkElements()
-    /// PROBE: where an assistive client is told the insertion point is, until the selection
-    /// next changes.
-    var voiceOverPlace: Int?
-
-    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
-        voiceOverPlace = nil
-        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
-    }
     /// The accessibility element of each heading, by the location of its first character.
     private var headingElements: [Int: ReaderHeadingAccessibilityElement] = [:]
     private var menuImage: ReaderImageAttachment?
@@ -409,17 +401,15 @@ final class ReaderTextView: NSTextView {
     }
 
     override func accessibilitySelectedTextRange() -> NSRange {
-        if let voiceOverPlace { return NSRange(location: voiceOverPlace, length: 0) }
-        return isPageColumn ? boundedPageAccessibilityRange(selectedRange) : super.accessibilitySelectedTextRange()
+        isPageColumn ? boundedPageAccessibilityRange(selectedRange) : super.accessibilitySelectedTextRange()
     }
 
     override func accessibilitySelectedTextRanges() -> [NSValue]? {
-        isPageColumn || voiceOverPlace != nil ? [NSValue(range: accessibilitySelectedTextRange())] : super.accessibilitySelectedTextRanges()
+        isPageColumn ? [NSValue(range: accessibilitySelectedTextRange())] : super.accessibilitySelectedTextRanges()
     }
 
     override func accessibilitySelectedText() -> String? {
-        if voiceOverPlace != nil { return "" }
-        return isPageColumn ? plainCharacters(in: accessibilitySelectedTextRange()) : super.accessibilitySelectedText()
+        isPageColumn ? plainCharacters(in: accessibilitySelectedTextRange()) : super.accessibilitySelectedText()
     }
 
     override func setAccessibilitySelectedTextRange(_ range: NSRange) {
@@ -439,7 +429,6 @@ final class ReaderTextView: NSTextView {
     }
 
     override func accessibilityInsertionPointLineNumber() -> Int {
-        if !isPageColumn, let voiceOverPlace { return accessibilityLine(for: voiceOverPlace) }
         guard isPageColumn else { return super.accessibilityInsertionPointLineNumber() }
         let index = min(accessibilitySelectedTextRange().location, max(0, shownCharacters.length - 1))
         return accessibilityLine(for: index)
