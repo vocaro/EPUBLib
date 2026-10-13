@@ -75,9 +75,9 @@ worst.
   no workflow named it only prints, as `gh run list --status in_progress` and
   `gh run list --status queued` do: look before you start.
 - Put the speech sessions you need into one VoiceOver run. Each can have its own window
-  width, text size and flow, so step lists that differ in them share a run, a build and a
-  runner ([Hosted Mac sessions](doc/voiceover-testing.md#hosted-mac-sessions)). Do not start
-  a run for each.
+  width, text size, flow and launch arguments, so step lists that differ in them share a run,
+  a build and a runner ([Hosted Mac sessions](doc/voiceover-testing.md#hosted-mac-sessions)).
+  Do not start a run for each.
 - Keep at most two runs in flight for your branch, and one while any job is waiting for a
   runner. A pull request's own run counts as its branch's.
 - Do not start every unit test by hand for a commit that a pull request's run already tests.

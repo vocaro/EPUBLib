@@ -14,7 +14,8 @@ on:
         description: >-
           Steps of scripts/run-voiceover-mac.py, quoted as on a command line, with ; between
           sessions. A session may open with settings of its own, as in width=600 text_size=17
-          flow=scrolled. Empty runs the page-boundary session.
+          flow=scrolled "launch=-SampleHref OPS/labels.xhtml". Empty runs the page-boundary
+          session.
         type: string
       width:
         description: >-
@@ -31,6 +32,18 @@ on:
         type: choice
         options: [paginated, scrolled]
         default: paginated
+      launch:
+        description: >-
+          Further launch arguments of the reader for a session that gives none, quoted as on a
+          command line, such as -SampleHref OPS/labels.xhtml for a section other than the first.
+        type: string
+      links:
+        description: >-
+          How VoiceOver announces a link or an attachment in text. Unchanged leaves the
+          runner's own setting.
+        type: choice
+        options: [Unchanged, Speak, Change Pitch, Play Tone, Do Nothing]
+        default: Unchanged
       pause:
         description: Seconds of speech to record after each key, for a session that gives none.
         type: string
@@ -47,10 +60,10 @@ permissions:
   contents: read
 
 # No concurrency group: nothing cancels a run but the session that started it. A group of the
-# ref, width, text size and flow inputs served while each run had one of each. Now that a
-# session has its own, runs that agree in those inputs can hear different things, and a second
-# run would cancel a first that is still wanted. scripts/hosted-run.py holds a branch to two
-# runs in flight instead.
+# ref, width, text size, flow, launch arguments and link setting served while each run had one
+# of each. Now that a session has its own, runs that agree in those inputs can hear different
+# things, and a second run would cancel a first that is still wanted. scripts/hosted-run.py
+# holds a branch to two runs in flight instead.
 
 jobs:
   sessions:
@@ -67,6 +80,8 @@ jobs:
       VOICEOVER_WIDTH: ${{ inputs.width }}
       VOICEOVER_TEXT_SIZE: ${{ inputs.text_size }}
       VOICEOVER_FLOW: ${{ inputs.flow }}
+      VOICEOVER_LAUNCH: ${{ inputs.launch }}
+      VOICEOVER_LINKS: ${{ inputs.links }}
       VOICEOVER_PAUSE: ${{ inputs.pause }}
       VOICEOVER_ADVANCE_AFTER: ${{ inputs.advance_after }}
     steps:
@@ -91,7 +106,7 @@ jobs:
           # workflow's, so a ref older than they are can be built and heard too.
           git fetch --quiet --depth 1 origin "$GITHUB_SHA"
           git checkout FETCH_HEAD -- scripts/run-voiceover-mac.py scripts/run-voiceover-sessions.py \
-            scripts/voiceover-ax-observer.swift
+            scripts/voiceover-ax-observer.swift scripts/voiceover-link-verbosity.swift
 
       - name: Check the inputs and describe the runner
         run: |
@@ -133,6 +148,23 @@ jobs:
           echo "Screen: $bounds" | tee -a "$RESULTS/runner.txt"
           if [ "$bounds" != "0, 0, 1920, 1080" ]; then
             echo "::error::The screen is not 1920 by 1080, so the documented windows may not fit"
+            exit 1
+          fi
+
+      - name: Read or choose how VoiceOver announces a link
+        run: |
+          # VoiceOver's text verbosity decides what it says of a link or an attachment as it
+          # reads, so every run records the setting. VoiceOver Utility writes it: a setting
+          # written with `defaults` before VoiceOver had ever run left VoiceOver silent.
+          xcrun swiftc -O scripts/voiceover-link-verbosity.swift -o "$RESULTS/voiceover-link-verbosity"
+          status=0
+          if [ "${VOICEOVER_LINKS:-Unchanged}" = Unchanged ]; then VOICEOVER_LINKS=; fi
+          "$RESULTS/voiceover-link-verbosity" ${VOICEOVER_LINKS:+"$VOICEOVER_LINKS"} > "$RESULTS/link-verbosity.txt" 2>&1 || status=$?
+          cat "$RESULTS/link-verbosity.txt"
+          grep "^LINK VERBOSITY" "$RESULTS/link-verbosity.txt" | tail -n 1 >> "$RESULTS/runner.txt"
+          # Without a choice to make, a utility that could not be read is recorded and no more.
+          if [ "$status" != 0 ] && [ -n "$VOICEOVER_LINKS" ]; then
+            echo "::error::VoiceOver's link setting could not be set to $VOICEOVER_LINKS"
             exit 1
           fi
 

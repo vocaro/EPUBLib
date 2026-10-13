@@ -10,14 +10,17 @@ VOICEOVER_STEPS          the steps of scripts/run-voiceover-mac.py, quoted as on
 VOICEOVER_WIDTH          window width in points, set by `ax:width` before each session [1100]
 VOICEOVER_TEXT_SIZE      text size in points at launch [23]
 VOICEOVER_FLOW           paginated or scrolled [paginated]
+VOICEOVER_LAUNCH         further launch arguments of the reader, quoted as on a command line,
+                         such as `-SampleHref OPS/labels.xhtml` [none]
 VOICEOVER_PAUSE          the runner's --pause [5]
 VOICEOVER_ADVANCE_AFTER  the runner's --advance-after [the fixed pause]
 
-A session has the last five as given there unless its own words say otherwise: `width=600`,
-`text_size=17`, `flow=scrolled`, `pause=3` or `advance_after=0.5`, in any order before its first
-step. One job can then hear sessions that differ in them, where each used to need a job, a
-build and a runner of its own. A session of such words alone is the page-boundary session with
-them, and `advance_after=` with nothing after it is the fixed pause.
+A session has the last six as given there unless its own words say otherwise: `width=600`,
+`text_size=17`, `flow=scrolled`, `"launch=-SampleHref OPS/labels.xhtml"`, `pause=3` or
+`advance_after=0.5`, in any order before its first step. One job can then hear sessions that
+differ in them, where each used to need a job, a build and a runner of its own. A session of
+such words alone is the page-boundary session with them. `launch=` with nothing after it is no
+further argument, and `advance_after=` the fixed pause.
 """
 import argparse
 import importlib.util
@@ -42,7 +45,7 @@ BOUNDARY = ("ax:next ax:lines ax:focus=search ax:focus=0 in line nextline nextli
             + '"activate=Next Page" ax:lines ' + "right " * 8 + "in line nextline nextline")
 # What a session can set for itself, with the value an empty input takes. Each arrives as
 # VOICEOVER_NAME and is written NAME=VALUE in a session's own words.
-DEFAULTS = {"width": "1100", "text_size": "23", "flow": "paginated", "pause": "5", "advance_after": ""}
+DEFAULTS = {"width": "1100", "text_size": "23", "flow": "paginated", "launch": "", "pause": "5", "advance_after": ""}
 OUTCOMES = {0: "completed", 2: "refused by the runner script", 124: "ended early or reached its deadline",
             125: "stopped", 126: "VoiceOver not restored"}
 
@@ -77,6 +80,11 @@ def checked(name, text, where):
         if text not in ("paginated", "scrolled"):
             raise SystemExit(f"{where} must be paginated or scrolled, not {text!r}")
         return text
+    if name == "launch":
+        try:
+            return shlex.join(shlex.split(text))
+        except ValueError as error:
+            raise SystemExit(f"{where}: {error}")
     if name == "advance_after" and not text:
         return text
     try:
@@ -127,8 +135,10 @@ def settings():
 
 def described(chosen):
     """A session's settings in words, for the log, sessions.txt and the summary page."""
+    further = f", {chosen['launch']}" if chosen["launch"] else ""
     pace = f", next key {chosen['advance_after']} s after a phrase" if chosen["advance_after"] else ""
-    return f"{chosen['width']} wide at {chosen['text_size']} points, {chosen['flow']}, {chosen['pause']} s pause{pace}"
+    return (f"{chosen['width']} wide at {chosen['text_size']} points, {chosen['flow']}{further}, "
+            f"{chosen['pause']} s pause{pace}")
 
 
 def command(chosen, steps):
@@ -136,7 +146,7 @@ def command(chosen, steps):
     options = ["--pause", chosen["pause"]]
     if chosen["advance_after"]:
         options += ["--advance-after", chosen["advance_after"]]
-    launch = ["-SampleFlow", chosen["flow"], "-SampleFontSize", chosen["text_size"]]
+    launch = ["-SampleFlow", chosen["flow"], "-SampleFontSize", chosen["text_size"]] + shlex.split(chosen["launch"])
     return launch, options + [f"ax:width={chosen['width']}"] + steps
 
 

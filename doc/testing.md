@@ -188,9 +188,9 @@ script does about each:
 
 - Look at what is running and waiting before you start a run. The script prints it each time.
 - Put the speech sessions you need into one VoiceOver run. Each can have its own window
-  width, text size and flow, so that step lists that differ in them share one run, one build
-  and one runner. The script checks the steps as the runner would, before anything waits for
-  one, and prints each session with its settings.
+  width, text size, flow and launch arguments, so that step lists that differ in them share
+  one run, one build and one runner. The script checks the steps as the runner would, before
+  anything waits for one, and prints each session with its settings.
 - Keep at most two runs in flight for a branch, and one while any job is waiting for a
   runner. A pull request's run counts as its branch's, and a run for `main` as nobody's. The
   script starts no run beyond that and lists the branch's runs.
@@ -302,6 +302,16 @@ Headings rotor moving through a page and on through the book in both flows. On A
 level in a column's rich text, and the rotor's headings asked for as VoiceOver was seen to
 ask. None of them drives VoiceOver; the [VoiceOver testing process](voiceover-testing.md) has
 what it said.
+
+Link tests on AppKit (`LinkAccessibilityTests`) read what a column and the scroll view give
+an assistive technology for a link: one element for a link whose font changes inside it, with
+its words, its place and a press that reports the link; the names of links that are pictures,
+hidden labels and formulas, and never U+FFFC; a link element as the attachment of each
+picture or label in a link, and none over a link's words; a hidden label's place, which has a
+size though the label has none; a link cut at a page's end and continued on the next page;
+the links on screen in continuous scroll; and a text view with no canvas, as a note's
+popover has, left with AppKit's own. What VoiceOver says of each is recorded with the
+[VoiceOver testing process](voiceover-testing.md#links).
 
 Highlight paint tests read the pixels the mounted reader's views last drew: none in the
 highlight's color before a search, the matches after it, and none again after Clear Search,
