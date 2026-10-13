@@ -189,14 +189,37 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   words of the book. A rule used to be listed as an image without a name, and VoiceOver
   said "Image" at each one. Because a rule always has a stop, a page that holds a rule
   alone is turned from it, with no exception of the kind decoration needs, and a rule that
-  is all a link holds is the link. On Mac the text area is itself the element and a rule is
-  a character of its value with no element of its own, as before: VoiceOver moving by line
-  stops on the rule's line and says nothing, moving by word it takes one step across the
-  rule for which no phrase was recorded, and on a page that holds a rule alone it says "In
-  text" and then "end of text". Not read: `role="presentation"` and `aria-hidden` on a
-  rule, which is announced like any other. A rule in a table cell has no words in the
-  cell's text and is not announced there, and UIKit's own elements in a note's popover were
-  not heard with a rule in them.
+  is all a link holds is the link. On Mac the text area is itself the element and a rule
+  stays a character of its value, so the value and every range are those of the
+  characters. The character carries an element, as an image's does, and VoiceOver says
+  "Separator" at it: moving by line, moving by word, where the rule is one stop, and
+  reading on by itself, in pages and in continuous scroll. On a page that holds a rule
+  alone it says "In text Separator" and then "end of text". Before, it said nothing in any
+  of those places. The element is static text whose value is the reader's word, as a
+  hidden label's is the book's. It has no label and no help, because VoiceOver reads the
+  help of an element that has no label in the label's place. The word is the reader's on
+  Mac too, because AppKit has no role for a break in content. The nearest is the splitter,
+  which is what WebKit gives an `hr` on Mac, with the subrole `AXContentSeparator` and a
+  role description of its own, "separator". To VoiceOver a splitter is the bar between two
+  panes wherever it stands. At a rule with that role it said "horizontal splitter
+  collapsed on top", with or without the subrole, and with all of WebKit's attributes
+  "horizontal separator no action available collapsed on top": it reads the role
+  description and still tells of a pane that is not there. An element of AppKit's unknown
+  role with the role description "separator" was read as "separator", the same as the
+  static text in every place it was heard. The static text was chosen because its word is
+  what the element holds, as the stop's label is on iPhone and iPad, and because it is the
+  element a hidden label already has. A link is text on Mac, so a rule that is all a link
+  holds is announced as any other. Not read: `role="presentation"` and `aria-hidden` on a
+  rule, which is announced like any other. A rule in a table cell is not announced on any
+  of the three. On Mac a cell is a text area of its own, which VoiceOver reaches by
+  interacting with the row and then with the cell, and there it says nothing at a rule, by
+  line, by word or reading on. A cell gives each of its attachments a static-text element
+  labelled with its text equivalent, which for a rule is the empty string. Giving the rule
+  the element it has outside a table changed nothing that VoiceOver said, so the cell was
+  left as it was; why a cell's elements are not read is not known. On iPhone and iPad a
+  rule in a cell has no words in the cell's text and is not announced there, and UIKit's
+  own elements in a note's popover were not heard with a rule in them. A note's popover on
+  Mac is a text area of the page's kind and was not heard either.
 - **Image inspection.** Double-click or double-tap an unlinked book image to inspect it in a separate
   native zoomable scroll surface, including images drawn inside table cells. On Mac, images
   also offer an Inspect Image context-menu action; UIKit supplies an attachment action and
@@ -739,8 +762,9 @@ The following are the defaults. Host commands and accessibility actions stay ena
   a book hides from the page and keeps for assistive technology is read where it stands, as
   text ([hidden labels](#floats-and-positioned-boxes)). An image is read by its `alt`, one
   with an empty `alt` is passed over, and one with none is announced as an image without a
-  name ("Alternative text" under Decisions). A rule is a stop that says "Separator" on
-  iPhone and iPad, and is silent on Mac ("Rules" under Decisions).
+  name ("Alternative text" under Decisions). At a rule VoiceOver says "Separator", from a
+  stop of its own on iPhone and iPad and from an element in the text on Mac ("Rules" under
+  Decisions).
 - Headings: `h1` to `h6`, and any element with `role="heading"`, are headings to VoiceOver,
   at the element's level or its `aria-level` from 1 to 6. `role="heading"` alone is level 2,
   an `aria-level` past 6 leaves a heading with no level, and a heading element whose role is
