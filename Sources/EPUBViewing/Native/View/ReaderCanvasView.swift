@@ -1350,6 +1350,14 @@ import AppKit
         _ = turnPage(forward: forward)
     }
 
+    /// A page turn an assistive technology asks for by name, as a host's command is: nothing
+    /// in it could be meant for a selection, so selected text does not hold it back. False at
+    /// either end of the book.
+    func turnPageFromAccessibility(forward: Bool) -> Bool {
+        guard imageInspector == nil else { return false }
+        return turnPage(forward: forward) != .atBoundary
+    }
+
     /// Text is selected in a text view on screen.
     var hasSelection: Bool { currentSelection != nil || textViews.contains { $0.selectedRange.length > 0 } }
 
