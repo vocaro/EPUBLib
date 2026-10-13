@@ -287,7 +287,10 @@ func perform(_ step: String) {
         log("CARET \(index) AT \(offset) STATUS \(status?.rawValue ?? -1)")
         pause = 1
     case "actions":
-        for (depth, element) in holders(everything: parts.last == "all") { log("ELEMENT \(depth) \(called(element)) ACTIONS \(actions(element))") }
+        // Numbered, because a transcript sorts its lines and several of these share a millisecond.
+        for (number, holder) in holders(everything: parts.last == "all").enumerated() {
+            log("ELEMENT \(String(format: "%03d", number)) DEPTH \(holder.depth) \(called(holder.element)) ACTIONS \(actions(holder.element))")
+        }
         pause = 0
     case "action":
         // A named action's own performance, without VoiceOver, on the first element that has it.
