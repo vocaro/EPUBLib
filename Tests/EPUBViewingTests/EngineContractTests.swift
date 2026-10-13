@@ -385,6 +385,42 @@ import XCTest
     private func arrangements(_ prefix: String) -> [Shape] {
         (1...3).flatMap { wait in [Shape("\(prefix)\(wait)a", wait: wait, treated: []), Shape("\(prefix)\(wait)f", wait: wait, treated: [2, 3])] }
     }
+    private final class Mark { var sent: ContinuousClock.Instant? }
+    /// The two sleeps alone, with nothing of the verifier around them: how long after the 150 ms
+    /// ended the event of the 30 ms sleep came, with and without a yield before the 150 ms.
+    private func tail(attempts: Int, stopper: ProcessStopper) async throws {
+        let bounds: [Double] = [0, 1, 2, 5, 10, 20, 35, 50, 100]
+        var counted = [0, 0], latest = [0.0, 0.0]
+        var late = [Array(repeating: 0, count: bounds.count + 1), Array(repeating: 0, count: bounds.count + 1)]
+        for attempt in 0..<attempts * 2 {
+            let yields = attempt % 2
+            let mark = Mark()
+            let started = ContinuousClock.now
+            stopper.stopSoon()
+            Task {
+                try? await Task.sleep(for: .milliseconds(30))
+                mark.sent = .now
+            }
+            if yields == 1 { await Task.yield() }
+            try await Task.sleep(for: .milliseconds(150))
+            let ended = ContinuousClock.now
+            while mark.sent == nil { try await Task.sleep(for: .milliseconds(2)) }
+            let sent = mark.sent!
+            if milliseconds(sent - started) < 170 || milliseconds(ended - started) < 170 { continue }
+            counted[yields] += 1
+            let after = milliseconds(sent - ended)
+            late[yields][bounds.firstIndex { after <= $0 } ?? bounds.count] += 1
+            latest[yields] = max(latest[yields], after)
+        }
+        for yields in 0...1 {
+            var fields = ["event before the 150 ms ended=\(late[yields][0])"]
+            for index in 1..<bounds.count { fields.append("\(Int(bounds[index - 1])) to \(Int(bounds[index])) ms after=\(late[yields][index])") }
+            fields.append("over \(Int(bounds.last!)) ms after=\(late[yields][bounds.count])")
+            print("PROBE|M\(yields)|process stopped across both sleeps|the two sleeps alone|\(yields == 1 ? "a yield before the 150 ms" : "no yield")|a 30 ms sleep"
+                + "|attempts=\(attempts)|counted=\(counted[yields])|beaten=\(counted[yields] - late[yields][0])|" + fields.joined(separator: "|")
+                + String(format: "|latest ms after the 150 ms ended=%.3f", latest[yields]))
+        }
+    }
     func testWhichSearchWaitsATimerBeats() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let parts = environment["EPUBLIB_PROBE_PARTS"] else { throw XCTSkip("Set EPUBLIB_PROBE_PARTS to run the probe") }
@@ -401,6 +437,7 @@ import XCTest
         if parts.contains("D") {
             try await measure("process stopped across both sleeps", arrangements("D"), attempts: count(200), stopper: stopper)
         }
+        if parts.contains("M") { try await tail(attempts: count(2000), stopper: stopper) }
         // The engine's queued work kept from starting for 160 ms.
         if parts.contains("B") {
             try await measure("main thread held 160 ms before the engine's timer starts", shapes("B"), attempts: count(20), stopper: nil, stalls: true)
