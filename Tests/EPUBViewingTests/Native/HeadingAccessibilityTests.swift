@@ -1227,12 +1227,12 @@ import UIKit
         XCTAssertEqual(view.selectedRange, NSRange(location: second.range.location, length: 0), "reading on starts at the heading")
         // A heading on the page: the insertion point goes to it, and nothing turns.
         shown = host.recorder.shown.count
-        let third = headingChildren(of: view)[1]
+        let third = try XCTUnwrap(headingChildren(of: view).dropFirst().first)
         third.setAccessibilityFocused(true)
         XCTAssertEqual(view.selectedRange, NSRange(location: third.range.location, length: 0))
         XCTAssertEqual(host.recorder.shown.count, shown)
         // The next chapter's, which is the book's last: nothing follows it.
-        let last = headingChildren(of: view)[2]
+        let last = try XCTUnwrap(headingChildren(of: view).dropFirst(2).first)
         XCTAssertEqual(last.elsewhere, ReaderTextPosition(section: 1, offset: 0))
         XCTAssertEqual(last.accessibilityValue() as? Int, 1)
         last.setAccessibilityFocused(true)
@@ -1335,6 +1335,7 @@ import UIKit
         let (host, view) = try scrolledChapters()
         let headings = headingChildren(of: view)
         XCTAssertEqual(headings.map { $0.accessibilityLabel() ?? "" }, ["First chapter", "Second chapter"])
+        guard headings.count == 2 else { return }
         XCTAssertTrue(headings.allSatisfy { $0.elsewhere == nil }, "characters of the view's own text, on screen or below it")
         let visible = view.accessibilityVisibleCharacterRange()
         view.selectedRange = NSRange(location: 40, length: 5)
