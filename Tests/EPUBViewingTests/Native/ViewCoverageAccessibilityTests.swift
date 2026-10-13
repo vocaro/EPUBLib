@@ -271,6 +271,112 @@ import UIKit
     }
     #endif
 
+    // MARK: Rules
+
+    /// A rule between two scenes, as a book writes a change of subject (`<hr>`), and one that
+    /// is all a link holds.
+    private func pageWithRules() throws -> (section: SectionText, host: CanvasHost, view: ReaderTextView) {
+        let section = try BoxLayoutHarness.build(
+            "<p>First scene ends.</p><hr/><p>Second scene starts.</p><a href=\"two.xhtml\"><hr/></a><p>Last words.</p>",
+            css: BoxLayoutHarness.reset)
+        XCTAssertEqual(section.string.string, "First scene ends.\n\u{FFFC}\nSecond scene starts.\n\u{FFFC}\nLast words.")
+        let host = host([section.string, CanvasText.body("Next section.")])
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        XCTAssertEqual(view.placement.visibleLength, section.string.length, "the section is one page")
+        return (section, host, view)
+    }
+
+    /// A rule has no words. What VoiceOver is told of it is the reader's word and not the
+    /// book's, so a selection, a copy and a search read nothing in its place.
+    func testARuleHasNoWordsForACopyOrASearch() async throws {
+        let (section, host, view) = try pageWithRules()
+        let words = "First scene ends.\n\nSecond scene starts.\n\nLast words."
+        XCTAssertEqual(view.visibleText, words)
+        XCTAssertEqual(section.string.readerPlainText(), words, "what a search of the section reads")
+        XCTAssertFalse(words.localizedCaseInsensitiveContains(ReaderRuleAttachment.spokenName))
+        view.selectedRange = NSRange(location: 0, length: section.string.length)
+        host.canvas.textViewSelectionDidChange(view)
+        try await host.settle()
+        XCTAssertEqual((host.recorder.selections.last ?? nil)?.text, words, "the selection a host is told of")
+        #if os(macOS)
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        XCTAssertTrue(view.writeSelection(to: pasteboard, type: .string))
+        XCTAssertEqual(pasteboard.string(forType: .string), words)
+        #else
+        let pasteboard = try XCTUnwrap(UIPasteboard(name: UIPasteboard.Name("org.epublib.tests.rules.\(UUID().uuidString)"), create: true))
+        defer { UIPasteboard.remove(withName: pasteboard.name) }
+        view.pasteboard = pasteboard
+        view.copy(nil)
+        XCTAssertEqual(pasteboard.string, words)
+        #endif
+    }
+
+    #if os(macOS)
+    /// On Mac the text area is the element, and a rule is a character of its value with no
+    /// element of its own: VoiceOver passes it over. Nothing is made up for it.
+    func testARuleHasNoElementOfItsOwnOnMac() throws {
+        let (section, _, view) = try pageWithRules()
+        XCTAssertEqual(view.accessibilityValue(), section.string.string, "the characters as they are, so every range matches")
+        let rich = try XCTUnwrap(view.accessibilityAttributedString(for: NSRange(location: 0, length: section.string.length)))
+        var elements: [Int] = []
+        rich.enumerateAttribute(.accessibilityAttachment, in: NSRange(location: 0, length: rich.length)) { value, range, _ in
+            if value != nil { elements.append(range.location) }
+        }
+        XCTAssertEqual(elements, [], "no image element, no label and no help stand for a rule")
+        XCTAssertTrue(view.textualAttachments().isEmpty && view.announcedImages().isEmpty)
+    }
+    #else
+    /// A rule is a stop of its own between the lines it parts. It is not a picture, which
+    /// VoiceOver would call an image, and UIKit has no trait for a separator, so the reader
+    /// names it; the name is the element's and not the page's.
+    func testARuleIsAStopThatSaysASeparatorIsThereAndIsNotAnImage() throws {
+        let (_, host, view) = try pageWithRules()
+        let elements = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+        XCTAssertEqual(elements.map { $0.accessibilityLabel ?? "" },
+                       ["First scene ends.\n", "Separator", "Second scene starts.\n", "Separator", "Last words."],
+                       "one stop for each rule, where it stands, and none for the break after it")
+        XCTAssertEqual(ReaderRuleAttachment.spokenName, "Separator")
+        XCTAssertFalse(elements.contains { $0.accessibilityTraits.contains(.image) }, "a rule is not a picture")
+        XCTAssertEqual(elements.map(\.accessibilityTraits), [.staticText, [], .staticText, .link, .staticText],
+                       "nor words of the book; inside a link it is the link")
+        for element in elements {
+            let frame = element.accessibilityFrameInContainerSpace
+            XCTAssertFalse(frame.isNull || frame.isEmpty, element.accessibilityLabel ?? "")
+            XCTAssertTrue(view.bounds.insetBy(dx: -1, dy: -1).contains(frame), "\(element.accessibilityLabel ?? ""): \(frame)")
+        }
+        XCTAssertLessThan(elements[0].accessibilityFrameInContainerSpace.midY, elements[1].accessibilityFrameInContainerSpace.minY + 1)
+        XCTAssertLessThan(elements[1].accessibilityFrameInContainerSpace.midY, elements[2].accessibilityFrameInContainerSpace.minY + 1)
+        // The page is turned from a rule as from a line, and nothing else is offered on it.
+        XCTAssertEqual((elements[1].accessibilityCustomActions ?? []).map(\.name), ["Next Page", "Previous Page"])
+        XCTAssertFalse(elements[1].accessibilityActivate(), "a rule opens nothing")
+        XCTAssertNil(host.canvas.imageInspector)
+        XCTAssertTrue(host.recorder.links.isEmpty)
+        XCTAssertTrue(elements[3].accessibilityActivate(), "a link that holds a rule alone is followed")
+        XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/two.xhtml"))
+        XCTAssertEqual(view.accessibilityValue, "First scene ends.\n\nSecond scene starts.\n\nLast words.",
+                       "the page's words, which a rule has none of")
+    }
+
+    /// A page that holds a rule and nothing else still gives VoiceOver an element to stand on:
+    /// the rule's own stop, from which the page is turned.
+    func testAPageThatHoldsARuleAloneIsTurnedFromTheRule() throws {
+        let section = try BoxLayoutHarness.build("<hr/>", css: BoxLayoutHarness.reset)
+        XCTAssertEqual(section.string.string, "\u{FFFC}")
+        let host = host([section.string, CanvasText.body("Next section.")])
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        let elements = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+        XCTAssertEqual(elements.map(described), [" \"Separator\""], "a stop that is neither a link, an image nor text")
+        XCTAssertEqual(view.accessibilityElementCount(), 1)
+        XCTAssertFalse(elements[0].accessibilityFrameInContainerSpace.isEmpty)
+        XCTAssertEqual(view.accessibilityValue, "", "the page has no words")
+        XCTAssertEqual((elements[0].accessibilityCustomActions ?? []).map(\.name), ["Next Page", "Previous Page"])
+        XCTAssertTrue(elements[0].accessibilityScroll(.next), "the page is turned from it")
+        XCTAssertEqual((try XCTUnwrap(host.canvas.textViews.first).accessibilityElements as? [UIAccessibilityElement])?.map(described),
+                       ["text \"Next section.\""])
+    }
+    #endif
+
     #if os(macOS)
     func testStyleRangesStopAtThePagesEnd() throws {
         let host = host([styledProse()])

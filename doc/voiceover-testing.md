@@ -28,7 +28,10 @@ nothing, that it is decoration (an empty `alt`), or words. Each stands in a line
 decorative one is also all that a link holds, and stands beside words in a link; and two come
 from a file that has a title of its own, one with an empty `alt` and one with none. None of
 the section's words is one VoiceOver uses for a picture or a link, so those in a transcript
-are VoiceOver's own. A second
+are VoiceOver's own. A fifth, **Scenes set apart** (`OPS/scenes.xhtml`), the book's last,
+holds rules: an `<hr>` between two paragraphs, one the book gives `role="presentation"`, and
+one alone on a page of its own, with a last paragraph on the page after it. None of its words
+is one a screen reader uses for a rule either. A second
 bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
@@ -603,7 +606,15 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    and "Described jump" as links, the second also as an image, and "Square with a title of
    its own" as an image between "Titled picture" and "stands here.". It never says "Book
    image", and says "Square with a title of its own" once.
-8. Restore all original VoiceOver/scripting settings and independently verify restoration.
+8. On the section of scenes, on an iPhone and iPad, in pages and in continuous scroll.
+   VoiceOver stops between "First scene ends." and "Second scene starts." and says
+   "Separator", and never "Image". It says the same before "Words after an ornament.",
+   where the rule has `role="presentation"`, which the reader does not read. On the page
+   that holds a rule alone it says "Separator" and nothing else in the text, and Next Page
+   from there shows "Last words of the scenes.". On Mac it says nothing at a rule: moving
+   by line it stops between the two scenes without a phrase, and no transcript has
+   "Separator" or "image" in it.
+9. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
@@ -854,6 +865,67 @@ The Mac runner's transcript is plain text and needs no export.
   has no label in the label's place.
   Not heard: VoiceOver activating the link that is an image without a name, which needs a
   device; a note's popover or a table cell with an image in it.
+- On 2026-10-12 the section of scenes was read at 17 points before and after a rule was
+  given a stop that names it. Nobody listened, no workstation was used and no physical
+  device: the iPhone and iPad here are the [simulator lane](#simulators)'s (an iPhone 17 Pro
+  and an iPad Air 13-inch (M4), iOS 27.0, Xcode 27.0), which establishes what VoiceOver reads
+  and not that it can activate anything. Both sides were recorded on the same `main`
+  (`2db7754`).
+  Before, at `81f8d88`, moving forward from the Bookmark control, in pages on both: "Scenes
+  set apart", "First scene ends.", "  Image", "Second scene starts.", "  Image", "Words
+  after an ornament.", then the book's title under the page; on the page that holds a rule
+  alone "  Image" and nothing else of the text; on the last "Last words of the scenes.".
+  "Image" after two spaces is VoiceOver's word for the image trait of an element that has
+  no label, as in the pictures' transcripts. In continuous scroll, where the section is one
+  run of lines, the same with a third "  Image" before "Last words of the scenes."; the iPad
+  read the lines on screen above the section first, from "Line 57 after the table.".
+  After, at `d432df6`: "Separator" in each of those places and "Image" in none, in pages and
+  in continuous scroll on both: "Scenes set apart", "First scene ends.", "Separator",
+  "Second scene starts.", "Separator", "Words after an ornament."; on the page of a rule
+  alone "Separator"; and Next Page from there showed "Last words of the scenes.". The rule
+  before "Words after an ornament." has `role="presentation"`, which the reader does not
+  read. At `253c79a`, whose reader is that of `d432df6`, in pages on both: from a touch on
+  "Second scene starts." three moves back gave "Separator", "First scene ends.", "Scenes set
+  apart" and four forward "First scene ends.", "Separator", "Second scene starts.",
+  "Separator"; a touch on the rule gave "Separator", and one finger down from there
+  "Next Page" and then "Previous Page", the stop's actions; on the page of a rule alone a
+  touch on the rule gave "Separator Swipe up or down to select a custom action", and the
+  screenshot shows VoiceOver's cursor round the line and nothing else on the page.
+  VoiceOver says "Actions available" after an item only where its actions differ from those
+  of the item before, so the phrase comes and goes along one page. The continuous-scroll
+  transcripts at `81f8d88` and `d432df6` have `-dirty` in their build line: each ran the
+  probe as the pages run a few minutes before had built it, at the clean revision, and the
+  working tree had been edited since. In continuous scroll VoiceOver went on from the
+  section's last line to the scroll bar and then, on the iPad both times and on the iPhone
+  before the change, round to the lines above the section and through it again before it
+  reached the book's title; moving back from the title it reached the Bookmark control past
+  the scroll bar and at most the section's last line. The transcripts before the change
+  have both, so neither is the rule's doing. Three further sessions, at load averages near
+  1,000, read nothing: two ended with "VoiceOver is on but says nothing" after three
+  minutes of silence, and one was not started, because a simulator gave no answer in twenty
+  seconds when its volume was set. Moving back across a rule in continuous scroll was to be
+  read in the last two, and was not.
+  On the Mac: GitHub's hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1
+  `26A434`, Xcode 27.0), a window 600 points wide, run 38327683951 at `81f8d88` (pages) and
+  runs 38328830423 (pages) and 38328832799 (continuous scroll) at `d432df6`. The scenes'
+  first page is 22 `ax:next` steps in, the page of a rule alone 23 and the last 24. In
+  continuous scroll 28 `ax:next` steps reach the end of the book, where `lastword` puts
+  VoiceOver on "scenes."; `textend` goes to the end of the book's first section instead. The
+  reader gives a rule no element there, and both revisions read the same. Pages by line:
+  "Scenes set apart", "First scene ends.", a phrase with nothing in it, "Second scene
+  starts.", a phrase with nothing in it, "Words after an ornament.": VoiceOver stops on the
+  rule's line and says nothing. By word: "Scenes", "set", "apart", "First", "scene",
+  "ends.", a step with no phrase, "Second", "scene", "starts.", a step with no phrase,
+  "Words", "after", "an", "ornament.", a step with no phrase, "end of text". On the page of
+  a rule alone: "In text" and no more on entering, a phrase with nothing in it for the line,
+  no phrase for the word or for a move right, and "end of text" for the next line.
+  Continuous scroll by line, back from the end: "Last words of the scenes.", a phrase with
+  nothing in it, "Words after an ornament.", the same, "Second scene starts.", the same,
+  "First scene ends.", "Scenes set apart", "Last words about pictures.". No Mac transcript
+  has "Separator" or "image" at a rule.
+  Not heard: a physical device; VoiceOver reading on by itself across a rule; a rule in a
+  note's popover or in a table cell; a rule that is all a link holds; and what Safari or
+  Books says at an `<hr>` on an iPhone, which was not compared.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).

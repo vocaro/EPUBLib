@@ -175,6 +175,28 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   image in a table cell is read by its words in the cell's text, and one without words is
   not announced there. In a note's popover on iPhone and iPad the text is read by UIKit's
   own elements, which were not heard with an image in them.
+- **Rules.** An `<hr>` is a break between the paragraphs it parts: a change of scene or of
+  subject. A book writes one so that the break need not be seen to be known, and HTML maps
+  the element to the separator role for that reason. It is drawn as a line and has no words,
+  so selections, copies and search read nothing for it. On iPhone and iPad VoiceOver stops
+  on it, in pages and in continuous scroll, and says "Separator". It is a stop and not
+  decoration to pass over because the break is part of what the book says: someone who sees
+  the page gets it from the line, and without the stop two scenes are read as one. UIKit
+  has no trait for a separator, so VoiceOver has no word of its own for one, as it has for
+  an image or a link. The word is the reader's (`ReaderRuleAttachment.spokenName`), the
+  name of the role, and it is English whatever the language of VoiceOver or of the book, as
+  the names of the page actions are. The stop has no trait: it is neither a picture nor
+  words of the book. A rule used to be listed as an image without a name, and VoiceOver
+  said "Image" at each one. Because a rule always has a stop, a page that holds a rule
+  alone is turned from it, with no exception of the kind decoration needs, and a rule that
+  is all a link holds is the link. On Mac the text area is itself the element and a rule is
+  a character of its value with no element of its own, as before: VoiceOver moving by line
+  stops on the rule's line and says nothing, moving by word it takes one step across the
+  rule for which no phrase was recorded, and on a page that holds a rule alone it says "In
+  text" and then "end of text". Not read: `role="presentation"` and `aria-hidden` on a
+  rule, which is announced like any other. A rule in a table cell has no words in the
+  cell's text and is not announced there, and UIKit's own elements in a note's popover were
+  not heard with a rule in them.
 - **Image inspection.** Double-click or double-tap an unlinked book image to inspect it in a separate
   native zoomable scroll surface, including images drawn inside table cells. On Mac, images
   also offer an Inspect Image context-menu action; UIKit supplies an attachment action and
@@ -714,7 +736,8 @@ The following are the defaults. Host commands and accessibility actions stay ena
   a book hides from the page and keeps for assistive technology is read where it stands, as
   text ([hidden labels](#floats-and-positioned-boxes)). An image is read by its `alt`, one
   with an empty `alt` is passed over, and one with none is announced as an image without a
-  name ("Alternative text" under Decisions).
+  name ("Alternative text" under Decisions). A rule is a stop that says "Separator" on
+  iPhone and iPad, and is silent on Mac ("Rules" under Decisions).
 - Selection: native selection UI with the host's `EPUBSelectionAction` in the edit or context
   menu, no length cap. Dragging can extend a selection across a two-column spread in either
   reading direction. A located passage is selected in every visible column and remains
