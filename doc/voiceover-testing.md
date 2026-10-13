@@ -183,9 +183,13 @@ new phrase is recorded:
   among the text's children and VoiceOver says the level first, "heading level 2 Link
   target reached": follow it with `describe`, which says what is in the cursor. In pages
   the reader turns to a heading that is on a later page, and VoiceOver says the heading,
-  the first words it says after any page turn, and the heading again. The reader puts the
-  insertion point on the heading, so `line` then reads the heading and `right` its first
-  word.
+  the first words it says after any page turn, and the heading again. Where the reader had
+  to turn or scroll for the heading it puts the insertion point on it, so `line` then
+  reads the heading and `right` its first word. A heading that was on the page or on screen
+  already is left as it is, and `line` and `right` read from where VoiceOver last read in
+  the text: a word said straight after the heading's level and words there, the one before
+  the heading, is the reader moving the insertion point
+  ([#454](https://github.com/vocaro/EPUBLib/issues/454)).
 - `rotor`: Control-Option-U, which opens VoiceOver's rotor: lists of what the item under its
   cursor holds, the reader's Headings among them. `listright` and `listleft` go from list to
   list, `listdown` and `listup` along one, `listchoose` (Return) moves VoiceOver to the item
@@ -1339,7 +1343,14 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    `right` says its first word, "Link", and `nextheading` goes on through the book, from the
    heading's element to the next heading's and from the text by the rotor. `ax:links` on
    the first page lists three children, the last of them the heading "Link target reached",
-   and marks each heading `FOCUSABLE`. From the book's last heading `nextheading` says
+   and marks each heading `FOCUSABLE`. Where the heading is on the page or on screen
+   already, VoiceOver says its level and words and nothing over them: opened at the last
+   section (`"launch=-SampleHref OPS/parts.xhtml"`), `nextlink nextheading` says "upper jump
+   hyperlink" and "heading level 3 Second part opens", in pages and in continuous scroll.
+   "finish.", the word before that heading, in place of it or straight after it is the
+   failure. `describe` says the heading is in the VoiceOver cursor, and `line` reads the
+   line VoiceOver last read, "Parts below a jump", since nothing was turned or scrolled.
+   From the book's last heading `nextheading` says
    "Last heading" and the heading again. `rotor` from a link has the same
    Heading menu. VoiceOver opens its rotor on the menu it showed last, so a session that
    has gone to another menu with `listright` starts the next one there. With `tracking`
@@ -2258,6 +2269,85 @@ The Mac runner's transcript is plain text and needs no export.
   Not heard: a link after the book's last heading, which the verification book no longer
   has, so the move that begins again there; a heading that follows a link on the same
   page; a larger text size; a workstation; and listening.
+- On 2026-10-13 the move by heading from a link was heard to a heading already on the page
+  or on screen ([#454](https://github.com/vocaro/EPUBLib/issues/454)), which the two
+  entries above list as not heard: the hosted `xcode-27` runner (image `20261006.0244.1`,
+  macOS 27.0.1 `26A434`, Xcode 27.0), at the fixed pause, in a window 600 points wide at 17
+  points unless said, the reader opened at the fixture's last section
+  (`"launch=-SampleHref OPS/parts.xhtml"`), which was added for it. Nobody listened.
+  On main's reader, `ed747d8` with the section added (run 38431856142 at `ec871c2`). In
+  pages `ax:links` gave the first page four children: "upper jump", the heading "Second
+  part opens", "lower jump" and the heading "Third part opens", which is on the next page.
+  `ax:focus=search ax:focus=0 in nextlink nextheading` gave "upper jump hyperlink" and
+  then, with `AXSelectedTextChanged` at the heading, "heading level 3 Second part opens"
+  and 58 ms later "finish.", the word before the heading; `describe` "Second part opens
+  heading level 3 is in the VoiceOver cursor", `line` "Second part opens" and `right`
+  "Second". In continuous scroll (`ax:focus in nextlink nextheading`) "finish." alone was
+  recorded. From "last jump", after the book's last heading, the move began again with the
+  first heading on the page or on screen: on the second page (`ax:next` first) "cease."
+  alone, where the heading is "Third part opens", and in continuous scroll, three
+  `nextlink` steps in, "heading level 3 Second part opens" and 114 ms later "finish.".
+  The hint followed each time, "You are currently on a heading level 3, inside of a text
+  area" or the same of level 4. In a window 1100 points wide, from "lower jump" in the
+  left-hand column to "Third part opens" in the right-hand one, with no page turned,
+  `AXSelectedTextChanged` came from the right-hand column and VoiceOver said "heading
+  level 4 Third part opens" and no word; `line` read "Parts below a jump", the left-hand
+  column's first line, and `right` "Parts"
+  ([#482](https://github.com/vocaro/EPUBLib/issues/482)). Opened at the pictures in
+  continuous scroll, where "Scenes set apart" is below the screen: "heading level 1 Scenes
+  set apart", "pictures." and the heading again, with `AXLayoutChanged`.
+  With a heading on the page or on screen left as it is, at `f59de08` (runs 38433616775
+  and 38435841497). The same steps gave "heading level 3 Second part opens" and nothing
+  more until the hint three seconds later, in pages and in continuous scroll, with no
+  `AXSelectedTextChanged`; from "last jump", "heading level 4 Third part opens" on the
+  second page and "heading level 3 Second part opens" in continuous scroll. `describe`
+  named the heading each time. `line` read "Parts below a jump", and "Middle words cease."
+  on the second page, and `right` "Parts" and "Middle": the line VoiceOver had entered the
+  text at. From a heading's element to the next (`nextlink nextheading nextheading`), in
+  continuous scroll "heading level 3 Second part opens" and "heading level 4 Third part
+  opens", both on screen and both whole, and a third `nextheading`, from the book's last
+  heading with another on screen, "heading level 3 Second part opens" again. In pages the
+  second step turned the page: "heading level 4 Third part opens", "Middle words cease."
+  and the heading again, then `line` "Third part opens" and `right` "Third". Two columns
+  as on main; the pictures "pictures." and "heading level 1 Scenes set apart", then `line`
+  "Scenes set apart". From the text, by the rotor, `nextheading` said "Second part opens",
+  which `line` read, and a second one turned to "Third part opens".
+  The heading cases of the entries above again at `f59de08` (run 38433623312), with their
+  phrases. In pages: "Page boundary verification" and "heading level 2 Link target
+  reached" on the page of `word1187`, `describe`, `line` "Link target reached", `right`
+  "Link", and from there by the rotor the page of "Parked title heading"; from element to
+  element "heading level 1 Parked title heading" and "heading level 1 Parked table
+  heading". In continuous scroll: "word1200" and "heading level 2 Link target reached",
+  `right` "Link", `line` "Link target reached", and "Parked title heading" by the rotor.
+  Opened at `OPS/grids.xhtml` in pages: "Reopened 1978 hyperlink", then a page turned for
+  each of "heading level 1 A table longer than a page", "heading level 1 A row taller than
+  a page", "heading level 3 Second part opens" and "heading level 4 Third part opens", and
+  from that one, now the book's last, "Last heading heading level 4 Third part opens".
+  `rotor` from a link opened on "Page boundary verification, heading level 1", and
+  `listdown listchoose` turned to "Link target reached", which `line` read. With `tracking`
+  first, "heading level 2 Link target reached" and the page stayed. In two columns at 17
+  points "heading level 2 Link target reached", `line` "Link target reached" and `right`
+  "Link"; at 20 points, with the heading in the right-hand column after the turn,
+  "ord1105 word1106 word1107" and "2 updated items" with no heading recorded before
+  them, `describe` naming it, and `line` and `right` at `word1048` (run 38433616775).
+  Opened at `OPS/grids.xhtml` in continuous scroll the link was not reached: after `in`,
+  with `AXSelectedTextChanged` at a line of an earlier section, VoiceOver said "Below",
+  `nextlink` said "Link not found", and five `nextheading` steps went by the rotor from
+  "Tables of data" to "Third part opens". Main's reader moved the same way after `in` at
+  the pictures, to "Line" (run 38431856142).
+  One other way was heard, on a throwaway branch (`claude/probe-heading-on-screen-454` at
+  `fc425ac`, run 38435847638, the variant chosen by a launch argument): the insertion
+  point moved to a heading on the page or on screen, as on main, and then a layout change
+  that names the text. Posted by the window, as after a scroll: "heading level 3 Second
+  part opens", "finish." and the heading again, in pages and in continuous scroll, with
+  `line` "Second part opens" and `right` "Second"; from heading to heading "cease."
+  between two sayings of "heading level 4 Third part opens". Posted by the element that
+  holds the text, as after a page turn: "finish." and the heading in pages, and "finish."
+  alone in continuous scroll. Posted by the window it keeps reading on at the heading and
+  puts a word before every heading moved to
+  ([native viewer](native-viewer.md#input-and-accessibility), Headings).
+  Not heard: a heading only part of which is on screen; a larger text size; a workstation;
+  and listening.
 - To see what VoiceOver asks of the reader, have the reader write it to a file. `log show`
   on the hosted runner returned no line the sandboxed reader logged. A throwaway branch
   that appends each query to a file in `FileManager.default.temporaryDirectory`, with a

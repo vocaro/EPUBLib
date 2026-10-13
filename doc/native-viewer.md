@@ -1573,25 +1573,51 @@ The following are the defaults. Host commands and accessibility actions stay ena
   VoiceOver focuses the element it moves to, while its cursor and the keyboard focus go
   together (cursor tracking, which is on until a listener turns it off), and that is all it
   tells the reader of the move. It gives the focus to an element that says whether it has
-  it: one that only took it was never given it. The reader then does three things
-  (`ReaderTextView.showHeading`). It puts the insertion point on the heading. VoiceOver's
-  cursor is on the element and not in the text, and its next move by word or by line starts
-  from the insertion point, which was wherever VoiceOver had last read, or the first line on
-  screen: with it on the heading, one move right says the heading's first word and reading
-  goes on from there, and the next move by heading goes on by the rotor from the heading.
-  In continuous scroll it shows a heading that has no character on screen, as it shows a
-  link's target, where VoiceOver would scroll to the element by the scroll bar, which the
-  reader takes for any other scroll. And in paging it turns to the page of a heading that
-  is on a later one, as it does when VoiceOver loads a heading the rotor gave. The element
-  VoiceOver is on becomes the heading's own in the column that then shows it, one of that
-  column's children with its place there: an element that left the children would leave
-  VoiceOver's cursor on the column. VoiceOver says the heading, then the first words it
-  says after any page turn, then the heading again.
+  it: one that only took it was never given it. A heading it does not show, the reader
+  then shows, and puts the insertion point on it (`ReaderTextView.showHeading`). In
+  continuous scroll that is a heading with no character on screen. The reader shows it as
+  it shows a link's target, where VoiceOver would scroll to the element by the scroll bar,
+  which the reader takes for any other scroll. In paging it is a heading on a later page,
+  and the reader turns to that page as it does when VoiceOver loads a heading the rotor
+  gave. The element VoiceOver is on becomes the heading's own in the column that then shows
+  it, one of that column's children with its place there: an element that left the children
+  would leave VoiceOver's cursor on the column. VoiceOver says the heading, then the first
+  words it says after any page turn, then the heading again. Its cursor is on the element
+  and not in the text, and its next move by word or by line starts from the insertion
+  point, which was wherever VoiceOver had last read, or the first line on screen: with it
+  on the heading, one move right says the heading's first word and reading goes on from
+  there, and the next move by heading goes on by the rotor from the heading.
+  A heading with any of it on the page or on screen already is left as it is, the insertion
+  point too. Told that the insertion point of the text it is in has moved, VoiceOver says
+  the word before the new place, some 60 to 110 ms after it has begun the heading's level
+  and words, and that is what a listener hears: from a link to a heading two lines under
+  it, "finish.", the last word of the paragraph between them, where the heading was cut
+  off or not recorded at all, in pages and in continuous scroll (macOS 27.0.1). The same
+  was heard for a link ([#425](https://github.com/vocaro/EPUBLib/issues/425)). Left as it
+  is, the heading is said whole, "heading level 3 Second part opens", from a link and from
+  another heading's element. Where the reader has turned or scrolled it also tells
+  VoiceOver that the layout changed, and VoiceOver then says the item under its cursor
+  again, which is why a heading the reader had to show is heard: in continuous scroll
+  "word1200" and then "heading level 2 Link target reached". In a spread, a heading in
+  the column beside the one VoiceOver is in still takes that column's insertion point,
+  with no page turned: VoiceOver said the heading whole and no word for the other text.
   What is left as it was (macOS 27.0.1):
   - Past the book's last heading the move from a link begins again with the first heading
     among the children, which is the first on screen or on the page, and says "Heading not
     found" where they hold none. From the last heading's own element, with no other on
-    screen, VoiceOver says "Last heading" and stays.
+    screen, VoiceOver says "Last heading" and stays; with another on screen it begins
+    again with the first of them.
+  - After a move to a heading that was on the page or on screen already, reading on by
+    word or by line starts where VoiceOver last read in the text, on that page or screen,
+    and not at the heading: `describe` names the heading, and one move right says the
+    first word of the line VoiceOver was on. The move by heading from there, by the rotor,
+    reaches the heading with VoiceOver's text cursor on it. Moving the insertion point to
+    the heading and then telling VoiceOver that the layout changed, as the window does
+    after a scroll, was heard to keep both: VoiceOver said "finish." and then "heading
+    level 3 Second part opens", and one move right said "Second", in pages and in
+    continuous scroll. It was left out for the word, which is then said before every
+    heading a listener moves to on one screen. Posted by the element that holds the text,
+    the same change brought the heading back in pages and not in continuous scroll.
   - With cursor tracking off VoiceOver focuses nothing. In continuous scroll it scrolls to
     the heading itself, and reading on starts from where it had last read. In paging it
     says the heading that is on a later page and the page stays; one move right puts it
