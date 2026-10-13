@@ -12,6 +12,12 @@ VOICEOVER_TEXT_SIZE      text size in points at launch [23]
 VOICEOVER_FLOW           paginated or scrolled [paginated]
 VOICEOVER_PAUSE          the runner's --pause [5]
 VOICEOVER_ADVANCE_AFTER  the runner's --advance-after [the fixed pause]
+
+A session has the last five as given there unless its own words say otherwise: `width=600`,
+`text_size=17`, `flow=scrolled`, `pause=3` or `advance_after=0.5`, in any order before its first
+step. One job can then hear sessions that differ in them, where each used to need a job, a
+build and a runner of its own. A session of such words alone is the page-boundary session with
+them, and `advance_after=` with nothing after it is the fixed pause.
 """
 import argparse
 import importlib.util
@@ -34,6 +40,9 @@ READER = ROOT / ".build/voiceover/mac/Build/Products/Debug/VoiceOverVerification
 # comes back at the first line whatever the reader posts.
 BOUNDARY = ("ax:next ax:lines ax:focus=search ax:focus=0 in line nextline nextline out " + "left " * 8
             + '"activate=Next Page" ax:lines ' + "right " * 8 + "in line nextline nextline")
+# What a session can set for itself, with the value an empty input takes. Each arrives as
+# VOICEOVER_NAME and is written NAME=VALUE in a session's own words.
+DEFAULTS = {"width": "1100", "text_size": "23", "flow": "paginated", "pause": "5", "advance_after": ""}
 OUTCOMES = {0: "completed", 2: "refused by the runner script", 124: "ended early or reached its deadline",
             125: "stopped", 126: "VoiceOver not restored"}
 
@@ -62,36 +71,73 @@ def sessions(text):
     return [steps for steps in found if steps]
 
 
-def settings():
-    """The runner script's options, the reader's launch arguments and each session's steps."""
-    def read(name, default, kind):
-        text = os.environ.get(f"VOICEOVER_{name}", "").strip() or default
-        try:
-            value = kind(text)
-        except ValueError:
-            value = -1
-        if not 0 <= value < 10000:
-            raise SystemExit(f"VOICEOVER_{name} must be a number from 0 up, not {text!r}")
-        return f"{value:g}"
-
-    width, size, pause = read("WIDTH", "1100", int), read("TEXT_SIZE", "23", float), read("PAUSE", "5", float)
-    flow = os.environ.get("VOICEOVER_FLOW", "").strip() or "paginated"
-    if flow not in ("paginated", "scrolled"):
-        raise SystemExit(f"VOICEOVER_FLOW must be paginated or scrolled, not {flow!r}")
-    options = ["--pause", pause]
-    if os.environ.get("VOICEOVER_ADVANCE_AFTER", "").strip():
-        options += ["--advance-after", read("ADVANCE_AFTER", "", float)]
-    text = os.environ.get("VOICEOVER_STEPS", "").strip()
-    if not text and flow == "scrolled":
-        raise SystemExit("Give the steps of a continuous-scroll session; the default session turns pages")
+def checked(name, text, where):
+    """A setting as the runner script and the reader take it; `where` names it in a refusal."""
+    if name == "flow":
+        if text not in ("paginated", "scrolled"):
+            raise SystemExit(f"{where} must be paginated or scrolled, not {text!r}")
+        return text
+    if name == "advance_after" and not text:
+        return text
     try:
-        lists = [[f"ax:width={width}"] + steps for steps in sessions(text or BOUNDARY)]
+        value = (int if name == "width" else float)(text)
+    except ValueError:
+        value = -1
+    if not 0 <= value < 10000:
+        raise SystemExit(f"{where} must be a number from 0 up, not {text!r}")
+    return f"{value:g}"
+
+
+def settings():
+    """Each session's settings and steps: the inputs, changed by the settings the session opens with."""
+    inputs = {name: checked(name, os.environ.get(f"VOICEOVER_{name.upper()}", "").strip() or default,
+                            f"VOICEOVER_{name.upper()}") for name, default in DEFAULTS.items()}
+    text = os.environ.get("VOICEOVER_STEPS", "").strip()
+    try:
+        lists = sessions(text) if text else [[]]
     except ValueError as error:
         raise SystemExit(f"VOICEOVER_STEPS: {error}")
-    unknown = runner().unknown([step for steps in lists for step in steps])
-    if unknown or not lists:
-        raise SystemExit(f"Unknown steps: {' '.join(unknown)}" if unknown else "VOICEOVER_STEPS holds no step")
-    return options, ["-SampleFlow", flow, "-SampleFontSize", size], lists
+    if not lists:
+        raise SystemExit("VOICEOVER_STEPS holds no step")
+    found = []
+    for number, words in enumerate(lists, 1):
+        chosen, own, steps = dict(inputs), set(), []
+        for word in words:
+            name, equals, value = word.partition("=")
+            if not equals or name not in DEFAULTS:
+                steps.append(word)
+            elif steps:
+                # Nothing changes the reader's launch arguments once it is open, so a setting
+                # among the steps would be one the session does not have.
+                raise SystemExit(f"Session {number}: {word} follows a step; a session's settings come before its steps")
+            elif name in own:
+                raise SystemExit(f"Session {number}: {name} is given twice")
+            else:
+                chosen[name] = checked(name, value, f"Session {number}: {name}")
+                own.add(name)
+        if not steps and chosen["flow"] == "scrolled":
+            raise SystemExit(f"Session {number}: give the steps of a continuous-scroll session; "
+                             "the default session turns pages")
+        found.append((chosen, steps or sessions(BOUNDARY)[0]))
+    unknown = runner().unknown([step for _, steps in found for step in steps])
+    if unknown:
+        raise SystemExit(f"Unknown steps: {' '.join(unknown)}")
+    return found
+
+
+def described(chosen):
+    """A session's settings in words, for the log, sessions.txt and the summary page."""
+    pace = f", next key {chosen['advance_after']} s after a phrase" if chosen["advance_after"] else ""
+    return f"{chosen['width']} wide at {chosen['text_size']} points, {chosen['flow']}, {chosen['pause']} s pause{pace}"
+
+
+def command(chosen, steps):
+    """The reader's launch arguments for a session, and the runner script's options and steps."""
+    options = ["--pause", chosen["pause"]]
+    if chosen["advance_after"]:
+        options += ["--advance-after", chosen["advance_after"]]
+    launch = ["-SampleFlow", chosen["flow"], "-SampleFontSize", chosen["text_size"]]
+    return launch, options + [f"ax:width={chosen['width']}"] + steps
 
 
 def running(name):
@@ -115,28 +161,28 @@ def main():
     parser.add_argument("--check", action="store_true", help="print the sessions and run nothing")
     parser.add_argument("--until", type=int, metavar="EPOCH", help="when the last session must have ended")
     args = parser.parse_args()
-    options, launch, lists = settings()
-    for number, steps in enumerate(lists, 1):
-        print(f"Session {number}: {shlex.join(launch)}; {shlex.join(options + steps)}", flush=True)
+    found = [(described(chosen), *command(chosen, steps)) for chosen, steps in settings()]
+    for number, (label, launch, rest) in enumerate(found, 1):
+        print(f"Session {number}: {label}; {shlex.join(launch)}; {shlex.join(rest)}", flush=True)
     if args.check:
         return 0
     RESULTS.mkdir(parents=True, exist_ok=True)
-    summary = ["### Mac VoiceOver sessions", "", f"`{shlex.join(launch)}`, `{shlex.join(options)}`", ""]
+    summary = ["### Mac VoiceOver sessions", ""]
     failures = 0
-    for number, steps in enumerate(lists, 1):
+    for number, (label, launch, rest) in enumerate(found, 1):
         # A session takes its timeout and about 45 seconds around it.
         timeout = 300 if args.until is None else min(300, int(args.until - time.time()) - 45)
         if timeout < 60:
             failures += 1
             outcome, transcript = "not run, because the job's time was used up", "no transcript"
-            summary += [f"Session {number}: {outcome}", ""]
+            summary += [f"Session {number}: {label}; {outcome}", ""]
         else:
-            print(f"::group::Session {number}", flush=True)
+            print(f"::group::Session {number}: {label}", flush=True)
             fresh_reader(launch)
             before = set(RESULTS.glob("mac-*.transcript.txt"))
             started = time.time()
             status = subprocess.run([sys.executable, str(ROOT / "scripts/run-voiceover-mac.py"),
-                                     "--timeout", str(timeout)] + options + steps).returncode
+                                     "--timeout", str(timeout)] + rest).returncode
             failures += status != 0
             written = sorted(set(RESULTS.glob("mac-*.transcript.txt")) - before)
             transcript = written[-1].name if written else "no transcript"
@@ -146,9 +192,9 @@ def main():
             # The steps and the speech alone, without the observer's lines, for the run's summary page.
             spoken = [line[11:] for line in lines
                       if line[25:].startswith(("STEP ", "heard: ", "ADVANCE ", "NOT_RESTORED "))]
-            summary += [f"<details><summary>Session {number}: {outcome}</summary>", "", "```text", *spoken, "```",
-                        "", "</details>", ""]
-        line = f"Session {number}: {outcome}; {transcript}; {shlex.join(launch + options + steps)}"
+            summary += [f"<details><summary>Session {number}: {label}; {outcome}</summary>", "", "```text",
+                        *spoken, "```", "", "</details>", ""]
+        line = f"Session {number}: {label}; {outcome}; {transcript}; {shlex.join(launch + rest)}"
         print(line, flush=True)
         with (RESULTS / "sessions.txt").open("a") as record:
             record.write(line + "\n")
