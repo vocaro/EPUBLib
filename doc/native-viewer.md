@@ -844,6 +844,24 @@ as they did.
   of where it was last read has not moved and nobody has scrolled it: its first line is still
   held, and the position kept is still the one shown, not the visible start
   ([#302](https://github.com/vocaro/EPUBLib/issues/302)).
+  AppKit's text view also scrolls itself when a live resize of its window ends, after a drag
+  of the window's edge and after a resize made with animation or by an assistive client: the
+  paragraph under the clip view's top edge goes to that edge, from its first line
+  (`-[NSTextView viewDidEndLiveResize]`, which scrolls to the paragraph's start with no
+  offset, macOS 27.0). That edge is above the first line on screen by the text's 48-point
+  top margin, and by the height of a toolbar over the reader. A reader at the top of its book
+  stood 48 points down, its title above the screen, and 114 points down under a 66-point
+  toolbar. Anywhere else the text went back to the start of a paragraph, 279 and 304 points
+  in the tests' prose, and further at each resize: 574 and 650 points after a second and a
+  third. The reader took that for a scroll by the person: it kept the new
+  place, and put the insertion point VoiceOver enters at on the line then first on screen.
+  AppKit tells a view that the resize has ended before it tells that view's subviews, so the
+  canvas has rested the kept position by the time the text view scrolls. The reader reads
+  where the view stands before that scroll and puts it back straight after, at the offset it
+  had and then with its first line where that line was, before anything is drawn. Nobody
+  has scrolled and the position kept is unchanged: in a pane whose size the resize leaves
+  alone, text the person scrolled to stays where it is, a line cut by the top edge with it
+  ([#479](https://github.com/vocaro/EPUBLib/pull/479)).
   A layout the reader makes itself is not one behind the view, and it
   forgets where that line stood when it makes one: for new text, for a new column width, and
   when a new visible height (the window's, or the safe area's alone) resolves the book's
