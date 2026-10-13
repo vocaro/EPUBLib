@@ -1964,6 +1964,29 @@ The Mac runner's transcript is plain text and needs no export.
   nobody describes, whose second line opens with the picture, nothing before and "image
   stands." after. The session on "Third cell" in pages said at `bee900d` what it had said
   at `774f82c`, phrase for phrase.
+  A picture's actions in a cell, and the cells of the section of entries in continuous
+  scroll, which the record of that section left unheard: at `d3e1f87`, the head of #453
+  before it merged, runs 38361206010 and 38362735530, with the reader opened at the section.
+  Four `right` steps from the text's first line reach the second row, `in` twice enters the
+  described picture's cell and two `right` steps put VoiceOver on the picture, "Blue entry
+  square image". `actions` there said "Actions menu 2 items", `listdown` "show menu" and a
+  second `listdown` "Inspect Image: Blue entry square"; on the picture nobody describes the
+  second was "Inspect Image". `"listchoose=Inspect Image"` then opened the inspector, in
+  pages and in continuous scroll: `ax:actions=all` printed Zoom Out, Zoom In, Fit, Close,
+  "Magnification" and an image called "Blue entry square", or one with no name, and the
+  application posted the value "100%". VoiceOver said "Inspect Image: Blue entry square
+  text Drawn Blue entry square i" and for `describe`, in pages, "text is in the VoiceOver
+  cursor Line 3": its cursor stayed on the text and did not go to the inspector. Whether it
+  goes there from a picture in a page's own text was not compared. "show menu" is the menu's first
+  item, so one `listdown` before `"listchoose=Inspect Image"` chooses nothing and the
+  runner stops the session, as it did the second of run 38361206010. In continuous scroll
+  the cells said what they say in pages: "In text Drawn Blue entry square image shown." and
+  "Blue entry square image" by word; "text Parked entry words. Seen entry words." and
+  "Parked entry words." by word; "text Sum x squared image stated." and "x squared image"
+  by word; "Ornament", a step with no phrase and "passed."; "Undescribed", "image" and
+  "stands.". From the first row there, two `out` steps and `right` said "Drawn Blue entry
+  square shown. Parked entry words. Seen entry wo" at the second row, its cells' words,
+  and the next `right` "Table row group".
   Not heard: a part of a cell cut at a page's end, which is unit-tested
   (`TableCellLineAccessibilityTests`); a cell whose last character is a picture or a
   formula; a physical Mac, or anyone listening.
@@ -2086,10 +2109,11 @@ The Mac runner's transcript is plain text and needs no export.
   merged in afterwards, has "What each line offers" as its sixth, so the section of entries
   is the seventh, with the same content and still opened by name. That merge changes
   nothing in a cell's code, and the sessions were not recorded again on it.
-  Not heard: the Inspect Image action of a picture in a cell chosen through VoiceOver; a
-  picture, a formula or a hidden label inside a link in a cell; a part of a cell cut at a
-  page's end; a formula without `alttext`, whose reading is generated; a rule or a picture
-  in a table inside a cell; and an iPhone or iPad, where nothing changes.
+  Not heard: a picture, a formula or a hidden label inside a link in a cell; a part of a
+  cell cut at a page's end; a formula without `alttext`, whose reading is generated; a rule
+  or a picture in a table inside a cell; and an iPhone or iPad, where nothing changes. The
+  Inspect Image action of a picture in a cell was chosen through VoiceOver afterwards, and
+  the other cells heard in continuous scroll: see the record of Read Line in a table cell.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
