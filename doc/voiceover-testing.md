@@ -354,9 +354,12 @@ point can be followed beside the speech.
 2. `nextline` reads the following lines in order while `SELECTION` follows VoiceOver. The
    first one after entering repeats the rest of the entry line, as in paging.
 3. `pagedown` while interacting moves `SELECTION` to the new first line; `line` then reads it.
-   So does Scroll Forward chosen in the Actions menu. Move by line first: after a step made
-   straight after `in`, VoiceOver goes back to the start of the text, `SELECTION 0,0` follows
-   it, and `line` reads the book's first line.
+   So does Scroll Forward chosen in the Actions menu, and so does either made straight after
+   `in`, before VoiceOver has moved in the text. Each step shows two `AXSelectedTextChanged`
+   with the one `SELECTION`: AppKit's, and the reader's second notice, which is what brings
+   VoiceOver's cursor along there. With one notice VoiceOver named the line it had entered at
+   ("text  word:  Read"), `SELECTION 0,0` followed, and `line` read the book's first line:
+   the step was undone ([#473](https://github.com/vocaro/EPUBLib/pull/473)).
 4. `out`, `right` to leave the text, a scroll step, `left` and `in`: VoiceOver enters at the
    new first line. Each of the reader's own moves shows as `AXLayoutChanged`.
 
@@ -1228,8 +1231,19 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     without that left VoiceOver on the first line of the new right-hand column. VoiceOver
     says "actions available" only before its hint for the text area, "actions available You
     are currently on a text area", and after no line of five moved to. A step in continuous
-    scroll made straight after `in` is undone, with the action and with `pagedown`: that is
-    VoiceOver's return to the start of the text, and no failure of the action.
+    scroll made straight after `in`, with `pagedown`, with `"listchoose=Scroll Forward"`,
+    with `"ax:action=Scroll Forward"` or with `ax:next`, holds as one made after two moves
+    by line does: two `AXSelectedTextChanged` at the new first line and none after them,
+    VoiceOver says the word before that line and "text  word:" with the line's first word,
+    and `describe` and `line` give that line. "text  word:" with a word of the line
+    VoiceOver had entered at, and then a `SELECTION` back up the book, is the failure of a
+    reader that tells of the insertion point once. Hear it in a reader launched in
+    continuous scroll and in one changed to it while open, and there with nothing focused
+    first (`"ax:press=Continuous Scroll" ax:focus=0 in pagedown`): where a column had
+    keyboard focus before the change, the step held without the second notice. `ax:action`
+    reports -25200 for the scroll's two actions though they scroll, which is AppKit's
+    answer and no failure of the step
+    ([#465](https://github.com/vocaro/EPUBLib/issues/465)).
 15. Links in a table's cells on a Mac, in pages and in continuous scroll, on the fixture's
     last section (`-SampleHref OPS/cells.xhtml`). `ax:links` gives each cell's link by what
     it says, "worded jump", "Described entry jump, image", "image", "Entry jump with
@@ -2518,12 +2532,124 @@ The Mac runner's transcript is plain text and needs no export.
   became -25200 where the turn made inside the handler gives 0.
   Not established: why the status in continuous scroll is a failure, and what another
   assistive client makes of it. Why VoiceOver goes back to the start of the text after a
-  step it has not moved before, and what would keep it at the new first line. What VoiceOver
+  step it has not moved before, and what would keep it at the new first line, which the
+  next entry has. What VoiceOver
   does when a listener has switched off its following of keyboard focus, which is what
   takes it to the first column. Not heard: listening; a workstation; a turn with text
   selected and a turn under `EPUBPageControls.hostOnly`, which unit tests hold and the
   sample has no switch for; a right-to-left spread; a spread whose next section is not
   built yet; and VoiceOver's cursor on a table's row or cell, which keeps its own actions.
+- The same day what undid that step was found, and the step made to hold
+  ([#464](https://github.com/vocaro/EPUBLib/issues/464),
+  [#473](https://github.com/vocaro/EPUBLib/pull/473)). It was heard before and after on the
+  same main: [hosted sessions](#hosted-mac-sessions) on `xcode-27` (image
+  20261006.0244.1, macOS 27.0.1 `26A434`, Xcode 27.0), 600 wide at 17 points, at a fixed
+  pause of four seconds, with VoiceOver brought to the text by `ax:focus=search ax:focus=0`.
+  Before is main's reader at `593b907`, run 38380968267. After is the reader of `aa2fbdb`,
+  which is that main and the change, run 38380781111, with the same twelve step lists. For
+  a reader changed to continuous scroll while open, four more step lists: before in run
+  38386864653, and after in run 38386814468 at `e850a82`, the same change. Nobody listened.
+  A step made straight after `in`, in a session launched in continuous scroll. Before, with
+  `pagedown`: `SELECTION 865,0`, "word0078", "text  word:  Read  character:  R", then
+  `SELECTION 0,0` and "Page"; `describe` "Line 1  word:  Page", `line` "Page boundary
+  verification" and `nextline` `SELECTION 26,0`. With `actions`, three `listdown` and
+  `"listchoose=Scroll Forward"`: the same, "Scroll Forward text  word:  Read  character:
+  R". With `"ax:action=Scroll Forward"` and with the host's button pressed natively
+  (`ax:next`): the same. After, each of the four: two `AXSelectedTextChanged` with
+  `SELECTION 865,0` and none after them, "word0078", "text  word:  word0079  character:
+  w", which the menu's choice begins with the action's name, `describe` "Line 18  word:
+  word0079", `line` "word0079 word0080 word0081 word0082 word0083 word0084" and `nextline`
+  `SELECTION 919,0`. A second `pagedown` went on to `SELECTION 1918,0`, "word0195" and "text
+  word:  word0196", and `pageup` came back to 865 with "word0079". Before, the second went
+  from the top of the book to 703 and `pageup` to 0.
+  What read the same before and after. After two moves by line, `pagedown` and the menu's
+  Scroll Forward: `SELECTION 865,0`, "word0078", "text  word:  word0079  character:",
+  "Line 18". VoiceOver two lines down, out of the text and one item right, a native press
+  of Scroll Forward, back and `in`: "word0078" at the press and "In text word0079 word0080
+  word0081 word0082 word0083 word0084". VoiceOver
+  resting on the text area, `pagedown`: "word0078", "text Page boundary verification" and
+  the text's first sentence, `describe` "text is in the VoiceOver cursor Line 18", `in` "In
+  text word0079…". In pages, `in`, `nextline` and `pagedown`: "word0055 word0056 word0057",
+  "text  word:  word0055", "Line 1". A page turn shows two `AXSelectedTextChanged` for each
+  column on both readers, from the text put into it.
+  A reader changed to continuous scroll while open, with nothing focused first
+  (`"ax:press=Continuous Scroll" ax:focus=0 in`, which enters at "In text Page boundary
+  verification"). Before, with `pagedown`: `SELECTION 703,0`, "word0060", "text  word:  Page
+  character:  P", `SELECTION 0,0`, "Page", "Line 1  word:  Page", and `line` "Page boundary
+  verification". With the menu's Scroll Forward: "Scroll Forward text  word:  Page
+  character:  P", `SELECTION 0,0` and the same line. After, both: two
+  `AXSelectedTextChanged` with `SELECTION 703,0`, "word0060", "text  word:  word0061", with
+  the action's name before it from the menu, "Line 15  word:  word0061", `line` "word0061
+  word0062 word0063 word0064 word0065 word0066", and after the key `nextline`
+  `SELECTION 757,0`. After two moves by line there, `pagedown` read "word0060", "text
+  word:  word0061" and "Line 15" before and after.
+  The same change of flow with a column given keyboard focus first (`ax:focus=search
+  ax:focus=0` before the press) held on main: `pagedown` straight after `in`, and after two
+  moves by line, and the menu's Scroll Forward straight after `in`, each `SELECTION 703,0`,
+  "word0060", "text  word:  word0061" and "Line 15", before and after.
+  A phrase begun twice, on either reader. With the menu's Scroll Forward VoiceOver recorded
+  "text  word:  word0079  character:" and, 54 ms later, "Scroll Forward text  word:
+  word0079  character:" once in the reader with the change (after two moves by line) and
+  the same pair for word0061 once on main (after the change of flow with a column focused
+  first), where the other sessions that choose the action have the second alone. It is
+  not the change's.
+  How it was found, in a reader that logs what VoiceOver asks of the text (the entry on
+  that, above; `47b700e`, `c293516` and `24c58c0`, runs 38373719273, 38376212379 and
+  38378765133, thirty-four sessions over the mains of `6d9be92` and `593b907`). The step
+  moves the insertion point from 27 to 865, and AppKit posts one `AXSelectedTextChanged`.
+  VoiceOver reads the selected range, the 838 characters between the two places, the
+  insertion point's line and the words around it, says "word0078", and asks no more. At the
+  window's layout change it asks for the bounds of characters 27 to 90, the line it entered
+  at, and the scroll view goes to the top through `-[NSScrollView
+  _doScroller:hitPart:multiplier:]`: VoiceOver sets the scroll bar's value. The reader takes
+  that scroll for anybody's and 150 ms later puts the insertion point on the first line then
+  on screen, character 0, and that second move VoiceOver follows. After two moves by line
+  the same queries end with the bounds of characters 865 to 919: VoiceOver is on the new
+  line at the one notice.
+  What was tried, each in the session that fails; none changed the session that holds. No
+  layout change: "word0078" and nothing more, then at `describe` the scroll back, "Line 18
+  word:  Read" and `SELECTION 0,0`. The layout change posted by the text view, which is its
+  own unignored ancestor: VoiceOver set `SELECTION 163,0`, the first character AppKit counts
+  as visible, and was on "Line 5  word:  word0001". Posted by the canvas's unignored
+  ancestor: as with none. Posted before the insertion point moved: as on main. A second
+  `AXSelectedTextChanged` posted after the layout change: as on main. The insertion point
+  put on the step's first line before the view scrolled: as on main. An insertion point set
+  by a client within a second of the step refused: VoiceOver sets none. The view put back after
+  VoiceOver's scroll: "Line 18  word:  Read", and VoiceOver scrolled again at its next
+  command. The insertion point kept where it was through VoiceOver's scroll: the view at
+  the top and "Line 18  word:  Page". The insertion point moved twice, to the line after
+  and then to the first line, before the scroll or after it: held. Moved once, with a
+  second `AXSelectedTextChanged` posted by the text view before the layout change: held,
+  and that is the change.
+  Where one notice was enough: after the change of flow with a column focused first. The
+  reader gives the new text keyboard focus itself there, and VoiceOver read `AXFocused` at
+  `in` and did not set it, in both such sessions logged. In each of the nineteen logged
+  sessions launched in continuous scroll it set `AXFocused` on the text at `in`, the
+  sessions that hold among them, where the selection VoiceOver sets as it moves by line
+  comes before the reader's. So every logged session agrees with VoiceOver passing over
+  the first change of selection after it has set keyboard focus on a text. That this is
+  its rule was not established, and the change of flow with nothing focused first, which
+  fails on main, was not logged.
+  The status of `ax:action`: -25200 for Scroll Forward, before and after, though the view
+  scrolled and VoiceOver said the new first word. The reader's handler returns true. Its
+  return was logged under `_NSAccessibilityPerformActionCustom`, called from
+  `NSAccessibilityEntryPointPerformAction`, and the observer had the status 7 ms later. So
+  the failure is AppKit's answer and not the reader's. Why AppKit gives it in continuous
+  scroll and 0 in pages was not found
+  ([#465](https://github.com/vocaro/EPUBLib/issues/465)).
+  Seen besides: a session launched in continuous scroll does not begin at the top of the
+  book. `ax:width` ends a live resize, and AppKit's text view then scrolls itself
+  (`-[NSTextView viewDidEndLiveResize]`, `scrollToLocation:`) 48 points down. The book's
+  title is then above the screen, the insertion point follows to character 27, and `in`
+  reads the second line, as in every such session here. A session that changes to
+  continuous scroll after the resize begins at the top. Whether a window resized by hand
+  does the same was not looked at.
+  Not established: why VoiceOver keeps its cursor for one notice and follows two. Not
+  heard: listening; a workstation; a move to a shown position (the contents, a search
+  result) or rebuilt text with VoiceOver inside the text, which post the same second
+  notice, as a unit test holds for the contents; the insertion point following a scroll by
+  hand while VoiceOver is inside the text and has not moved, which posts one notice as
+  before; and another assistive client.
 - On 2026-10-13 VoiceOver's Read Line was heard in a table cell on a Mac, before and after a
   cell gave a line for the end of its text. GitHub's hosted `xcode-27` runner (image
   `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), VoiceOver's link setting Speak, a

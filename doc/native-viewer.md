@@ -816,6 +816,20 @@ as they did.
   its own previous cursor and scrolls the view there. The window posts this one. That is not
   enough for a spread's columns (Pages, below) and was heard to be enough here
   ([#373](https://github.com/vocaro/EPUBLib/issues/373)).
+  The layout change does not bring along a VoiceOver cursor that is inside the text: the
+  insertion point's move does, and AppKit tells of that once. VoiceOver, inside the text and
+  not yet moved in it, kept its cursor on its line for the one notice. It said the word
+  before the insertion point and then, at the layout change or without one at its next
+  command, scrolled the view back to its line by setting the scroll bar's value. The
+  insertion point was still where the reader had put it, so it followed that scroll, and a
+  step made straight after entering the text was undone, with a page key, with the text
+  area's action and with the host's button alike. So after a move the reader makes itself
+  the text view tells of the insertion point a second time, before the layout change, and
+  VoiceOver goes there, as it does at the first notice once it has moved by line
+  (macOS 27.0.1, [#464](https://github.com/vocaro/EPUBLib/issues/464)). Each such move costs
+  an assistive client one notice that reports no change. Where the insertion point follows
+  other scrolling it is told of once, as before. A page turn is left as it is: putting a
+  page's text into a column already tells twice.
   On iOS, VoiceOver walks a text view's accessibility elements and, moving in from a control,
   takes the first. UIKit's own are every paragraph of the book, so it took the book's first
   paragraph and scrolled the reader back to it. The scroll view lists its lines instead, as a
@@ -1267,13 +1281,16 @@ The following are the defaults. Host commands and accessibility actions stay ena
   not among them. A named action or a scroll action that SwiftUI is given for that view
   reached none of them, so the surface has neither on Mac. The scroll area has AppKit's
   four scrolls by page, which are the only scroll actions in either flow.
-  Three limits. An item of the text that takes VoiceOver's cursor by itself keeps its own
-  menu, without the pair: a link reached with Find Next Link offers "press". In
-  continuous scroll a step made before VoiceOver has moved inside the text it has just
-  entered is undone, VoiceOver going back to the start of the text and the view with it;
-  a page key does the same there, as it did before the actions, and after one move by
-  line the step holds. And the accessibility API reports a failure for the action in
-  continuous scroll, though the view scrolls and VoiceOver's own choosing works.
+  Two limits. An item of the text that takes VoiceOver's cursor by itself keeps its own
+  menu, without the pair: a link reached with Find Next Link offers "press". And the
+  accessibility API reports a failure for the action in continuous scroll (-25200), though
+  the view scrolls and VoiceOver's own choosing works: the reader's handler returns true
+  there as in pages, where the API reports success, and the failure is AppKit's answer,
+  for a reason not found ([#465](https://github.com/vocaro/EPUBLib/issues/465)).
+  A step in continuous scroll made straight after VoiceOver enters the text, before it has
+  moved in it, holds as any other, with the action and with a page key: the reader tells
+  of the insertion point twice ("Continuous scroll" under Layout). Told once, VoiceOver
+  went back to the line it had entered at and took the view with it.
   [VoiceOver testing](voiceover-testing.md#harness-pitfalls-and-current-results) has the
   sessions.
 - Headings: `h1` to `h6`, and any element with `role="heading"`, are headings to VoiceOver,
