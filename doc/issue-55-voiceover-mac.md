@@ -183,9 +183,10 @@ image at the fixed pause:
   line, "In text word0131 word0132 word0133 word0134 word0135". It did the same with Scroll
   Forward pressed natively from one item away. There the window posts the layout change, and
   still does.
-- **A cursor on the group.** It moved into a column when a spread was installed: the left one
-  on page turns, the right one when the reading area changed size as the controls moved to
-  the toolbar. On `740c073` it stayed on the group and said "2 updated items".
+- **A cursor on the group.** On a page turn it moved into the left column and read it; on
+  `740c073` it stayed on the group and said "2 updated items". `display` posts for every
+  spread it installs, so the same follows for a new text size, a resize or a shown position,
+  none of them heard with the cursor there.
 
 Not heard: whether VoiceOver also gives up a cursor it keeps in another text area of the same
 group, a host's notes field for one. It would then enter that text at its insertion point,

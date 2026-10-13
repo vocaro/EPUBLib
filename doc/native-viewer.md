@@ -467,7 +467,7 @@ as they did.
   window's content, so there is such an element in every host; were there none, the window
   would post and VoiceOver would keep its cursor. It was heard with the page controls beside
   the columns and in the window's toolbar. A VoiceOver cursor resting on that element itself
-  moves into one of the columns, as a rule the left, when a spread is installed. Whether
+  moves into the left column when a spread is installed, as heard on page turns. Whether
   VoiceOver also gives up a cursor it keeps in another text area of the same group was not
   heard
   ([#373](https://github.com/vocaro/EPUBLib/issues/373)). The
