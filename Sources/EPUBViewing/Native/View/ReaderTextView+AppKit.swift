@@ -24,6 +24,8 @@ final class ReaderTextView: NSTextView {
     var linkElements = ReaderLinkElements()
     /// The accessibility element of each heading, by the location of its first character.
     private var headingElements: [Int: ReaderHeadingAccessibilityElement] = [:]
+    /// The element of the book's next heading after a column's page (`headingChildren`).
+    private var followingHeadingElement: ReaderHeadingAccessibilityElement?
     private var menuImage: ReaderImageAttachment?
     /// The headings of the text in the view, found once for each text it is given.
     private var headingCache: [(heading: ReaderHeading, range: NSRange)]?
@@ -310,6 +312,7 @@ final class ReaderTextView: NSTextView {
         attachmentElements.removeAll()
         linkElements = ReaderLinkElements()
         headingElements.removeAll()
+        followingHeadingElement = nil
         headingCache = nil
         // Replacing NSTextStorage moves its native caret to the new storage's end, which
         // can be hidden paragraph context, or the end of the book. VoiceOver uses that
@@ -545,32 +548,101 @@ extension NSAttributedString.Key {
 }
 
 extension ReaderTextView {
-    /// The headings among the text's children: each one with characters on screen and, in
-    /// continuous scroll, the next one below them. From a place in the text VoiceOver moves
-    /// to the next heading by the rotor. With its cursor on a link, which is a child of the
-    /// text and no place in it, it asks no rotor and looks through the text's children for a
-    /// heading after the link, beginning again with the first past the last (macOS 27.0.1).
-    /// So a heading has an element there, as a link has. The one below the screen is where
-    /// that move goes from the last link on screen; VoiceOver scrolls to it by the scroll
-    /// bar. A page column has its page's headings.
+    /// The headings among the text's children: each one with characters on screen and the
+    /// next one after them, below the screen in continuous scroll and on a later page in
+    /// paging. From a place in the text VoiceOver moves to the next heading by the rotor. With
+    /// its cursor on a link, which is a child of the text and no place in it, it asks no rotor
+    /// and looks through the text's children for a heading after the link, beginning again
+    /// with the first past the last (macOS 27.0.1). So a heading has an element there, as a
+    /// link has, and the one after the screen or the page is where that move goes from the
+    /// last link there. VoiceOver takes an element for a place only when it is among the
+    /// children of its text, so the book's next heading is a child before VoiceOver looks
+    /// for it. In continuous scroll VoiceOver scrolls to it by the scroll bar, and in paging
+    /// the reader turns to its page when VoiceOver focuses it (`showHeading`).
     func headingChildren() -> [ReaderHeadingAccessibilityElement] {
         let visible = accessibilityVisibleCharacterRange()
         var found: [ReaderHeadingAccessibilityElement] = []
         for (heading, range, _) in accessibilityHeadings {
             let below = range.location >= NSMaxRange(visible)
             guard below || NSIntersectionRange(range, visible).length > 0 else { continue }
-            let element = headingElements[range.location] ?? ReaderHeadingAccessibilityElement()
-            headingElements[range.location] = element
-            element.view = self
-            element.range = range
-            element.setAccessibilityParent(self)
-            element.setAccessibilityLabel(plainText(in: range).split(whereSeparator: \.isWhitespace).joined(separator: " "))
-            // VoiceOver says the level it finds as the element's value: "heading level 2".
-            element.setAccessibilityValue(heading.level > 0 ? heading.level : nil)
-            found.append(element)
+            found.append(headingElement(heading, at: range))
             if below { break }
         }
+        if isPageColumn, let following = followingHeading() { found.append(following) }
         return found
+    }
+
+    /// The element kept for a heading of this text, named and placed anew each time it is
+    /// asked for.
+    private func headingElement(_ heading: ReaderHeading, at range: NSRange) -> ReaderHeadingAccessibilityElement {
+        let element = headingElements[range.location] ?? ReaderHeadingAccessibilityElement()
+        headingElements[range.location] = element
+        element.view = self
+        element.range = range
+        element.elsewhere = nil
+        element.setAccessibilityParent(self)
+        element.setAccessibilityLabel(plainText(in: range).split(whereSeparator: \.isWhitespace).joined(separator: " "))
+        // VoiceOver says the level it finds as the element's value: "heading level 2".
+        element.setAccessibilityValue(heading.level > 0 ? heading.level : nil)
+        return element
+    }
+
+    /// The element of the book's next heading after this column's page, the last of the
+    /// column's children: called by the heading's words, with its level, and standing at the
+    /// foot of the column, since its characters are on no line of the page. None after the
+    /// book's last heading, and none while the chapter that holds the next one is not built.
+    private func followingHeading() -> ReaderHeadingAccessibilityElement? {
+        guard let next = canvas?.headingAfterPage(of: self) else { return nil }
+        let element = followingHeadingElement ?? ReaderHeadingAccessibilityElement()
+        followingHeadingElement = element
+        element.view = self
+        element.range = NSRange(location: NSNotFound, length: 0)
+        element.elsewhere = next.heading.position
+        element.setAccessibilityParent(self)
+        element.setAccessibilityLabel(next.words)
+        element.setAccessibilityValue(next.heading.heading.level > 0 ? next.heading.heading.level : nil)
+        return element
+    }
+
+    /// Where the element of a heading on a later page stands in this column.
+    var followingHeadingFrame: CGRect { CGRect(x: bounds.minX, y: bounds.maxY - 1, width: bounds.width, height: 1) }
+
+    /// VoiceOver has moved to the element of a heading of this text, at `range`, or of the
+    /// book's next heading after its page, at `elsewhere` in the book.
+    ///
+    /// The insertion point goes to the heading. VoiceOver's cursor is on the element and not
+    /// in the text, and its next move by word or by line starts from the insertion point,
+    /// which was wherever it had last read, or the first line on screen. In continuous scroll
+    /// a heading with none of its characters on screen is shown first, as the reader shows a
+    /// link's target: VoiceOver would scroll to the element by the scroll bar, which the
+    /// reader takes for any other scroll.
+    ///
+    /// For a heading on a later page the reader turns to that page, as it does when
+    /// VoiceOver loads a heading the rotor gave (`ReaderCanvasView.loadHeading`). The element
+    /// VoiceOver is on becomes the heading's own in the column that then shows it, among that
+    /// column's children with its place there: an element that left the children would leave
+    /// VoiceOver's cursor on the column.
+    func showHeading(at range: NSRange, elsewhere: ReaderTextPosition?) {
+        guard let canvas else { return }
+        if let elsewhere {
+            guard let element = followingHeadingElement, element.elsewhere == elsewhere,
+                  let shown = canvas.showHeading(at: elsewhere) else { return }
+            followingHeadingElement = nil
+            shown.view.headingElements[shown.range.location] = element
+            guard shown.view.headingChildren().contains(where: { $0 === element }) else { return }
+            shown.view.placeInsertionPoint(at: shown.range.location)
+        } else if range.location != NSNotFound, range.location <= textLength {
+            if !isPageColumn, NSIntersectionRange(range, accessibilityVisibleCharacterRange()).length == 0,
+               let position = canvas.position(at: range.location, in: self) {
+                canvas.show(position, selecting: nil)
+            }
+            placeInsertionPoint(at: range.location)
+        }
+    }
+
+    private func placeInsertionPoint(at location: Int) {
+        let place = NSRange(location: location, length: 0)
+        if selectedRange != place { selectedRange = place }
     }
 }
 
@@ -581,6 +653,9 @@ extension ReaderTextView {
 final class ReaderHeadingAccessibilityElement: NSAccessibilityElement {
     weak var view: ReaderTextView?
     var range = NSRange(location: 0, length: 0)
+    /// Where the heading begins in the book, while it is the next one after its column's
+    /// page and none of that page's characters.
+    var elsewhere: ReaderTextPosition?
 
     override init() {
         super.init()
@@ -590,14 +665,26 @@ final class ReaderHeadingAccessibilityElement: NSAccessibilityElement {
     // AppKit asks on the main thread. The place is found when asked for, as a link's is.
     override func accessibilityFrameInParentSpace() -> NSRect {
         guard let view else { return .zero }
-        let range = range
-        return MainActor.assumeIsolated { view.linkFrame(range) }
+        let range = range, following = elsewhere != nil
+        return MainActor.assumeIsolated { following ? view.followingHeadingFrame : view.linkFrame(range) }
     }
 
     override func accessibilityFrame() -> NSRect {
         guard let view else { return .zero }
-        let range = range
-        return MainActor.assumeIsolated { NSAccessibility.screenRect(fromView: view, rect: view.linkFrame(range)) }
+        let range = range, following = elsewhere != nil
+        return MainActor.assumeIsolated {
+            NSAccessibility.screenRect(fromView: view, rect: following ? view.followingHeadingFrame : view.linkFrame(range))
+        }
+    }
+
+    // VoiceOver focuses the element it moves to while its cursor and the keyboard focus go
+    // together (cursor tracking, which is on until a listener turns it off): a heading's, and
+    // never a link's (macOS 27.0.1). That is all it tells the reader of the move.
+    override func setAccessibilityFocused(_ focused: Bool) {
+        super.setAccessibilityFocused(focused)
+        guard focused, let view else { return }
+        let range = range, elsewhere = elsewhere
+        MainActor.assumeIsolated { view.showHeading(at: range, elsewhere: elsewhere) }
     }
 }
 #endif

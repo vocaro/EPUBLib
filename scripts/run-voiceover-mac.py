@@ -28,7 +28,9 @@ COMMANDS = {
     "line": (37, False), "nextline": (125, False), "previousline": (126, False),
     "word": (13, False), "firstword": (115, False), "lastword": (119, False),
     "textstart": (115, True), "textend": (119, True), "readall": (0, False), "activate": (49, False),
-    "linecount": (99, False), "describe": (99, False), "attributes": (17, False), "rotor": (32, False)}
+    "linecount": (99, False), "describe": (99, False), "attributes": (17, False), "rotor": (32, False),
+    # Cursor tracking off, or on again: VoiceOver keeps the setting from one session to the next.
+    "tracking": (99, True)}
 TWICE = {"linecount"}  # Control-Option-F3 twice reads the total and visible line counts.
 # VoiceOver commands that take Command as well, as (key code, with Shift): its moves to the
 # next heading and to the next and previous link, and the menu of the item's actions. With
