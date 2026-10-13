@@ -2932,14 +2932,22 @@ The Mac runner's transcript is plain text and needs no export.
   cell" after "Select Table Text: First cell", which brought "First cell Second cell" and
   "Selected: nothing.". In continuous scroll the row gave the same phrases and lines, with
   the tint in its screenshot. On the cell in continuous scroll the action could not be
-  chosen: with VoiceOver's cursor on "Alder", and on "Reopened 1978", thirty turns of the
-  rotor went round Rows, one other setting, Headings, Containers, Speaking Rate, Words and
+  chosen. With VoiceOver's cursor on "Alder", and on "Reopened 1978", thirty turns of the
+  rotor went round Rows, Image Recognition, Headings, Containers, Speaking Rate, Words and
   Characters and came to no Actions (`rotor=Actions: MISSING`), at `2738aa9` and at
-  `35a8f53` alike, so the change did not bring it. A session there whose rotor stood on
-  Characters spelled "Alder" a letter at a time. In pages the same cells offer their
-  actions, and the unit tests perform a cell's in continuous scroll, in a book's first
-  section; why an iPad's rotor has none for a cell of the book's eighth is not known
-  ([#472](https://github.com/vocaro/EPUBLib/issues/472)).
+  `35a8f53` alike, so the change did not bring it; a session whose rotor stood on Actions
+  from the session before spelled "Alder" a letter at a time, which is the rotor on
+  Characters. The cause is not the cell's and not VoiceOver's
+  ([#472](https://github.com/vocaro/EPUBLib/issues/472)): with VoiceOver off, in the
+  same place, a finger held on "Alder" selected "Alder", "1901" and "Twelve metres"
+  together, the whole row, as the text under a cell's text view does. The cells had no
+  text views. A build that reported what the reader finds on screen said why: when the
+  book opened at the section the rows were looked for with TextKit's layout 2,660 points
+  from where the scroll view stood, no row was on screen, and nothing looked again. After
+  one swipe up and one down it found thirty cells, and the held finger selected "Alder"
+  alone. So a table the reader goes to itself in continuous scroll has no cell to select
+  in or act on until the person scrolls, with VoiceOver or without. The row of the other
+  section had its actions; what the layout was there when the book opened was not read.
   With VoiceOver off, a finger held on "Alder" for a second selected it ("Selected: Alder.
   Used: nothing."): the screenshot shows UIKit's tint and its two handles, once, and an
   edit menu of Copy, a symbol, Look Up, Translate and an arrow for more. Nothing on screen
