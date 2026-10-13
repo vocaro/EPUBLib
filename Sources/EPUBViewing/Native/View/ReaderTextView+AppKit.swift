@@ -468,12 +468,12 @@ extension ReaderTextView: @MainActor NSAccessibilityElementLoading {
     /// VoiceOver moves to a heading the rotor gave while it was on another page: the reader
     /// turns to its page, and this is the column that then shows it.
     func accessibilityElement(withToken token: any NSAccessibilityLoadingToken) -> (any NSAccessibilityElementProtocol)? {
-        canvas?.loadHeading(token)?.view
+        canvas?.loadHeading(token)
     }
 
     /// The heading's characters in that column.
     func accessibilityRangeInTargetElement(withToken token: any NSAccessibilityLoadingToken) -> NSRange {
-        canvas?.loadHeading(token)?.range ?? NSRange(location: NSNotFound, length: 0)
+        canvas?.loadedHeadingRange(token) ?? NSRange(location: NSNotFound, length: 0)
     }
 }
 

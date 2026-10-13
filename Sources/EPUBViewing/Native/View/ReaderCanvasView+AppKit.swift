@@ -213,19 +213,16 @@ extension ReaderCanvasView: NSTextViewDelegate {
     // MARK: Headings for VoiceOver
 
     /// What a page column's Headings rotor answers: the heading of the book after or before
-    /// where the search stands, and none past either end. VoiceOver stands on the characters
-    /// under its cursor, or on the heading it was last given. To list the headings it asks for
-    /// the one after an item that is nowhere, with no element or with the first character and
-    /// none of it, and then for the one after each it is given, so the list is the whole
-    /// book's (`bookHeading`). A heading that begins on the page or spread is given as its
-    /// column and its characters there. Any other is given as a token for its place in the
-    /// book, which the reader turns to only when VoiceOver moves to it (`loadHeading`): the
-    /// search itself shows nothing, since VoiceOver walks the whole list when its rotor opens.
+    /// where the search stands (`headingSearchPosition`), and none past either end
+    /// (`bookHeading`). A heading that begins on the page or spread is given as its column
+    /// and its characters there. Any other is given as a token for its place in the book,
+    /// which the reader turns to only when VoiceOver moves to it (`loadHeading`): the search
+    /// itself shows nothing, since VoiceOver walks the whole list when its rotor opens.
     func headingRotorResult(for parameters: NSAccessibilityCustomRotor.SearchParameters,
                             askedOf column: ReaderTextView) -> NSAccessibilityCustomRotor.ItemResult? {
         let forward = parameters.searchDirection == .next
         let filter = parameters.filterString
-        var from = headingSearchPosition(of: parameters.currentItem, askedOf: column)
+        var from = headingSearchPosition(of: parameters.currentItem, askedOf: column, forward: forward)
         while let found = bookHeading(from: from, forward: forward) {
             from = found.position
             guard let text = dataSource?.text(forSection: found.section),
@@ -242,14 +239,30 @@ extension ReaderCanvasView: NSTextViewDelegate {
         return nil
     }
 
-    /// Where a search from `item` stands in the book: at the heading a token names, or at the
-    /// characters of a column. Nil from nowhere.
-    private func headingSearchPosition(of item: NSAccessibilityCustomRotor.ItemResult?, askedOf column: ReaderTextView) -> ReaderTextPosition? {
+    /// Where a search from `item` stands in the book, and nil from nowhere. VoiceOver asks
+    /// from one of four items (macOS 27.0.1):
+    /// - No element and no token, at the first character and none of it. That is nowhere, and
+    ///   is how it begins its walk of the rotor's list, which then goes on from each item it
+    ///   is given: the list is the whole book's.
+    /// - A token, with no element: a heading it was given on another page.
+    /// - A column and characters: a heading it was given on the page, or its cursor's line.
+    /// - A column, at the first character and none of it: its cursor resting on the column
+    ///   with no place in it yet, as after a page turn. The search then stands at the page's
+    ///   edge, before its first character or going back after its last, so that a heading
+    ///   which opens the page is the next one. VoiceOver opens the rotor's list on that
+    ///   answer. Taken for nowhere it was the book's first heading, and a move to the next
+    ///   heading from a page in the middle of a book went back to the book's start.
+    private func headingSearchPosition(of item: NSAccessibilityCustomRotor.ItemResult?, askedOf column: ReaderTextView,
+                                       forward: Bool) -> ReaderTextPosition? {
         guard let item else { return nil }
         if let token = item.itemLoadingToken, let position = Self.headingPosition(of: token) { return position }
-        let range = item.targetRange
-        guard item.targetElement != nil, range.location != NSNotFound, range != NSRange(location: 0, length: 0) else { return nil }
+        guard item.targetElement != nil else { return nil }
         let view = (item.targetElement as? ReaderTextView).flatMap { $0.canvas === self ? $0 : nil } ?? column
+        let range = item.targetRange
+        if range.location == NSNotFound || range == NSRange(location: 0, length: 0) {
+            guard let edge = position(at: forward ? 0 : view.shownCharacters.length, in: view) else { return nil }
+            return forward ? ReaderTextPosition(section: edge.section, offset: edge.offset - 1) : edge
+        }
         return position(at: range.location, in: view)
     }
 
@@ -262,15 +275,27 @@ extension ReaderCanvasView: NSTextViewDelegate {
         return nil
     }
 
-    /// The column and characters of the heading `token` names, turning to its page when it is
-    /// not on the one shown. Nil when no heading begins there any more.
-    func loadHeading(_ token: any NSAccessibilityLoadingToken) -> (view: ReaderTextView, range: NSRange)? {
+    /// The heading `token` names, when one still begins there.
+    private func heading(for token: any NSAccessibilityLoadingToken) -> ReaderBookHeading? {
         guard let position = Self.headingPosition(of: token),
               let found = headings(inSection: position.section)?.first(where: { $0.range.location == position.offset }) else { return nil }
-        let heading = ReaderBookHeading(heading: found.heading, section: position.section, range: found.range)
-        if let shown = shownHeading(heading) { return shown }
-        show(position, selecting: nil)
-        return shownHeading(heading)
+        return ReaderBookHeading(heading: found.heading, section: position.section, range: found.range)
+    }
+
+    /// VoiceOver moves to a heading it was given as a token: the reader turns to the
+    /// heading's page, and this is the column that then shows it. VoiceOver asks when the
+    /// heading is chosen from the rotor's list or reached by its move to the next heading,
+    /// and not while it lists the rotor's items.
+    func loadHeading(_ token: any NSAccessibilityLoadingToken) -> ReaderTextView? {
+        guard let heading = heading(for: token) else { return nil }
+        if shownHeading(heading) == nil { show(heading.position, selecting: nil) }
+        return shownHeading(heading)?.view
+    }
+
+    /// The characters of the heading `token` names in the column that shows it. VoiceOver
+    /// asks straight after it has had the column, so nothing is shown for this.
+    func loadedHeadingRange(_ token: any NSAccessibilityLoadingToken) -> NSRange? {
+        heading(for: token).flatMap(shownHeading)?.range
     }
 
     /// A heading's place in the book as VoiceOver keeps it for a heading on another page.
