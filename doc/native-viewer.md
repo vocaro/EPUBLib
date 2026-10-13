@@ -465,7 +465,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     way to give one cell headers of its own.
   - **Actions.** A cell offers what it can do itself: Select Cell Text, Follow Link with the
     link's words for each link in it, and Inspect Image for each picture; a page's cells
-    also turn the page, like its lines. A double tap follows the link of a cell that has
+    also turn the page, like its lines. A cell whose words are selected offers Deselect
+    Cell Text, Copy and the host's selection action in place of Select Cell Text ("A
+    table's text selected with VoiceOver" below). A double tap follows the link of a cell that has
     one link, and shows the picture of a cell that is a picture. The actions come from the
     cell's interaction surface, so a cell listed past the screen has them once it is on
     screen, which is where VoiceOver's cursor brings it.
@@ -516,7 +518,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       table navigation is then its own: across a row it says the column's header and the
       cell ("Opened 1901", "Depth empty cell"), down a column the row's ("Cedar Forty
       metres"); Control-Option-C and Control-Option-R say the column's and the row's
-      header, and twice the rest of the column and of the row. A cell that spans is one
+      header. Pressed twice they read the rest of the column and of the row, which was
+      heard on an earlier shape and not on this one. A cell that spans is one
       stop that answers for every slot it covers: moving down inside one, and at the
       table's last row, VoiceOver says the cell and its place, "Item 40 column 2, row 41".
       Rows above the one it came in at are there to move up to.
@@ -539,7 +542,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       AppKit's own tables do: one header for each column and one for each row of the whole
       table, and VoiceOver takes the one at a cell's column and at its row. With that it
       said the same headers and did not quit, in seventeen sessions at two or three
-      seconds a key and ten at four.
+      seconds a key and ten at four. Whether to tell Apple is
+      [#483](https://github.com/vocaro/EPUBLib/issues/483).
       What heads a column or a row is its one header cell, where that cell is on screen
       with its text areas: VoiceOver reads a header cell by what it holds, and does not
       read a cell under itself. Otherwise it is a static text with the words of its header
@@ -557,7 +561,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       page are not there to move to: at a page's last row VoiceOver stays, and the page is
       turned as from a line. A page turned with VoiceOver's cursor on a table it has left,
       and not back in the text, leaves VoiceOver on the text area and not in it; with a
-      row group it left the text for the window's first button, before and after.
+      row group it left the text for the window's first button, before and after
+      ([#485](https://github.com/vocaro/EPUBLib/issues/485)).
     - **Continuous scroll.** One text area holds the book, and a table holds every row.
       Moving down a column VoiceOver goes on past the screen and the view follows it,
       twenty-eight rows in one session, each once and in order. Leaving the table puts
@@ -582,12 +587,15 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       "table" as long as it says nothing of selected cells.
     - **Not done.** A cell offers no page turn: the text area does, one step out of the
       table. Nothing gives VoiceOver the table's caption as the table's name; it is a
-      line of the text before the rows or after them, as it is drawn.
+      line of the text before the rows or after them, as it is drawn. Both are to be
+      decided, with the header cell under another and where VoiceOver is after it leaves
+      a table ([#486](https://github.com/vocaro/EPUBLib/issues/486)).
     - **Not heard.** Anyone listening, or a Mac that is not the hosted runner. What Safari
       or Books says of the same table on a Mac was not recorded, so "as Safari does" is
       true of the roles and attributes given and not of the speech. A table in a spread of
       two columns, one in a note's popover, a picture's Inspect Image chosen from a cell,
-      and VoiceOver in a language other than English.
+      Read All through a table, and VoiceOver in a language other than English
+      ([#484](https://github.com/vocaro/EPUBLib/issues/484)).
   - **Not done.** A table inside a cell is read as its cell's words, as before. Headings
     inside a table are not found by the Headings rotor, as before.
   - **Not resolved.** On an iPhone simulator the rotor once went from Rows to Actions part
@@ -600,6 +608,58 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     the text on an iPad simulator in two sessions of three, where rows had not in two of
     two; with the fifty it did not in two of two. Why cells showed it and rows did not is
     not known, so a table's cells are to be taken as needing that list.
+- **A table's text selected with VoiceOver.** On iPhone and iPad VoiceOver cannot select
+  the reader's text as it does a text view's: a page's lines and a table's rows and cells
+  are elements of the reader's own, and the text views that take touches over a table's
+  cells are hidden from it. A table offers selection as an action instead, Select Table
+  Text with a cell's words on a row and Select Cell Text on a cell of a table of data, and
+  either selects the words the cell shows there. Rows and cells run the same code and
+  differ in the names alone.
+  - **Shown.** UIKit draws a text view's selection, and its handles, only while the view is
+    first responder, which a touch in it makes it. A selection set in code was held,
+    reported to the host and copied from, and nothing showed it: after the action the screen
+    was as before, but for the selected words' ink, which the cell draws over the row's own
+    and which looked a little heavier. A cell's text view now paints a selection it holds
+    whenever UIKit is not drawing it, in UIKit's tint for selected text, and leaves it to
+    UIKit while it is first responder. That shows every selection set in code and not this
+    one alone: a located passage in a table, in each cell it runs through that cell's
+    share, and a selection carried across a new layout. The reader takes no keyboard focus
+    to show it, which would close a keyboard elsewhere in the window.
+  - **Said.** VoiceOver says nothing of its own after an item's action, and it keeps what an
+    item says and offers as it found them when its cursor came to the item: on an iPad its
+    rotor went on offering Select Cell Text, and none of the three actions below, after the
+    words were selected. The item of a cell whose words are selected has UIKit's selected
+    trait, and after selecting or deselecting the reader posts a layout change that names
+    the item. VoiceOver then reads the item again, "selected" before its words in
+    VoiceOver's own language or without it, and takes the item's actions as they now are. A
+    listener who comes back to the item later hears "selected" again. On a row it is the
+    row that is read as selected, and its actions name the cell. The reader announces one
+    thing itself, "Copied", because copying changes nothing a listener could tell: the word
+    is the reader's and English, as "Separator" is at a rule, and is queued behind whatever
+    VoiceOver is saying.
+  - **What it is for.** A selection made by touch brings up the edit menu, with Copy and the
+    host's selection action. No menu comes up for a selection set in code, and VoiceOver
+    could not reach one in a view hidden from it. So the item whose cell holds selected
+    words offers, where its select action stood, Deselect Table Text or Deselect Cell Text,
+    Copy, and the host's selection action by its own title when the host gave one. Copy and
+    the host's action are the edit menu's: the whole selection's text, and the host is told
+    of the selection first if it has not settled. Deselect clears the reader's selection.
+    It is the way back to turning pages by VoiceOver's scroll gesture, which selected text
+    holds back as it does a swipe ("Input and accessibility"); Next Page and Previous Page
+    in the rotor turn the page either way. A passage that runs through several cells of a
+    row is one selection, and the row offers Copy and the host's action once.
+  - **Not done.** A line outside a table offers no selection to VoiceOver, as before. On Mac
+    a cell's text area is VoiceOver's own to select in and to use a selection from. A cell
+    of a table of data offers Select Cell Text there and none of the three above, and
+    does not offer it while its words are selected.
+  - **Not shown.** A cell of a table of data in continuous scroll, on a device. In the
+    section the sessions opened the book at, the cells had no text views, so their items
+    had no actions, with this change and without it. That is a fault of its own and not
+    VoiceOver's: in continuous scroll a table the reader goes to itself gets its cells'
+    text views only once the person scrolls
+    ([#472](https://github.com/vocaro/EPUBLib/issues/472);
+    [VoiceOver testing](voiceover-testing.md), the entry of 2026-10-13 on a table's select
+    action). The unit tests perform the cell's actions in both flows.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
   in place and also show in popovers.
@@ -784,6 +844,24 @@ as they did.
   of where it was last read has not moved and nobody has scrolled it: its first line is still
   held, and the position kept is still the one shown, not the visible start
   ([#302](https://github.com/vocaro/EPUBLib/issues/302)).
+  AppKit's text view also scrolls itself when a live resize of its window ends, after a drag
+  of the window's edge and after a resize made with animation or by an assistive client: the
+  paragraph under the clip view's top edge goes to that edge, from its first line
+  (`-[NSTextView viewDidEndLiveResize]`, which scrolls to the paragraph's start with no
+  offset, macOS 27.0). That edge is above the first line on screen by the text's 48-point
+  top margin, and by the height of a toolbar over the reader. A reader at the top of its book
+  stood 48 points down, its title above the screen, and 114 points down under a 66-point
+  toolbar. Anywhere else the text went back to the start of a paragraph, 279 and 304 points
+  in the tests' prose, and further at each resize: 574 and 650 points after a second and a
+  third. The reader took that for a scroll by the person: it kept the new
+  place, and put the insertion point VoiceOver enters at on the line then first on screen.
+  AppKit tells a view that the resize has ended before it tells that view's subviews, so the
+  canvas has rested the kept position by the time the text view scrolls. The reader reads
+  where the view stands before that scroll and puts it back straight after, at the offset it
+  had and then with its first line where that line was, before anything is drawn. Nobody
+  has scrolled and the position kept is unchanged: in a pane whose size the resize leaves
+  alone, text the person scrolled to stays where it is, a line cut by the top edge with it
+  ([#479](https://github.com/vocaro/EPUBLib/pull/479)).
   A layout the reader makes itself is not one behind the view, and it
   forgets where that line stood when it makes one: for new text, for a new column width, and
   when a new visible height (the window's, or the safe area's alone) resolves the book's
@@ -1485,6 +1563,10 @@ The following are the defaults. Host commands and accessibility actions stay ena
   indicator with Previous/Next controls for following the selected passage. Direct page input
   is suppressed while a selection is active; host commands and these continuation controls
   remain available. `.selectionChanged` settles 150 ms after the selection stops changing.
+  With VoiceOver on iPhone and iPad a table's text is selected by an action of its row or
+  cell. The cell draws it, VoiceOver reads the item as selected, and the item then offers
+  Copy and the host's action itself ("A table's text selected with VoiceOver" under
+  Decisions).
 
 ## Commands and events
 

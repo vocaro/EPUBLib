@@ -9,6 +9,10 @@ struct ReaderScreen: View {
     @State private var importing = false
     @State private var useToolbar = false
     @State private var style = EPUBReaderStyle()
+    /// `-SampleSelectionLine YES` keeps a line under the reader that says what the reader
+    /// reports as selected and what the selection action was last given. It is there from
+    /// the start, so neither moves the page, and an automated check can read it.
+    private let selectionLine = UserDefaults.standard.bool(forKey: "SampleSelectionLine")
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,12 +41,16 @@ struct ReaderScreen: View {
                 EPUBReaderView(session: session)
                     .id(reader.sessionID)
                 Text(book.metadata.title).font(.caption).padding(6)
+                if selectionLine {
+                    Text("Selected: \(reader.selection ?? "nothing"). Used: \(reader.selectedText ?? "nothing").")
+                        .font(.caption).lineLimit(1).padding(.bottom, 6).accessibilityIdentifier("sample.selection")
+                }
             } else {
                 ContentUnavailableView("Open a book", systemImage: "book", description: Text("Choose an EPUB file or explore the included sample."))
             }
             if let disclosure = reader.disclosure { Text(disclosure).font(.callout).padding() }
             if let notice = reader.notice { Text(notice).font(.callout).padding() }
-            if let selection = reader.selectedText { Text(selection).lineLimit(3).padding() }
+            if let selection = reader.selectedText, !selectionLine { Text(selection).lineLimit(3).padding() }
             if let error = reader.error { Text(error).foregroundStyle(.red).textSelection(.enabled).padding() }
         }
         .toolbar {
@@ -90,9 +98,9 @@ struct ReaderScreen: View {
 
     /// `-SampleBook <path>` opens a book at launch, for automated and visual checks;
     /// `-SampleFlow scrolled`, `-SampleDark YES` and `-SampleFontSize <points>` set its style,
-    /// `-SampleHref <href>` shows one of its sections, and `-SampleStepAfter <seconds>` sends
-    /// Next Page once, that long after the book is ready: a move the host makes with nothing
-    /// on screen touched for it.
+    /// `-SampleHref <href>` shows one of its sections, `-SampleSelectionLine YES` a line that
+    /// says what is selected, and `-SampleStepAfter <seconds>` sends Next Page once, that long
+    /// after the book is ready: a move the host makes with nothing on screen touched for it.
     private func openFromLaunchArguments() {
         guard reader.session == nil, let path = UserDefaults.standard.string(forKey: "SampleBook") else { return }
         reader.open(url: URL(fileURLWithPath: path))

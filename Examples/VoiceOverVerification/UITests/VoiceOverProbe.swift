@@ -38,9 +38,8 @@ import XCUIAutomation
         if let href = environment["VOICEOVER_HREF"] { app.launchArguments += ["-SampleHref", href] }
         // `VOICEOVER_BOOK=paragraphs` opens the book of ordinary paragraphs.
         if let book = environment["VOICEOVER_BOOK"] { app.launchArguments += ["-VerificationBook", book] }
-        // `VOICEOVER_STEP_AFTER=40` has the reader make one scroll step or page turn by itself,
-        // that many seconds after the book opens: a move VoiceOver did not make.
-        if let delay = environment["VOICEOVER_STEP_AFTER"] { app.launchArguments += ["-SampleStepAfter", delay] }
+        // Further launch arguments of the reader, with spaces between: `-SampleSelectionLine YES`.
+        if let more = environment["VOICEOVER_LAUNCH"] { app.launchArguments += more.split(separator: " ").map(String.init) }
         app.launch()
         let snapshots = true
         #endif
@@ -147,6 +146,9 @@ import XCUIAutomation
             : silence < 2 ? "turned on for this session" : "turned on for this session, silent for its first \(Int(silence)) s")
         heard("initial")
         let steps = (environment["VOICEOVER_STEPS"] ?? "read").split(separator: ",").map(String.init)
+        // The action `choose` last looked for was not offered: a double tap would perform
+        // whichever the rotor had come round to.
+        var unchosen = false
         for step in steps {
             let parts = step.split(separator: "=", maxSplits: 1).map(String.init)
             // Another session's app in front would be read and touched instead of the reader.
@@ -227,13 +229,25 @@ import XCUIAutomation
                         + "last \(words(listed.last?.label)) at y \(Int(listed.last?.frame.minY ?? 0)))"
                     note("visible", "column \(column): \(ordered.count) lines, first \(words(ordered.first?.label)), last \(words(ordered.last?.label))\(outside)")
                 }
-            case "touch", "activate", "doubletap":
+            case "touch", "activate", "doubletap", "press":
                 // A touch moves VoiceOver to the item under it; a double tap then activates that item.
                 let label = parts.last ?? ""
                 let button = app.buttons[label].firstMatch
                 let element = button.exists ? button
                     : app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).firstMatch
                 guard element.exists || element.waitForExistence(timeout: 5) else { note(step, "MISSING"); continue }
+                if parts[0] == "press" {
+                    // A finger held on the item for a second: with VoiceOver off, the touch that
+                    // selects the word under it and brings up the edit menu.
+                    let before = screen()
+                    element.press(forDuration: 1)
+                    settle(before, limit: 2)
+                    continue
+                }
+                if parts[0] == "doubletap", unchosen {
+                    note(step, "SKIPPED: the action to perform was not offered")
+                    continue
+                }
                 // `doubletap` keeps the rotor's selection: the item must already hold the cursor.
                 if parts[0] != "doubletap" {
                     element.tap()
@@ -297,6 +311,26 @@ import XCUIAutomation
                     if !wanted.isEmpty, phrase.lowercased().hasPrefix(wanted.lowercased()) { found = true; break }
                 }
                 if !found { note(step, "MISSING") }
+            case "choose":
+                // One finger down through the rotor until VoiceOver names the action asked for,
+                // twelve steps at most: where an action stands in an item's list depends on what
+                // else the item offers. The item must already hold the cursor.
+                let wanted = parts.count > 1 ? parts[1] : ""
+                var found = false
+                for _ in 0..<12 where !found {
+                    let before = try? voiceOver.currentSpeech().utterance
+                    app.swipeDown(velocity: .fast)
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+                    let limit = Date().addingTimeInterval(3)
+                    while Date() < limit, (try? voiceOver.currentSpeech().utterance) == before {
+                        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+                    }
+                    let phrase = (try? voiceOver.currentSpeech().utterance) ?? "no speech"
+                    note("flick=down", phrase)
+                    found = phrase.hasPrefix(wanted)
+                }
+                unchosen = !found
+                if !found { note(step, "MISSING") }
             case "listen":
                 // Every phrase VoiceOver speaks in that many seconds, where a step records one:
                 // what it says by itself after a change, in the order it says it.
@@ -310,6 +344,19 @@ import XCUIAutomation
                     }
                     RunLoop.current.run(until: Date().addingTimeInterval(0.1))
                 }
+            case "state":
+                // The sample's own line of what the reader reports as selected and what its
+                // selection action was last given (`-SampleSelectionLine YES`). Reading it moves
+                // nothing: it is XCTest's snapshot, not a touch.
+                let line = app.staticTexts["sample.selection"].firstMatch
+                note(step, line.exists ? line.label : "MISSING")
+            case "find":
+                // Whether anything on screen is named so, and what it is: an edit menu's Copy,
+                // which is in no item's list of actions. Nothing is touched.
+                let label = parts.last ?? ""
+                let found = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label))
+                    .allElementsBoundByIndex.map { "\($0.elementType.rawValue) at \($0.frame.integral)" }
+                note(step, found.isEmpty ? "nothing on screen is named so" : "\(found.count) on screen: " + found.joined(separator: "; "))
             case "wait":
                 RunLoop.current.run(until: Date().addingTimeInterval(Double(parts.last ?? "") ?? 1))
             case "screenshot":

@@ -1,9 +1,11 @@
 # VoiceOver testing
 
-Use real VoiceOver speech to verify the paginated reader on a Mac, physical iPhone and
-physical iPad. Native accessibility API tests support this work but do not establish what
-VoiceOver reads. A [simulator's VoiceOver](#simulators) does read, with no device, window or
-sound, but it activates nothing, and its sessions are not acceptance evidence. The sessions
+Use real VoiceOver speech to verify the paginated reader on a Mac, iPhone and iPad. Native
+accessibility API tests support this work but do not establish what VoiceOver reads. A
+[simulator's VoiceOver](#simulators) does read, with no device, window or sound, and its
+sessions are acceptance evidence for what VoiceOver reads on an iPhone and iPad. It activates
+nothing, so what VoiceOver activates or performs is shown on a physical iPhone and iPad;
+[Acceptance and evidence](#acceptance-and-evidence) says which a check needs. The sessions
 are recorded in the
 [Mac verification](issue-55-voiceover-mac.md) and the
 [iPad and iPhone verification](issue-28-voiceover-devices.md); the acceptance matrix is in
@@ -453,7 +455,7 @@ TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wai
     start there. A line of text read at the flick itself is the harness's: on a busy Mac the
     swipe was taken for a touch and moved the cursor to the line under it.
 11. Have the reader move by something VoiceOver did not do
-    (`TEST_RUNNER_VOICEOVER_STEP_AFTER`, under "Physical iPhone and iPad"). With the cursor
+    (`-SampleStepAfter`, under "Physical iPhone and iPad"). With the cursor
     on a line, `touch=p001w01,listen=30,forward=3,backward=4` and the step at 30 seconds:
     `listen` records the first line of the new screen, which VoiceOver reads by itself, and
     the moves go on from that line and back past it. A `listen` that records nothing, with
@@ -557,8 +559,9 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
   "Hours, Leaves Nine", and so is the lower of the two itself, "Hours, Leaves Leaves".
 - A session in which VoiceOver starts again in the middle ("ERROR 3" and then "VoiceOver on
   VoiceOverVerificationMac…") is one in which it quit. It did so when a cell named header
-  cells of its own, most often within eight headers at two seconds a key. A session of
-  moves across rows with `columnheader` after each (`pause=2`) is the test for it.
+  cells of its own, most often within eight headers at two seconds a key
+  ([#483](https://github.com/vocaro/EPUBLib/issues/483)). A session of moves across rows
+  with `columnheader` after each (`pause=2`) is the test for it.
 - `in` on a cell goes into its text, "In text 1934", where `right` moves by word; `out`
   comes back to the cell, and `out` again to the row's line in the text.
 - `actions` on a cell says "Actions menu" and its count, and `listdown` each of Select Cell
@@ -868,6 +871,15 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
   text is in continuous scroll, leaves the rotor on its own setting, and the flick steps by
   that. On an iPhone in landscape only the
   upward flick registered, which reaches the same actions.
+- `choose=NAME`: one finger down through the rotor until VoiceOver names an action that begins
+  with NAME, twelve steps at most, each phrase recorded: where an action stands in an item's
+  list depends on what else the item offers. When it is not offered the step ends in
+  `MISSING`, and the next `doubletap` is skipped and says so, since it would perform
+  whichever action the rotor had come round to. The rotor must stand on Actions. It
+  usually does on an item that has actions, but a device keeps the setting a session
+  before it left: one found it on Characters and spelled the cell, and one on Rows and
+  went down the column. `rotor=Actions` first settles it, and ends in `MISSING` where the
+  item has no actions.
 - `flick=right`, `flick=left`: VoiceOver's next and previous item; `flick=right*12` repeats it.
 - `rotor=LABEL`: two fingers turned on the glass, which turns VoiceOver's rotor, repeated
   until VoiceOver's phrase begins with LABEL, thirty turns at most: `rotor=Headings`.
@@ -883,17 +895,26 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 - `listen=SECONDS`: every phrase VoiceOver speaks in that time, each as a `heard` line, where
   another step records the one phrase standing when it ends. Use it after a step that makes
   VoiceOver speak by itself, as a page turn under its cursor does.
+- `state`: the sample's own line of what the reader reports as selected and what its
+  selection action was last given, "Selected: nothing. Used: nothing.", which
+  `TEST_RUNNER_VOICEOVER_LAUNCH='-SampleSelectionLine YES'` puts under the reader. XCTest
+  reads it from its snapshot, so no touch moves VoiceOver's cursor.
+- `find=LABEL`: whether anything on screen has a name that begins with LABEL, and what kind
+  of element at what frame: an edit menu's Copy, which is in no item's list of actions.
+- `press=LABEL`: a finger held on the item for a second. With VoiceOver off it selects the
+  word under it and brings up the edit menu.
 - `wait=SECONDS`, and `screenshot`, attached to the result bundle: what is on the glass,
   independent of every accessibility snapshot.
 
 `TEST_RUNNER_VOICEOVER_FONT_SIZE` sets the launch text size, `TEST_RUNNER_VOICEOVER_FLOW=scrolled`
 opens the book in continuous scroll, `TEST_RUNNER_VOICEOVER_HREF` opens a section other than
-the first (`OPS/labels.xhtml`) and `TEST_RUNNER_VOICEOVER_BOOK=paragraphs` opens the book of
-ordinary paragraphs. `TEST_RUNNER_VOICEOVER_STEP_AFTER=30` has the reader make one scroll step
-or page turn by itself, 30 seconds after the book opens, through the sample's
-`-SampleStepAfter`: a move VoiceOver did not make, as a key on a keyboard or a host's own
-command is. Count the steps before it into the delay (a touch costs about five and a half
-seconds) and put a `listen=` across the moment. `TEST_RUNNER_VOICEOVER_OFF=1`
+the first (`OPS/labels.xhtml`), `TEST_RUNNER_VOICEOVER_BOOK=paragraphs` opens the book of
+ordinary paragraphs and `TEST_RUNNER_VOICEOVER_LAUNCH` gives the reader further launch
+arguments, with spaces between. `TEST_RUNNER_VOICEOVER_LAUNCH='-SampleStepAfter 30'` has the
+reader make one scroll step or page turn by itself, 30 seconds after the book opens: a move
+VoiceOver did not make, as a key on a keyboard or a host's own command is. Count the steps
+before it into the delay (a touch costs about five and a half seconds) and put a `listen=`
+across the moment. `TEST_RUNNER_VOICEOVER_OFF=1`
 leaves VoiceOver off, so the same steps are plain touches: use it to tell a VoiceOver failure
 from one of the reader's own. The probe stops when the reader is no longer in the foreground.
 Another session's tests on the same device bring their own app forward or switch VoiceOver
@@ -903,13 +924,15 @@ XCTest cannot perform VoiceOver's three-finger scroll, and its synthesized hardw
 (Control-Option-Space, Option with an arrow) did not reach VoiceOver on an iPad. The probe
 turns pages by activating the page buttons or a line's Next Page action. A transcript that
 begins in an editing field, with the keyboard's keys after the page, is not a reading-order
-result. Use physical-device sessions for acceptance.
+result. [Acceptance and evidence](#acceptance-and-evidence) says which checks need a physical
+device and which a simulator settles.
 
 ## Simulators
 
 `scripts/run-voiceover-simulator.py` runs the same probe on simulators of its own, with no
-device, no Simulator window and no sound. It is a quick check of what VoiceOver reads, not
-acceptance evidence:
+device, no Simulator window and no sound. Its sessions are acceptance evidence for what
+VoiceOver reads and in what order, and not for what VoiceOver activates
+([Acceptance and evidence](#acceptance-and-evidence)):
 
 ```sh
 python3 scripts/run-voiceover-simulator.py
@@ -923,8 +946,8 @@ once; a simulator build needs no signing team. It creates an iPhone 17 Pro and a
 with `simctl` alone, sets each one's volume to 0 and runs one `xcodebuild
 test-without-building` for each at the same time, under `--timeout`. It deletes its simulators
 however the run ends, also when it is terminated, and never boots, changes or deletes one it
-did not create. `--steps`, `--font-size`, `--flow scrolled`, `--href OPS/labels.xhtml` and
-`--voiceover-off` are the probe's settings above. Each simulator gets `simulator-TYPE-STAMP.transcript.txt` beside its
+did not create. `--steps`, `--font-size`, `--flow scrolled`, `--href OPS/labels.xhtml`,
+`--launch '-SampleSelectionLine YES'` and `--voiceover-off` are the probe's settings above. Each simulator gets `simulator-TYPE-STAMP.transcript.txt` beside its
 log and result bundle in `.build/voiceover/results/`: the device, revision and steps, the
 probe's lines, then the result, with VoiceOver's state and the volume as `devicectl` reports
 them. The exit status is 0 only when every probe ran all its steps and passed, VoiceOver is
@@ -995,9 +1018,10 @@ and the double tap on the heading, the touch arrived on the heading and the page
 With VoiceOver off the same touches turn the page in both orientations, and on physical
 devices VoiceOver performs every one of these
 ([iPad and iPhone verification](issue-28-voiceover-devices.md)), so the difference is the
-simulator's and not the probe's or the reader's. Page actions, the rotor and turns in
-landscape need a device. To read a later landscape spread on a simulator, turn pages in
-portrait and then rotate: the reader keeps its place.
+simulator's and not the probe's or the reader's. VoiceOver activating an item, an action
+performed from the rotor and a page turned in landscape need a device. Turning the rotor and
+moving by it do not. To read a later landscape spread on a simulator, turn pages in portrait
+and then rotate: the reader keeps its place.
 
 VoiceOver keeps a log of its own in a simulator, and it says what VoiceOver did where a
 transcript says only what it read. Stream it for the length of a session:
@@ -1034,8 +1058,9 @@ not read.
 A move costs half a second and a touch about five and a half, most of it XCTest waiting for
 an event that VoiceOver keeps from the reader. The end of a `read` costs 3.3 seconds and an
 `activate` or `rotate` a little over one after the gesture. The simulators are not the
-devices of the record: an iPhone 17 Pro shows 402 × 874 points and its pages hold fewer lines
-than the iPhone 17 Pro Max's. In landscape the sample's control strip stacks and leaves its
+physical devices of the record: an iPhone 17 Pro shows 402 × 874 points and its pages hold
+fewer lines than the iPhone 17 Pro Max's, so a page's first and last words are not the
+same on both. In landscape the sample's control strip stacks and leaves its
 reader one line at 17 points, so `visible` finds no numbered line on the first spread. All of
 this is the iOS 27.0 runtime. The 27.1 runtime of Xcode 27.1 offers only the iPhone Duo and
 was not compared.
@@ -1051,7 +1076,27 @@ one on a workstation is. Record its runner image and image version, such as `xco
 20261006.0244.1, beside the OS and Xcode versions; `runner.txt` in the run's download has all
 three, and the job's "Set up job" log prints the image. Everything else here applies to it
 unchanged. A hosted session that completes is no more an acceptance result than any other:
-read its transcript against the visible text. The iPhone and iPad still need physical devices.
+read its transcript against the visible text.
+
+For the iPhone and iPad, a session in the [simulator lane](#simulators) is acceptance
+evidence for what VoiceOver reads, in what order, and where its cursor and its rotor move.
+The owner decided so on 2026-10-13; until then every such result was also owed a physical
+device. Record the session as a simulator's, with its device type and runtime where a
+device's model and OS would stand. A physical iPhone or iPad is needed for what a simulator's
+VoiceOver does not do:
+
+- activating the item under its cursor: a button, a link, a line's default action;
+- performing an action chosen in the rotor: Next Page from a line, Inspect Image, Select Cell
+  Text, Follow Link;
+- turning the page in landscape.
+
+In the steps below that is each double tap whose result is VoiceOver's own doing. A page
+turned in portrait with `activate=Next Page` is turned by a plain touch on the button, so the
+page that follows and VoiceOver's reading of it count, and that VoiceOver activated the
+button does not. A change to what VoiceOver reads needs no device session, and no issue is
+filed to ask for one. A change to what an activation or an action does needs one, for that
+step. The simulators run iOS 27.0 and are other models than the physical devices, so where a
+simulator and a device differ, the device's result stands and the difference is recorded.
 
 Sessions that show a change by what VoiceOver said before and after it are recorded on the
 same main. Merge main into the branch first, and take as "before" a commit that holds main
@@ -1309,7 +1354,24 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     reached by word shows the page with "Link target reached". From the page's text
     `nextlink` goes through the five in order and begins again with the first, and
     `activate` follows the one it is on.
-16. Restore all original VoiceOver/scripting settings and independently verify restoration.
+16. A table's text selected, on an iPhone and iPad, with the sample's selection line under
+    the reader (`TEST_RUNNER_VOICEOVER_LAUNCH='-SampleSelectionLine YES'`). On a cell of the
+    tables of data, choose Select Cell Text in the rotor (`choose=Select Cell Text`) and
+    double-tap. VoiceOver reads the cell again as selected, "selected Alder Row header Row 2
+    Column 1"; `state` says "Selected: Alder. Used: nothing."; and a screenshot shows the
+    cell's words on the tint of selected text. One step on, the rotor offers Copy, then Use
+    passage, which is the sample's selection action. With Use passage chosen a double tap
+    brings `state` to "Selected: Alder. Used: Alder.". Deselect Cell Text stands where Select
+    Cell Text stood; chosen and double-tapped, VoiceOver reads the cell without "selected",
+    the tint is gone and `state` says "Selected: nothing.". A touch on another cell and back
+    says "selected" again while the words are selected. The same on a row of a table that
+    is not data, with Select Table Text and Deselect Table Text and the cell's words after
+    each: VoiceOver reads the row as selected, and the tint is on that cell alone. In pages
+    and in continuous scroll. Copy is heard to be offered and is not performed on a device,
+    whose clipboard is its owner's; the unit tests perform it. With VoiceOver off
+    (`TEST_RUNNER_VOICEOVER_OFF=1`), `press=Alder` selects the word by touch: UIKit draws
+    it, with its handles and once, and the edit menu has Copy.
+17. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
@@ -1372,6 +1434,26 @@ The Mac runner's transcript is plain text and needs no export.
   same steps on the page with no heading had ended two sessions (runs 38321608082 and
   38322808793) with a traceback and no transcript, the restore having failed ahead of the
   lines that write one. Nobody listened, and no workstation was used.
+- `ax:width` is a live resize, and until
+  [#479](https://github.com/vocaro/EPUBLib/pull/479) a session launched in
+  continuous scroll and then resized did not begin at the top of the book. Setting a window's
+  size through the accessibility API takes it through AppKit's live resize, and AppKit's text
+  view scrolls itself when one ends ([the native viewer](native-viewer.md), "Continuous
+  scroll"). Hosted sessions on 2026-10-13 (`-SampleFlow scrolled`, then `ax:width=600`, on a
+  reader of [#473](https://github.com/vocaro/EPUBLib/pull/473) that logged each scroll with
+  its stack, run 38378765133) saw the clip view go from 0 to 48 under
+  `-[NSView _endLiveResize]` and `-[NSTextView viewDidEndLiveResize]`, the insertion point
+  follow to character 27 a moment later, and `in` read the book's second line. Every
+  transcript of such a session from before the change begins a line down, with the title
+  above the screen; a session that changed to continuous scroll after its resize began at
+  the top. The same scroll is made in a unit test with no assistive client, by a window
+  resized with animation, which ends in the same two calls
+  (`ScrolledLiveResizeTests`): 48 points at the top of a book, 114 under a toolbar, and
+  back to the start of a paragraph anywhere else, 279 and 304 points in the tests' prose
+  and further at each resize. With the change the
+  tests' reader stays at the top and VoiceOver would enter at the title. Not heard: a
+  hosted session after the change. Not made: a drag of the window's edge with a mouse,
+  which ends a live resize the same way.
 - On 2026-10-11 the Mac sessions verified first and last lines, word order, end of text,
   line counts and page-turn continuity in one and two columns at 17 and 23 points, with value
   notifications for page turns, text-size changes and resizes. See the
@@ -1794,7 +1876,7 @@ The Mac runner's transcript is plain text and needs no export.
     itself and the same lines.
 
   A move VoiceOver did not make shows the fault on the iPad too. The sample makes one
-  scroll step by itself (`TEST_RUNNER_VOICEOVER_STEP_AFTER`).
+  scroll step by itself (`-SampleStepAfter`).
   - The cursor on a line (`touch=p001w01,listen=30,forward=3,backward=4`, the step at 30
     seconds). iPad, before: nothing heard at the step, then `p001w08 …`, `p001w15 …` and
     `p001w22 …`, the lines after the one the cursor was on, and back to "Chapter one
@@ -2498,7 +2580,8 @@ The Mac runner's transcript is plain text and needs no export.
   changed nothing: "nothing on screen changed in 2.0 s", the first page still in the
   screenshot, and "Words before" for the next move forward. So VoiceOver performs Select
   Table Text on a device, the selection held back a line's page turn as it was, and it does
-  not now. The selection itself is not to be seen in either screenshot.
+  not now. The selection itself is not to be seen in either screenshot; the entry of
+  2026-10-13 on a table's select action has why, and what shows it now.
   One thing was seen and not looked into: after the turn VoiceOver's cursor was still drawn
   where the line had stood, and a move forward from it went to the book's title under the
   page. The record of 2026-10-13 below has what it was.
@@ -2913,8 +2996,10 @@ The Mac runner's transcript is plain text and needs no export.
   (`-[NSTextView viewDidEndLiveResize]`, `scrollToLocation:`) 48 points down. The book's
   title is then above the screen, the insertion point follows to character 27, and `in`
   reads the second line, as in every such session here. A session that changes to
-  continuous scroll after the resize begins at the top. Whether a window resized by hand
-  does the same was not looked at.
+  continuous scroll after the resize begins at the top. Any live resize did the same, and
+  away from the top of a book it took the text back a paragraph; the reader has held its
+  place through one since [#479](https://github.com/vocaro/EPUBLib/pull/479) (the note on
+  `ax:width` at the head of this list).
   Not established: why VoiceOver keeps its cursor for one notice and follows two. Not
   heard: listening; a workstation; a move to a shown position (the contents, a search
   result) or rebuilt text with VoiceOver inside the text, which post the same second
@@ -3168,7 +3253,8 @@ The Mac runner's transcript is plain text and needs no export.
   Heading"; a plain double tap on the cell, with no action chosen, did the same. With
   Select Cell Text chosen, a double tap gave "Select Cell Text" and the screenshot shows
   VoiceOver's cursor on the cell's box and no highlight in it: that the words were selected
-  there is shown by the unit test only. The rotor's Rows moved down and up a column in both
+  there is shown by the unit test only (the entry of 2026-10-13 below shows it on the
+  device, and what the action does now). The rotor's Rows moved down and up a column in both
   tables as on the simulators. In continuous scroll at 23 points, 136 moves forward and 136
   back through the long table gave all 120 cells once and in order each way; at 28 points,
   with the rotor on Rows, thirty-four flicks down from "Item 02 Row 3" went a row at a time
@@ -3626,8 +3712,84 @@ The Mac runner's transcript is plain text and needs no export.
   ("Hours, Leaves Nine"). The reader keeps the static text.
   Not heard: anyone listening, or any Mac but the runner; a spread of two columns; a table
   in a note's popover; Inspect Image chosen from a cell; a cell's `headers` attribute;
-  VoiceOver in another language or with its verbosity changed; and what Safari or Books
-  says of the same tables on a Mac, which was not compared.
+  VoiceOver in another language or with its verbosity changed; Read All through a table;
+  Control-Option-C and Control-Option-R pressed twice on the shape that was kept; and what
+  Safari or Books says of the same tables on a Mac, which was not compared
+  ([#484](https://github.com/vocaro/EPUBLib/issues/484)). The page turn that leaves
+  VoiceOver out of the text is [#485](https://github.com/vocaro/EPUBLib/issues/485).
+- On 2026-10-13 a table's select action was performed with VoiceOver on the physical iPad
+  Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366, upright, 17 points), before and after a
+  change to what it does ([#450](https://github.com/vocaro/EPUBLib/issues/450)), with the
+  sample's selection line under the reader. Nobody listened. The revisions here are the
+  branch that reads a table of data by its cells with this change on it, before that
+  branch and the `main` of that night were merged in; the last paragraph has the head.
+  Before, at `35a8f53`, which has the probe's new steps and nothing of the change. In
+  pages, on "Alder" in the tables of data, the rotor offered Next Page, Previous Page and
+  Select Cell Text. With that chosen a double tap left VoiceOver's phrase at "Select Cell
+  Text", and no other came in four seconds. The reader's line said "Selected: Alder. Used:
+  nothing.": the words were selected on the device, and the host was told. The screenshot
+  shows VoiceOver's cursor round the cell and the cell's ground white throughout. Nothing
+  on screen was named Copy or Use passage, and thirty-six more steps of the rotor went
+  round Activate Default, Next Page, Previous Page and Select Cell Text. On the row "First
+  cell Second cell" of the section with a hidden heading over a table, the same with
+  Select Table Text: Second cell: the phrase stayed, the line said "Selected: Second cell.
+  Used: nothing.", and in the screenshot "Second cell" is a little heavier than "First
+  cell", where the cell had drawn its ink over the row's, with no tint behind it.
+  A first change, at `3e5289d`, painted the selection, posted an announcement and offered
+  the three actions. On the iPad the double tap brought "Selected: Alder", the reader's own
+  announcement, and the screenshot shows the tint behind "Alder". The rotor went round the
+  same four actions as before, through thirty-six steps: VoiceOver keeps an item's actions
+  as it found them when its cursor came to the item. The unit tests of that revision
+  passed.
+  After, at `2738aa9`, which marks the item selected and tells VoiceOver that it changed,
+  in place of the announcement. On "Alder" in pages the double tap brought "selected Alder
+  Row header Row 2 Column 1" and "Selected: Alder. Used: nothing."; the screenshot shows
+  the tint behind "Alder" and nowhere else; the rotor's next two steps were "Copy" and "Use
+  passage"; with Use passage chosen a double tap brought "Selected: Alder. Used: Alder.";
+  and four steps on stood "Deselect Cell Text", where a double tap brought "Alder Row
+  header Row 2 Column 1" and "Selected: nothing. Used: Alder.", with no tint left in the
+  screenshot. Selected once more, a touch on "Birch" and then on "Alder" said "selected
+  Alder Row header Row 2 Column 1". On the row in pages: "selected First cell Second cell",
+  "Selected: Second cell. Used: nothing.", the tint behind "Second cell" alone, "Copy", "Use
+  passage", "Selected: Second cell. Used: Second cell.", and "Deselect Table Text: Second
+  cell" after "Select Table Text: First cell", which brought "First cell Second cell" and
+  "Selected: nothing.". In continuous scroll the row gave the same phrases and lines, with
+  the tint in its screenshot. On the cell in continuous scroll the action could not be
+  chosen. With VoiceOver's cursor on "Alder", and on "Reopened 1978", thirty turns of the
+  rotor went round Rows, Image Recognition, Headings, Containers, Speaking Rate, Words and
+  Characters and came to no Actions (`rotor=Actions: MISSING`), at `2738aa9` and at
+  `35a8f53` alike, so the change did not bring it; a session whose rotor stood on Actions
+  from the session before spelled "Alder" a letter at a time, which is the rotor on
+  Characters. The cause is not the cell's and not VoiceOver's
+  ([#472](https://github.com/vocaro/EPUBLib/issues/472)): with VoiceOver off, in the
+  same place, a finger held on "Alder" selected "Alder", "1901" and "Twelve metres"
+  together, the whole row, as the text under a cell's text view does. The cells had no
+  text views. A build that reported what the reader finds on screen said why: when the
+  book opened at the section the rows were looked for with TextKit's layout 2,660 points
+  from where the scroll view stood, no row was on screen, and nothing looked again. After
+  one swipe up and one down it found thirty cells, and the held finger selected "Alder"
+  alone. So a table the reader goes to itself in continuous scroll has no cell to select
+  in or act on until the person scrolls, with VoiceOver or without. The row of the other
+  section had its actions; what the layout was there when the book opened was not read.
+  With VoiceOver off, a finger held on "Alder" for a second selected it ("Selected: Alder.
+  Used: nothing."): the screenshot shows UIKit's tint and its two handles, once, and an
+  edit menu of Copy, a symbol, Look Up, Translate and an arrow for more. Nothing on screen
+  was named Use passage: by the code a cell's menu has the host's action after the
+  system's, where a line's has it first. The iPad simulator (iPad Air 13-inch (M4), iOS
+  27.0) gave the same line and the same drawing for that touch at `f76814e`, its menu Copy,
+  Look Up, Translate, Search Web and the arrow.
+  Copy was not performed on the iPad, where it would have replaced what its owner had
+  copied; the unit tests perform it. That VoiceOver speaks an announcement posted from an
+  item's action, as "Copied" is, is what the `3e5289d` session heard.
+  A step through the rotor took six seconds, most of it XCTest waiting, so a list gone
+  round three times took over three minutes. The iPad was unavailable to `devicectl` from
+  23:52 until about 01:20 and was shared with three other sessions' runs after that. Each
+  session here claimed it in the shared file and read VoiceOver back as off afterward.
+  At `8a797bd`, which has that branch as it merged and `main` with it, the cell and the row
+  in pages gave the phrases and the lines of `2738aa9` again, action for action. One session
+  there opened on a phrase that was not the book's, the sample's or VoiceOver's own,
+  something of the device's; its log and result bundle were deleted unread and it was run
+  again. No other session recorded such a phrase.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
