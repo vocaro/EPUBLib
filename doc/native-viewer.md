@@ -599,14 +599,86 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       VoiceOver's Actions menu (Control-Option-Command-Space) on a cell holds what the
       cell can do itself: Select Cell Text, Follow Link with the link's words for each
       link, and Inspect Image for each picture.
-      A cell that holds a picture and no words is not said by the picture's words.
-      VoiceOver says what a cell holds (A cell that is a link, below), and this one
-      holds a text area whose value is the attachment's character: at the cell a
-      transcript has the column's header and that character, "Sign ￼", for a picture
-      described as "Blue badge" as for one nobody describes. The words are in the
-      row's name, "Blue badge, Open table", and inside the cell, "In text Blue badge
-      image". Nobody listened, so what VoiceOver voices for the character is not
-      known; that it does not say "Blue badge" there is open.
+    - **A cell that shows a picture.** A cell that shows pictures and nothing else holds
+      an image for each of them, called by the picture's words, in place of its text
+      area, as a web view's cell holds an image. VoiceOver says "Sign Blue badge image"
+      along the row and "Blue badge image" down the column, and "image cell" for a
+      picture nobody describes, in pages and in continuous scroll. While such a cell
+      held its text area, a transcript had the column's header and the attachment's
+      character there, "Sign ￼", for the described picture as for the other. The
+      description was in the row's name, "Blue badge, Open table", and inside the
+      cell's text, "In text Blue badge image", and not at the cell. Each of these was
+      heard on a hosted runner ([VoiceOver testing](voiceover-testing.md), the entry of
+      2026-10-13 on a table cell that shows a picture):
+      - **What VoiceOver goes by.** At a cell it reads a text area by its characters,
+        and a picture's is the attachment's character, U+FFFC. Nothing the text area
+        or the cell says of itself puts the picture's words there. A label on the text
+        area changed nothing. Neither did the cell's words given as the text area's
+        value, which VoiceOver does read where the cell heads a row, or as the string
+        of a range, which also broke reading by word inside the cell ("Blue crest
+        image  da", "ily"). A label on the cell is said after what the cell holds, so
+        a cell's words came twice, "Worn ￼ daily Worn Blue crest daily". An image
+        that held the text area was said by the character still, "Sign ￼", where a
+        link that holds one is said by the words and "hyperlink". What VoiceOver says
+        at the cell is an image the cell holds itself. What it voices for the
+        character nobody heard. The system's speech synthesizer, given the phrase
+        outside VoiceOver, says nothing for it: `say` wrote "Sign ￼" to a file as
+        long as "Sign". If VoiceOver passes the character on as it is, a listener
+        heard the column's header at such a cell and no more.
+      - **The image.** It has the picture's words for its label, and no label for a
+        picture nobody describes, which VoiceOver says in its own word. It has no
+        help. The image at a picture's character in text has the sentence about
+        Inspect Image for its help, and with that VoiceOver said "Sign Blue badge
+        image Double-click or choose Inspect Image to enlarge." each time it came to
+        the cell. It stands where the picture is drawn and offers the picture's
+        Inspect Image, as the cell does: the cell's Actions menu is what it was,
+        "Inspect Image: Blue badge" and "Select Cell Text". Chosen from the cell's
+        menu or the image's, Inspect Image opens the inspector.
+      - **Several pictures, and decoration.** A cell of two pictures holds two images,
+        "Rank Blue ring image, Blue star image", and is "cell 2 items":
+        Control-Option-Shift-Down goes to the first and Control-Option-Right to the
+        next. A transcript had "Rank ￼   ￼". Decoration (`alt=""`) is no image, so
+        a cell of decoration alone holds nothing and VoiceOver says "empty cell", as
+        of a cell with nothing in it; on iPhone and iPad such a cell says nothing,
+        like an empty one. A transcript had "￼".
+      - **A header cell that is a picture** is still what heads its row or its column,
+        the cell itself, and VoiceOver reads it before the cells it heads by what its
+        image is called: "Blue shield Low", and "Blue shield" at Control-Option-R,
+        where a transcript had "￼ Low" and "￼".
+      - **A picture among words.** The cell holds its text area and then the
+        picture's image, and VoiceOver says the picture's words after the cell's:
+        "Crest Worn ￼ daily, Blue crest image", where a transcript had "Crest Worn
+        ￼ daily" and nothing of the picture. The words stay in a text area, where
+        VoiceOver reads by word and reads the picture in its place, "Worn", "Blue
+        crest image", "daily". What it costs: the picture's words come last wherever
+        the picture stands among the cell's; the cell is "cell 2 items", at
+        Control-Option-F3 and in its hint; and its words are a step further in.
+        Control-Option-Shift-Down goes to the text area, "In Worn ￼ daily, Blue
+        crest image cell 2 items text …", and pressed again into it, "In text Worn
+        Blue crest image  daily", where one press went in; two presses of
+        Control-Option-Shift-Up come back. Nothing else that was tried said the
+        picture there at all. A cell without a picture is as it was.
+      - **Going in.** A cell that is one picture has nothing to go into. At
+        Control-Option-Shift-Down VoiceOver says "In Blue badge image image cell Blue
+        badge image", the next Control-Option-Right moves on along the row, "Sense
+        Open", and one Control-Option-Shift-Up then leaves the table. With the text
+        area it went into the cell's text, "In text Blue badge image", which held the
+        picture and nothing else.
+      - **Off screen.** An image needs no text area, so a cell of pictures far off the
+        screen in continuous scroll holds the images it holds on screen. A cell of
+        words with a picture among them is labelled there with all of them, the
+        picture's too, as any cell of words is, and holds nothing until its text area
+        is on screen.
+      - **Which cells.** A cell that is a link holds its link, whatever the link shows
+        (A cell that is a link, below). A formula, a rule, a hidden label and a table
+        inside a cell are not pictures: each is in its cell's text area, as before,
+        and a cell that shows one of them and no words still holds a text area whose
+        one character is the attachment's. None of these was heard.
+      - **Not heard.** Anyone listening. A picture's cell off screen that VoiceOver
+        moves to down a column. A header cell with a picture among its words or that
+        is a picture nobody describes, and a column headed by a picture. A picture
+        that stands before its cell's words. A cell of pictures continued on the next
+        page, a spread of two columns, and a note's popover.
     - **A cell that is a link.** A cell whose words are one link and nothing else is
       pressed to follow that link, which is what Control-Option-Space asks of the item
       under VoiceOver's cursor, as a double tap follows it on iPhone and iPad. While a
@@ -826,7 +898,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       describes, the words of the cell beside it. VoiceOver goes into the table at
       that row. It was given as a row's group, because the text looked for a row's
       pictures after its tables and put the group in the table's place. What the cell
-      that holds the picture says is under A cell, above.
+      that holds the picture says is under A cell that shows a picture, above.
       Not heard: a row off screen that VoiceOver reads to by line before the view has
       moved; a row of empty cells or of decoration alone; a spread of two columns; a
       note's popover; and what Safari says of the fixture's two plain tables, which
@@ -918,8 +990,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     - **Not heard.** Anyone listening, or a Mac that is not the hosted runner. Apple Books
       on a Mac. Beside Safari, a header under another in a table whose rows stand in
       `tbody`, a link followed out of its section, and the reader in continuous scroll. A
-      table in a spread of two columns, one in a note's popover, a picture's Inspect Image
-      chosen from a cell, Read All through a table, and VoiceOver in a language other than
+      table in a spread of two columns, one in a note's popover, Read All through a table,
+      and VoiceOver in a language other than
       English ([#484](https://github.com/vocaro/EPUBLib/issues/484)). Of a cell that is a
       link: one far off the screen in continuous scroll, one whose link is a picture, one
       continued on the next page, a header cell given a link to hold, and a link whose
