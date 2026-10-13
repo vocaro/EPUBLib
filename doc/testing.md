@@ -351,7 +351,8 @@ typographic review, an accessibility audit or a memory budget measurement. They 
 VoiceOver speech or focus order, keyboard-only traversal, native toolbar overflow or iPhone Duo
 layouts ([#51](https://github.com/vocaro/EPUBLib/issues/51)), which need live sessions.
 The suite runs on OS 27; older platforms are outside the package's deployment targets. Simulator
-coverage does not substitute for hardware performance and accessibility testing.
+coverage does not substitute for hardware performance and accessibility testing, except for
+what a simulator's VoiceOver reads, as the next paragraph says.
 
 For real VoiceOver sessions, use the [VoiceOver testing process](voiceover-testing.md) and
 the isolated `Examples/VoiceOverVerification` reader. Its diagnostic speech probe is outside
@@ -359,8 +360,10 @@ the local gate because it takes control of the user interface and changes VoiceO
 `scripts/run-voiceover-simulator.py` runs that probe on simulators of its own, with no window
 and no sound, and takes over nothing: it records what a
 [simulator's VoiceOver](voiceover-testing.md#simulators) reads, in order and after a page
-turn. That VoiceOver activates nothing it reads, so page actions, the rotor and acceptance
-stay with the Mac and physical devices.
+turn, and that record is
+[acceptance evidence](voiceover-testing.md#acceptance-and-evidence) for it on an iPhone and
+iPad. That VoiceOver activates nothing it reads, so what VoiceOver activates, the actions it
+performs from the rotor and page turns in landscape stay with physical devices.
 
 ## Corpus runs
 
