@@ -1494,9 +1494,27 @@ The Mac runner's transcript is plain text and needs no export.
   (`ScrolledLiveResizeTests`): 48 points at the top of a book, 114 under a toolbar, and
   back to the start of a paragraph anywhere else, 279 and 304 points in the tests' prose
   and further at each resize. With the change the
-  tests' reader stays at the top and VoiceOver would enter at the title. Not heard: a
-  hosted session after the change. Not made: a drag of the window's edge with a mouse,
-  which ends a live resize the same way.
+  tests' reader stays at the top, and so did a hosted session's. On 2026-10-13 at `4b046fb`,
+  the change's last commit, whose code is what merged (run 38420816777, with the image,
+  macOS and Xcode of run 38380968267, which is `593b907` from before the change), four
+  sessions were launched in continuous scroll and resized to 600 points wide, at 17 points
+  and a fixed pause of four seconds. After the resize each had `SELECTION 0,0` and the
+  title as its `ENTRY`, where each of the earlier run's nine had `SELECTION 27,0` and the
+  second line. `in` read "In text Page boundary verification",
+  where it had read "In text Read the numbered words…", `line` the title and `describe`
+  "Line 1", and the same after `ax:width=700 ax:width=600`. With the steps of one of the
+  earlier sessions, `nextline` read the title and then the second line, and `pagedown`
+  went to line 15, "word0061", where it had gone to line 18, "word0079": a transcript from
+  before the change is a line later at its start and three after a screen's step. Away from
+  the top one session was heard, and it ended a line up. After two `ax:next` the insertion
+  point was on the line of "word0178", and after `ax:width=700 ax:width=600` on the line
+  above it, "word0171", which `in` and `line` read. The paragraph begins 28 lines above
+  that. Not looked at: whether the line is lost to the reader's own rule for text wrapped
+  to another width and back, or to what is left of AppKit's scroll
+  ([#500](https://github.com/vocaro/EPUBLib/issues/500)). `ax:lines` shows none of
+  this: in continuous scroll it lists the text area's first 500 lines, whatever is on
+  screen, and the place is in `SELECTION` and `ENTRY`. Nobody listened. Not made: a drag of
+  the window's edge with a mouse, which ends a live resize the same way.
 - On 2026-10-11 the Mac sessions verified first and last lines, word order, end of text,
   line counts and page-turn continuity in one and two columns at 17 and 23 points, with value
   notifications for page turns, text-size changes and resizes. See the
