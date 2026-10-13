@@ -634,7 +634,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       screen, and one session met it another way: moving by word after leaving a row,
       VoiceOver said "First cell Second cell image", a tab between the cells, of the row
       it had just been inside, where it now says "First cell, Second cell group". Why
-      that row's text areas were not there at that moment was not looked into.
+      that row's text areas were not there at that moment was not looked into; rows the
+      view had moved to without the person scrolling had none until
+      [#494](https://github.com/vocaro/EPUBLib/pull/494), which the sessions did not have.
       What it costs. VoiceOver says a row's words again on going into the row, before
       the first cell's, and on leaving it: into a row of long cells that is some seconds
       before the cell's own words, which the row's began with. A row is one phrase, so a
