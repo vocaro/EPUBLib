@@ -264,8 +264,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   links: one that crosses the page's end is the part on the page, and one in the context
   laid out after the page is not listed. The scroll view lists the links of the paragraphs
   on screen, as AppKit does. The text's headings stand among those children too, each
-  where it is in the text: with its cursor on a link VoiceOver finds the next heading
-  there and nowhere else ("Input and accessibility", Headings).
+  where it is in the text, and after them the book's next one: with its cursor on a link
+  VoiceOver finds the next heading there and nowhere else ("Input and accessibility",
+  Headings).
   VoiceOver announces an element given as a character's attachment as it reads, and none at
   a character of words. So each attachment in a link, a picture, a hidden label or a
   formula, has a link element for its own: VoiceOver says "hyperlink" and the name there by
@@ -280,7 +281,13 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   VoiceOver then goes by it for Find Next Link as well. With a link's characters as its
   results VoiceOver said the words without "hyperlink" and found no previous link; with the
   link elements as its results it said "Link not found". So in continuous scroll a link
-  below the screen is reached by reading or scrolling to it. A note's popover keeps AppKit's
+  below the screen is reached by reading or scrolling to it. VoiceOver's search for
+  elements cannot give it one either: an answer that is no child of the text was refused,
+  and a text that offers the search is asked for much else ("Input and accessibility",
+  Headings). With the next link below the screen among the children, as the next heading
+  is, Find Next Link went to it and VoiceOver scrolled there; that was heard once on a
+  throwaway branch and is not built
+  ([#425](https://github.com/vocaro/EPUBLib/issues/425)). A note's popover keeps AppKit's
   elements, and its links do nothing.
   A table cell is a text view of its own. VoiceOver meets a row as one stop of the page's
   text, "Table row group"; interacting with it there shows the row's cells, and interacting
@@ -458,7 +465,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     way to give one cell headers of its own.
   - **Actions.** A cell offers what it can do itself: Select Cell Text, Follow Link with the
     link's words for each link in it, and Inspect Image for each picture; a page's cells
-    also turn the page, like its lines. A double tap follows the link of a cell that has
+    also turn the page, like its lines. A cell whose words are selected offers Deselect
+    Cell Text, Copy and the host's selection action in place of Select Cell Text ("A
+    table's text selected with VoiceOver" below). A double tap follows the link of a cell that has
     one link, and shows the picture of a cell that is a picture. The actions come from the
     cell's interaction surface, so a cell listed past the screen has them once it is on
     screen, which is where VoiceOver's cursor brings it.
@@ -593,6 +602,58 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     the text on an iPad simulator in two sessions of three, where rows had not in two of
     two; with the fifty it did not in two of two. Why cells showed it and rows did not is
     not known, so a table's cells are to be taken as needing that list.
+- **A table's text selected with VoiceOver.** On iPhone and iPad VoiceOver cannot select
+  the reader's text as it does a text view's: a page's lines and a table's rows and cells
+  are elements of the reader's own, and the text views that take touches over a table's
+  cells are hidden from it. A table offers selection as an action instead, Select Table
+  Text with a cell's words on a row and Select Cell Text on a cell of a table of data, and
+  either selects the words the cell shows there. Rows and cells run the same code and
+  differ in the names alone.
+  - **Shown.** UIKit draws a text view's selection, and its handles, only while the view is
+    first responder, which a touch in it makes it. A selection set in code was held,
+    reported to the host and copied from, and nothing showed it: after the action the screen
+    was as before, but for the selected words' ink, which the cell draws over the row's own
+    and which looked a little heavier. A cell's text view now paints a selection it holds
+    whenever UIKit is not drawing it, in UIKit's tint for selected text, and leaves it to
+    UIKit while it is first responder. That shows every selection set in code and not this
+    one alone: a located passage in a table, in each cell it runs through that cell's
+    share, and a selection carried across a new layout. The reader takes no keyboard focus
+    to show it, which would close a keyboard elsewhere in the window.
+  - **Said.** VoiceOver says nothing of its own after an item's action, and it keeps what an
+    item says and offers as it found them when its cursor came to the item: on an iPad its
+    rotor went on offering Select Cell Text, and none of the three actions below, after the
+    words were selected. The item of a cell whose words are selected has UIKit's selected
+    trait, and after selecting or deselecting the reader posts a layout change that names
+    the item. VoiceOver then reads the item again, "selected" before its words in
+    VoiceOver's own language or without it, and takes the item's actions as they now are. A
+    listener who comes back to the item later hears "selected" again. On a row it is the
+    row that is read as selected, and its actions name the cell. The reader announces one
+    thing itself, "Copied", because copying changes nothing a listener could tell: the word
+    is the reader's and English, as "Separator" is at a rule, and is queued behind whatever
+    VoiceOver is saying.
+  - **What it is for.** A selection made by touch brings up the edit menu, with Copy and the
+    host's selection action. No menu comes up for a selection set in code, and VoiceOver
+    could not reach one in a view hidden from it. So the item whose cell holds selected
+    words offers, where its select action stood, Deselect Table Text or Deselect Cell Text,
+    Copy, and the host's selection action by its own title when the host gave one. Copy and
+    the host's action are the edit menu's: the whole selection's text, and the host is told
+    of the selection first if it has not settled. Deselect clears the reader's selection.
+    It is the way back to turning pages by VoiceOver's scroll gesture, which selected text
+    holds back as it does a swipe ("Input and accessibility"); Next Page and Previous Page
+    in the rotor turn the page either way. A passage that runs through several cells of a
+    row is one selection, and the row offers Copy and the host's action once.
+  - **Not done.** A line outside a table offers no selection to VoiceOver, as before. On Mac
+    a cell's text area is VoiceOver's own to select in and to use a selection from. A cell
+    of a table of data offers Select Cell Text there and none of the three above, and
+    does not offer it while its words are selected.
+  - **Not shown.** A cell of a table of data in continuous scroll, on a device. In the
+    section the sessions opened the book at, the cells had no text views, so their items
+    had no actions, with this change and without it. That is a fault of its own and not
+    VoiceOver's: in continuous scroll a table the reader goes to itself gets its cells'
+    text views only once the person scrolls
+    ([#472](https://github.com/vocaro/EPUBLib/issues/472);
+    [VoiceOver testing](voiceover-testing.md), the entry of 2026-10-13 on a table's select
+    action). The unit tests perform the cell's actions in both flows.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
   in place and also show in popovers.
@@ -1373,7 +1434,8 @@ The following are the defaults. Host commands and accessibility actions stay ena
   it the list showed each label and VoiceOver read every such row out as the column's own
   text.
   With VoiceOver's cursor on a link the move to the next heading goes another way
-  ([#431](https://github.com/vocaro/EPUBLib/issues/431)). A link is an element of its own
+  ([#431](https://github.com/vocaro/EPUBLib/issues/431),
+  [#454](https://github.com/vocaro/EPUBLib/issues/454)). A link is an element of its own
   on Mac, a child of the text and no place in it. From there VoiceOver asks no rotor: it
   looks through the text's children for an element with the heading role after the link,
   and past the last it begins again with the first, as Find Next Link does (macOS 27.0.1).
@@ -1382,17 +1444,51 @@ The following are the defaults. Host commands and accessibility actions stay ena
   (`ReaderHeadingAccessibilityElement`), where it stands among the links: AppKit's heading
   role, the heading's words as its label and its level as its value. VoiceOver says both,
   "heading level 2 Link target reached", where the move from the text says the words
-  alone. The scroll view gives the headings on screen and the next one below them, so the
-  move from a link has the book's next heading to go to, and VoiceOver scrolls to it
-  itself, by setting the scroll bar's value. A page column gives its page's headings: in
-  paging the move from a link stays on the page, goes back to the page's first heading
-  when none follows the link, and says "Heading not found" on a page with none.
-  VoiceOver's cursor is then on the heading's element and not in the text. In continuous
-  scroll the reader takes VoiceOver's scroll for any other and puts the insertion point on
-  the first line on screen: VoiceOver says the word before it, and reading on by word or
-  by line starts from that line, above the heading. One move right from a link's element
-  or a heading's puts VoiceOver back in the text, where the move by heading goes through
-  the book by the rotor.
+  alone.
+  The children hold the headings on screen or on the page and, after them, the book's next
+  heading, so that the move from the last link there has it to go to. VoiceOver takes an
+  element for a place only when it is among the children of its text, so that heading is a
+  child before VoiceOver looks for it. In continuous scroll it is the next one below the
+  screen, a heading of the view's own text. In paging it is on a later page: an element at
+  the foot of the column, a point high, called by the heading's words
+  (`ReaderCanvasView.headingAfterPage`), and the last of the column's children. A chapter
+  that is not built yet ends the list, as it ends the rotor's.
+  VoiceOver focuses the element it moves to, while its cursor and the keyboard focus go
+  together (cursor tracking, which is on until a listener turns it off), and that is all it
+  tells the reader of the move. It gives the focus to an element that says whether it has
+  it: one that only took it was never given it. The reader then does three things
+  (`ReaderTextView.showHeading`). It puts the insertion point on the heading. VoiceOver's
+  cursor is on the element and not in the text, and its next move by word or by line starts
+  from the insertion point, which was wherever VoiceOver had last read, or the first line on
+  screen: with it on the heading, one move right says the heading's first word and reading
+  goes on from there, and the next move by heading goes on by the rotor from the heading.
+  In continuous scroll it shows a heading that has no character on screen, as it shows a
+  link's target, where VoiceOver would scroll to the element by the scroll bar, which the
+  reader takes for any other scroll. And in paging it turns to the page of a heading that
+  is on a later one, as it does when VoiceOver loads a heading the rotor gave. The element
+  VoiceOver is on becomes the heading's own in the column that then shows it, one of that
+  column's children with its place there: an element that left the children would leave
+  VoiceOver's cursor on the column. VoiceOver says the heading, then the first words it
+  says after any page turn, then the heading again.
+  What is left as it was (macOS 27.0.1):
+  - Past the book's last heading the move from a link begins again with the first heading
+    among the children, which is the first on screen or on the page, and says "Heading not
+    found" where they hold none. From the last heading's own element, with no other on
+    screen, VoiceOver says "Last heading" and stays.
+  - With cursor tracking off VoiceOver focuses nothing. In continuous scroll it scrolls to
+    the heading itself, and reading on starts from where it had last read. In paging it
+    says the heading that is on a later page and the page stays; one move right puts it
+    back in the page's text, where the move by heading goes by the rotor and turns.
+  - In a spread the heading can be in the other column than the one VoiceOver was in.
+    VoiceOver's cursor is on its element there, and its text cursor stays in the text it
+    was in. From the left-hand column to a heading in the right-hand one, reading on by
+    word or by line starts at the top of the spread, a column before the heading. From the
+    right-hand column to a heading on a spread that shows one page, `line` said nothing.
+    The move by heading goes on from the heading's element all the same, and from the text
+    it reaches the heading by the rotor with VoiceOver's text cursor on it. Given the
+    keyboard focus, the column that shows the heading took VoiceOver's cursor as an item it
+    was not interacting with: `line` read the heading and one move right left the text for
+    the next control.
   The rotor's Headings list is the same from a link. VoiceOver asks the text for its
   rotors as well as the link, which has none, and having walked the list it asks the
   search once more, from the link's element at the first character and none of it. The
@@ -1401,14 +1497,28 @@ The following are the defaults. Host commands and accessibility actions stay ena
   column's rotor still held its page alone, the list opened with no row chosen and Return
   did nothing; that was heard once.
   Two other ways were heard and left out. Given the text's rotors, a link's element was
-  asked for them when the rotor opened and never for the move by heading. And an element
-  that offers a search for elements (`AXUIElementsForSearchPredicate`, which AppKit has
-  named since macOS 26) is asked by Find Next Link for the next link, with the range of
-  VoiceOver's text cursor: answered with none, Find Next Link said "Link not found" and
-  never reached a link, so what the move by heading asks of such an element was not heard.
-  That search could give the move from a link the exact next heading, without beginning
-  again, and a heading on another page; it would have to answer for links as well, and is
-  not built ([#454](https://github.com/vocaro/EPUBLib/issues/454)).
+  asked for them when the rotor opened and never for the move by heading. The other is
+  VoiceOver's search for elements (`AXUIElementsForSearchPredicate`, which AppKit has named
+  since macOS 26, served through the old attribute methods), which could end the move at
+  the book's last heading in place of beginning again:
+  - A link's or a heading's element that offers it is asked in place of being looked at,
+    with no start at all, and each child after it in turn, then the first ones. None can
+    tell whether VoiceOver's cursor is on it, so the first children answer for what follows
+    them and the move begins again all the same.
+  - A text area that offers it is asked where VoiceOver's own walk of the children finds
+    nothing, with the element under its cursor as the start, and answered with nothing
+    VoiceOver says "Heading not found", or "Last heading" from a heading. But it is then
+    asked for every kind of item VoiceOver looks for, from the text as well, and can answer
+    with elements alone. VoiceOver's moves to the next change of font or of style, and to
+    the next plain text, which find the place in a text that offers no search, left the
+    text for the window's other items. A search for bold text from a page, and one for a
+    picture from a control outside the text, were asked without end, thousands of times
+    in half a minute, until VoiceOver said the reader was not responding, and after the
+    second it could not be turned off. Find Next Link was asked too: left unanswered it
+    said "Link not found" or asked without end, and past the last link it said "Last link"
+    and stayed where it begins again today.
+  So no text and no element of the reader offers the search, and the move from a link
+  past the last heading begins again.
   Not marked for VoiceOver: a heading inside a table, whose cells are read as cells, and on
   iPhone and iPad a heading inside a note's popover, which keeps UIKit's own elements.
 - Selection: native selection UI with the host's `EPUBSelectionAction` in the edit or context
@@ -1418,6 +1528,10 @@ The following are the defaults. Host commands and accessibility actions stay ena
   indicator with Previous/Next controls for following the selected passage. Direct page input
   is suppressed while a selection is active; host commands and these continuation controls
   remain available. `.selectionChanged` settles 150 ms after the selection stops changing.
+  With VoiceOver on iPhone and iPad a table's text is selected by an action of its row or
+  cell. The cell draws it, VoiceOver reads the item as selected, and the item then offers
+  Copy and the host's action itself ("A table's text selected with VoiceOver" under
+  Decisions).
 
 ## Commands and events
 

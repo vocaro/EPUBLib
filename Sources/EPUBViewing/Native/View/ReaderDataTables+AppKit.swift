@@ -487,14 +487,17 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
                 return true
             }
         }
-        var select: (@MainActor () -> Bool)?
+        // Of what a cell offers for its words, selecting them alone is offered here. What a
+        // selection is for is the cell's own text area's on a Mac, and VoiceOver's to reach
+        // there; iPhone and iPad offer it on the cell, where the text views are hidden.
+        var select: ReaderTableAction?
         var links: [NSAccessibilityCustomAction] = []
         for location in locations {
             guard let found = view.tableInteraction?.accessibilityActions(at: location, cell: cell) else { continue }
-            select = select ?? found.select
+            if !found.selected { select = select ?? found.selection.first }
             links += found.links.map { link in NSAccessibilityCustomAction(name: "Follow Link: " + link.name) { link.perform() } }
         }
-        if let select { actions.append(NSAccessibilityCustomAction(name: "Select Cell Text") { select() }) }
+        if let select { actions.append(NSAccessibilityCustomAction(name: select.name) { select.perform() }) }
         actions += links
         return actions.isEmpty ? nil : actions
     }
