@@ -662,18 +662,29 @@ extension ReaderTextView {
     /// VoiceOver has moved to the element of a heading of this text, at `range`, or of the
     /// book's next heading after its page, at `elsewhere` in the book.
     ///
-    /// The insertion point goes to the heading. VoiceOver's cursor is on the element and not
-    /// in the text, and its next move by word or by line starts from the insertion point,
-    /// which was wherever it had last read, or the first line on screen. In continuous scroll
-    /// a heading with none of its characters on screen is shown first, as the reader shows a
-    /// link's target: VoiceOver would scroll to the element by the scroll bar, which the
-    /// reader takes for any other scroll.
+    /// A heading the text does not show is shown, and the insertion point goes to it.
+    /// VoiceOver's cursor is on the element and not in the text, and its next move by word or
+    /// by line starts from the insertion point, which was wherever it had last read, or the
+    /// first line on screen. In continuous scroll that is a heading with no character on
+    /// screen, which the reader shows as it shows a link's target: VoiceOver would scroll to
+    /// the element by the scroll bar, which the reader takes for any other scroll.
+    ///
+    /// A heading with any of it on the page or on screen is left as it is. Told that the
+    /// insertion point of the text it is in has moved, VoiceOver says the word before the new
+    /// place, and says it over the heading's level and words, which it has only begun (macOS
+    /// 27.0.1). After the reader has shown a place it tells VoiceOver that the layout changed,
+    /// and VoiceOver then says the item under its cursor again, so there the heading follows
+    /// that word. Nothing found moves VoiceOver's place in a text without the word
+    /// (`showLink`), so from a heading left as it is reading on starts where VoiceOver last
+    /// read.
     ///
     /// For a heading on a later page the reader turns to that page, as it does when
     /// VoiceOver loads a heading the rotor gave (`ReaderCanvasView.loadHeading`). The element
     /// VoiceOver is on becomes the heading's own in the column that then shows it, among that
     /// column's children with its place there: an element that left the children would leave
-    /// VoiceOver's cursor on the column.
+    /// VoiceOver's cursor on the column. The insertion point of that column goes to the
+    /// heading, also where the column stood beside the one VoiceOver is in and nothing
+    /// turned: VoiceOver says no word for another text's insertion point.
     func showHeading(at range: NSRange, elsewhere: ReaderTextPosition?) {
         guard let canvas else { return }
         if let elsewhere {
@@ -683,11 +694,10 @@ extension ReaderTextView {
             shown.view.headingElements[shown.range.location] = element
             guard shown.view.headingChildren().contains(where: { $0 === element }) else { return }
             shown.view.placeInsertionPoint(at: shown.range.location)
-        } else if range.location != NSNotFound, range.location <= textLength {
-            if !isPageColumn, NSIntersectionRange(range, accessibilityVisibleCharacterRange()).length == 0,
-               let position = canvas.position(at: range.location, in: self) {
-                canvas.show(position, selecting: nil)
-            }
+        } else if !isPageColumn, range.location != NSNotFound, range.location <= textLength,
+                  NSIntersectionRange(range, accessibilityVisibleCharacterRange()).length == 0,
+                  let position = canvas.position(at: range.location, in: self) {
+            canvas.show(position, selecting: nil)
             placeInsertionPoint(at: range.location)
         }
     }
