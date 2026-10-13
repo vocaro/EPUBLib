@@ -815,15 +815,15 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    where the rule has `role="presentation"`, which the reader does not read. On the page
    that holds a rule alone it says "Separator" and nothing else in the text, and Next Page
    from there shows "Last words of the scenes.". On a Mac, in a window 600 points wide at
-   17 points, the section's pages are 22, 23 and 24 `ax:next` steps in. Moving by line
-   VoiceOver says "Separator" between "First scene ends." and "Second scene starts." and
-   again before "Words after an ornament."; moving by word a rule is one stop that says
-   the same; and `readall` from the page's first word says it in both places. On the page
-   that holds a rule alone it says "In text Separator" on entering and "end of text" on the
-   next line. In continuous scroll, where 28 `ax:next` steps and `lastword` put VoiceOver
-   on "scenes.", it says "Separator" on each of the three lines between "Last words of the
-   scenes." and "First scene ends.". No transcript has "splitter", "collapsed" or "image"
-   at a rule.
+   17 points, open the reader at the section (`"launch=-SampleHref OPS/scenes.xhtml"`).
+   Moving by line VoiceOver says "Separator" between "First scene ends." and "Second scene
+   starts." and again before "Words after an ornament."; moving by word a rule is one stop
+   that says the same; and `readall` from the page's first word says it in both places. On
+   the page that holds a rule alone, one `ax:next` step on, it says "In text Separator" on
+   entering and "end of text" on the next line. In continuous scroll, where thirty
+   `ax:next` steps from the start of the book and `lastword` put VoiceOver on "scenes.", it
+   says "Separator" on each of the three lines between "Last words of the scenes." and
+   "First scene ends.". No transcript has "splitter", "collapsed" or "image" at a rule.
 9. Headings. On an iPhone or iPad VoiceOver says "Heading" after a heading's words, shown or
    hidden, and reads a heading that takes several lines as one item. With the rotor on
    Headings (`rotor=Headings`, turned after the touch that places the cursor), `flick=down`
@@ -1359,7 +1359,13 @@ The Mac runner's transcript is plain text and needs no export.
   `main` at `449182f` merged in as well, which gives the links of the same rich text
   elements of the reader's own, at `14b2696`, run 38349644406, three sessions in one run:
   "Separator" at every rule in pages by line, with `readall` and by word, on the page of a
-  rule alone, and in continuous scroll back by line, with `readall` and back by word.
+  rule alone, and in continuous scroll back by line, with `readall` and back by word. And
+  with `main` at `8d78dc1`, whose fixture has a second table in the section before the
+  pictures, at `86a5121`, run 38353724021: the scenes' first page is still 22 `ax:next`
+  steps in; opened at the section with `-SampleHref OPS/scenes.xhtml`, the same phrases by
+  line, with `readall` and by word, and the page of a rule alone one `ax:next` step on; in
+  continuous scroll thirty `ax:next` steps and `lastword` gave "scenes.", and the lines
+  back from there and `readall` were as before.
   The other elements, each a commit that differs in nothing but what a rule's character
   carries, heard in pages by line, by word, with `readall` and on the page of a rule alone.
   AppKit's splitter role and nothing else, `3073331`, run 38333879354: "horizontal splitter
