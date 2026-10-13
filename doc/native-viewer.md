@@ -329,8 +329,11 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     column's header cell on another page is still named before the cells it heads: the
     table answers with an element that has the header's words and is nowhere to go. A
     row taller than a page continues: on each page its cell is the same cell of the table,
-    reading the words that page shows. A cell that spans rows is listed where it starts,
-    and the lines of it that later rows of the page hold are added to it there.
+    reading the words that page shows. A cell is listed on a page where it has something
+    to say: a short cell beside one several pages tall is centred in the row, so its words
+    stand some pages in, and it is no stop on the pages before them. A cell that says
+    nothing anywhere is listed where it starts. A cell that spans rows is listed where it
+    starts, and the lines of it that later rows of the page hold are added to it there.
   - **Continuous scroll.** The rows listed follow VoiceOver's cursor as lines do (below),
     and the table keeps one element while any cell of it is listed, each cell its own, so
     VoiceOver reads on through a table longer than the screen in both directions and the
