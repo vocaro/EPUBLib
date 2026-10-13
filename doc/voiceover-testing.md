@@ -77,7 +77,7 @@ the link, and in continuous scroll all of it is on one screen. A third link, "la
 follows the book's last heading, and sixty numbered lines follow it. Each line before a
 heading ends in a word no other line has, so a word VoiceOver says of itself shows where it
 took it from. None of the section's words is one VoiceOver uses for a heading or a link. A
-thirteenth, **Squares inside grids** (`OPS/squares.xhtml`), the book's last, holds pictures
+thirteenth, **Squares inside grids** (`OPS/squares.xhtml`), holds pictures
 in rows that have no words of their own. Its first table is given `role="presentation"`: a
 row of two pictures nobody describes and nothing else, between the rows "Top near", "Top
 far" and "Foot near", "Foot far". Its second, which begins a page of its own, is a table
@@ -87,7 +87,19 @@ beside "Open", and one nobody describes beside "Shut". "Words before the squares
 "Words after the signs." round the second, and sixty numbered lines follow. The section
 has no heading and no link, so the book's last heading and its last link are still those
 of the section before it, and none of its words is one VoiceOver uses for a table, a
-picture or a group. A second bundled book, opened with
+picture or a group. A fourteenth, **Gaps inside grids** (`OPS/gaps.xhtml`), the book's
+last, holds rows that have nothing to say, as the rows that space out a table used for
+layout have: a row of two cells that hold nothing, a row of two that hold decoration alone
+(a picture with an empty `alt`), and a row of one cell that holds nothing and spans both
+columns. Its first table is given `role="presentation"` and has one of each, in that
+order, between the rows "Upper near", "Upper far"; "Middle near", "Middle far"; "Lower
+near", "Lower far"; and "Last near", "Last far". Its second, which begins a page of its
+own, is a table of data under the header cells "Tree" and "Tally", with the same three
+rows between "Oak", "Nine"; "Elm", "Four"; "Ash", "Six"; and "Yew", "Two". "Words before
+the gaps." and "Words after the gaps." stand round the first table, "Words before the
+tally." and "Words after the tally." round the second, and sixty numbered lines follow.
+It has no heading and no link either, and none of its words is one VoiceOver uses for a
+table, a picture or a group, or for a place with nothing in it. A second bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
@@ -98,8 +110,8 @@ after the numbered paragraph, the two parked ones (level 1), each opening its se
 "A table longer than a page" and "A row taller than a page" (level 1), each opening its
 section, and "Second part opens" (level 3) and "Third part opens" (level 4) inside the
 section of parts below a jump; the sections of entries and of jumps inside a grid, between
-"What each line offers" and "Tables of data", have none, and neither has the last, of
-squares inside grids. The second book's are "Chapter one", "Chapter two"
+"What each line offers" and "Tables of data", have none, and neither have the last two, of
+squares and of gaps inside grids. The second book's are "Chapter one", "Chapter two"
 and "Chapter three", screens apart.
 Do not import private books for this check.
 
