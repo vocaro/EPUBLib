@@ -30,8 +30,14 @@ COMMANDS = {
     "textstart": (115, True), "textend": (119, True), "readall": (0, False), "activate": (49, False),
     "linecount": (99, False), "describe": (99, False), "attributes": (17, False), "rotor": (32, False),
     # Cursor tracking off, or on again: VoiceOver keeps the setting from one session to the next.
-    "tracking": (99, True)}
-TWICE = {"linecount"}  # Control-Option-F3 twice reads the total and visible line counts.
+    "tracking": (99, True),
+    # VoiceOver's commands for a table, with its cursor on a cell: the header of the cell's row
+    # (R) and of its column (C), and Apple's key for its row and column numbers (Shift-T).
+    "rowheader": (15, False), "columnheader": (8, False), "rowcolumn": (17, True),
+    "readrow": (15, False), "readcolumn": (8, False), "dimensions": (17, True)}
+# Keys VoiceOver takes twice: Control-Option-F3 for the total and visible line counts, R and C
+# for the rest of a table's row and of its column, and Shift-T for the table's size.
+TWICE = {"linecount", "readrow", "readcolumn", "dimensions"}
 # VoiceOver commands that take Command as well, as (key code, with Shift): its moves to the
 # next heading and to the next and previous link, and the menu of the item's actions. With
 # Shift the move by heading asked the reader's rotor for the next heading too, on macOS
@@ -298,7 +304,7 @@ def main():
             if events_path.exists():
                 # What the reader reported and exposed, beside what VoiceOver said about it.
                 kinds = (" EVENT AXValueChanged", " EVENT AXLayoutChanged", " EVENT AXSelectedTextChanged", " STATE", " LINE", " PRESS",
-                         " RESIZE", " FOCUS", " MISSING", " CHILD", " LINK", " CARET", " CELL", " ELEMENT", " ACTION")
+                         " RESIZE", " FOCUS", " MISSING", " CHILD", " LINK", " CARET", " CELL", " ELEMENT", " ACTION", " TABLE")
                 transcript += [line for line in events_path.read_text(errors="replace").splitlines() if line[24:].startswith(kinds)]
             transcript_path = args.results / f"mac-{stamp}.transcript.txt"
             transcript_path.write_text("\n".join(sorted(transcript)) + "\n")
