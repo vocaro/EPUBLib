@@ -30,6 +30,7 @@ files = {'mimetype': 'application/epub+zip',
                     'media-type="application/xhtml+xml"/><item id="tallrow" href="tallrow.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="parts" href="parts.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="squares" href="squares.xhtml" '
+                    'media-type="application/xhtml+xml"/><item id="gaps" href="gaps.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="image" href="square.svg" '
                     'media-type="image/svg+xml"/><item id="titled" href="titled.svg" '
                     'media-type="image/svg+xml"/></manifest><spine><itemref '
@@ -37,7 +38,7 @@ files = {'mimetype': 'application/epub+zip',
                     'idref="table"/><itemref idref="pictures"/><itemref '
                     'idref="scenes"/><itemref idref="offers"/><itemref idref="entries"/><itemref idref="cells"/><itemref '
                     'idref="grids"/><itemref idref="ledger"/><itemref idref="tallrow"/><itemref '
-                    'idref="parts"/><itemref idref="squares"/></spine></package>',
+                    'idref="parts"/><itemref idref="squares"/><itemref idref="gaps"/></spine></package>',
  'OPS/nav.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
                   'xmlns="http://www.w3.org/1999/xhtml" '
                   'xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav '
@@ -53,7 +54,8 @@ files = {'mimetype': 'application/epub+zip',
                   'href="ledger.xhtml">A table longer than a page</a></li><li><a '
                   'href="tallrow.xhtml">A row taller than a page</a></li><li><a '
                   'href="parts.xhtml">Parts below a jump</a></li><li><a '
-                  'href="squares.xhtml">Squares inside grids</a></li></ol></nav></body></html>',
+                  'href="squares.xhtml">Squares inside grids</a></li><li><a '
+                  'href="gaps.xhtml">Gaps inside grids</a></li></ol></nav></body></html>',
  'OPS/square.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 '
                    '32"><rect width="32" height="32" fill="#007acc"/></svg>',
  'OPS/titled.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 '
@@ -233,7 +235,7 @@ files["OPS/parts.xhtml"] = (
     "<h4>Third part opens</h4><p>Third part runs here.</p>"
     '<p>Toward the <a href="body.xhtml#link-target">last jump</a> and after.</p>'
     + "".join(f"<p>Line {i:02d} after the parts.</p>" for i in range(1, 61)) + "</body></html>")
-# Pictures where a row has no words of its own, the book's last section. A table marked as
+# Pictures where a row has no words of its own. A table marked as
 # layout has a row whose two cells show pictures nobody describes and nothing else, between two
 # rows of words. A table of data, which begins a page of its own, has a described picture in
 # one row's first cell and one nobody describes in the next row's. The section has no heading
@@ -249,6 +251,27 @@ files["OPS/squares.xhtml"] = (
     '<tr><td><img src="square.svg" alt="Blue badge"/></td><td>Open</td></tr>'
     '<tr><td><img src="square.svg"/></td><td>Shut</td></tr></table><p>Words after the signs.</p>'
     + "".join(f"<p>Line {i:02d} after the signs.</p>" for i in range(1, 61)) + "</body></html>")
+# Rows that have nothing to say, the book's last section: a row of two cells that hold nothing,
+# a row of two that hold decoration alone, and a row of one cell that holds nothing, each
+# between two rows of words, as the rows that space out a table used for layout stand. A table
+# marked as layout has them, and so has a table of data, which begins a page of its own under
+# a row of header cells. The section has no heading and no link either, and no word here is one
+# VoiceOver uses for a table, a picture or a group, or for a place with nothing in it.
+GAP_ROWS = ('<tr><td></td><td></td></tr>', '<tr><td><img src="square.svg" alt=""/></td><td><img src="square.svg" alt=""/></td></tr>',
+            '<tr><td colspan="2"></td></tr>')
+def gapped(rows):
+    """Rows of two cells of words, with a row that has nothing to say after each but the last."""
+    worded = [f"<tr><td>{near}</td><td>{far}</td></tr>" for near, far in rows]
+    return worded[0] + "".join(gap + row for gap, row in zip(GAP_ROWS, worded[1:]))
+files["OPS/gaps.xhtml"] = (
+    '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Gaps inside '
+    f"grids</title><style>{CELL_STYLE} img {{ width: 32px; height: 32px; }} .tally {{ break-before: page; }}</style>"
+    '</head><body><p>Words before the gaps.</p><table role="presentation">'
+    + gapped([("Upper near", "Upper far"), ("Middle near", "Middle far"), ("Lower near", "Lower far"), ("Last near", "Last far")])
+    + '</table><p>Words after the gaps.</p><p class="tally">Words before the tally.</p><table><tr><th>Tree</th><th>Tally</th></tr>'
+    + gapped([("Oak", "Nine"), ("Elm", "Four"), ("Ash", "Six"), ("Yew", "Two")])
+    + "</table><p>Words after the tally.</p>"
+    + "".join(f"<p>Line {i:02d} after the tally.</p>" for i in range(1, 61)) + "</body></html>")
 
 files["OPS/body.xhtml"] = files["OPS/body.xhtml"].replace(
     "NUMBERED_WORDS", " ".join(f"word{i:04d}" for i in range(1, 1201)))
@@ -275,7 +298,7 @@ chapters = {"one": range(1, 41), "two": range(41, 81), "three": range(81, 87)}
 paragraphs = dict(files)
 for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "scenes.xhtml", "offers.xhtml",
              "entries.xhtml", "cells.xhtml", "grids.xhtml", "ledger.xhtml", "tallrow.xhtml", "parts.xhtml", "squares.xhtml",
-             "square.svg",
+             "gaps.xhtml", "square.svg",
              "titled.svg"]:
     del paragraphs["OPS/" + name]
 paragraphs["OPS/package.opf"] = (
