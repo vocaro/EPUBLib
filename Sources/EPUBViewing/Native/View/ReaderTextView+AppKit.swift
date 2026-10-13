@@ -207,7 +207,7 @@ final class ReaderTextView: NSTextView {
 
     // VoiceOver reads the page, not the clipped context after it. The characters stay as they
     // are (attachments as U+FFFC) so every accessibility range matches the text. A table row
-    // that has nothing to say is one character too, a space (`silentRows`).
+    // that has nothing to say is a space, and so is the break after it (`silentRows`).
     override func accessibilityValue() -> String? {
         guard !isPageColumn else { return plainCharacters(in: shownCharacters) }
         return super.accessibilityValue().map { passingOverSilentRows($0, from: 0) }
@@ -224,17 +224,22 @@ final class ReaderTextView: NSTextView {
     /// Where the table rows that have nothing to say stand in the view's text, in order
     /// (`TableRowAttachment.saysNothing`): rows of empty cells and of decoration alone, which
     /// space out a table used for layout. VoiceOver is given nothing to stop on there, as
-    /// iPhone and iPad list no element for such a row. Each part was heard
-    /// (doc/voiceover-testing.md, the entry of 2026-10-13 on rows with nothing to say):
+    /// iPhone and iPad list no element for such a row. Each part was heard, and VoiceOver
+    /// stops without any one of them (doc/voiceover-testing.md, the entry of 2026-10-13 on
+    /// rows that have nothing to say):
     ///
     /// - The text gives no element at the row's character. With a group there VoiceOver said
     ///   "text text group" of two cells of decoration, and with a table of data's table a
     ///   bare "table".
     /// - The character is given as a space. At an attachment's character with no element, or
     ///   with one that says nothing, VoiceOver stops and says nothing as it moves by word.
-    /// - The row's line is part of the line before it (`passingOverSilentRows`). A line of
-    ///   its own is one VoiceOver stops on in silence as it moves by line and reads on,
-    ///   whatever the line holds.
+    /// - The row's line is part of the line after it (`passingOverSilentRows`). A line of
+    ///   its own is one VoiceOver stops on in silence as it moves by line, whatever the
+    ///   line holds. Part of the line before, it kept VoiceOver out of the row of words
+    ///   there: VoiceOver goes into what stands where a line it has read ends.
+    /// - The break after the row is given as a space too. VoiceOver says of a line what
+    ///   comes before its first break, which was nothing, and with Read All it said
+    ///   nothing for the paragraph the row was.
     private var silentRows: [Int] {
         if let silentRowCache { return silentRowCache }
         var found: [Int] = []
@@ -267,58 +272,65 @@ final class ReaderTextView: NSTextView {
         silentRows[silentRowCount(before: range.location)..<silentRowCount(before: NSMaxRange(range))]
     }
 
-    /// `characters`, which begin at `location` of the text, with a space where a row that has
-    /// nothing to say stands: every range still matches the text.
+    /// The places in `range` that are given as spaces: the character of each row that has
+    /// nothing to say, and the break after it.
+    private func silentRowCharacters(in range: NSRange) -> [Int] {
+        guard !silentRows.isEmpty, range.location != NSNotFound, range.length > 0,
+              let text = contentStorage.textStorage?.string as NSString? else { return [] }
+        // A range can begin at a row's break.
+        let from = max(0, range.location - 1)
+        return silentRows(in: NSRange(location: from, length: NSMaxRange(range) - from)).flatMap { row in
+            [row, row + 1].filter { NSLocationInRange($0, range) && ($0 == row || ($0 < text.length && text.character(at: $0) == 0x0A)) }
+        }
+    }
+
+    /// `characters`, which begin at `location` of the text, with those spaces: one for one,
+    /// so that every range still matches the text.
     private func passingOverSilentRows(_ characters: String, from location: Int) -> String {
         guard !silentRows.isEmpty else { return characters }
         let result = NSMutableString(string: characters)
-        for row in silentRows(in: NSRange(location: location, length: result.length)) {
-            result.replaceCharacters(in: NSRange(location: row - location, length: 1), with: " ")
+        for place in silentRowCharacters(in: NSRange(location: location, length: result.length)) {
+            result.replaceCharacters(in: NSRange(location: place - location, length: 1), with: " ")
         }
         return result as String
     }
 
     /// The lines an assistive client is given, where `lines` are the text's own: the line of
-    /// a row that has nothing to say is part of the line before it, and of the line after
-    /// where nothing but such rows comes before.
+    /// a row that has nothing to say is part of the line after it. Such rows with no line
+    /// after them, at the end of a page or of the book, are one line.
     private func passingOverSilentRows(_ lines: [NSRange]) -> [NSRange] {
         guard !silentRows.isEmpty else { return lines }
-        var result: [NSRange] = [], opening: NSRange?
+        var result: [NSRange] = [], held: NSRange?
         for line in lines {
-            if isSilentRow(at: line.location) {
-                if let last = result.last { result[result.count - 1] = NSUnionRange(last, line) }
-                else { opening = opening.map { NSUnionRange($0, line) } ?? line }
-            } else {
-                result.append(opening.map { NSUnionRange($0, line) } ?? line)
-                opening = nil
-            }
+            if isSilentRow(at: line.location) { held = held.map { NSUnionRange($0, line) } ?? line }
+            else { result.append(held.map { NSUnionRange($0, line) } ?? line); held = nil }
         }
-        if let opening { result.append(opening) }
-        return result
+        return result + (held.map { [$0] } ?? [])
     }
 
     /// The same for continuous scroll, where the lines are AppKit's and are numbered through
     /// the whole book: the line an assistive client numbers `line`.
     private func scrollAccessibilityRange(forLine line: Int) -> NSRange {
-        // AppKit's number for it is greater by the rows with nothing to say before it, and
-        // how many those are is known only at a place in the text.
+        // AppKit's number for a line is greater by the rows with nothing to say before it,
+        // and how many those are is known only at a place in the text. Each such row and the
+        // line after it have one number, so the first line found with it begins the line.
         var own = line, range = super.accessibilityRange(forLine: own)
         while range.location != NSNotFound, range.length > 0 {
             let given = own - silentRowCount(before: range.location)
-            if given >= line, !isSilentRow(at: range.location) { break }
-            own += max(1, line - given)
+            if given >= line { break }
+            own += line - given
             range = super.accessibilityRange(forLine: own)
         }
-        guard range.location != NSNotFound, range.length > 0 else {
-            // Past the end: a text of such rows alone is one line.
-            return line == 0 && silentRows.count == own ? NSRange(location: 0, length: textLength) : range
-        }
-        // Nothing but such rows before the first line that says something: they open it.
-        if line == 0, own > 0 { range = NSRange(location: 0, length: NSMaxRange(range)) }
-        while isSilentRow(at: NSMaxRange(range)) {
-            let following = super.accessibilityRange(forLine: super.accessibilityLine(for: NSMaxRange(range)))
+        guard range.location != NSNotFound, range.length > 0 else { return range }
+        // While the last of AppKit's lines taken is such a row's, the line after it is part
+        // of this one.
+        var last = range
+        while isSilentRow(at: last.location) {
+            own += 1
+            let following = super.accessibilityRange(forLine: own)
             guard following.location == NSMaxRange(range), following.length > 0 else { break }
             range.length += following.length
+            last = following
         }
         return range
     }
@@ -327,8 +339,11 @@ final class ReaderTextView: NSTextView {
     /// the character or the insertion point at `index`.
     private func scrollAccessibilityLine(_ line: Int, at index: Int) -> Int {
         guard line != NSNotFound, !silentRows.isEmpty else { return line }
-        // A row's own line counts the row: it is the line before.
-        return max(0, line - silentRowCount(before: index + 1))
+        // One fewer for each row with nothing to say before the line. A row that holds
+        // `index` itself, at its character or its break, is part of the line, not before it.
+        var before = silentRowCount(before: index + 1)
+        if before > 0, index - silentRows[before - 1] <= 1 { before -= 1 }
+        return max(0, line - before)
     }
 
     /// A TextKit 2 text view exposes nothing for an attachment drawn from its image, so each one
@@ -336,7 +351,7 @@ final class ReaderTextView: NSTextView {
     /// the attachment attribute VoiceOver reads in text. A hidden label is text, not an image.
     /// A row of a table that holds data gets its table (`ReaderDataTables+AppKit.swift`), and
     /// a row of any other table a group that holds its cells' text areas. A row that has
-    /// nothing to say gets nothing, and its character is given as a space (`silentRows`).
+    /// nothing to say gets nothing, and its character and its break are spaces (`silentRows`).
     /// An image without words is an image element without a label, and one the book marks as
     /// decoration is left with nothing, for VoiceOver to pass over. A rule has no words, and
     /// its element carries the reader's word for one, for VoiceOver to say that a break is
@@ -344,7 +359,7 @@ final class ReaderTextView: NSTextView {
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard !isPageColumn || validPageAccessibilityRange(range),
               let base = super.accessibilityAttributedString(for: range) else { return nil }
-        let silent = silentRows(in: range)
+        let silent = silentRows(in: range), spaces = silentRowCharacters(in: range)
         let tableRows = dataTableRows(in: range).filter { !silent.contains($0.range.location) }
         let attachments = textualAttachments(in: range).filter { entry in
             !silent.contains(entry.range.location) && !tableRows.contains { $0.range == entry.range }
@@ -354,10 +369,10 @@ final class ReaderTextView: NSTextView {
         let headings = contentStorage.textStorage?.readerHeadings(in: range) ?? []
         let links = accessibilityLinks(in: range)
         guard !attachments.isEmpty || !images.isEmpty || !rules.isEmpty || !headings.isEmpty || !links.isEmpty || !tableRows.isEmpty
-                || !silent.isEmpty else { return base }
+                || !spaces.isEmpty else { return base }
         let result = NSMutableAttributedString(attributedString: base)
-        for row in silent where row - range.location < result.length {
-            let local = NSRange(location: row - range.location, length: 1)
+        for place in spaces where place - range.location < result.length {
+            let local = NSRange(location: place - range.location, length: 1)
             result.replaceCharacters(in: local, with: " ")
             result.removeAttribute(.attachment, range: local)
         }

@@ -478,11 +478,13 @@ import XCTest
 
     /// A row that has nothing to say, of cells that hold nothing or decoration alone, is
     /// nothing for VoiceOver to stop on, in a table marked as layout and in a table of data:
-    /// the text gives no element at its character, gives the character as a space, and gives
-    /// its line as part of the line before. VoiceOver stopped in silence at a character with
-    /// no element, said "text text group" of a group of decoration and "table" of a table
-    /// without a name, and stops on any line of its own. The rows each side are a line apart,
-    /// and inside a table of data the row is still a row.
+    /// the text gives no element at its character, gives the character and the break after it
+    /// as spaces, and gives its line as part of the line after. VoiceOver stopped in silence
+    /// at a character with no element, said "text text group" of a group of decoration and
+    /// "table" of a table without a name, stops on any line of its own, and says of a line
+    /// what comes before its first break. The rows each side are a line apart, the row of
+    /// words ends its line, where VoiceOver goes into it, and inside a table of data the row
+    /// is still a row.
     func testARowWithNothingToSayIsNothingToStopOn() async throws {
         let layout = "<table role='presentation'>"
             + Self.gapped([("Upper near", "Upper far"), ("Middle near", "Middle far"), ("Lower near", "Lower far"), ("Last near", "Last far")]) + "</table>"
@@ -502,21 +504,26 @@ import XCTest
                             "Tree, Tally", "Oak, Nine", "Elm, Four", "Ash, Six", "Yew, Two"], flow)
             XCTAssertEqual(given.map { $0.element.accessibilityRole() }, Array(repeating: .group, count: 4) + Array(repeating: .table, count: 5), flow)
 
-            // One character still, so that every range matches the text.
+            // A space for a character, so that every range matches the text, and the break
+            // after every other row as it was.
             let rich = try XCTUnwrap(view.accessibilityAttributedString(for: shown))
             let read = [try XCTUnwrap(view.accessibilityValue()), try XCTUnwrap(view.accessibilityString(for: shown)), rich.string]
             for characters in read.map({ $0 as NSString }) {
                 XCTAssertEqual(characters.length, shown.length, flow)
                 XCTAssertEqual(rows.map { characters.character(at: $0 - shown.location) }, rows.map { silent.contains($0) ? 0x20 : 0xFFFC }, flow)
+                XCTAssertEqual(rows.map { characters.character(at: $0 + 1 - shown.location) }, rows.map { silent.contains($0) ? 0x20 : 0x0A }, flow)
             }
             for place in silent {
                 XCTAssertNil(rich.attribute(.accessibilityAttachment, at: place - shown.location, effectiveRange: nil), flow)
                 XCTAssertNil(rich.attribute(.attachment, at: place - shown.location, effectiveRange: nil), flow)
-                // Asked for the row's own character, as for a word, the text gives the same.
-                let one = try XCTUnwrap(view.accessibilityAttributedString(for: NSRange(location: place, length: 1)))
-                XCTAssertEqual(one.string, " ", flow)
-                XCTAssertNil(one.attribute(.accessibilityAttachment, at: 0, effectiveRange: nil), flow)
-                XCTAssertEqual(view.accessibilityString(for: NSRange(location: place, length: 2)), " \n", flow)
+                // Asked for the row's own character or its break, as for a word, the text gives the same.
+                for part in [NSRange(location: place, length: 1), NSRange(location: place + 1, length: 1)] {
+                    let one = try XCTUnwrap(view.accessibilityAttributedString(for: part))
+                    XCTAssertEqual(one.string, " ", flow)
+                    XCTAssertNil(one.attribute(.accessibilityAttachment, at: 0, effectiveRange: nil), flow)
+                    XCTAssertEqual(view.accessibilityString(for: part), " ", flow)
+                }
+                XCTAssertEqual(view.accessibilityString(for: NSRange(location: place - 1, length: 4)), "\n  \u{FFFC}", flow)
             }
 
             // The lines are the text's own but for these rows', which no line begins with.
@@ -527,9 +534,10 @@ import XCTest
             XCTAssertTrue(zip(lines, lines.dropFirst()).allSatisfy { NSMaxRange($0) == $1.location }, "\(flow): \(lines)")
             XCTAssertEqual(worded.map { view.accessibilityLine(for: $0) }, [1, 2, 3, 4, 6, 7, 8, 9, 10], flow)
             for (index, place) in rows.enumerated() where silent.contains(place) {
-                let before = rows[index - 1], line = view.accessibilityLine(for: before)
-                XCTAssertEqual(view.accessibilityRange(forLine: line), NSRange(location: before, length: 4), flow)
+                let line = view.accessibilityLine(for: rows[index + 1])
+                XCTAssertEqual(view.accessibilityRange(forLine: line), NSRange(location: place, length: 4), flow)
                 XCTAssertEqual([place, place + 1].map { view.accessibilityLine(for: $0) }, [line, line], flow)
+                XCTAssertEqual(view.accessibilityLine(for: rows[index - 1]), line - 1, flow)
                 // VoiceOver leaves the insertion point where it has read to.
                 view.selectedRange = NSRange(location: place + 1, length: 0)
                 XCTAssertEqual(view.accessibilityInsertionPointLineNumber(), line, flow)
@@ -572,25 +580,29 @@ import XCTest
             XCTAssertEqual(given.map { $0.element.accessibilityLabel() }, ["First words"] + Array(repeating: nil, count: given.count - 2) + ["Last words"], flow)
             let value = try XCTUnwrap(view.accessibilityValue()) as NSString
             XCTAssertEqual(places.map { value.character(at: $0 - shown.location) }, [0xFFFC, 0x20, 0xFFFC, 0xFFFC, 0xFFFC, 0x20, 0xFFFC, 0xFFFC], flow)
-            XCTAssertEqual(places.map { view.accessibilityLine(for: $0) }, [1, 1, 2, 3, 4, 4, 5, 6], flow)
+            XCTAssertEqual(places.map { view.accessibilityLine(for: $0) }, [1, 2, 2, 3, 4, 5, 5, 6], flow)
         }
     }
 
-    /// Where nothing but such rows comes before a line, they are part of that line, which is
-    /// the text's first; and a text of such rows alone is one line.
-    func testRowsWithNothingToSayThatOpenTheTextArePartOfItsFirstLine() async throws {
-        let silent = "<tr><td><img src='square.svg' alt=''/></td><td></td></tr>"
-        let opening = try pictured("<table role='presentation'>" + silent + silent + "<tr><td>Left words</td><td>Right words</td></tr>" + silent + "</table><p>Words after.</p>")
+    /// Such rows are part of the line after them however many they are, so those that open a
+    /// text are part of its first line. Those that end one have no line after them and are
+    /// one line of spaces together, as a text of such rows alone is.
+    func testRowsWithNothingToSayThatEndTheTextAreOneLine() async throws {
+        let silent = "<tr><td><img src='square.svg' alt=''/></td><td></td></tr>", worded = "<tr><td>Left words</td><td>Right words</td></tr>"
+        let ending = try pictured("<table role='presentation'>" + silent + silent + worded + silent + worded + silent + silent + "</table>")
         let alone = try pictured("<table role='presentation'>" + silent + silent + silent + "</table>")
         for scrolled in [false, true] {
             let flow = scrolled ? "continuous scroll" : "pages"
-            var (_, _, view) = try await reader(opening, scrolled: scrolled)
+            var (_, _, view) = try await reader(ending, scrolled: scrolled)
             var (shown, places) = try text(of: view)
-            XCTAssertEqual(places.count, 4, flow)
-            XCTAssertEqual(try attachments(in: view).map(\.location), [places[2]], flow)
-            XCTAssertEqual(lines(of: view, in: shown).prefix(2), [NSRange(location: 0, length: places[3] + 2), NSRange(location: places[3] + 2, length: shown.length - places[3] - 2)], flow)
-            XCTAssertEqual(places.map { view.accessibilityLine(for: $0) }, [0, 0, 0, 0], flow)
-            XCTAssertEqual(view.accessibilityLine(for: places[3] + 2), 1, flow)
+            XCTAssertEqual(places.count, 7, flow)
+            XCTAssertEqual(try attachments(in: view).map(\.location), [places[2], places[4]], flow)
+            XCTAssertEqual(lines(of: view, in: shown), [NSRange(location: 0, length: places[3]), NSRange(location: places[3], length: places[5] - places[3]),
+                                                        NSRange(location: places[5], length: shown.length - places[5])], flow)
+            XCTAssertEqual(places.map { view.accessibilityLine(for: $0) }, [0, 0, 0, 1, 1, 2, 2], flow)
+            XCTAssertEqual(view.accessibilityLine(for: NSMaxRange(shown) - 1), 2, flow)
+            XCTAssertEqual(view.accessibilityRange(forLine: 3).length, 0, flow)
+            XCTAssertEqual(view.accessibilityString(for: NSRange(location: places[5], length: shown.length - places[5]))?.allSatisfy { $0 == " " }, true, flow)
 
             (_, _, view) = try await reader(alone, scrolled: scrolled)
             (shown, places) = try text(of: view)
@@ -599,13 +611,13 @@ import XCTest
             XCTAssertEqual(lines(of: view, in: shown), [shown], flow)
             XCTAssertEqual((0..<shown.length).map { view.accessibilityLine(for: $0) }, Array(repeating: 0, count: shown.length), flow)
             XCTAssertEqual(view.accessibilityRange(forLine: 1).length, 0, flow)
-            XCTAssertEqual(view.accessibilityValue()?.filter { !$0.isNewline }, "   ", flow)
+            XCTAssertEqual(view.accessibilityValue()?.allSatisfy { $0 == " " }, true, flow)
         }
     }
 
     /// Through a long table with such rows one, two and three together, every character is on
     /// the line the text gives for it, the lines follow one another through the whole text,
-    /// and each begins with something to say: in continuous scroll the lines are AppKit's,
+    /// and each ends with something to say: in continuous scroll the lines are AppKit's,
     /// numbered through the book, and each number is less by the rows passed over before it.
     func testLinesAreNumberedPastRowsWithNothingToSayThroughALongTable() async throws {
         let silent = "<tr><td></td><td><img src='square.svg' alt=''/></td></tr>"
@@ -618,16 +630,25 @@ import XCTest
             let (shown, places) = try text(of: view)
             let value = try XCTUnwrap(view.accessibilityValue()) as NSString
             let passed = places.filter { value.character(at: $0 - shown.location) == 0x20 }
+            XCTAssertEqual(places.map { value.character(at: $0 + 1 - shown.location) }, places.map { passed.contains($0) ? 0x20 : 0x0A }, flow)
             XCTAssertEqual(places.count - passed.count, try attachments(in: view).count, flow)
             XCTAssertGreaterThan(passed.count, scrolled ? 80 : 5, flow)
             let lines = lines(of: view, in: shown)
             XCTAssertEqual(lines.first?.location, shown.location, flow)
             XCTAssertEqual(lines.last.map(NSMaxRange), NSMaxRange(shown), flow)
             XCTAssertTrue(zip(lines, lines.dropFirst()).allSatisfy { NSMaxRange($0) == $1.location }, flow)
-            XCTAssertFalse(lines.contains { passed.contains($0.location) }, flow)
             // The two lines of words before, a line for each row that says something, and
-            // the words after, which the table's first page does not reach.
-            XCTAssertEqual(lines.count, 2 + (places.count - passed.count) + (scrolled ? 1 : 0), flow)
+            // the words after, which the table's first page does not reach: it ends with
+            // rows passed over, which are a line together.
+            let ending = places.last.map(passed.contains) == true
+            XCTAssertEqual(lines.count, 2 + (places.count - passed.count) + (scrolled || ending ? 1 : 0), flow)
+            // A row passed over is nowhere but at the front of a line, before the row or
+            // the words that follow it.
+            for line in lines.dropLast(ending ? 1 : 0) {
+                let held = places.filter { NSLocationInRange($0, line) }
+                XCTAssertFalse(held.last.map(passed.contains) == true && line != lines.last, "\(flow): \(line)")
+                XCTAssertLessThanOrEqual(held.filter { !passed.contains($0) }.count, 1, "\(flow): \(line)")
+            }
             for (number, line) in lines.enumerated() {
                 XCTAssertEqual(Set((line.location..<NSMaxRange(line)).map { view.accessibilityLine(for: $0) }), [number], "\(flow), line \(number)")
             }
