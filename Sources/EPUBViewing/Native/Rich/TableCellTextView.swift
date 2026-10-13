@@ -252,8 +252,13 @@ typealias TableNativeTextView = UITextView
         cellText.enumerateAttribute(.attachment, in: full) { value, characters, _ in
             guard let textual = value as? ReaderTextualAttachment else { return }
             let element = NSAccessibilityElement()
-            element.setAccessibilityRole(.staticText)
-            element.setAccessibilityLabel(textual.textEquivalent)
+            if value is ReaderRuleAttachment {
+                // A rule has no words. It is told of as it is in the text outside a table.
+                ReaderRuleAttachment.makeSeparator(element)
+            } else {
+                element.setAccessibilityRole(.staticText)
+                element.setAccessibilityLabel(textual.textEquivalent)
+            }
             element.setAccessibilityParent(self)
             let relative = NSRange(location: characters.location - full.location, length: characters.length)
             result.addAttribute(.accessibilityAttachment, value: element, range: relative)
