@@ -76,6 +76,35 @@ final class TableRowAttachment: ReaderAttachment {
             .sorted { $0.column < $1.column }.map(\.text)
     }
 
+    /// The row has nothing to say where it stands: its cells hold no words there, and nothing
+    /// but decoration besides, as a row that spaces out a table used for layout does. A link is
+    /// something to follow whatever it holds, and a rule or a formula something to say, so a
+    /// row that holds one is not such a row.
+    var saysNothing: Bool {
+        guard cellWords.allSatisfy({ $0.allSatisfy(\.isWhitespace) }) else { return false }
+        if let fragment, let layout = fragmentLayout {
+            return fragment.cells.allSatisfy { entry in
+                guard let first = entry.lines.first, let last = entry.lines.last else { return true }
+                let text = layout.cellText[entry.cell], start = text.lines[first].characters.location
+                return Self.saysNothing(text.interactionText, in: NSRange(location: start, length: text.lines[last].characters.upperBound - start))
+            }
+        }
+        return table.rowCells[row].map { table.cells[$0] }.filter { $0.row == row }
+            .allSatisfy { Self.saysNothing($0.content, in: NSRange(location: 0, length: $0.content.length)) }
+    }
+
+    private static func saysNothing(_ content: NSAttributedString, in range: NSRange) -> Bool {
+        var silent = true
+        content.enumerateAttributes(in: range) { attributes, _, stop in
+            if attributes[.link] != nil { silent = false }
+            else if let image = attributes[.attachment] as? ReaderImageAttachment { silent = image.alternative == .decorative }
+            else if let row = attributes[.attachment] as? TableRowAttachment { silent = row.saysNothing }
+            else if attributes[.attachment] != nil { silent = false }
+            if !silent { stop.pointee = true }
+        }
+        return silent
+    }
+
     /// A cell where this row stands, for an assistive technology that is given cells.
     struct SpokenCell {
         var cell: Int
