@@ -114,9 +114,10 @@ and renders. Existing automated SVG fixture tests remain the regression suite. T
 100-run text stress fixture now uses 40,000 total characters, within the new global ceiling;
 the dedicated new tests hold the exact 50,000-scalar boundary and 800-by-5,000 hostile case.
 
-Verification on the candidate based on main `24400a9e0203f9e325ca98f5917e1d2e17955189`:
-`swift test --jobs 2 --filter 'SVG|RichImageTests'` executed 148 viewing tests (two optional
-corpus tests skipped), including all fifteen new cost-screen tests, and two reading tests, with
+Verification on `3073b2363ba3061228ec53aecff3d0d8bc75fc0a`, based on main
+`24400a9e0203f9e325ca98f5917e1d2e17955189`:
+`swift test --jobs 1 --filter 'SVG|RichImageTests'` executed 149 viewing tests (two optional
+corpus tests skipped), including all sixteen new cost-screen tests, and two reading tests, with
 zero failures. The Mac was heavily loaded during this run; all new acceptance checks are counts,
 verdicts and fallback assertions. No corpus from another project was accessed. The pinned public
 corpus and integrated Mac/iOS gate remain the central qualification lanes for the combined fixes.
