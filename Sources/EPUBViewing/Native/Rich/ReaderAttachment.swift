@@ -71,8 +71,9 @@ class ReaderAttachment: NSTextAttachment, ReaderTextualAttachment {
         return (width, width)
     }
 
-    /// What selections and copies get in place of the attachment character, and what VoiceOver
-    /// reads for it inside a table cell. Nothing by default (a rule).
+    /// What selections and copies get in place of the attachment character, and the words
+    /// VoiceOver is given for it. Nothing by default: a rule has no words, and what VoiceOver
+    /// says at one is the reader's own (`ReaderRuleAttachment.spokenName`).
     var textEquivalent: String { "" }
     /// The language `textEquivalent` is spoken in, when it is known to differ from the text around it.
     var textLanguage: String? { nil }
