@@ -908,6 +908,46 @@ import UIKit
         XCTAssertTrue(try XCTUnwrap(try move(to: back, givenBy: last.column)).column === host.canvas.textViews[1])
     }
 
+    func testAHeadingThatRunsOntoLaterPagesIsListedOnceWhereItBegins() throws {
+        // A heading too long for a page: it begins on one and ends pages later.
+        let words = (1...140).map { "Word\($0)" }.joined(separator: " ")
+        let section = try H.build("<p>Opening words.</p><h1>\(words)</h1><p>\(CanvasText.sentence(60, seed: 4))</p><h2>The one after</h2><p>End.</p>",
+                                  css: Self.css)
+        let heading = section.string.readerHeadings()[0].range
+        let host = host(section.string, size: CGSize(width: 320, height: 560))
+        host.canvas.show(ReaderTextPosition(section: 0, offset: heading.location), selecting: nil)
+        host.layOut()
+        let first = try XCTUnwrap(host.canvas.textViews.first)
+        let beginning = pages(of: host)
+        let shownEnd = first.placement.offset + first.placement.visibleLength
+        XCTAssertLessThan(shownEnd, NSMaxRange(heading), "the heading must run past its first page for this to show anything")
+        // On the page where it begins it is the column and the part of it there, by all its words.
+        let labels = ["\(words), heading level 1", "The one after, heading level 2"]
+        let listed = try listedHeadings(by: first)
+        XCTAssertEqual(listed.map(\.label), labels)
+        XCTAssertTrue(listed[0].column === first)
+        XCTAssertEqual(listed[0].range, NSRange(location: heading.location - first.placement.offset, length: shownEnd - heading.location))
+        // On a page it runs onto it is the same one item, a token for where it begins.
+        XCTAssertEqual(host.canvas.turnPage(forward: true), .turned)
+        let second = try XCTUnwrap(host.canvas.textViews.first)
+        XCTAssertTrue(heading.location < second.placement.offset && second.placement.offset + second.placement.visibleLength < NSMaxRange(heading),
+                      "this page holds the heading's middle and nothing else")
+        let onward = try listedHeadings(by: second)
+        XCTAssertEqual(onward.map(\.label), labels)
+        XCTAssertTrue(onward.allSatisfy { $0.column == nil })
+        // From this page the next heading is the one after it, and there is none before:
+        // the heading a cursor is inside is neither.
+        XCTAssertEqual(try rotorHeading(of: second, from: place(Self.resting, in: second))?.label, labels[1])
+        XCTAssertEqual(try rotorHeading(of: second, from: place(NSRange(location: 4, length: 10), in: second))?.label, labels[1])
+        XCTAssertNil(try rotorHeading(of: second, from: place(NSRange(location: 4, length: 10), in: second), forward: false))
+        XCTAssertNil(try rotorHeading(of: second, from: place(Self.resting, in: second), forward: false))
+        // Chosen from the list, it turns back to the page where it begins.
+        let back = try XCTUnwrap(try move(to: onward[0], givenBy: second))
+        XCTAssertEqual(pages(of: host), beginning)
+        XCTAssertEqual(back.range, listed[0].range)
+        XCTAssertEqual(try levels(in: back.column, back.range).count, 1)
+    }
+
     func testATokenLoadsNothingOnceTheReaderHasLeftPaging() throws {
         let (sections, linear, _) = try book()
         let host = CanvasHost(FakeCanvasSource(sections.map(\.string), linear: linear), size: CGSize(width: 320, height: 560))
