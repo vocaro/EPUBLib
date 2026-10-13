@@ -309,10 +309,17 @@ TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wai
    bar" among the lines is the failure of
    [#339](https://github.com/vocaro/EPUBLib/issues/339). On an iPad run it on its side as
    well, with `rotate=landscape` first and `rotate=portrait` last.
-8. `touch=LABEL` on an item below the reader and `backward=4` come into the text from below:
-   the scroll bar, then the last line on screen, then the lines above it. Away from the top
-   of the book the move after the last line on screen goes to the control before the text
-   ([#367](https://github.com/vocaro/EPUBLib/issues/367)).
+8. `touch=LABEL` on an item below the reader and `backward=30` come into the text from below:
+   the scroll bar, then the last line that was on screen, then every line above it in order,
+   on past the top of the screen. Run it where the view has room to go back, after two
+   scroll steps, and at the end of the book
+   (`activate=Contents,activate=Chapter three,wait=2` and three scroll steps): as the cursor
+   goes to the scroll bar UIKit takes the view back 88 points. "Bookmark" straight after the
+   scroll bar, or after one line, is the failure of
+   [#367](https://github.com/vocaro/EPUBLib/issues/367). The line after the scroll bar is
+   the last line in the reader's own view. `visible` gives a later one as the window's last:
+   with the cursor on a control before the text it counts every listed line that lies inside
+   the window, and the first lines listed after the screen lie under the sample's footer.
 
 Drive at least one session with `flick=right*20` and `flick=left*30` in place of `forward`
 and `backward`: those are VoiceOver's own gestures for the next and previous item, where the
@@ -1057,6 +1064,69 @@ The Mac runner's transcript is plain text and needs no export.
   listed the lines on screen alone there since #301, and this is not changed. A first
   attempt listed the fifty lines before the screen there as well, to mirror the lines after
   it; the move back went wrong in the same way, and they were taken out.
+- With the list keeping its last line while VoiceOver's cursor is after the text
+  ([#367](https://github.com/vocaro/EPUBLib/issues/367)), the same day at `916e4cd`,
+  through XCTest's VoiceOver service, VoiceOver switched on for each session and off after
+  it; nobody listened. On the physical iPad Air 13-inch (M3), iPadOS 27.2, at 23 points in
+  the book of ordinary paragraphs, each session ended with `touch=VoiceOver Paragraph` and
+  moves back:
+  - Upright after two scroll steps, 44 moves: "Vertical scroll bar", `p015w15 … p015w21`,
+    the last line in the reader's view, and 42 lines above it once each and in order to
+    `p008w20`, past `p010w15`, the first that had been on screen; then six forward in order.
+  - Upright after fifteen scroll steps, 46 moves: the scroll bar, `p078w36 … p078w40` and 44
+    lines above it in order to `p071w22`, past `p074w01`.
+  - Upright at the end of the book
+    (`activate=Contents,activate=Chapter three,wait=2,activate=Scroll Forward`, the button
+    dimmed), 46 moves: the scroll bar, `p086w36 … p086w40`, the book's last line, and the
+    lines above it in order through "Chapter three Heading" to `p079w29`, past `p082w08`.
+  - On its side after two scroll steps, 40 moves: the scroll bar, `p010w22 … p010w28` and 38
+    lines above it in order to `p004w07`, past `p007w08`.
+  - On its side at the end of the book, 40 moves: the scroll bar, `p086w36 … p086w40` and
+    the lines above it in order through the heading to `p080w28`, past `p083w36`.
+
+  The upright session at the end of the book was run thirteen times. Twelve read every line
+  in order, 11 to 44 of them. In the first of the thirteen, four lines up, after
+  `p086w15 … p086w21`, the next move gave "Open EPUB… Button", the first item on the screen,
+  and VoiceOver's cursor stayed there. Seven of the twelve were then run with the logging
+  build to catch it, and none did: the cause is not known. The log could be fetched from
+  four of the seven, and in those the lists were thrown away at launch and never after.
+  It has the change at work: a list of 29 lines ending at `p086w36` as the cursor came to
+  the footer; the view 88 points back at the move to the bar, and a list of 31 from the
+  new first line on screen to the same element for `p086w36`, so that the line before it
+  was `p086w29`; then UIKit bringing `p086w36` back into view before the cursor came to
+  it. VoiceOver asked for two items as its cursor landed and one at each move, and twice
+  for ten after the menu; it did not ask for fifty.
+- The same change in simulators of the session's own (iOS 27.0), the iPhone 17 Pro at 17
+  points. The issue's steps,
+  `activate=Scroll Forward,activate=Scroll Forward,wait=2,visible,touch=VoiceOver Paragraph,backward=30,visible,forward=8`:
+  before the change "Vertical scroll bar" and then "Bookmark"; with it the scroll bar,
+  `p006w01 … p006w04`, 28 lines above it in order to `p003w05` and eight forward. The log:
+  the view at 775 and a list of 18 ending at `p006w01`; at 687 a list of 20, from
+  `p004w01` to `p006w01`; then UIKit taking the view to 962 for `p006w01`, where the screen
+  held the line VoiceOver asked from next. With the footer touched a second time after one
+  move to the bar (`…,backward=1,wait=1,touch=VoiceOver Paragraph,backward=7`) the view
+  went back 88 points at each move to the bar, to 599, with `p006w01` still the last of 24
+  listed, and the lines were read in order from it. At the end of the book: before the
+  change the scroll bar, `p086w40` and Bookmark; with it the scroll bar, `p086w40` and
+  eleven lines above it in order. After a menu
+  (`activate=Contents,activate=Chapter two,wait=2,touch=VoiceOver Paragraph,backward=26`):
+  the scroll bar and 24 lines in order through "Chapter two Heading" into the chapter
+  before. The two-step session and the menu session of #339 read on and back in order as
+  before. On the iPad Air 13-inch (M4) simulator at 23 points, 44 moves back gave the
+  scroll bar and 40 lines in order, with three moves that took over two seconds and gave
+  the phrase before them again, at a load average of 860; no line was missing.
+- The scroll bar itself, in the simulator's log, and not changed by #367. UIKit asks the
+  scroll view for the bar's place with `index(ofAccessibilityElement:)` and gets
+  `NSNotFound`, from UIKit's own implementation as from the reader's. Asked for the item
+  before the bar it then gave Bookmark, and for the item after it the first line listed.
+  So forward past the book's last line
+  (`activate=Contents,activate=Chapter three,wait=2` and three scroll steps,
+  `point=0.5:0.6,forward=14,backward=8`): `p086w40`, "Vertical scroll bar", then
+  `p085w01`, the first line on screen, and on down the screen a second time; and back from
+  there the scroll bar and then Bookmark, not `p086w40`
+  ([#342](https://github.com/vocaro/EPUBLib/issues/342)). The bar's accessibility frame was
+  the height of the scroll view, which is why UIKit moves the view for it: the top inset
+  cuts it.
 - The two lines that used to be listed each side were one short when VoiceOver moved back up
   the screen, menu or no menu. With its cursor on a line it asks for the item before the
   line two above, so three lines above the cursor must be listed, and two were unless more
