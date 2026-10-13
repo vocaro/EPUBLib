@@ -4385,7 +4385,7 @@ The Mac runner's transcript is plain text and needs no export.
   each of eleven moves and Control-Option-R after each of eleven back, the link cell twice
   among them: "Opened Reopened 1978 hyperlink", "Opened", and on the way back "Cedar".
   None has "ERROR" in it or VoiceOver's opening phrase a second time, and no run has a
-  crash report; the same is so of the other nineteen sessions here.
+  crash report; the same is so of the other twenty-one sessions here.
   Not heard: anyone listening, or any Mac but the runner; "press" chosen from the Actions
   menu; a link cell far off the screen in continuous scroll, whose link is called by the
   cell's words and holds nothing; a cell whose link is a picture; a link cell continued on
