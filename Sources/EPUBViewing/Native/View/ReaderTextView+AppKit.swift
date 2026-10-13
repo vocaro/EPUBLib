@@ -242,12 +242,15 @@ final class ReaderTextView: NSTextView {
         return result
     }
 
-    // Candidate D: the reader's word as text, as a hidden label is given.
+    // Candidate E: what WebKit gives an hr, as candidate C, but left enabled.
     private func ruleElement(at range: NSRange) -> NSAccessibilityElement {
         let element = attachmentElements[range.location] ?? NSAccessibilityElement()
         attachmentElements[range.location] = element
-        element.setAccessibilityRole(.staticText)
-        element.setAccessibilityValue(ReaderRuleAttachment.spokenName)
+        element.setAccessibilityRole(.splitter)
+        element.setAccessibilitySubrole(NSAccessibility.Subrole(rawValue: "AXContentSeparator"))
+        element.setAccessibilityRoleDescription(ReaderRuleAttachment.spokenName.lowercased())
+        element.setAccessibilityOrientation(.horizontal)
+        element.setAccessibilityValue(nil)
         element.setAccessibilityParent(self)
         let frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
         if !frame.isNull {
