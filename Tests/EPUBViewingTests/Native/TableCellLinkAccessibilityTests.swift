@@ -40,9 +40,9 @@ import XCTest
     }
 
     /// A page holding `body`, laid out until the surfaces of `count` cells are mounted.
-    private func mount(_ body: String, cells count: Int) async throws -> Mounted {
+    private func mount(_ body: String, cells count: Int, configuration: ReaderCanvasConfiguration = .init()) async throws -> Mounted {
         let section = try TableCoverage.section(body, css: Self.css, files: ["p.png": RichFixture.image(width: 64, height: 64)])
-        let host = CanvasHost(FakeCanvasSource([section.string]), size: CGSize(width: 600, height: 700))
+        let host = CanvasHost(FakeCanvasSource([section.string]), size: CGSize(width: 600, height: 700), configuration: configuration)
         hosts.append(host)
         host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
         var cells: [(key: ReaderTableInteraction.Key, cell: TableCellTextView)] = []
@@ -233,6 +233,27 @@ import XCTest
         XCTAssertTrue(listed[0].accessibilityPerformPress())
         XCTAssertEqual(mounted.host.recorder.links.last?.link, .internal(href: "OPS/one.xhtml#before"))
         XCTAssertNil(mounted.host.recorder.links.last?.position.tableCell)
+    }
+
+    func testContinuousScrollListsTheLinksOfTheCellsOnScreenAsAPageDoes() async throws {
+        let mounted = try await mount(Self.grid, cells: 6, configuration: .init(flow: .scrolled))
+        XCTAssertTrue(mounted.view === mounted.host.canvas.scrollTextView)
+        let listed = children(of: mounted.view)
+        XCTAssertEqual(listed.map { $0.accessibilityTitle() ?? "" },
+                       ["words before", "worded jump", "Described entry jump, \(imageWord)", imageWord, "Entry jump with decoration",
+                        "Parked entry jump", "words after"])
+        XCTAssertTrue(listed.allSatisfy { $0.accessibilityParent() as AnyObject === mounted.view })
+        for link in listed {
+            XCTAssertTrue(mounted.view.accessibilityFrame().insetBy(dx: -1, dy: -1).contains(link.accessibilityFrame()), link.accessibilityTitle() ?? "")
+        }
+        // Inside its cell a link is the cell's own, as in pages.
+        let parked = try XCTUnwrap(links(in: try XCTUnwrap(mounted.cells.last?.cell)).first?.element)
+        XCTAssertEqual(parked.accessibilityTitle(), "Parked entry jump")
+        XCTAssertTrue(parked.accessibilityPerformPress())
+        XCTAssertEqual(mounted.host.recorder.links.last?.link, .internal(href: "OPS/two.xhtml#t"))
+        XCTAssertTrue(listed[5].accessibilityPerformPress())
+        XCTAssertEqual(mounted.host.recorder.links.count, 2)
+        XCTAssertEqual(mounted.host.recorder.links.last?.position, mounted.host.recorder.links.first?.position, "the same link from the page")
     }
 
     private func surface(_ text: NSAttributedString, showing shown: NSRange? = nil) -> TableCellTextView {

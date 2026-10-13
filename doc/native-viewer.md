@@ -172,9 +172,11 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   across it for which no phrase was recorded. An image without words has no help text on
   Mac, where VoiceOver reads the help of an element without a label in the label's place.
   Not read: `role="presentation"`, `aria-hidden` and `aria-label` on an image. An
-  image in a table cell is read by its words in the cell's text, and one without words is
-  not announced there. In a note's popover on iPhone and iPad the text is read by UIKit's
-  own elements, which were not heard with an image in them.
+  image in a table cell is given by its words in the cell's text, and one without words is
+  not announced there. On Mac those words did not reach VoiceOver for a picture in a link,
+  and a picture in a cell outside a link has not been heard ("Links for VoiceOver on Mac").
+  In a note's popover on iPhone and iPad the text is read by UIKit's own elements, which
+  were not heard with an image in them.
 - **Rules.** An `<hr>` is a break between the paragraphs it parts: a change of scene or of
   subject. A book writes one so that the break need not be seen to be known, and HTML maps
   the element to the separator role for that reason. It is drawn as a line and has no words,
@@ -232,8 +234,36 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   results VoiceOver said the words without "hyperlink" and found no previous link; with the
   link elements as its results it said "Link not found". So in continuous scroll a link
   below the screen is reached by reading or scrolling to it. A note's popover keeps AppKit's
-  elements, and its links do nothing. A link in a table cell is the cell's own text view's,
-  and AppKit's.
+  elements, and its links do nothing.
+  A table cell is a text view of its own. VoiceOver meets a row as one stop of the page's
+  text, "Table row group"; interacting with it there shows the row's cells, and interacting
+  with a cell reads the cell's text by word and by line as the page's is read. A cell's
+  links were AppKit's. A link of words was found and followed inside its cell, but a link
+  that is a picture was "￼ hyperlink", decoration beside a link's words went into its name
+  as that character, and a hidden label that is a link was not reached. Moving by word,
+  VoiceOver said nothing at a picture or a label in a link, whatever words it has. A cell
+  now gives its links as the text around the table does, through the same code
+  (`ReaderLinkHost`): the reader's elements as its children and as the links of its
+  characters, named, placed and pressed the same way, and a link element for each attachment
+  in a link, so VoiceOver says "hyperlink" and the name there. A cell gives its characters
+  from the first one it shows, an attachment as one character, and its links' ranges count
+  the same way. Where a row goes on over a page's end, each part of a cell gives the links
+  of its own lines, and a link the page cuts is the part on the page.
+  Find Next Link goes through the links of the text VoiceOver is in, and a row is one
+  character of the page's text: from the page it found no link that a cell has, and said
+  "Link not found" on a page whose only links are in a table. The page now lists the links
+  of its cells on screen among its own children, where their rows stand, so Find Next Link
+  from the page goes through them in reading order and Control-Option-Space follows the one
+  it is on. They are elements of the page's own, each with its cell link's name, place and
+  press, and not the cell's elements. From a link VoiceOver goes on through the children of
+  that link's parent: given a cell's own element, it moved from the page to the table's
+  first link and called it the last. Such a link is no character of the page's text, so
+  VoiceOver's place in the text stays where it was, before the table, and moving by word
+  from the link goes on from there. To read the cell around a link, interact with its row.
+  Not changed: an attachment in a cell that is no part of a link, a picture, a formula or a
+  hidden label. The cell makes a static text element for it with each string it gives and
+  does not keep it, and the element answers nothing when asked what it is. And VoiceOver's
+  Read Line said nothing once its cursor had passed a cell's last word.
 - **Image inspection.** Double-click or double-tap an unlinked book image to inspect it in a separate
   native zoomable scroll surface, including images drawn inside table cells. On Mac, images
   also offer an Inspect Image context-menu action; UIKit supplies an attachment action and

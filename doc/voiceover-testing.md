@@ -347,6 +347,25 @@ without VoiceOver. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a l
 a few `right` steps reach it. After a link is followed the transcript has `AXValueChanged`
 with the page that holds the target, in the fixture the one with "Link target reached".
 
+A link in a table cell is in a text of its own, inside its row. Moving by word in the
+page's text VoiceOver stops on a row and says "Table row group". Rows that follow one
+another are stops of their own, and the probe records a phrase said twice running once.
+`in` there interacts with the row: "In Table row group 2 items" and the first cell's text.
+`right` moves to the next cell and a second `in` enters the cell, where `right`, `line`,
+`nextline`, `nextlink` and `activate` do in the cell's text what they do in the page's.
+`"ax:caret=grid."` puts the insertion point one word before the fixture's table of links,
+so after `ax:focus=search ax:focus=0 in` two `right` steps reach its first row and each
+further one the next row. In continuous scroll enter with `ax:focus in`: after the focus
+change from the search field the first `in` there said the book's first line, and a second
+was needed. `ax:focus=0.2` gives a cell keyboard focus and does not bring VoiceOver into it.
+`ax:links` prints each cell's own links as `CELL CHILD` and `CELL LINK` lines, and the
+page's `CHILD` lines hold the links of the cells on screen among the page's own.
+`nextlink` from the page's text goes through all of those. VoiceOver's place in the page's
+text does not move with it, so `right` after one of a cell's links reads on from the word
+VoiceOver had reached before the table. In a cell `line` said nothing once VoiceOver's
+cursor had passed the cell's last word, with a link in the cell or without: send it on
+entering, before the words.
+
 What VoiceOver says of a link as it reads depends on a setting: VoiceOver Utility, Verbosity,
 Text, "When encountering a link/attachment", which can be Speak, Change Pitch, Play Tone or Do
 Nothing. A transcript holds speech and neither tones nor pitch, so every hosted run reads the
@@ -734,7 +753,19 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     target", "hyperlink image" after "Bare jump:", "hyperlink" before "Jump with decoration",
     and "hyperlink Described jump, image". It reads "Verification link." as its words and
     nothing else, and `activate` with the cursor on either word follows that link too.
-11. Restore all original VoiceOver/scripting settings and independently verify restoration.
+11. Links in a table's cells on a Mac, in pages and in continuous scroll, on the fixture's
+    last section (`-SampleHref OPS/cells.xhtml`). `ax:links` gives each cell's link by what
+    it says, "worded jump", "Described entry jump, image", "image", "Entry jump with
+    decoration" and "Parked entry jump", none by U+FFFC, and the page's `CHILD` lines hold
+    the same five. Inside a cell, reached through its row, VoiceOver reads "worded jump" as
+    its words and nothing else, and says "hyperlink Described entry jump, image",
+    "hyperlink image", "hyperlink" before "Entry" and "hyperlink Parked entry jump", by word
+    and in the cell's line. `nextlink` there says the cell's link by its name and
+    "hyperlink". `activate` from there, from a word of the link's line and from a picture
+    reached by word shows the page with "Link target reached". From the page's text
+    `nextlink` goes through the five in order and begins again with the first, and
+    `activate` follows the one it is on.
+12. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
