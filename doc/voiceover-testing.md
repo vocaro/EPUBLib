@@ -1738,7 +1738,10 @@ The Mac runner's transcript is plain text and needs no export.
   which differs from it in where a cell of a row several pages tall is listed, the walk
   through the tables of data in pages matched the first session's phrase for phrase, the
   link was followed again, and the long table gave its 120 cells once and in order each
-  way. The physical iPhone was not used.
+  way. At `25ae60e`, with main merged in and fifty lines listed past the screen, the walk in
+  pages and the walk on to "Line 10 after the grids." and back in continuous scroll gave the
+  phrases they had given before, the link was followed, and the long table gave its 120
+  cells once and in order each way. The physical iPhone was not used.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
