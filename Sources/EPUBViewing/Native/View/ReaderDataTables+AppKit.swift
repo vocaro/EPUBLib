@@ -31,6 +31,8 @@ enum ReaderDataTablePrototype {
     static var labelsRows: Bool { UserDefaults.standard.bool(forKey: "ReaderMacTableRowLabel") }
     /// Whether the table at a row's character (`proxies`) says that row is selected.
     static var selects: Bool { UserDefaults.standard.bool(forKey: "ReaderMacTableSelects") }
+    /// Whether it says that row's first cell is selected, and nothing of rows.
+    static var selectsCell: Bool { UserDefaults.standard.bool(forKey: "ReaderMacTableSelectsCell") }
     /// Whether the table at a row's character (`proxies`) calls itself a table row.
     static var rowWord: Bool { UserDefaults.standard.bool(forKey: "ReaderMacTableRowWord") }
     /// Whether the one table (`table`) is labelled, with its first row's words.
@@ -124,8 +126,9 @@ enum ReaderDataTablePrototype {
         self.table = table
         self.entry = entry
         super.init()
-        setAccessibilitySelectedRows([])
-        setAccessibilitySelectedCells([])
+        // VoiceOver says "No selection" of a table that has the attribute and no selected row.
+        if ReaderDataTablePrototype.selects { setAccessibilitySelectedRows([]) }
+        if ReaderDataTablePrototype.selects || ReaderDataTablePrototype.selectsCell { setAccessibilitySelectedCells([]) }
         // AppKit tells a client of the attributes an element has been given a value for.
         setAccessibilityRole(.table)
         setAccessibilityParent(view)
@@ -252,12 +255,16 @@ enum ReaderDataTablePrototype {
     override func accessibilityRoleDescription() -> String? {
         onMain(self) { $0.entry != nil && ReaderDataTablePrototype.rowWord ? "table row" : NSAccessibility.Role.table.description(with: nil) }
     }
-    override func accessibilitySelectedRows() -> [Any]? { onMain(self) { $0.selected.map { [$0] } ?? [] } }
-    override func accessibilitySelectedCells() -> [Any]? { onMain(self) { $0.selected?.cells.first.map { [$0] } ?? [] } }
+    override func accessibilitySelectedRows() -> [Any]? {
+        onMain(self) { ReaderDataTablePrototype.selects ? $0.selected.map { [$0] } ?? [] : nil }
+    }
+    override func accessibilitySelectedCells() -> [Any]? {
+        onMain(self) { ReaderDataTablePrototype.selects || ReaderDataTablePrototype.selectsCell ? $0.selected?.cells.first.map { [$0] } ?? [] : nil }
+    }
 
     /// The row the table stands at in the text, where it says one is selected.
     private var selected: ReaderTableRowElement? {
-        guard ReaderDataTablePrototype.selects, let entry else { return nil }
+        guard let entry else { return nil }
         return rowElements.first { $0.location == entry }
     }
     /// What the table is called: the words of the row it stands at.
