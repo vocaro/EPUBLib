@@ -1084,6 +1084,66 @@ The Mac runner's transcript is plain text and needs no export.
   Not heard: a physical device; VoiceOver reading on by itself across a rule; a rule in a
   note's popover or in a table cell; a rule that is all a link holds; and what Safari or
   Books says at an `<hr>` on an iPhone, which was not compared.
+- On 2026-10-12 and 13 links were heard on a Mac: GitHub's hosted `xcode-27` runner (image
+  `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in a window 600 points wide at 17
+  points, with VoiceOver's link setting at Speak, as the runner has it. Nobody listened, and
+  no workstation was used.
+  First what VoiceOver does with AppKit's own text view (`-VerificationPlainText`), with
+  TextKit 2 and with TextKit 1, at `e3efd8a`, `a72154c` and `71f9b77`. By word: "the", "reference",
+  "link", "after". By line: "Reference opening words. Before the reference link after it."
+  and "Picture link:   closing words.". Read All said the same lines. Nothing said that a
+  link was there. Find Next Link: "reference link hyperlink", the hint "You are currently on a
+  hyperlink, inside of a text area. To clic", then "￼ hyperlink" for the link that is a
+  picture. Control-Option-Space after Find Next Link followed the link, and so did
+  Control-Option-Space with the cursor on "Reference", the first word of the line that holds
+  "reference link", and on "after"; on "Reference" in the last line, which has no link,
+  nothing was followed. The rotor listed Window Spots.
+  The reader before the change, at `e3efd8a` (main's reader then) and for the pictures at
+  `62ea392`: the first page as AppKit's view, "Verification", "link." by word and
+  "Verification link hyperlink" for Find Next Link. Its links that are attachments were
+  called by their character: `ax:links` gave the titles "￼" and "￼ Jump with decoration",
+  and Find Next Link said "￼ hyperlink", "￼ Jump with decoration hyperlink" and "￼
+  hyperlink" on the section of pictures, the last for "Described jump". On the hidden-labels
+  section Find Next Link did not move to the parked link: VoiceOver said the text area's
+  first line again. By word the label was "Parked link to the target" and the pictures
+  "image" and "Described jump image", with nothing of a link.
+  With the reader's own elements, at `bd27b89`, at the fixed pause, in pages. The first page:
+  `ax:links` one child, "Verification link", with `AXPress`; by line "Verification link.
+  Image:  Blue verification square image ." and by word "Verification", "link.", as before;
+  Find Next Link "Verification link hyperlink" and the hint, and again "Last link
+  Verification link hyperlink"; Control-Option-Space from there, and in another session from
+  the word "link.", gave `AXValueChanged` with `word1187` to `word1200` and the page whose
+  third line is "Link target reached". The hidden labels: by word "closing", "words.",
+  "hyperlink Parked link to the target", "Shown"; by line and in Read All "hyperlink Parked
+  link to the target Shown last words."; Find Next Link from the top of the page "Parked
+  link to the target hyperlink" and the hint, Control-Option-F3 "hyperlink is in the
+  VoiceOver cursor", and Control-Option-Space the target's page. The pictures: `ax:links`
+  three children, "image", "Jump with decoration" and "Described jump, image"; by line "Bare
+  jump:  hyperlink image", "hyperlink  Jump with decoration", "hyperlink Described jump,
+  image" and "Titled decoration   passed over."; by word "Bare", "jump:", "hyperlink image",
+  "hyperlink", "Jump", "with", "decoration", "hyperlink Described jump, image", "Titled";
+  Read All the same lines; Find Next Link "image hyperlink", "Jump with decoration
+  hyperlink", "Described jump, image hyperlink", the first and third followed by "actions
+  available" before the hint; the actions menu on the third "Actions menu 2 items", "Inspect
+  Image: Described jump", "press"; Control-Option-Space on "hyperlink image", reached by
+  word, the target's page. `ax:follow` on each section's link gave the same page with
+  VoiceOver's cursor elsewhere.
+  Find Previous Link from the third link said "image hyperlink", the first: where Find Next
+  Link goes past the last. Whether VoiceOver goes back at all with it was not settled here;
+  its Find Previous Heading asked the reader for the next heading.
+  What did not work, each heard once and left out: a link element given as the attachment of
+  a link's words, with a name and without one, over all of them and over the first letter
+  (`0b50784`: the first page read as before, by word, by line and in Read All); the same
+  over words that follow an attachment (`71f9b77`: VoiceOver said "hyperlink Jump with
+  decoration" and then "Jump with decoration" again); and a rotor of links (`8acc907`), with
+  the links' characters as its results (Find Next Link "image", "Jump with decoration", "Described jump
+  image", without "hyperlink", and Find Previous Link "Link not found") and with the link
+  elements as its results (Find Next Link "Link not found", the rotor's list "Link menu",
+  "On item image hyperlink").
+  Not heard: listening; a workstation; link settings other than Speak, of which Play Tone
+  and Change Pitch leave nothing in a transcript; a link in a table cell or a note's
+  popover; a link that wraps onto a second line or crosses a page's end, which the unit
+  tests read; and a link below the screen in continuous scroll.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
