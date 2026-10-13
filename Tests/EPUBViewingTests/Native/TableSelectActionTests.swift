@@ -256,6 +256,44 @@ import XCTest
         XCTAssertFalse(painted())
     }
 
+    /// A table the reader goes to itself in continuous scroll, as when a book opens at a
+    /// section, has its cells' text views without the person scrolling first. The scroll view
+    /// tells of its new place before TextKit has laid the text out there: looked for then,
+    /// no row was on screen, the cells had no text views until the next scroll, a row's and a
+    /// cell's items offered no actions, and a touch selected the whole row. The chapter before
+    /// the table is one long paragraph, whose height TextKit can only guess until it is laid
+    /// out, so the table is not where the guess had it.
+    func testATableTheReaderGoesToInContinuousScrollHasItsCellsTextViews() async throws {
+        let long = "<p>" + (1...1200).map { "word\($0)" }.joined(separator: " ") + "</p>"
+        var sections = [SessionCoverageBook.Section("long", "<h1>Opening</h1>" + long, title: "Opening")]
+        sections += (0..<4).map { SessionCoverageBook.Section("between\($0)", "<h1>Between \($0)</h1>" + long + SessionCoverageBook.filler(20), title: "Between \($0)") }
+        sections.append(SessionCoverageBook.Section("tables", "<h1>Tables</h1>" + Self.body + SessionCoverageBook.filler(60), title: "Tables"))
+        let reader = try SessionCoverageReader(publication: EPUBPublication.open(data: SessionCoverageBook.epub(sections)))
+        readers.append(reader)
+        reader.window?.resize(to: CGSize(width: 402, height: 874))
+        try await reader.settle()
+        try await reader.session.send(.style(EPUBReaderStyle(flow: .scrolled)))
+        try await reader.wait("the whole book in the scroll view") { reader.session.canvas?.scrollBook != nil }
+        try await reader.settle()
+        try await reader.session.send(.navigate(href: "OPS/tables.xhtml"))
+        try await reader.settle()
+        let canvas = try XCTUnwrap(reader.session.canvas), view = try XCTUnwrap(canvas.scrollTextView)
+        XCTAssertEqual(reader.session.visibleRange?.start.section, 5)
+        // Nothing scrolls from here on: what the reader mounted by itself is what there is.
+        try await Task.sleep(for: .milliseconds(300))
+        let surfaces = Array((view.tableInteraction?.cells ?? [:]).values)
+        XCTAssertEqual(surfaces.count, 6, "a text view for each cell of the two tables on screen")
+        for surface in surfaces {
+            XCTAssertTrue(view.bounds.intersects(surface.frame), "\(surface.cellText.string) is where the screen shows it: \(surface.frame) in \(view.bounds)")
+        }
+        let listed = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+        let row = try XCTUnwrap(listed.first { $0.accessibilityLabel?.hasPrefix("Left cell") == true })
+        XCTAssertEqual(actions(row), ["Select Table Text: Left cell", "Select Table Text: Right cell"])
+        let table = try XCTUnwrap(listed.first { $0 is UIAccessibilityContainerDataTable })
+        let cell = try XCTUnwrap((table.accessibilityElements ?? []).compactMap { $0 as? Cell }.first { $0.accessibilityLabel == "Twelve metres" })
+        XCTAssertEqual(actions(cell), ["Select Cell Text"])
+    }
+
     /// A host that gives no selection action has none to offer; Copy needs no host.
     func testWithoutASelectionActionASelectedCellOffersCopyAlone() async throws {
         let publication = try EPUBPublication.open(data: SessionCoverageBook.epub([

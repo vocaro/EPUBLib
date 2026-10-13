@@ -327,6 +327,8 @@ import AppKit
     /// only when it differs after a passive one (scrolling, resizing).
     private func updateVisibleRange(force: Bool) {
         let range = configuration.flow == .scrolled ? scrollVisibleRange() : pagesVisibleRange()
+        // Reading the scroll view settled its viewport, so its rows are now where it draws them.
+        if configuration.flow == .scrolled { refreshScrollTables() }
         guard let range else { return }
         let changed = range != visibleRange
         visibleRange = range
@@ -878,15 +880,25 @@ import AppKit
         isScrollingProgrammatically = wasScrolling
     }
 
+    /// Gives the table rows now on screen in the scroll view their cells' text views, with the
+    /// highlights and the selection that run through them. Done as the view moves, and again
+    /// once the reader has read where the view stands. The scroll view tells of a move the
+    /// reader makes itself, to a link's target or the section a book opens at, before TextKit
+    /// has laid the viewport out at the new place: the rows are then looked for where they
+    /// were, none is found on screen, and until the person scrolled a table reached that way
+    /// had no cell to select in, follow a link in, or offer an assistive technology.
+    private func refreshScrollTables() {
+        scrollTextView?.setTableHighlights(ReaderHighlight.drawingOrder(highlights))
+        if let range = currentSelection?.range, range.start.tableCell != nil || range.end.tableCell != nil {
+            _ = scrollTextView?.selectTableRange(range, reporting: false)
+        }
+    }
+
     /// The platform scroll view moved; reports the visible range at most every 150 ms. A move
     /// that leaves the view where it was last read is the platform's, and nobody scrolled; nor
     /// has anybody when the platform reports the reader's own scroll late (`byReader`).
     func scrollPositionDidChange(byReader: Bool = false) {
-        let ordered = ReaderHighlight.drawingOrder(highlights)
-        scrollTextView?.setTableHighlights(ordered)
-        if let range = currentSelection?.range, range.start.tableCell != nil || range.end.tableCell != nil {
-            _ = scrollTextView?.selectTableRange(range, reporting: false)
-        }
+        refreshScrollTables()
         guard !byReader, !isScrollingProgrammatically, !scrollViewStandsWhereRead else { return }
         anchorFollowsScroll = true
         guard !scrollReportPending else { return }
