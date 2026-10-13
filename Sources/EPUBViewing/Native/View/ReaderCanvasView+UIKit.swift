@@ -348,6 +348,37 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         show(position, selecting: nil)
     }
 
+    /// Tells an assistive technology that the reader has moved the scroll view itself: a
+    /// scroll step, a position shown (from the contents, a search, a link or a bookmark), text
+    /// built again. VoiceOver keeps the items it was given each side of its cursor, two as a
+    /// rule and fifty at its first move after a menu closes, and asks again only when it has
+    /// used them. Told nothing of the move, it went on to a line it held from before it. With
+    /// its cursor on a control it said a line no longer on screen and returned to the
+    /// control. With its cursor on a link it had followed it stayed on the link, and at its
+    /// next move read the line after the link, where UIKit brought the reader back.
+    ///
+    /// A layout change has it drop what it holds and ask again (in a simulator's log, 0.8 s
+    /// after it is told). With its cursor outside the text no element is named: the cursor
+    /// stays where it is, and its next move into the text meets the first line now on
+    /// screen. With its cursor on a line, the line that holds `position`, the position
+    /// shown, is named: the cursor goes there and VoiceOver reads it, as it goes to the page
+    /// shown in paging (`accessibilityCursorFollowsThePage`). Given no element then,
+    /// VoiceOver took whichever line was drawn where its cursor had stood.
+    ///
+    /// Nothing is posted while VoiceOver's rotor holds the cursor, which VoiceOver takes to
+    /// the item the rotor gives it, nor for scrolling the reader does not do: a finger's,
+    /// and UIKit's for VoiceOver's cursor, its three-finger scroll and its scroll bar.
+    func accessibilityCursorFollowsTheScrollView(to position: ReaderTextPosition?) {
+        guard !accessibilityCursorIsHeld, let view = scrollTextView else { return }
+        var line: Any?
+        if view.accessibilityCursorIsOnALine {
+            let local = position.flatMap { localRange(of: ReaderTextRange(section: $0.section, $0.offset..<($0.offset + 1)), in: view) }
+            // A position with no character of its own, as the end of the text, is not a line's.
+            line = view.accessibilityLine(from: local?.location ?? scrollSpokenCharacters()?.location ?? 0)
+        }
+        postAccessibilityNotification(.layoutChanged, line)
+    }
+
     // MARK: Notes
 
     /// A popover from the nearest view controller; nothing without one.

@@ -489,6 +489,168 @@ import XCTest
         XCTAssertNil(canvas.currentSelection)
     }
 
+    /// What the canvas posts for an assistive technology, from here on, and the element named.
+    private func posts(of canvas: ReaderCanvasView) -> () -> [(notification: UIAccessibility.Notification, named: AnyObject?)] {
+        final class Record { var posted: [(notification: UIAccessibility.Notification, named: AnyObject?)] = [] }
+        let record = Record()
+        canvas.postAccessibilityNotification = { record.posted.append(($0, $1 as AnyObject?)) }
+        // The closure holds what was posted for as long as the canvas lives.
+        addTeardownBlock { @MainActor in canvas.postAccessibilityNotification = { _, _ in } }
+        return {
+            defer { record.posted.removeAll() }
+            return record.posted
+        }
+    }
+
+    /// A VoiceOver user chooses a chapter, presses Scroll Forward and flicks into the text.
+    /// VoiceOver still holds the fifty items it was given when the menu closed, the lines then
+    /// on screen among them, and is told nothing of the step. It went through the controls to
+    /// the first of those lines, said it though it was no longer on screen or listed, and
+    /// returned to Scroll Forward. So a move the reader makes itself posts a layout change, at
+    /// which VoiceOver drops what it holds and asks again; a simulator's VoiceOver logged
+    /// that 0.8 s after it was told, on 2026-10-13. With the cursor outside the text no
+    /// element is named, and the cursor stays where it is (#428).
+    func testAMoveTheReaderMakesTellsVoiceOverToAskAgainForTheLines() async throws {
+        let subject = try await scrolledAtTheFourthChapter()
+        let (reader, canvas, view) = subject
+        let bookmark = try XCTUnwrap(reader.locations.last)
+        let posted = posts(of: canvas)
+        // Its cursor is on Contents as the menu closes: four controls, then the lines.
+        let control = NSObject()
+        focus(control, from: nil, in: view)
+        var held = items(46, after: nil, in: view)
+        XCTAssertEqual(text(of: held.prefix(1)), try lineText(at: try shown(subject).location, in: view))
+        XCTAssertTrue(posted().isEmpty, "the reader has not moved")
+
+        /// After `move`, VoiceOver is told, with no element named, and asking again it is
+        /// given the lines from the first now on screen.
+        func assertVoiceOverIsToldToAskAgain(_ label: String, leavingTheLinesHeld: Bool = true, after move: () async throws -> Void,
+                                             line: UInt = #line) async throws {
+            let before = try shown(subject)
+            try await move()
+            let changes = posted()
+            XCTAssertFalse(changes.isEmpty, "\(label) posts a layout change", line: line)
+            for change in changes {
+                XCTAssertEqual(change.notification, .layoutChanged, label, line: line)
+                XCTAssertNil(change.named, "\(label): no element is named while the cursor is outside the text", line: line)
+            }
+            if leavingTheLinesHeld {
+                XCTAssertNotEqual(try shown(subject).location, before.location, "\(label): the reader must move for this to show anything", line: line)
+                XCTAssertEqual(view.index(ofAccessibilityElement: try XCTUnwrap(held.first)), NSNotFound,
+                               "\(label): the line VoiceOver would go to must be listed no longer for this to show anything", line: line)
+            }
+            held = items(46, after: nil, in: view)
+            XCTAssertEqual(text(of: held.prefix(1)), try lineText(at: try shown(subject).location, in: view),
+                           "\(label): it comes in at the first line now on screen", line: line)
+            try assertTheListIsTheScreenAndTheLinesAfterIt(label, subject, line: line)
+        }
+        try await assertVoiceOverIsToldToAskAgain("a step forward") { try await reader.session.send(.nextPage) }
+        try await assertVoiceOverIsToldToAskAgain("a second step forward") { try await reader.session.send(.nextPage) }
+        // A step back leaves the screen it came from among the fifty lines after the new one.
+        try await assertVoiceOverIsToldToAskAgain("a step back", leavingTheLinesHeld: false) { try await reader.session.send(.previousPage) }
+        try await assertVoiceOverIsToldToAskAgain("a chapter chosen from the contents") {
+            try await reader.session.send(.navigate(href: reader.publication.spine[1].resource.href))
+            try await reader.wait("the second chapter") { reader.section == 1 }
+        }
+        try await assertVoiceOverIsToldToAskAgain("a search hit") {
+            try await reader.session.send(.search(text: "e20"))
+            try await reader.wait("the fifth chapter") { reader.section == 4 }
+        }
+        try await assertVoiceOverIsToldToAskAgain("a bookmark returned to") {
+            try await reader.session.send(.restore(bookmark))
+            try await reader.wait("the fourth chapter") { reader.section == 3 }
+        }
+        // A new text size builds the text again under the same place: every element is new.
+        try await assertVoiceOverIsToldToAskAgain("a larger text size", leavingTheLinesHeld: false) {
+            try await reader.session.send(.style(EPUBReaderStyle(fontSize: 23, flow: .scrolled)))
+            try await reader.wait("the larger text") { reader.session.book.isComplete && reader.session.book.typography.fontSize == 23 }
+            try await reader.settle()
+        }
+
+        // A finger's scrolling is not the reader's move, nor is UIKit's for VoiceOver's
+        // cursor, and nothing is posted for either: VoiceOver's own moves tell it what it holds.
+        let before = canvas.visibleRange
+        view.contentOffset.y += 2_000
+        try await reader.wait("the place scrolled to") { canvas.visibleRange != before }
+        XCTAssertTrue(posted().isEmpty, "scrolling by hand posts nothing")
+        var cursor = try XCTUnwrap(try elements(of: view).first)
+        focus(cursor, from: control, in: view)
+        let scrolled = canvas.visibleRange, offset = view.contentOffset.y
+        for _ in 0..<30 { cursor = try XCTUnwrap(try move(from: cursor, forward: true, in: view)) }
+        XCTAssertGreaterThan(view.contentOffset.y, offset, "UIKit must scroll for the cursor for this to show anything")
+        try await reader.wait("the place read to") { canvas.visibleRange != scrolled }
+        XCTAssertTrue(posted().isEmpty, "VoiceOver's own moves through the text post nothing")
+    }
+
+    /// A VoiceOver user follows a link from its line. The reader shows the link's target and
+    /// VoiceOver, told nothing, stayed on the link: its next move read the line after the
+    /// link, and UIKit brought the reader back there. Told of a layout change with no element
+    /// it went to whichever line was drawn where its cursor had stood, the line after the
+    /// target in a simulator on 2026-10-13. So with the cursor on a line, a move the reader
+    /// makes itself names the line of the position shown: the cursor goes there and VoiceOver
+    /// reads it, as it goes to the page shown in paging.
+    func testAMoveTheReaderMakesTakesACursorInTheTextToThePositionShown() async throws {
+        let subject = try await scrolledAtTheFourthChapter()
+        let (reader, canvas, view) = subject
+        let posted = posts(of: canvas)
+        func named(_ label: String, line: UInt = #line) throws -> UIAccessibilityElement {
+            let changes = posted()
+            XCTAssertEqual(changes.map(\.notification), [.layoutChanged], "\(label) posts one layout change", line: line)
+            let element = try XCTUnwrap(changes.first?.named as? UIAccessibilityElement, "\(label) names a line", line: line)
+            XCTAssertTrue(view.accessibilityElement(at: view.index(ofAccessibilityElement: element)) as? UIAccessibilityElement === element,
+                          "\(label): the line named is an element the view lists", line: line)
+            return element
+        }
+        // The cursor comes to a line down the screen, the link's.
+        let link = try elements(of: view)[6]
+        focus(link, from: nil, in: view)
+        XCTAssertTrue(posted().isEmpty, "the reader has not moved")
+        // Its target is another chapter's heading.
+        try await reader.session.send(.navigate(href: reader.publication.spine[1].resource.href))
+        try await reader.wait("the second chapter") { reader.section == 1 }
+        let target = try named("a link followed")
+        XCTAssertEqual(target.accessibilityLabel, "Chapter harbor")
+        XCTAssertEqual(text(of: [target]), try lineText(at: try shown(subject).location, in: view), "the line of the position shown")
+        XCTAssertNotEqual(view.index(ofAccessibilityElement: link), NSNotFound, "the line the cursor is still on stays listed until it has left")
+        // VoiceOver goes to the line named, which is on screen, and the lines each side of it
+        // are the book's there.
+        let screen = try shown(subject)
+        focus(target, from: link, in: view)
+        XCTAssertEqual(try shown(subject), screen, "the cursor's coming moves nothing")
+        XCTAssertTrue(posted().isEmpty)
+        let after = text(of: items(2, after: target, in: view))
+        XCTAssertEqual(after, view.plainText(in: NSRange(location: screen.location + (text(of: [target]) as NSString).length, length: (after as NSString).length)))
+        let before = text(of: items(2, after: target, forward: false, in: view).reversed())
+        XCTAssertEqual(before, view.plainText(in: NSRange(location: screen.location - (before as NSString).length, length: (before as NSString).length)),
+                       "the end of the chapter before")
+
+        // A position in the middle of a paragraph, as a search shows one: the line that holds it.
+        try await reader.session.send(.search(text: "e20"))
+        try await reader.wait("the fifth chapter") { reader.section == 4 }
+        let hit = try named("a search hit")
+        XCTAssertTrue(hit.accessibilityLabel?.hasPrefix("e20 ") ?? false, "the line named: \(hit.accessibilityLabel ?? "none")")
+        focus(hit, from: target, in: view)
+        // A scroll step, as a key on a keyboard makes one with the cursor in the text: the
+        // first line now on screen.
+        try await reader.session.send(.nextPage)
+        let stepped = try named("a step forward")
+        XCTAssertEqual(text(of: [stepped]), try lineText(at: try shown(subject).location, in: view))
+        XCTAssertFalse(stepped === hit)
+        focus(stepped, from: hit, in: view)
+        XCTAssertTrue(posted().isEmpty)
+
+        // VoiceOver's Headings rotor moves the reader too, and takes the cursor itself to the
+        // item it is given: nothing is posted.
+        let rotor = try XCTUnwrap(view.accessibilityCustomRotors?.first { $0.systemRotorType == .heading })
+        let predicate = UIAccessibilityCustomRotorSearchPredicate()
+        predicate.searchDirection = .next
+        predicate.currentItem = UIAccessibilityCustomRotorItemResult(targetElement: stepped, targetRange: nil)
+        let heading = try XCTUnwrap(rotor.itemSearchBlock(predicate)?.targetElement as? UIAccessibilityElement)
+        XCTAssertEqual(heading.accessibilityLabel, "Chapter summit")
+        XCTAssertEqual(canvas.visibleRange?.start.section, 5, "the reader went to the heading")
+        XCTAssertTrue(posted().isEmpty, "the rotor's item is where the cursor goes")
+    }
+
     /// Moving back into the text from below, VoiceOver takes the last line listed. While its
     /// cursor is on one of the scroll view's bars or on something below the reading area, that
     /// is the last line on screen: the lines after the screen are not listed, nor any before it.

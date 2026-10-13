@@ -400,6 +400,9 @@ final class ReaderTextView: UITextView {
         return area
     }
 
+    /// Whether an assistive technology's cursor is on one of the scroll view's lines.
+    var accessibilityCursorIsOnALine: Bool { accessibilityCursor != nil }
+
     /// An assistive technology's cursor came to a bar's stand-in.
     fileprivate func accessibilityCursorMovedToScrollBar() {
         accessibilityCursor = nil
