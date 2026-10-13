@@ -872,9 +872,11 @@ The Mac runner's transcript is plain text and needs no export.
   before the change, round to the lines above the section and through it again before it
   reached the book's title; moving back from the title it reached the Bookmark control past
   the scroll bar and at most the section's last line. The transcripts before the change
-  have both, so neither is the rule's doing. One further probe, on an iPhone simulator at
-  load averages near 1,000, ended with "VoiceOver is on but says nothing" after 181
-  seconds; nothing was read in it.
+  have both, so neither is the rule's doing. Three further sessions, at load averages near
+  1,000, read nothing: two ended with "VoiceOver is on but says nothing" after three
+  minutes of silence, and one was not started, because a simulator gave no answer in twenty
+  seconds when its volume was set. Moving back across a rule in continuous scroll was to be
+  read in the last two, and was not.
   On the Mac: GitHub's hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1
   `26A434`, Xcode 27.0), a window 600 points wide, run 38327683951 at `81f8d88` (pages) and
   runs 38328830423 (pages) and 38328832799 (continuous scroll) at `d432df6`. The scenes'
