@@ -586,6 +586,21 @@ transcript's `voiceOver` line says which. Put a deadline around device runs and 
 check the device state afterward, especially after cancellation. A user must enter any
 required XCTest UI Automation passcode directly on the device. Never collect it in logs or chat.
 
+A probe that fails or is stopped part way leaves VoiceOver on, on a device its owner then
+picks up. Read the state from the Mac and switch it off there:
+
+```sh
+xcrun devicectl device info voiceover --device YOUR_DEVICE_ID
+xcrun devicectl device settings voiceover --device YOUR_DEVICE_ID --disable
+```
+
+Count the start into the deadline. On a busy Mac `xcodebuild` took nearly five minutes to
+begin a session on an iPhone whose steps then took one, and a deadline of five minutes
+stopped it in the middle. While VoiceOver is on it also reads whatever else the device shows:
+a notification that arrives, or the app that was in front when it came on. Such a phrase
+takes the place of the one a step should have recorded. Its text is the device owner's and
+not the book's, so leave it out of every record, and a screenshot that shows it with it.
+
 The probe launches the reader and performs the comma-separated steps, recording VoiceOver's
 phrase after each, and ends with `finished`: a transcript without that line stopped early.
 Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
@@ -748,6 +763,13 @@ one on a workstation is. Record its runner image and image version, such as `xco
 three, and the job's "Set up job" log prints the image. Everything else here applies to it
 unchanged. A hosted session that completes is no more an acceptance result than any other:
 read its transcript against the visible text. The iPhone and iPad still need physical devices.
+
+Sessions that show a change by what VoiceOver said before and after it are recorded on the
+same main. Merge main into the branch first, and take as "before" a commit that holds main
+and nothing of the change but its fixture. Main gains commits within the hour, and one that
+landed between two such recordings changed what VoiceOver did in continuous scroll, which
+was then taken for the change's own. A second worktree at that commit keeps the branch free;
+the probe built there in under two minutes.
 
 Record a Mac transcript offered as evidence at a fixed pause, the runner's default, on a
 workstation or hosted. `--advance-after` is for exploring: it cuts short whatever follows a
