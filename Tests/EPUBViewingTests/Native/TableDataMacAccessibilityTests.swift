@@ -88,6 +88,15 @@ import XCTest
 
     private func said(_ cells: [Any]?) -> [String] { (cells ?? []).compactMap { $0 as? ReaderTableCellElement }.map(said) }
 
+    /// What VoiceOver says of each header a table gives: a cell's words where the header is
+    /// a cell on screen, and otherwise the title of the element that stands for it.
+    private func headed(_ headers: [Any]?) -> [String] {
+        (headers ?? []).map { header in
+            if let cell = header as? ReaderTableCellElement { return said(cell) }
+            return (header as? ReaderTableHeaderElement)?.accessibilityTitle() ?? ""
+        }
+    }
+
     private func actions(_ cell: ReaderTableCellElement) -> [String] { (cell.accessibilityCustomActions() ?? []).map(\.name) }
 
     private func perform(_ name: String, on cell: ReaderTableCellElement, file: StaticString = #filePath, line: UInt = #line) throws {
@@ -171,40 +180,26 @@ import XCTest
                 XCTAssertNil(table.accessibilityCell(forColumn: 0, row: 4), place)
                 XCTAssertNil(table.accessibilityCell(forColumn: 3, row: 0), place)
 
-                // The cells that head a column and a row, as HTML has them.
-                XCTAssertEqual(said(table.accessibilityColumnHeaderUIElements()), ["Station", "Opened", "Depth"], place)
-                XCTAssertEqual(said(table.accessibilityRowHeaderUIElements()), ["Alder", "Birch", "Cedar"], place)
-                // A header cell is given by name: an element of its own, in no row, that holds
-                // nothing and says the header's words and where it stands. VoiceOver quit when
-                // it was given the cell listed in the header's row.
-                let headers = try XCTUnwrap(table.accessibilityColumnHeaderUIElements() as? [ReaderTableCellElement], place)
-                for (column, header) in headers.enumerated() {
-                    XCTAssertFalse(cells.contains { $0 === header }, place)
-                    XCTAssertTrue(header.accessibilityParent() as AnyObject === table, place)
-                    XCTAssertEqual(header.accessibilityRole(), .cell, place)
-                    XCTAssertEqual((header.accessibilityChildren() ?? []).count, 0, place)
-                    XCTAssertEqual(header.accessibilityLabel(), said(cells[column]), place)
-                    XCTAssertEqual(header.accessibilityRowIndexRange(), cells[column].accessibilityRowIndexRange(), place)
-                    XCTAssertEqual(header.accessibilityColumnIndexRange(), cells[column].accessibilityColumnIndexRange(), place)
-                    XCTAssertNil(header.accessibilityCustomActions(), place)
-                }
-                // The same element each time it is asked for, by the table, a cell or a column.
-                XCTAssertTrue((table.accessibilityColumnHeaderUIElements() ?? []).elementsEqual(headers) { $0 as AnyObject === $1 }, place)
-                XCTAssertTrue((cells[4].accessibilityColumnHeaderUIElements() ?? []).first as AnyObject === headers[1], place)
-                // A cell is headed by what stands above it and before it, and not by itself.
-                XCTAssertEqual(said(cells[0].accessibilityColumnHeaderUIElements()), [], place)
-                XCTAssertEqual(said(cells[3].accessibilityColumnHeaderUIElements()), ["Station"], place)
-                XCTAssertEqual(said(cells[3].accessibilityRowHeaderUIElements()), [], "\(place): a row's header cell heads no row itself")
-                XCTAssertEqual(said(cells[4].accessibilityColumnHeaderUIElements()), ["Opened"], place)
-                XCTAssertEqual(said(cells[4].accessibilityRowHeaderUIElements()), ["Alder"], place)
-                XCTAssertEqual(said(cells[8].accessibilityColumnHeaderUIElements()), ["Depth"], "\(place): an empty cell has its place")
-                XCTAssertEqual(said(cells[8].accessibilityRowHeaderUIElements()), ["Birch"], place)
+                // The table gives a header for each column and for each row, as HTML has them,
+                // and VoiceOver takes the one at a cell's column and at its row. A header that
+                // is one cell on screen is that cell, which VoiceOver does not read under
+                // itself. No cell names header cells of its own: VoiceOver quit when one did.
+                let headers = table.accessibilityColumnHeaderUIElements() ?? []
+                XCTAssertEqual(headed(headers), ["Station", "Opened", "Depth"], place)
+                XCTAssertTrue(headers.elementsEqual(cells.prefix(3)) { $0 as AnyObject === $1 }, place)
+                let rowHeaders = table.accessibilityRowHeaderUIElements() ?? []
+                XCTAssertEqual(headed(rowHeaders), ["", "Alder", "Birch", "Cedar"], "\(place): one for each row, and no words for the header row")
+                XCTAssertTrue(rowHeaders.dropFirst().elementsEqual([cells[3], cells[6], cells[9]]) { $0 as AnyObject === $1 }, place)
+                let unheaded = try XCTUnwrap(rowHeaders.first as? ReaderTableHeaderElement, place)
+                XCTAssertNil(unheaded.accessibilityTitle(), place)
+                XCTAssertTrue(unheaded.accessibilityParent() as AnyObject === table, place)
+                XCTAssertTrue(cells.allSatisfy { $0.accessibilityColumnHeaderUIElements() == nil && $0.accessibilityRowHeaderUIElements() == nil }, place)
 
                 let columns = try XCTUnwrap(table.accessibilityColumns() as? [ReaderTableColumnElement], place)
                 XCTAssertEqual(columns.map { $0.accessibilityIndex() }, [0, 1, 2], place)
                 XCTAssertTrue(columns.allSatisfy { $0.accessibilityRole() == .column && $0.accessibilityParent() as AnyObject === table }, place)
                 XCTAssertEqual(said(columns[1].accessibilityChildren()), ["Opened", "1901", "1934", "Reopened 1978"], place)
-                XCTAssertTrue(columns[1].accessibilityHeader() as AnyObject === headers[1], place)
+                XCTAssertTrue(columns[1].accessibilityHeader() as AnyObject === cells[1], place)
                 XCTAssertEqual((table.accessibilityChildren() ?? []).count, 7, "\(place): its rows and its columns")
 
                 // A cell offers what it can do itself.
@@ -296,16 +291,20 @@ import XCTest
             let columns = try XCTUnwrap(table.accessibilityColumns() as? [ReaderTableColumnElement], flow)
             XCTAssertEqual(said(columns[2].accessibilityChildren()), ["Hours", "Arrives", "Noon", "Three", "Nothing on Sunday"], flow)
 
-            // A cell is headed by every header cell above it in its columns: a header cell
-            // over a second row of them heads those too, and is headed by none of them.
-            XCTAssertEqual(said(try cell("Hours").accessibilityColumnHeaderUIElements()), [], flow)
-            XCTAssertEqual(said(try cell("Leaves").accessibilityColumnHeaderUIElements()), ["Hours"], flow)
-            XCTAssertEqual(said(try cell("Nine").accessibilityColumnHeaderUIElements()), ["Hours", "Leaves"], flow)
-            XCTAssertEqual(said(try cell("Noon").accessibilityColumnHeaderUIElements()), ["Hours", "Arrives"], flow)
-            XCTAssertEqual(said(try cell("Express").accessibilityColumnHeaderUIElements()), ["Service"], flow)
-            XCTAssertEqual(said(try cell("Nothing on Sunday").accessibilityColumnHeaderUIElements()), ["Hours", "Leaves", "Arrives"], flow)
-            XCTAssertEqual(said(table.accessibilityColumnHeaderUIElements()), ["Service", "Hours", "Leaves", "Arrives"], flow)
-            XCTAssertEqual(said(table.accessibilityRowHeaderUIElements()), [], "\(flow): no cell here heads a row")
+            // A column under two header cells has one header that says both, top first: an
+            // element of its own, in no row, with their words as its title.
+            let headers = table.accessibilityColumnHeaderUIElements() ?? []
+            XCTAssertEqual(headed(headers), ["Service", "Hours, Leaves", "Hours, Arrives"], flow)
+            XCTAssertTrue(headers.first as AnyObject === (try cell("Service")), flow)
+            for header in headers.dropFirst() {
+                let name = try XCTUnwrap(header as? ReaderTableHeaderElement, flow)
+                XCTAssertEqual(name.accessibilityRole(), .cell, flow)
+                XCTAssertTrue(name.accessibilityParent() as AnyObject === table, flow)
+                XCTAssertNil(name.accessibilityChildren(), flow)
+            }
+            XCTAssertTrue((table.accessibilityColumnHeaderUIElements() ?? []).elementsEqual(headers) { $0 as AnyObject === $1 }, "\(flow): the same elements each time")
+            XCTAssertTrue(columns[2].accessibilityHeader() as AnyObject === headers[2] as AnyObject, flow)
+            XCTAssertEqual((table.accessibilityRowHeaderUIElements() ?? []).count, 0, "\(flow): no cell here heads a row")
         }
     }
 
@@ -352,14 +351,16 @@ import XCTest
             // A row of another page is not here to move to.
             if nextRow > 0 { XCTAssertNil(table.accessibilityCell(forColumn: 0, row: nextRow - 1), "page \(pages + 1)") }
             XCTAssertNil(table.accessibilityCell(forColumn: 0, row: nextRow + rows.count), "page \(pages + 1)")
-            let headers = try XCTUnwrap(table.accessibilityColumnHeaderUIElements() as? [ReaderTableCellElement], "page \(pages + 1)")
-            XCTAssertEqual(headers.map(said), ["Entry", "Item", "Sum"], "page \(pages + 1): a column's header by name")
-            XCTAssertEqual(said(cells.last?.accessibilityColumnHeaderUIElements()), ["Sum"], "page \(pages + 1)")
+            let headers = table.accessibilityColumnHeaderUIElements() ?? []
+            XCTAssertEqual(headed(headers), ["Entry", "Item", "Sum"], "page \(pages + 1): a column's header by its words")
+            XCTAssertEqual((table.accessibilityRowHeaderUIElements() ?? []).count, 0, "page \(pages + 1)")
             for header in headers {
-                XCTAssertFalse(cells.contains { $0 === header }, "page \(pages + 1): given by name, on the header row's page as on any other")
-                XCTAssertEqual(header.accessibilityRowIndexRange(), NSRange(location: 0, length: 1), "page \(pages + 1)")
-                XCTAssertEqual((header.accessibilityChildren() ?? []).count, 0, "page \(pages + 1): named, with no text area")
-                XCTAssertTrue(header.accessibilityParent() as AnyObject === table, "page \(pages + 1): and in no row")
+                // The header row's own page gives its cells; any other a name for each.
+                XCTAssertEqual(cells.contains { $0 === header as AnyObject }, nextRow == 0, "page \(pages + 1)")
+                if nextRow > 0 {
+                    let name = try XCTUnwrap(header as? ReaderTableHeaderElement, "page \(pages + 1)")
+                    XCTAssertTrue(name.accessibilityParent() as AnyObject === table, "page \(pages + 1): in no row")
+                }
             }
             nextRow += rows.count
             pages += 1
@@ -388,12 +389,12 @@ import XCTest
                 let words = said(cell).split(whereSeparator: \.isWhitespace).map(String.init)
                 if cell.accessibilityRowIndexRange().location == 1, cell.accessibilityColumnIndexRange().location == 1 {
                     read += words
-                    XCTAssertEqual(said(cell.accessibilityColumnHeaderUIElements()), ["Wording"], "page \(pages + 1)")
                 } else { others += words }
                 if words == ["Label"] { labelPage = pages }
                 XCTAssertFalse(words.isEmpty, "page \(pages + 1): no cell without words")
                 XCTAssertFalse(cell.accessibilityFrame().isEmpty, "page \(pages + 1)")
             }
+            XCTAssertEqual(headed(table.accessibilityColumnHeaderUIElements()), ["Clause", "Wording"], "page \(pages + 1)")
             // What VoiceOver says of each row of the page as it reads: the words shown there.
             named += tables.flatMap { ($0.accessibilityLabel() ?? "").replacingOccurrences(of: ",", with: "").split(whereSeparator: \.isWhitespace).map(String.init) }
             pages += 1
@@ -431,8 +432,8 @@ import XCTest
         let far = try XCTUnwrap(table.accessibilityCell(forColumn: 1, row: 55) as? ReaderTableCellElement)
         XCTAssertEqual((far.accessibilityChildren() ?? []).count, 0)
         XCTAssertEqual(far.accessibilityLabel(), "Item 55")
-        XCTAssertEqual(said(far.accessibilityColumnHeaderUIElements()), ["Item"], "headed by the header cell at the top of the table")
-        XCTAssertTrue((far.accessibilityColumnHeaderUIElements() ?? []).first as AnyObject === table.accessibilityColumnHeaderUIElements()?[1] as AnyObject)
+        let header = try cells(of: rows[0])
+        XCTAssertTrue((table.accessibilityColumnHeaderUIElements() ?? []).elementsEqual(header) { $0 as AnyObject === $1 }, "the header row is on screen")
         XCTAssertFalse(far.accessibilityFrame().isEmpty)
         XCTAssertFalse(far.accessibilityFrame().intersects(screen), "below the screen")
         XCTAssertFalse(visible.contains { $0 === rows[55] })
@@ -448,6 +449,12 @@ import XCTest
         XCTAssertEqual(actions(far), ["Select Cell Text"])
         XCTAssertTrue((table.accessibilityVisibleRows() as? [ReaderTableRowElement] ?? []).contains { $0 === rows[55] })
         XCTAssertTrue(table.accessibilityCell(forColumn: 1, row: 55) as AnyObject === far, "the same element")
+        // The header row is now far above the screen and its cells hold no text areas, which
+        // is where VoiceOver reads a header cell's words: the columns are headed by name.
+        try await reader.wait("the header row's text areas gone") { !header[1].holdsText }
+        let named = table.accessibilityColumnHeaderUIElements() ?? []
+        XCTAssertEqual(headed(named), ["Entry", "Item", "Sum"])
+        XCTAssertTrue(named.allSatisfy { $0 is ReaderTableHeaderElement })
     }
 
     /// A page turn gives the column other text: its tables are other elements, and one a

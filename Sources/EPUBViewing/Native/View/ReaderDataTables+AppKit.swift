@@ -18,6 +18,10 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 /// PROTOTYPE switch: `none` gives a table no header cells at all.
 enum ReaderDataTablePrototype {
     static var headers: String { UserDefaults.standard.string(forKey: "ReaderMacTableHeaders") ?? "table" }
+    /// What a header that is no cell on screen is: `title` (a cell with a title), `text` (a
+    /// static text with a value), `button` (a button with a title) or `child` (a cell that
+    /// holds a static text with a value and the table's frame).
+    static var headerName: String { UserDefaults.standard.string(forKey: "ReaderMacTableHeaderName") ?? "title" }
 }
 
 /// The tables of data in one text view, as an assistive technology on the Mac is given them
@@ -393,19 +397,39 @@ enum ReaderDataTablePrototype {
 @MainActor final class ReaderTableHeaderElement: NSAccessibilityElement {
     private weak var table: ReaderTableElement?
     let words: String
+    private var child: NSAccessibilityElement?
+    private let kind = ReaderDataTablePrototype.headerName
 
     init(table: ReaderTableElement, words: String) {
         self.table = table
         self.words = words
         super.init()
-        setAccessibilityRole(.cell)
         setAccessibilityParent(table)
-        setAccessibilityTitle(words)
+        switch kind {
+        case "text":
+            setAccessibilityRole(.staticText)
+            setAccessibilityValue(words)
+        case "button":
+            setAccessibilityRole(.button)
+            setAccessibilityTitle(words)
+        case "child":
+            setAccessibilityRole(.cell)
+            let text = NSAccessibilityElement()
+            text.setAccessibilityRole(.staticText)
+            text.setAccessibilityValue(words)
+            text.setAccessibilityParent(self)
+            text.setAccessibilityFrame(table.accessibilityFrame())
+            child = text
+            setAccessibilityChildren([text])
+            setAccessibilityFrame(table.accessibilityFrame())
+        default:
+            setAccessibilityRole(.cell)
+            setAccessibilityTitle(words)
+        }
     }
 
-    override func accessibilityRole() -> NSAccessibility.Role? { .cell }
     override func accessibilityParent() -> Any? { onMain(self) { $0.table } }
-    override func accessibilityTitle() -> String? { onMain(self) { $0.words.isEmpty ? nil : $0.words } }
+    override func accessibilityTitle() -> String? { onMain(self) { $0.kind == "title" || $0.kind == "button" ? ($0.words.isEmpty ? nil : $0.words) : nil } }
 }
 
 /// A cell of a table of data, where the view shows it. It holds the text areas of its words
