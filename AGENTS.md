@@ -160,6 +160,13 @@ Every session's worktree shares one `.git`, and `main` gains commits several tim
   ([#84](https://github.com/vocaro/EPUBLib/issues/84),
   [#171](https://github.com/vocaro/EPUBLib/issues/171)). Hold such a test against the decision
   recorded on the issue before changing the test or your own code.
+- Evidence is not kept on a branch. The owner said so on 2026-10-13, when four branches were
+  the only place that held the probe code and a spike which three open issues and
+  [VoiceOver testing](doc/voiceover-testing.md) pointed at. What a probe or a spike found goes
+  in the issue or the document it bears on. Code worth having again goes in the issue as a
+  patch, with the commit of `main` it applies to
+  ([#454](https://github.com/vocaro/EPUBLib/issues/454#issuecomment-6155463999) has one). Do
+  not write that a branch "is still on the remote" as the way to find something.
 
 ## Test corpora
 

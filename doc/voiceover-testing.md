@@ -2941,7 +2941,9 @@ The Mac runner's transcript is plain text and needs no export.
   still naming the heading (run 38415339848).
   Four runs before those, on a throwaway branch that logged every request to the text view
   and answered VoiceOver's search for elements in variants chosen by launch arguments
-  (`claude/probe-heading-search-454`, a pause of 3 seconds), are why the reader offers no
+  (`claude/probe-heading-search-454`, whose code is kept as a patch in
+  [#454](https://github.com/vocaro/EPUBLib/issues/454#issuecomment-6155463999); a pause of
+  3 seconds), are why the reader offers no
   search ([native viewer](native-viewer.md#input-and-accessibility), Headings):
   - Run 38372960899. A link's or a heading's element that offers the search is asked
     `{AXDirection = AXDirectionNext; AXResultsLimit = 1; AXSearchKey = (AXHeadingSearchKey)}`,
@@ -3044,7 +3046,9 @@ The Mac runner's transcript is plain text and needs no export.
   "Tables of data" to "Third part opens". Main's reader moved the same way after `in` at
   the pictures, to "Line" (run 38431856142).
   One other way was heard, on a throwaway branch (`claude/probe-heading-on-screen-454` at
-  `fc425ac`, run 38435847638, the variant chosen by a launch argument): the insertion
+  `fc425ac`, run 38435847638, the variant chosen by a launch argument; the change is kept as
+  a patch in [#482](https://github.com/vocaro/EPUBLib/issues/482#issuecomment-6155464728)):
+  the insertion
   point moved to a heading on the page or on screen, as on main, and then a layout change
   that names the text. Posted by the window, as after a scroll: "heading level 3 Second
   part opens", "finish." and the heading again, in pages and in continuous scroll, with
