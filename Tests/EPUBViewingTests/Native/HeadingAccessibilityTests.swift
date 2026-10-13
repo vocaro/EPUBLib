@@ -549,12 +549,12 @@ import UIKit
     private static let resting = NSRange(location: 0, length: 0)
 
     /// The item VoiceOver asks from once it has been given `heading` (macOS 27.0.1): the
-    /// column and characters of one on the page, and for one on another page its token, with
-    /// no element, no label and a range that is nowhere.
+    /// column and characters of one on the page, and for one on another page its token and
+    /// the range it came with, with no element and no label.
     private func given(_ heading: RotorHeading) -> NSAccessibilityCustomRotor.ItemResult {
         if let column = heading.column { return place(heading.range, in: column) }
         let item = NSAccessibilityCustomRotor.ItemResult(itemLoadingToken: heading.token ?? ("" as NSString), customLabel: "")
-        item.targetRange = NSRange(location: NSNotFound, length: 26)
+        item.targetRange = heading.range
         return item
     }
 
@@ -643,6 +643,11 @@ import UIKit
         XCTAssertEqual(try levels(in: view, listed[2].range), ["3 Third level\u{2028}on two lines"])
         XCTAssertTrue(listed.dropFirst(4).allSatisfy { $0.column == nil && $0.token != nil }, "none of another chapter's is on the page")
         XCTAssertEqual(Set(listed.compactMap { $0.token as? String }).count, listed.filter { $0.token != nil }.count, "each token names one heading")
+        // A token comes with a range, which VoiceOver needs before it calls the row by its
+        // label: the heading's characters in its own chapter. Its words are the label's.
+        let everyHeading = sections.enumerated().flatMap { index, section in linear[index] ? section.string.readerHeadings().map(\.range) : [] }
+        XCTAssertEqual(listed.filter { $0.token != nil }.map(\.range), zip(listed, everyHeading).filter { $0.0.token != nil }.map(\.1))
+        XCTAssertTrue(listed.allSatisfy { $0.range.location != NSNotFound && $0.range.length > 0 && !$0.label.isEmpty })
         // With its cursor resting on the column, VoiceOver asks from the first character and
         // none of it: its move to the next heading, and the heading its rotor's list opens on.
         // That is the next heading from the top of this page, not the book's first.

@@ -218,6 +218,12 @@ extension ReaderCanvasView: NSTextViewDelegate {
     /// and its characters there. Any other is given as a token for its place in the book,
     /// which the reader turns to only when VoiceOver moves to it (`loadHeading`): the search
     /// itself shows nothing, since VoiceOver walks the whole list when its rotor opens.
+    ///
+    /// A token's result also carries a range, the heading's characters in its section.
+    /// VoiceOver asks nothing of it, and takes the heading's place from the loading delegate
+    /// once it has the column. But it calls the heading by its label in the rotor's list only
+    /// when the result has a range: without one it showed the label and read the row out as
+    /// the column's own text, "text" and the page's words, for every such row (macOS 27.0.1).
     func headingRotorResult(for parameters: NSAccessibilityCustomRotor.SearchParameters,
                             askedOf column: ReaderTextView) -> NSAccessibilityCustomRotor.ItemResult? {
         let forward = parameters.searchDirection == .next
@@ -228,11 +234,10 @@ extension ReaderCanvasView: NSTextViewDelegate {
             guard let text = dataSource?.text(forSection: found.section),
                   let label = ReaderTextView.headingLabel(text.readerPlainText(in: found.range), level: found.heading.level),
                   filter.isEmpty || label.localizedCaseInsensitiveContains(filter) else { continue }
-            guard let shown = shownHeading(found) else {
-                return NSAccessibilityCustomRotor.ItemResult(itemLoadingToken: Self.headingToken(found.position), customLabel: label)
-            }
-            let result = NSAccessibilityCustomRotor.ItemResult(targetElement: shown.view)
-            result.targetRange = shown.range
+            let shown = shownHeading(found)
+            let result = shown.map { NSAccessibilityCustomRotor.ItemResult(targetElement: $0.view) }
+                ?? NSAccessibilityCustomRotor.ItemResult(itemLoadingToken: Self.headingToken(found.position), customLabel: label)
+            result.targetRange = shown?.range ?? found.range
             result.customLabel = label
             return result
         }
