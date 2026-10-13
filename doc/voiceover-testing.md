@@ -2661,8 +2661,10 @@ The Mac runner's transcript is plain text and needs no export.
   (`-[NSTextView viewDidEndLiveResize]`, `scrollToLocation:`) 48 points down. The book's
   title is then above the screen, the insertion point follows to character 27, and `in`
   reads the second line, as in every such session here. A session that changes to
-  continuous scroll after the resize begins at the top. Whether a window resized by hand
-  does the same was not looked at.
+  continuous scroll after the resize begins at the top. Any live resize did the same, and
+  away from the top of a book it took the text back a paragraph; the reader has held its
+  place through one since [#479](https://github.com/vocaro/EPUBLib/pull/479) (the note on
+  `ax:width` at the head of this list).
   Not established: why VoiceOver keeps its cursor for one notice and follows two. Not
   heard: listening; a workstation; a move to a shown position (the contents, a search
   result) or rebuilt text with VoiceOver inside the text, which post the same second
