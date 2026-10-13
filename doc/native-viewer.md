@@ -1035,7 +1035,11 @@ Go: the native viewer is the bundled engine.
   at 17 and 23 points, through rotation and a text-size change
   ([record](issue-28-voiceover-devices.md)). VoiceOver's three-finger scroll has API coverage
   only: XCTest cannot perform it. Simulator and API checks do not substitute for device
-  sessions.
+  sessions. Headings were read and moved between on 2026-10-12 on a physical iPad in both
+  flows, on the hosted Mac and in the simulator lane; on a physical iPhone the heading was
+  read, and no move by heading was made, because XCTest's gesture did not turn VoiceOver's
+  rotor there. In paging on Mac a move by heading stops at the page
+  ([VoiceOver testing](voiceover-testing.md)).
 - Flex and grid alignment covers the single-column subset described above. Side-by-side row
   items, wrapping and reversed flex, multi-column and explicitly placed grids, `order` and
   inline flex or grid containers render as blocks in reading order with a disclosure. Within

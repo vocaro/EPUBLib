@@ -431,12 +431,13 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
   upward flick registered, which reaches the same actions.
 - `flick=right`, `flick=left`: VoiceOver's next and previous item; `flick=right*12` repeats it.
 - `rotor=LABEL`: two fingers turned on the glass, which turns VoiceOver's rotor, repeated
-  until VoiceOver names LABEL, thirty turns at most: `rotor=Headings`. `flick=down` and
-  `flick=up` then move by that setting, heading to heading. Without a label it turns the
-  rotor once. Turn it after the touch that places the cursor: a touch on an item with actions
-  put an iPad's rotor back on Actions. A turn of one size moved the rotor one setting in some
-  sessions and three in others, which went round past Headings, so the turns are of several
-  sizes.
+  until VoiceOver's phrase begins with LABEL, thirty turns at most: `rotor=Headings`.
+  `flick=down` and `flick=up` then move by that setting, heading to heading. Without a label
+  it turns the rotor once. Turn it after the touch that places the cursor: a touch on an item
+  with actions put an iPad's rotor back on Actions. A turn of one size moved a simulator's
+  rotor one setting in some sessions and three in others, which went round past Headings, so
+  the turns are of several sizes. On a physical iPad the first turn reached Headings; on a
+  physical iPhone no turn moved the rotor, and the step ends in `MISSING`.
 - `rotate=landscape`, `rotate=portrait`: an iPad shows two columns in landscape and one in
   portrait. The probe waits for the screen as after `activate`, three seconds at most. End a
   session in the orientation it started in.
@@ -531,7 +532,9 @@ and the double tap on the heading, the touch arrived on the heading and the page
   does not turn. On the iPhone it lands in the search field and brings up the keyboard.
 - The rotor offers a line's actions and speaks them (`flick=down` says "Next Page"), and
   `doubletap` performs none: the touch goes to the line, and neither the reader's action nor
-  its `accessibilityActivate` is called.
+  its `accessibilityActivate` is called. Turning the rotor and moving by it need no
+  activation and do work: `rotor=Headings` and a flick moved VoiceOver, and the reader with
+  it, to the book's next heading.
 - XCTest's Control-Option-Space reaches VoiceOver, whose log names it Activate, and nothing
   reaches the reader. Control-Option with an arrow does move the cursor, in 0.4 seconds.
 
@@ -823,6 +826,51 @@ The Mac runner's transcript is plain text and needs no export.
   before. Not heard: two columns, a larger text size, a move back by a VoiceOver command, and
   the hidden-labels page in pages, whose session ended twice in the runner script's check of
   VoiceOver's state with no transcript written. Nobody listened, and no workstation was used.
+- The same day they were read on a physical iPad Air 13-inch (M3) (iPadOS 27.2), upright at
+  17 points, at `41a458f`, through XCTest's VoiceOver service; nobody listened. In pages a
+  touch on the first page's heading gave "Page boundary verification Heading Use the rotor to
+  access Headings", and one turn of the rotor gave "Headings". Each `flick=down` then moved on
+  through the book: "Link target reached Heading", with the page of `word1013` to `word1200`
+  on screen, "Parked title heading Heading", "Parked table heading Heading", on the page
+  that opens with the table, "Pictures and their words Heading" and "Heading not found".
+  `flick=up` went back through the same four to "Page boundary verification Heading", the
+  first page on screen again, and then gave "Heading not found". In continuous scroll, in
+  the book of ordinary paragraphs: "Chapter one Heading Use the rotor to access Headings",
+  then "Chapter two Heading" with `p040w28` to `p048w40` on screen, "Chapter three Heading"
+  with `p079w29` to `p086w40`, and "Heading not found"; back to "Chapter two Heading"; two
+  moves forward into the chapter's lines, the rotor turned to Headings again, and from a
+  line that is no heading "Chapter two Heading", "Chapter one Heading" and "Heading not
+  found". VoiceOver said a level nowhere. At `64a012b`, where the search looked among the
+  lines listed, the move on from "Parked title heading" gave "Heading not found" on this
+  iPad and on both simulators: VoiceOver asked the rotor twice for the one move, and the
+  second answer, from the same item on a page no longer shown, was not the first.
+- On a physical iPhone 17 Pro Max (iOS 27.2), the same day and commit, a touch on the heading
+  gave "Page boundary verification Heading Actions available Use the rotor to access
+  Headings" in pages. XCTest's two-finger turn did not move VoiceOver's rotor there in thirty
+  turns of several sizes, nor made on the window or on the text, so no move by heading was
+  made on the phone: with the rotor still on Actions `flick=down` gave "Next Page". One run
+  ended in an exception XCTest raised for a gesture, without the probe's `defer`, and left
+  VoiceOver on: it was switched off with `devicectl device settings voiceover --disable`
+  and read back as off, and the probe now restores VoiceOver from a teardown block.
+- The [simulator lane](#simulators) read them the same day at `8c19f15`, on an iPhone 17 Pro
+  and an iPad Air 13-inch (M4) (iOS 27.0), when the book had no section of pictures. In
+  pages at 17 points both gave "Page boundary verification Heading Actions available Use the
+  rot", then with the rotor on Headings "Link target reached Heading" (`word1177` to
+  `word1200` on the iPhone's page, `word1040` to `word1200` on the iPad's), "Parked title
+  heading Heading" and "Parked table heading Heading", and back through them to "Page
+  boundary verification Heading" and "Heading not found". On the iPhone the move to the page
+  that opens with the table left VoiceOver on "Open EPUB… Button", and the next
+  `flick=down` gave "Parked table heading Heading". In continuous scroll both gave "Chapter
+  two Heading", "Chapter three Heading", "Heading not found" and "Chapter two Heading"
+  again, with the screens the iPad showed, and from a line of the chapter "Chapter two
+  Heading". At 28 points the heading takes the whole of the iPhone's first page: one move
+  forward from it gave "Read the numbered words Actions available" and one back "Page
+  boundary verification Heading Actions available", so its lines are one item. At
+  `9b155ec`, with a heading's label ending in its paragraph's break and no rotor of the
+  reader's, the same touch recorded "Page boundary verification" alone, and VoiceOver's
+  own rotor gave "Heading not found" past the last heading on screen.
+- Not done for headings: listening, a move by heading on an iPhone, landscape and two
+  columns, and a larger text size on a device.
 - On 2026-10-12 the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0) recorded, at 17
   points: on an iPhone 17 Pro word0001–word0016 in 4 lines and, after Next Page,
   word0017–word0080 in 16; on an iPad Air 13-inch (M4) in portrait word0001–word0301 in 36
