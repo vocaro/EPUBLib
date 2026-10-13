@@ -821,9 +821,16 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    "Separator", and never "Image". It says the same before "Words after an ornament.",
    where the rule has `role="presentation"`, which the reader does not read. On the page
    that holds a rule alone it says "Separator" and nothing else in the text, and Next Page
-   from there shows "Last words of the scenes.". On Mac it says nothing at a rule: moving
-   by line it stops between the two scenes without a phrase, and no transcript has
-   "Separator" or "image" in it.
+   from there shows "Last words of the scenes.". On a Mac, in a window 600 points wide at
+   17 points, open the reader at the section (`"launch=-SampleHref OPS/scenes.xhtml"`).
+   Moving by line VoiceOver says "Separator" between "First scene ends." and "Second scene
+   starts." and again before "Words after an ornament."; moving by word a rule is one stop
+   that says the same; and `readall` from the page's first word says it in both places. On
+   the page that holds a rule alone, one `ax:next` step on, it says "In text Separator" on
+   entering and "end of text" on the next line. In continuous scroll, where thirty
+   `ax:next` steps from the start of the book and `lastword` put VoiceOver on "scenes.", it
+   says "Separator" on each of the three lines between "Last words of the scenes." and
+   "First scene ends.". No transcript has "splitter", "collapsed" or "image" at a rule.
 9. Headings. On an iPhone or iPad VoiceOver says "Heading" after a heading's words, shown or
    hidden, and reads a heading that takes several lines as one item. With the rotor on
    Headings (`rotor=Headings`, turned after the touch that places the cursor), `flick=down`
@@ -1383,6 +1390,80 @@ The Mac runner's transcript is plain text and needs no export.
   Not heard: a physical device; VoiceOver reading on by itself across a rule; a rule in a
   note's popover or in a table cell; a rule that is all a link holds; and what Safari or
   Books says at an `<hr>` on an iPhone, which was not compared.
+- On 2026-10-12 the section of scenes was read on a Mac before and after a rule was given an
+  element that says a separator is there, and with each other element that was tried.
+  GitHub's hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode
+  27.0), a window 600 points wide at 17 points, at the fixed pause. Nobody listened and no
+  workstation was used. Before and after were recorded on the same `main` (`5b096d8`).
+  Before, at `5b096d8`, runs 38333729257 (pages) and 38333734464 (continuous scroll): as in
+  the record above, a phrase with nothing in it on each rule's line, a step with no phrase
+  by word, and on the page of a rule alone "In text" and then "end of text". `readall` from
+  the page's first word, which that record did not have: "Scenes set apart", "First scene
+  ends.", a phrase with nothing in it, "Second scene starts.", the same, "Words after an
+  ornament.".
+  After, at `e3f5240`, runs 38342098837 (pages) and 38342104207 (continuous scroll). Pages
+  by line: "Scenes set apart", "First scene ends.", "Separator", "Second scene starts.",
+  "Separator", "Words after an ornament.". By word: "Scenes", "set", "apart", "First",
+  "scene", "ends.", "Separator", "Second", "scene", "starts.", "Separator", "Words",
+  "after", "an", "ornament.", a step with no phrase, "end of text". `readall` from
+  "Scenes": the six phrases heard by line, in order. On the page of a rule alone: "In text
+  Separator" on entering, "Separator" for the line and for the word, no phrase for a move
+  right, and "end of text" for the next line. Continuous scroll, back by line from
+  "scenes.": "Last words of the scenes.", "Separator", "Words after an ornament.",
+  "Separator", "Second scene starts.", "Separator", "First scene ends.", "Scenes set
+  apart". `readall` from there: a phrase with nothing in it where "First scene ends." is
+  read, which the session before the change has too, then "Separator", "Second scene
+  starts.", "Separator", "Words after an ornament.", "Separator", "Last words of the
+  scenes.". Back by word from "scenes.": a step with no phrase, as before the change, then
+  "the", "of", "words", "Last", "Separator", "ornament.", "an", "after", "Words",
+  "Separator", "starts.", "scene", "Second". The pages' `LINE` and `STATE` lines are the
+  same before and after: a rule's line is two characters of the text area's value, the rule
+  and the break after it.
+  With `main` at `a49d12e` merged in, which marks headings in the same rich text, at
+  `e4b1e22`, run 38342923798, pages: the same six phrases by line and with `readall`, and
+  on the page of a rule alone "In text Separator", "Separator" for the line and for the
+  word, no phrase for a move right and "end of text". Those two revisions also gave a rule
+  in a table cell the element, which the change as it is does not; the scenes hold no
+  table. The change as it is, at `6e9b055`, run 38346365216, pages: the same phrases by
+  line, by word, with `readall` and on the page of a rule alone as at `e3f5240`. With
+  `main` at `449182f` merged in as well, which gives the links of the same rich text
+  elements of the reader's own, at `14b2696`, run 38349644406, three sessions in one run:
+  "Separator" at every rule in pages by line, with `readall` and by word, on the page of a
+  rule alone, and in continuous scroll back by line, with `readall` and back by word. And
+  with `main` at `8d78dc1`, whose fixture has a second table in the section before the
+  pictures, at `86a5121`, run 38353724021: the scenes' first page is still 22 `ax:next`
+  steps in; opened at the section with `-SampleHref OPS/scenes.xhtml`, the same phrases by
+  line, with `readall` and by word, and the page of a rule alone one `ax:next` step on; in
+  continuous scroll thirty `ax:next` steps and `lastword` gave "scenes.", and the lines
+  back from there and `readall` were as before.
+  The other elements, each a commit that differs in nothing but what a rule's character
+  carries, heard in pages by line, by word, with `readall` and on the page of a rule alone.
+  AppKit's splitter role and nothing else, `3073331`, run 38333879354: "horizontal splitter
+  collapsed on top" at each rule, with two spaces after "splitter", and "horizontal
+  splitter" for `word` on the page of a rule alone; continuous scroll said the same (run
+  38333881836). The splitter role with the subrole `AXContentSeparator`, `d664ccf`, run
+  38333889187: the same. Those two with the role description "separator", a horizontal
+  orientation and not enabled, which is all that WebKit gives an `hr`, `efb3747`, run
+  38333903411: "horizontal separator no action available collapsed on top". Static text
+  with the value "Separator", `1dd8ea3`, run 38333917655: "Separator", as after. AppKit's
+  unknown role with the role description "separator", `563bc29`, run 38339554059:
+  "separator" in the same places. Not heard: WebKit's attributes on an element left
+  enabled, and any of these but the first in continuous scroll. Their runs were stopped
+  while they waited for a runner, once the pages had shown what each says.
+  A table cell. At `5b096d8`, run 38333986334, on the page that opens with a table: a move
+  by word onto a row said "Table row group", `in` on the second row "In Table row group 2
+  items text Third cell" and a move right "text Fourth cell". A row is a group, and each
+  cell a text area in it. For two sessions the scenes were given a table at their end, one cell holding
+  "Cell scene ends.", a rule and "Cell scene starts."; the fixture in the repository has
+  none. At `3f77069`, run 38340763586, with the cell as it is: `in` on the row said "In
+  Table row group 2 items text Cell scene ends.", `in` again "In text Cell scene ends.",
+  then by line "Cell scene ends.", a phrase with nothing in it, "Cell scene starts.", by
+  word a step with no phrase after "ends.", and `readall` the same three phrases as by
+  line. At `e1d32b7`, run 38342113877, with the cell's rule given the element a rule has
+  outside a table: the same, phrase for phrase.
+  Not heard: a physical Mac, or anyone listening; a rule in a note's popover; VoiceOver in
+  a language other than English or with its verbosity changed; and what Safari or Books
+  says at an `<hr>` on a Mac, which was not compared.
 - On 2026-10-12 and 13 links were heard on a Mac: GitHub's hosted `xcode-27` runner (image
   `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in a window 600 points wide at 17
   points, with VoiceOver's link setting at Speak, as the runner has it. Nobody listened, and
