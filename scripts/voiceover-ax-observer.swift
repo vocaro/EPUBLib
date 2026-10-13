@@ -177,10 +177,11 @@ func links() {
     }
 }
 /// The first link or attachment element, of a column's or a cell's children or runs, that
-/// names `words`.
+/// names `words`. A heading is among the children too, and is neither.
 func embeddedElement(naming words: String) -> AXUIElement? {
     func names(_ element: AXUIElement) -> Bool {
-        [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute].contains { (attribute(element, $0) as? String)?.contains(words) ?? false }
+        guard attribute(element, kAXRoleAttribute) as? String != "AXHeading" else { return false }
+        return [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute].contains { (attribute(element, $0) as? String)?.contains(words) ?? false }
     }
     for (_, text, _) in texts() {
         if let child = (attribute(text, kAXChildrenAttribute) as? [AXUIElement] ?? []).first(where: { string($0, kAXRoleAttribute) == "AXLink" && names($0) }) { return child }

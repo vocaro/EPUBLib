@@ -182,12 +182,14 @@ extension ReaderLinkHost {
         }
     }
 
-    /// Where the characters of a link are, in this view's coordinates: at least a point, so
-    /// that a hidden label, which takes no room, still has a place for VoiceOver's cursor.
-    fileprivate func linkFrame(_ range: NSRange) -> CGRect {
+    /// Where the characters of a link or a heading are, in this view's coordinates: at least
+    /// a point, so that a hidden label, which takes no room, still has a place for VoiceOver's
+    /// cursor, and no wider than the view, which a whole line's trailing space can be.
+    func linkFrame(_ range: NSRange) -> CGRect {
         var frame = linkBounds(range)
         frame.size = CGSize(width: max(frame.width, 1), height: max(frame.height, 1))
-        return frame
+        let inside = frame.intersection(bounds)
+        return inside.isEmpty ? frame : inside
     }
 }
 
@@ -217,16 +219,16 @@ extension ReaderTextView: ReaderLinkHost {
         return canvas != nil
     }
 
-    /// The links Find Next Link moves through from this text, in reading order: its own on
-    /// screen and, where a table row stands, those of the row's cells. A row is one character
-    /// of this text, so a cell's links are no links of its characters: without these children
-    /// VoiceOver finds no link from the page that the cell has.
-    func linkChildrenWithCells() -> [ReaderLinkAccessibilityElement] {
-        var found = linkChildren().map { (location: $0.range.location, element: $0) }
+    /// The links Find Next Link moves through from this text, each with its place in the
+    /// text: its own on screen and, where a table row stands, those of the row's cells. A row
+    /// is one character of this text, so a cell's links are no links of its characters:
+    /// without these children VoiceOver finds no link from the page that the cell has.
+    func linkChildrenWithCells() -> [(place: Int, element: ReaderLinkAccessibilityElement)] {
+        var found = linkChildren().map { (place: $0.range.location, element: $0) }
         for (location, cell) in tableInteraction?.accessibilityCellsInOrder ?? [] {
-            found += cell.linkChildren(listedIn: self).map { (location: location, element: $0) }
+            found += cell.linkChildren(listedIn: self).map { (place: location, element: $0) }
         }
-        return found.enumerated().sorted { ($0.element.location, $0.offset) < ($1.element.location, $1.offset) }.map(\.element.element)
+        return found
     }
 }
 
