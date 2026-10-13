@@ -64,8 +64,12 @@ import XCTest
         return (reader, canvas, try XCTUnwrap(canvas.scrollTextView))
     }
 
+    /// The lines the scroll view lists. Its own scroll bar, a view, is listed after them while
+    /// VoiceOver's cursor is going to it or on it.
     private func elements(of view: ReaderTextView, file: StaticString = #filePath, line: UInt = #line) throws -> [UIAccessibilityElement] {
-        try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement], "the scroll view lists no lines", file: file, line: line)
+        let listed = try XCTUnwrap(view.accessibilityElements, "the scroll view lists no lines", file: file, line: line)
+        XCTAssertTrue(listed.dropLast().allSatisfy { $0 is UIAccessibilityElement }, "only the last item listed can be the bar", file: file, line: line)
+        return listed.compactMap { $0 as? UIAccessibilityElement }
     }
 
     /// The characters on screen, by the reader's own account, in the scroll view's text.
@@ -639,6 +643,124 @@ import XCTest
         focus(PlacedItem(frame: CGRect(x: area.minX, y: area.minY - 60, width: 120, height: 30)), from: bar, in: view)
         try await reader.wait("the place the bar left the view at") { (try? self.shown(subject)) == canvas.scrollVisibleCharacters() }
         try assertTheListIsTheScreenAndTheLinesAfterIt("after the cursor left for a control above", subject)
+    }
+
+    /// Reading forward past the book's last line VoiceOver is given the scroll view's own scroll
+    /// bar, and asks UIKit for the items each side of the bar. UIKit keeps a scroll view's bar
+    /// among its supplementary headers and held it to stand before the first line: the item
+    /// after it was the first line listed, so VoiceOver read down the screen a second time, and
+    /// the item before it was the control before the text. A bar hidden from assistive
+    /// technology is no header. UIKit then asks the scroll view for the bar's place among its
+    /// lines, which is one past the last. So the bar is hidden from the moment UIKit asks for
+    /// its place, as VoiceOver's cursor is about to go to it, until the cursor is elsewhere,
+    /// and the line the cursor left stays listed though the view goes back for the bar (#342).
+    func testTheScrollBarStandsAfterTheBooksLastLineAndThatLineStaysListed() async throws {
+        let subject = try await scrolledAtTheFourthChapter()
+        let (reader, canvas, view) = subject
+        canvas.show(try XCTUnwrap(canvas.scrollBook?.position(at: view.textLength - 1)), selecting: nil)
+        for _ in 0..<4 where !canvas.isScrolledToEnd { try await reader.session.send(.nextPage) }
+        try await reader.settle()
+        XCTAssertTrue(canvas.isScrolledToEnd, "the reader must be at the end of the book")
+        let area = UIAccessibility.convertToScreenCoordinates(visibleArea(of: subject), in: view)
+        let footer = PlacedItem(frame: CGRect(x: area.minX, y: area.maxY + 8, width: 120, height: 30))
+        let bar = UIView(frame: CGRect(x: view.bounds.maxX - 6, y: view.bounds.midY, width: 3, height: 40))
+        view.addSubview(bar)
+        defer { bar.removeFromSuperview() }
+        func labels(_ elements: [UIAccessibilityElement]) -> String { elements.map { $0.accessibilityLabel ?? "" }.joined() }
+        func onScreenNow() throws -> NSRange { try XCTUnwrap(canvas.scrollVisibleCharacters()) }
+        /// The item UIKit gives after the bar or before it: the scroll view's element beside
+        /// the place the scroll view gives the bar, and none where the text ends there.
+        func item(besideTheBar forward: Bool) -> UIAccessibilityElement? {
+            let place = view.index(ofAccessibilityElement: bar)
+            guard place != NSNotFound else {
+                XCTFail("the scroll view has no place for its own bar")
+                return nil
+            }
+            return view.accessibilityElement(at: place + (forward ? 1 : -1)) as? UIAccessibilityElement
+        }
+
+        // Its cursor is on the book's last line, and no line follows: UIKit gives the bar.
+        let last = try XCTUnwrap(try elements(of: view).last)
+        let lastLine = try XCTUnwrap(view.line(containing: view.textLength - 1)).range
+        XCTAssertEqual(last.accessibilityLabel, view.plainText(in: lastLine))
+        focus(last, from: nil, in: view)
+        XCTAssertTrue(try elements(of: view).last === last)
+        XCTAssertNil(try move(from: last, forward: true, in: view), "the book ends at this line")
+        // UIKit asks for the bar's place as the cursor is about to go to it. From then the bar
+        // is no header of the scroll view's, and is listed after the last line.
+        XCTAssertFalse(bar.accessibilityElementsHidden)
+        let lines = view.accessibilityElementCount()
+        XCTAssertEqual(view.index(ofAccessibilityElement: bar), lines, "the bar stands after the last line listed")
+        XCTAssertTrue(bar.accessibilityElementsHidden, "UIKit must not take the bar for a header while VoiceOver asks from it")
+        XCTAssertEqual(view.accessibilityElementCount(), lines + 1, "UIKit goes by a place only where the view lists an element there")
+        XCTAssertTrue(view.accessibilityElement(at: lines) as? UIView === bar)
+        XCTAssertTrue(view.accessibilityElements?.last as? UIView === bar)
+        // It brings the bar into view, and the line the cursor is leaving is below the screen.
+        let offset = view.contentOffset.y
+        bringScrollBarIntoView(view)
+        XCTAssertEqual(offset - view.contentOffset.y, view.adjustedContentInset.top + 40, accuracy: 0.01)
+        XCTAssertLessThanOrEqual(NSMaxRange(try onScreenNow()), lastLine.location, "the last line must be below the screen for this to show anything")
+        // VoiceOver asks for the item after the bar before its cursor is there.
+        XCTAssertNil(item(besideTheBar: true), "what follows the bar is what follows the reader, not a line")
+        focus(bar, from: last, in: view)
+        var listed = try elements(of: view)
+        XCTAssertTrue(listed.last === last, "the line the cursor left is still listed, and the same element")
+        XCTAssertEqual(labels(listed), view.plainText(in: NSRange(location: try onScreenNow().location, length: view.textLength - (try onScreenNow().location))),
+                       "the lines on screen and those down to the book's last, each once and in order")
+        XCTAssertNil(item(besideTheBar: true))
+        XCTAssertTrue(item(besideTheBar: false) === last, "the item before the bar is the book's last line")
+        XCTAssertNil(canvas.currentSelection)
+        // On to the control below the reader: the bar can be found again.
+        focus(footer, from: bar, in: view)
+        XCTAssertFalse(bar.accessibilityElementsHidden, "the bar is VoiceOver's to find once its cursor has left it")
+        XCTAssertTrue(try elements(of: view).last === last)
+        XCTAssertEqual(view.accessibilityElementCount(), try elements(of: view).count, "and only the lines are listed")
+        XCTAssertTrue(view.accessibilityElements?.last as? UIAccessibilityElement === last)
+        // And back to the bar, for which the view goes back a second time.
+        XCTAssertEqual(view.index(ofAccessibilityElement: bar), try elements(of: view).count)
+        XCTAssertTrue(bar.accessibilityElementsHidden)
+        bringScrollBarIntoView(view)
+        focus(bar, from: footer, in: view)
+        XCTAssertTrue(item(besideTheBar: false) === last, "after two moves for the bar the item before it is still the book's last line")
+        // Back to that line, which UIKit brings into view, and on up the text in order.
+        leave(bar, for: last, in: view)
+        focus(last, from: nil, in: view)
+        XCTAssertFalse(bar.accessibilityElementsHidden)
+        var cursor = last, read = last.accessibilityLabel ?? ""
+        for _ in 0..<8 {
+            cursor = try XCTUnwrap(try move(from: cursor, forward: false, in: view), "the text goes back from its last line")
+            read = (cursor.accessibilityLabel ?? "") + read
+        }
+        XCTAssertEqual(read, view.plainText(in: NSRange(location: view.textLength - (read as NSString).length, length: (read as NSString).length)),
+                       "reading back gives the book's last lines, nothing skipped or repeated")
+
+        // Letting go. The cursor goes forward to the bar again and the reader is then taken
+        // further back than UIKit's move for the bar: the lines on screen and no others.
+        focus(last, from: cursor, in: view)
+        _ = view.index(ofAccessibilityElement: bar)
+        bringScrollBarIntoView(view)
+        focus(bar, from: last, in: view)
+        XCTAssertTrue(try elements(of: view).last === last)
+        try await reader.session.send(.previousPage)
+        listed = try elements(of: view)
+        XCTAssertEqual(labels(listed), view.plainText(in: try onScreenNow()), "after a step back, the lines on screen and no others")
+        XCTAssertEqual(view.index(ofAccessibilityElement: bar), listed.count, "the bar still stands after the last line listed")
+        // A line in the middle of the screen left for the control below by a touch: the list
+        // ends at the last line on screen, not at the line the cursor was on.
+        let middle = listed[listed.count / 2]
+        focus(middle, from: bar, in: view)
+        focus(footer, from: middle, in: view)
+        XCTAssertEqual(labels(try elements(of: view)), view.plainText(in: try onScreenNow()), "from a line on screen, the lines on screen and no others")
+        // Only the scroll view's own bars have a place: not a view outside it, and not a view
+        // inside it that something else has hidden, which stays hidden.
+        XCTAssertEqual(view.index(ofAccessibilityElement: UIView()), NSNotFound)
+        let covered = UIView(frame: CGRect(x: 0, y: view.bounds.midY, width: 20, height: 20))
+        covered.accessibilityElementsHidden = true
+        view.addSubview(covered)
+        defer { covered.removeFromSuperview() }
+        XCTAssertEqual(view.index(ofAccessibilityElement: covered), NSNotFound)
+        focus(footer, from: nil, in: view)
+        XCTAssertTrue(covered.accessibilityElementsHidden)
     }
 
     /// Listing lines past the screen measures them, which replaces TextKit's estimates of

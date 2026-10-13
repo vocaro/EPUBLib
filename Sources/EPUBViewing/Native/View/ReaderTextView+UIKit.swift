@@ -27,6 +27,13 @@ final class ReaderTextView: UITextView {
     /// Whether that cursor is on something VoiceOver reaches after the scroll view's lines: one
     /// of the scroll view's own bars, or an item below the reading area.
     private var accessibilityCursorFollowsText = false
+    /// The line that cursor was last on, and where the view stood as the cursor came to it:
+    /// while the cursor is on that line or on something after the text.
+    private var accessibilityLineLeft: (range: NSRange, offset: CGFloat)?
+    /// The scroll view's own bar that VoiceOver's cursor is going to or is on. For as long it
+    /// is hidden from assistive technology and listed after the last line
+    /// (`index(ofAccessibilityElement:)`).
+    private weak var accessibilityScrollBarHeld: UIView?
     /// How many lines the scroll view lists past the screen: as many items as VoiceOver was seen
     /// to ask for at once (iOS 27.0).
     private static let accessibilityLinesPastScreen = 50
@@ -182,17 +189,17 @@ final class ReaderTextView: UITextView {
     }
 
     override var accessibilityElements: [Any]? {
-        get { listsLines ? lineAccessibilityElements : super.accessibilityElements }
+        get { listsLines ? lineAccessibilityElements + scrollBarListed : super.accessibilityElements }
         set { super.accessibilityElements = newValue }
     }
 
     override func accessibilityElementCount() -> Int {
-        listsLines ? lineAccessibilityElements.count : super.accessibilityElementCount()
+        listsLines ? lineAccessibilityElements.count + scrollBarListed.count : super.accessibilityElementCount()
     }
 
     override func accessibilityElement(at index: Int) -> Any? {
         guard listsLines else { return super.accessibilityElement(at: index) }
-        let elements = lineAccessibilityElements
+        let elements: [Any] = lineAccessibilityElements + scrollBarListed
         return elements.indices.contains(index) ? elements[index] : nil
     }
 
@@ -200,6 +207,17 @@ final class ReaderTextView: UITextView {
         guard listsLines else { return super.index(ofAccessibilityElement: element) }
         let elements = lineAccessibilityElements
         if let index = elements.firstIndex(where: { $0 === element as AnyObject }) { return index }
+        if isCanvasScrollView, let bar = element as? UIView, bar !== self, bar.isDescendant(of: self),
+           bar === accessibilityScrollBarHeld || !bar.accessibilityElementsHidden {
+            // UIKit asks for a bar's place as VoiceOver's cursor is about to go to it, before
+            // it asks for the items each side of it (iOS 27.0 and iPadOS 27.2).
+            if bar !== accessibilityScrollBarHeld {
+                releaseAccessibilityScrollBar()
+                bar.accessibilityElementsHidden = true
+                accessibilityScrollBarHeld = bar
+            }
+            return elements.count
+        }
         // An element kept from before the list moved away and back stands for its line.
         guard let kept = element as? ReaderPageAccessibilityElement, kept.view === self else { return NSNotFound }
         return elements.firstIndex { $0.range == kept.range && $0.url == kept.url } ?? NSNotFound
@@ -264,11 +282,35 @@ final class ReaderTextView: UITextView {
         return elements
     }
 
+    /// The scroll view's own scroll bar, in the list after the last line while VoiceOver's
+    /// cursor is going to it or is on it.
+    ///
+    /// UIKit gives VoiceOver a scroll view's bar after the view's last element and then holds
+    /// the bar to stand before the first: it keeps the bar among the views it calls the scroll
+    /// view's supplementary headers, and asked for the items each side of a header it answers
+    /// with the first line listed and with the control before the scroll view. So VoiceOver
+    /// read the screen a second time after the book's last line, and went back from the bar
+    /// to the control before the text. A bar hidden from assistive technology is no such
+    /// header. UIKit then asks the scroll view for the bar's place among its elements and
+    /// goes by the answer, where the answer is the place of an element the view lists: one
+    /// past the last was taken for the item after the bar and not for the item before it.
+    /// Hidden for good, the bar would never be given to VoiceOver at all. So it is hidden,
+    /// and listed, from the moment UIKit asks for its place until the cursor is on something
+    /// else: the item before it is then the last line and the item after it whatever follows
+    /// the scroll view. A hidden view in the list is passed over as an item.
+    private var scrollBarListed: [UIView] { [accessibilityScrollBarHeld].compactMap { $0 } }
+
+    /// Lets VoiceOver find the scroll bar its cursor has left again.
+    private func releaseAccessibilityScrollBar() {
+        accessibilityScrollBarHeld?.accessibilityElementsHidden = false
+        accessibilityScrollBarHeld = nil
+    }
+
     /// The lines VoiceOver is given in continuous scroll: those on screen and the fifty after
     /// them. Moving into the text from a control it takes the first line listed, the first on
     /// screen. Moving back into it from below it takes the last, so while its cursor is on
     /// something that follows the text the list is the lines on screen alone and that is the
-    /// last of them, or the line it was given as the last a move ago (`lastLineKept`).
+    /// last of them, or the line it holds below the screen (`lastLineKept`).
     ///
     /// VoiceOver asks for the items after the one its cursor is on, then moves through what it
     /// was given and asks again only when it has used them. As a rule it asks for two. At its
@@ -335,13 +377,25 @@ final class ReaderTextView: UITextView {
     /// has gone back no further than one such move since. That holds each time the cursor
     /// goes to the bar. After a longer move back, the person's or the reader's own, or a move
     /// forward past that line, the list ends at the last line on screen again.
+    ///
+    /// Reading forward past the book's last line the cursor goes from that line to the bar,
+    /// and the same move of the view puts the line it left below the screen. VoiceOver holds
+    /// it as the item before the bar. A move back to it while it was not listed read it and
+    /// then left the cursor on a line further up the screen. So the list ends at the line the
+    /// cursor left as well, while the view has gone back no further than one such move since
+    /// the cursor came to that line.
     private func lastLineKept(past shown: NSRange) -> NSRange? {
-        guard let cache = scrollAccessibilityCache, cache.place.cursorFollowsText, cache.place.size == bounds.size,
-              cache.place.insets == adjustedContentInset, let last = cache.elements.last?.range,
-              NSMaxRange(last) > NSMaxRange(shown) else { return nil }
-        guard cache.place.offset.y - contentOffset.y <= adjustedContentInset.top + Self.accessibilityScrollMargin + 1 else { return nil }
+        let reach = adjustedContentInset.top + Self.accessibilityScrollMargin + 1
+        var end = NSMaxRange(shown)
+        if let cache = scrollAccessibilityCache, cache.place.cursorFollowsText, cache.place.size == bounds.size,
+           cache.place.insets == adjustedContentInset, let last = cache.elements.last?.range,
+           cache.place.offset.y - contentOffset.y <= reach {
+            end = max(end, NSMaxRange(last))
+        }
+        if let left = accessibilityLineLeft, left.offset - contentOffset.y <= reach { end = max(end, NSMaxRange(left.range)) }
+        guard end > NSMaxRange(shown) else { return nil }
         // The last element can be part of its line: a link, or the words before one.
-        return line(containing: NSMaxRange(last) - 1).map { last.union($0.range) } ?? last
+        return line(containing: end - 1)?.range ?? NSRange(location: end - 1, length: 1)
     }
 
     /// `range` with as many lines before it and after it, where the text has them.
@@ -363,6 +417,8 @@ final class ReaderTextView: UITextView {
         guard isCanvasScrollView else { return }
         accessibilityCursor = element
         accessibilityCursorFollowsText = false
+        accessibilityLineLeft = (element.range, contentOffset.y)
+        releaseAccessibilityScrollBar()
     }
 
     /// The cursor went to something that is not one of this view's lines, or VoiceOver was
@@ -376,7 +432,11 @@ final class ReaderTextView: UITextView {
             guard let focused = notification.userInfo?[UIAccessibility.focusedElementUserInfoKey],
                   (focused as? ReaderPageAccessibilityElement)?.view !== self else { return }
             followsText = accessibilityOrderPutsAfterLines(focused)
+            if focused as AnyObject !== accessibilityScrollBarHeld { releaseAccessibilityScrollBar() }
+        } else {
+            releaseAccessibilityScrollBar()
         }
+        if !followsText { accessibilityLineLeft = nil }
         accessibilityCursor = nil
         accessibilityCursorFollowsText = followsText
     }
@@ -572,6 +632,7 @@ final class ReaderTextView: UITextView {
         pageAccessibilityCache = nil
         scrollAccessibilityCache = nil
         accessibilityCursor = nil
+        accessibilityLineLeft = nil
         for (attachment, text, _) in textualAttachments() where attachment.accessibilityLabel == nil {
             attachment.accessibilityLabel = text
         }
