@@ -511,7 +511,9 @@ extension ReaderTextView: @MainActor NSAccessibilityCustomRotorItemSearchDelegat
         if !filter.isEmpty { headings = headings.filter { $0.label.localizedCaseInsensitiveContains(filter) } }
         let forward = searchParameters.searchDirection == .next
         let found: (heading: ReaderHeading, range: NSRange, label: String)?
-        if let place = searchParameters.currentItem.flatMap(headingSearchPlace) {
+        if let current = searchParameters.currentItem, current.targetElement != nil,
+           current.targetRange.location != NSNotFound, current.targetRange != NSRange(location: 0, length: 0) {
+            let place = current.targetRange.location
             found = forward ? headings.first { $0.range.location > place } : headings.last { NSMaxRange($0.range) <= place }
         } else { found = forward ? headings.first : headings.last }
         guard let found else { return nil }
@@ -519,15 +521,6 @@ extension ReaderTextView: @MainActor NSAccessibilityCustomRotorItemSearchDelegat
         result.targetRange = found.range
         result.customLabel = found.label
         return result
-    }
-
-    /// The character a search asked from `item` stands at, and nil from nowhere. A link's
-    /// element stands at the link's characters.
-    private func headingSearchPlace(of item: NSAccessibilityCustomRotor.ItemResult) -> Int? {
-        if let link = item.targetElement as? ReaderLinkAccessibilityElement, link.view === self { return link.range.location }
-        let range = item.targetRange
-        guard item.targetElement != nil, range.location != NSNotFound, range != NSRange(location: 0, length: 0) else { return nil }
-        return range.location
     }
 }
 
