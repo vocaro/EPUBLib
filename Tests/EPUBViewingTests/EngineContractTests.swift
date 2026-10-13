@@ -130,7 +130,9 @@ import XCTest
         results = nil
         if fault == .callbackDuringClose { onEvent?(.notice("synchronous late callback")) }
         if fault == .callbackAfterClose {
-            Task { try? await Task.sleep(for: .milliseconds(30)); onEvent?(.notice("late")) }
+            // Queued here and not sent after a sleep: the main actor then runs it the first time
+            // the verifier waits, ahead of the verifier's own wake. A sleep raced that wake.
+            Task { onEvent?(.notice("late")) }
         } else { onEvent = nil }
     }
 }

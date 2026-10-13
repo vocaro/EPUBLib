@@ -247,7 +247,7 @@ import UIKit
         let view = try XCTUnwrap(canvas.textViews.first)
         let controller = try XCTUnwrap(view.tableInteraction)
         XCTAssertFalse(controller.selectedText().isEmpty)
-        XCTAssertTrue(controller.accessibilityActions().contains { $0.name.contains("Follow Table Link: Outside link") })
+        XCTAssertTrue(controller.accessibilityActionsOfEveryRow().contains { $0.name.contains("Follow Table Link: Outside link") })
         #if os(macOS)
         let row = try XCTUnwrap(section.tables().first { $0.row.row == 1 })
         let spoken = try XCTUnwrap(view.accessibilityAttributedString(for: NSRange(location: row.offset, length: 1)))
@@ -255,14 +255,14 @@ import UIKit
         XCTAssertEqual(group.accessibilityRole(), .group)
         XCTAssertEqual(group.accessibilityChildren()?.count, 2)
         #else
-        // A row of the table offers it. The text view around the rows offers nothing: VoiceOver
-        // would offer that on every line.
+        // The row that holds the cell offers it, and the text view around the rows offers
+        // nothing: VoiceOver would offer that on every line.
         let rows = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
-        XCTAssertTrue(rows.contains { $0.accessibilityCustomActions?.contains { $0.name.contains("Select Table Text: Alpha") } == true })
+        XCTAssertEqual(rows.filter { $0.accessibilityCustomActions?.contains { $0.name.contains("Select Table Text: Alpha") } == true }.count, 1)
         XCTAssertNil(view.accessibilityCustomActions)
         #endif
         canvas.clearSelection()
-        let select = try XCTUnwrap(controller.accessibilityActions().first { $0.name.contains("Select Table Text: Alpha") })
+        let select = try XCTUnwrap(controller.accessibilityActionsOfEveryRow().first { $0.name.contains("Select Table Text: Alpha") })
         XCTAssertTrue(select.perform())
         canvas.performSelectionAction()
         XCTAssertEqual(session.selection?.text, "Alpha 😀 beta gamma.")

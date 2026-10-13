@@ -67,10 +67,24 @@ Run a Mac VoiceOver speech session on GitHub's hosted runner, not on this machin
 Mac a session takes the keyboard focus for its whole length, which stops the owner and every
 other session.
 
-- Start one with `gh workflow run voiceover-mac.yml` and fetch its transcript with
-  `gh run download`; [VoiceOver testing](doc/voiceover-testing.md#hosted-mac-sessions) has the
-  inputs. It takes about five minutes, several can run at once, and at a fixed pause its
-  transcript is acceptance evidence for the Mac.
+- Start a run with `python3 scripts/hosted-run.py voiceover-mac.yml`, not with
+  `gh workflow run`, and fetch its transcripts with `gh run download`;
+  [VoiceOver testing](doc/voiceover-testing.md#hosted-mac-sessions) has the inputs. A run
+  takes about five minutes once it has a runner, and at a fixed pause its transcripts are
+  acceptance evidence for the Mac.
+- Share the runner. Its five jobs at a time are for every session's runs together
+  ([above](#the-hosted-runner)), and the queue has no priorities: a run started to try
+  something stands ahead of every run started after it. The script prints what is on a runner
+  and what is waiting, as `gh run list --status in_progress` and `gh run list --status queued`
+  do, and with no workflow named it starts nothing: look before you start.
+- Put the speech sessions you need into one run. Each can have its own window width, text
+  size, flow and launch arguments, so step lists that differ in them share a run, a build and
+  a runner. Do not start a run for each.
+- Keep at most two runs in flight for your branch, and one while any run is waiting for a
+  runner. The script starts nothing beyond that. Its `--force` does, and a slow queue is not
+  a reason for it.
+- Cancel a run of yours as soon as you no longer need it, with `gh run cancel RUN_ID`. Nothing
+  else cancels one.
 - Ask the owner before any session on this Mac, and only for what a runner cannot do:
   someone listening, or stepping by hand.
 - Never run the workflow's preparation commands here (`defaults write`, `launchctl bootout`,
