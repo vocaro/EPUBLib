@@ -470,9 +470,9 @@ was needed. `ax:focus=0.2` gives a cell keyboard focus and does not bring VoiceO
 page's `CHILD` lines hold the links of the cells on screen among the page's own.
 `nextlink` from the page's text goes through all of those. VoiceOver's place in the page's
 text does not move with it, so `right` after one of a cell's links reads on from the word
-VoiceOver had reached before the table. In a cell `line` said nothing with VoiceOver's
-cursor on the cell's last word or past it, in main's reader as with the cells' own
-elements: send it on entering, before the words.
+VoiceOver had reached before the table. In the runs on links `line` said nothing with
+VoiceOver's cursor on a cell's last word or past it, in main's reader as with the cells'
+own elements. A cell has a line there since: see the record of Read Line in a table cell.
 
 What VoiceOver says of a link as it reads depends on a setting: VoiceOver Utility, Verbosity,
 Text, "When encountering a link/attachment", which can be Speak, Change Pitch, Play Tone or Do
@@ -934,7 +934,20 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    cell is an item by itself, and moving back gives the same items in reverse. On the last
    row the rotor offers Select Table Text for its two cells and Follow Table Link: Eighth
    cell link, which opens the first section at "Link target reached"; a line beside the
-   tables offers none of them.
+   tables offers none of them. On a Mac a cell is a text of its own, and VoiceOver reads its
+   line wherever its cursor is in it. In a window 600 points wide at 17 points, with the
+   reader opened at that section (`"launch=-SampleHref OPS/table.xhtml"`), in pages and in
+   continuous scroll, `"ax:caret=Shown words after"`, a focus change to the text, `in` and
+   `left` put VoiceOver on the first table's second row, "Table row group"; `in` there says
+   "In Table row group 2 items text Third cell", and `in` again "In text Third cell". `line`
+   then says "Third cell" on entering, after `right` has said "Third", after a second
+   `right` has said "cell", the cell's last word, and after a third has said "end of text".
+   A reader whose cells have no line for the end of their text says nothing for the last
+   two, and counts "-9,223,372,036,854,775,808 lines" there for `linecount`, where the
+   answer is "1 line 1 visible line". At 56 points the cells take two lines each and the
+   table has the page to itself: two `right` steps from the text's first line reach the
+   first row, `line` says "First" on entering its first cell and "cell" with the cursor at
+   the end of the cell's text, and `previousline` from there says "First".
 7. On the section of pictures, in pages and in continuous scroll. VoiceOver stops between
    "Undescribed picture" and "stands here." and says that an image is there, with no name.
    It reads "Decoration" and "passed over." with nothing between them, and the same for
@@ -2271,6 +2284,94 @@ The Mac runner's transcript is plain text and needs no export.
   selected and a turn under `EPUBPageControls.hostOnly`, which unit tests hold and the
   sample has no switch for; a right-to-left spread; a spread whose next section is not
   built yet; and VoiceOver's cursor on a table's row or cell, which keeps its own actions.
+- On 2026-10-13 VoiceOver's Read Line was heard in a table cell on a Mac, before and after a
+  cell gave a line for the end of its text. GitHub's hosted `xcode-27` runner (image
+  `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), VoiceOver's link setting Speak, a
+  window 600 points wide, at the fixed pause. Nobody listened and no workstation was used.
+  Before is `main` at `0128fa6`, runs 38360769105 and 38363804998. After is `774f82c`, that
+  `main` with the change, runs 38361875335 and 38363855146. Each step list was run on both.
+  The two readers differ in one answer, the line of the offset after a cell's last
+  character, so what changed in the speech is what VoiceOver asks of that offset. The
+  observer prints no cell's selection; in a page's text the selection after `right` is the
+  end of the word VoiceOver said, `SELECTION 7,0` after "Entries".
+  A cell of one line, "Third cell" in the section with a hidden heading over a table, at 17
+  points: in pages `"launch=-SampleHref OPS/table.xhtml" "ax:caret=Shown words after"
+  ax:focus=search ax:focus=0 in left in in`, and in continuous scroll the same with
+  `ax:focus` for the two focus steps. Both readers, in both flows: "In text Shown words
+  after the table.", "Table row group", "In Table row group 2 items text Third cell" and
+  "In text Third cell"; `line` said "Third cell" on entering, and again after `right` had
+  said "Third". After the next `right`, "cell", `line` said nothing before and "Third cell"
+  after. After one more, "end of text", the same: nothing, and then "Third cell". In pages
+  `textend` said "end of text end of text" and `line` after it nothing before and "Third
+  cell" after, and after `firstword`, "Third", `line` said "Third cell" in both. With the
+  cursor on "cell", `describe` said "word: cell end of text is in the VoiceOver cursor" in
+  both, and `linecount` "-9,223,372,036,854,775,808 lines 9,223,372,036,854,775,808 visib"
+  before, the 64 characters the probe records, and "1 line 1 visible line" after.
+  A cell whose words are a link, "Right cell jump" in the section of what each line offers
+  (`"launch=-SampleHref OPS/offers.xhtml" "ax:caret=Plain words below" ax:focus=search
+  ax:focus=0 in left in right in`): "In Table row group 2 items text Left cell", "text
+  Right cell jump" and "In text Right cell jump" in both, and `line` "Right cell jump" on
+  entering. After "Right", "cell" and "jump" by word `line` said nothing before and "Right
+  cell jump" after, and the same after "end of text".
+  A cell of two lines. At 56 points the first table's cells read "First" over "cell", and
+  the page holds the hidden heading and the table's two rows and nothing else
+  (`text_size=56 "launch=-SampleHref OPS/table.xhtml" ax:focus=search ax:focus=0 in right
+  right in in`): "In text Parked table heading", "Parked table heading", "Table row group",
+  "In Table row group 2 items text First cell" and "In text First" in both, and `line`
+  "First" on entering and after `right` had said "First". After the next `right`, "cell",
+  `describe` said "word: cell end of text is in the VoiceOver cursor" before and "Line 2
+  word: cell end of text is in the VoiceOver cursor Line" after. `line` then said nothing
+  before and "cell" after, and the same after "end of text". From there `previousline` and
+  `nextline` said nothing before, and "First" and "cell" after: without a line for the end
+  of its text a cell gave VoiceOver no line to move from either.
+  The probe records a phrase VoiceOver repeats once. In a cell whose last line is one word,
+  `line` straight after `right` has said that word shows no new phrase in either reader, as
+  in the fourth session of run 38361875335; the sessions above have `describe` between the
+  two. A session at 56 points that looked for "Shown words after" (run 38360769105) found
+  the line on the next page and never reached a cell.
+  Cells that hold a picture, a formula or a hidden label. `main` gained the section of
+  entries while these were recorded, so its cells were heard on that `main`, `7fa9231`, run
+  38365047824, and on the change merged with it, `bee900d`, run 38365114165, at 17 points
+  with the reader opened at the section, the same four sessions in each. In all four cells
+  both readers said the same up to the last word, and with the cursor on it `describe` said
+  "word: shown. end of text is in the VoiceOver cursor", or the cell's own last word in
+  that place, with "Line 2" before it after the change in a cell of two lines. Then, for
+  `line` on the last word and again after "end of text": in the described picture's cell,
+  nothing before and "Drawn Blue entry square image shown." after; in the hidden label's,
+  whose lines are "Parked entry words. Seen entry" and "words.", nothing before and "words."
+  after, and `previousline` from there nothing before and "Parked entry words. Seen entry"
+  after; in the formula's, in continuous scroll, nothing before and "stated." after, and
+  `previousline` nothing before and "Sum x squared image" after; in the cell of the picture
+  nobody describes, whose second line opens with the picture, nothing before and "image
+  stands." after. The session on "Third cell" in pages said at `bee900d` what it had said
+  at `774f82c`, phrase for phrase.
+  A picture's actions in a cell, and the cells of the section of entries in continuous
+  scroll, which the record of that section left unheard: at `d3e1f87`, #453's branch before
+  `main` was last merged into it, runs 38361206010 and 38362735530, with the reader opened
+  at the section. A cell's code there is what `main` has had since #453 merged.
+  Four `right` steps from the text's first line reach the second row, `in` twice enters the
+  described picture's cell and two `right` steps put VoiceOver on the picture, "Blue entry
+  square image". `actions` there said "Actions menu 2 items", `listdown` "show menu" and a
+  second `listdown` "Inspect Image: Blue entry square"; on the picture nobody describes the
+  second was "Inspect Image". `"listchoose=Inspect Image"` then opened the inspector, in
+  pages and in continuous scroll: `ax:actions=all` printed Zoom Out, Zoom In, Fit, Close,
+  "Magnification" and an image called "Blue entry square", or one with no name, and the
+  application posted the value "100%". VoiceOver said "Inspect Image: Blue entry square
+  text Drawn Blue entry square i" and for `describe`, in pages, "text is in the VoiceOver
+  cursor Line 3": its cursor stayed on the text and did not go to the inspector. Whether it
+  goes there from a picture in a page's own text was not compared. "show menu" is the menu's first
+  item, so one `listdown` before `"listchoose=Inspect Image"` chooses nothing and the
+  runner stops the session, as it did the second of run 38361206010. In continuous scroll
+  the cells said what they say in pages: "In text Drawn Blue entry square image shown." and
+  "Blue entry square image" by word; "text Parked entry words. Seen entry words." and
+  "Parked entry words." by word; "text Sum x squared image stated." and "x squared image"
+  by word; "Ornament", a step with no phrase and "passed."; "Undescribed", "image" and
+  "stands.". From the first row there, two `out` steps and `right` said "Drawn Blue entry
+  square shown. Parked entry words. Seen entry wo" at the second row, its cells' words,
+  and the next `right` "Table row group".
+  Not heard: a part of a cell cut at a page's end, which is unit-tested
+  (`TableCellLineAccessibilityTests`); a cell whose last character is a picture or a
+  formula; a physical Mac, or anyone listening.
 - On 2026-10-12 the section with a hidden heading over a table, with its second table, was
   read at 17 points before and after a table's rows became single items: at `2053be8` and at
   `1e3e5c3`, in the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and
@@ -2390,10 +2491,11 @@ The Mac runner's transcript is plain text and needs no export.
   merged in afterwards, has "What each line offers" as its sixth, so the section of entries
   is the seventh, with the same content and still opened by name. That merge changes
   nothing in a cell's code, and the sessions were not recorded again on it.
-  Not heard: the Inspect Image action of a picture in a cell chosen through VoiceOver; a
-  picture, a formula or a hidden label inside a link in a cell; a part of a cell cut at a
-  page's end; a formula without `alttext`, whose reading is generated; a rule or a picture
-  in a table inside a cell; and an iPhone or iPad, where nothing changes.
+  Not heard: a picture, a formula or a hidden label inside a link in a cell; a part of a
+  cell cut at a page's end; a formula without `alttext`, whose reading is generated; a rule
+  or a picture in a table inside a cell; and an iPhone or iPad, where nothing changes. The
+  Inspect Image action of a picture in a cell was chosen through VoiceOver afterwards, and
+  the other cells heard in continuous scroll: see the record of Read Line in a table cell.
 - On 2026-10-13 links in a table's cells were heard on a Mac: GitHub's hosted `xcode-27`
   runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in a window 600 points
   wide at 17 points, on the fixture's last section (`-SampleHref OPS/cells.xhtml`), with

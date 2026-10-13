@@ -193,6 +193,15 @@ level in a column's rich text, and the rotor's headings asked for as VoiceOver w
 ask. None of them drives VoiceOver; the [VoiceOver testing process](voiceover-testing.md) has
 what it said.
 
+Table cell line tests on AppKit (`TableCellLineAccessibilityTests`) read the lines a cell's
+own text gives an assistive technology: the layout's lines, numbered from the first the cell
+shows and covering its text once; the offset after its last character on its last line, in a
+cell of one line, in one of several, and in each part of a cell cut at a page's end; no line
+for an offset past that one; and the insertion point's line with its characters, which is
+what VoiceOver's Read Line has to read. One of them takes its cells from a table built by the
+real pipeline and mounted on a page. VoiceOver said nothing for Read Line at the end of a
+cell's text while that offset had no line.
+
 Link tests on AppKit (`LinkAccessibilityTests`) read what a column and the scroll view give
 an assistive technology for a link: one element for a link whose font changes inside it, with
 its words, its place and a press that reports the link; the names of links that are pictures,

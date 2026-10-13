@@ -308,8 +308,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   VoiceOver's place in the text stays where it was, before the table, and moving by word
   from the link goes on from there. To read the cell around a link, interact with its row.
   An attachment in a cell that is no part of a link has the element the page's text gives
-  it ("Rules" above). Not changed: VoiceOver's Read Line said nothing with its cursor on a
-  cell's last word or past it, as before.
+  it ("Rules" above).
 - **Image inspection.** Double-click or double-tap an unlinked book image to inspect it in a separate
   native zoomable scroll surface, including images drawn inside table cells. On Mac, images
   also offer an Inspect Image context-menu action; UIKit supplies an attachment action and
@@ -391,7 +390,16 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   surfaces are hidden from assistive technology there. A text view that is merely not an
   element still offers UIKit's own elements for its text, and VoiceOver took those, every cell
   on the page, before the first line of a page column and then read the rows as well. On Mac
-  a row is a group that holds its cells' text areas. Continuations retain original
+  a row is a group that holds its cells' text areas. A cell's lines are those its own layout
+  makes, numbered from the first it shows, and the offset after its last character is on its
+  last line, as the offset after a page's last character is on the page's. VoiceOver leaves
+  a text's insertion point after a word it has read, so with its cursor on a cell's last
+  word, or past it, the insertion point is at that offset. While a cell had no line for it,
+  VoiceOver's Read Line (Control-Option-L) said nothing there, its moves to the line above
+  and the line below did nothing, and it counted "-9,223,372,036,854,775,808 lines". A
+  cell's text does not change while the cell stands, so no offset past that one is the
+  cell's, and none has a line.
+  Continuations retain original
   source offsets: several pages can report the same row range. Existing bookmarks naming a
   whole table still resolve to that table; new cell ranges identify the selected characters.
   Interaction surfaces are mounted only for visible cells. Cell TextKit
