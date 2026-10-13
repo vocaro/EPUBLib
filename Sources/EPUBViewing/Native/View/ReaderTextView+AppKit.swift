@@ -408,7 +408,8 @@ final class ReaderTextView: NSTextView {
             let local = NSRange(location: run.location - range.location, length: run.length)
             guard NSMaxRange(local) <= result.length else { continue }
             // The role says that it is an image, in VoiceOver's own language: no name is made up.
-            let label = attachments.first { $0.range == run }?.text ?? image.alt
+            let label = image.source.hasFailedSVGRendering ? image.alt
+                : (attachments.first { $0.range == run }?.text ?? image.alt)
             let element = accessibilityElement(at: run, label: label)
             // VoiceOver reads the help of an element without a label as its name, in the line.
             // A row's group has a label when its cells have words, which is not when the

@@ -156,7 +156,10 @@ final class ReaderImageAttachment: ReaderAttachment {
     /// The decoded archive path the image came from (empty for inline SVG).
     var path: String { source.path }
     /// The words that stand for the image, empty for decoration and for an image without any.
-    var alt: String { alternative.text }
+    var alt: String {
+        if alternative == .missing, source.hasFailedSVGRendering { return source.svgFallbackText }
+        return alternative.text
+    }
     /// The alt text (an SVG's title).
     override var textEquivalent: String { alt }
 
@@ -245,16 +248,26 @@ final class ReaderImageAttachment: ReaderAttachment {
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
                                       bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        let words = alt.isEmpty ? "Image unavailable" : alt
-        let font = CTFontCreateWithName("Helvetica" as CFString, max(8, min(fontSize * scale, CGFloat(height))), nil)
+        guard alternative != .decorative else { return nil }
+        let words = alt.isEmpty ? source.svgFallbackText : alt
         let color = isDark ? CGColor(gray: 1, alpha: 1) : CGColor(gray: 0, alpha: 1)
-        let text = NSAttributedString(string: words, attributes: [
-            NSAttributedString.Key(kCTFontAttributeName as String): font,
-            NSAttributedString.Key(kCTForegroundColorAttributeName as String): color,
-        ])
         let path = CGPath(rect: CGRect(x: 0, y: 0, width: width, height: height), transform: nil)
-        let frame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(text), CFRange(), path, nil)
-        CTFrameDraw(frame, context)
+        // A short attachment may be smaller than the reader's font. Fit its fallback
+        // instead of asking CoreText for an 8px line that a 1px frame cannot hold.
+        var points = max(0.25, min(fontSize * scale, CGFloat(height) * 0.65))
+        while true {
+            let font = CTFontCreateWithName("Helvetica" as CFString, points, nil)
+            let text = NSAttributedString(string: words, attributes: [
+                NSAttributedString.Key(kCTFontAttributeName as String): font,
+                NSAttributedString.Key(kCTForegroundColorAttributeName as String): color,
+            ])
+            let frame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(text), CFRange(), path, nil)
+            if CTFrameGetVisibleStringRange(frame).length == text.length || points <= 0.25 {
+                CTFrameDraw(frame, context)
+                break
+            }
+            points = max(0.25, points * 0.75)
+        }
         return context.makeImage()
     }
 

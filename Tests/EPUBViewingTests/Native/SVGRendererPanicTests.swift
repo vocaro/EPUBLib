@@ -27,7 +27,7 @@ final class SVGRendererPanicTests: XCTestCase {
             Input(name: "float curve", body: "<path d='M0 0 Q 1e20 1e20 3e20 1e20' fill='none' stroke='black'/>") ,
             Input(name: "raster arc", body: "<path d='M5 5 a1e12 1e12 0 1 0 0 1e12 z'/>", canvas: "0 0 10 10"),
             Input(name: "raster circle", body: "<circle cx='5' cy='5' r='1e7'/>", canvas: "0 0 10 10"),
-            Input(name: "zero-length repeating gradient", body: "<linearGradient id='g' x1='0' x2='0' spreadMethod='repeat'><stop offset='0.07' stop-color='#fff'/><stop offset='1' stop-color='#fff'/></linearGradient><rect width='50' height='50' fill='url(#g)'/>") ,
+            Input(name: "zero-length repeating gradient", body: "<linearGradient id='g' x1='0' x2='0' spreadMethod='repeat'><stop offset='0.07' stop-color='#fff'/><stop offset='0.29' stop-color='#fff'/><stop offset='1' stop-color='#fff'/></linearGradient><rect width='50' height='50' fill='url(#g)'/>") ,
         ]
     }
 
@@ -119,7 +119,7 @@ final class SVGRendererPanicTests: XCTestCase {
     func testReadableAlternativeBitmapForALaterRasterFailure() throws {
         // Within tiny-skia's coordinate reach at the initial 64-pixel raster, but outside
         // it when the inspector asks for 4096. The checked draw must still contain it.
-        let text = try RichMediaBook(body: "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><title>Diagram unavailable</title><circle cx='5' cy='5' r='100000'/></svg>").build()
+        let text = try RichMediaBook(body: "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><text x='1' y='5' font-size='2'>Diagram unavailable</text><circle cx='5' cy='5' r='100000'/></svg>").build()
         let image = try XCTUnwrap(text.richMediaImages.first)
         XCTAssertNotNil(image.cache.image(for: image.source, maxPixelSize: 64))
         XCTAssertNil(image.source.decode(maxPixelSize: 4096))
@@ -129,6 +129,12 @@ final class SVGRendererPanicTests: XCTestCase {
         let pixels = try XCTUnwrap(fallback.dataProvider?.data as Data?)
         XCTAssertGreaterThan(pixels.enumerated().filter { $0.offset % 4 == 3 && $0.element != 0 }.count, 100,
                              "The failure alternative paints visible glyphs")
-        XCTAssertEqual(image.textEquivalent, "Diagram unavailable")
+        XCTAssertEqual(image.textEquivalent, "Diagram unavailable", "Preserve text labels even without title or desc")
+        let short = try XCTUnwrap(image.fallbackBitmap(size: CGSize(width: 200, height: 3), scale: 2))
+        let shortPixels = try XCTUnwrap(short.dataProvider?.data as Data?)
+        XCTAssertTrue(shortPixels.enumerated().contains { $0.offset % 4 == 3 && $0.element != 0 }, "A short frame still fits fallback glyphs")
+        #if os(iOS)
+        XCTAssertEqual(image.accessibilityLabel, "Diagram unavailable")
+        #endif
     }
 }

@@ -9,6 +9,7 @@ final class SVGRenderer: @unchecked Sendable {
     private let tree: OpaquePointer
     private let options: SVGRenderOptions
     let size: CGSize
+    let fallbackText: String
     private let maximumRasterPixels: Int
     private let failureLock = NSLock()
     private var failed = false
@@ -32,6 +33,7 @@ final class SVGRenderer: @unchecked Sendable {
         tree = parsed
         self.options = options
         size = CGSize(width: CGFloat(dimensions.width), height: CGFloat(dimensions.height))
+        fallbackText = SVGContent.fallbackText(document.root)
         let layers = SVGContent.isolatedLayers(document.root)
         maximumRasterPixels = layers == 0 ? 16 * 1024 * 1024 : (96 * 1024 * 1024) / (4 + 25 * 5 * layers)
         // A small raster catches parse-independent failures while section construction can

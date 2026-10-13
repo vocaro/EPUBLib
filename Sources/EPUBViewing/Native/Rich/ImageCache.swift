@@ -25,6 +25,7 @@ final class ReaderImageSource: @unchecked Sendable {
     private let svgRenderer: SVGRenderer?
     /// A later-size SVG render failed; attachments retain their words as a visible fallback.
     var hasFailedSVGRendering: Bool { svgRenderer?.hasFailedRendering ?? false }
+    var svgFallbackText: String { svgRenderer?.fallbackText ?? "" }
 
     /// Bitmaps over this many pixels are refused as unreadable rather than decoded.
     static let maximumPixelCount = 64 * 1024 * 1024
