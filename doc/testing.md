@@ -135,6 +135,8 @@ waits for the insets and asks for the layout. The session test uses the public r
 `ignoresSafeArea()`: under a `NavigationStack` whose bar it hides on iOS, and on the Mac in a
 window whose toolbar it shows and hides, each followed by a change of appearance, which lays the
 reader out. The bars are the system's own, in a test host; nothing is looked at on a screen.
+Each window's toolbar has an identifier of its own: toolbars that share one share their
+visibility across the windows of a process, so hiding one hides the next test's.
 
 Highlight paint tests read the pixels the mounted reader's views last drew: none in the
 highlight's color before a search, the matches after it, and none again after Clear Search,
@@ -165,7 +167,10 @@ test that exposes an open defect is marked `XCTExpectFailure` (or `withKnownIssu
 issue's URL, and fails once the defect is fixed: remove the marker with the fix. Ratio-timed
 cost tests and tests that fail on one platform only are marked non-strictly or for that
 platform. A test whose input kills the test process is disabled by name (`disabled_test…`)
-with its issue above it. Three [corpus runs](#corpus-runs) are opt-in: `EPUBLIB_W3C_EPUB_TESTS` (the `tests`
+with its issue above it. A test of input that TextKit might never finish laying out runs the
+layout under `BoundedLayout` (`BoxLayoutTerminationCoverageTests`), which stops the reader's
+text container answering after a set number of calls, so the test fails instead of hanging
+the suite. Three [corpus runs](#corpus-runs) are opt-in: `EPUBLIB_W3C_EPUB_TESTS` (the `tests`
 directory of w3c/epub-tests) holds each W3C reading-system test to an expected outcome,
 `EPUBLIB_EPUBCHECK_FIXTURES` (`src/test/resources` of w3c/epubcheck) takes every EPUBCheck
 fixture through opening, text extraction and a native build, and `EPUBLIB_EPUBCHECK_CLI` (the

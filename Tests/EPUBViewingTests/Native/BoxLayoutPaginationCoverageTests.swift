@@ -9,6 +9,37 @@ import AppKit
 import UIKit
 #endif
 
+/// TextKit's own fragment with chosen margins: the reader's without what it does to its frame.
+private final class PlainMarginFragment: NSTextLayoutFragment {
+    var top: CGFloat = 0, bottom: CGFloat = 0
+    override var topMargin: CGFloat { super.topMargin + top }
+    override var bottomMargin: CGFloat { super.bottomMargin + bottom }
+}
+
+/// Fragments with chosen margins, by the offset each paragraph starts at: the reader's, or
+/// TextKit's own.
+private final class BoxMarginFragments: NSObject, NSTextLayoutManagerDelegate {
+    let margins: [Int: (top: CGFloat, bottom: CGFloat)]
+    let plain: Bool
+    weak var storage: NSTextContentStorage?
+    init(margins: [Int: (top: CGFloat, bottom: CGFloat)], plain: Bool, storage: NSTextContentStorage) {
+        self.margins = margins; self.plain = plain; self.storage = storage
+    }
+
+    func textLayoutManager(_ manager: NSTextLayoutManager, textLayoutFragmentFor location: any NSTextLocation,
+                           in element: NSTextElement) -> NSTextLayoutFragment {
+        let margin = storage.flatMap { margins[$0.offset(from: $0.documentRange.location, to: location)] } ?? (0, 0)
+        if plain {
+            let fragment = PlainMarginFragment(textElement: element, range: nil)
+            fragment.top = margin.top; fragment.bottom = margin.bottom
+            return fragment
+        }
+        let fragment = ReaderBoxLayoutFragment(textElement: element, range: nil)
+        fragment.topAdjustment = margin.top; fragment.bottomAdjustment = margin.bottom
+        return fragment
+    }
+}
+
 /// Box geometry where it meets pages, relayout, hit testing and hostile input: what
 /// `doc/native-viewer.md` promises of groups, fallbacks and "recompute geometry from source
 /// formatting", and that untrusted lengths and counts neither crash nor stall the layout.
@@ -320,12 +351,9 @@ import UIKit
     }
 
     /// A page that opens with two floats in a row, stacked on one side or one on each side, as a
-    /// floated figure followed by a drop cap does. The paragraph after them is drawn with its
-    /// first line above the page and every other line on one row.
+    /// floated figure followed by a drop cap does. The paragraph after them was once drawn with
+    /// its first line above the page and every other line on one row.
     func testFloatsInARowOpeningAPageKeepTheProseAfterThemInRows() throws {
-        #if os(macOS)
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/146")
-        #endif
         let small = CGSize(width: 180, height: 240)
         for (name, css) in [("stacked on the left", ".x, .y { float:left; width:60px; height:75px }"),
                             ("left and right", ".x { float:left; width:50px; height:75px } .y { float:right; width:50px; height:75px }")] {
@@ -345,6 +373,203 @@ import UIKit
             }
             XCTAssertEqual(overlapping, 0, "pairs of lines drawn over each other, of \(lines.count) lines: \(name)")
         }
+    }
+
+    /// The fragments TextKit starts above the top of `view`'s text. It lays the lines of such a
+    /// fragment one over another, so there must be none.
+    private func fragmentsAboveTheTop(_ view: ReaderTextView) -> Int {
+        var count = 0
+        view.readerLayoutManager.enumerateTextLayoutFragments(from: view.contentStorage.documentRange.location, options: [.ensuresLayout]) { fragment in
+            if fragment.layoutFragmentFrame.origin.y < 0 { count += 1 }
+            return true
+        }
+        return count
+    }
+
+    /// Pairs of the lines `view` shows whose ink is drawn over each other.
+    private func overlappingLines(_ view: ReaderTextView) -> Int {
+        let inks = shownLines(view).map { line in
+            view.segmentFrames(for: NSRange(location: line.range.location, length: max(1, line.range.length - 1))).reduce(CGRect.null) { $0.union($1) }
+        }
+        var overlapping = 0
+        for (index, ink) in inks.enumerated() {
+            for other in inks.dropFirst(index + 1) where H.overlaps([ink], [other]) { overlapping += 1 }
+        }
+        return overlapping
+    }
+
+    /// The boxes that can open a page, each followed by prose.
+    private let pageOpeners: [(name: String, body: String, css: String)] = [
+        ("one float", "<figure class='x'>Float one.</figure><p>After the boxes. \(BoxLayoutHarness.prose)</p>", ".x { float:left; width:60px; height:75px }"),
+        ("two floats stacked on the left", "<figure class='x'>Float one.</figure><figure class='x'>Float two.</figure><p>After the boxes. \(BoxLayoutHarness.prose)</p>",
+         ".x { float:left; width:60px; height:75px }"),
+        ("a float on each side", "<figure class='x'>Float one.</figure><figure class='y'>Float two.</figure><p>After the boxes. \(BoxLayoutHarness.prose)</p>",
+         ".x { float:left; width:50px; height:75px } .y { float:right; width:50px; height:75px }"),
+        ("a float and a drop cap", "<figure class='x'>Float one.</figure><p><span class='cap'>A</span>fter the boxes. \(BoxLayoutHarness.prose)</p>",
+         ".x { float:right; width:60px; height:75px } .cap { float:left; font-size:2.6em }"),
+        ("a float of two paragraphs", "<figure class='x'><p>Top.</p><p>End.</p></figure><p>After the boxes. \(BoxLayoutHarness.prose)</p>",
+         ".x { float:left; width:70px; height:85px }"),
+        ("an absolute box", "<aside class='x'>Boxed.</aside><p>After the boxes. \(BoxLayoutHarness.prose)</p>", ".x { position:absolute; right:0; width:70px; height:85px }"),
+        ("a float as wide as the column", "<figure class='x'>Float one.</figure><p>After the boxes. \(BoxLayoutHarness.prose)</p>", ".x { float:left; width:100%; height:80px }"),
+        ("a sized inline-block as wide as the column", "<p>Before <span class='x'>Boxed words.</span> After the boxes. \(BoxLayoutHarness.prose)</p>",
+         ".x { display:inline-block; width:500px; height:80px }")]
+
+    /// A page that opens with boxes is the section's own layout from the boxes down: no line
+    /// over another, each line broken where the whole section breaks it and as far below the
+    /// page's first. A box takes back its lines' height with a negative margin, which TextKit
+    /// adds to that height only to within rounding: this near a section's top a few 1e-14
+    /// either way, with the text size and where the box stands. Where the sum fell short the
+    /// paragraph after the boxes started above the page's top and had all its lines on one
+    /// row, so the boxes are tried at many heights and sizes.
+    func testAPageOpeningWithBoxesIsLaidOutAsTheSectionIsWhereverTheBoxesStand() throws {
+        let small = CGSize(width: 180, height: 240)
+        for (name, body, css) in pageOpeners {
+            var checked = 0
+            for fontSize: CGFloat in [12, 14.5, 16, 19.3] {
+                // A margin under the first paragraph moves the boxes down past the foot of the first page.
+                for margin in stride(from: 172.0, through: 215.0, by: 6.1) {
+                    let label = "\(name), text size \(fontSize), lead margin \(margin)"
+                    let section = try build("<p class='lead'>Lead.</p>" + body, css: ".lead { margin-bottom:\(margin)px } " + css, fontSize: fontSize)
+                    let (paginator, pages) = H.pages(section, size: small, label)
+                    let after = H.range("fter the boxes.", in: section)
+                    guard let plan = paginator.text.attribute(.readerBoxPage, at: 0, effectiveRange: nil) as? ReaderBoxPage,
+                          let index = pages.firstIndex(where: { NSLocationInRange(after.location, $0.range) }), index > 0,
+                          plan.geometry.regions.contains(where: { !$0.reserved && $0.range.location == pages[index].range.location }) else { continue }
+                    checked += 1
+                    let page = pages[index], view = H.pageView(paginator, page: page)
+                    XCTAssertEqual(fragmentsAboveTheTop(view), 0, "fragments above the page's top: \(label)")
+                    XCTAssertEqual(overlappingLines(view), 0, "pairs of lines drawn over each other: \(label)")
+                    assertLinesFit(view, page: page, size: small, label)
+                    let whole = H.view(section.string, size: small)
+                    let expected = H.lines(in: whole, intersecting: page.range), lines = H.lines(in: view, intersecting: view.shownCharacters)
+                    XCTAssertEqual(lines.map { NSRange(location: $0.range.location + page.range.location, length: $0.range.length) }, expected.map(\.range),
+                                   "the section's line breaks: \(label)")
+                    let first = try XCTUnwrap(lines.first, label), top = try XCTUnwrap(expected.first, label)
+                    for (line, other) in zip(lines, expected) {
+                        XCTAssertEqual(line.frame.minX, other.frame.minX, accuracy: 0.5, "\(label) \(other.range)")
+                        XCTAssertEqual(line.frame.minY - first.frame.minY, other.frame.minY - top.frame.minY, accuracy: 0.5, "\(label) \(other.range)")
+                    }
+                }
+            }
+            XCTAssertGreaterThanOrEqual(checked, 12, "the fixture opens pages with \(name)")
+        }
+    }
+
+    /// More boxes that can open a section. At the very top of a section most of the boxes above
+    /// take back exactly their height at every text size; these fall short at several.
+    private let sectionOpeners: [(name: String, body: String, css: String)] = [
+        ("three floats stacked on the left", "<figure class='x'>Float one.</figure><figure class='x'>Float two.</figure><figure class='x'>Float three.</figure>"
+            + "<p>After the boxes. \(BoxLayoutHarness.prose)</p>", ".x { float:left; width:60px; height:75px }"),
+        ("a float with a margin below it", "<figure class='x'>Float one.</figure><p>After the boxes. \(BoxLayoutHarness.prose)</p>",
+         ".x { float:left; width:60px; height:75px; margin-bottom:0.7em }"),
+        ("a float with margins above and below it", "<figure class='x'>Float one.</figure><p>After the boxes. \(BoxLayoutHarness.prose)</p>",
+         ".x { float:left; width:60px; height:75px; margin:0.7em 0 }")]
+
+    /// The same at the start of a section, where a box that falls short of its lines' height
+    /// puts the paragraph after it above the top of the whole text: in the paginator's own
+    /// layout and in continuous scroll.
+    func testASectionOpeningWithBoxesKeepsTheProseAfterThemInRows() throws {
+        for (name, body, css) in pageOpeners + sectionOpeners {
+            for fontSize in stride(from: CGFloat(11), through: 31, by: 1.3) {
+                let label = "\(name), text size \(fontSize)"
+                let section = try build(body, css: css, fontSize: fontSize)
+                let size = CGSize(width: 320, height: 2_000)
+                let whole = H.view(section.string, size: size, pageColumn: false)
+                XCTAssertEqual(fragmentsAboveTheTop(whole), 0, "fragments above the text's top: \(label)")
+                XCTAssertEqual(overlappingLines(whole), 0, "pairs of lines drawn over each other: \(label)")
+                let (paginator, pages) = H.pages(section, size: size, label)
+                let first = H.pageView(paginator, page: pages[0])
+                XCTAssertEqual(fragmentsAboveTheTop(first), 0, "fragments above the first page's top: \(label)")
+                XCTAssertEqual(overlappingLines(first), 0, "pairs of lines drawn over each other on the first page: \(label)")
+            }
+        }
+    }
+
+    /// TextKit starts each fragment where the one before it ends, and lays the lines of a
+    /// fragment that starts above the top of its container one over another, however little
+    /// above. A box's margins take back its height only to within rounding, so a frame that
+    /// would end that little above the top ends at it. A frame that ends above the top by a
+    /// real distance is another fault (https://github.com/vocaro/EPUBLib/issues/242): it is
+    /// left exactly as TextKit has it, and so is one that ends inside the container, above
+    /// where it starts (the last paragraph of a box of several does).
+    func testAFrameEndingAboveTheTopByARoundingResidualEndsAtItAndOneFurtherAboveIsLeftAlone() throws {
+        let prose = Array(repeating: "Ordinary prose wraps beside the box and returns to the full column below it.", count: 3).joined(separator: " ")
+        let paragraphs = ["Box words.", prose, "Last paragraph of words that wraps to a second line at least."]
+        let text = NSAttributedString(string: paragraphs.joined(separator: "\n"), attributes: [.font: PlatformFont.systemFont(ofSize: 16)])
+        let starts = paragraphs.indices.map { index in paragraphs[..<index].reduce(0) { $0 + $1.utf16.count + 1 } }
+        func layout(_ margins: [Int: (top: CGFloat, bottom: CGFloat)], plain: Bool = false) -> [(frame: CGRect, lines: [CGFloat])] {
+            let storage = NSTextContentStorage(), manager = NSTextLayoutManager()
+            storage.addTextLayoutManager(manager)
+            let container = ReaderTextContainer(size: CGSize(width: 180, height: 0))
+            container.lineFragmentPadding = 0
+            // A box elsewhere: the container is no plain rectangle, as on every page with a box.
+            container.boxRegions = [.init(range: NSRange(location: 0, length: 0), frame: CGRect(x: 0, y: 50_000, width: 60, height: 60), side: .left)]
+            manager.textContainer = container
+            let delegate = BoxMarginFragments(margins: margins, plain: plain, storage: storage)
+            manager.delegate = delegate
+            storage.attributedString = text
+            var fragments: [(CGRect, [CGFloat])] = []
+            manager.enumerateTextLayoutFragments(from: storage.documentRange.location, options: [.ensuresLayout]) { fragment in
+                fragments.append((fragment.layoutFragmentFrame, fragment.textLineFragments.filter { $0.characterRange.length > 0 }.map(\.typographicBounds.minY)))
+                return true
+            }
+            return withExtendedLifetime(delegate) { fragments }
+        }
+        /// The reader's fragments with `margins` are TextKit's own, bit for bit.
+        func assertLeftAlone(_ margins: [Int: (top: CGFloat, bottom: CGFloat)], _ label: String, line: UInt = #line) {
+            let reader = layout(margins), own = layout(margins, plain: true)
+            XCTAssertEqual(reader.map(\.frame), own.map(\.frame), "the frames are TextKit's own: \(label)", line: line)
+            XCTAssertEqual(reader.map(\.lines), own.map(\.lines), "the lines are TextKit's own: \(label)", line: line)
+        }
+        let natural = layout([:])
+        XCTAssertEqual(natural.count, 3)
+        let heights = natural.map(\.frame.height), rows = natural[1].lines
+        XCTAssertGreaterThanOrEqual(rows.count, 4, "the second paragraph wraps")
+        XCTAssertEqual(rows, rows.sorted()); XCTAssertEqual(Set(rows).count, rows.count, "its lines are in rows")
+        assertLeftAlone([:], "no margins")
+        // The limit between a residual and a distance, from both sides: a frame that ends half
+        // of it above the top is held there, and one that ends twice it above is left alone.
+        // Both follow the constant, so its value is held here too: the one its measurements
+        // bear out.
+        let limit = ReaderBoxLayoutFragment.roundingLimit
+        XCTAssertEqual(limit, 1e-6, "see what `ReaderBoxLayoutFragment.roundingLimit` was measured against before changing it")
+        for top: CGFloat in [0, 30] {
+            // What the sum of a box's margins and its height is out by: a few 1e-14 at the head
+            // of a section and up to about twenty ulps of the depth further down it (7.1e-11 at
+            // 16,543 points, 1.7e-9 at 904,000). Half the limit is still taken for it.
+            for residual: CGFloat in [0, heights[0].ulp, 2.2e-14, 1.4e-11, 1e-9, limit / 2] {
+                let label = "a top margin of \(top) and \(residual) more than its height taken back"
+                let fragments = layout([starts[0]: (top, -(top + heights[0] + residual))])
+                XCTAssertEqual(fragments[0].lines.first ?? -1, top, accuracy: 1e-6, label)
+                XCTAssertGreaterThanOrEqual(fragments[1].frame.origin.y, 0, "the next fragment starts in the container: \(label)")
+                XCTAssertEqual(fragments[1].frame.origin.y, 0, accuracy: 1e-9, label)
+                XCTAssertEqual(fragments[1].lines.count, rows.count, label)
+                for (line, row) in zip(fragments[1].lines, rows) { XCTAssertEqual(line, row, accuracy: 1e-6, "its lines keep their rows: \(label)") }
+                XCTAssertEqual(fragments[2].frame.origin.y, heights[1], accuracy: 1e-6, label)
+            }
+            // Twice the limit, then what a page's first box that was pushed down ends above the
+            // top by.
+            for distance: CGFloat in [limit * 2, 0.5, 9.5, 13] {
+                let label = "a top margin of \(top) and \(distance) more than its height taken back"
+                let margins = [starts[0]: (top: top, bottom: -(top + heights[0] + distance))]
+                assertLeftAlone(margins, label)
+                XCTAssertEqual(layout(margins)[1].frame.origin.y, -distance, accuracy: 1e-9, "the next fragment starts above the top: \(label)")
+            }
+        }
+        // The second fragment takes back the first's height too, as the last paragraph of a box
+        // of two does, and a residual more: it ends at the top.
+        let returned = layout([starts[1]: (0, -(heights[1] + heights[0] + 1.4e-11))])
+        XCTAssertEqual(returned[1].frame.origin.y, heights[0], accuracy: 1e-6)
+        XCTAssertGreaterThanOrEqual(returned[2].frame.origin.y, 0, "the fragment after it starts in the container")
+        XCTAssertEqual(returned[2].frame.origin.y, 0, accuracy: 1e-9)
+        XCTAssertEqual(returned[2].lines.count, natural[2].lines.count)
+        for (line, row) in zip(returned[2].lines, natural[2].lines) { XCTAssertEqual(line, row, accuracy: 1e-6) }
+        // And 5 points more: it ends above the top, and stays there.
+        assertLeftAlone([starts[1]: (0, -(heights[1] + heights[0] + 5))], "the second fragment ends 5 above the top")
+        // Half of the first's height: it ends inside the container, and stays there.
+        let inside = [starts[1]: (top: CGFloat(0), bottom: -(heights[1] + heights[0] / 2))]
+        assertLeftAlone(inside, "the second fragment ends inside the container")
+        XCTAssertEqual(layout(inside)[2].frame.origin.y, heights[0] / 2, accuracy: 1e-6)
     }
 
     /// A table row starts below every float. Its first row begins exactly at the float's bottom

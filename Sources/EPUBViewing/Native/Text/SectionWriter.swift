@@ -667,7 +667,7 @@ final class SectionWriter {
                            left: left, right: right, textIndent: resolve(style.textIndent),
                            lineHeightMultiple: multiple, lineHeight: cssLineHeight, hyphenate: style.hyphens == .auto,
                            characterWrap: style.whiteSpace == .pre,
-                           tabInterval: style.whiteSpace.preservesSpaces ? 8 * InlineStyling.spaceAdvance(font) : 0)
+                           tabInterval: InlineStyling.tabInterval(font), preservesTabs: style.whiteSpace.preservesSpaces)
     }
 
     private func resolve(_ length: ComputedStyle.Length) -> CGFloat {
@@ -877,7 +877,17 @@ final class SectionWriter {
         }
         key.hyphenate = format.hyphenate
         key.characterWrap = format.characterWrap
+        // Every tab must have somewhere to go wherever its line starts, and a paragraph can hold
+        // one whatever its box's `white-space`: an inline box that keeps its own, a string
+        // marker, the tab between a fallback table row's cells. TextKit cannot place a tab that
+        // has neither a stop after it nor an interval (`InlineStyling.tabInterval`), so every
+        // paragraph has the interval of its box's `tab-size`.
         key.tabInterval = format.tabInterval
+        // A marker's one stop is not always ahead of it: a box left in flow moves its first
+        // line onto or past the stop (`ReaderFlowBoxLayout`), and TextKit measures a
+        // right-to-left paragraph's stops short by its tail indent. A tab past the stop falls
+        // on the next multiple of the marker's width instead, unless the item keeps its tabs.
+        if !format.preservesTabs, let width = paragraph.markerWidth { key.tabInterval = InlineStyling.tabInterval(width) }
         guard let base = paragraph.factoryStyle, let style = base.mutableCopy() as? NSMutableParagraphStyle else {
             return styling.paragraphStyle(key)
         }
@@ -885,6 +895,10 @@ final class SectionWriter {
         style.firstLineHeadIndent += key.firstLineHeadIndent
         style.headIndent += key.headIndent
         style.tailIndent = base.tailIndent <= 0 ? base.tailIndent - key.tailInset : base.tailIndent
+        // Its stops are its own (a table row's are the system's, which end 336 points along),
+        // and so is its interval where it has one, but in the paragraph a marker opens.
+        let own = base.defaultTabInterval
+        if paragraph.markerWidth != nil || !(own.isFinite && own >= 1) { style.defaultTabInterval = key.tabInterval }
         if !paragraph.continuation { style.paragraphSpacingBefore = key.spacingBefore }
         if !paragraph.hasNext { style.paragraphSpacing = key.spacingAfter }
         if style.baseWritingDirection == .natural { style.baseWritingDirection = key.direction }
@@ -1598,7 +1612,10 @@ private struct BlockFormat {
     var lineHeight: CGFloat?
     var hyphenate: Bool
     var characterWrap: Bool
+    /// `tab-size` in points: eight spaces of the box's font, and never zero.
     var tabInterval: CGFloat
+    /// `white-space` keeps the box's own tabs (`pre`, `pre-wrap`, `break-spaces`).
+    var preservesTabs: Bool
 }
 
 private struct BlockFrame {
