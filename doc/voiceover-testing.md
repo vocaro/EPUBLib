@@ -638,7 +638,21 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    found" past the last, and the view shows the heading; `rotor` opens on the Heading menu,
    which lists the page's headings, or the whole book's in continuous scroll, each by its
    words and level, and `listchoose` moves to the one named.
-10. Restore all original VoiceOver/scripting settings and independently verify restoration.
+10. What each item offers, on an iPhone and iPad, on the section "What each line offers".
+    With the cursor on an item, step through the rotor (`flick=down`) until VoiceOver says
+    "Activate Default": what came before it is everything the item offers. In pages "Plain
+    words above.", the link "Lone jump" and "Plain words below." offer Next Page and Previous
+    Page and no more; "Square with words" offers those and Inspect Image: Square with words;
+    the picture without words, one move forward from "Nameless picture", those and Inspect
+    Image; and the table's row those, Select Table Text: Left cell, Select Table Text: Right
+    cell jump and Follow Table Link: Right cell jump. In continuous scroll each offers the
+    same without the two page turns, so a line of words and the link offer nothing: the rotor
+    has no Actions setting on them (`rotor=Actions` ends in `MISSING`), and a step through it
+    reads the line by the setting the rotor is on. No item offers a picture or a link that is
+    not its own, or "Verification link", which is in the book's first section. On a device,
+    choose Inspect Image on a picture and double-tap, and the inspector opens; choose Next
+    Page on a line of a page and double-tap, and the page turns.
+11. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
@@ -1069,6 +1083,52 @@ The Mac runner's transcript is plain text and needs no export.
   VoiceOver on; the rotor steps were run again alone. Each time VoiceOver was left on it was
   switched off with `devicectl device settings voiceover --disable` and read back as off.
   Nobody listened to any of these sessions.
+- On 2026-10-12 the section of what each line offers was stepped through with the rotor at
+  17 points, before and after each item was held to its own actions, in the
+  [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and an iPad Air
+  13-inch (M4)). Nobody listened. The lists are XCTest's record of VoiceOver's phrase after
+  each step of one finger down; a phrase that comes twice running in a transcript is one
+  entry, heard before and after a step that did not register.
+  Before, at `073f2b0`, in pages on both, on "Plain words above.", on the link "Lone jump"
+  and on "Plain words below.": "Next Page", "Previous Page", "Inspect Image: Square with
+  words", "Inspect Image", "Previous Page", "Next Page", "Activate Default", and round
+  again. "Square with words" offered its own inspection third and then the same two
+  inspections; the picture without words likewise; the table's row "Select Table Text: Left
+  cell", "Select Table Text: Right cell jump" and "Follow Table Link: Right cell jump" after
+  the first pair, then the two inspections and the second pair. In continuous scroll on
+  both, on a line of words: "Verification link", "￼", "￼", "￼ Jump with decoration", "￼",
+  "Lone jump", "Inspect Image: Square with words", "Inspect Image", "Previous Page", "Next
+  Page", "Activate Default". Ten actions, none of them the line's; the pictures and the row
+  offered their own first and then the same ten.
+  A build that put a letter before every action's name for the object that gave it
+  (`5c01fa8`, on the iPhone simulator) settled where each came from. On a line of a page:
+  "L Next Page" and "L Previous Page" from the line's own element, "K nil" for what UIKit
+  returned to the text view, "T Inspect Image: Square with words" and "T Inspect Image"
+  from the text view, and "S Previous Page" and "S Next Page" from the reader's SwiftUI
+  view. On a line of continuous scroll: "K Verification link", "K ￼", "K ￼", "K ￼ Jump with
+  decoration", "K ￼", "K Lone jump" and "K count 6", then the same two T and two S. UIKit's
+  six are the book's six runs of text that are links, in the book's order: the first
+  section's, the parked link of the hidden labels, the three of the pictures (two of them a
+  picture alone) and this section's own. A link in a table cell is not among them, and no
+  picture that is not a link.
+  After, in pages at `918ec8b` on both: "Next Page", "Previous Page", "Activate Default" on
+  a line and on the link; "Inspect Image: Square with words", or "Inspect Image" on the
+  picture without words, before "Activate Default" on a picture; the three table actions
+  there on the row; and a turn of the rotor on a line came to Actions. In continuous scroll
+  at `5e6834c` on the iPad: a step on a line or on the link read the line a character at a
+  time ("P Papa", "l Lima"), and thirty turns of the rotor on a line went round Containers,
+  Lines, Words, Characters, Headings and Speaking Rate and never came to Actions; "Square
+  with words" said "Actions available" and offered "Inspect Image: Square with words" and
+  then "Activate Default", the picture without words "Inspect Image", and the row its three.
+  `5e6834c` is the change of `918ec8b` on the table branch's own merge with `main`: the two
+  readers differ in how one branch of a table row's element is written.
+  Most sessions started that evening did not run. At load averages of 600 to 1,000
+  `devicectl` gave no answer in the runner's twenty seconds when a simulator's volume was
+  set, and later failed with "Timed out waiting for CoreDeviceService to fully initialize";
+  the iPad simulator's VoiceOver said nothing in three minutes twice; and XCTest failed one
+  iPad session after its last step ("Critical process xctest crashed"), whose transcript is
+  whole. One iPhone simulator came back at volume 60 during the labelled continuous-scroll
+  session and was muted again by the runner within a second (an `UNMUTED` line).
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
