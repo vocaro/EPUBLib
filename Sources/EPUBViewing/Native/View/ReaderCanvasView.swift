@@ -970,11 +970,11 @@ import AppKit
                 // it said the word before the insertion point, and at the layout change below,
                 // or without one at its next command, scrolled the view back to its line by
                 // the scroll bar's value. The reader's step was undone, and the insertion
-                // point then followed that scroll to the top of the book. Told a second time,
+                // point, still the reader's, followed that scroll. Told a second time,
                 // VoiceOver takes its cursor to the insertion point, as it does at the first
                 // notice once it has moved by line. Moving the insertion point twice did the
                 // same; moving it before the scroll, or posting the layout change from
-                // another element, first or not at all, did not (macOS 27.0.1).
+                // another element, first or not at all, did not (macOS 27.0.1, #473).
                 if requested { postAccessibilityNotification(textView, .selectedTextChanged, [:]) }
             }
         }
