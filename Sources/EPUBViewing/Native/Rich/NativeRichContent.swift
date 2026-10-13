@@ -32,7 +32,11 @@ struct NativeRichContent: RichContentFactory {
         } else {
             reference = element.attribute("src")
         }
-        var alt = Self.normalized(element.attribute("alt") ?? (isObject || isEmbed ? element.attribute("title") : nil) ?? "")
+        // An empty `alt` marks decoration; an `<object>` or `<embed>` has no `alt` and is named by its title.
+        var alternative = ImageAlternative(alt: element.attribute("alt"))
+        if alternative == .missing, isObject || isEmbed { alternative = ImageAlternative(name: element.attribute("title")) }
+        // What is shown when the image cannot be: its words, whatever the book says of its part.
+        var alt = alternative.text
         // An `<object>` falls back to its own content, an image to its alt text.
         let fallback = { isObject ? nil : Self.altText(alt, style: style, context: context) }
         guard let reference = reference?.trimmingCharacters(in: .whitespacesAndNewlines), !reference.isEmpty,
@@ -50,7 +54,8 @@ struct NativeRichContent: RichContentFactory {
                 if alt.isEmpty, let document = try? ContentDocument.parse(data, path: path, asContent: false) { alt = SVGContent.fallbackText(document.root) }
                 return fallback()
             }
-            if alt.isEmpty { alt = SVGContent.accessibleLabel(root) ?? "" }
+            // A drawing's own title names it only where the book gave no `alt` at all.
+            if alternative == .missing { alternative = ImageAlternative(name: SVGContent.accessibleLabel(root)) }
             source = svg
             intrinsic = SVGContent.intrinsicSize(root, fontSize: style.fontSize, fallback: svg.pixelSize)
         } else {
@@ -64,7 +69,7 @@ struct NativeRichContent: RichContentFactory {
         if intrinsic.width <= 0 || intrinsic.height <= 0 { intrinsic = source.pixelSize }
         let sizing = ImageSizing(intrinsic: intrinsic, style: style, widthHint: element.attribute("width"),
                                  heightHint: element.attribute("height"))
-        return attachment(ReaderImageAttachment(source: source, sizing: sizing, alt: alt, style: style,
+        return attachment(ReaderImageAttachment(source: source, sizing: sizing, alternative: alternative, style: style,
                                                 isDark: context.typography.isDark, cache: images),
                           style: style, context: context)
     }
@@ -92,8 +97,8 @@ struct NativeRichContent: RichContentFactory {
             let intrinsic = SVGContent.intrinsicSize(element, fontSize: style.fontSize, fallback: source.pixelSize)
             let sizing = ImageSizing(intrinsic: intrinsic, style: style, widthHint: widthHint, heightHint: heightHint)
             let placement = SVGContent.placement(of: image, in: element, source: source, fontSize: style.fontSize)
-            let alt = title.isEmpty ? Self.normalized(image.attribute("alt") ?? "") : title
-            return attachment(ReaderImageAttachment(source: source, sizing: sizing, alt: alt, style: style,
+            let alternative = title.isEmpty ? ImageAlternative(alt: image.attribute("alt")) : .text(title)
+            return attachment(ReaderImageAttachment(source: source, sizing: sizing, alternative: alternative, style: style,
                                                     contentRect: placement, isDark: context.typography.isDark, cache: images),
                               style: style, context: context)
         }
@@ -108,7 +113,7 @@ struct NativeRichContent: RichContentFactory {
         }
         let intrinsic = SVGContent.intrinsicSize(element, fontSize: style.fontSize, fallback: source.pixelSize)
         let sizing = ImageSizing(intrinsic: intrinsic, style: style, widthHint: widthHint, heightHint: heightHint)
-        return attachment(ReaderImageAttachment(source: source, sizing: sizing, alt: title, style: style,
+        return attachment(ReaderImageAttachment(source: source, sizing: sizing, alternative: ImageAlternative(name: title), style: style,
                                                 isDark: context.typography.isDark, cache: images),
                           style: style, context: context)
     }
@@ -161,10 +166,6 @@ struct NativeRichContent: RichContentFactory {
     private static func isSVG(_ data: Data, path: String, context: RichContentContext) -> Bool {
         guard ImageType.mediaType(of: data) == nil else { return false }
         return ImageType.isSVG(data, path: path, mediaType: context.publication.resources.first { $0.path == path }?.mediaType)
-    }
-
-    private static func normalized(_ text: String) -> String {
-        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
     private static func altText(_ alt: String, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {

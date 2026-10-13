@@ -106,12 +106,14 @@ import UIKit
     static func pageBoundaries(_ pages: [ReaderPage]) -> [Int] { pages.map(\.range.location) }
 
     /// A book image as the section builder makes one, `shownWidth` points wide on the line.
-    static func readerImage(width: Int, height: Int, shownWidth: CGFloat, alt: String = "Figure") throws -> ReaderImageAttachment {
+    /// `alt` is the attribute as a book writes it: words, empty for decoration, nil for none.
+    static func readerImage(width: Int, height: Int, shownWidth: CGFloat, alt: String? = "Figure") throws -> ReaderImageAttachment {
         let source = try XCTUnwrap(ReaderImageSource.bitmap(RichFixture.image(width: width, height: height), path: "figure.png",
                                                              key: UUID().uuidString))
         var sizing = ImageSizing(intrinsic: source.pixelSize)
         sizing.width = .points(shownWidth)
-        return ReaderImageAttachment(source: source, sizing: sizing, alt: alt, style: ComputedStyle(), cache: ReaderImageCache(budget: 96 << 20))
+        return ReaderImageAttachment(source: source, sizing: sizing, alternative: ImageAlternative(alt: alt), style: ComputedStyle(),
+                                     cache: ReaderImageCache(budget: 96 << 20))
     }
 
     /// An image's attachment character with body attributes, as it stands in a paragraph.

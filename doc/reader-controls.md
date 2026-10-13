@@ -69,9 +69,10 @@ where it is offered less it takes that and scrolls its groups. Its own search fi
 keyboard, and what the keyboard leaves a stack of the strip and the reader can be less than
 the strip needs: on an iPhone on its side at the larger text sizes, and at the largest
 accessibility size on an iPad mini on its side or a small iPhone upright. The page buttons and
-the field stay on screen there, and a drag on the strip brings the other groups up with the
-keyboard still up. Start it beside or between the controls or on a button: the field and the
-menus keep a touch that begins on them. With the room it needs the strip neither scrolls nor
+the field stay on screen there, and a swipe on the strip brings the other groups up with the
+keyboard still up, wherever it starts: between the controls or on the field, a menu or the
+reading mode. A touch that rests on a control before it moves has pressed that control, as in
+any scroll view. With the room it needs the strip neither scrolls nor
 clips anything, and its frames are what they were before it could scroll. Its groups keep the
 height a stack gave them, so a label too long for its line is cut short and not wrapped. A
 strip with nothing in it that fills the width, such as one without `.search`, stays as wide as

@@ -135,12 +135,11 @@ import AppKit
             guard !isOmitted(index) else { omitted.insert(index); continue }
             defer { included += 1 }
             if included > 0 {
+                let font = FontRegistry.systemFont(families: ["serif"], size: typography.fontSize, weight: 400, italic: false)
                 let separator = NSMutableParagraphStyle()
                 separator.paragraphSpacing = typography.fontSize * 2
-                string.append(NSAttributedString(string: "\n", attributes: [
-                    .paragraphStyle: separator,
-                    .font: FontRegistry.systemFont(families: ["serif"], size: typography.fontSize, weight: 400, italic: false),
-                ]))
+                separator.defaultTabInterval = InlineStyling.tabInterval(font)
+                string.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: separator, .font: font]))
             }
             starts[index] = string.length
             string.append(section.string)

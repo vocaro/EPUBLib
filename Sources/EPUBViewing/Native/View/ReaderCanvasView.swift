@@ -102,8 +102,9 @@ import AppKit
     #if os(macOS)
     /// Where the reader last put the scroll view's insertion point (`placeScrollInsertionPoint`).
     private var placedScrollInsertionPoint: Int?
-    /// Posts an accessibility notification from an element. A test puts its own closure here to
-    /// see what an assistive client is told when a spread is installed.
+    /// Posts the canvas's layout changes: the one after a spread is installed and the one after
+    /// the reader moves the scroll view itself. A test puts its own closure here to see what an
+    /// assistive client is told, and by which element.
     var postAccessibilityNotification: @MainActor (Any, NSAccessibility.Notification, [NSAccessibility.NotificationUserInfoKey: Any]) -> Void = {
         NSAccessibility.post(element: $0, notification: $1, userInfo: $2)
     }
@@ -939,10 +940,14 @@ import AppKit
             }
         }
         // VoiceOver keeps its own cursor in a text area it has left, and on returning goes back
-        // to it, scrolling the view there. Naming the text view as changed, as for a spread's
-        // columns, makes it enter at the insertion point.
+        // to it, scrolling the view there. A layout change naming the text view makes it enter
+        // at the insertion point. The window posts it. For a spread's columns that is not
+        // enough (`display`), and here it was heard to be: brought to the text by a focus
+        // change, two lines down, out to Scroll Forward and back, VoiceOver entered at the new
+        // first line (#373). Posted by the element that holds the text, it would also take a
+        // VoiceOver cursor resting on that element into the text at every step.
         if requested, let window {
-            NSAccessibility.post(element: window, notification: .layoutChanged, userInfo: [.uiElements: [textView]])
+            postAccessibilityNotification(window, .layoutChanged, [.uiElements: [textView]])
         }
     }
     #endif
