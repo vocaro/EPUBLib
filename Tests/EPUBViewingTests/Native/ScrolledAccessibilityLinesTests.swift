@@ -359,6 +359,54 @@ import XCTest
                       "\(first.accessibilityFrameInContainerSpace) in \(area)")
     }
 
+    /// A book that opens on pictures it marks as decoration, each a screen high: a cover and a
+    /// frontispiece with `alt=""`. VoiceOver passes decoration over, but a screen of nothing
+    /// else would leave it no line to come in at or to scroll from, so there it is listed, as
+    /// an image without a name, and stays listed while the cursor is on it.
+    func testAScreenOfDecorationAloneIsListedUntilThereAreWordsToRead() async throws {
+        let picture = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"300\" height=\"3000\"><rect width=\"300\" height=\"3000\" fill=\"#246\"/></svg>"
+        let prose = (1...30).map { "<p>p\($0) " + CanvasText.sentence(50, seed: $0) + "</p>" }.joined()
+        let reader = try SessionCoverageReader(try SessionCoverageBook.epub([
+            SessionCoverageBook.Section("cover", "<p><img alt=\"\" src=\"cover.svg\"/></p><p><img alt=\"\" src=\"cover.svg\"/></p>" + prose,
+                                        title: "Cover")],
+            manifest: "<item id=\"cover\" href=\"cover.svg\" media-type=\"image/svg+xml\"/>", files: ["OPS/cover.svg": picture]))
+        readers.append(reader)
+        reader.window?.resize(to: CGSize(width: 402, height: 874))
+        try await reader.settle()
+        try await reader.session.send(.style(EPUBReaderStyle(flow: .scrolled)))
+        try await reader.wait("the whole book in the scroll view") { reader.session.canvas?.scrollBook != nil }
+        try await reader.settle()
+        let canvas = try XCTUnwrap(reader.session.canvas), view = try XCTUnwrap(canvas.scrollTextView)
+        let images = view.imageAttachments()
+        XCTAssertEqual(images.map(\.image.alternative), [.decorative, .decorative])
+        let onScreen = try shown((reader, canvas, view))
+        XCTAssertLessThan(NSMaxRange(onScreen), try XCTUnwrap((view.contentStorage.textStorage?.string as NSString?)?.range(of: "p1 ").location),
+                          "the screen holds pictures and no words")
+
+        // Moving in from a control, VoiceOver meets the picture on screen.
+        var listed = try elements(of: view)
+        XCTAssertFalse(listed.isEmpty, "a screen of decoration alone still lists something")
+        XCTAssertTrue(listed.allSatisfy { $0.accessibilityTraits.contains(.image) && $0.accessibilityLabel == nil }, "as images without a name")
+        let first = try XCTUnwrap(listed.first)
+        XCTAssertFalse(first.accessibilityFrameInContainerSpace.isEmpty)
+
+        // With the cursor on it the lines after the screen are listed too. It stays, the
+        // decoration after it has no element now that there are words, and the next move goes
+        // to the words.
+        focus(first, from: nil, in: view)
+        listed = try elements(of: view)
+        XCTAssertTrue(listed.first === first, "the picture under the cursor keeps its element")
+        XCTAssertEqual(listed.filter { $0.accessibilityTraits.contains(.image) }.count, 1, "and it is the only picture listed")
+        let next = try XCTUnwrap(try move(from: first, forward: true, in: view))
+        XCTAssertTrue(next.accessibilityLabel?.hasPrefix("p1 ") ?? false, "then the first words: \(next.accessibilityLabel ?? "nil")")
+        XCTAssertTrue(next.accessibilityTraits.contains(.staticText))
+
+        // Once the cursor is in the words, decoration is passed over in both directions.
+        listed = try elements(of: view)
+        XCTAssertFalse(listed.contains { $0.accessibilityTraits.contains(.image) }, "no picture is listed beside words")
+        XCTAssertTrue(listed.first === next, "nothing readable stands before the first words")
+    }
+
     func testANoteKeepsUIKitsOwnTextElements() {
         // A note's popover is a text view of its own, never scrolled by the reader: its text
         // starts at its first line, which is where UIKit's elements start.

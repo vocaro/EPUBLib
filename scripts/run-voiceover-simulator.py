@@ -186,6 +186,7 @@ def main():
     parser.add_argument("--steps", default=STEPS, help="the probe's comma-separated steps (default: %(default)s)")
     parser.add_argument("--font-size", help="the reader's launch text size in points")
     parser.add_argument("--flow", choices=["paginated", "scrolled"], help="the reader's launch flow (default: paginated)")
+    parser.add_argument("--href", help="the section the reader opens at, as OPS/labels.xhtml (default: the book's first)")
     parser.add_argument("--voiceover-off", action="store_true", help="leave VoiceOver off: the same steps as plain touches")
     parser.add_argument("--timeout", type=int, default=300, help="seconds each simulator's probe may take (default: %(default)s)")
     parser.add_argument("--exit-grace", type=int, default=30,
@@ -235,11 +236,15 @@ def main():
             environment["TEST_RUNNER_VOICEOVER_FONT_SIZE"] = args.font_size
         if args.flow:
             environment["TEST_RUNNER_VOICEOVER_FLOW"] = args.flow
+        if args.href:
+            environment["TEST_RUNNER_VOICEOVER_HREF"] = args.href
         if args.voiceover_off:
             environment["TEST_RUNNER_VOICEOVER_OFF"] = "1"
         deadline = time.monotonic() + args.timeout
         for session in sessions:
             session.transcript.append(f"{now()} STEPS {args.steps}")
+            if args.href:
+                session.transcript.append(f"{now()} SECTION {args.href}")
             session.started = time.monotonic()
             # One xcodebuild per simulator. Left to collect diagnostics, it runs `simctl diagnose`
             # for up to ten minutes after a test that recorded any issue, a warning included.
