@@ -241,7 +241,8 @@ files["OPS/parts.xhtml"] = (
 # before it, and no word here is one VoiceOver uses for a table, a picture or a group.
 # A second table of data ends the section, on a page of its own after the sixty lines, where
 # the paragraph before it is the target "crests": a described picture among a cell's words in
-# one row, and in the next a header cell that is a described picture and nothing else.
+# one row, in the next a header cell that is a described picture and nothing else, and in the
+# last a cell of decoration alone beside a cell of two described pictures and no words.
 files["OPS/squares.xhtml"] = (
     '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Squares inside '
     f"grids</title><style>{CELL_STYLE} img {{ width: 32px; height: 32px; }} .signs {{ break-before: page; }}</style>"
@@ -254,7 +255,9 @@ files["OPS/squares.xhtml"] = (
     + "".join(f"<p>Line {i:02d} after the signs.</p>" for i in range(1, 61))
     + '<p class="signs" id="crests">Words before the crests.</p><table><tr><th>Crest</th><th>Rank</th></tr>'
     '<tr><td>Worn <img src="square.svg" alt="Blue crest"/> daily</td><td>High</td></tr>'
-    '<tr><th scope="row"><img src="square.svg" alt="Blue shield"/></th><td>Low</td></tr></table>'
+    '<tr><th scope="row"><img src="square.svg" alt="Blue shield"/></th><td>Low</td></tr>'
+    '<tr><td><img src="square.svg" alt=""/></td><td><img src="square.svg" alt="Blue ring"/> '
+    '<img src="square.svg" alt="Blue star"/></td></tr></table>'
     "<p>Words after the crests.</p>"
     + "".join(f"<p>Line {i:02d} after the crests.</p>" for i in range(1, 61)) + "</body></html>")
 
