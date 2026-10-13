@@ -1694,6 +1694,10 @@ The Mac runner's transcript is plain text and needs no export.
   grid.": VoiceOver's place in the page's text had not moved, and Control-Option-Space
   then did nothing. With VoiceOver on a cell of the row, Find Next Link went to the page's
   first line as before, and a second one said "worded jump hyperlink".
+  Once more at `75e28b6`, the same reader with main merged in up to `7b0cce2`, in one run
+  of five sessions (38356059690), three in pages and two in continuous scroll: the described
+  picture and the hidden label in their cells, and Find Next Link from the page's text in
+  both flows. The same phrases, and each link followed.
   What did not work, heard once and left out, at `e54ad50` (run 38350087032): the cells'
   own elements as the page's children. From the page Find Next Link said "worded jump
   hyperlink" and then "Last link worded jump hyperlink" at every further press. VoiceOver
