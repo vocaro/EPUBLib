@@ -158,6 +158,12 @@ final class ReaderTextView: UITextView {
 
     override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
         get {
+            // VoiceOver offers a container's actions on every element in it, after the
+            // element's own. A view that lists its lines offers none: each line offers what
+            // is in it. With UIKit's actions here, one for every link of the text, and the
+            // reader's for its images, a plain line offered the picture beside it, and a line
+            // of continuous scroll every link of the book.
+            guard !listsLines else { return nil }
             let rect = bounds.offsetBy(dx: -containerOrigin.x, dy: -containerOrigin.y)
             guard let range = visibleCharacterRange(in: rect) else { return super.accessibilityCustomActions }
             let actions = announcedImages(in: range).map { image, _ in
@@ -226,8 +232,8 @@ final class ReaderTextView: UITextView {
     // VoiceOver's own Headings rotor moves among the elements it is given, and a page or a
     // screen holds few of a book's headings: past the last of them it finds none. So the lines'
     // container gives VoiceOver that rotor itself, and goes on to the book's next heading.
-    // What VoiceOver says of a line is the same with it: every line said "Actions available"
-    // before, in pages and in continuous scroll.
+    // A rotor is not an action: VoiceOver says "Actions available" of a line for the actions
+    // the line is offered, with this rotor and without it.
     override var accessibilityCustomRotors: [UIAccessibilityCustomRotor]? {
         get { listsLines ? [headingRotor] : super.accessibilityCustomRotors }
         set { super.accessibilityCustomRotors = newValue }
