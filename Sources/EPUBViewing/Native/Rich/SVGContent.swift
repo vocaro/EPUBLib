@@ -66,7 +66,7 @@ enum SVGContent {
     /// a declaration only when its name is a presentation property, or the `marker`/`font` shorthands).
     /// A declaration of any other name is dropped and never reaches an element, so it is not charged.
     /// `filter` is left out: `serialize` strips filter declarations before the renderer parses them.
-    private static let copiedStyleProperties: Set<String> = [
+    static let copiedStyleProperties: Set<String> = [
         "alignment-baseline", "baseline-shift", "background-color", "clip-path", "clip-rule", "color",
         "color-interpolation", "color-interpolation-filters", "color-rendering", "direction", "display",
         "dominant-baseline", "fill", "fill-opacity", "fill-rule", "flood-color", "flood-opacity",
@@ -258,6 +258,7 @@ enum SVGContent {
         // walks that count them.
         return cost(svg, depth: 0) != nil && markerVerdict(svg, nodes: nodes, ids: ids).withinLimits
             && copyVerdict(svg, nodes: nodes, ids: ids).withinLimits
+            && SVGRenderingCostScreen.verdict(svg, nodes: nodes, ids: ids).withinLimits
     }
 
     /// Whether every `<text>` element's run is within the per-run character bound. A run is the
@@ -928,7 +929,7 @@ enum SVGContent {
     /// the renderer then never sees those bytes, so this check — the same condition, by a single byte
     /// scan so a maximal stylesheet is screened cheaply — keeps the screen on this tree in step with
     /// the screen on the serialized bytes, from which such a stylesheet is gone.
-    private static func serializeKeepsSheet(_ css: String) -> Bool {
+    static func serializeKeepsSheet(_ css: String) -> Bool {
         let bytes = Array(css.utf8)
         let n = bytes.count
         var index = 0
