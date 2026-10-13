@@ -1265,12 +1265,16 @@ The following are the defaults. Host commands and accessibility actions stay ena
     the heading itself, and reading on starts from where it had last read. In paging it
     says the heading that is on a later page and the page stays; one move right puts it
     back in the page's text, where the move by heading goes by the rotor and turns.
-  - In a spread the turn can put the heading in the right-hand column. VoiceOver's cursor
-    is on its element there, and its text cursor stays in the left-hand column, the text it
-    was in: reading on by word or by line starts at the top of the spread, a column before
-    the heading. Given the keyboard focus, the right-hand column took VoiceOver's cursor as
-    an item it was not interacting with: `line` read the heading and one move right left
-    the text for the next control.
+  - In a spread the heading can be in the other column than the one VoiceOver was in.
+    VoiceOver's cursor is on its element there, and its text cursor stays in the text it
+    was in. From the left-hand column to a heading in the right-hand one, reading on by
+    word or by line starts at the top of the spread, a column before the heading. From the
+    right-hand column to a heading on a spread that shows one page, `line` said nothing.
+    The move by heading goes on from the heading's element all the same, and from the text
+    it reaches the heading by the rotor with VoiceOver's text cursor on it. Given the
+    keyboard focus, the column that shows the heading took VoiceOver's cursor as an item it
+    was not interacting with: `line` read the heading and one move right left the text for
+    the next control.
   The rotor's Headings list is the same from a link. VoiceOver asks the text for its
   rotors as well as the link, which has none, and having walked the list it asks the
   search once more, from the link's element at the first character and none of it. The
@@ -1294,11 +1298,11 @@ The following are the defaults. Host commands and accessibility actions stay ena
     with elements alone. VoiceOver's moves to the next change of font or of style, and to
     the next plain text, which find the place in a text that offers no search, left the
     text for the window's other items. A search for bold text from a page, and one for a
-    picture from a control outside the text, were asked without end, 3,577 times in 25
-    seconds, until VoiceOver said the reader was not responding and could not be turned
-    off. Find Next Link was asked too: left unanswered it said "Link not found" or asked
-    without end, and past the last link it said "Last link" and stayed where it begins
-    again today.
+    picture from a control outside the text, were asked without end, thousands of times
+    in half a minute, until VoiceOver said the reader was not responding, and after the
+    second it could not be turned off. Find Next Link was asked too: left unanswered it
+    said "Link not found" or asked without end, and past the last link it said "Last link"
+    and stayed where it begins again today.
   So no text and no element of the reader offers the search, and the move from a link
   past the last heading begins again.
   Not marked for VoiceOver: a heading inside a table, whose cells are read as cells, and on
