@@ -67,7 +67,7 @@ cells span two rows and two columns, as two of its data cells do; one given
 row, and an eleventh, **A row taller than a page** (`OPS/tallrow.xhtml`), a
 cell of 2,600 numbered words. None of their words is one VoiceOver uses for a table, so
 "row", "column" and "table" in a transcript are its own. A twelfth, **Parts below a jump**
-(`OPS/parts.xhtml`), the book's last, has a heading after a link on the same page, which no
+(`OPS/parts.xhtml`), has a heading after a link on the same page, which no
 other section has: every other heading opens its section or stands pages after the link
 before it. It opens with plain words. A link, "upper jump", stands two lines above the
 heading "Second part opens", with "Earlier words finish." between them. A second link,
@@ -77,7 +77,17 @@ the link, and in continuous scroll all of it is on one screen. A third link, "la
 follows the book's last heading, and sixty numbered lines follow it. Each line before a
 heading ends in a word no other line has, so a word VoiceOver says of itself shows where it
 took it from. None of the section's words is one VoiceOver uses for a heading or a link. A
-second bundled book, opened with
+thirteenth, **Squares inside grids** (`OPS/squares.xhtml`), the book's last, holds pictures
+in rows that have no words of their own. Its first table is given `role="presentation"`: a
+row of two pictures nobody describes and nothing else, between the rows "Top near", "Top
+far" and "Foot near", "Foot far". Its second, which begins a page of its own, is a table
+of data under the header cells "Sign" and "Sense": a picture described as "Blue badge"
+beside "Open", and one nobody describes beside "Shut". "Words before the squares." and
+"Words after the squares." stand round the first table, "Words before the signs." and
+"Words after the signs." round the second, and sixty numbered lines follow. The section
+has no heading and no link, so the book's last heading and its last link are still those
+of the section before it, and none of its words is one VoiceOver uses for a table, a
+picture or a group. A second bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
@@ -86,9 +96,10 @@ are "Page boundary verification" (level 1), which opens it, "Link target reached
 after the numbered paragraph, the two parked ones (level 1), each opening its section, and
 "Pictures and their words", "Scenes set apart", "What each line offers", "Tables of data",
 "A table longer than a page" and "A row taller than a page" (level 1), each opening its
-section, and "Second part opens" (level 3) and "Third part opens" (level 4) inside the last
-one; the sections of entries and of jumps inside a grid, between "What each line
-offers" and "Tables of data", have none. The second book's are "Chapter one", "Chapter two"
+section, and "Second part opens" (level 3) and "Third part opens" (level 4) inside the
+section of parts below a jump; the sections of entries and of jumps inside a grid, between
+"What each line offers" and "Tables of data", have none, and neither has the last, of
+squares inside grids. The second book's are "Chapter one", "Chapter two"
 and "Chapter three", screens apart.
 Do not import private books for this check.
 
@@ -644,9 +655,36 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
 - The probe records a phrase once: a second row that says what the row before said leaves
   no line in a transcript. Every row of a table that is not data did while it was called
   "Table row"; now only two rows of the same words do.
+- A row of a table that is not data whose cells show pictures nobody describes and no
+  words has no name, and VoiceOver says what it holds: "text image text image group" for
+  a row of two, by line, by word and with `readall`. `in` says "In group 2 items text
+  image", `right` "text image", `in` on a cell "In text image" and `right` there
+  "image", and the two `out` "Out of text" and "Out of group". In continuous scroll
+  `describe` straight after that `out` says "group is in the VoiceOver cursor", and an
+  Actions menu closed there leaves "group" alone, where a page has the row's whole
+  phrase. Until 2026-10-13 such a row was "Table row group" as the others were.
+- `actions` while VoiceOver reads the text is the text area's menu, on a row's line as
+  on a line of words: "Actions menu 3 items", the two page actions round "show menu",
+  and on closing "text  word:" and the row's phrase. A row's own actions, Inspect Image
+  for each of its pictures, are in the menu when VoiceOver's cursor is on the row's
+  group, which it is after `in` and `out`. For the row of two pictures that is "Actions
+  menu 6 items" on a page, the row's two and then "show menu" and "Inspect Image" for
+  each cell's text, and "Actions menu 2 items" in continuous scroll. Two items of one
+  name that follow one another leave one line in a transcript.
+- A cell of a table of data that holds a picture and no words is said by its header and
+  the attachment's character: "In Blue badge, Open table Sign ￼", and "￼ cell" when its
+  Actions menu closes. `actions` there has "Inspect Image: Blue badge" and "Select Cell
+  Text", or "Inspect Image" alone for a picture nobody describes, and `in` goes into
+  the cell's text, "In text Blue badge image" or "In text image".
+- `left` straight after `right` says the item VoiceOver is on again, which leaves no
+  line in a transcript, and the second `left` moves back. A step list that turns round
+  to come back to a row needs both.
 - `ax:links` prints the group the text gives at each such row: `ATTACHMENT AXGroup LABEL
   "Left side, Right side" … CHILDREN AXTextArea,AXTextArea`, the label a client is given
-  and the cells' text areas on screen.
+  and the cells' text areas on screen. It prints the first sixty of a text's links and
+  attachments, and in continuous scroll one text is the whole book: `"ax:links=WORDS"`
+  prints sixty from those words on, as `"ax:links=Words before the squares"` does for the
+  book's last section.
 
 `ax:tables` prints what the text gives at each row's character before anything is said. For
 each table a `TABLE` line has its place in the text, its label, how many rows it holds and
@@ -656,13 +694,19 @@ quotation marks where a row or a column has none. The first table of a column is
 whole: its attributes by name, a `TABLEROW` line for each of its first twelve rows, and for
 each cell a `TABLECELL` line with the rows and columns it covers, what it says, what it
 holds (`AXTextArea` on screen and nothing off it, or `AXLink` for a cell that is a link) and
-its actions, `AXPress` first for a cell that is pressed.
+its actions, `AXPress` first for a cell that is pressed. `"ax:tables=WORDS"` prints the
+tables from those words on, the first of them whole, which in continuous scroll is the way
+to a table that is not the book's first.
 
 Open the reader at a section of tables (`"launch=-SampleHref OPS/grids.xhtml"`,
 `OPS/ledger.xhtml`, `OPS/tallrow.xhtml`). At 600 points and 17, the first page of the tables
 of data holds the first table and the second page the next two and one row of the fourth;
 the long table's first page holds its header row and seven entries, and the tall row's first
-page its header row alone. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a line
+page its header row alone. The section of squares inside grids (`OPS/squares.xhtml`) has its
+table marked as layout on its first page and its table of data at the top of its second,
+one `ax:next` on. In continuous scroll the reader opened at a section shows that section,
+which the `VISIBLE` range of a `STATE` line says, though VoiceOver's opening phrases are the
+book's first lines. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a line
 near a table, which continuous scroll needs: a session that came into the text without it
 read from a place of VoiceOver's own, fifty lines off.
 
@@ -1405,6 +1449,22 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    table" says "Entry Entry 38", and twenty-eight `nextline` steps from the header row read
    "Entry 01" to "Entry 28", each once, the view following.
    No session has "ERROR 3" in it.
+   On the section of squares inside grids (`"launch=-SampleHref OPS/squares.xhtml"`), in
+   pages and in continuous scroll, the row of two pictures nobody describes is "text
+   image text image group" by line, by word and with `readall`, between "Top near, Top
+   far group" and "Foot near, Foot far group". `in` there says "In group 2 items text
+   image" and `out` "Out of group". A reader that gives such a row a name of its own
+   says the name, "Table row group" while it was called that, and one that gives it help
+   and no name says the help in the name's place. With VoiceOver's cursor on the group,
+   after `in` and `out`, `actions` has Inspect Image for its first two items, and
+   `"listchoose=Inspect Image"` opens the inspector: `ax:actions=all` then lists Zoom
+   Out, Zoom In, Fit and Close. On the section's second page (`ax:next`) the table of
+   data says "Sign, Sense table", "Blue badge, Open table" and "Shut table", and `in` on
+   the second or the third goes into the table at that row, "In Blue badge, Open table
+   Sign" or "In Shut table Sign" and the cell. A row there that says "group" is one
+   given as a row's group in its table's place. The cell that holds the picture is said
+   by the attachment's character in both rows, and not by "Blue badge", which is open
+   (the entry of 2026-10-13 on rows that show pictures).
    On a Mac a cell is a text of its own, and VoiceOver reads its
    line wherever its cursor is in it. In a window 600 points wide at 17 points, with the
    reader opened at that section (`"launch=-SampleHref OPS/table.xhtml"`), in pages and in
@@ -1499,7 +1559,7 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     to the target Shown last words.", and `activate` straight after the second `nextlink`
     follows the link. Twenty `nextlink` steps from the top name the book's seventeen links
     in order, the cells' among them, and then the last three again, "upper jump", "lower
-    jump" and "last jump": those share the book's last screen, and past the last link
+    jump" and "last jump": those share one screen, and past the book's last link
     VoiceOver begins again with the first one on screen. A
     reader without the link below among the children says "Verification link hyperlink"
     and then "Last link Verification link hyperlink".
@@ -4582,6 +4642,108 @@ The Mac runner's transcript is plain text and needs no export.
   VoiceOver reads to before the view has moved; a spread of two columns; a table in a
   note's popover; the Actions menu on a row's group; Safari on the two plain tables; and
   VoiceOver in another language or with its verbosity changed.
+- On 2026-10-13 the two rows that entry left unheard were heard on a Mac, and a row
+  without words lost the name the reader had given it: GitHub's hosted `xcode-27` runner
+  (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), a window 600 points wide
+  at 17 points, VoiceOver's link setting at Speak, a fixed pause of four seconds, on the
+  fixture's new last section (`"launch=-SampleHref OPS/squares.xhtml"`). Before at
+  `e02ea32`, which is `main` at `6928200` with the section added and nothing of the
+  reader changed: run 38436431887. After at `37f2225`: runs 38438620999 and 38440867205.
+  [#508](https://github.com/vocaro/EPUBLib/pull/508) and
+  [#511](https://github.com/vocaro/EPUBLib/pull/511) merged while these were recorded.
+  The first gives a table cell that is one link a press and a link to hold, and the
+  second added the section `OPS/parts.xhtml` to the fixture, which this section now
+  follows. The six sessions of run 38438620999 were recorded again on the branch merged
+  with both, at `eec2108` (run 38443323478): every phrase from the first `in` of each was
+  what it had been at `37f2225`, and so was what the text gives at each row. All
+  twenty-three sessions completed, and each run reports `"billable": {}`. Nobody
+  listened. A phrase is cut at 64 characters, shown by "…".
+  The row of two pictures nobody describes, in the table marked as layout, on the
+  section's first page (`ax:links "ax:caret=Words before the squares" ax:focus in line`,
+  five `nextline`, two `previousline`, `in right in right out out`). What the text gives
+  a client at that row (`ax:links`), before: `AXGroup LABEL "Table row" HELP
+  "Double-click or choose Inspect Image to enlarge." ACTIONS "Inspect Image","Inspect
+  Image" CHILDREN AXTextArea,AXTextArea`. After: the same group with no `LABEL` and no
+  `HELP`. Each of its two text areas has U+FFFC for its value, and an `AXImage` with
+  Inspect Image at that character. By line, before: "Words before the squares.", a step
+  with no new phrase, "Top near, Top far group", "Table row group", "Foot near, Foot far
+  group", "Words after the squares.", and back "Foot near, Foot far group", "Table row
+  group". After: "text image text image group" in both of that row's places, and the
+  rest the same. `in` there, before: "In Table row group 2 items text image". After:
+  "In group 2 items text image". Then the same both times: `right` "text image", `in`
+  "In text image", `right` "image", `out` "Out of text". The last `out`, before: "Out of
+  Table row group". After: "Out of group". By word from the same line, before: "Words",
+  "before", "the", "squares.", "Top near, Top far group", "Table row group", "Foot near,
+  Foot far group", "Words". After: "text image text image group" at the sixth step, and
+  the rest the same. Read All from that line, after only (`readall ax:wait=10`): "Words
+  before the squares.", "Top near, Top far group", "text image text image group", "Foot
+  near, Foot far group", "Words after the squares.", and in continuous scroll on to
+  "Words before the signs.", "Sign, Sense table", "Blue badge, Open table".
+  Continuous scroll (`"ax:links=Words before the squares"` for what the text gives, and
+  the same steps from the same line) said the same by line, on going in, across and on
+  leaving, before and after. One thing differs there, after: with its cursor on the
+  group it had just left, VoiceOver said "group" alone as the Actions menu closed, in
+  two sessions, and in the second `describe` said "group is in the VoiceOver cursor"
+  before the menu and after it. On a page the menu closed on "text image text image
+  group". The application posted `AXValueChanged` at that `out` in continuous scroll and
+  not on a page, before the change as after it. Moving back by word from the row below
+  then said "text image text image group" and 106 milliseconds later "text image text
+  image".
+  The Actions menu on that row. While VoiceOver read the text, on the row's line by word
+  in pages and by line in continuous scroll, after: "Actions menu 3 items", "Previous
+  Page", "show menu", "Next Page", or "Scroll Backward", "show menu", "Scroll Forward",
+  and on closing "text  word:  text image text image". That is the text area's menu,
+  with no picture's action. With its cursor on the group, after `in` and `out`, in
+  pages: "Actions menu 6 items", and for seven `listdown` steps "Inspect Image", a step
+  with no new phrase, "show menu", "Inspect Image", "show menu", "Inspect Image" and
+  nothing: the row's two actions, then two for each cell's text. In continuous scroll:
+  "Actions menu 2 items", "Inspect Image" and two steps with no new phrase. Before, in
+  pages after `in right in right out out`: "Actions menu 4 items", "Inspect Image", a
+  step with no new phrase and "Inspect Image ￼ text"; its fourth item was not stepped
+  to, and the menu closed on "Table row group" and the hint "actions available
+  Double-click or choose Inspect Image to enlarg…". `"listchoose=Inspect Image"` on the
+  menu's first item, after: VoiceOver said "Inspect Image text text", and
+  `ax:actions=all` listed Zoom Out, Zoom In, Fit, Close, "Magnification" and an image
+  with no name, so the inspector had opened.
+  The table of data, at the top of the section's second page (`ax:next ax:lines ax:links
+  ax:tables "ax:caret=Words before the signs" ax:focus in line`, five `nextline`, two
+  `previousline`, `in right left`), the same before and after. The text gives `AXTable`
+  at each of the three rows, called "Sign, Sense", "Blue badge, Open" and "Shut", each
+  with its own row selected, three rows and two columns under the headers "Sign" and
+  "Sense" (`ax:tables`); the cells that hold the pictures have Inspect Image: Blue badge
+  with Select Cell Text, and Inspect Image alone. By line: "Words before the signs.", a
+  step with no new phrase, "Sign, Sense table", "Blue badge, Open table", "Shut table",
+  "Words after the signs.", and back "Shut table", "Blue badge, Open table". By word the
+  same three after "signs.". `in` on the second row: "In Blue badge, Open table Sign ￼",
+  `right` "Sense Open", `left` "Sign ￼"; `actions` there "Actions menu 2 items",
+  "Inspect Image: Blue badge", "Select Cell Text", and on closing "￼ cell"; `in` on the
+  cell "In text Blue badge image", `right` "Blue badge image", and the two `out` "Out of
+  text" and "Out of Blue badge, Open table". `in` on the third row: "In Shut table Sign
+  ￼"; `in` again "In text image", `right` "image", `out` "Out of text"; `actions` on the
+  cell "Actions menu 1 item", "Inspect Image". Continuous scroll said the same
+  (`"ax:tables=Words before the signs"`).
+  So a row of a table of data that shows a picture is its table, and VoiceOver goes in
+  at that row, as the entry above had from a unit test alone. What its cell says was not
+  known before: a cell that holds a picture and no words is said by its header and
+  U+FFFC, "Sign ￼" in a transcript, for the described picture as for the other. "Blue
+  badge" is in the row's name and in the cell's text, and not at the cell. What
+  VoiceOver voices for that character nobody heard.
+  The steps were not the same in every session of the first two runs. In the first, the
+  step meant to open the Actions menu on the row from the text came after a `right` and
+  a `left`: `left` straight after `right` says the item again and leaves no line, so the
+  menu was opened on the row below, "Foot near, Foot far", in pages and in continuous
+  scroll. The second run opened it on the row itself, and went into the described
+  picture's cell, which the first had not. The third stepped through the group's menu to
+  its end and chose from it. A run started before the first, 38436354231, was given a
+  commit that does not exist and was cancelled while it waited for a runner.
+  Not heard: anyone listening, or any Mac but the runner; a row of empty cells or of
+  decoration alone, which was "Table row group" too and has no name now; a row beyond
+  the screen that VoiceOver reads to before the view has moved; the group's Actions menu
+  in continuous scroll before the change, and its fourth item in pages; a cell of a
+  table of data that holds a picture among words; a spread of two columns; a table in a
+  note's popover; Safari on this section; and VoiceOver in another language or with its
+  verbosity changed. [#509](https://github.com/vocaro/EPUBLib/issues/509) keeps what is
+  left of the rows that entry did not hear.
 - Later again on 2026-10-13 a table cell that is a link was heard on a Mac before and
   after it was given a press and a link to hold: "Reopened 1978" in the first table of the
   section of tables of data (`-SampleHref OPS/grids.xhtml`), on GitHub's hosted `xcode-27`
