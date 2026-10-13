@@ -61,11 +61,13 @@ import UIKit
         var read: [String] = []
         rich.enumerateAttribute(.accessibilityAttachment, in: NSRange(location: 0, length: rich.length)) { value, range, _ in
             guard let element = value as? NSAccessibilityElement else { return }
+            // A hidden label that is a link is a link, called by its words (`LinkAccessibilityTests`).
+            if element.accessibilityRole() == .link { return read.append("\(range.location) link \(element.accessibilityTitle() ?? "")") }
             let isText = element.accessibilityRole() == .staticText
             read.append("\(range.location) \(isText ? "text" : "image") \((isText ? element.accessibilityValue() as? String : element.accessibilityLabel()) ?? "")")
             if isText { XCTAssertNil(element.accessibilityLabel(), "its words are its value, said once") }
         }
-        XCTAssertEqual(read, ["0 text The Hidden Title", "9 text unseen", "17 text Skip to chapter two"],
+        XCTAssertEqual(read, ["0 text The Hidden Title", "9 text unseen", "17 link Skip to chapter two"],
                        "the image of the title is decoration: nothing stands for it")
         XCTAssertEqual(view.visibleText, "The Hidden Title\nWords unseen after.\nSkip to chapter two End.", "what Copy takes from the page")
     }
@@ -152,26 +154,30 @@ import UIKit
         var read: [String] = [], actions: [[String]] = [], elements: [NSAccessibilityElement] = []
         rich.enumerateAttribute(.accessibilityAttachment, in: NSRange(location: 0, length: rich.length)) { value, range, _ in
             guard let element = value as? NSAccessibilityElement else { return }
-            XCTAssertEqual(element.accessibilityRole(), .image)
             let link = (section.string.attribute(.link, at: range.location, effectiveRange: nil) as? URL).flatMap { url in
                 ["two", "three", "four", "five"].first { ReaderLink.internal(href: "OPS/\($0).xhtml").url == url }
             }
-            read.append("\(range.location) \(element.accessibilityLabel() ?? "nil")" + (link.map { " to \($0)" } ?? ""))
+            // A picture in a link is a link, which says after its words that it is a picture.
+            XCTAssertEqual(element.accessibilityRole(), link == nil ? .image : .link)
+            read.append("\(range.location) \((link == nil ? element.accessibilityLabel() : element.accessibilityTitle()) ?? "nil")"
+                        + (link.map { " to \($0)" } ?? ""))
             actions.append((element.accessibilityCustomActions() ?? []).map(\.name))
             elements.append(element)
             XCTAssertFalse(element.accessibilityFrameInParentSpace().isEmpty, "\(range.location) has a place")
         }
         let text = section.string.string as NSString
         let bare = NSMaxRange(text.range(of: "Bare: ")), described = NSMaxRange(text.range(of: "Jump with decoration\n"))
-        XCTAssertEqual(read, ["12 nil", "49 A described picture", "\(bare) nil to two", "\(described) Described jump to four",
-                              "\(described + 2) nil to five"],
-                       "no element for decoration in a line or in a link that has words; one for decoration that is all its link holds")
-        XCTAssertEqual(actions, [["Inspect Image"], ["Inspect Image: A described picture"], ["Inspect Image"],
+        let picture = try XCTUnwrap(NSAccessibility.Role.image.description(with: nil))
+        XCTAssertEqual(read, ["12 nil", "49 A described picture", "\(bare) \(picture) to two", "\(bare + 2) nil to three",
+                              "\(described) Described jump, \(picture) to four", "\(described + 2) \(picture) to five"],
+                       "no element for decoration in a line; decoration that opens a link with words is where the link is announced, "
+                       + "without a name; decoration that is all its link holds is the link")
+        XCTAssertEqual(actions, [["Inspect Image"], ["Inspect Image: A described picture"], ["Inspect Image"], [],
                                  ["Inspect Image: Described jump"], ["Inspect Image"]])
         // VoiceOver reads the help of an element without a label in the label's place, so an
         // image without words has none: it was heard as "Double-click or choose Inspect Image
-        // to enlarge. image" in the middle of its line.
-        XCTAssertEqual(elements.map { $0.accessibilityHelp() != nil }, [false, true, false, true, false])
+        // to enlarge. image" in the middle of its line. A link has none either.
+        XCTAssertEqual(elements.map { $0.accessibilityHelp() != nil }, [false, true, false, false, false, false])
         XCTAssertTrue(try XCTUnwrap(elements[1].accessibilityCustomActions()?.first).handler?() ?? false)
         XCTAssertNotNil(host.canvas.imageInspector)
         host.canvas.imageInspector?.close()

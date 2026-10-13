@@ -72,6 +72,12 @@ import XCTest
         XCTAssertEqual(half.map(\.range), [NSRange(location: words.location + 4, length: words.length - 4)])
         XCTAssertTrue(half.first?.element === link)
         XCTAssertTrue(try links(in: view, text.range(of: "No link here.")).isEmpty)
+        // Its words are read as words: VoiceOver would say an element given as their attachment
+        // and then the words as well.
+        let rich = try XCTUnwrap(view.accessibilityAttributedString(for: view.shownCharacters))
+        rich.enumerateAttribute(.accessibilityAttachment, in: NSRange(location: 0, length: rich.length)) { value, range, _ in
+            XCTAssertNil(value, "\(range)")
+        }
         // Find Next Link moves through the text's children.
         XCTAssertEqual(children(of: view).map { ObjectIdentifier($0) }, [ObjectIdentifier(link)])
         // Its place is its words', where VoiceOver's cursor is drawn.
@@ -86,6 +92,12 @@ import XCTest
         XCTAssertEqual(host.recorder.links.last?.position, ReaderTextPosition(section: 0, offset: words.location))
     }
 
+    /// The element given as the attachment of the character at `location`.
+    private func attachment(at location: Int, in view: ReaderTextView) throws -> NSAccessibilityElement? {
+        let rich = try XCTUnwrap(view.accessibilityAttributedString(for: view.shownCharacters))
+        return rich.attribute(.accessibilityAttachment, at: location, effectiveRange: nil) as? NSAccessibilityElement
+    }
+
     func testALinkIsNamedByItsWordsAndItsPicturesWords() throws {
         let (host, view) = try page("""
             <p>Bare: <a href="a.xhtml"><img alt="" src="p.png"/></a></p>\
@@ -97,15 +109,9 @@ import XCTest
         let found = try links(in: view)
         XCTAssertFalse(imageWord.isEmpty)
         XCTAssertEqual(found.map { $0.element.accessibilityTitle() ?? "" },
-                       [imageWord, "Jump with decoration", "Described jump", imageWord, "Words and a picture both"],
-                       "never U+FFFC; a picture without words that is all its link holds is called by the system's word for one")
+                       [imageWord, "Jump with decoration", "Described jump, \(imageWord)", imageWord, "Words and a picture both"],
+                       "never U+FFFC; a link that holds pictures and nothing else says that it is a picture, in the system's word")
         XCTAssertEqual(children(of: view).map { $0.accessibilityTitle() ?? "" }, found.map { $0.element.accessibilityTitle() ?? "" })
-        // A picture keeps its own element, so VoiceOver reading by word still says what it is.
-        let rich = try XCTUnwrap(view.accessibilityAttributedString(for: view.shownCharacters))
-        let described = try XCTUnwrap(found.first { $0.element.accessibilityTitle() == "Described jump" })
-        let image = try XCTUnwrap(rich.attribute(.accessibilityAttachment, at: described.range.location, effectiveRange: nil) as? NSAccessibilityElement)
-        XCTAssertEqual(image.accessibilityRole(), .image)
-        XCTAssertEqual(image.accessibilityLabel(), "Described jump")
         for (link, range) in found {
             let place = link.accessibilityFrame()
             XCTAssertGreaterThanOrEqual(place.width, 31, "\(link.accessibilityTitle() ?? "")")
@@ -116,13 +122,63 @@ import XCTest
         XCTAssertEqual(host.recorder.links.map(\.link), ["a", "b", "c", "d", "e"].map { .internal(href: "OPS/\($0).xhtml") })
     }
 
-    func testAHiddenLabelThatIsALinkHasItsWordsAndAPlace() throws {
-        let (host, view) = try page("<p>Shown words.</p><p><a class=\"sr\" href=\"two.xhtml\">Skip to chapter two</a>End.</p>")
-        XCTAssertEqual(view.accessibilityValue(), "Shown words.\n\u{FFFC}End.")
+    /// VoiceOver announces an element given as a character's attachment as it reads, and none
+    /// at a character of words: a link is announced at its attachments.
+    func testAnAttachmentInALinkIsALinkWhereVoiceOverReadsIt() throws {
+        let (host, view) = try page("""
+            <p>Bare: <a href="a.xhtml"><img alt="" src="p.png"/></a></p>\
+            <p><a href="b.xhtml"><img alt="" src="p.png"/> Jump with decoration</a></p>\
+            <p><a href="c.xhtml"><img alt="Described jump" src="p.png"/></a></p>\
+            <p><a href="e.xhtml">Words and <img alt="a picture" src="p.png"/> both <img alt="" src="p.png"/></a></p>\
+            <p>Alone: <img alt="Unlinked" src="p.png"/></p>
+            """)
         let found = try links(in: view)
-        XCTAssertEqual(found.map(\.range), [NSRange(location: 13, length: 1)])
-        let link = try XCTUnwrap(found.first?.element)
-        XCTAssertEqual(link.accessibilityTitle(), "Skip to chapter two")
+        let text = try XCTUnwrap(view.accessibilityValue()) as NSString
+        // A picture that is all its link holds is the link's own element.
+        for index in [0, 2] {
+            let element = try XCTUnwrap(attachment(at: found[index].range.location, in: view))
+            XCTAssertTrue(element === found[index].element, "\(index)")
+        }
+        XCTAssertEqual(found[0].element.accessibilityCustomActions()?.map(\.name), ["Inspect Image"])
+        XCTAssertEqual(found[2].element.accessibilityCustomActions()?.map(\.name), ["Inspect Image: Described jump"],
+                       "a press follows the link, so inspecting the picture stays an action")
+        XCTAssertTrue(try XCTUnwrap(found[2].element.accessibilityCustomActions()?.first).handler?() ?? false)
+        XCTAssertNotNil(host.canvas.imageInspector)
+        host.canvas.imageInspector?.close()
+        // Decoration that opens a link of words says "hyperlink" before them, and no name.
+        let opening = try XCTUnwrap(attachment(at: found[1].range.location, in: view) as? ReaderLinkAccessibilityElement)
+        XCTAssertFalse(opening === found[1].element)
+        XCTAssertEqual(opening.accessibilityRole(), .link)
+        XCTAssertNil(opening.accessibilityTitle())
+        XCTAssertEqual(opening.accessibilityCustomActions()?.count ?? 0, 0)
+        XCTAssertTrue(opening.accessibilityPerformPress())
+        XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/b.xhtml"))
+        XCTAssertNil(try attachment(at: text.range(of: "Jump with").location, in: view), "the words are read as words")
+        // A picture among a link's words is a link by its own words, where it stands.
+        let among = try XCTUnwrap(attachment(at: text.range(of: "Words and ").upperBound, in: view) as? ReaderLinkAccessibilityElement)
+        XCTAssertEqual(among.accessibilityTitle(), "a picture, \(imageWord)")
+        XCTAssertEqual(among.range, NSRange(location: text.range(of: "Words and ").upperBound, length: 1))
+        XCTAssertTrue(among.accessibilityPerformPress())
+        XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/e.xhtml"))
+        XCTAssertEqual(host.recorder.links.last?.position, ReaderTextPosition(section: 0, offset: among.range.location))
+        // Decoration after the link's first character is passed over, as outside a link.
+        XCTAssertNil(try attachment(at: NSMaxRange(found[3].range) - 1, in: view))
+        // A picture outside a link is an image, as it was.
+        let unlinked = try XCTUnwrap(attachment(at: text.range(of: "Alone: ").upperBound, in: view))
+        XCTAssertEqual(unlinked.accessibilityRole(), .image)
+        XCTAssertEqual(unlinked.accessibilityLabel(), "Unlinked")
+    }
+
+    func testAHiddenLabelThatIsALinkIsALinkWithItsWordsAndAPlace() throws {
+        let (host, view) = try page("""
+            <p>Shown words.</p><p><a class="sr" href="two.xhtml">Skip to chapter two</a>End.</p>\
+            <p><a href="three.xhtml"><span class="sr">Go to</span> chapter three</a></p>
+            """)
+        XCTAssertEqual(view.accessibilityValue(), "Shown words.\n\u{FFFC}End.\n\u{FFFC}chapter three")
+        let found = try links(in: view)
+        XCTAssertEqual(found.map(\.range), [NSRange(location: 13, length: 1), NSRange(location: 19, length: 14)])
+        XCTAssertEqual(found.map { $0.element.accessibilityTitle() ?? "" }, ["Skip to chapter two", "Go to chapter three"])
+        let link = found[0].element
         // The label takes no room. Without a place of some size VoiceOver cannot move to it.
         let place = link.accessibilityFrame()
         XCTAssertGreaterThanOrEqual(place.width, 1)
@@ -131,11 +187,38 @@ import XCTest
         XCTAssertEqual(place.midY, view.accessibilityFrame(for: NSRange(location: 14, length: 4)).midY, accuracy: 12, "in the line it stands in")
         XCTAssertTrue(link.accessibilityPerformPress())
         XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/two.xhtml"))
-        // Read by word it is still its words, as text.
-        let rich = try XCTUnwrap(view.accessibilityAttributedString(for: view.shownCharacters))
-        let label = try XCTUnwrap(rich.attribute(.accessibilityAttachment, at: 13, effectiveRange: nil) as? NSAccessibilityElement)
-        XCTAssertEqual(label.accessibilityRole(), .staticText)
-        XCTAssertEqual(label.accessibilityValue() as? String, "Skip to chapter two")
+        // Read by word or by line it is announced as a link: the label's own element is the link's.
+        XCTAssertTrue(try attachment(at: 13, in: view) === link)
+        // A label that opens a longer link is a link by its own words there.
+        let opening = try XCTUnwrap(attachment(at: 19, in: view) as? ReaderLinkAccessibilityElement)
+        XCTAssertEqual(opening.accessibilityTitle(), "Go to")
+        XCTAssertFalse(opening === found[1].element)
+        XCTAssertTrue(opening.accessibilityPerformPress())
+        XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/three.xhtml"))
+    }
+
+    func testAFormulaInALinkIsALinkByItsReadingAndANotesPopoverKeepsAppKitsLinks() throws {
+        let text = NSMutableAttributedString(attributedString: CanvasText.body("Follow "))
+        let formula = TextualTestAttachment()
+        formula.textEquivalent = "E = mc²"
+        formula.image = (CanvasText.attachment(size: CGSize(width: 40, height: 20))
+            .attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment)?.image
+        formula.bounds = CGRect(x: 0, y: 0, width: 40, height: 20)
+        text.append(NSAttributedString(attachment: formula))
+        text.append(CanvasText.body(" now and read on."))
+        text.addAttribute(.link, value: ReaderLink.internal(href: "OPS/two.xhtml").url, range: NSRange(location: 0, length: 12))
+        let (_, view) = try page([text])
+        let found = try links(in: view)
+        XCTAssertEqual(found.map { $0.element.accessibilityTitle() ?? "" }, ["Follow E = mc² now"])
+        let reading = try XCTUnwrap(attachment(at: 7, in: view) as? ReaderLinkAccessibilityElement)
+        XCTAssertEqual(reading.accessibilityTitle(), "E = mc²", "no picture: a formula is its reading")
+        // A text view with no canvas, as a note's popover has, follows no link: AppKit's own
+        // elements stay, and the reader adds none.
+        let note = BoxLayoutHarness.view(text, size: CGSize(width: 300, height: 200), pageColumn: false)
+        XCTAssertFalse((note.accessibilityChildren() ?? []).contains { $0 is ReaderLinkAccessibilityElement })
+        let rich = try XCTUnwrap(note.accessibilityAttributedString(for: NSRange(location: 0, length: 12)))
+        XCTAssertNotNil(rich.attribute(.accessibilityLink, at: 0, effectiveRange: nil))
+        XCTAssertFalse(rich.attribute(.accessibilityLink, at: 0, effectiveRange: nil) is ReaderLinkAccessibilityElement)
     }
 
     func testAPageColumnGivesItsOwnPagesLinksAndEndsOneAtThePagesEnd() throws {
