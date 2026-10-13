@@ -856,7 +856,10 @@ The following are the defaults. Host commands and accessibility actions stay ena
   token's result also carries a range, the heading's characters in its section. VoiceOver
   asks nothing about it, but calls the row by its label only when there is one: without
   it the list showed each label and VoiceOver read every such row out as the column's own
-  text.
+  text. With VoiceOver's cursor on a link, which is an element of its own on Mac, its move
+  to the next heading says "Heading not found" in both flows: the rotor is the text
+  view's, and a link's element has none
+  ([#431](https://github.com/vocaro/EPUBLib/issues/431)).
   Not marked for VoiceOver: a heading inside a table, whose cells are read as cells, and on
   iPhone and iPad a heading inside a note's popover, which keeps UIKit's own elements.
 - Selection: native selection UI with the host's `EPUBSelectionAction` in the edit or context
