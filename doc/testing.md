@@ -227,15 +227,43 @@ Page-turn tests on UIKit (`PageTurnAccessibilityTests`) put an assistive technol
 on a line of a page as UIKit tells the reader of it, by the line's own callback and the
 focus notification, and read what the canvas posts when the page is shown anew
 (`ReaderCanvasView.postAccessibilityNotification`). A page turned from a line posts one
-layout change with the first line of the page shown, in one column and across a spread, into
-the next chapter and back into the one before; a position shown from a line posts the line
-that holds it; VoiceOver's scroll posts the page's number and then the line; and nothing is
-posted for a cursor on a control, for VoiceOver switched off, for a page shown again as it
-was, or for a move by heading. They also hold an element kept from one page to standing for
-no line of the next, on pages whose lines have the same characters counted from each page's
-first, and to standing for its own line when its page is shown again. That VoiceOver moves
-its cursor for the layout change, and what it then reads, is known only from
-[speech sessions](voiceover-testing.md) on a device.
+layout change with the element the cursor is on, which is then the first line of the page
+shown and has that line's place in the list, in one column and across a spread, where it
+moves to the left-hand column, into the next chapter and back into the one before, and
+again when the action is performed a second time with the cursor told of no other item; a
+position shown from a line makes that element the line that holds it; VoiceOver's scroll
+posts the page's number and then the element; and nothing is posted for a cursor on a
+control, for VoiceOver switched off, for a page shown again as it was, or for a move by
+heading. One test takes a single element through a book whose every page opens with another
+kind of item, a table row, a picture, a link, a heading, a formula and a rule, and back: on
+each page it must answer what a new element for that page's first item answers, in its
+label, heading level, traits, language, frame and actions, and activating it must do what
+that item does and nothing the last one did. Another holds a data table's cell to being left
+and come to as an element of its own. They also hold an element kept from one page to
+standing for no line of the next, on pages whose lines have the same characters counted
+from each page's first, and to standing for its own line when its page is shown again. That
+VoiceOver reads the line for the layout change, draws its cursor there and keeps its rotor,
+is known only from [speech sessions](voiceover-testing.md) on a device.
+
+Table of data tests on AppKit (`TableDataMacAccessibilityTests`) read what a column and the
+scroll view give an assistive technology at each row of a table that holds data, on a reader
+built by the real pipeline, in pages and in continuous scroll: an `NSAccessibility` table of
+its own at each row's character, called by that row's words and with that row selected; its
+rows, each with its number in the whole table, its columns, and its cells with the rows and
+columns each covers, the text areas each holds on screen and its place; a header for each
+column and each row from the table and none from a cell, which is the header's own cell on
+screen and otherwise a static text with the header cells' words, for a column under two
+header cells, a header on another page and one scrolled far off the screen; a cell that
+spans answering for every slot it covers; the actions a cell
+offers, and that selecting a cell's words and following its link do so; a table that is not
+data left a group for each row; a table split across pages, with the page's rows, the whole
+table's count and a header cell named from another page; a row taller than a page, whose
+words each page's table says once; continuous scroll, where a table holds every row, says
+which are on screen and labels a cell that has no text area yet; and a table kept from a
+page that has been turned, which says nothing of the new one. They read the elements through
+AppKit's own accessibility methods. That a client of the accessibility API is given each
+attribute, and what VoiceOver says, is recorded with the
+[VoiceOver testing process](voiceover-testing.md#tables-on-mac).
 
 Table cell line tests on AppKit (`TableCellLineAccessibilityTests`) read the lines a cell's
 own text gives an assistive technology: the layout's lines, numbered from the first the cell
