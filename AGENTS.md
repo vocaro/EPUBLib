@@ -79,6 +79,17 @@ other session.
   repository; `gh api repos/vocaro/EPUBLib/actions/runs/<run>/timing` should report
   `"billable": {}`.
 
+## Branches
+
+Every session's worktree shares one `.git`, and `main` gains commits several times an hour.
+
+- Another session's `git fetch` moves `origin/main` in your worktree. To squash, rebase or
+  compare, name the commit your branch was last based on, read once with
+  `git merge-base HEAD origin/main`, not the ref. A `git reset --soft origin/main` made after
+  the ref had moved staged main's new commits as deletions.
+- A pull request that a brief names as open may have merged since the brief was written. Look
+  on GitHub before building on its branch, and once it has merged, build on `main`.
+
 ## Test corpora
 
 EPUBLib is verified with public material only. The corpora are the W3C's own:

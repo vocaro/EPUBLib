@@ -549,7 +549,8 @@ as they did.
   control before the text and not to the line above. A reader that is moved while VoiceOver
   holds lines it has not reached, by a scroll step with the cursor on a control, leaves it
   holding lines that are no longer listed: it says the first of them and returns to the
-  control. And away from the top of the book, moving back into the text from below gives
+  control ([#428](https://github.com/vocaro/EPUBLib/issues/428) has both). And away from the
+  top of the book, moving back into the text from below gives
   the last line on screen and then the control before the text: UIKit scrolls the view 88
   points back as the cursor goes to the scroll bar, and the line VoiceOver was given is
   then below the screen ([#367](https://github.com/vocaro/EPUBLib/issues/367);
