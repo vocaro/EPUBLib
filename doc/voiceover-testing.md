@@ -1476,8 +1476,10 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     Parked link to the target", with `SELECTION` at the link and the link's line the first
     on screen; `right` says the link again and then "Shown", `line` "hyperlink Parked link
     to the target Shown last words.", and `activate` straight after the second `nextlink`
-    follows the link. Sixteen `nextlink` steps from the top name the book's fourteen links
-    in order, the cells' among them, and then "Last link Reopened 1978 hyperlink". A
+    follows the link. Twenty `nextlink` steps from the top name the book's seventeen links
+    in order, the cells' among them, and then the last three again, "upper jump", "lower
+    jump" and "last jump": those share the book's last screen, and past the last link
+    VoiceOver begins again with the first one on screen. A
     reader without the link below among the children says "Verification link hyperlink"
     and then "Last link Verification link hyperlink".
 11. Actions, on an iPhone and iPad. A line is offered what is in it and nothing else. On a
@@ -2575,6 +2577,19 @@ The Mac runner's transcript is plain text and needs no export.
   alone in continuous scroll. Posted by the window it keeps reading on at the heading and
   puts a word before every heading moved to
   ([native viewer](native-viewer.md#input-and-accessibility), Headings).
+  With main merged in at `f79c7ac`, which has the link below the screen of
+  [#503](https://github.com/vocaro/EPUBLib/pull/503) (run 38437858538): the same phrases
+  at the last section in pages and in continuous scroll, "heading level 3 Second part
+  opens" whole and `line` "Parts below a jump", and at the first section, "Page boundary
+  verification" and "heading level 2 Link target reached" in pages and "heading level 2
+  Link target reached", "word1200" and the heading again in continuous scroll, with
+  `line` "Link target reached" and `right` "Link" in both. The section's three links
+  follow "Reopened 1978", which was the book's last link. In continuous scroll from the
+  top of the book twenty `nextlink` steps named seventeen links: the fourteen as before,
+  "Reopened 1978 hyperlink", "Birch, 1934 table" and "hyperlink Reopened 1978" for the
+  fourteenth, then "an" and "hyperlink upper jump" with `AXLayoutChanged`, "lower jump
+  hyperlink" and "last jump hyperlink", and then the same three again, where "Last link
+  Reopened 1978 hyperlink" was said before.
   Not heard: a heading only part of which is on screen; a larger text size; a workstation;
   and listening.
 - To see what VoiceOver asks of the reader, have the reader write it to a file. `log show`
