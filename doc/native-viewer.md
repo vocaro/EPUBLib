@@ -647,7 +647,14 @@ as they did.
   the bar's own frame is as tall as the view: that is why the view went back for the bar.
   With the element inside that area nothing moves as the cursor comes to it, from the text
   or from below, and the rule above that keeps a line listed through such a move is left
-  for a bar the reader has not replaced
+  for a bar the reader has not replaced. The element does not reach under the insets, so a
+  touch on the bar's place there finds nothing, where it found the bar.
+  A touch on the bar reached UIKit's bar, a view, before any line. The element is one among
+  the lines the touch is tried against, and VoiceOver took a line that ended within a few
+  points of the finger for the one touched: a paragraph's full lines run under the bar's
+  place, which for accessibility is 30 points wide, ten times what is drawn. So a line on
+  screen is listed by the part of it clear of the bar, as it is by the part inside the
+  insets, and a touch anywhere on the bar's place finds the bar again
   ([#342](https://github.com/vocaro/EPUBLib/issues/342)).
   Two other ways were tried against a log of UIKit's requests and dropped
   ([VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current results"): a

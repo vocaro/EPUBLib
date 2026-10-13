@@ -219,6 +219,12 @@ import XCTest
     /// The area UIKit keeps the line under the cursor in: the view less its insets.
     private func cursorArea(of view: ReaderTextView) -> CGRect { view.bounds.inset(by: view.adjustedContentInset) }
 
+    /// `frame`, which an accessibility element gives as the screen's, in `view`'s coordinates.
+    private func fromScreen(_ frame: CGRect, in view: UIView) -> CGRect {
+        let origin = UIAccessibility.convertToScreenCoordinates(view.bounds, in: view).origin
+        return frame.offsetBy(dx: view.bounds.minX - origin.x, dy: view.bounds.minY - origin.y)
+    }
+
     private func postFocus(_ information: [AnyHashable: Any]) {
         NotificationCenter.default.post(name: UIAccessibility.elementFocusedNotification, object: nil, userInfo: information)
     }
@@ -228,9 +234,8 @@ import XCTest
     private func leave(_ previous: NSObject?, for element: NSObject, in view: ReaderTextView) {
         var frame = (element as? UIAccessibilityElement)?.accessibilityFrameInContainerSpace ?? .null
         // An element placed on the screen, as the scroll bar's is.
-        if frame.isEmpty, let placed = (element as? UIAccessibilityElement)?.accessibilityFrame, !placed.isEmpty,
-           let screen = view.window?.screen {
-            frame = screen.coordinateSpace.convert(placed, to: view)
+        if frame.isEmpty, let placed = (element as? UIAccessibilityElement)?.accessibilityFrame, !placed.isEmpty {
+            frame = fromScreen(placed, in: view)
         }
         if !frame.isEmpty {
             let area = cursorArea(of: view)
@@ -671,9 +676,11 @@ import XCTest
         let last = try XCTUnwrap(lines.last)
         XCTAssertEqual(last.accessibilityLabel, view.plainText(in: try XCTUnwrap(view.line(containing: view.textLength - 1)).range))
 
+        let wide = try XCTUnwrap(lines.map(\.accessibilityFrameInContainerSpace.maxX).max())
+
         // UIKit's bar: a view of the scroll view's own that is an accessibility element, as
-        // tall as the view.
-        let bar = ScrollBar(frame: CGRect(x: view.bounds.maxX - 6, y: view.bounds.minY, width: 3, height: view.bounds.height))
+        // tall as the view and, for accessibility, 30 points wide.
+        let bar = ScrollBar(frame: CGRect(x: view.bounds.maxX - 33, y: view.bounds.minY, width: 30, height: view.bounds.height))
         view.addSubview(bar)
         defer { bar.removeFromSuperview() }
         let listed = try elements(of: view)
@@ -700,6 +707,16 @@ import XCTest
         XCTAssertTrue(standIn.accessibilityFrame.height > 0 && kept.contains(standIn.accessibilityFrame),
                       "\(standIn.accessibilityFrame) is outside \(kept)")
         XCTAssertEqual(standIn.accessibilityFrame.minX, bar.accessibilityFrame.minX, accuracy: 0.01)
+        // A touch on the bar reached UIKit's bar before any line. Its stand-in is one element
+        // among the lines, so the lines on screen are listed clear of it: a full line runs
+        // under the bar's place, and VoiceOver took a line that ended beside the finger.
+        let strip = fromScreen(bar.accessibilityFrame, in: view)
+        XCTAssertGreaterThan(wide, strip.minX, "a line must run under the bar's place for this to show anything")
+        for line in try onScreen(Array(listed.dropLast()), subject) {
+            XCTAssertLessThanOrEqual(line.accessibilityFrameInContainerSpace.maxX, strip.minX + 0.01,
+                                     "\"\((line.accessibilityLabel ?? "").prefix(24))\" is listed under the bar")
+            XCTAssertGreaterThan(line.accessibilityFrameInContainerSpace.width, 0)
+        }
 
         // Its cursor is on the book's last line, and the item after that is the bar.
         focus(last, from: nil, in: view)
@@ -1123,6 +1140,12 @@ private final class ScrollBar: UIView {
 
     override var accessibilityTraits: UIAccessibilityTraits {
         get { .adjustable }
+        set {}
+    }
+
+    // A view has no accessibility frame in a test host, where UIKit's accessibility is not loaded.
+    override var accessibilityFrame: CGRect {
+        get { superview.map { UIAccessibility.convertToScreenCoordinates(frame, in: $0) } ?? frame }
         set {}
     }
 

@@ -301,6 +301,24 @@ final class ReaderTextView: UITextView {
         return CGRect(x: frame.minX, y: area.minY, width: frame.width, height: area.height)
     }
 
+    /// `area` of this view, less the side a scroll bar is on. A touch on the bar reached
+    /// UIKit's bar, a view, before any line the scroll view lists. An element in its place is
+    /// one of those the touch is tried against, and VoiceOver took a line that ended within a
+    /// few points of the finger for the one touched: a full line of a paragraph runs under
+    /// the bar's place, which is ten times as wide as the bar is drawn.
+    private func clearOfScrollBars(_ area: CGRect) -> CGRect {
+        var area = area
+        // An element's frame is the screen's. The view is upright on it and at its scale.
+        let origin = UIAccessibility.convertToScreenCoordinates(bounds, in: self).origin
+        for element in scrollBarListed {
+            let bar = element.bar.accessibilityFrame.offsetBy(dx: bounds.minX - origin.x, dy: bounds.minY - origin.y)
+            guard bar.height > bar.width else { continue }
+            let (minX, maxX) = bar.midX > area.midX ? (area.minX, min(area.maxX, bar.minX)) : (max(area.minX, bar.maxX), area.maxX)
+            area = CGRect(x: minX, y: area.minY, width: max(0, maxX - minX), height: area.height)
+        }
+        return area
+    }
+
     /// An assistive technology's cursor came to a bar's stand-in.
     fileprivate func accessibilityCursorMovedToScrollBar() {
         accessibilityCursor = nil
@@ -325,7 +343,7 @@ final class ReaderTextView: UITextView {
         guard let canvas else { return [] }
         let place = ScrollAccessibilityPlace(offset: contentOffset, size: bounds.size, content: contentSize,
                                              insets: adjustedContentInset, cursor: accessibilityCursor.map(ObjectIdentifier.init),
-                                             cursorFollowsText: accessibilityCursorFollowsText)
+                                             cursorFollowsText: accessibilityCursorFollowsText, bars: scrollBarListed.count)
         if let cache = scrollAccessibilityCache, cache.place == place { return cache.elements }
         guard let shown = canvas.scrollSpokenCharacters() else { return [] }
         let past = Self.accessibilityLinesPastScreen
@@ -351,8 +369,8 @@ final class ReaderTextView: UITextView {
         // UIKit scrolls the line the cursor comes to until the area the insets leave holds its
         // frame, and then 40 points further. A first line on screen that the top inset cuts
         // would move the reader as VoiceOver came in, so a line on screen is listed by the
-        // part of it in that area.
-        let area = canvas.scrollVisibleContainerRect.offsetBy(dx: containerOrigin.x, dy: containerOrigin.y)
+        // part of it in that area, and by the part clear of the scroll bar.
+        let area = clearOfScrollBars(canvas.scrollVisibleContainerRect.offsetBy(dx: containerOrigin.x, dy: containerOrigin.y))
         for element in elements where NSIntersectionRange(element.range, shown).length > 0 {
             var frame = element.accessibilityFrameInContainerSpace
             // Hidden labels standing at the top with the first line can be a fraction above it.
@@ -631,6 +649,8 @@ private struct ScrollAccessibilityPlace: Equatable {
     var insets: UIEdgeInsets
     var cursor: ObjectIdentifier?
     var cursorFollowsText: Bool
+    /// How many scroll bars the lines were listed clear of.
+    var bars: Int
 }
 
 /// A scroll bar of the canvas's scroll view, as the scroll view lists it: UIKit's own bar,
