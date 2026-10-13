@@ -143,7 +143,9 @@ final class ReaderTextView: UITextView {
     // VoiceOver offers on an item the actions of everything that contains it, after the item's
     // own. A text view that lists its lines therefore offers none: each line, link, image and
     // table row offers what is its own, and whatever the view offered was repeated on every
-    // one of them. A note keeps UIKit's elements, and with them what UIKit offers for them.
+    // one of them. That goes for UIKit's own too, which gave the scroll view an action for
+    // every link in its text, in continuous scroll the whole book's. A note keeps UIKit's
+    // elements, and with them what UIKit offers for them.
     override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
         get { listsLines ? nil : super.accessibilityCustomActions }
         set { super.accessibilityCustomActions = newValue }

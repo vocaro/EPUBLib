@@ -201,8 +201,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   native zoomable scroll surface, including images drawn inside table cells. On Mac, images
   also offer an Inspect Image context-menu action; UIKit supplies an attachment action and
   menu. Linked images retain link navigation and offer inspection through the menu.
-  Accessibility actions expose inspection for the visible images VoiceOver is told of, by
-  their words where they have them. In the inspector an image is named by its words, or is
+  Each image VoiceOver is told of offers its own inspection as an accessibility action, by
+  its words where it has them, and on iPhone and iPad no other item of the page offers it
+  ("What an item offers VoiceOver"). In the inspector an image is named by its words, or is
   an image without a name. Zoom In, Zoom Out, Fit
   and Close controls complement pinch/trackpad magnification and panning; Escape closes the
   inspector and Command-plus/minus/zero zooms or fits it. Reader page input is suspended while
@@ -211,6 +212,27 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   body font size, retaining resolution up to 16 megapixels and an 8,192-pixel long side.
   Larger raster images are downsampled within those bounds; SVG retains its existing
   4,096-pixel rasterization limit. The same image contrast policy and bounded cache apply.
+- **What an item offers VoiceOver.** On iPhone and iPad VoiceOver's rotor offers on an item
+  its own custom actions and then those of everything that contains it, and ends the list
+  with "Activate Default". An action given to a container is therefore offered on every line
+  inside it, and the reader gives actions to items alone: Next Page and Previous Page to each
+  item of a page, and neither to an item of continuous scroll, which VoiceOver scrolls
+  natively; to an image also its own Inspect Image, by its words where it has them; to a
+  table row also what its own cells can do ("Tables"). A link is followed by activating it
+  and has no action for that. The text view that lists the lines offers nothing. It used to
+  offer Inspect Image for every image in sight, and it passed on UIKit's own actions: UIKit
+  gave the scroll view one for each link in its text, named by the link's characters ("￼"
+  for a link that holds only an attachment), which in continuous scroll are the links of the
+  whole book, and gave a page column none. The reader's SwiftUI view names Next Page and
+  Previous Page on Mac alone: on iPhone and iPad they were offered on every item in the
+  reader, after a page line's own pair and on lines of continuous scroll. Each of the three
+  was heard by itself on 2026-10-12, in a build that named every action for the object that
+  gave it ([VoiceOver testing](voiceover-testing.md#harness-pitfalls-and-current-results)).
+  A page turn chosen in the rotor is a command, as a host's is: selected text holds back a
+  tap or a swipe, which could be meant for the selection, and not this, and the turn fails
+  at either end of the book. A note's popover keeps UIKit's own elements and so passes on
+  UIKit's actions; the reader adds none, because a note has no canvas to inspect an image
+  in. What VoiceOver on Mac does with the reader view's two actions was not examined.
 - **Tables.** Attachments drawn natively (TextKit 2 has no `NSTextTable` on iOS), one
   image-drawn attachment per row so pages can break between any two rows; rows a rowspan
   joins, and the header, keep with the next row and share a page when they fit. `colspan`/
@@ -746,8 +768,10 @@ The following are the defaults. Host commands and accessibility actions stay ena
   trackpad gesture or wheel tick turns a page. Continuous scroll scrolls natively.
 - Keys (all flows): Left/Page Up previous, Right/Page Down/Space next, Shift-Space previous.
   In continuous scroll a page turn scrolls by one viewport less a line.
-- VoiceOver: page-turn actions via `accessibilityScrollAction` and the named "Next Page" and
-  "Previous Page" actions; text reads in order from the text views. In continuous scroll it
+- VoiceOver: page turns by its scroll gesture (`accessibilityScrollAction`) and by the named
+  "Next Page" and "Previous Page" actions, which the reader view offers on Mac and each item
+  of a page on iPhone and iPad ("What an item offers VoiceOver" under Decisions); text reads
+  in order from the text views. In continuous scroll it
   starts at the first line on screen: on Mac at the insertion point kept there, on iOS at the
   first of the lines the scroll view lists (see "Continuous scroll" under Layout). Text that
   a book hides from the page and keeps for assistive technology is read where it stands, as
@@ -781,8 +805,8 @@ The following are the defaults. Host commands and accessibility actions stay ena
   book, which each element keeps: VoiceOver asks twice for one move, the second time from
   the same item though the first answer may have turned the page it was on, and says
   "Heading not found" unless both answers are the same. A section that is not built yet
-  ends the search, and so does the end of the book. What VoiceOver says of a line is as it
-  was: every line said "Actions available" before, in both flows.
+  ends the search, and so does the end of the book. A rotor is not an action, and it
+  changes nothing in what a line offers ("What an item offers VoiceOver" under Decisions).
   On Mac a text area has no elements for its lines, so the heading's characters carry its
   level (`AXHeadingLevel`) in the rich text an assistive client reads, and each text view
   gives VoiceOver a Headings rotor (`NSAccessibilityCustomRotor`). VoiceOver's move to the

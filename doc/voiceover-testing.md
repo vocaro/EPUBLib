@@ -437,7 +437,9 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 - `point=X:Y`: touch a place in the window, as fractions of its width and height, whatever is
   listed there.
 - `flick=down`, `flick=up`: one finger steps through the rotor. With the cursor on a line it
-  offers the line's actions, Next Page first; `doubletap=LABEL` on that same line then
+  offers the line's actions, Next Page first. After the last of them VoiceOver says "Activate
+  Default" and starts again, so a list has been heard whole once that phrase comes.
+  `doubletap=LABEL` on that same line then
   performs the chosen one without moving the cursor. On an iPhone in landscape only the
   upward flick registered, which reaches the same actions.
 - `flick=right`, `flick=left`: VoiceOver's next and previous item; `flick=right*12` repeats it.
