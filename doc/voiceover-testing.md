@@ -2224,7 +2224,10 @@ The Mac runner's transcript is plain text and needs no export.
   alone, decoration and words and the hidden label, each in its cell by line, by word, with
   Find Next Link and Control-Option-Space, and Find Next Link from the page's text. In
   continuous scroll: Find Next Link from the page's text, and the hidden label in its
-  cell. The same phrases again, and each link followed.
+  cell. The same phrases again, and each link followed. And once the page's headings had
+  become its children beside its links, at `6d6c584` (run 38373248427, three sessions): Find
+  Next Link from the page's text in pages and in continuous scroll, and the hidden label
+  in its cell, as before.
   What did not work, heard once and left out, at `e54ad50` (run 38350087032): the cells'
   own elements as the page's children. From the page Find Next Link said "worded jump
   hyperlink" and then "Last link worded jump hyperlink" at every further press. VoiceOver
