@@ -891,6 +891,14 @@ simulator's and not the probe's or the reader's. Page actions, the rotor and tur
 landscape need a device. To read a later landscape spread on a simulator, turn pages in
 portrait and then rotate: the reader keeps its place.
 
+Whether the rotor kept its place across a page turn can be read on a simulator all the same,
+since stepping through the rotor needs no activation. Choose Next Page with `flick=down`,
+turn the page under the cursor with `doubletap=Next Page`, which arrives as a plain touch on
+the control strip's button and leaves the cursor where it is, `listen=4` for what VoiceOver
+says by itself, and `flick=down` again. "Previous Page", the action after the one chosen,
+says the rotor kept its place; "Next Page" again says it started anew. That a double tap
+then performs the action is still a device's to show.
+
 A move costs half a second and a touch about five and a half, most of it XCTest waiting for
 an event that VoiceOver keeps from the reader. The end of a `read` costs 3.3 seconds and an
 `activate` or `rotate` a little over one after the gesture. The simulators are not the
@@ -939,8 +947,12 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    whose lines hold the same characters as the next page's, and with Previous Page.
    Then double-tap again with no flick before it: the page turns again and VoiceOver reads
    the first line of that page, since its cursor is on the item it was on and the action
-   chosen still stands. From a data table's cell, or onto a page that opens with one, the
-   cursor goes to a new item, and there the second double tap turns nothing.
+   chosen still stands. So it is from a data table's cell onto a page that opens with a
+   line, and from a line onto a page that opens with a cell, which VoiceOver reads with
+   its row, its column and "Table start" as it reads any cell it comes to. From a cell
+   onto a page that opens with a cell, as inside a table longer than a page, the cursor
+   goes to a new item, read with its row and column, and there the second double tap
+   turns nothing.
 4. Confirm heading order, the link's label/action and the image's spoken label.
 5. Resize or change typography, wait for the new layout, and repeat the boundary and ordering
    checks. On Mac verify corresponding value-change notifications and fresh text values.
@@ -2968,6 +2980,87 @@ The Mac runner's transcript is plain text and needs no export.
   cursor in the text; an item that becomes a picture, a link or a table row on a device,
   which unit tests hold to the answers of a new item; and Switch Control or any other
   assistive technology that keeps a cursor.
+- On 2026-10-13 the item under the cursor was made to go with the page into a data table
+  and out of one. The change recorded above left a data table's cell as it was: from a
+  cell, or onto a page that opens with one, the reader posted a new item and the rotor
+  started again. A line and a cell are now one class of item, a cell to whoever asks it
+  only while it is one, and the item VoiceOver holds becomes the cell that opens the page
+  shown, or the line. From a cell to a cell the reader still posts a new item, for the
+  reason found below.
+  No device has read this. From 04:15 PDT that day every probe session on the iPad Air
+  ended before its first step with "Timed out while enabling automation mode": four of
+  this branch's, between 04:57 and 05:26, and five of another's before them. The last
+  session to run had ended at 04:01. Read from the Mac, the iPad was connected, booted,
+  in developer mode and asking for no passcode, and VoiceOver was off on it. What follows
+  is the [simulator lane](#simulators), which is not acceptance: iPad Air 13-inch (M4)
+  simulator, iOS 27.0, 1024 × 1366, upright, Xcode 27.0, through XCTest's VoiceOver
+  service. A simulator's VoiceOver performs no action, so each page was turned under the
+  cursor by the plain touch that `doubletap=Next Page` arrives as on the control strip's
+  button, and the flick after the turn says where the rotor is: "Previous Page", the
+  action after the one chosen, where it kept its place, and "Next Page" where it started
+  anew. That a double tap then turns the next page, as it did from a line on the iPad, is
+  not shown by any of this.
+  Before is `5765261`, the change recorded above, and after is `8a6c0f9`; each step list
+  was a session of its own on each.
+  From a cell to a line, in "Tables of data" (`OPS/grids.xhtml`) at 17 points:
+  `touch=Twelve metres`, `flick=down`, the turn, `listen=4`, `screenshot`, `flick=down`,
+  `forward=3`. Before and after alike the touch read "Twelve metres Row 2 Column 3", the
+  first flick "Next Page", VoiceOver read "Line 06 after the grids." by itself, and the
+  moves read "Line 07 after the grids.", "Line 08 …" and "Line 09 …", with no row or
+  column. The second flick read "Next Page" before and "Previous Page" after, and the
+  screenshot after shows VoiceOver's cursor on "Line 06 after the grids.".
+  From a line to a cell, in "A table longer than a page" (`OPS/ledger.xhtml`) at 17
+  points, from the heading, with `backward=3` after the moves forward. Before and after
+  alike VoiceOver read "Entry 28 Row 29 Column 1 Table start 41 rows 3 columns" by
+  itself; forward, "Item Item 28 Column 2", "Sum Sum 28 Column 3", "Entry Entry 29 Row 30
+  Column 1"; and back, "Sum Sum 28 Row 29 Column 3", "Item Item 28 Column 2", "Entry Entry
+  28 Column 1 Table start 41 rows 3 columns". The item that had been a heading is the
+  table's first cell from either side. The flick read "Next Page" before and "Previous
+  Page" after, and the screenshot after shows VoiceOver's cursor on the cell "Entry 28".
+  Into the table and back out of it, by Previous Page: after the same turn, a plain touch
+  on the strip's Previous Page (`doubletap=Previous Page`), `listen=4`, `screenshot`,
+  `flick=down`, `forward=2`. Before and after alike VoiceOver read "A table longer than a
+  page Heading", and the moves read "Words before the ledger." and "Entry Column header
+  Row 1 Column 1 Table start 41 rows 3 columns". The flick read "Next Page" before and
+  "Previous Page" after, and the screenshot after shows VoiceOver's cursor on the
+  heading: one item had been a heading, a cell and the heading again, and the rotor was
+  where it had been put.
+  From a cell to a cell, the same section at 28 points, from "Entry 03 Row 4 Column 1",
+  with a second turn and flick. Before and after are the same, since the reader does the
+  same: "Entry 15 Row 16 Column 1 Table start 41 rows 3 columns" and the flick "Next
+  Page", then "Entry 34 Row 35 Column 1 Table start 41 rows 3 columns" and "Next Page"
+  again, and the moves "Item Item 34 Column 2", "Sum Sum 34 Column 3", "Entry Entry 35
+  Row 36 Column 1".
+  Why a cell does not become a cell was read on a build of the change as first written,
+  `af2324e`, with launch arguments for which item is posted and how (not in the branch),
+  on the same steps. With the item VoiceOver held made the new cell: "Entry 15" and the
+  flick "Previous Page", then "Entry 34" and "Select Cell Text". The rotor kept its place
+  across both turns, the new cell's own action was offered, and the moves read as above,
+  but VoiceOver said the cell's words alone. It says a cell's row and column, and "Table
+  start", of an item its cursor comes to, and of the item already under its cursor only
+  when that item was no cell before, as the line above was. Five more ways of telling it,
+  each with the item it held. A screen change in place of the layout change: it said
+  nothing after either turn, the rotor was kept, and the next move read "Item Item 34 Row
+  35 Column 2", with the row it had not been told. The table's item in place of the
+  cell's, the table's own item kept from the page before, and a layout change with no
+  item before the one with it: "Entry 15" and "Entry 34" alone each time, the rotor
+  kept. "Row 16, Column 1" as the item's value: "Entry 15 Row 16, Column 1" and "Entry 34
+  Row 35, Column 1", the rotor kept. The same words as a queued announcement: "Row 16,
+  Column 1" and then "Entry 15". The last two are the reader's words and not VoiceOver's,
+  in one language, and would be said twice by a VoiceOver that said its own; they are
+  not done.
+  A page of lines reads as it did. In "Tables of data", from "Line 03 after the grids.":
+  "Line 06 after the grids." and the flick "Previous Page". On an iPhone 17 Pro simulator
+  (402 × 874) on the book's first section, with the cursor on the heading
+  (`point=0.5:0.5,doubletap=Next Page,listen=4,forward=3`), three sessions at `8a6c0f9`:
+  the moves read "word0021 … Actions available", "word0025 …", "word0029 …" in each, and
+  VoiceOver read "word0017 word0018 word0019 word0020" by itself in two of them. In the
+  first, at a load average over 400, it said nothing after the turn.
+  Not established: all of it on a device, and there that a second double tap turns the
+  page; a physical iPhone; a cell that becomes a line across an iPad's spread, which
+  unit tests hold to the column it is then in; a cell whose page turns to a cell of
+  another table, which the reader treats as it does a cell of the same one; and Switch
+  Control or any other assistive technology that keeps a cursor.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
