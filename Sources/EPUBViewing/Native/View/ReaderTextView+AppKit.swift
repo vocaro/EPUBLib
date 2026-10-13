@@ -20,6 +20,8 @@ final class ReaderTextView: NSTextView {
     weak var canvas: ReaderCanvasView?
     /// The accessibility element of each textual attachment, by its location.
     private var attachmentElements: [Int: NSAccessibilityElement] = [:]
+    /// The accessibility elements of the text's links (`ReaderTextLinks+AppKit.swift`).
+    var linkElements = ReaderLinkElements()
     private var menuImage: ReaderImageAttachment?
     /// The headings of the text in the view, found once for each text it is given.
     private var headingCache: [(heading: ReaderHeading, range: NSRange)]?
@@ -194,7 +196,8 @@ final class ReaderTextView: NSTextView {
         let attachments = textualAttachments(in: range)
         let images = announcedImages(in: range)
         let headings = contentStorage.textStorage?.readerHeadings(in: range) ?? []
-        guard !attachments.isEmpty || !images.isEmpty || !headings.isEmpty else { return base }
+        let links = accessibilityLinks(in: range)
+        guard !attachments.isEmpty || !images.isEmpty || !headings.isEmpty || !links.isEmpty else { return base }
         let result = NSMutableAttributedString(attributedString: base)
         for (heading, run) in headings where heading.level > 0 {
             let local = NSRange(location: run.location - range.location, length: run.length)
@@ -235,7 +238,15 @@ final class ReaderTextView: NSTextView {
             element.setAccessibilityCustomActions(actions)
             result.addAttribute(.accessibilityAttachment, value: element, range: local)
         }
+        addAccessibilityLinks(links, to: result, of: range)
         return result
+    }
+
+    /// AppKit lists a text view's links as its children and nothing else: the reader's own
+    /// elements take their place.
+    override func accessibilityChildren() -> [Any]? {
+        guard canvas != nil else { return super.accessibilityChildren() }
+        return (super.accessibilityChildren() ?? []).filter { $0 is NSView } + linkChildren()
     }
 
     private func accessibilityElement(at range: NSRange, label: String, isText: Bool = false) -> NSAccessibilityElement {
@@ -266,6 +277,7 @@ final class ReaderTextView: NSTextView {
 
     func exposeTextualAttachments() {
         attachmentElements.removeAll()
+        linkElements = ReaderLinkElements()
         headingCache = nil
         // Replacing NSTextStorage moves its native caret to the new storage's end, which
         // can be hidden paragraph context, or the end of the book. VoiceOver uses that

@@ -10,6 +10,8 @@ VOICEOVER_STEPS          the steps of scripts/run-voiceover-mac.py, quoted as on
 VOICEOVER_WIDTH          window width in points, set by `ax:width` before each session [1100]
 VOICEOVER_TEXT_SIZE      text size in points at launch [23]
 VOICEOVER_FLOW           paginated or scrolled [paginated]
+VOICEOVER_LAUNCH         further launch arguments of the reader, quoted as on a command line,
+                         such as `-SampleHref OPS/labels.xhtml` [none]
 VOICEOVER_PAUSE          the runner's --pause [5]
 VOICEOVER_ADVANCE_AFTER  the runner's --advance-after [the fixed pause]
 """
@@ -35,7 +37,7 @@ READER = ROOT / ".build/voiceover/mac/Build/Products/Debug/VoiceOverVerification
 BOUNDARY = ("ax:next ax:lines ax:focus=search ax:focus=0 in line nextline nextline out " + "left " * 8
             + '"activate=Next Page" ax:lines ' + "right " * 8 + "in line nextline nextline")
 OUTCOMES = {0: "completed", 2: "refused by the runner script", 124: "ended early or reached its deadline",
-            125: "stopped"}
+            125: "stopped", 126: "VoiceOver not restored"}
 
 
 def runner():
@@ -91,7 +93,11 @@ def settings():
     unknown = runner().unknown([step for steps in lists for step in steps])
     if unknown or not lists:
         raise SystemExit(f"Unknown steps: {' '.join(unknown)}" if unknown else "VOICEOVER_STEPS holds no step")
-    return options, ["-SampleFlow", flow, "-SampleFontSize", size], lists
+    try:
+        further = shlex.split(os.environ.get("VOICEOVER_LAUNCH", ""))
+    except ValueError as error:
+        raise SystemExit(f"VOICEOVER_LAUNCH: {error}")
+    return options, ["-SampleFlow", flow, "-SampleFontSize", size] + further, lists
 
 
 def running(name):
@@ -144,7 +150,8 @@ def main():
             lines = written[-1].read_text().splitlines() if written else []
             print("\n".join(lines) + "\n::endgroup::", flush=True)
             # The steps and the speech alone, without the observer's lines, for the run's summary page.
-            spoken = [line[11:] for line in lines if line[25:].startswith(("STEP ", "heard: ", "ADVANCE "))]
+            spoken = [line[11:] for line in lines
+                      if line[25:].startswith(("STEP ", "heard: ", "ADVANCE ", "NOT_RESTORED "))]
             summary += [f"<details><summary>Session {number}: {outcome}</summary>", "", "```text", *spoken, "```",
                         "", "</details>", ""]
         line = f"Session {number}: {outcome}; {transcript}; {shlex.join(launch + options + steps)}"
