@@ -482,9 +482,9 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
 
     // AppKit lists a press among an element's actions where its class answers one, unless the
-    // element says the selector is not allowed. Without a press of the cell's own VoiceOver
-    // clicks the middle of the cell at Control-Option-Space, which follows a link only where
-    // the link's words happen to stand there.
+    // element says the selector is not allowed. A cell without a press leaves Control-Option-
+    // Space to VoiceOver's own means, a click where the cell stands or the press of something
+    // inside it: that followed the fixture's link in each session, and nothing says it must.
     override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
         if selector == #selector(accessibilityPerformPress) { return onMain(self) { $0.isLink } }
         return super.isAccessibilitySelectorAllowed(selector)

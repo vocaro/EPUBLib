@@ -247,10 +247,9 @@ import XCTest
     """
 
     /// A cell whose words are one link and nothing else is pressed to follow it, which is what
-    /// VoiceOver asks of the item under its cursor at Control-Option-Space. Without a press it
-    /// clicks the middle of the cell, which follows a link only where its words stand there.
-    /// A cell with words beside its link, with two links or with none has no press: its links
-    /// are actions by their words.
+    /// VoiceOver asks of the item under its cursor at Control-Option-Space. A cell with words
+    /// beside its link, with two links or with none has no press: its links are actions by
+    /// their words.
     ///
     /// Such a cell holds a link, and the link its text areas, which is what makes VoiceOver
     /// say "hyperlink" as it comes to the cell (doc/voiceover-testing.md). A header cell that
