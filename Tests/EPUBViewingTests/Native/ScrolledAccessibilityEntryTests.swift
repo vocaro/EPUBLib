@@ -146,6 +146,22 @@ import XCTest
         try assertEntryIsTheFirstLineOnScreen("at a larger text size", canvas)
     }
 
+    /// What the canvas itself tells an assistive client while `body` runs, in order: the
+    /// notification, the element that posts it and the elements it names. The notice AppKit
+    /// posts when a text view's selection changes is not among them.
+    private func posted(by canvas: ReaderCanvasView, during body: () async throws -> Void) async rethrows
+        -> [(notification: NSAccessibility.Notification, element: AnyObject, named: [AnyObject])] {
+        var posted: [(notification: NSAccessibility.Notification, element: AnyObject, named: [AnyObject])] = []
+        let post = canvas.postAccessibilityNotification
+        canvas.postAccessibilityNotification = { element, notification, userInfo in
+            posted.append((notification, element as AnyObject, userInfo[.uiElements] as? [AnyObject] ?? []))
+        }
+        // The closure holds what was posted, the window among it, for as long as it is the canvas's.
+        defer { canvas.postAccessibilityNotification = post }
+        try await body()
+        return posted
+    }
+
     /// VoiceOver, back in a text it had left, enters at the insertion point only if it is told
     /// the text view changed (doc/native-viewer.md "Continuous scroll"). A move the reader makes
     /// itself posts that from the window, naming the scroll text view. What VoiceOver does with
@@ -154,22 +170,68 @@ import XCTest
         let subject = try await opened()
         let (reader, canvas) = subject
         let view = try await scroll(subject)
-        var posted: [(element: AnyObject, notification: NSAccessibility.Notification, named: [AnyObject])] = []
-        canvas.postAccessibilityNotification = { element, notification, userInfo in
-            posted.append((element as AnyObject, notification, userInfo[.uiElements] as? [AnyObject] ?? []))
-        }
-        // The closure holds what was posted, the window among it, for as long as the canvas lives.
-        defer { canvas.postAccessibilityNotification = { _, _, _ in } }
         for (label, command) in [("a step forward", EPUBReaderCommand.nextPage), ("a step back", .previousPage)] {
-            posted.removeAll()
-            try await reader.session.send(command)
-            XCTAssertFalse(posted.isEmpty, "\(label) posts a layout change")
-            for change in posted {
-                XCTAssertEqual(change.notification, .layoutChanged, label)
+            let changes = try await posted(by: canvas) { try await reader.session.send(command) }.filter { $0.notification == .layoutChanged }
+            XCTAssertEqual(changes.count, 1, "\(label) posts a layout change")
+            for change in changes {
                 XCTAssertTrue(change.element === canvas.window, "\(label): posted by \(change.element)")
                 XCTAssertEqual(change.named.map(ObjectIdentifier.init), [ObjectIdentifier(view)], label)
             }
         }
+    }
+
+    /// VoiceOver, inside the text and not yet moved in it, keeps its cursor on its line when the
+    /// insertion point moves under one notice, and then scrolls the view back to that line: a
+    /// scroll step made straight after entering was undone
+    /// (doc/voiceover-testing.md "Continuous scroll"). So after a move the reader makes itself
+    /// the text view tells of the insertion point a second time, before the window's layout
+    /// change, whatever made the move. What VoiceOver does with it is heard only in a speech
+    /// session.
+    func testAMoveTheReaderMakesTellsOfTheInsertionPointASecondTimeBeforeTheLayoutChange() async throws {
+        let subject = try await opened()
+        let (reader, canvas) = subject
+        let view = try await scroll(subject)
+        func assertToldTwice(_ label: String, _ move: () async throws -> Void, file: StaticString = #filePath, line: UInt = #line) async throws {
+            let before = view.selectedRange
+            let told = try await posted(by: canvas, during: move)
+            XCTAssertNotEqual(view.selectedRange, before, "\(label) moves the insertion point", file: file, line: line)
+            try assertEntryIsTheFirstLineOnScreen(label, canvas, file: file, line: line)
+            XCTAssertEqual(told.map(\.notification), [.selectedTextChanged, .layoutChanged], label, file: file, line: line)
+            XCTAssertTrue(told.first?.element === view, "\(label): the text view tells of its insertion point", file: file, line: line)
+            XCTAssertEqual(told.first?.named.count, 0, label, file: file, line: line)
+            XCTAssertTrue(told.last?.element === canvas.window, "\(label): the window tells of the layout", file: file, line: line)
+        }
+        // The page keys, the text area's own actions and the host's buttons all step this way.
+        try await assertToldTwice("a step forward") { try await reader.session.send(.nextPage) }
+        try await assertToldTwice("a second step") { XCTAssertTrue(canvas.turnPageFromAccessibility(forward: true)) }
+        try await assertToldTwice("a step by a page key") { canvas.turnPageFromInput(forward: true) }
+        try await assertToldTwice("a step back") { try await reader.session.send(.previousPage) }
+        // A place the reader is sent to.
+        try await assertToldTwice("a chapter chosen from the contents") {
+            try await reader.session.send(.navigate(href: reader.publication.spine[2].resource.href))
+            try await reader.wait("the third chapter") { reader.section == 2 }
+        }
+        // Sent to where it already is, the insertion point does not move: nothing to tell twice.
+        let again = try await posted(by: canvas) {
+            try await reader.session.send(.navigate(href: reader.publication.spine[2].resource.href))
+        }
+        XCTAssertEqual(again.map(\.notification), [.layoutChanged], "the same chapter again")
+        // The insertion point follows a scroll by hand, which is no move of the reader's: AppKit's
+        // one notice is all there is, as before.
+        let followed = view.selectedRange
+        let byHand = try await posted(by: canvas) { try await scrollByHand(1_500, subject) }
+        XCTAssertNotEqual(view.selectedRange, followed, "the insertion point follows a scroll by hand")
+        try assertEntryIsTheFirstLineOnScreen("scrolled by hand", canvas)
+        XCTAssertTrue(byHand.isEmpty, "a scroll by hand posts \(byHand.map(\.notification.rawValue))")
+        // An insertion point an assistive client placed is the reader's again after its own step.
+        view.setAccessibilitySelectedTextRange(NSRange(location: lineStart(at: view.selectedRange.location + 400, in: view), length: 0))
+        try await assertToldTwice("a step from a line VoiceOver had moved to") { try await reader.session.send(.nextPage) }
+        // A selection is never moved, so there is no move to tell of.
+        let selected = NSRange(location: view.selectedRange.location, length: 12)
+        view.setSelectedRange(selected)
+        let withSelection = try await posted(by: canvas) { try await reader.session.send(.nextPage) }
+        XCTAssertEqual(view.selectedRange, selected)
+        XCTAssertEqual(withSelection.map(\.notification), [.layoutChanged], "a step with text selected")
     }
 
     func testVoiceOverWouldEnterAtTheBooksFirstLineWhenItOpensThere() async throws {
