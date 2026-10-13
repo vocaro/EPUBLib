@@ -11,6 +11,10 @@ import Foundation
         public var errorDescription: String? { description }
     }
 
+    // TEMPORARY, for the probe at the end of EngineContractTests.swift: which of the search
+    // check's three fixed waits get a yield before them and 20 ms after. Not for main.
+    public static var probeTreated: Set<Int> = []
+
     /// Tests lifecycle, advertised commands, cancellation, location identity and bookmark restoration.
     /// Rendering fidelity, input gestures and resource release require adapter-specific tests.
     /// The mount closure returns cleanup; it must retain its window until cleanup runs.
@@ -68,6 +72,13 @@ import Foundation
                 catch EPUBReaderError.invalidCommand { return }
                 throw Failure(description: message)
             }
+            // TEMPORARY, for the probe: one of the three fixed waits, as it is or treated.
+            func pause(_ number: Int) async throws {
+                let treated = EPUBEngineContract.probeTreated.contains(number)
+                if treated { await Task.yield() }
+                try await Task.sleep(for: .milliseconds(150))
+                if treated { try await Task.sleep(for: .milliseconds(20)) }
+            }
             let navigates = session.capabilities.contains(.search)
             try require(navigates || session.capabilities.contains(.searchHighlight), "Search results need a search command")
             try await refused(.showSearchResult(unlisted), "Accepted a search result with no search")
@@ -110,19 +121,19 @@ import Foundation
 
             guard session.capabilities.contains(.searchHighlight) else { return }
             // Let the last step's relocation arrive before judging what a stale command does.
-            try await Task.sleep(for: .milliseconds(150))
+            try await pause(1)
             let cleared = events.count
             try await session.send(.clearSearch)
             try await wait("withdrawn search results") { published(since: cleared).last == .some(nil) }
             if let state = session.readerState {
                 try require(state.status.searchResults == nil, "Reader state kept cleared search results")
             }
-            try await Task.sleep(for: .milliseconds(150))
+            try await pause(2)
             let quiet = events.count
             try await session.send(.nextSearchResult)
             try await session.send(.previousSearchResult)
             try await refused(.showSearchResult(listed.results[0]), "Accepted a result of a cleared search")
-            try await Task.sleep(for: .milliseconds(150))
+            try await pause(3)
             try require(events.count == quiet, "A step or result of a cleared search still had an effect")
         }
         let cancelled = Task { try await session.send(.nextPage) }
