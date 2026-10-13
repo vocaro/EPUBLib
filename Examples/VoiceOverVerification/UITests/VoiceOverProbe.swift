@@ -146,6 +146,9 @@ import XCUIAutomation
             : silence < 2 ? "turned on for this session" : "turned on for this session, silent for its first \(Int(silence)) s")
         heard("initial")
         let steps = (environment["VOICEOVER_STEPS"] ?? "read").split(separator: ",").map(String.init)
+        // The action `choose` last looked for was not offered: a double tap would perform
+        // whichever the rotor had come round to.
+        var unchosen = false
         for step in steps {
             let parts = step.split(separator: "=", maxSplits: 1).map(String.init)
             // Another session's app in front would be read and touched instead of the reader.
@@ -226,13 +229,25 @@ import XCUIAutomation
                         + "last \(words(listed.last?.label)) at y \(Int(listed.last?.frame.minY ?? 0)))"
                     note("visible", "column \(column): \(ordered.count) lines, first \(words(ordered.first?.label)), last \(words(ordered.last?.label))\(outside)")
                 }
-            case "touch", "activate", "doubletap":
+            case "touch", "activate", "doubletap", "press":
                 // A touch moves VoiceOver to the item under it; a double tap then activates that item.
                 let label = parts.last ?? ""
                 let button = app.buttons[label].firstMatch
                 let element = button.exists ? button
                     : app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).firstMatch
                 guard element.exists || element.waitForExistence(timeout: 5) else { note(step, "MISSING"); continue }
+                if parts[0] == "press" {
+                    // A finger held on the item for a second: with VoiceOver off, the touch that
+                    // selects the word under it and brings up the edit menu.
+                    let before = screen()
+                    element.press(forDuration: 1)
+                    settle(before, limit: 2)
+                    continue
+                }
+                if parts[0] == "doubletap", unchosen {
+                    note(step, "SKIPPED: the action to perform was not offered")
+                    continue
+                }
                 // `doubletap` keeps the rotor's selection: the item must already hold the cursor.
                 if parts[0] != "doubletap" {
                     element.tap()
@@ -314,6 +329,7 @@ import XCUIAutomation
                     note("flick=down", phrase)
                     found = phrase.hasPrefix(wanted)
                 }
+                unchosen = !found
                 if !found { note(step, "MISSING") }
             case "listen":
                 // Every phrase VoiceOver comes to in that many seconds, and that there was none:
