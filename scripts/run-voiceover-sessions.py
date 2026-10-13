@@ -183,33 +183,59 @@ def running(name):
     return subprocess.run(["pgrep", "-x", name], capture_output=True).stdout
 
 
-def closed():
+def quit_safari():
+    """Quit the Safari this job opened, by its own Command-Q where it has the keyboard.
+
+    Stopped by a signal, Safari opened the page it had again, in a tab beside the next
+    session's (run 38414486982), so it is stopped that way only if it will not quit.
+    """
+    if not running("Safari"):
+        return False
+    script = runner()
+    if script.keyboard_owner() == script.SAFARI:
+        script.keystroke(12, "command down")
+        limit = time.monotonic() + 10
+        while running("Safari") and time.monotonic() < limit:
+            time.sleep(0.5)
+    if running("Safari"):
+        subprocess.run(["pkill", "-x", "Safari"])
+    return True
+
+
+def closed(safari):
     """Wait for VoiceOver to have quit, and close the previous session's reader or Safari."""
     # VoiceOver ignores its shortcut while it is still quitting.
     limit = time.monotonic() + 20
     while running("VoiceOver") and time.monotonic() < limit:
         time.sleep(0.5)
-    # Both, because VoiceOver names every window on the screen as it starts.
-    if 0 in [subprocess.run(["pkill", "-x", name]).returncode for name in (READER.stem, "Safari")]:
+    # Both, because VoiceOver names every window on the screen as it starts. Safari only if a
+    # session of this job opened it: any other Safari is somebody's own.
+    stopped = subprocess.run(["pkill", "-x", READER.stem]).returncode == 0
+    if (safari and quit_safari()) or stopped:
         time.sleep(6)
 
 
-def fresh_reader(launch):
+def fresh_reader(launch, safari):
     """Close the previous session's reader and open a new one, as the docs ask before each case."""
-    closed()
+    closed(safari)
     subprocess.run(["open", "-na", str(READER), "--args"] + launch, check=True)
     time.sleep(8)
 
 
-def fresh_safari(href, number):
+def fresh_safari(href, number, safari):
     """Open a section of the fixture in a new Safari, and keep a picture of what Safari shows."""
-    closed()
+    if os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted":
+        # On a workstation Safari is somebody's own, with pages open. There, open the page by
+        # hand and give the runner script --safari.
+        raise SystemExit(f"Session {number}: a session of Safari quits Safari and opens its own, "
+                         "so this script runs one on a hosted runner only")
+    closed(safari)
     shutil.rmtree(PAGES, ignore_errors=True)
     with zipfile.ZipFile(FIXTURE) as book:
         if href not in book.namelist():
             raise SystemExit(f"Session {number}: the fixture has no {href}")
         book.extractall(PAGES)
-    # --fresh: without the windows of the Safari closed before it.
+    # --fresh: without windows kept from an earlier Safari.
     subprocess.run(["open", "--fresh", "-a", "Safari", str(PAGES / href)], check=True)
     time.sleep(8)
     # Before VoiceOver is on: a question or a page other than the section shows here.
@@ -229,6 +255,7 @@ def main():
     RESULTS.mkdir(parents=True, exist_ok=True)
     summary = ["### Mac VoiceOver sessions", ""]
     failures = 0
+    safari = False  # Whether a session of this job has opened Safari.
     for number, (page, label, launch, rest) in enumerate(found, 1):
         # A session takes its timeout and about 45 seconds around it.
         timeout = 300 if args.until is None else min(300, int(args.until - time.time()) - 45)
@@ -239,9 +266,10 @@ def main():
         else:
             print(f"::group::Session {number}: {label}", flush=True)
             if page:
-                fresh_safari(page, number)
+                fresh_safari(page, number, safari)
+                safari = True
             else:
-                fresh_reader(launch)
+                fresh_reader(launch, safari)
             before = set(RESULTS.glob("mac-*.transcript.txt"))
             started = time.time()
             status = subprocess.run([sys.executable, str(ROOT / "scripts/run-voiceover-mac.py"),
