@@ -149,15 +149,16 @@ jobs:
 
       - name: Read or choose how VoiceOver announces a link
         run: |
-          # VoiceOver's text verbosity decides whether it says a word for a link or an
-          # attachment at all, so every run records the setting. A setting written with
-          # `defaults` before VoiceOver first ran left it silent: VoiceOver Utility writes it.
+          # VoiceOver's text verbosity decides what it says of a link or an attachment as it
+          # reads, so every run records the setting. VoiceOver Utility writes it: a setting
+          # written with `defaults` before VoiceOver had ever run left VoiceOver silent.
           xcrun swiftc -O scripts/voiceover-link-verbosity.swift -o "$RESULTS/voiceover-link-verbosity"
           status=0
           if [ "${VOICEOVER_LINKS:-Unchanged}" = Unchanged ]; then VOICEOVER_LINKS=; fi
-          "$RESULTS/voiceover-link-verbosity" ${VOICEOVER_LINKS:+"$VOICEOVER_LINKS"} --tree > "$RESULTS/link-verbosity.txt" 2>&1 || status=$?
-          head -n 400 "$RESULTS/link-verbosity.txt"
+          "$RESULTS/voiceover-link-verbosity" ${VOICEOVER_LINKS:+"$VOICEOVER_LINKS"} > "$RESULTS/link-verbosity.txt" 2>&1 || status=$?
+          cat "$RESULTS/link-verbosity.txt"
           grep "^LINK VERBOSITY" "$RESULTS/link-verbosity.txt" | tail -n 1 >> "$RESULTS/runner.txt"
+          # Without a choice to make, a utility that could not be read is recorded and no more.
           if [ "$status" != 0 ] && [ -n "$VOICEOVER_LINKS" ]; then
             echo "::error::VoiceOver's link setting could not be set to $VOICEOVER_LINKS"
             exit 1
@@ -194,8 +195,6 @@ jobs:
           mkdir -p "$RESULTS"
           screencapture -x "$RESULTS/screen-end.png"
           echo "VoiceOver state: $(defaults read com.apple.universalaccess voiceOverOnOffKey 2>&1), process: $(pgrep -lx VoiceOver || echo none)"
-          # Temporary: where VoiceOver keeps its settings on this image.
-          { find "$HOME/Library" -iname "*voiceover*" -maxdepth 6 2>/dev/null; defaults read com.apple.VoiceOver4/default 2>&1 | head -n 80; } > "$RESULTS/voiceover-settings.txt" 2>&1
           if [ "$JOB_STATUS" != success ]; then
             # The banner's starts and the kernel's kills of it, and anything from Dictation.
             /usr/bin/log show --last 20m --style compact --info --predicate \
