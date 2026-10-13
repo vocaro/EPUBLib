@@ -933,6 +933,17 @@ private struct ReaderAccessibilityList {
     var position: ReaderTextPosition?
     /// The image the element stands for, when it is one.
     var image: ReaderImageAttachment?
+    // Page and scroll lists retain their elements. A raster failure discovered after
+    // listing must expose the retained drawing's fallback on that same element.
+    override var accessibilityLabel: String? {
+        get {
+            if let image, image.source.hasFailedSVGRendering {
+                return image.alt.isEmpty ? nil : image.alt
+            }
+            return super.accessibilityLabel
+        }
+        set { super.accessibilityLabel = newValue }
+    }
     /// The data table the element is a cell of, and the cell's index among the table's cells.
     /// A line has no table. A cell is an element inside its table's, where its row stands
     /// among the lines.

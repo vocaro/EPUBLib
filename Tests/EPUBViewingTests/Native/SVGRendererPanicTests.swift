@@ -5,6 +5,9 @@ import EPUBReading
 import Foundation
 import XCTest
 @testable import EPUBViewing
+#if os(iOS)
+import UIKit
+#endif
 
 /// Actual renderer calls without SVGContent's screens: all five panic families from #186,
 /// and the zero-length repeating gradient. A regression ends this isolated test process.
@@ -138,3 +141,27 @@ final class SVGRendererPanicTests: XCTestCase {
         #endif
     }
 }
+
+#if os(iOS)
+extension SVGRendererPanicTests {
+    @MainActor func testCachedPageAndScrollAccessibilityElementsReadLaterFailureWords() throws {
+        for flow in [EPUBReadingFlow.paginated, .scrolled] {
+            let text = try RichMediaBook(body: "<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><text x='1' y='5' font-size='2'>Retained diagram words</text><circle cx='5' cy='5' r='100000'/></svg>").build()
+            let image = try XCTUnwrap(text.richMediaImages.first)
+            var configuration = ReaderCanvasConfiguration()
+            configuration.flow = flow
+            let host = CanvasHost(FakeCanvasSource([text.string]), configuration: configuration)
+            defer { host.close() }
+            host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+            host.layOut()
+            let view = try XCTUnwrap(flow == .scrolled ? host.canvas.scrollTextView : host.canvas.textViews.first)
+            let listed = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+            let item = try XCTUnwrap(listed.first { $0.accessibilityTraits.contains(.image) })
+            XCTAssertNil(item.accessibilityLabel, "An unnamed image before its later render fails")
+            XCTAssertNil(image.source.decode(maxPixelSize: 4096))
+            XCTAssertEqual(item.accessibilityLabel, "Retained diagram words", "The cached element now reads the failure alternative")
+            XCTAssertTrue((view.accessibilityElements as? [UIAccessibilityElement] ?? []).contains { $0 === item }, "The element under the cursor is retained")
+        }
+    }
+}
+#endif
