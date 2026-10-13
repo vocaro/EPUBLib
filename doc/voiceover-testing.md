@@ -1098,6 +1098,19 @@ filed to ask for one. A change to what an activation or an action does needs one
 step. The simulators run iOS 27.0 and are other models than the physical devices, so where a
 simulator and a device differ, the device's result stands and the difference is recorded.
 
+One such difference follows from the first of the three. Once it has activated something
+itself, VoiceOver on an iPad asks again for the items round its cursor, and goes to what is
+shown when its own item has left the screen. A simulator's VoiceOver does not know that
+anything was activated and goes on with the items it held. After `activate=Scroll Forward`
+in continuous scroll it read a line from before the step, and after `activate=` on a link
+it stayed on the link, where the iPad read on from the right place both times
+([#428](https://github.com/vocaro/EPUBLib/issues/428), under "Harness pitfalls and current
+results"). So what VoiceOver reads in the moves after an `activate=` step, until it has
+next asked for items, is the simulator's own where it holds items from before the step:
+run a fault first seen there on a device, or make the same move without an activation
+(`-SampleStepAfter`), before it is filed or fixed. In continuous scroll the reader now
+tells VoiceOver of every move of its own, and the two agree after one.
+
 Sessions that show a change by what VoiceOver said before and after it are recorded on the
 same main. Merge main into the branch first, and take as "before" a commit that holds main
 and nothing of the change but its fixture. Main gains commits within the hour, and one that
