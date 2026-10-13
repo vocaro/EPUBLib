@@ -362,17 +362,23 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// page shown again, a move back and a move forward took it out of the text, to the
     /// control it had touched before it began to read. Told of the layout change it drops
     /// what it holds 0.8 s later, by its own log, says nothing and stays where it is, and
-    /// its moves from there are through the items of the page shown. On a line of a page
-    /// shown again it sets its cursor on that line's new item, where its rotor is at its
-    /// default.
+    /// its moves from there are through the items of the page shown.
+    ///
+    /// A page shown again has a new item for the line under the cursor as for every other,
+    /// and VoiceOver then set its cursor on that one, where its rotor is at its default: an
+    /// action chosen before took one more flick down. So the item it holds is first made
+    /// the item of its line, or of its cell of a data table
+    /// (`ReaderTextView.accessibilityCursorKeepsItsLine`). Its cursor is then on an item of
+    /// the page already. It sets nothing, and what was chosen in its rotor still stands.
     ///
     /// Nothing is posted for a page VoiceOver asked for itself: by its rotor, which takes
     /// the cursor to the item it is given, and by its scroll, which is announced
     /// (`accessibilityCursorIsHeld`).
     func accessibilityPageWasShown(at position: ReaderTextPosition?) {
         guard !accessibilityCursorIsHeld else { return }
-        if columns.contains(where: \.accessibilityCursorHasLeftThePage) { accessibilityCursorFollowsThePage(to: position) }
-        else { postAccessibilityNotification(.layoutChanged, nil) }
+        guard !columns.contains(where: \.accessibilityCursorHasLeftThePage) else { return accessibilityCursorFollowsThePage(to: position) }
+        for column in columns { column.accessibilityCursorKeepsItsLine() }
+        postAccessibilityNotification(.layoutChanged, nil)
     }
 
     /// Shows `position` for VoiceOver's rotor, which takes the cursor to the item it is given.

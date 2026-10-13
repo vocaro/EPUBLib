@@ -233,17 +233,92 @@ import XCTest
         XCTAssertEqual(posts.map(\.notification), [.pageScrolled], "VoiceOver's scroll")
         posts.removeAll()
         // With the cursor on a line the page still has, the page shown again is told of the
-        // same way: its lines are new items. The cursor keeps its line.
+        // same way: the lines around the cursor's are new items. The cursor keeps its line.
         let held = try elements(of: view)[1]
         focus(held, from: button)
         canvas.reloadContent(keeping: nil)
         XCTAssertEqual(toldOfAPage(), 1, "the line is still on the page")
         XCTAssertFalse(view.accessibilityCursorHasLeftThePage)
         XCTAssertEqual(view.index(ofAccessibilityElement: held), 1)
-        XCTAssertFalse(try elements(of: view)[1] === held, "the line has a new item")
         // A line turned away has the cursor sent to the page, and nothing else is posted.
         XCTAssertEqual(canvas.turnPage(forward: true), .turned)
         XCTAssertTrue(try cursorSent() === held, "one layout change, and it names the element under the cursor")
+    }
+
+    /// The same page shown again under a cursor that is on one of its lines, as when the host
+    /// changes the appearance or the text is built again. VoiceOver is told of a layout change
+    /// with no element, and takes the item listed where its cursor is: given a new one for the
+    /// line it sets its cursor there, and its rotor is back at its default
+    /// (`doc/voiceover-testing.md`, "Harness pitfalls and current results"). So the element
+    /// it holds is listed as the item of its line, with all that a new one for the line
+    /// answers, and every other line has a new item.
+    func testTheElementUnderTheCursorIsTheItemOfItsLineWhenItsPageIsShownAgain() throws {
+        let canvas = host([Self.lines(120, heading: 3)]).canvas
+        let view = try XCTUnwrap(canvas.textViews.first)
+        var listed = try elements(of: view)
+        let fresh = listed.map(answers)
+        XCTAssertGreaterThan(listed.count, 4)
+        // The cursor on the page's third line, a heading.
+        let held = listed[2]
+        XCTAssertEqual(fresh[2].headingLevel, 2)
+        focus(held)
+        for round in ["shown again", "and again"] {
+            canvas.reloadContent(keeping: nil)
+            XCTAssertEqual(toldOfAPage(), 1, "\(round): told once, and no element named")
+            let again = try elements(of: view)
+            XCTAssertEqual(again.map(answers), fresh, "\(round): every line once and in order, each what a new item for it is")
+            for (index, element) in again.enumerated() where index != 2 {
+                XCTAssertFalse(listed.contains { $0 === element }, "\(round): line \(index + 1) has a new item")
+            }
+            XCTAssertTrue(again[2] === held, "\(round): the element under the cursor is the item of its line")
+            XCTAssertEqual(view.index(ofAccessibilityElement: held), 2, round)
+            XCTAssertTrue(view.accessibilityElement(at: 2) as? UIAccessibilityElement === held, round)
+            XCTAssertTrue(held.accessibilityContainer as? ReaderTextView === view, round)
+            XCTAssertFalse(view.accessibilityCursorHasLeftThePage, round)
+            for element in listed where element !== held {
+                XCTAssertFalse(again.contains { $0 === element }, "\(round): an item of the page as it was is listed no more")
+            }
+            listed = again
+        }
+        // A position shown on the page the cursor is on is that page shown again.
+        canvas.show(ReaderTextPosition(section: 0, offset: Self.lineLength), selecting: nil)
+        XCTAssertEqual(toldOfAPage(), 1)
+        XCTAssertTrue(try elements(of: view)[2] === held, "a position on the same page")
+        // The element is still the one that goes with the page when its line is turned away,
+        // by the host and by its own action, and it keeps nothing of the heading it was.
+        XCTAssertEqual(canvas.turnPage(forward: true), .turned)
+        XCTAssertTrue(try cursorSent() === held)
+        XCTAssertTrue(try elements(of: view)[0] === held, "the first line of the page turned to")
+        XCTAssertEqual(number(held), listed.count + 1)
+        XCTAssertNil(answers(held).headingLevel)
+        try perform("Previous Page", on: held)
+        XCTAssertTrue(try cursorSent() === held)
+        XCTAssertEqual(try elements(of: view).map(answers), fresh, "the first page again, from its first line")
+        // With the cursor on a control, every line of a page shown again has a new item: the
+        // element it left is kept for no line.
+        focus(NSObject(), from: held)
+        canvas.reloadContent(keeping: nil)
+        XCTAssertEqual(toldOfAPage(), 1, "a cursor on a control")
+        XCTAssertFalse(try elements(of: view).contains { $0 === held }, "the element the cursor left")
+        XCTAssertEqual(try elements(of: view).map(answers), fresh)
+    }
+
+    /// On an iPad's spread the cursor's element keeps its line in the column it is in, and the
+    /// other column's lines are new items.
+    func testTheElementUnderTheCursorKeepsItsLineInItsColumnOfASpreadShownAgain() throws {
+        let canvas = host([Self.lines(100)], size: CGSize(width: 1100, height: 420)).canvas
+        XCTAssertEqual(canvas.textViews.count, 2)
+        let left = try elements(of: canvas.textViews[0]), right = try elements(of: canvas.textViews[1])
+        let fresh = (left + right).map(answers)
+        let held = right[1]
+        focus(held)
+        canvas.reloadContent(keeping: nil)
+        XCTAssertEqual(toldOfAPage(), 1)
+        let again = try canvas.textViews.flatMap { try self.elements(of: $0) }
+        XCTAssertEqual(again.map(answers), fresh)
+        XCTAssertTrue(try elements(of: canvas.textViews[1])[1] === held, "the second line of the right-hand page")
+        XCTAssertEqual(again.filter { item in (left + right).contains { $0 === item } }.count, 1, "and every other line has a new item")
+        for column in canvas.textViews { XCTAssertFalse(column.accessibilityCursorHasLeftThePage) }
     }
 
     func testVoiceOversScrollAnnouncesThePageAndThenSendsTheCursorToItsFirstLine() throws {
@@ -690,6 +765,73 @@ import XCTest
         XCTAssertFalse(cursor.accessibilityActivate(), "and follows nothing")
         XCTAssertEqual(canvas.visibleRange?.start.section, 6)
         XCTAssertTrue(posts.isEmpty)
+    }
+
+    /// The same page shown again under a cursor that is in a data table's cell: the host makes
+    /// the reader dark, every section is built again and the table is a new one. The cell
+    /// keeps its element as a line does, and its table's element is kept with it, for the
+    /// table as it was built again: with a new element for the table VoiceOver said the kept
+    /// cell's header cells and no longer its row or column (`doc/voiceover-testing.md`,
+    /// "Harness pitfalls and current results"). VoiceOver's cursor comes to no other item
+    /// there, so it says nothing, and what it chose in its rotor stands. Across a turn a cell
+    /// that becomes another cell is given that cell's own element, whose row and column
+    /// VoiceOver is to say
+    /// (`testTheElementUnderTheCursorIsALineOnOnePageAndACellOfADataTableOnAnother`).
+    func testACellUnderTheCursorIsTheItemOfItsCellWhenItsPageIsShownAgain() async throws {
+        let reader = try SessionCoverageReader(publication: try Self.cells())
+        readers.append(reader)
+        reader.window?.resize(to: CGSize(width: 402, height: 874))
+        try await reader.settle()
+        let canvas = try XCTUnwrap(reader.session.canvas)
+        let view = try XCTUnwrap(canvas.textViews.first { !$0.isHidden })
+        canvas.show(ReaderTextPosition(section: 1, offset: 0), selecting: nil)
+        try await reader.wait("the stations") { canvas.visibleRange?.start.section == 1 }
+        try await reader.wait("the cells' text views") { view.tableInteraction?.cells.isEmpty == false }
+        canvas.postAccessibilityNotification = { [weak self] in self?.posts.append(($0, $1)) }
+        let before = try items(of: view)
+        let fresh = before.map(answers)
+        XCTAssertEqual(fresh.map(\.label), ["Station", "Opened", "Alder", "1901", "Words under the stations."])
+        let was = try XCTUnwrap(try elements(of: view).first)
+        let cell = before[3]
+        focus(cell)
+
+        let dark = reader.state.status.effectiveAppearance != .dark
+        try await reader.session.send(.style(EPUBReaderStyle(isDark: dark)))
+        try await reader.wait("the page shown again") { !self.posts.isEmpty }
+        try await reader.settle()
+        try await reader.wait("the cells' text views again") { view.tableInteraction?.cells.isEmpty == false }
+        XCTAssertGreaterThanOrEqual(toldOfAPage(), 1, "told of the page, and no element named")
+        let after = try items(of: view)
+        XCTAssertEqual(after.map(answers), fresh, "every item once and in order, each what a new one for it is")
+        XCTAssertTrue(after[3] === cell, "the element under the cursor is the item of its cell")
+        for (index, item) in after.enumerated() where index != 3 {
+            XCTAssertFalse(before.contains { $0 === item }, "item \(index + 1) is a new one")
+        }
+        let table = try XCTUnwrap(try elements(of: view).first as? UIAccessibilityElement & UIAccessibilityContainerDataTable)
+        XCTAssertTrue(table === was, "its table's element is kept with it")
+        XCTAssertEqual(try elements(of: view).filter { $0 is UIAccessibilityContainerDataTable }.count, 1, "and is the one table listed")
+        XCTAssertTrue(cell.accessibilityContainer as? UIAccessibilityElement === table)
+        for item in after.dropLast() { XCTAssertTrue(item.accessibilityContainer as? UIAccessibilityElement === table, "every cell is in its list") }
+        // It answers for the table as it was built again: a column's header cell is the one listed now.
+        let header = table.accessibilityHeaderElements?(forColumn: 1)?.first as? UIAccessibilityElement
+        XCTAssertTrue(header === after[1], "the header cell of the page shown again")
+        XCTAssertFalse(header === before[1])
+        XCTAssertEqual(table.accessibilityRowCount(), 2)
+        XCTAssertEqual(table.accessibilityFrameInContainerSpace, after.dropLast().reduce(CGRect.null) { $0.union($1.accessibilityFrameInContainerSpace) })
+        XCTAssertEqual(table.index(ofAccessibilityElement: cell), 3)
+        XCTAssertTrue(table.accessibilityElement(at: 3) as? UIAccessibilityElement === cell)
+        XCTAssertTrue(table.accessibilityDataTableCellElement(forRow: 1, column: 1) as? UIAccessibilityElement === cell,
+                      "the table finds it by its row and column")
+        XCTAssertEqual(view.index(ofAccessibilityElement: cell), NSNotFound, "a cell is in its table's list and not the view's")
+        XCTAssertEqual(answersAsCell(cell), [true, true, true])
+        XCTAssertFalse(view.accessibilityCursorHasLeftThePage)
+        // Its page turned, the element is the line that opens the page before, as it was.
+        let from = canvas.visibleRange?.start
+        try perform("Previous Page", on: cell)
+        try await reader.wait("the page before") { canvas.visibleRange?.start != from }
+        XCTAssertTrue(try cursorSent() === cell)
+        XCTAssertEqual(cell.accessibilityLabel, "Plain opening words.\n")
+        XCTAssertEqual(answersAsCell(cell), [false, false, false])
     }
 
     /// On an iPad's spread the element goes with the page into the other column. A cell of

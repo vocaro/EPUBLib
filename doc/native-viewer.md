@@ -1831,10 +1831,26 @@ The following are the defaults. Host commands and accessibility actions stay ena
   no element (`ReaderCanvasView.accessibilityPageWasShown`), as it does after a move of
   its own in continuous scroll. VoiceOver drops everything it holds 0.8 s later, by its own
   log, says nothing and stays where it is, and its moves from there are through the items
-  of the page shown. On a line of a page shown again it sets its cursor on that line's new
-  item as it does so, and its rotor is at its default there: an action chosen before the
-  page was shown again takes one flick down to choose again. Having the item it holds
-  stand for the line, as it does across a turn, would keep the rotor and is not done. A
+  of the page shown.
+  A page shown again has a new item for the line under the cursor as for every other, and
+  VoiceOver then set its cursor on that one as it dropped what it held, without a word,
+  and its rotor was at its default there: an action chosen before the page was shown
+  again took one flick down to choose again. So the item VoiceOver holds goes on as the
+  item of its line when its page is shown again, as it does across a turn. It takes the
+  place of the line's new item in its column's list, with everything that one has
+  (`ReaderTextView.accessibilityCursorKeepsItsLine`), before the change is posted.
+  VoiceOver's cursor is then on an item of the page already: its log has no `Will set
+  element` at the forced update, nothing is said, the flick down after it says "Previous
+  Page", the action after the one chosen, and the moves from there read the page's lines
+  in order, the kept one as what it is, a heading, a link or an image (iOS 27.0
+  simulator). A data table's cell keeps its item here too, where across a turn a cell
+  that becomes another cell does not: the cursor comes to no other cell, and nothing is
+  to be said of one. Its table's item is kept with it, for the table as it was built
+  again. With the cell kept and a new item for its table, VoiceOver said the cell's
+  header cells and its words whenever it came back to that cell and no longer its row or
+  its column, "Depth Twelve metres" for "Depth Twelve metres Column 3" and "Alder Depth
+  Twelve metres" for "Alder Depth Twelve metres Row 2 Column 3"; with both kept it says
+  the place as before, and the rotor stays on a cell as on a line. A
   second such change right beside the one that sends the cursor,
   before it or after it, as a page shown again for a new size just before a turn would
   post, left what VoiceOver read and its rotor as they were in nine sessions of ten, and

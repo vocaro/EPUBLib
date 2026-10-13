@@ -346,6 +346,12 @@ import XCTest
         XCTAssertEqual(posts.map(\.notification), [.layoutChanged], "the page shown again still has the cell")
         XCTAssertNil(posts.first?.argument, "so no element is named, and the cursor is sent nowhere")
         XCTAssertFalse(view.accessibilityCursorHasLeftThePage)
+        // The cell keeps its element and its table's, and every other cell has a new one
+        // (`PageTurnAccessibilityTests`).
+        let again = try cells(of: try XCTUnwrap(tables(in: view).first))
+        XCTAssertTrue(again.dropFirst(4).first === cell, "the cell under the cursor is the item of its cell")
+        XCTAssertEqual(again.filter { item in first.contains { $0 === item } }.count, 1)
+        XCTAssertEqual(again.map(\.accessibilityLabel), first.map(\.accessibilityLabel))
         posts.removeAll()
 
         try perform("Next Page", on: cell)
