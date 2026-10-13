@@ -17,9 +17,13 @@ import XCUIAutomation
         let snapshots = environment["VOICEOVER_SNAPSHOTS"] != nil
         if snapshots { app.activate() }
         #else
-        defer {
-            if !wasEnabled && voiceOver.isEnabled {
-                do { try voiceOver.disable() }
+        // In a teardown block, which runs however the test ends. An exception XCTest raises
+        // for a gesture ends the test without unwinding it: a `defer` here did not run, and
+        // VoiceOver stayed on on a phone.
+        addTeardownBlock { @MainActor in
+            let service = XCUIDevice.shared.voiceOverService
+            if !wasEnabled && service.isEnabled {
+                do { try service.disable() }
                 catch { XCTFail("VoiceOver restoration failed: \(error)") }
             }
         }
@@ -260,10 +264,11 @@ import XCUIAutomation
                 }
             case "rotor":
                 // Two fingers turned on the glass turn VoiceOver's rotor, which names the setting
-                // it comes to. `rotor=Headings` turns it until it names that one, thirty turns
-                // at most; `flick=down` and `flick=up` then move by it. One turn of a given
+                // it comes to. `rotor=Headings` turns it until its phrase begins with that, thirty
+                // turns at most; `flick=down` and `flick=up` then move by it. One turn of a given
                 // size moved the rotor one setting in some sessions and three in others, which
-                // went round and round past Headings: the turns are of several sizes.
+                // went round and round past Headings: the turns are of several sizes. On a
+                // physical iPhone no turn registered, on the screen, the window or the text.
                 let wanted = parts.count > 1 ? parts[1] : ""
                 var found = wanted.isEmpty
                 let turns: [CGFloat] = [.pi / 4, .pi / 6, .pi / 9, .pi / 5, .pi / 12]
@@ -272,7 +277,9 @@ import XCUIAutomation
                     RunLoop.current.run(until: Date().addingTimeInterval(0.8))
                     let phrase = (try? voiceOver.currentSpeech().utterance) ?? "no speech"
                     note("rotor", phrase)
-                    if !wanted.isEmpty, phrase.localizedCaseInsensitiveContains(wanted) { found = true; break }
+                    // The setting's name comes first. Elsewhere in the phrase it can be the item's own
+                    // hint, "Use the rotor to access Headings", when a turn did not register.
+                    if !wanted.isEmpty, phrase.lowercased().hasPrefix(wanted.lowercased()) { found = true; break }
                 }
                 if !found { note(step, "MISSING") }
             case "wait":
