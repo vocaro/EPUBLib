@@ -501,7 +501,14 @@ import UIKit
                     let field = try XCTUnwrap(host.views(UITextField.self).first, name)
                     XCTAssertTrue(stripFrame.contains(host.frame(of: field)), "\(name): search field is cut off")
                     let picker = try XCTUnwrap(host.views(UISegmentedControl.self).first, name)
-                    XCTAssertTrue(stripFrame.contains(host.frame(of: picker)), "\(name): reading modes are cut off")
+                    // UIKit's segmented picker draws slightly past its measured SwiftUI edge.
+                    // With all groups in view the strip allows that, as it did before wrapping.
+                    let pickerFrame = host.frame(of: picker)
+                    XCTAssertFalse(host.clips(scroller), "\(name): a control drawing past its edge is clipped")
+                    XCTAssertTrue(CGRect(origin: .zero, size: room).contains(pickerFrame),
+                                  "\(name): reading modes \(pickerFrame) are off screen")
+                    XCTAssertLessThanOrEqual(pickerFrame.maxY, readerFrame.minY + ReaderCanvasGeometry.verticalMargin,
+                                             "\(name): reading modes cover the book's first line")
                 }
             }
         }
