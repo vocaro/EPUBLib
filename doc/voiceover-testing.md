@@ -1371,7 +1371,10 @@ The Mac runner's transcript is plain text and needs no export.
   read "Scenes set apart". Main gives that list from a link too: VoiceOver asks the text
   for its rotors as well as the link. VoiceOver opens the rotor on the menu it showed
   last: two other sessions, each after one that had gone on to Window Spots with
-  `listright`, opened there.
+  `listright`, opened there. At `1d5b131` (run 38362891089) the first move was the same
+  in each flow, and `ax:follow=Parked` on the hidden-labels page, whose first child is now
+  the heading "Parked title heading", pressed the link: the observer passes over a
+  heading when it looks for a link by its words.
   Four earlier runs, on a throwaway branch that wrote what VoiceOver asked to a file,
   found how the move goes ([native viewer](native-viewer.md#input-and-accessibility),
   Headings). With the text's rotors given to a link's element in three ways, the move
