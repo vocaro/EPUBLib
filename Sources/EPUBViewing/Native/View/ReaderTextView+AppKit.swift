@@ -524,7 +524,9 @@ final class ReaderTextView: NSTextView {
         let flow = canvas.configuration.flow
         return (super.accessibilityCustomActions() ?? []) + [EPUBPageAction.next, .previous].map { action in
             NSAccessibilityCustomAction(name: action.label(in: flow)) { [weak self] in
-                self?.canvas?.turnPageFromAccessibility(forward: action == .next) ?? false
+                let turned = self?.canvas?.turnPageFromAccessibility(forward: action == .next) ?? false
+                self?.probe("ACTION \(action.label(in: flow)) returns \(turned)", stack: true)
+                return turned
             }
         }
     }

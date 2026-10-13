@@ -985,6 +985,10 @@ import AppKit
                 isApplyingSelection = true
                 textView.selectedRange = NSRange(location: location, length: 0)
                 isApplyingSelection = false
+                if requested, ReaderProbe.caret == "notifyTwice" {
+                    ReaderProbe.log("POST selectedTextChanged again by the text view")
+                    NSAccessibility.post(element: textView, notification: .selectedTextChanged)
+                }
             }
         }
         if ReaderProbe.isOn {

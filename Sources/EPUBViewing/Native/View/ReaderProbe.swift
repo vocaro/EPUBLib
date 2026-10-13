@@ -17,7 +17,8 @@ import os
     static let order = defaults.string(forKey: "ReaderProbeOrder") ?? ""
     /// `before` puts the insertion point on the step's first line before the view scrolls,
     /// `beforeOff` a line late, and `twiceAfter` on the next line and then on the first, both
-    /// after the scroll.
+    /// after the scroll. `notifyTwice` moves it once and has the text view post the selection
+    /// change a second time, before any layout change.
     static let caret = defaults.string(forKey: "ReaderProbeCaret") ?? ""
     /// `selection` posts a selection change by the text view after the layout change.
     static let after = defaults.string(forKey: "ReaderProbeAfter") ?? ""
@@ -50,7 +51,6 @@ import os
             }
             line += "\n    | " + frames.joined(separator: "\n    | ")
         }
-        for part in line.split(separator: "\n") { system.notice("\(String(part), privacy: .public)") }
         line += "\n"
         if let handle = FileHandle(forWritingAtPath: path) {
             handle.seekToEndOfFile()

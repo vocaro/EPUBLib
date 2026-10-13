@@ -207,8 +207,6 @@ jobs:
             sleep 5
             kill "$copy" 2> /dev/null
           fi
-          /usr/bin/log show --last 25m --style compact --predicate 'subsystem == "org.epublib.readerprobe"' \
-            > "$RESULTS/reader-probe-system.log" 2>&1
           ls -l "$RESULTS"/reader-probe*.log
           echo "VoiceOver state: $(defaults read com.apple.universalaccess voiceOverOnOffKey 2>&1), process: $(pgrep -lx VoiceOver || echo none)"
           if [ "$JOB_STATUS" != success ]; then
