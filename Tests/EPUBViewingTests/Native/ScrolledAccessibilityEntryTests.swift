@@ -146,6 +146,32 @@ import XCTest
         try assertEntryIsTheFirstLineOnScreen("at a larger text size", canvas)
     }
 
+    /// VoiceOver, back in a text it had left, enters at the insertion point only if it is told
+    /// the text view changed (doc/native-viewer.md "Continuous scroll"). A move the reader makes
+    /// itself posts that from the window, naming the scroll text view. What VoiceOver does with
+    /// it is heard only in a speech session.
+    func testAMoveTheReaderMakesPostsALayoutChangeNamingTheScrollTextView() async throws {
+        let subject = try await opened()
+        let (reader, canvas) = subject
+        let view = try await scroll(subject)
+        var posted: [(element: AnyObject, notification: NSAccessibility.Notification, named: [AnyObject])] = []
+        canvas.postAccessibilityNotification = { element, notification, userInfo in
+            posted.append((element as AnyObject, notification, userInfo[.uiElements] as? [AnyObject] ?? []))
+        }
+        // The closure holds what was posted, the window among it, for as long as the canvas lives.
+        defer { canvas.postAccessibilityNotification = { _, _, _ in } }
+        for (label, command) in [("a step forward", EPUBReaderCommand.nextPage), ("a step back", .previousPage)] {
+            posted.removeAll()
+            try await reader.session.send(command)
+            XCTAssertFalse(posted.isEmpty, "\(label) posts a layout change")
+            for change in posted {
+                XCTAssertEqual(change.notification, .layoutChanged, label)
+                XCTAssertTrue(change.element === canvas.window, "\(label): posted by \(change.element)")
+                XCTAssertEqual(change.named.map(ObjectIdentifier.init), [ObjectIdentifier(view)], label)
+            }
+        }
+    }
+
     func testVoiceOverWouldEnterAtTheBooksFirstLineWhenItOpensThere() async throws {
         let subject = try await opened()
         let view = try await scroll(subject)

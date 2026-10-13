@@ -37,7 +37,7 @@ func shortValue(_ element: AXUIElement) -> String { describe(string(element, kAX
 let steps = Array(CommandLine.arguments.dropFirst(3))
 guard CommandLine.arguments.count >= 2,
       let pid = pid_t(CommandLine.arguments[1]), pid > 0 else {
-    fputs("Usage: voiceover-ax-observer PID [seconds] [next|previous|larger|smaller|width=POINTS|focus[=COLUMN|=search]|lines|links|caret=TEXT|press=TEXT|wait=SECONDS ...]\n"
+    fputs("Usage: voiceover-ax-observer PID [seconds] [next|previous|press=LABEL|larger|smaller|width=POINTS|focus[=COLUMN|=search]|lines|links|caret=WORDS|follow=WORDS|wait=SECONDS ...]\n"
         + "A single step of - reads one step per line from standard input.\n", stderr)
     exit(1)
 }
@@ -212,6 +212,8 @@ func perform(_ step: String) {
     // In continuous scroll the page buttons step a screen and are named for that.
     case "next": _ = press(kAXButtonRole, "Next Page", "Scroll Forward")
     case "previous": _ = press(kAXButtonRole, "Previous Page", "Scroll Backward")
+    // Any other button, such as the sample's Use Toolbar, which moves its controls out of the reader's group.
+    case "press": _ = press(kAXButtonRole, parts.dropFirst().joined(separator: "="))
     case "larger", "smaller":
         // The menu tracks events until an item is chosen, so its press may report a timeout.
         if press(kAXMenuButtonRole, "Appearance") {
@@ -248,7 +250,7 @@ func perform(_ step: String) {
         let status = AXValueCreate(.cfRange, &place).map { AXUIElementSetAttributeValue(text, kAXSelectedTextRangeAttribute as CFString, $0) }
         log("CARET \(index) AT \(offset) STATUS \(status?.rawValue ?? -1)")
         pause = 1
-    case "press":
+    case "follow":
         // A link's own press, without VoiceOver: what the reader does when an assistive client follows it.
         let words = parts.dropFirst().joined(separator: "=")
         guard let element = embeddedElement(naming: words) else { log("MISSING \(step)"); break }

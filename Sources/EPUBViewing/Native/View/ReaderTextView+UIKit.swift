@@ -140,7 +140,7 @@ final class ReaderTextView: UITextView {
         get {
             let rect = bounds.offsetBy(dx: -containerOrigin.x, dy: -containerOrigin.y)
             guard let range = visibleCharacterRange(in: rect) else { return super.accessibilityCustomActions }
-            let actions = imageAttachments(in: range).map { image, _ in
+            let actions = announcedImages(in: range).map { image, _ in
                 UIAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") {
                     [weak self] _ in
                     self?.canvas?.inspectImage(image)
@@ -276,9 +276,18 @@ final class ReaderTextView: UITextView {
         accessibilityCursor = nil
     }
 
-    /// One element for each line, except where a link or attachment needs its own.
+    /// One element for each line, except where a link or attachment needs its own. An image
+    /// the book marks as decoration has none, unless nothing listed can be read without it: a
+    /// page or a screen that holds decoration alone would leave VoiceOver no place in the text
+    /// to turn the page or read on from, so its images are listed, as images without a name.
     private func accessibilityElements(for lines: [ReaderVisualLine],
                                        reusing existing: [ReaderPageAccessibilityElement]) -> [ReaderPageAccessibilityElement] {
+        let elements = accessibilityElements(for: lines, reusing: existing, passingOverDecoration: true)
+        return elements.isEmpty ? accessibilityElements(for: lines, reusing: existing, passingOverDecoration: false) : elements
+    }
+
+    private func accessibilityElements(for lines: [ReaderVisualLine], reusing existing: [ReaderPageAccessibilityElement],
+                                       passingOverDecoration: Bool) -> [ReaderPageAccessibilityElement] {
         guard let storage = contentStorage.textStorage else { return [] }
         var elements: [ReaderPageAccessibilityElement] = []
         for line in lines {
@@ -288,26 +297,35 @@ final class ReaderTextView: UITextView {
             var runs: [(range: NSRange, url: URL?, attachment: NSTextAttachment?)] = []
             storage.enumerateAttributes(in: line.range) { attributes, range, _ in
                 let url = attributes[.link] as? URL ?? (attributes[.link] as? String).flatMap(URL.init(string:))
-                let attachment = attributes[.attachment] as? NSTextAttachment
+                var attachment = attributes[.attachment] as? NSTextAttachment
+                // Decoration is part of the text it stands in, with nothing to say. One that
+                // was listed keeps its element while the cursor is on it.
+                if passingOverDecoration, let image = attachment as? ReaderImageAttachment, isPassedOver(image, at: range),
+                   accessibilityCursor?.image !== image || accessibilityCursor?.range != range { attachment = nil }
                 if let previous = runs.last, NSMaxRange(previous.range) == range.location,
                    previous.url == url, previous.attachment === attachment {
                     runs[runs.count - 1].range.length += range.length
                 } else { runs.append((range, url, attachment)) }
             }
             for (range, url, attachment) in runs {
+                let label = plainText(in: range)
                 // The break after an attachment that ends its paragraph is a run of its own
-                // with nothing to say: no element, or VoiceOver stops on silence.
-                if attachment == nil, (storage.string as NSString).substring(with: range).allSatisfy(\.isWhitespace) { continue }
+                // with nothing to say, and so is decoration between two of them: no element,
+                // or VoiceOver stops on silence.
+                if attachment == nil, label.allSatisfy(\.isWhitespace) { continue }
                 let element = existing.first { $0.range == range && $0.url == url }
                     ?? ReaderPageAccessibilityElement(view: self, range: range, url: url)
-                element.accessibilityLabel = plainText(in: range)
+                element.accessibilityLabel = label
+                element.image = attachment as? ReaderImageAttachment
                 var traits: UIAccessibilityTraits = url == nil ? .staticText : .link
                 // A hidden label is words the page does not show, not a picture.
                 let isSpoken = attachment is SpokenLabelAttachment
                 if attachment != nil {
                     if !isSpoken { traits.insert(.image) }
+                    // An image without words is an image and no more: the trait says so, in
+                    // VoiceOver's own language, and the reader makes up no name for it.
                     if let image = attachment as? ReaderImageAttachment {
-                        element.accessibilityLabel = image.alt.isEmpty ? "Book image" : image.alt
+                        element.accessibilityLabel = image.alt.isEmpty ? nil : image.alt
                     }
                     // A formula's reading has its own voice: the book's language or the generator's.
                     if let language = (attachment as? ReaderTextualAttachment)?.textLanguage {
@@ -363,6 +381,8 @@ private struct ScrollAccessibilityPlace: Equatable {
     weak var view: ReaderTextView?
     let range: NSRange
     let url: URL?
+    /// The image the element stands for, when it is one.
+    var image: ReaderImageAttachment?
 
     init(view: ReaderTextView, range: NSRange, url: URL?) {
         self.view = view
@@ -375,7 +395,7 @@ private struct ScrollAccessibilityPlace: Equatable {
     override func accessibilityActivate() -> Bool {
         guard let view, let canvas = view.canvas else { return false }
         if let url { canvas.activateLink(url, range: range, in: view); return true }
-        if let image = view.imageAttachments(in: range).first?.image { canvas.inspectImage(image); return true }
+        if let image = image ?? view.announcedImages(in: range).first?.image { canvas.inspectImage(image); return true }
         return false
     }
 
@@ -399,7 +419,7 @@ private struct ScrollAccessibilityPlace: Equatable {
                     return true
                 }
             } : []
-            actions += view.imageAttachments(in: range).map { image, _ in
+            actions += (image.map { [$0] } ?? view.announcedImages(in: range).map(\.image)).map { image in
                 UIAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") { [weak view] _ in
                     guard let canvas = view?.canvas else { return false }
                     canvas.inspectImage(image)
