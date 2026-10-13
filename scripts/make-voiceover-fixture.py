@@ -102,7 +102,8 @@ files = {'mimetype': 'application/epub+zip',
                      'ends.</p><hr/><p>Second scene starts.</p><hr '
                      'role="presentation"/><p>Words after an ornament.</p><div '
                      'class="alone"><hr/></div><p class="after">Last words of the '
-                     'scenes.</p></body></html>'}
+                     'scenes.</p><table><tr><td><p>Cell scene ends.</p><hr/><p>Cell scene '
+                     'starts.</p></td><td>Beside the cell</td></tr></table></body></html>'}
 files["OPS/body.xhtml"] = files["OPS/body.xhtml"].replace(
     "NUMBERED_WORDS", " ".join(f"word{i:04d}" for i in range(1, 1201)))
 # More than a screen of lines, so that the section's first line can be shown at the top.
