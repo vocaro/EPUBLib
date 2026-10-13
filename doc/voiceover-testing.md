@@ -2938,7 +2938,8 @@ The Mac runner's transcript is plain text and needs no export.
   `35a8f53` alike, so the change did not bring it. A session there whose rotor stood on
   Characters spelled "Alder" a letter at a time. In pages the same cells offer their
   actions, and the unit tests perform a cell's in continuous scroll, in a book's first
-  section; why an iPad's rotor has none for a cell of the book's eighth is not known.
+  section; why an iPad's rotor has none for a cell of the book's eighth is not known
+  ([#472](https://github.com/vocaro/EPUBLib/issues/472)).
   With VoiceOver off, a finger held on "Alder" for a second selected it ("Selected: Alder.
   Used: nothing."): the screenshot shows UIKit's tint and its two handles, once, and an
   edit menu of Copy, a symbol, Look Up, Translate and an arrow for more. Nothing on screen

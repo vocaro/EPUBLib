@@ -546,7 +546,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     rotor had no Actions setting on such a cell, with this change and without it, where
     the same cell in pages and a row in continuous scroll have theirs
     ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-13 on a table's select
-    action). The unit tests perform the cell's actions in both flows.
+    action; [#472](https://github.com/vocaro/EPUBLib/issues/472)). The unit tests perform
+    the cell's actions in both flows.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
   in place and also show in popovers.
