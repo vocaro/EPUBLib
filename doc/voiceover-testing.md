@@ -2470,7 +2470,9 @@ The Mac runner's transcript is plain text and needs no export.
   it was, announced and with no layout change when its cursor has not left the page;
   XCTest cannot make the gesture.
 - The rotor's place when the same page is shown again under VoiceOver's cursor, which the
-  entry above left at its default: on 2026-10-13, after that change had merged. Simulators
+  entry above left at its default
+  ([#516](https://github.com/vocaro/EPUBLib/issues/516)): on 2026-10-13, after that change
+  had merged. Simulators
   of the session's own on iOS 27.0 with Xcode 27.0, at 17 points: two iPhone 17 Pros (402 ×
   874) with the book of ordinary paragraphs and the first book, and an iPad Air 13-inch
   (M4) with the first book, upright (1024 × 1366) but where it says otherwise. Through
