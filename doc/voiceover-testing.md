@@ -985,7 +985,13 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 - `find=LABEL`: whether anything on screen has a name that begins with LABEL, and what kind
   of element at what frame: an edit menu's Copy, which is in no item's list of actions.
 - `press=LABEL`: a finger held on the item for a second. With VoiceOver off it selects the
-  word under it and brings up the edit menu.
+  word under it and brings up the edit menu. The finger is put at the middle of the item,
+  so press a cell of a table of data, which is an item of its own and whole on screen. A row
+  of a table that is not data is one item as wide as the column: its middle is beside a
+  narrow table, and the press selected the row's whole line, "Left side	Right side". And a
+  cell cut by the reader's lower edge on an iPhone simulator was pressed at that edge: the
+  press selected its row and the row below as the view moved under it, and the same cell
+  pressed again, then whole on screen, gave its word.
 - `wait=SECONDS`, and `screenshot`, attached to the result bundle: what is on the glass,
   independent of every accessibility snapshot.
 
@@ -1449,7 +1455,12 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     and in continuous scroll. Copy is heard to be offered and is not performed on a device,
     whose clipboard is its owner's; the unit tests perform it. With VoiceOver off
     (`TEST_RUNNER_VOICEOVER_OFF=1`), `press=Alder` selects the word by touch: UIKit draws
-    it, with its handles and once, and the edit menu has Copy.
+    it, with its handles and once, and the edit menu has Copy. In continuous scroll do both
+    in the section the book was opened at (`TEST_RUNNER_VOICEOVER_HREF=OPS/grids.xhtml`)
+    with nothing scrolled first, which is where the cells once had no text views
+    ([#472](https://github.com/vocaro/EPUBLib/issues/472)): the line must say "Selected:
+    Alder." and not the row's three cells, and `touch=Reopened` must bring "Link target
+    reached" on screen.
 17. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
@@ -4061,6 +4072,80 @@ The Mac runner's transcript is plain text and needs no export.
   there opened on a phrase that was not the book's, the sample's or VoiceOver's own,
   something of the device's; its log and result bundle were deleted unread and it was run
   again. No other session recorded such a phrase.
+- On 2026-10-13 a table's cells were touched, and acted on with VoiceOver, in continuous
+  scroll where the reader had just gone and nobody had scrolled, before and after the reader
+  looked for the rows on screen again at the end of each move
+  ([#472](https://github.com/vocaro/EPUBLib/issues/472)). The sample opened at the section
+  of tables of data (`TEST_RUNNER_VOICEOVER_HREF=OPS/grids.xhtml`,
+  `TEST_RUNNER_VOICEOVER_FLOW=scrolled`, `TEST_RUNNER_VOICEOVER_LAUNCH='-SampleSelectionLine YES'`),
+  at 17 points. Before is `main` at `229a612`, after is `b818fd7`, which is `main` with the
+  change. Nobody listened.
+  On the physical iPad Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366, upright), VoiceOver off,
+  with steps
+  `state,press=Alder,state,screenshot,find=Copy,point=0.03:0.5,press=Express,state,screenshot,point=0.03:0.5,touch=Reopened,wait=1,find=Link target,screenshot`.
+  Before: a finger held on "Alder" gave "Selected: Alder	1901	Twelve metres. Used:
+  nothing."; the screenshot shows the tint the whole width of the column across that row, a
+  handle at each end, and a menu of Use passage, Copy, a symbol and Translate, which is the
+  text's own menu and not a cell's. Held on "Express" it gave "Selected: Express	Nine	Noon.
+  Used: nothing.". A touch on the link "Reopened 1978" left the section where it was, with
+  nothing on screen named "Link target". After: "Selected: Alder. Used: nothing.", the tint
+  behind "Alder" alone with its two handles, and a menu of Copy, a symbol, Look Up,
+  Translate and an arrow; "Selected: Express. Used: nothing."; and after the touch on the
+  link the heading "Link target reached" stood at (152, 209), under the last line of the
+  numbered paragraph.
+  With VoiceOver, after, with steps
+  `touch=Alder,rotor=Actions,choose=Select Cell Text,doubletap=Alder,state,screenshot,choose=Copy,choose=Use passage,doubletap=Alder,state,choose=Deselect Cell Text,doubletap=Alder,state,screenshot`:
+  "Alder Row header Row 2 Column 1"; the rotor's turns gave Image Recognition, Containers,
+  Speaking Rate, Characters and "Actions Activate"; one step down, "Select Cell Text"; the
+  double tap brought "selected Alder Row header Row 2 Column 1" and "Selected: Alder. Used:
+  nothing.", and the screenshot shows VoiceOver's cursor round the cell and the tint behind
+  "Alder" alone; the next two steps were "Copy" and "Use passage"; with Use passage chosen
+  a double tap brought "Selected: Alder. Used: Alder."; two steps on, after "Activate
+  Default", stood "Deselect Cell Text", where a double tap brought "Alder Row header Row 2
+  Column 1" and "Selected: nothing. Used: Alder.", with no tint left in the screenshot.
+  Those are the phrases and lines the same cell gave in pages ([#471](https://github.com/vocaro/EPUBLib/pull/471),
+  the entry above). Copy was heard to be offered and was not performed.
+  With VoiceOver, before, the fault did not show. In two sessions at `229a612`
+  (`touch=Alder,rotor=Actions`, and the same with
+  `choose=Select Cell Text,doubletap=Alder,state,screenshot,choose=Copy` after it) the rotor
+  came to "Actions Activate" in the same five turns, and in the second "Select Cell Text"
+  was offered, the double tap brought "selected Alder Row header Row 2 Column 1" and
+  "Selected: Alder. Used: nothing.", and "Copy" followed. The night before, thirty turns on
+  that cell in that section had come to no Actions (the entry above), and a touch session at
+  the same revision minutes earlier that morning had selected the whole row. What
+  gave the cells their text views in the two sessions is not known: any scroll does, and
+  so does a layout pass of the reader, which VoiceOver's coming on may bring. So on a
+  device the change is shown by touch, and under VoiceOver it is shown that a cell's
+  actions are chosen and performed in continuous scroll with the change, not that they
+  could not be without it.
+  On an iPad Air 13-inch (M4) simulator (iOS 27.0, 1024 × 1366) the touch steps gave the
+  same lines and drawings as the iPad, before and after, the menus Use passage, Copy and
+  Translate before and Copy, Look Up, Translate, Search Web and an arrow after. There the
+  fault showed under VoiceOver as well, with steps
+  `touch=Alder,rotor=Actions,choose=Select Cell Text,touch=Express,choose=Select Cell Text`.
+  Before: "Alder Row header Row 2 Column 1 Use the rotor to access Headings", thirty turns
+  round Headings, Speaking Rate, Words, Rows and Characters (`rotor=Actions: MISSING`), and
+  the steps down then went down the column, "Birch Row header Row 3", "Cedar Row header Row
+  4"; the same on "Express". After: "Alder Row header Row 2 Column 1 Actions available",
+  "Actions Activate" at the fourth turn and "Select Cell Text" one step down, and on
+  "Express" "Select Cell Text" again.
+  On an iPhone 17 Pro simulator (402 × 874) "Alder" gave the row before and the word after.
+  "Express" is cut by the reader's lower edge there. Pressed at that edge it gave its row at
+  both revisions, and the view moved under the press; pressed again a second later, whole
+  on screen, it gave "Selected: Express." after the change. The link was followed at both
+  revisions, the press at the edge having moved the view first: a scroll is what gave the
+  cells their text views before the change.
+  The unit tests hold the other moves to the same, on both platforms
+  ([testing](testing.md), the table scrolled-cell tests): without the change a contents
+  entry left fifteen to twenty rows of a screen without a text view on any cell, and a step
+  of a page twenty-two to forty-one.
+  Each device session claimed the iPad in the shared file, and VoiceOver was read back as
+  off after each. A phrase the transcript's filter withheld in each VoiceOver session, the
+  rotor's first turn, was told from a notification by a comparison that prints true or
+  false: it begins "Image Recognition". No session recorded anything of the device's own.
+  The iPhone was not used. Not established: a physical iPhone; landscape; a contents entry,
+  a link's target and a step of a page on a device, which the unit tests alone hold; and
+  why VoiceOver's sessions at `main` had the cells' text views.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
