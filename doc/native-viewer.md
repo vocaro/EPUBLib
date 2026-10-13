@@ -275,6 +275,25 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   body font size, retaining resolution up to 16 megapixels and an 8,192-pixel long side.
   Larger raster images are downsampled within those bounds; SVG retains its existing
   4,096-pixel rasterization limit. The same image contrast policy and bounded cache apply.
+- **What an item offers VoiceOver.** On iPhone and iPad each item of a page or a screen
+  offers its own actions, and nothing that contains it offers any ("Input and accessibility"
+  has why). Three things follow. A page turn chosen in the rotor is a command, as a host's
+  is: selected text holds back a tap or a swipe, which could be meant for the selection, and
+  not this. The reader's SwiftUI surface no longer names the pair there, and it was what
+  still turned the page while text was selected; a line's own turn did nothing then and
+  reported success. The turn fails at either end of the book. A note's popover keeps UIKit's
+  own elements and passes on UIKit's actions, and the reader adds none: a note has no
+  canvas to inspect an image in, and offered no inspection before either. And an item with
+  no action gives no list of actions, not an empty one.
+  What UIKit gives a text view was heard by itself on 2026-10-12, in a build that named every
+  action for the object that gave it
+  ([VoiceOver testing](voiceover-testing.md#harness-pitfalls-and-current-results)): the
+  scroll view one action for each run of its text that is a link, named by the link's
+  characters, "￼" for a link that holds only a picture or a hidden label, six in the
+  verification book and none for a picture that is not a link; and a page column none, on a
+  page that shows a link. VoiceOver ends the list of an item's actions with "Activate
+  Default" and starts again. On Mac VoiceOver is offered neither of the surface's two
+  actions ("Input and accessibility").
 - **Tables.** Attachments drawn natively (TextKit 2 has no `NSTextTable` on iOS), one
   image-drawn attachment per row so pages can break between any two rows; rows a rowspan
   joins, and the header, keep with the next row and share a page when they fit. `colspan`/
@@ -664,7 +683,7 @@ as they did.
   page actions, keeping hidden paragraph context out of its native text accessibility traversal.
   A heading is one such child however many lines it takes, with the header trait and its
   level; on Mac a column's rich text carries each heading's level and the column has a
-  Headings rotor for its page (see "Input and accessibility").
+  Headings rotor for the book (see "Input and accessibility").
   Decoration in a line is part of that line's element and adds nothing to it
   ("Alternative text" under Decisions).
   The canvas lists its columns to VoiceOver in source order; by their frames alone a column
@@ -885,7 +904,9 @@ The following are the defaults. Host commands and accessibility actions stay ena
   and a line of continuous scroll the links of the whole book. So a line offers what
   is in it: on a page Next Page and Previous Page; on a picture's own line Inspect Image; on
   a table's row its cells' actions; and on a line of plain text or a link in continuous
-  scroll nothing, after which VoiceOver says no "Actions available". In continuous scroll it
+  scroll nothing, after which VoiceOver says no "Actions available". A page turn chosen in
+  the rotor is a command, and a note's popover keeps UIKit's own actions ("What an item
+  offers VoiceOver" under Decisions). In continuous scroll it
   starts at the first line on screen: on Mac at the insertion point kept there, on iOS at the
   first of the lines the scroll view lists (see "Continuous scroll" under Layout). Text that
   a book hides from the page and keeps for assistive technology is read where it stands, as
@@ -944,12 +965,38 @@ The following are the defaults. Host commands and accessibility actions stay ena
   gives VoiceOver a Headings rotor (`NSAccessibilityCustomRotor`). VoiceOver's move to the
   next heading goes by it, and its rotor lists the headings, each by its words and level:
   VoiceOver reads a heading's words on moving to it and was not heard to say the level it
-  is given in the text (macOS 27.0.1), so the list is where a listener hears it. A page
-  column's rotor holds its page's headings and the scroll view's the whole book's: in paging
-  on Mac a move by heading stops at the page. VoiceOver lists a rotor's items by asking for
-  the one after an item that is nowhere (no element, the first character and none of it),
-  which begins with the first heading; taken as a place in the text it passed over a
-  heading that opens the text.
+  is given in the text (macOS 27.0.1), so the list is where a listener hears it. The rotor
+  holds the whole book's headings in both flows. The scroll view's are characters of its
+  own text. A page column answers through the canvas, by places in the book
+  (`ReaderCanvasView.headingRotorResult`): a heading that begins on the page or spread is
+  given as its column and its characters there, and any other as a loading token that
+  names its section and offset. VoiceOver asks the rotor's loading delegate
+  (`NSAccessibilityElementLoading`) for a token's element, and then for its range, only
+  when it moves to that heading, by its move to the next heading or by a choice from the
+  rotor's list. The reader turns to the heading's page then, as it does for a link, and
+  gives the column that shows it. A search shows nothing, since VoiceOver walks the whole
+  list when its rotor opens, and neither does the request for a range. After the turn
+  VoiceOver reads the page from its top, as after any page turn, with its cursor on the
+  heading. The list takes in the sections page turns reach and the one on screen, and a
+  section that is not built yet ends it on that side: in the seconds after a book opens
+  it holds the sections built so far around the page. A heading that begins on an earlier
+  page and ends on this one is listed once, where it begins.
+  The search is written to how VoiceOver was seen to ask (macOS 27.0.1). It lists a
+  rotor's items by asking for the one after an item that is nowhere (no element, no token,
+  the first character and none of it), and then for the one after each item it is given: a
+  column and characters, or a token with no element. Taken as a place in the text, nowhere
+  passed over a heading that opens the text. With its cursor resting on a column, as after
+  a page turn, it asks from that column at the first character and none of it, which is
+  the top of that page: a heading that opens the page is the next one, and going back the
+  search stands after the page's last character. Taken for nowhere, that item sent a move
+  to the next heading from a page in the middle of a book back to the book's first. A
+  token's result also carries a range, the heading's characters in its section. VoiceOver
+  asks nothing about it, but calls the row by its label only when there is one: without
+  it the list showed each label and VoiceOver read every such row out as the column's own
+  text. With VoiceOver's cursor on a link, which is an element of its own on Mac, its move
+  to the next heading says "Heading not found" in both flows: the rotor is the text
+  view's, and a link's element has none
+  ([#431](https://github.com/vocaro/EPUBLib/issues/431)).
   Not marked for VoiceOver: a heading inside a table, whose cells are read as cells, and on
   iPhone and iPad a heading inside a note's popover, which keeps UIKit's own elements.
 - Selection: native selection UI with the host's `EPUBSelectionAction` in the edit or context
@@ -1288,7 +1335,8 @@ Go: the native viewer is the bundled engine.
   sessions. Headings were read and moved between on 2026-10-12 on a physical iPad in both
   flows, on the hosted Mac and in the simulator lane; on a physical iPhone the heading was
   read, and no move by heading was made, because XCTest's gesture did not turn VoiceOver's
-  rotor there. In paging on Mac a move by heading stops at the page
+  rotor there. In paging on Mac the rotor's list and VoiceOver's move to the next heading
+  were heard to go through the whole book the same day, on the hosted Mac
   ([VoiceOver testing](voiceover-testing.md)).
 - Flex and grid alignment covers the single-column subset described above. Side-by-side row
   items, wrapping and reversed flex, multi-column and explicitly placed grids, `order` and
