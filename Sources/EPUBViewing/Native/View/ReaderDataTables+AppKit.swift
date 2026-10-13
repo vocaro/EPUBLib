@@ -459,20 +459,49 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     private var textViews: [TableCellTextView] {
         guard let interaction = table?.view?.tableInteraction else { return [] }
         let views = locations.flatMap { interaction.accessibilityCells(at: $0, cell: cell) }
-        for view in views { view.tableCellElement = self }
+        for view in views { view.tableCellElement = trial == "wraps" ? linkElement : self }
         return views
     }
+
+    // TRIAL, not for main: how a cell that is one link is given, chosen at launch with
+    // `-TableLinkCell NAME`, to hear what makes VoiceOver say that the cell is a link.
+    private static let trial = UserDefaults.standard.string(forKey: "TableLinkCell") ?? ""
+    private var trial: String { isLink ? Self.trial : "" }
+    private lazy var linkElement = ReaderTableCellLinkElement(cell: self)
+
+    /// What the cell holds in the trial: a link element in place of its text areas, around
+    /// them, before them or after them.
+    private var held: [Any] {
+        let views = textViews
+        linkElement.words = trial == "holds" ? text : nil
+        linkElement.held = trial == "wraps" ? views : []
+        switch trial {
+        case "holds", "wraps": return [linkElement]
+        case "leads": return [linkElement] + views
+        case "trails": return views + [linkElement]
+        default: return views
+        }
+    }
+
+    override func accessibilitySubrole() -> NSAccessibility.Subrole? {
+        onMain(self) { ["role", "described"].contains($0.trial) ? .textLink : nil }
+    }
+    override func accessibilityRoleDescription() -> String? {
+        if onMain(self, { $0.trial == "described" }) { return NSAccessibility.Role.link.description(with: .textLink) }
+        return super.accessibilityRoleDescription()
+    }
+    func trialPress() -> Bool { followLink() }
 
     /// Whether the cell's words are in text areas it holds, which is where VoiceOver reads a
     /// header cell's words from.
     var holdsText: Bool { !textViews.isEmpty }
 
-    override func accessibilityRole() -> NSAccessibility.Role? { .cell }
+    override func accessibilityRole() -> NSAccessibility.Role? { onMain(self) { $0.trial == "role" ? .link : .cell } }
     override func accessibilityParent() -> Any? { onMain(self) { $0.row ?? $0.table } }
     override func accessibilityRowIndexRange() -> NSRange { onMain(self) { $0.rows } }
     override func accessibilityColumnIndexRange() -> NSRange { onMain(self) { $0.columns } }
-    override func accessibilityChildren() -> [Any]? { onMain(self) { $0.textViews } }
-    override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.textViews } }
+    override func accessibilityChildren() -> [Any]? { onMain(self) { $0.held } }
+    override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.held } }
     override func accessibilityLabel() -> String? { onMain(self) { $0.label } }
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? { onMain(self) { $0.actions } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
@@ -483,6 +512,8 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     // the link's words happen to stand there.
     override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
         if selector == #selector(accessibilityPerformPress) { return onMain(self) { $0.isLink } }
+        // TRIAL: a cell says nothing of a subrole unless the trial gives it one.
+        if selector == #selector(accessibilitySubrole) { return onMain(self) { ["role", "described"].contains($0.trial) } }
         return super.isAccessibilitySelectorAllowed(selector)
     }
 
@@ -541,5 +572,29 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
         let frame = frameInRow.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY)
         return NSAccessibility.screenRect(fromView: view, rect: view.isPageColumn ? frame.intersection(view.bounds) : frame)
     }
+}
+
+/// TRIAL, not for main: a link inside a cell that is one link.
+@MainActor final class ReaderTableCellLinkElement: NSAccessibilityElement {
+    private weak var cell: ReaderTableCellElement?
+    var words: String?
+    var held: [Any] = []
+
+    init(cell: ReaderTableCellElement) {
+        self.cell = cell
+        super.init()
+        setAccessibilityRole(.link)
+        setAccessibilitySubrole(.textLink)
+        setAccessibilityParent(cell)
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .link }
+    override func accessibilitySubrole() -> NSAccessibility.Subrole? { .textLink }
+    override func accessibilityParent() -> Any? { onMain(self) { $0.cell } }
+    override func accessibilityTitle() -> String? { onMain(self) { $0.words } }
+    override func accessibilityChildren() -> [Any]? { onMain(self) { $0.held } }
+    override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.held } }
+    override func accessibilityFrame() -> NSRect { onMain(self) { $0.cell?.screenFrame ?? .zero } }
+    override func accessibilityPerformPress() -> Bool { onMain(self) { $0.cell?.trialPress() ?? false } }
 }
 #endif
