@@ -805,27 +805,29 @@ The Mac runner's transcript is plain text and needs no export.
   workstation was used.
 
 - The same day a book's headings were heard on a Mac: GitHub's hosted `xcode-27` runner (image
-  `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in five
-  [hosted sessions](#hosted-mac-sessions) at `8baffa1`, in a window 600 points wide at 17
+  `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in four
+  [hosted sessions](#hosted-mac-sessions) at `41a458f`, in a window 600 points wide at 17
   points, at the fixed pause. In continuous scroll `rotor` opened on "Page boundary
   verification, heading level 1" and `listdown` went on through "Link target reached, heading
-  level 2", "Parked title heading, heading level 1" and "Parked table heading, heading level
-  1". `listchoose` on the third moved VoiceOver to "Parked title heading", whose line it read
-  as "Parked title heading By the parked author. Book image image". `nextheading` from the
-  first paragraph gave "Link target reached", with the insertion point on the heading and
-  the heading's line the first on screen, then "Parked title heading", "Parked table heading"
-  and "Heading not found"; from the text area without interacting it did the same. In pages
-  the first page's rotor opened on "Page boundary verification, heading level 1" and
-  `nextheading` from that heading gave "Heading not found", the page holding no other; the
-  page that opens with a hidden heading over a table (thirteen `ax:next` steps) listed
-  "Parked table heading, heading level 1" alone, and `listchoose` moved to it. VoiceOver read
-  a heading's words on moving to it and by line, and said its level nowhere but in the
-  rotor's list. At `53a7cbe`, before the list began with the first heading, the page whose
-  only heading was its first line gave "No items in Heading menu" and the scroll view's list
-  had three items. Control-Option-Command-Shift-H moved to the next heading, not the one
-  before. Not heard: two columns, a larger text size, a move back by a VoiceOver command, and
-  the hidden-labels page in pages, whose session ended twice in the runner script's check of
-  VoiceOver's state with no transcript written. Nobody listened, and no workstation was used.
+  level 2", "Parked title heading, heading level 1", "Parked table heading, heading level 1"
+  and "Pictures and their words, heading level 1". `listchoose` on the fourth moved VoiceOver
+  to "Parked table heading", which `line` read back. `nextheading` from the first paragraph
+  gave "Link target reached", then "Parked title heading", "Parked table heading", "Pictures
+  and their words" and "Heading not found". At `8baffa1`, with the book a section shorter,
+  the observer's `STATE` after the first of those moves had the insertion point on the
+  heading and the heading's line the first on screen, and the moves were the same from the
+  text area without interacting. In pages the first page's rotor opened on "Page boundary
+  verification, heading level 1" and `nextheading` from that heading gave "Heading not
+  found", the page holding no other; the page that opens with a hidden heading over a table
+  (thirteen `ax:next` steps) listed "Parked table heading, heading level 1" alone, and
+  `listchoose` moved to it. VoiceOver read a heading's words on moving to it and by line,
+  and said its level nowhere but in the rotor's list. At `53a7cbe`, before the list began
+  with the first heading, the page whose only heading was its first line gave "No items in
+  Heading menu" and the scroll view's list lacked the heading that opens the book.
+  Control-Option-Command-Shift-H moved to the next heading, not the one before. Not heard:
+  two columns, a larger text size, a move back by a VoiceOver command, and the hidden-labels
+  page in pages, whose session ended twice in the runner script's check of VoiceOver's state
+  with no transcript written. Nobody listened, and no workstation was used.
 - The same day they were read on a physical iPad Air 13-inch (M3) (iPadOS 27.2), upright at
   17 points, at `41a458f`, through XCTest's VoiceOver service; nobody listened. In pages a
   touch on the first page's heading gave "Page boundary verification Heading Use the rotor to
