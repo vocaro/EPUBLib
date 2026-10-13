@@ -629,6 +629,15 @@ Those four runs also each executed one probe test with no failures. Their record
 `.build/qualification/runs/368-actions-<device>-<size>/`. This establishes ordinary visible
 control reachability; it does not claim a hit at every pixel of a control's drawing.
 
+A focused SE run at the largest size tried the lower drawing edge explicitly: coordinate
+touches at `(49, 111.5)` and `(89, 111.5)`, beyond the strip's measured bottom, did not change
+flow. The centre taps immediately following them did change to Continuous Scroll and back to
+Paging. Those points in the one-point drawing border outside the scroll view did not respond;
+the segments remain reachable through their ordinary visible centres. This is recorded as a
+limit, not a claim that every drawn pixel responds. The run executed one probe test with no
+failures, with its actual flow effects in
+`.build/qualification/runs/368-SE-max-picker-lower-edge/`.
+
 `ReaderSearchResultControlsTests.testCompactHeightControlStripLeavesBookTextOnScreenAtAccessibilitySizes`
 mounts the native reader below the actual strip in the 750 × 381 and 667 × 375 safe-area rooms,
 with a host status line, at `.accessibility1` and `.accessibility5`, both padded and unpadded.
@@ -636,7 +645,8 @@ All eight arrangements keep an actual rendered glyph wholly inside the reader, t
 screen, the groups in sight and unclipped, and the picker on screen before the book text.
 The complete iOS controls suite executed 13 tests with no failures, including the established
 regular-height keyboard and strip-scrolling checks. The machine was busy; these are layout
-and operation observations, not performance measurements.
+and operation observations, not performance measurements. They are focused evidence from a
+busy host, not a completed quiet-machine local acceptance gate; that gate remains separate.
 
 For repetition, use the probe build and owned-device procedure below, with
 `-QualificationBook ltr -QualificationHost strip`. At each of the two sizes use:
@@ -672,7 +682,20 @@ status
 dump=paged
 ```
 
-Replace the content-size argument with `accessibility-extra-extra-extra-extra-large` for the other
+For the focused SE lower-edge check at the largest size, after `dump=open`:
+
+```text
+tapxy=0.0734632684,0.2973333333
+status
+tap=Continuous Scroll
+status
+tapxy=0.1334332834,0.2973333333
+status
+tap=Paging
+status
+```
+
+Replace the content-size argument with `accessibility-extra-extra-extra-large` for the other
 case. These records are under `.build/qualification/runs/368-<device>-<size>/`; the initial
 frames are `06-open.tree.txt` and `06-open.png`. The measured frames and findings are recorded
 here so that their evidence does not depend on retaining a branch or a checkout.
