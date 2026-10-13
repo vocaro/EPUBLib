@@ -165,7 +165,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   iPad, where VoiceOver turns a page or reads on from an element of the text and a view
   without one leaves it no place to do so: a page that holds decoration alone lists it, as
   images without a name, and so does a screen of decoration alone in continuous scroll,
-  where a picture keeps its element while VoiceOver's cursor is on it. On Mac the text
+  whatever is listed after the screen, where a picture keeps its element while VoiceOver's
+  cursor is on it. On Mac the text
   area is itself the element and its keys turn the page, so decoration is always passed
   over: its character stays in the text area's value with no element of its own, VoiceOver
   says nothing for it by line or in Read All, and moving by word its cursor takes one step
@@ -313,8 +314,18 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   native text interaction surfaces aligned to their drawn glyphs: select and Copy cell text,
   invoke the host's selection action, follow internal links and open notes. External links retain
   the reader's refusal notice. Cell selections, located passages and saved highlights use exact
-  DOM-based character ranges, including Unicode and inline markup. VoiceOver reads each continuation's words, completing
-  a word once if character wrapping splits it between pages. Continuations retain original
+  DOM-based character ranges, including Unicode and inline markup. VoiceOver reads a table by
+  its rows, each where it stands among the lines of its page, and each continuation by the
+  words it shows, completing a word once if character wrapping splits it between pages. On
+  iPhone and iPad a row is one accessibility element, in pages and in continuous scroll alike:
+  text, read as its cells' words in column order, with actions for its own cells (select a
+  cell's text, follow a link in it, inspect an image in it). A row that shows pictures and no
+  words is an image without a name, as a picture without words in a line is, and one that
+  shows nothing, or decoration alone, is no element unless its page lists nothing else. The interaction
+  surfaces are hidden from assistive technology there. A text view that is merely not an
+  element still offers UIKit's own elements for its text, and VoiceOver took those, every cell
+  on the page, before the first line of a page column and then read the rows as well. On Mac
+  a row is a group that holds its cells' text areas. Continuations retain original
   source offsets: several pages can report the same row range. Existing bookmarks naming a
   whole table still resolve to that table; new cell ranges identify the selected characters.
   Interaction surfaces are mounted only for visible cells. Cell TextKit
@@ -491,8 +502,8 @@ as they did.
   that leaves no line, every line showing at all counts
   ([#305](https://github.com/vocaro/EPUBLib/issues/305)).
   An assistive technology's read can lay the whole text out behind the view: on Mac, and on
-  iOS before the scroll view listed only its lines on screen (below), VoiceOver and a UI
-  test's snapshot ask where every paragraph is. That replaces the estimates the visible lines
+  iOS before the scroll view listed its own lines (below), VoiceOver and a UI test's
+  snapshot ask where every paragraph is. That replaces the estimates the visible lines
   were placed by. UIKit goes on drawing the viewport's paragraphs where they were, over the
   place the finished layout gives other text, so the visible range is read from the paragraphs
   the viewport laid out, once it has been laid out again where the view stands. AppKit would
@@ -545,28 +556,44 @@ as they did.
   On iOS, VoiceOver walks a text view's accessibility elements and, moving in from a control,
   takes the first. UIKit's own are every paragraph of the book, so it took the book's first
   paragraph and scrolled the reader back to it. The scroll view lists its lines instead, as a
-  page column does: the lines on screen, each with the links and attachments in it as elements
-  of their own, and each by the part of it inside the area the insets leave. UIKit scrolls a
-  line the cursor comes to until that area holds its frame and then 40 points further, and
-  the first line on screen is often cut by the top inset, so its whole frame would move the
-  reader as VoiceOver came in. While the cursor is on a line, the two lines before the screen
-  and the two after it are listed as well, and the two each side of the cursor's own line:
-  VoiceOver moves on to them, UIKit scrolls the one it lands on into view, and it reads on
-  through the book in either direction. Two, because from a line that was the first listed
-  when VoiceOver took it, it goes back to the control before the text whatever has been
-  listed before that line since. The cursor counts as in the text from the moment a line is
-  told it has it until UIKit's focus notification names something that is not one of the
-  view's lines, or VoiceOver is switched. A line left is told so, and a notification naming
-  only it is posted, before the next line is told it has the cursor; when either was taken
-  for the cursor leaving, the list shrank to the screen for a moment and VoiceOver stopped at
-  a line it had reached above the screen. A line keeps its element while it is listed or
-  under the cursor. Listing scrolls nothing and selects nothing
+  page column does, each with the links and attachments in it as elements of their own: the
+  lines on screen, each by the part of it inside the area the insets leave, and the fifty
+  lines after them. UIKit scrolls a line the cursor comes to until that area holds its frame
+  and then 40 points further, and the first line on screen is often cut by the top inset, so
+  its whole frame would move the reader as VoiceOver came in
   ([#301](https://github.com/vocaro/EPUBLib/issues/301)).
-  One case is open. Straight after a menu closes, the contents menu on an iPad on its side
-  for one, VoiceOver can walk the lines it found on screen at that moment and no others: it
-  comes in at the first line, reads to the last that was on screen, and goes on to the scroll
-  bar ([#339](https://github.com/vocaro/EPUBLib/issues/339); [VoiceOver testing](voiceover-testing.md),
-  "Harness pitfalls and current results").
+  The lines after the screen are there for the way VoiceOver moves. It asks UIKit for the
+  items after the one its cursor is on, and for those before it, then moves through what it
+  was given and asks again only when it has used them. As a rule it asks for two when its
+  cursor lands on an item and for one more at each move. At its first move after the screen
+  has changed under it, as when a menu closes, it asks for fifty each way: given the lines
+  on screen alone, it read to the last of them and went on to the scroll bar and the host's
+  next control. Fifty is what it asked for on iOS 27.0 and iPadOS 27.2, and the number
+  listed is taken from that. While the cursor is on a line, fifty lines are listed each side
+  of the screen and each side of the cursor's own line: VoiceOver moves on to them, UIKit
+  scrolls the one it lands on into view, and it reads on through the book in either
+  direction. Moving back into the text from below, VoiceOver takes the last line listed, so
+  while its cursor is on one of the scroll view's own bars or on something below the reading
+  area the list is the lines on screen alone, as it was before, and that is the last of
+  them.
+  The cursor counts as on a line from the moment the line is told it has it until UIKit's
+  focus notification names something that is not one of the view's lines, or VoiceOver is
+  switched. A line left is told so, and a notification naming only it is posted, before the
+  next line is told it has the cursor; when either was taken for the cursor leaving, the
+  list shrank for a moment and VoiceOver stopped at a line it had reached above the screen.
+  A line keeps its element while it is listed or under the cursor. Listing scrolls nothing
+  and selects nothing, and lays out no more than the lines it lists
+  ([#339](https://github.com/vocaro/EPUBLib/issues/339)).
+  VoiceOver keeps what it was given, which leaves three things as they are. After a menu, a
+  move back past the line it came in at, made before it has used the fifty, goes to the
+  control before the text and not to the line above. A reader that is moved while VoiceOver
+  holds lines it has not reached, by a scroll step with the cursor on a control, leaves it
+  holding lines that are no longer listed: it says the first of them and returns to the
+  control. And away from the top of the book, moving back into the text from below gives
+  the last line on screen and then the control before the text: UIKit scrolls the view 88
+  points back as the cursor goes to the scroll bar, and the line VoiceOver was given is
+  then below the screen ([#367](https://github.com/vocaro/EPUBLib/issues/367);
+  [VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current results").
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
@@ -600,6 +627,10 @@ as they did.
   ("Alternative text" under Decisions).
   The canvas lists its columns to VoiceOver in source order; by their frames alone a column
   lowered by top spacing, or the first column of a right-to-left spread, would be read second.
+  A column given to VoiceOver that way is searched inside before its own lines are taken: the
+  text views over a table's cells, left visible, were read ahead of the page, which they are
+  not in a text view VoiceOver finds as a subview. Nothing the reader mounts inside a text
+  view is offered to assistive technology (see Tables).
   A paragraph that continues onto the next page is laid out a few lines further (or to
   a line break) and clipped, so its lines break exactly as in the measuring layout; justified
   text takes more, because CoreText justifies a paragraph of up to 8,192 characters as a whole
@@ -1090,6 +1121,63 @@ Go: the native viewer is the bundled engine.
   mean doing its work: a rule is taken to apply to every element its last compound selector
   could match, a declaration counts even where another overrides it, and an `id` that
   several elements share names them all.
+
+  The renderer also copies or re-reads some shared and inherited values once per painted shape,
+  which neither the byte nor the node limit catches, so a file of a few hundred kilobytes can make
+  it allocate hundreds of megabytes or parse for most of a minute. Each is charged per shape, against
+  a ceiling set from measurement (the worst passing drawing costs the renderer on the order of what
+  the other limits allow); each shape is charged the most that it or any ancestor, through every
+  `<use>` that draws it, could ask for, so the count never falls below what the renderer does. A
+  stylesheet's declarations are the exception: they are charged only in part, as their entry below
+  says, and what they cost the renderer is not bounded. The screen's own work is counted too, in
+  steps for the gradients it looks up, the elements it walks and the CSS it reads, and a drawing
+  that spends its budget of steps shows its fallback text with the same disclosure: that limits the
+  screen's own reading and not what the renderer does, and it does not bound all of the screen's
+  work either, since a visit to an element is one step though it goes over every child the element
+  has, and what bounds that is the limit on expanded local references; the one kind of drawing
+  within the other limits known to spend the budget is built to, a `<style>` inside another, whose
+  CSS is read again for each `<style>` it stands in (as measured with a sheet built to be read
+  eight times, megabytes of CSS two `<style>` elements deep where the drawing also holds a `<use>`
+  tree to walk and, without one, megabytes three deep or some 140 KB sixty deep).
+  - A gradient's stops are copied into a fresh paint server for every shape it paints by `fill` or
+    `stroke`, directly or inherited, in an attribute or a `style` declaration, through a gradient
+    `href` chain, and through each `<use>`; each shape is charged the stops its fill names and those
+    its stroke names. A gradient with no stops of its own is charged those its `href` chain leads to,
+    however long the chain. Where the chain meets an `id` that several gradients share, the renderer
+    takes the last element that has the `id`: it goes on from that one when it is a gradient, and
+    paints nothing when it is not. Which is last is not worked out, and the gradient is charged the
+    most stops any gradient in the drawing has. A stylesheet that paints with a gradient is taken to
+    reach every shape.
+  - A stroke's dash array is stored for every stroked shape that has or inherits one; each shape is
+    charged its dash-array bytes, an upper bound on its entries.
+  - Each inherited presentation value the renderer re-parses for every shape — the `fill` and
+    `stroke` paint, the numbers (`stroke-width`, the opacities, `stroke-miterlimit`, offsets) and the
+    keyword enumerations alike — is charged its bytes over 64, summed down the inheritance chain. A
+    `style` value is counted with its white space trimmed, as the renderer trims it before storing.
+  - A stylesheet's declarations are charged only in part, and what storing them costs the renderer
+    is not bounded (#282); a gradient a stylesheet paints with is still charged in full, as the
+    first entry says. The renderer stores every presentation declaration of a rule on every element
+    the rule matches, groups and `<use>` elements included, so that cost goes as declarations times
+    matched elements. Each painted shape, and each character of a text run, is charged one value,
+    the longest presentation declaration's of any `<style>`, so that a single very long value cannot
+    be copied onto thousands of shapes for free. A rule of many declarations is charged as a rule of
+    one, and what a rule costs on the groups and `<use>` elements it matches is not charged, so a
+    drawing of a few kilobytes can still pass and cost the renderer hundreds of megabytes. An
+    at-rule such as `@font-face` is not counted: the renderer never applies it to an element, so an
+    embedded font a stylesheet carries in a `src: url(data:…)` does not count against a drawing, and
+    ordinary Illustrator, Inkscape, Figma and chart-library output that embeds a font renders as
+    before. A stylesheet that is stripped whole before rendering is not counted on either screening.
+  - A `<text>` run clones its resolved style for every span (at most one span per character): the
+    gradient stops its fill and stroke name, into the span and each of three text decorations; the
+    dash array, into the span's stroke and, when the run is decorated, each decoration stroke; the
+    font family; and the `font-variation-settings`, the worst per-span copy, a list held per span and
+    again in the glyph cache. A long inherited value re-parses to a small resolved value the span
+    clones cheaply, so it is not charged per character. A gradient with a handful of stops on
+    thousands of shapes, dashed strokes on a large chart, a short variable-font axis list, and long
+    but ordinary values (a path's `d`, a `points` list, a `transform`, an embedded `data:` image, a
+    normal `font-family`) stay well within the ceiling. A `<switch>` draws one alternative but every
+    one is charged, a sound over-charge. A mask's content is charged once, not once per element that
+    references the mask (#220 covers that multiplication).
 
   Embedded raster images are capped at 4 megapixels each and 16 megapixels in total.
   Output is capped at 4,096 pixels on its long side and 16 megapixels, reduced further for

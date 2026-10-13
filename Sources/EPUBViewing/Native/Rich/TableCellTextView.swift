@@ -68,7 +68,12 @@ typealias TableNativeTextView = UITextView
         showsVerticalScrollIndicator = false
         showsHorizontalScrollIndicator = false
         dataDetectorTypes = []
+        // A surface for touch only. VoiceOver reads a row, where it stands among its page's
+        // lines, as its cells' words, and the row offers what its cells can do. A text view
+        // that is merely no element still gives UIKit's own elements for its text: VoiceOver
+        // took those before every line of a page column, and the rows repeated them.
         isAccessibilityElement = false
+        accessibilityElementsHidden = true
         let inspection = UITapGestureRecognizer(target: self, action: #selector(inspectCellImage(_:)))
         inspection.numberOfTapsRequired = 2
         inspection.delegate = self
@@ -206,15 +211,6 @@ typealias TableNativeTextView = UITextView
         return min(shownCharacters.upperBound, fraction > 0.5 ? composed.upperBound : composed.location)
     }
 
-    /// The images an assistive technology may inspect: all but the decoration it passes over.
-    private func imageActions() -> [ReaderImageAttachment] {
-        var images: [ReaderImageAttachment] = []
-        cellText.enumerateAttribute(.attachment, in: shownCharacters) { value, _, _ in
-            if let image = value as? ReaderImageAttachment, image.alternative != .decorative { images.append(image) }
-        }
-        return images
-    }
-
     private func unlinkedImage(at point: CGPoint) -> Bool {
         guard cellImage(at: point) != nil, cellSelection.length == 0,
               let container = cellManager.textContainers.first else { return false }
@@ -331,6 +327,14 @@ typealias TableNativeTextView = UITextView
         accessibilityLines().firstIndex { NSLocationInRange(index, $0) } ?? NSNotFound
     }
     override func accessibilityInsertionPointLineNumber() -> Int { accessibilityLine(for: accessibilitySelectedTextRange().location) }
+    /// The images an assistive technology may inspect: all but the decoration it passes over.
+    private func imageActions() -> [ReaderImageAttachment] {
+        var images: [ReaderImageAttachment] = []
+        cellText.enumerateAttribute(.attachment, in: shownCharacters) { value, _, _ in
+            if let image = value as? ReaderImageAttachment, image.alternative != .decorative { images.append(image) }
+        }
+        return images
+    }
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         imageActions().map { image in NSAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") {
             [weak self] in self?.onImage?(image); return self?.onImage != nil
@@ -372,16 +376,6 @@ typealias TableNativeTextView = UITextView
         set { super.contentOffset = textOffset }
     }
     override func setContentOffset(_ contentOffset: CGPoint, animated: Bool) { super.setContentOffset(textOffset, animated: false) }
-    override var accessibilityValue: String? {
-        get { cellText.readerPlainText(in: shownCharacters) }
-        set { super.accessibilityValue = newValue }
-    }
-    override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
-        get { imageActions().map { image in UIAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") {
-            [weak self] _ in self?.onImage?(image); return self?.onImage != nil
-        } } }
-        set { super.accessibilityCustomActions = newValue }
-    }
     override func copy(_ sender: Any?) { copyTextToPasteboard(onCopy?() ?? cellText.readerPlainText(in: cellSelection)) }
     @objc private func inspectCellImage(_ gesture: UITapGestureRecognizer) {
         if let image = cellImage(at: gesture.location(in: self)) { onImage?(image) }
