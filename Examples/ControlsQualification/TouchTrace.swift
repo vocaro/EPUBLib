@@ -1,4 +1,5 @@
 #if os(iOS)
+import os
 import UIKit
 
 /// `-QualificationTouchTrace YES` records what a finger does, for a run by hand on a device. A
@@ -10,9 +11,11 @@ import UIKit
 /// stayed and how far it went, when each scroll view began to drag, and where the scroll views,
 /// the keyboard and the windows stood before it, as it lifted and a second later. A picture of
 /// the windows at that second, the touch drawn on it, is kept as `touch-<number>.png`. The
-/// host's line of reader state is recorded whenever it changes. Everything goes to standard
-/// output and to `Documents/touch-trace-<launch time>/`; the keyboard is another process and is
-/// in no picture.
+/// host's line of reader state is recorded whenever it changes, and so is the application
+/// becoming active or inactive and any two seconds in which its main thread did not run: an
+/// application that is covered or hung receives no touch, and the record would only be silent.
+/// Everything goes to standard output and to `Documents/touch-trace-<launch time>/`; the
+/// keyboard is another process and is in no picture.
 @MainActor final class TouchTrace {
     static let shared = TouchTrace()
 
@@ -43,8 +46,8 @@ import UIKit
         let stamp = formatter.string(from: Date())
         let folder = URL.documentsDirectory.appending(path: "touch-trace-\(stamp)")
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: folder.appending(path: "trace.txt").path, contents: nil)
-        log = try? FileHandle(forWritingTo: folder.appending(path: "trace.txt"))
+        let path = folder.appending(path: "trace.txt").path
+        log = FileHandle(fileDescriptor: open(path, O_WRONLY | O_APPEND | O_CREAT, 0o644), closeOnDealloc: true)
         self.folder = folder
         let device = UIDevice.current
         var system = utsname()
@@ -69,14 +72,58 @@ import UIKit
                 }
             }
         }
+        for name in [UIApplication.didBecomeActiveNotification, UIApplication.willResignActiveNotification,
+                     UIApplication.didEnterBackgroundNotification, UIApplication.willEnterForegroundNotification] {
+            center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    TouchTrace.shared.note(name.rawValue.replacingOccurrences(of: "UIApplication", with: "application ")
+                        .replacingOccurrences(of: "Notification", with: ""))
+                }
+            }
+        }
+        watchMainThread(path: path)
     }
 
     /// One line of the record, stamped with the seconds since launch.
     func note(_ text: String) {
         guard folder != nil else { return }
-        let line = String(format: "%8.3f %@", ProcessInfo.processInfo.systemUptime - launch, text)
+        let line = Self.line(text, since: launch)
         print("TOUCHTRACE " + line)
         try? log?.write(contentsOf: Data((line + "\n").utf8))
+    }
+
+    private nonisolated static func line(_ text: String, since launch: TimeInterval) -> String {
+        String(format: "%8.3f %@", ProcessInfo.processInfo.systemUptime - launch, text)
+    }
+
+    /// A timer marks each quarter second in which the main thread ran, in every run loop mode,
+    /// so that a long drag is not taken for a stall. Another thread reads the mark and writes a
+    /// line of its own, since the main thread cannot, with five seconds between repeats.
+    private func watchMainThread(path: String) {
+        let mark = OSAllocatedUnfairLock(initialState: ProcessInfo.processInfo.systemUptime)
+        let timer = Timer(timeInterval: 0.25, repeats: true) { _ in mark.withLock { $0 = ProcessInfo.processInfo.systemUptime } }
+        RunLoop.main.add(timer, forMode: .common)
+        let launch = launch
+        Thread.detachNewThread {
+            let log = FileHandle(fileDescriptor: open(path, O_WRONLY | O_APPEND), closeOnDealloc: true)
+            func write(_ text: String) {
+                let line = Self.line(text, since: launch)
+                print("TOUCHTRACE " + line)
+                try? log.write(contentsOf: Data((line + "\n").utf8))
+            }
+            var reported = 0.0
+            while true {
+                Thread.sleep(forTimeInterval: 0.5)
+                let idle = ProcessInfo.processInfo.systemUptime - mark.withLock { $0 }
+                if idle >= 2, reported == 0 || idle - reported >= 5 {
+                    reported = idle
+                    write(String(format: "the main thread has not run for %.1f s", idle))
+                } else if idle < 2, reported > 0 {
+                    write(String(format: "the main thread ran again, after at least %.1f s", reported))
+                    reported = 0
+                }
+            }
+        }
     }
 
     fileprivate func record(_ event: UIEvent) {
