@@ -2133,6 +2133,13 @@ The Mac runner's transcript is plain text and needs no export.
   of five sessions (38356059690), three in pages and two in continuous scroll: the described
   picture and the hidden label in their cells, and Find Next Link from the page's text in
   both flows. The same phrases, and each link followed.
+  And at `87f032a`, with main merged in up to `7fa9231`, which has the elements a cell now
+  keeps for its other attachments, and with the section's first line a paragraph, in one
+  run of seven sessions (38369535055). In pages: the described picture, the decoration
+  alone, decoration and words and the hidden label, each in its cell by line, by word, with
+  Find Next Link and Control-Option-Space, and Find Next Link from the page's text. In
+  continuous scroll: Find Next Link from the page's text, and the hidden label in its
+  cell. The same phrases again, and each link followed.
   What did not work, heard once and left out, at `e54ad50` (run 38350087032): the cells'
   own elements as the page's children. From the page Find Next Link said "worded jump
   hyperlink" and then "Last link worded jump hyperlink" at every further press. VoiceOver
