@@ -125,6 +125,10 @@ jobs:
         env:
           FILTER: ${{ inputs.filter }}
           REPEAT: ${{ inputs.repeat || '1' }}
+          # Foundation's switch for a standard output with no buffer. With it `swift test`
+          # writes each line as a test makes it. Without, it holds the newest 16 KB of a pass,
+          # which is where a pass that hangs is.
+          NSUnbufferedIO: 'YES'
         run: |
           case "$REPEAT" in
             '' | *[!0-9]* | 0*)
@@ -141,13 +145,44 @@ jobs:
             echo "| Pass | Tests | Failed | Skipped | Seconds | swift test |"
             echo "| --- | --- | --- | --- | --- | --- |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # Every process started under one, at any depth.
+          under() {
+            ps -axo pid= -o ppid= | awk -v top="$1" '
+              { parent[$1 + 0] = $2 + 0 }
+              END {
+                for (pid in parent) {
+                  up = pid + 0
+                  while (up > 1 && up != top && (up in parent)) up = parent[up]
+                  if (up == top && pid + 0 != top) print pid
+                }
+              }' | sort -n
+          }
+
+          # The tests a log says began and does not say ended, in the order they began.
+          unfinished() {
+            sed -n -E \
+              -e "s/^Test Case '-\[[^.]+\.([^ ]+) ([^]]+)\]' started\.$/+ \1.\2/p" \
+              -e "s/^Test Case '-\[[^.]+\.([^ ]+) ([^]]+)\]' (passed|failed|skipped) \(.*$/- \1.\2/p" \
+              -e '/ Test run (started\.|with )/d' \
+              -e 's/^[^ ]+ +Test (.+) started\.$/+ \1/p' \
+              -e 's/^[^ ]+ +Test (.+) (passed|failed) after [0-9.]+ seconds.*$/- \1/p' \
+              "$1" | awk '
+                { name = substr($0, 3) }
+                substr($0, 1, 1) == "+" { began[name] = NR }
+                substr($0, 1, 1) == "-" { delete began[name] }
+                END { for (name in began) print began[name] "\t" name }' | sort -n | cut -f 2-
+          }
+
           # The last pass ends three minutes before the job's limit.
           deadline=$((JOB_START + 37 * 60))
           result=0
           line="No pass ran"
           ran=0
           red=0
+          hung=0
           longest=0
+          longest_passed=0
           for pass in $(seq 1 "$REPEAT"); do
             began=$(date +%s)
             if [ $((began + longest)) -gt "$deadline" ]; then
@@ -155,13 +190,68 @@ jobs:
               result=1
               break
             fi
+            # A pass still running at its limit is taken to have hung, and is stopped. The
+            # limit is three times the longest pass that passed, and five minutes at least.
+            # Until a pass has passed it is twenty minutes, twice a pass of every test.
+            limit=$((20 * 60))
+            if [ "$longest_passed" -gt 0 ]; then
+              limit=$((3 * longest_passed))
+              if [ "$limit" -lt 300 ]; then limit=300; fi
+            fi
+            stop_at=$((began + limit))
+            reached="its limit of $limit s"
+            if [ "$stop_at" -gt "$deadline" ]; then
+              stop_at=$deadline
+              reached="the end of the job's time"
+            fi
             log="$logs/pass-$pass.log"
+            names="$logs/unfinished-$pass.txt"
             status=0
+            stopped=""
+            sampled=""
             echo "::group::Pass $pass of $REPEAT"
-            swift test "${arguments[@]}" 2>&1 | tee "$log" || status=$?
-            echo "::endgroup::"
+            # `swift test` writes to a file, which `tail` copies to the job's log as it grows,
+            # and this loop watches the clock.
+            : > "$log"
+            swift test "${arguments[@]}" > "$log" 2>&1 &
+            runner=$!
+            tail -n +1 -f "$log" &
+            viewer=$!
+            while kill -0 "$runner" 2> /dev/null; do
+              if [ "$(date +%s)" -lt "$stop_at" ]; then
+                sleep 1
+                continue
+              fi
+              stopped=$(($(date +%s) - began))
+              unfinished "$log" > "$names"
+              ps -o pid,ppid,etime,pcpu,command -p "$(echo $runner $(under "$runner") | tr ' ' ',')" 2>&1 \
+                | cut -c 1-240 > "$logs/processes-$pass.txt" || true
+              # What `swift test` has started is running tests: an `xctest` for a bundle of
+              # XCTest's, a helper for Swift Testing's. A stack sample, two seconds long, says
+              # where each is. With nothing started, `swift test` is sampled itself.
+              sampled=$(pgrep -P "$runner" || true)
+              sampled=${sampled:-$runner}
+              for pid in $sampled; do
+                sample "$pid" 2 -file "$logs/sample-$pass-$pid.txt" > "$logs/sample-$pass-$pid.log" 2>&1 || true
+              done
+              # `swift test` is held still, so that it starts nothing more, and ended with
+              # everything under it.
+              kill -STOP "$runner" 2> /dev/null || true
+              kill -KILL $(under "$runner") "$runner" 2> /dev/null || true
+              break
+            done
+            wait "$runner" 2> /dev/null || status=$?
             took=$(($(date +%s) - began))
-            if [ "$took" -gt "$longest" ]; then longest=$took; fi
+            sleep 1
+            kill "$viewer" 2> /dev/null || true
+            wait "$viewer" 2> /dev/null || true
+            echo "::endgroup::"
+            # A pass that ended by itself while it was sampled was not stopped.
+            if [ "$status" -ne 137 ]; then stopped=""; fi
+            if [ -z "$stopped" ]; then
+              if [ "$took" -gt "$longest" ]; then longest=$took; fi
+              if [ "$status" -eq 0 ] && [ "$took" -gt "$longest_passed" ]; then longest_passed=$took; fi
+            fi
             ran=$pass
 
             # XCTest names each case as it ends. Swift Testing gives one count for its run.
@@ -176,9 +266,11 @@ jobs:
             failed=$(wc -l < "$logs/failed-$pass.txt" | tr -d ' ')
 
             total=$((cases + other))
-            line="Pass $pass of $REPEAT: $total tests, $failed failed, $skipped skipped, $took s, swift test exit $status"
+            outcome="exit $status"
+            if [ -n "$stopped" ]; then outcome="stopped at $reached"; fi
+            line="Pass $pass of $REPEAT: $total tests, $failed failed, $skipped skipped, $took s, swift test $outcome"
             echo "$line"
-            echo "| $pass | $total | $failed | $skipped | $took | exit $status |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| $pass | $total | $failed | $skipped | $took | $outcome |" >> "$GITHUB_STEP_SUMMARY"
             if [ "$total" -eq 0 ] && [ "$status" -eq 0 ]; then
               # A filter that matches nothing leaves swift test nothing to fail.
               echo "::error::No test ran${FILTER:+: nothing matches the filter '$FILTER'}"
@@ -190,7 +282,36 @@ jobs:
               # Each failed assertion, where `gh run view` and the pull request show it.
               sed -n -E "s|^$GITHUB_WORKSPACE/([^:]+):([0-9]+): error: -\[[^.]+\.([^ ]+) ([^]]+)\] : (.*)$|::error file=\1,line=\2::\3.\4: \5|p" "$log" \
                 | awk 'NR <= 10'
-              if [ "$failed" -eq 0 ]; then
+              if [ -n "$stopped" ]; then
+                echo "::group::Pass $pass of $REPEAT, where it was stopped"
+                cat "$logs/processes-$pass.txt"
+                for pid in $sampled; do
+                  if [ -s "$logs/sample-$pass-$pid.txt" ]; then
+                    # The call graph, without the tallies and the list of libraries after it.
+                    awk '/^Total number in stack/ { exit } { print }' "$logs/sample-$pass-$pid.txt"
+                  else
+                    echo "No sample of process $pid:"
+                    cat "$logs/sample-$pass-$pid.log" || true
+                  fi
+                done
+                # The log names a test that began and did not end. A sample may have a frame
+                # of a test's own, which names it when the log does not.
+                for pid in $sampled; do
+                  cat "$logs/sample-$pass-$pid.txt" 2> /dev/null || true
+                done | { grep -o -E '[A-Za-z_][A-Za-z0-9_]*\.test[A-Za-z0-9_]*\(' || true; } | tr -d '(' | sort -u > "$logs/frames-$pass.txt"
+                echo "Begun and not ended, by the log: $(paste -s -d ' ' "$names")"
+                echo "Tests in the frames of a sample: $(paste -s -d ' ' "$logs/frames-$pass.txt")"
+                echo "::endgroup::"
+                if [ ! -s "$names" ]; then cp "$logs/frames-$pass.txt" "$names"; fi
+                where=$(paste -s -d , "$names" | sed 's/,/, /g')
+                if [ "$reached" = "the end of the job's time" ]; then
+                  echo "::error::Pass $pass of $REPEAT was stopped after $stopped s, at $reached${where:+, in $where}"
+                else
+                  hung=$((hung + 1))
+                  sed 's/$/ (hung)/' "$names" >> "$logs/failed.txt"
+                  echo "::error::Pass $pass of $REPEAT hung ${where:+in }${where:-with no test under way}: it was stopped after $stopped s, at $reached"
+                fi
+              elif [ "$failed" -eq 0 ]; then
                 echo "::error::swift test exited $status in pass $pass and named no failed test"
                 tail -n 40 "$log"
               fi
@@ -200,7 +321,9 @@ jobs:
           if [ "$REPEAT" -eq 1 ]; then
             echo "::notice::$line"
           else
-            echo "::notice::$ran of $REPEAT passes ran and $red of them failed"
+            tally="$ran of $REPEAT passes ran and $red of them failed"
+            if [ "$hung" -gt 0 ]; then tally="$tally, $hung of those by hanging"; fi
+            echo "::notice::$tally"
           fi
           if [ -s "$logs/failed.txt" ]; then
             {
