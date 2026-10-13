@@ -152,6 +152,7 @@ final class ContentDocument: @unchecked Sendable {
         guard data.count <= limits.bytes, data.count <= Int(Int32.max) else { throw ContentDocumentError.limitExceeded("bytes") }
         guard XMLSafety.hasSafeDeclarations(data) else { throw ContentDocumentError.unsafeMarkup(path) }
         let source = HTMLEntities.numericReferences(in: data)
+        guard source.count <= limits.bytes, source.count <= Int(Int32.max) else { throw ContentDocumentError.limitExceeded("bytes") }
         if let document = try parseXML(source, path: path, limits: limits) {
             // Foliate's loadDocument retries a namespace-free content root as HTML. WebKit
             // also rejects named references without an XHTML 1.x public DOCTYPE. OPF and
@@ -159,7 +160,7 @@ final class ContentDocument: @unchecked Sendable {
             if asContent && (document.root.namespace.isEmpty ||
                 (source != data && !HTMLCFICompatibility.hasXHTMLDTD(data))) {
                 if HTMLCFICompatibility.accepts(data, document: document) {
-                    return htmlShaped(document)
+                    return try htmlShaped(document, source: data, limits: limits)
                 }
                 return try parseHTML(data, rewritten: source, path: path, limits: limits)
             }
@@ -174,13 +175,24 @@ final class ContentDocument: @unchecked Sendable {
         | HTML_PARSE_NOWARNING.rawValue | HTML_PARSE_RECOVER.rawValue | HTML_PARSE_NODEFDTD.rawValue)
 
     private static func parseXML(_ data: Data, path: String, limits: ContentLimits) throws -> ContentDocument? {
+        // libxml2 may return a tree for namespace errors and undeclared entities under
+        // an external DOCTYPE. Inspect this parse's own context, never a global error.
+        guard let context = xmlNewParserCtxt() else { return nil }
+        defer { xmlFreeParserCtxt(context) }
         let doc = data.withUnsafeBytes { buffer in
-            xmlReadMemory(buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, nil, xmlOptions)
+            xmlCtxtReadMemory(context, buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, nil, xmlOptions)
         }
         guard let doc else { return nil }
         defer { xmlFreeDoc(doc) }
-        return try convert(doc, path: path, limits: limits, recovered: false, html: false)
+        guard context.pointee.wellFormed != 0, context.pointee.nsWellFormed != 0 else { return nil }
+        do {
+            return try convert(doc, path: path, limits: limits, recovered: false, html: false)
+        } catch XMLTreeError.unresolvedEntity {
+            return nil
+        }
     }
+
+    private enum XMLTreeError: Error { case unresolvedEntity }
 
     /// `rewritten` is `data` as the XML parser was given it.
     private static func parseHTML(_ data: Data, rewritten: Data, path: String, limits: ContentLimits) throws -> ContentDocument {
@@ -230,6 +242,8 @@ final class ContentDocument: @unchecked Sendable {
                 var value = ""
                 var part = current.pointee.children
                 while let text = part {
+                    if !html, text.pointee.type == XML_ENTITY_REF_NODE,
+                       text.pointee.children == nil { throw XMLTreeError.unresolvedEntity }
                     if let content = text.pointee.content { value += String(cString: content) }
                     part = text.pointee.next
                 }
@@ -265,7 +279,9 @@ final class ContentDocument: @unchecked Sendable {
                     if let content = current.pointee.content { pendingText += String(cString: content) }
                     hasPendingText = true
                 case XML_ENTITY_REF_NODE:
-                    // Only predefined entities can remain; their expansion is the content.
+                    // An external DTD makes an undeclared entity only a warning in
+                    // libxml2. Refuse that XML tree instead of dropping its empty node.
+                    if !html, current.pointee.children == nil { throw XMLTreeError.unresolvedEntity }
                     if let content = current.pointee.children?.pointee.content {
                         pendingText += String(cString: content)
                         hasPendingText = true
@@ -286,10 +302,10 @@ final class ContentDocument: @unchecked Sendable {
 
     /// Rebuild only the qualified XML-shaped HTML subset. HTML discards whitespace before
     /// head, keeps it between head and body, and puts trailing root whitespace in body.
-    private static func htmlShaped(_ document: ContentDocument) -> ContentDocument {
+    private static func htmlShaped(_ document: ContentDocument, source: Data, limits: ContentLimits) throws -> ContentDocument {
         let head = document.head!, body = document.body!
         let trailing = document.root.children.filter { $0.isText && $0.indexInParent > body.indexInParent }
-            .map(\.text).joined()
+            .map(\.text).joined() + HTMLCFICompatibility.trailingWhitespace(source)
         var nodes: [ContentNode] = []
         func clone(_ source: ContentNode, extraText: String = "") -> ContentNode {
             let node: ContentNode
@@ -321,6 +337,7 @@ final class ContentDocument: @unchecked Sendable {
             return node
         }
         let root = clone(document.root)
+        guard nodes.count <= limits.nodes else { throw ContentDocumentError.limitExceeded("nodes") }
         return ContentDocument(path: document.path, root: root, nodes: nodes, recovered: true)
     }
 }
@@ -330,6 +347,16 @@ final class ContentDocument: @unchecked Sendable {
 /// sections and comments are copied unchanged. Unknown names are left for the parser to reject.
 enum HTMLEntities {
     static func numericReferences(in data: Data) -> Data {
+        // Rewrite wide XML in its own encoding so the declaration and BOM still agree
+        // with the bytes given to libxml2. Scanning UTF-16 bytes as ASCII splits names.
+        if let (encoding, mark) = HTMLSourceEncoding.wide(data),
+           let text = String(data: data.dropFirst(mark), encoding: encoding) {
+            let utf8 = Data(text.utf8)
+            let rewritten = numericReferences(in: utf8)
+            guard rewritten != utf8,
+                  let encoded = String(decoding: rewritten, as: UTF8.self).data(using: encoding) else { return data }
+            return Data(data.prefix(mark)) + encoded
+        }
         guard data.contains(0x26) else { return data } // &
         let bytes = [UInt8](data)
         var output = [UInt8](); output.reserveCapacity(bytes.count)
@@ -357,8 +384,8 @@ enum HTMLEntities {
                 if end < bytes.count, bytes[end] == 0x3B, end > index + 1 { // ;
                     let name = String(decoding: bytes[(index + 1)..<end], as: UTF8.self)
                     if !["amp", "lt", "gt", "quot", "apos"].contains(name),
-                       let entity = name.withCString({ htmlEntityLookup(UnsafeRawPointer($0).assumingMemoryBound(to: xmlChar.self)) }) {
-                        output.append(contentsOf: Array("&#\(entity.pointee.value);".utf8))
+                       let reference = HTMLNamedCharacterReferences.numeric[name] {
+                        output.append(contentsOf: reference.utf8)
                         index = end + 1
                         continue
                     }

@@ -50,7 +50,7 @@ enum HTMLSourceEncoding {
 
     /// A UTF-16 or UTF-32 signature and the length of its byte-order mark, as `XMLSafety` tells
     /// them. Longest signatures come first.
-    private static func wide(_ data: Data) -> (encoding: String.Encoding, mark: Int)? {
+    static func wide(_ data: Data) -> (encoding: String.Encoding, mark: Int)? {
         let prefix = Array(data.prefix(4))
         if prefix.starts(with: [0, 0, 0xFE, 0xFF]) { return (.utf32BigEndian, 4) }
         if prefix.starts(with: [0, 0, 0]) { return (.utf32BigEndian, 0) }
