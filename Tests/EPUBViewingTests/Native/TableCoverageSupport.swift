@@ -86,7 +86,7 @@ enum TableCoverage {
 
 extension ReaderTableInteraction {
     /// What each row on screen offers an assistive technology for its cells, top to bottom.
-    func accessibilityActionsOfEveryRow() -> [(name: String, perform: @MainActor () -> Bool)] {
+    func accessibilityActionsOfEveryRow() -> [ReaderTableAction] {
         Set(cells.keys.map(\.location)).sorted().flatMap { accessibilityActions(at: $0) }
     }
 }

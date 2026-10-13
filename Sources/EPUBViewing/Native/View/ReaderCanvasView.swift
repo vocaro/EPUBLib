@@ -46,6 +46,18 @@ import AppKit
     private var selectionDragAnchor: ReaderTextPosition?
     private var selectionDragOverridesNative = false
     private(set) var selectionContinuation: ReaderSelectionContinuation?
+    #if os(iOS)
+    /// Tells an assistive technology of something the reader did at its asking, which it
+    /// would not learn otherwise: that an item it holds has changed, to be read again with
+    /// the actions it now offers. UIKit's own post, which a test takes in its place.
+    var postToAccessibility: (UIAccessibility.Notification, Any?) -> Void = { UIAccessibility.post(notification: $0, argument: $1) }
+
+    /// Has an assistive technology say what nothing else would tell a listener, after
+    /// whatever it is saying.
+    func announce(_ words: String) {
+        postToAccessibility(.announcement, NSAttributedString(string: words, attributes: [.accessibilitySpeechQueueAnnouncement: true]))
+    }
+    #endif
 
     // Paginated flow.
     private(set) var spread: ReaderCanvasGeometry.Spread?
