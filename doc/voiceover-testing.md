@@ -1164,6 +1164,14 @@ The Mac runner's transcript is plain text and needs no export.
   Image: Described jump", "press"; Control-Option-Space on "hyperlink image", reached by
   word, the target's page. `ax:follow` on each section's link gave the same page with
   VoiceOver's cursor elsewhere.
+  In continuous scroll at the same revision, opened at a section with `-SampleHref`. The
+  text's children were the links of the paragraphs on screen, three with the pictures there
+  and one with the hidden labels, while the text's string gave a link element at every link
+  of the book. By word, by line and in Read All VoiceOver said what it said in pages:
+  "hyperlink Parked link to the target", "hyperlink image", "hyperlink" before "Jump",
+  "hyperlink Described jump, image". Find Next Link gave the same names with "hyperlink",
+  and Control-Option-Space from there scrolled the view to the target: the insertion
+  point's line was then "Link target reached" (`ENTRY`).
   Find Previous Link from the third link said "image hyperlink", the first: where Find Next
   Link goes past the last. Whether VoiceOver goes back at all with it was not settled here;
   its Find Previous Heading asked the reader for the next heading.
