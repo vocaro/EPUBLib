@@ -704,7 +704,9 @@ of data holds the first table and the second page the next two and one row of th
 the long table's first page holds its header row and seven entries, and the tall row's first
 page its header row alone. The section of squares inside grids (`OPS/squares.xhtml`) has its
 table marked as layout on its first page and its table of data at the top of its second,
-one `ax:next` on. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a line
+one `ax:next` on. In continuous scroll the reader opened at a section shows that section,
+which the `VISIBLE` range of a `STATE` line says, though VoiceOver's opening phrases are the
+book's first lines. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a line
 near a table, which continuous scroll needs: a session that came into the text without it
 read from a place of VoiceOver's own, fifty lines off.
 
@@ -4740,7 +4742,8 @@ The Mac runner's transcript is plain text and needs no export.
   in continuous scroll before the change, and its fourth item in pages; a cell of a
   table of data that holds a picture among words; a spread of two columns; a table in a
   note's popover; Safari on this section; and VoiceOver in another language or with its
-  verbosity changed.
+  verbosity changed. [#509](https://github.com/vocaro/EPUBLib/issues/509) keeps what is
+  left of the rows that entry did not hear.
 - Later again on 2026-10-13 a table cell that is a link was heard on a Mac before and
   after it was given a press and a link to hold: "Reopened 1978" in the first table of the
   section of tables of data (`-SampleHref OPS/grids.xhtml`), on GitHub's hosted `xcode-27`

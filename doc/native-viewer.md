@@ -800,7 +800,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       Not heard: a row off screen that VoiceOver reads to by line before the view has
       moved; a row of empty cells or of decoration alone; a spread of two columns; a
       note's popover; and what Safari says of the fixture's two plain tables, which
-      the comparison below did not open.
+      the comparison below did not open
+      ([#509](https://github.com/vocaro/EPUBLib/issues/509)).
     - **Beside Safari.** The same sections were heard as web pages in Safari 27.0.1 on
       the same runner, with the same keys
       ([VoiceOver testing](voiceover-testing.md), the second entry of 2026-10-13 on tables
