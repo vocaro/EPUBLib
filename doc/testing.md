@@ -209,8 +209,14 @@ hidden labels and formulas, and never U+FFFC; a link element as the attachment o
 picture or label in a link, and none over a link's words; a hidden label's place, which has a
 size though the label has none; a link cut at a page's end and continued on the next page;
 the links on screen in continuous scroll; and a text view with no canvas, as a note's
-popover has, left with AppKit's own. What VoiceOver says of each is recorded with the
-[VoiceOver testing process](voiceover-testing.md#links).
+popover has, left with AppKit's own. `TableCellLinkAccessibilityTests` read the same of a
+table cell, which is a text view of its own: its links by what they say, with every range
+counted from the first character the cell shows; a link element at each picture, label or
+formula in a link and none at decoration after a link's first character; each link's place in
+its cell and its press reporting the cell and the offset; a cell that shows only the later
+lines of a row cut by a page; and the page, or the scroll view, listing its cells' links
+among its own in reading order, as children of its own. What VoiceOver says of each is
+recorded with the [VoiceOver testing process](voiceover-testing.md#links).
 
 Table cell tests on AppKit (`TableCoverageInteractionTests`) read what a cell's own text gives
 an assistive technology for each attachment it can hold, on a table built by the real pipeline
