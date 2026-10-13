@@ -365,13 +365,11 @@ The [Mac VoiceOver workflow](../.github/workflows/voiceover-mac.yml) builds the 
 ref, runs one or more sessions and uploads their transcripts.
 
 The runner is shared. GitHub runs five macOS jobs at a time for the whole account, for the
-VoiceOver runs and the [unit tests](testing.md#hosted-mac-tests) of every agent's session
-together, and its queue has no priorities: on 2026-10-12 a job waited a median of 13 minutes
-for a runner. So one run holds every session a piece of work needs, whatever their window
-widths, text sizes, flows and launch arguments, and it is started through
-`scripts/hosted-run.py`, which looks at what is running first;
-[Sharing the runner](testing.md#sharing-the-runner) has the rules.
-The workflow starts only by hand:
+runs of every agent's session together, and its queue has no priorities. So one run holds
+every session a piece of work needs, whatever their window widths, text sizes, flows and
+launch arguments, and it is started through `scripts/hosted-run.py`, which looks at what is
+running first; [Sharing the runner](#sharing-the-runner) has the rules. The workflow starts
+only by hand:
 
 ```sh
 python3 scripts/hosted-run.py voiceover-mac.yml -f width=600 -f text_size=17 \
@@ -523,6 +521,49 @@ as `xcode-27-xlarge`, is billed even in a public repository. To see what a run c
 ```sh
 gh api repos/vocaro/EPUBLib/actions/runs/RUN_ID/timing
 ```
+
+### Sharing the runner
+
+GitHub runs five macOS jobs at a time for the whole account, on its Free, Pro and Team plans
+([its limits](https://docs.github.com/en/actions/reference/limits)). The VoiceOver runs of
+every agent's session draw on those five, and nothing else runs there
+([notes for agents](../AGENTS.md#the-hosted-runner)). A run beyond the five waits for a
+runner. The queue has no priorities: runs get a runner in the order they were started,
+whatever they are for.
+
+While fewer than five jobs ran, a job started within ten seconds. On the evening of
+2026-10-12, when the unit tests ran there too, all five were busy for hours and a job waited
+a median of 13 minutes for a runner and 75 at worst. Four runs in five were VoiceOver runs
+even so, and a single branch started four to nine of them within 90 seconds on sixteen
+occasions, each on a runner of its own with a build of its own.
+
+So a run is started with `scripts/hosted-run.py`:
+
+```sh
+python3 scripts/hosted-run.py
+python3 scripts/hosted-run.py voiceover-mac.yml -f steps='width=600 text_size=17 in line ; in line'
+```
+
+With no workflow it prints how many runs are on a runner and how many wait, then each run in
+flight, and starts nothing; `gh run list --status in_progress` and
+`gh run list --status queued` list the same runs. With the workflow it prints the two counts
+and starts the run, unless a rule below is against it: then it says why, starts nothing and
+exits with status 1. It sees this repository's runs only. The rules, with what the script
+does about each:
+
+- Look at what is running and waiting before you start a run. The script prints it each time.
+- Put the sessions you need into one run. Each can have its own window width, text size, flow
+  and launch arguments, so that step lists that differ in them share one run, one build and
+  one runner. The script checks the steps as the runner would, before anything waits for a
+  runner, and prints each session with its settings.
+- Keep at most two runs in flight for a branch, and one while any run is waiting for a
+  runner. The script starts no run beyond that and lists the branch's runs.
+- Cancel a run as soon as it is no longer needed, with `gh run cancel RUN_ID`. Nothing else
+  cancels one.
+
+`--force` starts a run the script would refuse; a slow queue is not a reason for it. The
+script also says when GitHub's copy of the branch is not the commit checked out, because a
+run uses what is pushed.
 
 ## Physical iPhone and iPad
 
