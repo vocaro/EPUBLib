@@ -1573,6 +1573,27 @@ The Mac runner's transcript is plain text and needs no export.
     "Vertical scroll bar, 15 pages 15%" and "25%"; six lines back in order from
     `p022w08 … p022w14` to `p021w15 … p021w21` and eight forward in order; the bar again
     at 25%, "15%" for the swipe up, then `p016w08 … p016w14` and two lines above it.
+  - The iPhone again with main merged in, at `a18e546`
+    (`…,flick=down,wait=2,backward=6,forward=3,point=0.955:0.6,flick=up,wait=2,flick=left*4,flick=right*6`):
+    "15%", six lines back in order and three forward; the bar at 16% and "6%" for the
+    swipe up; four lines back by VoiceOver's own flick from `p006w27 …` and six forward,
+    in order.
+
+  The same on the physical iPad Air 13-inch (M3), iPadOS 27.2, upright at 23 points, on
+  2026-10-13 at `a18e546`: VoiceOver switched on for each session and off after it, the
+  iPad claimed for the runs and released, and the transcripts passed through the filter
+  that keeps the book's and the sample's words, with a bare percentage let through.
+  - `activate=Scroll Forward,activate=Scroll Forward,wait=2,point=0.982:0.6,flick=down,wait=2,backward=6,forward=8`:
+    "Vertical scroll bar, 15 pages 15%" and "25%"; then `p022w01 … p022w07`,
+    `p021w36 … p021w40`, and four lines above them in order to `p021w08 … p021w14`;
+    forward, eight lines in order to `p022w22 … p022w28`. Before the change, in the
+    session above: two lines, and the second three more times.
+  - With VoiceOver's own flicks, and up again
+    (`…,flick=down,wait=2,flick=left*5,flick=right*3,point=0.982:0.6,flick=up,wait=2,backward=3,forward=5`):
+    "25%", five lines back in order from `p022w01 …` to `p021w15 …` and three forward; the
+    bar at "16 pages 25%" and "15%" for the swipe up; then `p015w36 … p015w40` and two
+    lines above it, and five forward in order. The session's first phrase, before any
+    step, was not the book's or the sample's and was withheld unread.
 - The two lines that used to be listed each side were one short when VoiceOver moved back up
   the screen, menu or no menu. With its cursor on a line it asks for the item before the
   line two above, so three lines above the cursor must be listed, and two were unless more
