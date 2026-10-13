@@ -28,6 +28,9 @@ struct ReaderLinkElements {
     var links: [Int: ReaderLinkAccessibilityElement] = [:]
     /// The element of an attachment inside a longer link, by its location.
     var attachments: [Int: ReaderLinkAccessibilityElement] = [:]
+    /// Each link's element as a child of the text the view stands in, by its location: a
+    /// table cell's links are listed by its page as well.
+    var listed: [Int: ReaderLinkAccessibilityElement] = [:]
 }
 
 /// A text view that gives an assistive client the reader's own elements for its links: a page
@@ -128,7 +131,7 @@ extension ReaderLinkHost {
         element.view = self
         element.url = url
         element.range = range
-        element.setAccessibilityParent(self)
+        element.setAccessibilityParent(element.listing ?? self)
         element.setAccessibilityTitle(title.isEmpty ? nil : title)
         // A picture in a link is followed, not enlarged, by a press: inspection stays an action.
         element.setAccessibilityCustomActions(announcedImages(in: range).map { image, _ in
@@ -163,6 +166,20 @@ extension ReaderLinkHost {
     /// AppKit's own.
     func linkChildren() -> [ReaderLinkAccessibilityElement] {
         accessibilityLinks(in: visibleLinkCharacters).map { linkElement(for: $0.url, at: $0.range) }
+    }
+
+    /// The links on screen once more, as children of `listing`, the text this view stands in.
+    /// From a link VoiceOver's Find Next Link goes on through the children of the link's own
+    /// parent, so a link that a page lists has to be a child of the page to be one of its
+    /// links: an element of its own there, with the same name, place and press.
+    func linkChildren(listedIn listing: NSView) -> [ReaderLinkAccessibilityElement] {
+        accessibilityLinks(in: visibleLinkCharacters).map { url, range in
+            let element = linkElements.listed[range.location] ?? ReaderLinkAccessibilityElement()
+            linkElements.listed[range.location] = element
+            element.listing = listing
+            configure(element, url: url, range: range, title: linkTitle(range))
+            return element
+        }
     }
 
     /// Where the characters of a link are, in this view's coordinates: at least a point, so
@@ -201,12 +218,13 @@ extension ReaderTextView: ReaderLinkHost {
     }
 
     /// The links Find Next Link moves through from this text, in reading order: its own on
-    /// screen and, where a table row stands, those of the row's cells. A cell's link is the
-    /// cell's own element, so VoiceOver says the same of it from here as from inside the cell.
+    /// screen and, where a table row stands, those of the row's cells. A row is one character
+    /// of this text, so a cell's links are no links of its characters: without these children
+    /// VoiceOver finds no link from the page that the cell has.
     func linkChildrenWithCells() -> [ReaderLinkAccessibilityElement] {
         var found = linkChildren().map { (location: $0.range.location, element: $0) }
         for (location, cell) in tableInteraction?.accessibilityCellsInOrder ?? [] {
-            found += cell.linkChildren().map { (location: location, element: $0) }
+            found += cell.linkChildren(listedIn: self).map { (location: location, element: $0) }
         }
         return found.enumerated().sorted { ($0.element.location, $0.offset) < ($1.element.location, $1.offset) }.map(\.element.element)
     }
@@ -217,7 +235,10 @@ extension ReaderTextView: ReaderLinkHost {
 /// an attachment's element, what VoiceOver announces as it reads. Control-Option-Space
 /// presses it. It has AppKit's role for a link in text, which VoiceOver calls a hyperlink.
 final class ReaderLinkAccessibilityElement: NSAccessibilityElement {
+    /// The text view whose link it is.
     weak var view: (any ReaderLinkHost)?
+    /// The view it is a child of, where that is not `view`: the page a table cell stands in.
+    weak var listing: NSView?
     /// The link's target in the reader's own scheme. Not given to assistive clients: nothing
     /// can open it.
     var url: URL?
@@ -233,8 +254,11 @@ final class ReaderLinkAccessibilityElement: NSAccessibilityElement {
     // its lines move under an element that is kept.
     override func accessibilityFrameInParentSpace() -> NSRect {
         guard let view else { return .zero }
-        let range = range
-        return MainActor.assumeIsolated { view.linkFrame(range) }
+        let range = range, listing = listing
+        return MainActor.assumeIsolated {
+            let frame = view.linkFrame(range)
+            return listing.map { $0.convert(frame, from: view) } ?? frame
+        }
     }
 
     override func accessibilityFrame() -> NSRect {

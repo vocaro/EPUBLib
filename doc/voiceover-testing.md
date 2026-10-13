@@ -28,10 +28,19 @@ nothing, that it is decoration (an empty `alt`), or words. Each stands in a line
 decorative one is also all that a link holds, and stands beside words in a link; and two come
 from a file that has a title of its own, one with an empty `alt` and one with none. None of
 the section's words is one VoiceOver uses for a picture or a link, so those in a transcript
-are VoiceOver's own. A fifth, **Scenes set apart** (`OPS/scenes.xhtml`), the book's last,
+are VoiceOver's own. A fifth, **Scenes set apart** (`OPS/scenes.xhtml`),
 holds rules: an `<hr>` between two paragraphs, one the book gives `role="presentation"`, and
 one alone on a page of its own, with a last paragraph on the page after it. None of its words
-is one a screen reader uses for a rule either. A second
+is one a screen reader uses for a rule either. A sixth, **Jumps inside a grid**
+(`OPS/cells.xhtml`), the book's last, holds links in the cells of a table of three rows and
+two columns, between two paragraphs and before sixty numbered lines. The first row has a cell
+of plain words and a link of words, "worded jump", in a cell that runs on to three lines at
+17 points in a 600-point window. The second has a link that is a picture with words,
+"Described entry jump", and one that is a picture with an empty `alt`. The third has a link
+that holds such decoration and the words "Entry jump with decoration", and a link that is a
+hidden label, "Parked entry jump", before the cell's shown words. Every link goes to "Link
+target reached" in the first section. None of the section's words is one VoiceOver uses for a
+picture, a link, a table or a text. A second
 bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
@@ -39,8 +48,9 @@ twenty-third), so a line in the middle of a paragraph can be told from its first
 of the book is a few screens from the start of its last chapter. The first book's headings
 are "Page boundary verification" (level 1), which opens it, "Link target reached" (level 2)
 after the numbered paragraph, the two parked ones (level 1), each opening its section, and
-"Pictures and their words" and "Scenes set apart" (level 1), each opening one of the last
-two; the second book's are "Chapter one", "Chapter two" and "Chapter three", screens apart.
+"Pictures and their words", "Scenes set apart" and "Jumps inside a grid" (level 1), each
+opening one of the last three; the second book's are "Chapter one", "Chapter two" and
+"Chapter three", screens apart.
 Do not import private books for this check.
 
 On a Mac the same application can show AppKit's own text view in the reader's place, with
@@ -207,18 +217,23 @@ selection and the numbered-word span of its value:
 - `larger`, `smaller`: choose the Appearance menu's text-size items.
 - `width=POINTS`: resize the window.
 - `focus`, `focus=COLUMN`, `focus=search`: give the last column, a numbered column or the
-  search field keyboard focus, without a click.
+  search field keyboard focus, without a click. `focus=0.2` gives it to a table cell, by the
+  name `links` prints. That does not bring VoiceOver into the cell: its `in` then entered the
+  page's text. See [Links](#links) for the way in.
 - `lines`: print every accessibility line of each column.
 - `links`: print what each column gives an assistive client for its links and attachments.
   A `CHILD` line is one of the text's own children, which Find Next Link moves through. A
   `LINK` line is a run of the text's accessibility string with the element given as its
   link, the element given as its attachment, or both: each one's role, what it is called,
-  and its actions.
-- `caret=WORDS`: put the insertion point before the first of these words, as in
-  `"ax:caret=Bare jump"`. VoiceOver enters a text at its insertion point, so `in` then starts
-  on that line and `right` reads the word.
-- `follow=WORDS`: press the link that names the words or holds them, by its own action and
-  without VoiceOver.
+  and its actions. A table row is one such run, a group that holds a text area for each of
+  its cells on screen. Each cell follows its column with a name of its own, `0.3` for the
+  first column's fourth, and the same lines with `CELL` before them: `CELL 0.3 VALUE`, and
+  `CELL CHILD` and `CELL LINK` for what the cell's own text gives.
+- `caret=WORDS`: put the insertion point before the first of these words, in a column or in
+  a cell, as in `"ax:caret=Bare jump"`. VoiceOver enters a text at its insertion point, so
+  `in` then starts on that line and `right` reads the word.
+- `follow=WORDS`: press the link that names the words or holds them, in a column or in a
+  cell, by its own action and without VoiceOver.
 - `wait=SECONDS`: only observe. Without steps the observer only observes; a single step of
   `-` reads steps from standard input.
 
@@ -1103,9 +1118,10 @@ The Mac runner's transcript is plain text and needs no export.
   On the Mac: GitHub's hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1
   `26A434`, Xcode 27.0), a window 600 points wide, run 38327683951 at `81f8d88` (pages) and
   runs 38328830423 (pages) and 38328832799 (continuous scroll) at `d432df6`. The scenes'
-  first page is 22 `ax:next` steps in, the page of a rule alone 23 and the last 24. In
-  continuous scroll 28 `ax:next` steps reach the end of the book, where `lastword` puts
-  VoiceOver on "scenes."; `textend` goes to the end of the book's first section instead. The
+  first page is 22 `ax:next` steps in, the page of a rule alone 23 and the last 24. The
+  section was then the book's last: in
+  continuous scroll 28 `ax:next` steps reached the end of the book, where `lastword` put
+  VoiceOver on "scenes."; `textend` went to the end of the book's first section instead. The
   reader gives a rule no element there, and both revisions read the same. Pages by line:
   "Scenes set apart", "First scene ends.", a phrase with nothing in it, "Second scene
   starts.", a phrase with nothing in it, "Words after an ornament.": VoiceOver stops on the

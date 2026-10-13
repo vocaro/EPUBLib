@@ -187,13 +187,41 @@ import XCTest
 
     func testAPageListsTheLinksOfItsCellsAmongItsOwnInReadingOrder() async throws {
         let mounted = try await mount(Self.grid, cells: 6)
-        // Find Next Link moves through the children of the text VoiceOver is in. From the page
-        // it reaches a cell's link too: the cell's own element, where the row stands.
-        XCTAssertEqual(children(of: mounted.view).map { $0.accessibilityTitle() ?? "" },
+        // Find Next Link moves through the children of the text VoiceOver is in. A row is one
+        // character of the page's text, so the page lists its cells' links where the row stands.
+        let listed = children(of: mounted.view)
+        XCTAssertEqual(listed.map { $0.accessibilityTitle() ?? "" },
                        ["words before", "worded jump", "Described entry jump, \(imageWord)", imageWord, "Entry jump with decoration",
                         "Parked entry jump", "words after"])
-        let inCells = try mounted.cells.flatMap { try links(in: $0.cell).map(\.element) }
-        XCTAssertEqual(children(of: mounted.view)[1...5].map { ObjectIdentifier($0) }, inCells.map { ObjectIdentifier($0) })
+        XCTAssertEqual(mounted.view.accessibilityChildren()?.count, 7, "the cells themselves are reached through their rows")
+        // From a link VoiceOver goes on through the children of the link's own parent: each of
+        // these is a child of the page, and another element than the cell's own.
+        let inCells = try mounted.cells.flatMap { entry in try links(in: entry.cell).map { (cell: entry.cell, key: entry.key, link: $0.element, range: $0.range) } }
+        XCTAssertEqual(inCells.count, 5)
+        for (page, own) in zip(listed[1...5], inCells) {
+            let title = page.accessibilityTitle() ?? ""
+            XCTAssertTrue(page.accessibilityParent() as AnyObject === mounted.view, title)
+            XCTAssertTrue(own.link.accessibilityParent() as AnyObject === own.cell, title)
+            XCTAssertFalse(page === own.link, title)
+            XCTAssertEqual(page.accessibilityRole(), .link, title)
+            XCTAssertEqual(page.accessibilitySubrole(), .textLink, title)
+            XCTAssertEqual(page.accessibilityTitle(), own.link.accessibilityTitle())
+            XCTAssertEqual(page.accessibilityCustomActions()?.map(\.name), own.link.accessibilityCustomActions()?.map(\.name), title)
+            // The same place on screen, and in the page's own coordinates as its child.
+            XCTAssertEqual(page.accessibilityFrame(), own.link.accessibilityFrame(), title)
+            XCTAssertEqual(NSAccessibility.screenRect(fromView: mounted.view, rect: page.accessibilityFrameInParentSpace()).midX,
+                           page.accessibilityFrame().midX, accuracy: 1, title)
+            XCTAssertEqual(NSAccessibility.screenRect(fromView: mounted.view, rect: page.accessibilityFrameInParentSpace()).midY,
+                           page.accessibilityFrame().midY, accuracy: 1, title)
+            XCTAssertTrue(mounted.view.accessibilityFrame().insetBy(dx: -1, dy: -1).contains(page.accessibilityFrame()), title)
+            // The same press: the link is followed from its cell.
+            XCTAssertTrue(page.accessibilityPerformPress(), title)
+            XCTAssertEqual(mounted.host.recorder.links.last?.link, .internal(href: "OPS/two.xhtml#t"), title)
+            XCTAssertEqual(mounted.host.recorder.links.last?.position.tableCell,
+                           ReaderTablePosition(table: mounted.table.sourceOrder, cell: own.key.cell, offset: own.range.location), title)
+        }
+        // Asked again, the page gives the same elements.
+        XCTAssertEqual(children(of: mounted.view).map { ObjectIdentifier($0) }, listed.map { ObjectIdentifier($0) })
         // The page's own string has none of them: a row is one character, the group of its cells.
         let text = try XCTUnwrap(mounted.view.accessibilityAttributedString(for: mounted.view.shownCharacters))
         var own: [String] = []
@@ -201,6 +229,10 @@ import XCTest
             if let link = value as? ReaderLinkAccessibilityElement { own.append(link.accessibilityTitle() ?? "") }
         }
         XCTAssertEqual(own, ["words before", "words after"])
+        // The page's own links press as they did.
+        XCTAssertTrue(listed[0].accessibilityPerformPress())
+        XCTAssertEqual(mounted.host.recorder.links.last?.link, .internal(href: "OPS/one.xhtml#before"))
+        XCTAssertNil(mounted.host.recorder.links.last?.position.tableCell)
     }
 
     private func surface(_ text: NSAttributedString, showing shown: NSRange? = nil) -> TableCellTextView {
@@ -262,6 +294,22 @@ import XCTest
         let unlinked = try XCTUnwrap(attachment(at: 22, in: cell))
         XCTAssertEqual(unlinked.accessibilityRole(), .staticText)
         XCTAssertEqual(unlinked.accessibilityLabel(), "x squared")
+    }
+
+    func testDecorationAfterTheFirstCharacterOfACellsLinkIsPassedOver() async throws {
+        let mounted = try await mount("""
+            <table><tr><td>Plain entry.</td><td><a href="two.xhtml">Words then <img src="p.png" alt=""/> more \
+            <img src="p.png" alt="a picture"/></a> and <img src="p.png" alt=""/> outside.</td></tr></table>
+            """, cells: 2)
+        let cell = try XCTUnwrap(mounted.cells.last?.cell)
+        let value = try XCTUnwrap(cell.accessibilityValue()) as NSString
+        let found = try links(in: cell)
+        XCTAssertEqual(found.map { $0.element.accessibilityTitle() ?? "" }, ["Words then more a picture"], "decoration adds nothing to a name")
+        let decoration = value.range(of: "\u{FFFC}"), picture = value.range(of: "\u{FFFC}", range: NSRange(location: decoration.upperBound, length: 12))
+        XCTAssertNil(try attachment(at: decoration.location, in: cell), "nothing to announce, as outside a link in the text around the table")
+        let among = try XCTUnwrap(attachment(at: picture.location, in: cell) as? ReaderLinkAccessibilityElement)
+        XCTAssertEqual(among.accessibilityTitle(), "a picture, \(imageWord)", "a picture among a link's words is a link by its own words")
+        XCTAssertEqual(among.accessibilityCustomActions()?.map(\.name), ["Inspect Image: a picture"])
     }
 }
 #endif

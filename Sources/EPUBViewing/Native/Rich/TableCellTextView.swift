@@ -254,7 +254,9 @@ typealias TableNativeTextView = UITextView
         let result = NSMutableAttributedString(attributedString:
             super.accessibilityAttributedString(for: full) ?? cellText.attributedSubstring(from: full))
         cellText.enumerateAttribute(.attachment, in: full) { value, characters, _ in
-            guard let textual = value as? ReaderTextualAttachment else { return }
+            // In a link an attachment is a link or passed over, as the links decide below.
+            guard let textual = value as? ReaderTextualAttachment,
+                  cellText.attribute(.link, at: characters.location, effectiveRange: nil) == nil else { return }
             let element = NSAccessibilityElement()
             element.setAccessibilityRole(.staticText)
             element.setAccessibilityLabel(textual.textEquivalent)
