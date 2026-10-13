@@ -219,9 +219,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   not this. The reader's SwiftUI surface no longer names the pair there, and it was what
   still turned the page while text was selected; a line's own turn did nothing then and
   reported success. The turn fails at either end of the book. A note's popover keeps UIKit's
-  own elements and passes on UIKit's actions, and the reader adds no Inspect Image to them:
-  a note has no canvas to inspect an image in, so the action did nothing. And an item with no
-  action gives no list of actions, not an empty one.
+  own elements and passes on UIKit's actions, and the reader adds none: a note has no
+  canvas to inspect an image in, and offered no inspection before either. And an item with
+  no action gives no list of actions, not an empty one.
   What UIKit gives a text view was heard by itself on 2026-10-12, in a build that named every
   action for the object that gave it
   ([VoiceOver testing](voiceover-testing.md#harness-pitfalls-and-current-results)): the

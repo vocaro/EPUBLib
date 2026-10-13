@@ -148,8 +148,8 @@ final class ReaderTextView: UITextView {
             // reader's for its images, a plain line offered the picture beside it, and a line
             // of continuous scroll every link of the book.
             guard !listsLines else { return nil }
-            // A note keeps UIKit's elements and what UIKit offers for them. The reader adds no
-            // inspection: a note has no canvas to inspect an image in.
+            // A note keeps UIKit's elements and what UIKit offers for them. The reader has
+            // nothing to add there: a note has no canvas to inspect an image in.
             return super.accessibilityCustomActions
         }
         set { super.accessibilityCustomActions = newValue }

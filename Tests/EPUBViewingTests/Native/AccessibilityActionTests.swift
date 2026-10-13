@@ -194,17 +194,21 @@ import XCTest
     }
 
     /// A note's text view lists no lines: it keeps UIKit's own elements and passes on what
-    /// UIKit holds for them. It has no canvas to inspect an image in, so it offers no
-    /// inspection, which could not be performed.
+    /// UIKit holds for them. The reader adds nothing to that, with a picture in the note or
+    /// without: a note has no canvas to inspect an image in.
     func testANotesTextViewKeepsWhatUIKitOffersAndAddsNothing() throws {
+        let source = try XCTUnwrap(ReaderImageSource.bitmap(RichFixture.image(width: 40, height: 40), path: "note.png", key: UUID().uuidString))
+        let picture = ReaderImageAttachment(source: source, sizing: ImageSizing(intrinsic: source.pixelSize), alternative: .text("A pictured note"),
+                                            style: ComputedStyle(), cache: ReaderImageCache(budget: 1 << 20))
         let text = NSMutableAttributedString(attributedString: CanvasText.body("A note with a picture "))
-        text.append(CanvasText.attachment(size: CGSize(width: 20, height: 20)))
+        text.append(NSAttributedString(attachment: picture, attributes: CanvasText.body("a").attributes(at: 0, effectiveRange: nil)))
         let note = ReaderNoteViewController(text: text, dark: false, width: 320)
         note.loadViewIfNeeded()
         let view = note.textView
         view.frame = CGRect(x: 0, y: 0, width: 320, height: 200)
         view.layoutIfNeeded()
         XCTAssertNil(view.canvas)
+        XCTAssertTrue(view.contentStorage.textStorage?.attribute(.attachment, at: text.length - 1, effectiveRange: nil) is ReaderImageAttachment)
         XCTAssertEqual((view.accessibilityCustomActions ?? []).map(\.name), [], "nothing of the reader's")
         view.accessibilityCustomActions = [UIAccessibilityCustomAction(name: "Held by the text view") { _ in true }]
         XCTAssertEqual((view.accessibilityCustomActions ?? []).map(\.name), ["Held by the text view"])
