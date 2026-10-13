@@ -182,6 +182,15 @@ stand in for VoiceOver's cursor in continuous scroll, as the scrolled-lines test
 reads on through a table of seventy rows and back, finding each next stop as UIKit does, in
 the cell's container and then in the text view, and then moves down a column row by row; the
 other rests the cursor in a table and scrolls away. Neither drives VoiceOver.
+Table select action tests perform Select Table Text on a row and Select Cell Text on a cell,
+in both flows, and hold each to the same: the reader reports the words, the canvas as drawn
+shows them selected, the reader has VoiceOver told, and the item then offers Deselect, Copy
+and the host's selection action, each performed. The drawing is read from the canvas's
+pixels, counting those of the cell's ground that changed: the cell draws a selected word's
+ink over the row's own, which changes pixels at the letters' edges with no selection shown,
+and passed a count of any pixel. What the reader has VoiceOver say is taken from the canvas
+(`ReaderCanvasView.announce`) instead of posted. A third test selects a passage through two
+cells in code, as a located passage is, and reads each cell's share from the pixels.
 
 Accessibility action tests hold each item of a page and of a screen on iPhone and iPad to
 offering its own actions and no more: a line, a heading and a link their page turns in pages

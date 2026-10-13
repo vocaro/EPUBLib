@@ -397,7 +397,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     way to give one cell headers of its own.
   - **Actions.** A cell offers what it can do itself: Select Cell Text, Follow Link with the
     link's words for each link in it, and Inspect Image for each picture; a page's cells
-    also turn the page, like its lines. A double tap follows the link of a cell that has
+    also turn the page, like its lines. A cell whose words are selected offers Deselect
+    Cell Text, Copy and the host's selection action in place of Select Cell Text ("A
+    table's text selected with VoiceOver" below). A double tap follows the link of a cell that has
     one link, and shows the picture of a cell that is a picture. The actions come from the
     cell's interaction surface, so a cell listed past the screen has them once it is on
     screen, which is where VoiceOver's cursor brings it.
@@ -439,6 +441,41 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     the text on an iPad simulator in two sessions of three, where rows had not in two of
     two; with the fifty it did not in two of two. Why cells showed it and rows did not is
     not known, so a table's cells are to be taken as needing that list.
+- **A table's text selected with VoiceOver.** On iPhone and iPad VoiceOver cannot select
+  the reader's text as it does a text view's: a page's lines and a table's rows and cells
+  are elements of the reader's own, and the text views that take touches over a table's
+  cells are hidden from it. A table offers selection as an action instead, Select Table
+  Text with a cell's words on a row and Select Cell Text on a cell of a table of data, and
+  either selects the words the cell shows there. Rows and cells run the same code and
+  differ in the names alone.
+  - **Shown.** UIKit draws a text view's selection, and its handles, only while the view is
+    first responder, which a touch in it makes it. A selection set in code was held,
+    reported to the host and copied from, and nothing showed it: after the action the screen
+    was as before, but for the selected words' ink, which the cell draws over the row's own
+    and which looked a little heavier. A cell's text view now paints a selection it holds
+    whenever UIKit is not drawing it, in UIKit's tint for selected text, and leaves it to
+    UIKit while it is first responder. That shows every selection set in code and not this
+    one alone: a located passage in a table, in each cell it runs through that cell's
+    share, and a selection carried across a new layout. The reader takes no keyboard focus
+    to show it, which would close a keyboard elsewhere in the window.
+  - **Said.** VoiceOver says nothing of its own after an item's action. The reader posts an
+    announcement, queued behind whatever VoiceOver is saying: "Selected:" and the cell's
+    words, their first sixty characters as in a row's action, then "Copied" and
+    "Deselected" for the two below. The words are the reader's and English, as "Separator"
+    is at a rule.
+  - **What it is for.** A selection made by touch brings up the edit menu, with Copy and the
+    host's selection action. No menu comes up for a selection set in code, and VoiceOver
+    could not reach one in a view hidden from it. So the item whose cell holds selected
+    words offers, where its select action stood, Deselect Table Text or Deselect Cell Text,
+    Copy, and the host's selection action by its own title when the host gave one. Copy and
+    the host's action are the edit menu's: the whole selection's text, and the host is told
+    of the selection first if it has not settled. Deselect clears the reader's selection.
+    It is the way back to turning pages by VoiceOver's scroll gesture, which selected text
+    holds back as it does a swipe ("Input and accessibility"); Next Page and Previous Page
+    in the rotor turn the page either way. A passage that runs through several cells of a
+    row is one selection, and the row offers Copy and the host's action once.
+  - **Not done.** A line outside a table offers no selection to VoiceOver, as before. On Mac
+    a cell's text area is VoiceOver's own to select in, and nothing here changes it.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
   in place and also show in popovers.
@@ -1076,6 +1113,9 @@ The following are the defaults. Host commands and accessibility actions stay ena
   indicator with Previous/Next controls for following the selected passage. Direct page input
   is suppressed while a selection is active; host commands and these continuation controls
   remain available. `.selectionChanged` settles 150 ms after the selection stops changing.
+  With VoiceOver on iPhone and iPad a table's text is selected by an action of its row or
+  cell, which draws it, says so, and then offers Copy and the host's action itself ("A
+  table's text selected with VoiceOver" under Decisions).
 
 ## Commands and events
 
