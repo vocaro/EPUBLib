@@ -95,8 +95,12 @@ The outer Python runner reads the original VoiceOver state, temporarily toggles 
 the approved System Events shortcut if needed, and restores that state in `finally`. It
 stops only its own process groups when the deadline expires. It never edits system
 preferences or enables VoiceOver's AppleScript-control setting. Native `enable()` timed out
-on the Mac in the initial session, so the outer runner owns the Mac toggle. Ordinary process
-cleanup cannot recover from forcibly killing the runner itself; verify restoration independently:
+on the Mac in the initial session, so the outer runner owns the Mac toggle. If VoiceOver is
+not back in its original state five seconds after the shortcut, the runner prints the reason,
+writes the transcript all the same with the reason in a `NOT_RESTORED` line, and exits with
+status 126: VoiceOver is then still on, or still off, and is yours to put back. Ordinary
+process cleanup cannot recover from forcibly killing the runner itself; verify restoration
+independently:
 
 ```sh
 defaults read com.apple.universalaccess voiceOverOnOffKey
@@ -128,7 +132,15 @@ new phrase is recorded:
   cursor holds, the reader's Headings among them. `listright` and `listleft` go from list to
   list, `listdown` and `listup` along one, `listchoose` (Return) moves VoiceOver to the item
   named and `listclose` (Escape) closes the rotor. These six are plain keys. Send them only
-  while the rotor is open: otherwise the reader takes an arrow as a page turn.
+  while the rotor is open: otherwise the reader takes an arrow as a page turn. A list with
+  nothing in it stays open after `listchoose`: on a page that has no heading the rotor says
+  "No items in Heading menu" and Return chooses nothing. VoiceOver ignores its own Command-F5
+  while the rotor is open, so the runner closes one before it restores VoiceOver. After the
+  steps of a session that sent `rotor` and no `listclose` after it, the runner sends Escape
+  itself, writes `STEP listclose, sent by the runner in case the rotor is still open` and
+  waits one pause; a session stopped before the end of its steps gets the same key as the
+  runner cleans up. Where `listchoose` had closed the rotor, the reader takes that Escape and
+  does nothing with it: VoiceOver said nothing and stayed on its line.
 - `activate=LABEL`: Control-Option-Space, sent only if one of VoiceOver's last two phrases
   contains LABEL, as in `"activate=Next Page"`.
 - `pagedown`, `pageup`: the reader's own page keys, without VoiceOver modifiers.
@@ -270,6 +282,11 @@ TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wai
    screen alone; the next move forward comes in at the first of them.
 6. `activate=Contents,activate=Chapter two` moves the reader with the cursor on a control, and
    `point=0.5:0.8` touches a line directly: VoiceOver reads the line under the finger.
+7. No line of plain text has "Actions available" after it, and `flick=down` with the cursor on
+   one reads no action: it steps by the rotor's own setting, a character of the line on a
+   simulator. An iPhone's lines are short enough to show the whole phrase in the 64
+   characters a transcript keeps. In the first book the picture's own line says it, and
+   `flick=down` there reads "Inspect Image: Blue verification square" and then "Activate".
 
 Drive at least one session with `flick=right*20` and `flick=left*30` in place of `forward`
 and `backward`: those are VoiceOver's own gestures for the next and previous item, where the
@@ -331,7 +348,10 @@ at a fixed pause; see [Acceptance and evidence](#acceptance-and-evidence).
 
 The job fails unless every session exits 0. `sessions.txt` in the download gives each
 session's outcome, transcript and command: 124 means the deadline was reached, 125 that the
-runner script stopped the session, and 2 that it refused the steps. The download also holds a
+runner script stopped the session, 2 that it refused the steps, and 126 that VoiceOver would
+not switch back off after it ("VoiceOver not restored"). Such a session still has its
+transcript, with the reason in a `NOT_RESTORED` line, and the sessions after it in the job
+begin with VoiceOver already on and leave it on. The download also holds a
 `mac-STAMP.transcript.txt` for each session in order, `runner.txt` with the commit, the runner
 image and its version, macOS, Xcode, System Integrity Protection and the screen, the observer,
 `xcodebuild` and build logs, and a screenshot of the runner's screen at the end. The job's log
@@ -436,11 +456,13 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
   seconds at most, and a `settled` line says which.
 - `point=X:Y`: touch a place in the window, as fractions of its width and height, whatever is
   listed there.
-- `flick=down`, `flick=up`: one finger steps through the rotor. With the cursor on a line it
-  offers the line's actions, Next Page first. After the last of them VoiceOver says "Activate
-  Default" and starts again, so a list has been heard whole once that phrase comes.
-  `doubletap=LABEL` on that same line then
-  performs the chosen one without moving the cursor. On an iPhone in landscape only the
+- `flick=down`, `flick=up`: one finger steps through the rotor. With the cursor on a line of
+  a page it offers the line's actions, Next Page first; `doubletap=LABEL` on that same line
+  then performs the chosen one without moving the cursor. After the last of an item's actions
+  VoiceOver says "Activate Default" and starts again, so a list has been heard whole once
+  that phrase comes. A line with no action, as plain
+  text is in continuous scroll, leaves the rotor on its own setting, and the flick steps by
+  that. On an iPhone in landscape only the
   upward flick registered, which reaches the same actions.
 - `flick=right`, `flick=left`: VoiceOver's next and previous item; `flick=right*12` repeats it.
 - `rotor=LABEL`: two fingers turned on the glass, which turns VoiceOver's rotor, repeated
@@ -638,21 +660,30 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    found" past the last, and the view shows the heading; `rotor` opens on the Heading menu,
    which lists the page's headings, or the whole book's in continuous scroll, each by its
    words and level, and `listchoose` moves to the one named.
-10. What each item offers, on an iPhone and iPad, on the section "What each line offers".
-    With the cursor on an item, step through the rotor (`flick=down`) until VoiceOver says
-    "Activate Default": what came before it is everything the item offers. In pages "Plain
-    words above.", the link "Lone jump" and "Plain words below." offer Next Page and Previous
-    Page and no more; "Square with words" offers those and Inspect Image: Square with words;
-    the picture without words, one move forward from "Nameless picture", those and Inspect
-    Image; and the table's row those, Select Table Text: Left cell, Select Table Text: Right
-    cell jump and Follow Table Link: Right cell jump. In continuous scroll each offers the
-    same without the two page turns, so a line of words and the link offer nothing: the rotor
-    has no Actions setting on them (`rotor=Actions` ends in `MISSING`), and a step through it
-    reads the line by the setting the rotor is on. No item offers a picture or a link that is
-    not its own, or "Verification link", which is in the book's first section. On a device,
-    choose Inspect Image on a picture and double-tap, and the inspector opens; choose Next
-    Page on a line of a page and double-tap, and the page turns.
-11. Restore all original VoiceOver/scripting settings and independently verify restoration.
+10. Actions, on an iPhone and iPad. A line is offered what is in it and nothing else. On a
+    page, with the cursor on a line of plain text, `flick=down` reads "Next Page", "Previous
+    Page" and "Activate", and then "Next Page" again: each once, and no picture or link that
+    stands elsewhere on the page. On the picture's own line it reads "Inspect Image: Blue
+    verification square" after the two. In continuous scroll VoiceOver says no "Actions
+    available" after a line of plain text or a link, and `flick=down` there reads no action;
+    the picture's line says it and offers the inspection alone. A reader that offered more
+    said, on any line of continuous scroll, "Previous Page", "Next Page", and the book's
+    links by their words.
+11. What each kind of item offers, on an iPhone and iPad, on the section "What each line
+    offers", which shows them all at once. With the cursor on an item, step through the rotor
+    (`flick=down`) until VoiceOver says "Activate Default": what came before it is everything
+    the item offers. In pages "Plain words above.", the link "Lone jump" and "Plain words
+    below." offer Next Page and Previous Page and no more; "Square with words" offers those
+    and Inspect Image: Square with words; the picture without words, one move forward from
+    "Nameless picture", those and Inspect Image; and the table's row those, Select Table
+    Text: Left cell, Select Table Text: Right cell jump and Follow Table Link: Right cell
+    jump. In continuous scroll each offers the same without the two page turns, so a line of
+    words and the link offer nothing: the rotor has no Actions setting on them
+    (`rotor=Actions` ends in `MISSING`). No item offers a picture or a link that is not its
+    own, or "Verification link", which is in the book's first section. On a device, choose
+    Inspect Image on a picture and double-tap, and the inspector opens; choose Next Page on a
+    line of a page and double-tap, and the page turns.
+12. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
@@ -695,6 +726,26 @@ The Mac runner's transcript is plain text and needs no export.
   resting cursor to the window's first control. Neither is a page-boundary failure. It kept
   one for a column it had left too, until the canvas posted its layout change from the element
   that holds the columns ([#337](https://github.com/vocaro/EPUBLib/issues/337)).
+- VoiceOver ignores its own Command-F5 while its rotor is open, whether the list holds an item
+  or none, so a session that ends under an open rotor leaves VoiceOver on
+  ([#399](https://github.com/vocaro/EPUBLib/issues/399)). On 2026-10-13 [hosted
+  sessions](#hosted-mac-sessions) on `xcode-27` (image 20261006.0244.1, macOS 27.0.1), in
+  pages in a window 600 points wide at 17 points, at the fixed pause, ended so twice at
+  `75272d3` (runs 38333839407 and 38333848757): after `ax:focus in rotor` on the first page,
+  whose list holds one heading, and after fourteen `ax:next` steps and `ax:lines ax:focus in
+  nextheading rotor listchoose line` on a page with no heading, where VoiceOver said "No items
+  in Heading menu" and then nothing to Return or to Control-Option-L. Each ended in
+  `NOT_RESTORED` with exit status 126, its transcript written, and VoiceOver was still on when
+  the job ended. With `listclose` before the end of the same steps VoiceOver went back to the
+  text on both pages, saying "Closing Heading menu" over the list of one, `line` read the line
+  it had been on, and VoiceOver switched off. At `753999e` (run 38334200030) the runner closed
+  the rotor itself: the session on the page with no heading ended with the runner's
+  `listclose`, "Closing Heading menu" and VoiceOver off, exit status 0. An Escape sent after
+  `listchoose` had moved VoiceOver to the first page's heading, with no rotor open, drew no
+  speech and no event from the reader, and `line` read the heading again. The day before, the
+  same steps on the page with no heading had ended two sessions (runs 38321608082 and
+  38322808793) with a traceback and no transcript, the restore having failed ahead of the
+  lines that write one. Nobody listened, and no workstation was used.
 - On 2026-10-11 the Mac sessions verified first and last lines, word order, end of text,
   line counts and page-turn continuity in one and two columns at 17 and 23 points, with value
   notifications for page turns, text-size changes and resizes. See the
@@ -871,7 +922,8 @@ The Mac runner's transcript is plain text and needs no export.
   Control-Option-Command-Shift-H moved to the next heading, not the one before. Not heard:
   two columns, a larger text size, a move back by a VoiceOver command, and the hidden-labels
   page in pages, whose session ended twice in the runner script's check of VoiceOver's state
-  with no transcript written. Nobody listened, and no workstation was used.
+  with no transcript written: the rotor was still open, as the pitfall above describes.
+  Nobody listened, and no workstation was used.
 - The same day they were read on a physical iPad Air 13-inch (M3) (iPadOS 27.2), upright at
   17 points, at `41a458f`, through XCTest's VoiceOver service; nobody listened. In pages a
   touch on the first page's heading gave "Page boundary verification Heading Use the rotor to
@@ -1083,10 +1135,67 @@ The Mac runner's transcript is plain text and needs no export.
   VoiceOver on; the rotor steps were run again alone. Each time VoiceOver was left on it was
   switched off with `devicectl device settings voiceover --disable` and read back as off.
   Nobody listened to any of these sessions.
-- On 2026-10-12 the section of what each line offers was stepped through with the rotor at
-  17 points, before and after each item was held to its own actions, in the
+- On 2026-10-12 the [simulator lane](#simulators) read what VoiceOver offers on a line,
+  before and after a line was left with its own actions alone: an iPhone 17 Pro simulator
+  (iOS 27.0, Xcode 27.0, 402 × 874) at the launch text size, a touch or a move to the line
+  and then `flick=down` to read the rotor. Nobody listened, and no physical device was used.
+  Before, at `fc8ed77`. Continuous scroll, the book of paragraphs: "p001w11 p001w12 p001w13
+  p001w14 p001w15 Actions available", and the rotor read "Previous Page", "Next Page",
+  "Activate Default". Continuous scroll, the first book: "Read the numbered words across two
+  consecu Actions available", and the rotor read "Verification link", "￼", "￼", "￼ Jump with
+  decoration", "￼", "Inspect Image: Blue verification square", "Previous Page", "Next Page",
+  "Activate Default", and the same on "Verification link Link" and on ". Image:". The first
+  five are UIKit's own for a text view, one for each link of the book by its words, with "￼"
+  for a picture or a hidden label in the link: "Jump with decoration" is a link of the
+  book's fourth section, offered on a line of its first. In pages, on "Read the numbered
+  words across two consecu": "Next Page", "Previous Page", "Inspect Image: Blue verification
+  square", "Previous Page", "Next Page", "Activate Default".
+  The phrases and the rotor were the same at `cfc7768`, before the Headings rotor, and the
+  physical iPhone 17 Pro Max of the sessions above said "p005w21 p005w22 p005w23 p005w24
+  p005w25 Actions available" in continuous scroll that morning. Neither the rotor nor the
+  simulator is the cause.
+  A reader built at `cfc7768` to write down what it gives VoiceOver, and to change one thing
+  at a time, showed what is. With the cursor on a line of the book of paragraphs the line
+  had no action of its own and its text view none; the canvas had "Previous Page" and "Next
+  Page", put there by SwiftUI for the reader's surface; and UIKit handed VoiceOver those two
+  for the line. In the first book the scroll view had UIKit's five and the reader's "Inspect
+  Image: Blue verification square", and a page column the reader's alone. A line cut off
+  from what holds it, still answering with an empty list and still answering activation
+  itself, was read as "p001w11 p001w12 p001w13 p001w14 p001w15" and no more, and the rotor
+  stepped by character ("p Papa", "0", "0"). A line that answered with no list at all, and
+  nothing else changed, said "Actions available" as before.
+  After, at `69230b2`. Continuous scroll, the book of paragraphs: "Chapter one Heading Use
+  the rotor to access Headings", then "p001w01 p001w02 p001w03 p001w04 p001w05", "p001w06
+  p001w07 p001w08 p001w09 p001w10" and "p001w11 p001w12 p001w13 p001w14 p001w15" with
+  nothing after them, and the flicks read "0", "0", "1", characters of the line. The first
+  book: "Read the numbered words across two consecu", and ten flicks read "R Romeo", "e
+  Echo", "a Alpha", "d Delta" and on along the line; "Verification link Link", and the
+  flicks read "V Victor", "e Echo", "r Romeo"; "Blue verification square Image Actions
+  available", and the rotor read "Inspect Image: Blue verification square" and "Activate
+  Default" in turn, five times. In pages: "Read the numbered words across two consecu
+  Actions available", and the rotor read "Next Page", "Previous Page", "Activate Default"
+  and the three again; on "Blue verification square Image" it read "Next Page", "Previous
+  Page", "Inspect Image: Blue verification square", "Activate Default" and the first three
+  again.
+  The Mac's load averages were in the hundreds throughout. Three more sessions read
+  nothing and were run again: one was not started, one ended with "Failed to send
+  moveForward command" and one with "VoiceOver is on but says nothing" after three minutes.
+  One session's result is "Critical process xctest crashed" with all its steps in the
+  transcript, as under "Other sessions" in [Simulators](#simulators). In the after session
+  of the book of paragraphs each phrase was recorded a step late, so the first line is
+  there twice and the first flick has the third line's phrase. One simulator came back at
+  volume 60 before its VoiceOver had been switched on, and was muted again. After most
+  sessions `devicectl` gave no answer in twenty seconds when asked for the simulator's
+  VoiceOver state; the simulator was then deleted, as every one was.
+  Not established: any of this on a physical device after the change; VoiceOver performing
+  a line's own Next Page or Inspect Image, which a simulator's VoiceOver cannot; a table
+  row's actions under VoiceOver, which a unit test holds; and anything on a Mac, where the
+  text areas and the surface's two actions are unchanged.
+- The same day the section of what each line offers, which shows every kind of item at
+  once, was stepped through with the rotor at 17 points in the
   [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and an iPad Air
-  13-inch (M4)). Nobody listened. The lists are XCTest's record of VoiceOver's phrase after
+  13-inch (M4)), before and after the same change made on the branch that reads a table by
+  its rows. Nobody listened. The lists are XCTest's record of VoiceOver's phrase after
   each step of one finger down; a phrase that comes twice running in a transcript is one
   entry, heard before and after a step that did not register.
   Before, at `073f2b0`, in pages on both, on "Plain words above.", on the link "Lone jump"

@@ -820,6 +820,12 @@ extension NativeSession: ReaderCanvasDelegate {
 /// The session's SwiftUI view: the TextKit 2 canvas plus page-turn keys and accessibility
 /// actions, as the WebKit reader's surface had them. The paginated edge tap zones are the
 /// canvas's own, so taps on links, selections and text near the edges reach the text.
+///
+/// Next Page and Previous Page are named here on Mac alone. SwiftUI puts a view's named
+/// actions on the canvas, and VoiceOver on iPhone and iPad offers a view's actions on every
+/// element inside it: each line of continuous scroll said "Actions available" and offered to
+/// turn a page it does not have, and each line of a page, which offers the pair itself,
+/// offered it twice.
 private struct NativeSurface: View {
     let session: NativeSession
     @Environment(\.epubReaderDivision) private var division
@@ -842,9 +848,6 @@ private struct NativeSurface: View {
                     if edge == .trailing { submit(.nextPage) }
                 }
                 #if os(macOS)
-                // Not on iPhone and iPad, where VoiceOver offers a container's actions on every
-                // item inside it: each line of a page has its own two, and these were offered
-                // after them, and on every line of continuous scroll, which has none.
                 .accessibilityAction(named: Text("Next Page")) { submit(.nextPage) }
                 .accessibilityAction(named: Text("Previous Page")) { submit(.previousPage) }
                 #endif
