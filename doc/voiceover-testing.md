@@ -932,6 +932,11 @@ does about each:
   and launch arguments, so that step lists that differ in them share one run, one build and
   one runner. The script checks the steps as the runner would, before anything waits for a
   runner, and prints each session with its settings.
+- To hear several ways of doing one thing, put them in one commit behind a launch argument
+  that the reader's code reads from `UserDefaults`, give each session its own with
+  `launch=`, and take the commit out again when one way is kept. Nine ways of giving a
+  table cell that is a link were heard in two runs so, where a build for each would have
+  been nine (runs 38425952070 and 38428938679, the entry of 2026-10-13 on such a cell).
 - Keep at most two runs in flight for a branch, and one while any run is waiting for a
   runner. The script starts no run beyond that and lists the branch's runs.
 - Cancel a run as soon as it is no longer needed, with `gh run cancel RUN_ID`. Nothing else
