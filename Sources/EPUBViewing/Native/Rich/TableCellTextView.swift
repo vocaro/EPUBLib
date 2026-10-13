@@ -360,7 +360,13 @@ typealias TableNativeTextView = UITextView
         return lines.indices.contains(line) ? lines[line] : NSRange(location: NSNotFound, length: 0)
     }
     override func accessibilityLine(for index: Int) -> Int {
-        accessibilityLines().firstIndex { NSLocationInRange(index, $0) } ?? NSNotFound
+        let lines = accessibilityLines()
+        // The insertion point after the cell's last character is on its last line, as in a page
+        // column (`ReaderTextView.accessibilityLine(for:)`). VoiceOver leaves it there once it
+        // has read the cell's last word, and without a line there its Read Line said nothing.
+        // A cell's text never changes, so no offset past that one is the cell's.
+        if index == shownCharacters.length, !lines.isEmpty { return lines.count - 1 }
+        return lines.firstIndex { NSLocationInRange(index, $0) } ?? NSNotFound
     }
     override func accessibilityInsertionPointLineNumber() -> Int { accessibilityLine(for: accessibilitySelectedTextRange().location) }
     /// The images an assistive technology may inspect: all but the decoration it passes over.
