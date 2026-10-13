@@ -415,6 +415,20 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   whole table still resolve to that table; new cell ranges identify the selected characters.
   Interaction surfaces are mounted only for visible cells. Cell TextKit
   layouts and glyph metadata are retained for drawing in the table's bounded layout cache.
+  In continuous scroll which rows are visible is read from TextKit's layout, and the scroll
+  view tells of a move when its offset changes, before the text is laid out at the new place.
+  Looked for then alone, the rows that layout had not reached got no surfaces. So the rows
+  are looked for as the view moves and again once the reader has read where the view
+  stands, which every move ends in: the reader's own, to the section a book opens at, a
+  contents entry, a link's target, a step of a page or its place at a new size, and within
+  150 ms a person's. Highlights and a selection that run through the cells are put on them
+  at the same time. Before, the lowest rows on screen had no surface after a step of a page
+  or the reader's last correction on its way to a contents entry, on Mac as on iPhone and
+  iPad, and where that correction was by more than a screen none had: the section the
+  VoiceOver sample book opened at on an iPad. A held finger there selected the whole row,
+  as the text under the surfaces does, a cell's link could not be followed, and a row's and
+  a cell's items offered an assistive technology no actions, until the person scrolled
+  ([#472](https://github.com/vocaro/EPUBLib/issues/472)).
 - **Data tables.** On iPhone and iPad VoiceOver is given a table of data as Safari and Apple
   Books give it an HTML table: each cell is a stop, and VoiceOver says the cell's row and
   column, the header cells of both, and where the table starts and ends, and offers Rows in
@@ -732,14 +746,17 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     a cell's text area is VoiceOver's own to select in and to use a selection from. A cell
     of a table of data offers Select Cell Text there and none of the three above, and
     does not offer it while its words are selected.
-  - **Not shown.** A cell of a table of data in continuous scroll, on a device. In the
-    section the sessions opened the book at, the cells had no text views, so their items
-    had no actions, with this change and without it. That is a fault of its own and not
-    VoiceOver's: in continuous scroll a table the reader goes to itself gets its cells'
-    text views only once the person scrolls
-    ([#472](https://github.com/vocaro/EPUBLib/issues/472);
-    [VoiceOver testing](voiceover-testing.md), the entry of 2026-10-13 on a table's select
-    action). The unit tests perform the cell's actions in both flows.
+  - **In continuous scroll.** The sessions that first tried a cell of a table of data there
+    on a device could not choose its action: in the section they opened the book at, the
+    cells had no text views, so their items had no actions, with this change and without
+    it. That was a fault of its own ("Tables" above;
+    [#472](https://github.com/vocaro/EPUBLib/issues/472)). With it mended, in that section
+    and with nothing scrolled, VoiceOver's rotor came to Actions on the cell, Select Cell
+    Text was chosen and performed, the cell was read as selected with the tint behind its
+    word, Copy and Use passage were offered, Use passage was performed and Deselect Cell
+    Text took the selection away, as in pages
+    ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-13 on a table's cells
+    in continuous scroll). The unit tests perform the cell's actions in both flows.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
   in place and also show in popovers.
@@ -900,6 +917,11 @@ as they did.
   it, or TextKit 2 lays that line over other text, the text is loaded afresh and the position
   shown again
   ([#12](https://github.com/vocaro/EPUBLib/issues/12), [#41](https://github.com/vocaro/EPUBLib/issues/41)).
+  The scroll view tells of each scroll of such a move, and of a step of a page, when its
+  offset changes, which is before the text is laid out there. What the reader mounts over the
+  rows of a table on screen is therefore looked for again when the move has ended and the
+  visible range is read, with the layout as it is drawn ("Tables" under Decisions;
+  [#472](https://github.com/vocaro/EPUBLib/issues/472)).
   The visible range the reader reports runs from the first line mostly below the top of the
   visible area to the last mostly above its bottom. A rest is accepted within a point of the
   top, and the line above the rested one ends where it starts, so a sliver of that line can
