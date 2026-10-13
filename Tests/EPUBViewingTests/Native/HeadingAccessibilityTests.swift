@@ -573,11 +573,9 @@ import UIKit
             found.append(heading)
             next = try rotorHeading(of: view, from: given(heading), forward: forward, filter: filter, file: file, line: line)
         }
-        // With the list built it asks once more, from the last item's token at no characters.
-        if forward, filter.isEmpty, let token = found.last?.token {
-            let more = NSAccessibilityCustomRotor.ItemResult(itemLoadingToken: token, customLabel: "")
-            more.targetRange = Self.resting
-            XCTAssertNil(try rotorHeading(of: view, from: more), "none past the last", file: file, line: line)
+        // At each move along the list it asks once more from the last item.
+        if forward, filter.isEmpty, let last = found.last {
+            XCTAssertNil(try rotorHeading(of: view, from: given(last)), "none past the last", file: file, line: line)
         }
         return found
     }
@@ -815,6 +813,13 @@ import UIKit
         XCTAssertEqual(gap.column.placement.section, 2)
         XCTAssertEqual(gap.column.plainText(in: gap.range), "Built late")
         XCTAssertEqual(try listedHeadings(by: gap.column).map(\.label), whole)
+        // Built again, as for a new text size, a chapter is another text: its headings are
+        // found in that one, and a token for a place that is a heading no longer loads nothing.
+        let moved = try XCTUnwrap(try listedHeadings(by: gap.column).last?.token)
+        source.sections[3] = try H.build("<p>Words first.</p><h3>Past the gap, built again</h3>", css: Self.css).string
+        XCTAssertEqual(try listedHeadings(by: gap.column).map(\.label), built + ["Built late, heading level 1", "Past the gap, built again, heading level 3"])
+        XCTAssertNil(try XCTUnwrap(try headingRotor(of: gap.column).itemLoadingDelegate).accessibilityElement(withToken: moved))
+        XCTAssertEqual(gap.column.placement.section, 2)
     }
 
     func testTheRotorOfAChapterPageTurnsStepOverListsItInItsPlace() throws {
