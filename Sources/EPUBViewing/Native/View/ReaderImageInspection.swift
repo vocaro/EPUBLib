@@ -11,6 +11,9 @@ import UIKit
 struct ReaderImageInspection {
     static let maximumPixels = 16 * 1024 * 1024
     static let maximumDimension = 8192
+    /// What an assistive client on Mac is told of an image that has a name, in a page's text or
+    /// a table cell's. An image without a name has no help.
+    static let accessibilityHelp = "Double-click or choose Inspect Image to enlarge."
 
     static func decodeDimension(for size: CGSize) -> Int {
         guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return 1 }

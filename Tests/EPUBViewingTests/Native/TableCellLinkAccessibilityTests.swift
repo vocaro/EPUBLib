@@ -292,7 +292,7 @@ import XCTest
         XCTAssertFalse(found[1].element.accessibilityPerformPress())
     }
 
-    func testAFormulaInACellsLinkIsALinkByItsReadingAndOneOutsideALinkStaysText() throws {
+    func testAFormulaInACellsLinkIsALinkByItsReadingAndOneOutsideALinkIsNoLink() throws {
         func formula(_ reading: String) -> NSAttributedString {
             let attachment = TextualTestAttachment()
             attachment.textEquivalent = reading
@@ -311,9 +311,10 @@ import XCTest
         let reading = try XCTUnwrap(attachment(at: 7, in: cell) as? ReaderLinkAccessibilityElement)
         XCTAssertEqual(reading.accessibilityTitle(), "E = mc²", "no picture: a formula is its reading")
         XCTAssertFalse(reading === found.first?.element)
-        // What is not in a link is as it was: text that reads its words.
+        // What is not in a link is what it is in the text around the table, and no link.
         let unlinked = try XCTUnwrap(attachment(at: 22, in: cell))
-        XCTAssertEqual(unlinked.accessibilityRole(), .staticText)
+        XCTAssertFalse(unlinked is ReaderLinkAccessibilityElement)
+        XCTAssertEqual(unlinked.accessibilityRole(), .image)
         XCTAssertEqual(unlinked.accessibilityLabel(), "x squared")
     }
 
@@ -328,6 +329,8 @@ import XCTest
         XCTAssertEqual(found.map { $0.element.accessibilityTitle() ?? "" }, ["Words then more a picture"], "decoration adds nothing to a name")
         let decoration = value.range(of: "\u{FFFC}"), picture = value.range(of: "\u{FFFC}", range: NSRange(location: decoration.upperBound, length: 12))
         XCTAssertNil(try attachment(at: decoration.location, in: cell), "nothing to announce, as outside a link in the text around the table")
+        let outside = value.range(of: "\u{FFFC}", range: NSRange(location: picture.upperBound, length: value.length - picture.upperBound))
+        XCTAssertNil(try attachment(at: outside.location, in: cell), "and as decoration outside the link")
         let among = try XCTUnwrap(attachment(at: picture.location, in: cell) as? ReaderLinkAccessibilityElement)
         XCTAssertEqual(among.accessibilityTitle(), "a picture, \(imageWord)", "a picture among a link's words is a link by its own words")
         XCTAssertEqual(among.accessibilityCustomActions()?.map(\.name), ["Inspect Image: a picture"])
