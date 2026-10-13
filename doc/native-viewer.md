@@ -181,7 +181,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   there is what it is in the text around the table: VoiceOver says its words and "image",
   or "image" alone where it has no `alt`, and passes over decoration, and the image's
   element has the Inspect Image action. It said nothing at any image in a cell before
-  ("Rules" below has why). In a note's popover on iPhone and iPad the text is read by
+  ("Rules" below has why). An image in a cell's link is announced as the link, by its words
+  ("Links for VoiceOver on Mac"). In a note's popover on iPhone and iPad the text is read by
   UIKit's own elements, which were not heard with an image in them.
 - **Rules.** An `<hr>` is a break between the paragraphs it parts: a change of scene or of
   subject. A book writes one so that the break need not be seen to be known, and HTML maps
@@ -279,9 +280,35 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   results VoiceOver said the words without "hyperlink" and found no previous link; with the
   link elements as its results it said "Link not found". So in continuous scroll a link
   below the screen is reached by reading or scrolling to it. A note's popover keeps AppKit's
-  elements, and its links do nothing. A link in a table cell is the cell's own text view's,
-  and AppKit's; a picture, a formula or a hidden label in such a link has the element it
-  has outside a link, and was not heard.
+  elements, and its links do nothing.
+  A table cell is a text view of its own. VoiceOver meets a row as one stop of the page's
+  text, "Table row group"; interacting with it there shows the row's cells, and interacting
+  with a cell reads the cell's text by word and by line as the page's is read. A cell's
+  links were AppKit's. A link of words was found and followed inside its cell, but a link
+  that is a picture was "￼ hyperlink", decoration beside a link's words went into its name
+  as that character, and a hidden label that is a link was not reached. Moving by word,
+  VoiceOver said nothing at a picture or a label in a link, whatever words it has, while a
+  cell kept none of the elements it gave for its attachments. A cell
+  now gives its links as the text around the table does, through the same code
+  (`ReaderLinkHost`): the reader's elements as its children and as the links of its
+  characters, named, placed and pressed the same way, and a link element for each attachment
+  in a link, so VoiceOver says "hyperlink" and the name there. A cell gives its characters
+  from the first one it shows, an attachment as one character, and its links' ranges count
+  the same way. Where a row goes on over a page's end, each part of a cell gives the links
+  of its own lines, and a link the page cuts is the part on the page.
+  Find Next Link goes through the links of the text VoiceOver is in, and a row is one
+  character of the page's text: from the page it found no link that a cell has, and said
+  "Link not found" on a page whose only links are in a table. The page now lists the links
+  of its cells on screen among its own children, where their rows stand, so Find Next Link
+  from the page goes through them in reading order and Control-Option-Space follows the one
+  it is on. They are elements of the page's own, each with its cell link's name, place and
+  press, and not the cell's elements. From a link VoiceOver goes on through the children of
+  that link's parent: given a cell's own element, it moved from the page to the table's
+  first link and called it the last. Such a link is no character of the page's text, so
+  VoiceOver's place in the text stays where it was, before the table, and moving by word
+  from the link goes on from there. To read the cell around a link, interact with its row.
+  An attachment in a cell that is no part of a link has the element the page's text gives
+  it ("Rules" above).
 - **Image inspection.** Double-click or double-tap an unlinked book image to inspect it in a separate
   native zoomable scroll surface, including images drawn inside table cells. On Mac, images
   also offer an Inspect Image context-menu action; UIKit supplies an attachment action and
@@ -314,8 +341,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   characters, "￼" for a link that holds only a picture or a hidden label, six in the
   verification book and none for a picture that is not a link; and a page column none, on a
   page that shows a link. VoiceOver ends the list of an item's actions with "Activate
-  Default" and starts again. On Mac VoiceOver is offered neither of the surface's two
-  actions ("Input and accessibility").
+  Default" and starts again. On Mac a text area has no elements for its lines, so each
+  text area offers the page turn itself, the same command under the name its flow gives
+  it ("Input and accessibility").
 - **Tables.** Attachments drawn natively (TextKit 2 has no `NSTextTable` on iOS), one
   image-drawn attachment per row so pages can break between any two rows; rows a rowspan
   joins, and the header, keep with the next row and share a page when they fit. `colspan`/
@@ -351,10 +379,12 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   native text interaction surfaces aligned to their drawn glyphs: select and Copy cell text,
   invoke the host's selection action, follow internal links and open notes. External links retain
   the reader's refusal notice. Cell selections, located passages and saved highlights use exact
-  DOM-based character ranges, including Unicode and inline markup. VoiceOver reads a table by
-  its rows, each where it stands among the lines of its page, and each continuation by the
+  DOM-based character ranges, including Unicode and inline markup. VoiceOver reads a table
+  where it stands among the lines of its page, and each continuation by the
   words it shows, completing a word once if character wrapping splits it between pages. On
-  iPhone and iPad a row is one accessibility element, in pages and in continuous scroll alike:
+  iPhone and iPad it is given a table that holds data cell by cell, and a table that arranges
+  content row by row ("Data tables" below says which is which and what each costs). A row of
+  a table that is not data is one accessibility element, in pages and in continuous scroll alike:
   text, read as its cells' words in column order, with actions for its own cells (select a
   cell's text, follow a link in it, inspect an image in it). A row that shows pictures and no
   words is an image without a name, as a picture without words in a line is, and one that
@@ -362,11 +392,112 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   surfaces are hidden from assistive technology there. A text view that is merely not an
   element still offers UIKit's own elements for its text, and VoiceOver took those, every cell
   on the page, before the first line of a page column and then read the rows as well. On Mac
-  a row is a group that holds its cells' text areas. Continuations retain original
+  a row is a group that holds its cells' text areas, in every table. A cell's lines are those its own layout
+  makes, numbered from the first it shows, and the offset after its last character is on its
+  last line, as the offset after a page's last character is on the page's. VoiceOver leaves
+  a text's insertion point after a word it has read, so with its cursor on a cell's last
+  word, or past it, the insertion point is at that offset. While a cell had no line for it,
+  VoiceOver's Read Line (Control-Option-L) said nothing there, its moves to the line above
+  and the line below did nothing, and it counted "-9,223,372,036,854,775,808 lines". A
+  cell's text does not change while the cell stands, so no offset past that one is the
+  cell's, and none has a line.
+  Continuations retain original
   source offsets: several pages can report the same row range. Existing bookmarks naming a
   whole table still resolve to that table; new cell ranges identify the selected characters.
   Interaction surfaces are mounted only for visible cells. Cell TextKit
   layouts and glyph metadata are retained for drawing in the table's bounded layout cache.
+- **Data tables.** On iPhone and iPad VoiceOver is given a table of data as Safari and Apple
+  Books give it an HTML table: each cell is a stop, and VoiceOver says the cell's row and
+  column, the header cells of both, and where the table starts and ends, and offers Rows in
+  its rotor, which moves down and up a column. A row read as its cells' words in one breath
+  suits a table that sets two things side by side; in a table of figures it does not say
+  where a cell ends, which column a value stands in or what heads it.
+  - **Which tables.** HTML has no element that says a table is there for layout, so the
+    reader decides as WebKit does (`AXTableHelpers` in WebKit's source, read on 2026-10-12),
+    from what it builds and draws. A `role` on the table settles it: `presentation` or
+    `none` is layout, and `table`, `grid` or `treegrid` is data. Without one a table is data
+    when it has a caption, a `summary`, a `thead` or `tfoot`, a `col` or `colgroup`, or
+    `rules`; a row or a cell with a table role, or a cell with `headers`, `scope`, `abbr`
+    or `axis`; twenty rows, or twenty cells in a row; ten cells ruled above and below or on
+    both sides; or half its cells ruled so, or ruled on any one side. The table's `border`
+    attribute rules every cell; a border around the table alone rules none. Two things
+    differ from WebKit. Any header cell makes a table data, where WebKit wants a first row or
+    a first column of them: a `th` says what it heads, and a row cannot say that. And cells
+    with a background of their own, and rows of alternating backgrounds, do not: the dark
+    appearance computes no backgrounds, and a table must be the same thing to a listener in
+    either appearance. Every other table is read row by row, as above. A table of one
+    column was never a grid here and still flows as text.
+  - **What it costs.** A table is a stop for every cell, so a table of forty rows and three
+    columns is 123 moves where it was 41, and VoiceOver adds "Row 3", "Column 2" and the
+    header cells' words to what the book says. For a table of data that is the point, and
+    the rotor's Rows crosses it a row at a time. For a table that only looks like data to
+    the rule above (twenty lines of verse beside their numbers, a ruled box with two
+    things in it) it is noise the book did not ask for; `role="presentation"` is how a book
+    says so, and it is rare. The rule can also miss a table of data: one with no header
+    cell, fewer than twenty rows and no rules, shaded or not, is read row by row. That is
+    what WebKit does with it too, except for the shading.
+  - **Elements.** The table is one accessibility container where its rows stand among the
+    lines (`UIAccessibilityContainerDataTable`), not a stop itself, and each cell an element
+    inside it that says which rows and columns it covers. A cell that spans is one element,
+    read where it starts, that answers for every slot it covers. An empty cell is a stop:
+    it has a place in the grid, and VoiceOver says its headers and its column. A cell of
+    pictures without words is an image, as a picture in a line is, and a cell of decoration
+    alone says nothing, like an empty one. A cell whose words are one link and nothing else
+    is a link. The caption is a line of its own before or after the rows, as it is drawn.
+  - **Header cells.** A `th` heads its columns or its rows as HTML has it: by its `scope`,
+    and without one its columns when it stands in `thead` or its rows hold header cells
+    alone, and otherwise its rows when its columns hold header cells alone. UIKit asks a
+    table for the header cells of a row and of a column, not of a cell, and VoiceOver says
+    them before the cell it comes to, leaving out that cell itself and any it said for the
+    cell before. So a header cell over a second row of header cells would be read under
+    their names; the table answers with the header cells above and before the cell that
+    was last asked where it stands, which is the cell VoiceOver has come to. A cell's
+    `headers` attribute makes its table data and is otherwise not followed: UIKit has no
+    way to give one cell headers of its own.
+  - **Actions.** A cell offers what it can do itself: Select Cell Text, Follow Link with the
+    link's words for each link in it, and Inspect Image for each picture; a page's cells
+    also turn the page, like its lines. A double tap follows the link of a cell that has
+    one link, and shows the picture of a cell that is a picture. The actions come from the
+    cell's interaction surface, so a cell listed past the screen has them once it is on
+    screen, which is where VoiceOver's cursor brings it.
+  - **Pages.** A page's table holds the cells that page shows, each with its row's number
+    in the whole table, so the second page of a table starts at "Row 29" and not at 1.
+    VoiceOver says "Table start" and the whole table's count of rows and columns at the
+    first cell listed, and "Table end" at the last, whatever their numbers: a page that
+    shows the middle of a table says both, and the row's number says where in the table
+    the page is. The first cell VoiceOver comes to in a table is said without its header
+    cells. The
+    rows of another page are not there to move to; Next Page goes on, as from a line. A
+    column's header cell on another page is still named before the cells it heads: the
+    table answers with an element that has the header's words and is nowhere to go. A
+    row taller than a page continues: on each page its cell is the same cell of the table,
+    reading the words that page shows. A cell is listed on a page where it has something
+    to say: a short cell beside one several pages tall is centred in the row, so its words
+    stand some pages in, and it is no stop on the pages before them. A cell that says
+    nothing anywhere is listed where it starts. A cell that spans rows is listed where it
+    starts, and the lines of it that later rows of the page hold are added to it there.
+  - **Continuous scroll.** The rows listed follow VoiceOver's cursor as lines do (below),
+    and the table keeps one element while any cell of it is listed, each cell its own, so
+    VoiceOver reads on through a table longer than the screen in both directions and the
+    rotor's Rows moves past the screen. Two things made that hold. VoiceOver asks a table
+    for its next cell before it asks the text view for anything, so a table lists its rows
+    again, for where the cursor is now, whenever it is asked; answered from the rows listed
+    for the cell before, a table ended at the last of those. And the rows around a cursor
+    that rests in a table the person has scrolled away from are listed in the same element
+    as the rows on screen, with those between them missing, as lines are.
+  - **Not done.** The Mac is unchanged: a row is a group there. A table inside a cell is
+    read as its cell's words, as before. Headings inside a table are not found by the
+    Headings rotor, as before.
+  - **Not resolved.** On an iPhone simulator the rotor once went from Rows to Actions part
+    of the way back up a column in continuous scroll. A physical iPad did not do it in
+    seventy such moves, nor did the simulator in a later session of fifty-four. A cell
+    offers its actions only once it is on screen, which may be why
+    ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-12 on tables of data).
+    And before fifty lines were listed past the screen
+    ([#380](https://github.com/vocaro/EPUBLib/pull/380)), reading back into a table left
+    the text on an iPad simulator in two sessions of three, where rows had not in two of
+    two; with the fifty it did not in two of two. Why cells showed it and rows did not is
+    not known, so a table's cells are to be taken as needing that list.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
   in place and also show in popovers.
@@ -642,17 +773,48 @@ as they did.
   holding lines that are no longer listed: it says the first of them and returns to the
   control ([VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current
   results").
-  The scroll bar leaves two more. The view still moves under VoiceOver as it comes in from
-  below: back as the cursor goes to the bar, and forward again as it goes to the line, which
-  UIKit brings clear of the bottom inset. And UIKit has no place in the list for the bar
-  itself: `index(ofAccessibilityElement:)` is `NSNotFound` for it, from UIKit's own
-  implementation as from the reader's, and UIKit then takes the bar to stand at the head of
-  the list. Asked from the bar, UIKit gives the control before the text as the item before
-  it and the first line listed as the item after it. VoiceOver asks from the bar after the
-  book's last line, where the bar is the next item, and then reads the screen again from
-  its first line; moving back from there it goes to the control before the text. A cursor
-  put on the bar by a touch was not run and would be answered the same way
+  UIKit has no place among the lines for the scroll view's own scroll bar, and where it put
+  the bar depended on how it came to it. Going through the scroll view it gave the bar after
+  the last line listed: that is where VoiceOver met it, after the book's last line, and
+  ahead of the last line on screen when it came in from below. Asked for the items each side
+  of the bar it took the bar to stand before the first line. It keeps a scroll view's
+  vertical bar among the views it calls the view's supplementary headers, and from a header
+  the item after is the first element listed and the item before is whatever precedes the
+  scroll view. So VoiceOver read on from the book's last line to the bar and then down the
+  screen a second time from its first line, and went back from the bar to the control
+  before the text. `index(ofAccessibilityElement:)` is not asked on that path, and no answer
+  for the bar changes it.
+  A bar hidden from assistive technology (`accessibilityElementsHidden`) is no such header,
+  and UIKit gives it to nobody. So the scroll view hides its bar and lists an element of its
+  own after its last line, in the bar's place. The element says what the bar says and
+  adjusts as the bar adjusts, by asking the bar: its name, value and hint are UIKit's own,
+  in the language UIKit has them in, and a swipe up or down on it still scrolls by a page.
+  Being an element of the list like any line, it has the last line listed before it and
+  whatever follows the reader after it, however VoiceOver comes to it, a touch on the bar
+  included. The bar is found as the view of the scroll view's own that is an accessibility
+  element, where the lines are no views. It is UIKit's view, and hiding it is all the reader
+  does to it. Where no such view is found nothing is listed for it, and UIKit's bar is as it
+  was.
+  The element is placed where the bar is, less what the insets cover. UIKit scrolls the
+  view until the area the insets leave holds the frame of the item the cursor goes to, and
+  the bar's own frame is as tall as the view: that is why the view went back for the bar.
+  With the element inside that area nothing moves as the cursor comes to it, from the text
+  or from below, and the rule above that keeps a line listed through such a move is left
+  for a bar the reader has not replaced. The element does not reach under the insets, so a
+  touch on the bar's place there finds nothing, where it found the bar.
+  A touch on the bar reached UIKit's bar, a view, before any line. The element is one among
+  the lines the touch is tried against, and VoiceOver took a line that ended within a few
+  points of the finger for the one touched: a paragraph's full lines run under the bar's
+  place, which for accessibility is 30 points wide, ten times what is drawn. So a line on
+  screen is listed by the part of it clear of the bar, as it is by the part inside the
+  insets, and a touch anywhere on the bar's place finds the bar again
   ([#342](https://github.com/vocaro/EPUBLib/issues/342)).
+  Two other ways were tried against a log of UIKit's requests and dropped
+  ([VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current results"): a
+  place for the bar from `index(ofAccessibilityElement:)` alone, which UIKit does not ask
+  for while the bar is a header, and the bar hidden only while VoiceOver's cursor was on
+  it, which rested on the order of VoiceOver's questions and let a finger on the bar find
+  the line under it.
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
@@ -889,10 +1051,11 @@ The following are the defaults. Host commands and accessibility actions stay ena
   trackpad gesture or wheel tick turns a page. Continuous scroll scrolls natively.
 - Keys (all flows): Left/Page Up previous, Right/Page Down/Space next, Shift-Space previous.
   In continuous scroll a page turn scrolls by one viewport less a line.
-- VoiceOver: page-turn actions via `accessibilityScrollAction` and Next Page and Previous
-  Page by name; text reads in order from the text views. On Mac the two are named actions
-  of the reader's SwiftUI surface. On iPhone and iPad each line of a page offers them itself
-  and the surface names none. UIKit gives VoiceOver the actions of everything that holds an
+- VoiceOver: the text offers the page turn itself, and reads in order from the text views.
+  On iPhone and iPad each line of a page offers Next Page and Previous Page, and the
+  reader's SwiftUI surface has a page-turn `accessibilityScrollAction`. On Mac each text
+  area offers the pair, named for the flow (the next item). The surface names no action on
+  any platform. UIKit gives VoiceOver the actions of everything that holds an
   element along with the element's own, and SwiftUI puts a view's named actions on the
   canvas, which holds every line: with the two named there, VoiceOver said "Actions
   available" after every line of continuous scroll and offered to turn a page that flow does
@@ -914,22 +1077,78 @@ The following are the defaults. Host commands and accessibility actions stay ena
   stop of its own on iPhone and iPad and from an element in the text on Mac ("Rules" under
   Decisions). On Mac all of this holds inside a table cell too, whose text VoiceOver reads
   once it interacts with the cell's row and then with the cell.
-- VoiceOver on Mac is offered neither named action, in pages or in continuous scroll
-  (macOS 27.0.1), so the names Next Page and Previous Page, wrong for a flow without pages,
-  are heard nowhere there. The window gives an assistive client the hosting view's group
-  and, under it, each column's text area, or in continuous scroll a scroll area that holds
-  the one text area. `ReaderCanvasView`, the view the surface wraps, is not an accessibility
-  element and is not among them. None of them has a named action: the group has no action
-  at all, a text area has AppKit's Show Menu, and the scroll area AppKit's four scrolls by
-  page, which are the only scroll actions in either flow. VoiceOver's Actions menu
-  (Control-Option-Command-Space) says "Actions menu 1 item" and "show menu" on a column and
-  inside its text. On the group it does not open, or lists what the group's other items
-  offer. A listener on Mac turns the page with the host's controls, which
-  `EPUBReaderControls` calls Scroll Forward and Scroll Backward in continuous scroll, or
-  with the reader's keys, which work while VoiceOver interacts with the text. Under
-  `EPUBPageControls.hostOnly`, which takes the keys away, the host's controls are the only
-  way. [VoiceOver testing](voiceover-testing.md#harness-pitfalls-and-current-results) has
-  the sessions.
+- A page turned under VoiceOver's cursor, on iPhone and iPad. VoiceOver keeps its cursor on
+  the item it was given, and a page's lines are items of that page: turn the page and the
+  cursor is on a line that is no longer shown. After a line's Next Page it stayed drawn
+  where the line had stood, and the next move went by the old item: to the book's title
+  under the page, or to a line somewhere down the new page, then the line before it, then
+  that line again.
+  So a page column knows which of its lines the cursor is on. UIKit tells a line when the
+  cursor comes to it and names every item the cursor goes to, and whatever is not a line of
+  that column ends it. When a page is shown and the cursor's line is no longer on it, the
+  canvas posts a layout change with the line that holds the position shown
+  (`ReaderCanvasView.accessibilityCursorFollowsThePage`): the first line of the page after
+  a page turn, in the left-hand page of a spread, and the line of a link's target after a
+  link. VoiceOver takes its cursor there and reads the line, so reading goes on from the
+  top of the page. This is so whoever turned the page: a line's own action, VoiceOver's
+  scroll, a key, or the host while the cursor is in the text. The cursor is then on a new
+  item, where VoiceOver's rotor is at its default again: to turn several pages from the
+  text a listener flicks down to Next Page before each double tap, where on the line left
+  behind a second double tap turned again (iPadOS 27.2). Three cursors are left alone.
+  One that is not in the text stays where it is: after the host's Next Page button
+  VoiceOver is still on the button, and moving into the text from there met the new page's
+  first line before this and does now. One whose line is still on the page keeps it, as
+  when the same page is shown again. And a move by heading that turns the page posts
+  nothing, since VoiceOver goes to the item the rotor gives it. VoiceOver's scroll, three
+  fingers swiped, announces "Page N" as before, and the cursor is sent after the
+  announcement. Posted in that order after a page turned under a simulator's cursor,
+  VoiceOver said "Page 2" and then the line; in the other order it said the line alone
+  (iOS 27.0). No session has performed the gesture itself
+  ([#70](https://github.com/vocaro/EPUBLib/issues/70)): XCTest has no three-finger swipe,
+  so what VoiceOver does of its own accord after a scroll has not been heard. An item kept
+  from an earlier list stands for its line by the line's place
+  in the book (`index(ofAccessibilityElement:)`). It was matched by its characters as the
+  view counts them, and a page column counts from its page's first: a line of the page
+  before then stood for whichever line of the page shown had the same ones.
+- VoiceOver on Mac: each text area offers the page turn as actions of its own
+  (`NSAccessibilityCustomAction`), Next Page and Previous Page in pages and Scroll Forward
+  and Scroll Backward in continuous scroll. Those are the names `EPUBReaderControls` gives
+  the host's buttons, and `EPUBPageAction.label(in:)` is behind both. VoiceOver's Actions
+  menu (Control-Option-Command-Space) holds the actions of the item under its cursor, and
+  on a column and at every line and word inside it that item is the text area. The menu
+  says "Actions menu 3 items" and lists Previous Page, show menu and Next Page, or Scroll
+  Backward, show menu and Scroll Forward, and the names follow a change of flow made with
+  the reader open (macOS 27.0.1). Choosing one turns the spread, or scrolls one viewport
+  less a line, and VoiceOver's cursor is then on the first line of the new page or screen.
+  It is a turn asked for by name, as a line's is on iPhone and iPad
+  (`turnPageFromAccessibility`): selected text does not hold it back, it fails at either
+  end of the book, and `EPUBPageControls.hostOnly`, which takes the keys away, leaves it.
+  The cost is a phrase. VoiceOver says "actions available" before its hint for a text
+  area ("actions available You are currently on a text area, inside of a group…"), once
+  after it arrives at a column or enters its text, and not after a line or a word it moves
+  to. The group that holds the columns lists in its own menu what each of its items
+  offers, so that menu gains the pair once for each column.
+  A page turn made from the text, by a key or by an action, brings keyboard focus to the
+  first column of the spread when it was in another (`focusFirstColumnAfterTurn`).
+  VoiceOver stays in the column it is in when a spread turns: after a turn made in the
+  second column it was on the first line of the new second column, and the new first
+  column was passed over. It follows keyboard focus to the first column and reads it from
+  its first word, with its cursor on the column and no longer inside the text.
+  The window gives an assistive client the hosting view's group and, under it, each
+  column's text area, or in continuous scroll a scroll area that holds the one text area.
+  `ReaderCanvasView`, the view the surface wraps, is not an accessibility element and is
+  not among them. A named action or a scroll action that SwiftUI is given for that view
+  reached none of them, so the surface has neither on Mac. The scroll area has AppKit's
+  four scrolls by page, which are the only scroll actions in either flow.
+  Three limits. An item of the text that takes VoiceOver's cursor by itself keeps its own
+  menu, without the pair: a link reached with Find Next Link offers "press". In
+  continuous scroll a step made before VoiceOver has moved inside the text it has just
+  entered is undone, VoiceOver going back to the start of the text and the view with it;
+  a page key does the same there, as it did before the actions, and after one move by
+  line the step holds. And the accessibility API reports a failure for the action in
+  continuous scroll, though the view scrolls and VoiceOver's own choosing works.
+  [VoiceOver testing](voiceover-testing.md#harness-pitfalls-and-current-results) has the
+  sessions.
 - Headings: `h1` to `h6`, and any element with `role="heading"`, are headings to VoiceOver,
   at the element's level or its `aria-level` from 1 to 6. `role="heading"` alone is level 2,
   an `aria-level` past 6 leaves a heading with no level, and a heading element whose role is

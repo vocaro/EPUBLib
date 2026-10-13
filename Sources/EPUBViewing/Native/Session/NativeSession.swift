@@ -817,15 +817,17 @@ extension NativeSession: ReaderCanvasDelegate {
     }
 }
 
-/// The session's SwiftUI view: the TextKit 2 canvas plus page-turn keys and accessibility
-/// actions, as the WebKit reader's surface had them. The paginated edge tap zones are the
-/// canvas's own, so taps on links, selections and text near the edges reach the text.
+/// The session's SwiftUI view: the TextKit 2 canvas, and on iPhone and iPad VoiceOver's scroll
+/// action. The page-turn keys and the paginated edge tap zones are the canvas's own, so taps on
+/// links, selections and text near the edges reach the text.
 ///
-/// Next Page and Previous Page are named here on Mac alone. SwiftUI puts a view's named
-/// actions on the canvas, and VoiceOver on iPhone and iPad offers a view's actions on every
-/// element inside it: each line of continuous scroll said "Actions available" and offered to
-/// turn a page it does not have, and each line of a page, which offers the pair itself,
-/// offered it twice.
+/// No page action is named here. The text offers its own: each line of a page on iPhone and
+/// iPad, and each text area on Mac (`ReaderTextView.accessibilityCustomActions`). SwiftUI puts
+/// a view's named actions on the canvas. VoiceOver on iPhone and iPad offers a view's actions
+/// on every element inside it: each line of continuous scroll said "Actions available" and
+/// offered to turn a page it does not have, and each line of a page offered the pair twice.
+/// On Mac the canvas is not an accessibility element, and neither the named actions nor the
+/// scroll action reached any element of the window.
 private struct NativeSurface: View {
     let session: NativeSession
     @Environment(\.epubReaderDivision) private var division
@@ -843,20 +845,20 @@ private struct NativeSurface: View {
                 .onChange(of: division) { session.division = division }
                 .onChange(of: pageControls) { session.pageControls = pageControls }
                 .onChange(of: colorScheme) { session.updateSystemAppearance(isDark: colorScheme == .dark) }
+                #if os(iOS)
                 .accessibilityScrollAction { edge in
                     if edge == .leading { submit(.previousPage) }
                     if edge == .trailing { submit(.nextPage) }
                 }
-                #if os(macOS)
-                .accessibilityAction(named: Text("Next Page")) { submit(.nextPage) }
-                .accessibilityAction(named: Text("Previous Page")) { submit(.previousPage) }
                 #endif
         }
     }
 
+    #if os(iOS)
     private func submit(_ command: EPUBReaderCommand) {
         Task { @MainActor in try? await session.send(command) }
     }
+    #endif
 }
 
 #if os(iOS)
