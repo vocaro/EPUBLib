@@ -255,10 +255,18 @@ import UIKit
         XCTAssertEqual(group.accessibilityRole(), .group)
         XCTAssertEqual(group.accessibilityChildren()?.count, 2)
         #else
-        // The row that holds the cell offers it, and the text view around the rows does not.
-        let rows = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
-        XCTAssertEqual(rows.filter { $0.accessibilityCustomActions?.contains { $0.name.contains("Select Table Text: Alpha") } == true }.count, 1)
-        XCTAssertFalse(view.accessibilityCustomActions?.contains { $0.name.contains("Table") } == true)
+        // The table has header cells, so it is data: each cell is an element that offers what it
+        // can do itself, and the text view around the table offers none of it.
+        let listed = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+        let table = try XCTUnwrap(listed.first { $0 is UIAccessibilityContainerDataTable }, "the table is one container")
+        let cells = try XCTUnwrap(table.accessibilityElements as? [UIAccessibilityElement])
+        XCTAssertEqual(cells.filter { $0.accessibilityCustomActions?.contains { $0.name == "Select Cell Text" } == true }.count, cells.count)
+        let alpha = try XCTUnwrap(cells.first { $0.accessibilityLabel?.hasPrefix("Alpha") == true })
+        XCTAssertFalse(alpha.accessibilityCustomActions?.contains { $0.name.hasPrefix("Follow Link") } == true)
+        let links = try XCTUnwrap(cells.first { $0.accessibilityLabel?.contains("Outside link") == true })
+        XCTAssertTrue(links.accessibilityCustomActions?.contains { $0.name == "Follow Link: Outside link" } == true)
+        XCTAssertFalse(listed.contains { $0.accessibilityCustomActions?.contains { $0.name.contains("Table") } == true })
+        XCTAssertFalse(view.accessibilityCustomActions?.contains { $0.name.contains("Table") || $0.name.contains("Cell") } == true)
         #endif
         canvas.clearSelection()
         let select = try XCTUnwrap(controller.accessibilityActionsOfEveryRow().first { $0.name.contains("Select Table Text: Alpha") })
