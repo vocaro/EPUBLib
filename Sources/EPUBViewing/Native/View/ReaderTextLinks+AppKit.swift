@@ -316,6 +316,19 @@ extension ReaderTextView: ReaderLinkHost {
         let variant = UserDefaults.standard.string(forKey: "ProbeLinkFocus") ?? "below"
         NSLog("PROBE showLink %@ at %d below %d", variant, range.location, below ? 1 : 0)
         switch variant {
+        case "focus", "sync", "plain":
+            // PROBE: the insertion point an assistive client is told of, and a notification of
+            // the reader's own that says, as WebKit's does, why it moved.
+            voiceOverPlace = range.location
+            if below, let position = canvas.position(at: range.location, in: self) { canvas.show(position, selecting: nil) }
+            func key(_ name: String) -> NSAccessibility.NotificationUserInfoKey { NSAccessibility.NotificationUserInfoKey(rawValue: name) }
+            var info: [NSAccessibility.NotificationUserInfoKey: Any] = [:]
+            if variant == "focus" {
+                info = [key("AXTextStateChangeType"): 2, key("AXTextSelectionDirection"): 5, key("AXTextSelectionChangedFocus"): true]
+            } else if variant == "sync" {
+                info = [key("AXTextStateSync"): true, key("AXTextStateChangeType"): 2, key("AXTextSelectionDirection"): 5]
+            }
+            NSAccessibility.post(element: self, notification: .selectedTextChanged, userInfo: info.isEmpty ? nil : info)
         case "quiet", "layout":
             // PROBE: the insertion point an assistive client is told of, with no change of the
             // selection and so no notification of one.
