@@ -261,7 +261,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   element that is a link cannot be an image as well. A page column gives its own page's
   links: one that crosses the page's end is the part on the page, and one in the context
   laid out after the page is not listed. The scroll view lists the links of the paragraphs
-  on screen, as AppKit does.
+  on screen, as AppKit does. The text's headings stand among those children too, each
+  where it is in the text: with its cursor on a link VoiceOver finds the next heading
+  there and nowhere else ("Input and accessibility", Headings).
   VoiceOver announces an element given as a character's attachment as it reads, and none at
   a character of words. So each attachment in a link, a picture, a hidden label or a
   formula, has a link element for its own: VoiceOver says "hyperlink" and the name there by
@@ -641,17 +643,48 @@ as they did.
   holding lines that are no longer listed: it says the first of them and returns to the
   control ([VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current
   results").
-  The scroll bar leaves two more. The view still moves under VoiceOver as it comes in from
-  below: back as the cursor goes to the bar, and forward again as it goes to the line, which
-  UIKit brings clear of the bottom inset. And UIKit has no place in the list for the bar
-  itself: `index(ofAccessibilityElement:)` is `NSNotFound` for it, from UIKit's own
-  implementation as from the reader's, and UIKit then takes the bar to stand at the head of
-  the list. Asked from the bar, UIKit gives the control before the text as the item before
-  it and the first line listed as the item after it. VoiceOver asks from the bar after the
-  book's last line, where the bar is the next item, and then reads the screen again from
-  its first line; moving back from there it goes to the control before the text. A cursor
-  put on the bar by a touch was not run and would be answered the same way
+  UIKit has no place among the lines for the scroll view's own scroll bar, and where it put
+  the bar depended on how it came to it. Going through the scroll view it gave the bar after
+  the last line listed: that is where VoiceOver met it, after the book's last line, and
+  ahead of the last line on screen when it came in from below. Asked for the items each side
+  of the bar it took the bar to stand before the first line. It keeps a scroll view's
+  vertical bar among the views it calls the view's supplementary headers, and from a header
+  the item after is the first element listed and the item before is whatever precedes the
+  scroll view. So VoiceOver read on from the book's last line to the bar and then down the
+  screen a second time from its first line, and went back from the bar to the control
+  before the text. `index(ofAccessibilityElement:)` is not asked on that path, and no answer
+  for the bar changes it.
+  A bar hidden from assistive technology (`accessibilityElementsHidden`) is no such header,
+  and UIKit gives it to nobody. So the scroll view hides its bar and lists an element of its
+  own after its last line, in the bar's place. The element says what the bar says and
+  adjusts as the bar adjusts, by asking the bar: its name, value and hint are UIKit's own,
+  in the language UIKit has them in, and a swipe up or down on it still scrolls by a page.
+  Being an element of the list like any line, it has the last line listed before it and
+  whatever follows the reader after it, however VoiceOver comes to it, a touch on the bar
+  included. The bar is found as the view of the scroll view's own that is an accessibility
+  element, where the lines are no views. It is UIKit's view, and hiding it is all the reader
+  does to it. Where no such view is found nothing is listed for it, and UIKit's bar is as it
+  was.
+  The element is placed where the bar is, less what the insets cover. UIKit scrolls the
+  view until the area the insets leave holds the frame of the item the cursor goes to, and
+  the bar's own frame is as tall as the view: that is why the view went back for the bar.
+  With the element inside that area nothing moves as the cursor comes to it, from the text
+  or from below, and the rule above that keeps a line listed through such a move is left
+  for a bar the reader has not replaced. The element does not reach under the insets, so a
+  touch on the bar's place there finds nothing, where it found the bar.
+  A touch on the bar reached UIKit's bar, a view, before any line. The element is one among
+  the lines the touch is tried against, and VoiceOver took a line that ended within a few
+  points of the finger for the one touched: a paragraph's full lines run under the bar's
+  place, which for accessibility is 30 points wide, ten times what is drawn. So a line on
+  screen is listed by the part of it clear of the bar, as it is by the part inside the
+  insets, and a touch anywhere on the bar's place finds the bar again
   ([#342](https://github.com/vocaro/EPUBLib/issues/342)).
+  Two other ways were tried against a log of UIKit's requests and dropped
+  ([VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current results"): a
+  place for the bar from `index(ofAccessibilityElement:)` alone, which UIKit does not ask
+  for while the bar is a header, and the bar hidden only while VoiceOver's cursor was on
+  it, which rested on the order of VoiceOver's questions and let a finger on the bar find
+  the line under it.
 - **Pages.** A section is laid out once per column size; pages are slices of that layout at
   line boundaries, never splitting a line, honouring `.readerPageBreakBefore` (CSS
   `break-before: page`) and keeping a `.readerKeepWithNext` paragraph with the next (never
@@ -1015,10 +1048,44 @@ The following are the defaults. Host commands and accessibility actions stay ena
   token's result also carries a range, the heading's characters in its section. VoiceOver
   asks nothing about it, but calls the row by its label only when there is one: without
   it the list showed each label and VoiceOver read every such row out as the column's own
-  text. With VoiceOver's cursor on a link, which is an element of its own on Mac, its move
-  to the next heading says "Heading not found" in both flows: the rotor is the text
-  view's, and a link's element has none
-  ([#431](https://github.com/vocaro/EPUBLib/issues/431)).
+  text.
+  With VoiceOver's cursor on a link the move to the next heading goes another way
+  ([#431](https://github.com/vocaro/EPUBLib/issues/431)). A link is an element of its own
+  on Mac, a child of the text and no place in it. From there VoiceOver asks no rotor: it
+  looks through the text's children for an element with the heading role after the link,
+  and past the last it begins again with the first, as Find Next Link does (macOS 27.0.1).
+  With no heading among the children it said "Heading not found", though headings
+  followed. So each heading has an element among the text's children too
+  (`ReaderHeadingAccessibilityElement`), where it stands among the links: AppKit's heading
+  role, the heading's words as its label and its level as its value. VoiceOver says both,
+  "heading level 2 Link target reached", where the move from the text says the words
+  alone. The scroll view gives the headings on screen and the next one below them, so the
+  move from a link has the book's next heading to go to, and VoiceOver scrolls to it
+  itself, by setting the scroll bar's value. A page column gives its page's headings: in
+  paging the move from a link stays on the page, goes back to the page's first heading
+  when none follows the link, and says "Heading not found" on a page with none.
+  VoiceOver's cursor is then on the heading's element and not in the text. In continuous
+  scroll the reader takes VoiceOver's scroll for any other and puts the insertion point on
+  the first line on screen: VoiceOver says the word before it, and reading on by word or
+  by line starts from that line, above the heading. One move right from a link's element
+  or a heading's puts VoiceOver back in the text, where the move by heading goes through
+  the book by the rotor.
+  The rotor's Headings list is the same from a link. VoiceOver asks the text for its
+  rotors as well as the link, which has none, and having walked the list it asks the
+  search once more, from the link's element at the first character and none of it. The
+  search takes an element that is no place in the text as it takes a cursor at rest: the
+  top of the page in a column, nowhere in the scroll view. Answered with no item while a
+  column's rotor still held its page alone, the list opened with no row chosen and Return
+  did nothing; that was heard once.
+  Two other ways were heard and left out. Given the text's rotors, a link's element was
+  asked for them when the rotor opened and never for the move by heading. And an element
+  that offers a search for elements (`AXUIElementsForSearchPredicate`, which AppKit has
+  named since macOS 26) is asked by Find Next Link for the next link, with the range of
+  VoiceOver's text cursor: answered with none, Find Next Link said "Link not found" and
+  never reached a link, so what the move by heading asks of such an element was not heard.
+  That search could give the move from a link the exact next heading, without beginning
+  again, and a heading on another page; it would have to answer for links as well, and is
+  not built ([#454](https://github.com/vocaro/EPUBLib/issues/454)).
   Not marked for VoiceOver: a heading inside a table, whose cells are read as cells, and on
   iPhone and iPad a heading inside a note's popover, which keeps UIKit's own elements.
 - Selection: native selection UI with the host's `EPUBSelectionAction` in the edit or context
@@ -1359,7 +1426,11 @@ Go: the native viewer is the bundled engine.
   read, and no move by heading was made, because XCTest's gesture did not turn VoiceOver's
   rotor there. In paging on Mac the rotor's list and VoiceOver's move to the next heading
   were heard to go through the whole book the same day, on the hosted Mac
-  ([VoiceOver testing](voiceover-testing.md)).
+  ([VoiceOver testing](voiceover-testing.md)). With VoiceOver's cursor on a link on Mac, the
+  move goes to the book's next heading in continuous scroll and stays on the page in
+  paging, where it goes back to the page's first heading when none follows the link; from
+  a link after the book's last heading it begins again with the first heading on screen
+  ([#454](https://github.com/vocaro/EPUBLib/issues/454)).
 - Flex and grid alignment covers the single-column subset described above. Side-by-side row
   items, wrapping and reversed flex, multi-column and explicitly placed grids, `order` and
   inline flex or grid containers render as blocks in reading order with a disclosure. Within
