@@ -132,11 +132,34 @@ of XCTest's and 51 of Swift Testing's, with 52 skipped, most of them the opt-in
 [corpus runs](#corpus-runs).
 Fifty passes of `ReaderCanvasViewTests` took fourteen minutes. A pass is started only if one
 as long as the longest so far would end three minutes before the job's limit; otherwise the
-passes left are reported as not run, and the job fails. A pass that hangs is not stopped: the
-job runs to its limit and is cancelled there, and what the pass had printed, which reaches
-the log in blocks, is lost with it. A new run for the same pull request, or by hand for the
-same ref, filter, count and scroll bars, cancels one still in progress. A run for `main` is
-not cancelled; of the runs waiting behind it only the newest is kept.
+passes left are reported as not run, and the job fails. A new run for the same pull request,
+or by hand for the same ref, filter, count and scroll bars, cancels one still in progress. A
+run for `main` is not cancelled; of the runs waiting behind it only the newest is kept.
+
+A pass that hangs is stopped at a limit of its own, and the passes after it run. The limit is
+three times the longest pass that has passed in the job, and five minutes at least; until a
+pass has passed it is twenty minutes, about twice a pass of every test. No pass runs beyond
+the job's deadline, three minutes before its forty. At the limit the job takes a stack sample
+(`sample`, two seconds) of each process `swift test` has started, which is the `xctest`
+running a bundle of XCTest's tests or the helper running Swift Testing's, then ends them and
+`swift test`. The pass counts as failed, and `gh run view RUN_ID` has an error for it:
+
+```text
+Pass 9 of 40 hung in BoxAlignmentCanvasTests.testName: it was stopped after 300 s, at its limit of 300 s
+```
+
+The test is the one the pass's log says began and did not end; when the log names none, it is
+one whose own frame is in a sample, and with neither the error says `with no test under way`.
+The log has the processes and every thread's stack in a group of its own, `Pass 9 of 40,
+where it was stopped`, and the list of failed tests has the test with `(hung)` after its
+name. The pass's own line and the table say `stopped at its limit of 300 s` where another
+pass has its exit status. A pass cut short by the job's deadline is reported as stopped at
+the end of the job's time, not as hung. The step sets `NSUnbufferedIO`, so that `swift test`
+writes each line as a test makes it and a pass's log ends where the pass did; left alone,
+`swift test` holds the newest 16 KB of its output, the line that names a hung test among it.
+On 2026-10-13 a healthy pass given a limit of five seconds was sampled, ended and reported
+four seconds after it, the log and the sample named the same test, and the pass after it ran
+as any other.
 
 A job waits for a runner before it starts. Five jobs run at a time in the repository, these
 and the [VoiceOver sessions](voiceover-testing.md#hosted-mac-sessions) together, and the rest
