@@ -314,16 +314,25 @@ import UIKit
 
     #if os(macOS)
     /// On Mac the text area is the element, and a rule is a character of its value with no
-    /// element of its own: VoiceOver passes it over. Nothing is made up for it.
+    /// element of its own: VoiceOver passes it over. Nothing is made up for it. A rule that is
+    /// all its link holds is the link, which VoiceOver is told of there, without a name.
     func testARuleHasNoElementOfItsOwnOnMac() throws {
-        let (section, _, view) = try pageWithRules()
+        let (section, host, view) = try pageWithRules()
         XCTAssertEqual(view.accessibilityValue(), section.string.string, "the characters as they are, so every range matches")
         let rich = try XCTUnwrap(view.accessibilityAttributedString(for: NSRange(location: 0, length: section.string.length)))
-        var elements: [Int] = []
+        var elements: [(location: Int, element: NSAccessibilityElement?)] = []
         rich.enumerateAttribute(.accessibilityAttachment, in: NSRange(location: 0, length: rich.length)) { value, range, _ in
-            if value != nil { elements.append(range.location) }
+            if value != nil { elements.append((range.location, value as? NSAccessibilityElement)) }
         }
-        XCTAssertEqual(elements, [], "no image element, no label and no help stand for a rule")
+        let linked = (section.string.string as NSString).range(of: "\u{FFFC}", options: .backwards).location
+        XCTAssertEqual(elements.map(\.location), [linked], "no image element, no label and no help stand for a rule")
+        let link = try XCTUnwrap(elements.first?.element)
+        XCTAssertEqual(link.accessibilityRole(), .link)
+        XCTAssertNil(link.accessibilityTitle())
+        XCTAssertNil(link.accessibilityLabel())
+        XCTAssertNil(link.accessibilityHelp())
+        XCTAssertTrue(link.accessibilityPerformPress())
+        XCTAssertEqual(host.recorder.links.last?.link, .internal(href: "OPS/two.xhtml"))
         XCTAssertTrue(view.textualAttachments().isEmpty && view.announcedImages().isEmpty)
     }
     #else
