@@ -5143,7 +5143,16 @@ The Mac runner's transcript is plain text and needs no export.
   38457032228 at `98076a8`, two commits that chose a way at launch and were taken out
   again, and 38454467578 (pages) with 38455014795 (continuous scroll) at `5cd6818`, the
   change as it first stood. Run 38461506908, at `560fc83` again, has one session of each
-  flow for a single step of the sessions after. All forty-three sessions completed, and
+  flow for a single step of the sessions after.
+  [#513](https://github.com/vocaro/EPUBLib/pull/513),
+  [#514](https://github.com/vocaro/EPUBLib/pull/514),
+  [#519](https://github.com/vocaro/EPUBLib/pull/519) and
+  [#520](https://github.com/vocaro/EPUBLib/pull/520) merged while these were recorded.
+  The third added a section to the fixture before `OPS/parts.xhtml`, and the fourth a
+  table at the end of `OPS/squares.xhtml` and what a cell that shows a picture says; this
+  section still follows them, its file what it was. The eleven sessions after were
+  recorded again on the branch merged with all four, at `029b901`: runs 38462930391
+  (pages) and 38462973976 (continuous scroll). All fifty-four sessions completed, and
   each run reports `"billable": {}`. Nobody listened. A phrase with nothing in it is the probe's record of
   VoiceOver speaking no words. Where VoiceOver left the insertion point after a step (a
   `SELECTION` line of the transcript) tells a step that said nothing from one that did
@@ -5291,6 +5300,16 @@ The Mac runner's transcript is plain text and needs no export.
   through both tables to "Line 02 after the tally." with no phrase between two rows. As
   before the change, each row said by `right` after an `out` there left its phrase and
   then its words again without "group" or "table".
+  On the branch merged with `main` at `d5ad34a`, at `029b901`, the same eleven sessions,
+  step for step: every phrase the same but two things, which are `main`'s. Inside the
+  table of data `nextline` from "Tally Four" said "empty cell" where it had said "￼", the
+  cell of decoration, which #520 made an empty cell; and in continuous scroll each row
+  said by `right` after an `out` left one phrase, where it had left its phrase and then
+  its words again. The lines, what the text gives at each row, by line and by word
+  forward and back, both `in` after a move by line, both after a move by word, and Read
+  All in both flows were what they were at `4dbdc1c`.
+  [#518](https://github.com/vocaro/EPUBLib/pull/518) merged after that and changes two
+  files of the iPhone and iPad reader; nothing was recorded again for it.
   So a row with nothing to say is passed over when the text gives no element at its
   character, gives the character and its break as spaces, and has the row's line begin
   the line of what follows. Each of the other six ways left VoiceOver something: a stop
