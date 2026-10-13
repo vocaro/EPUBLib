@@ -275,6 +275,25 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   body font size, retaining resolution up to 16 megapixels and an 8,192-pixel long side.
   Larger raster images are downsampled within those bounds; SVG retains its existing
   4,096-pixel rasterization limit. The same image contrast policy and bounded cache apply.
+- **What an item offers VoiceOver.** On iPhone and iPad each item of a page or a screen
+  offers its own actions, and nothing that contains it offers any ("Input and accessibility"
+  has why). Three things follow. A page turn chosen in the rotor is a command, as a host's
+  is: selected text holds back a tap or a swipe, which could be meant for the selection, and
+  not this. The reader's SwiftUI surface no longer names the pair there, and it was what
+  still turned the page while text was selected; a line's own turn did nothing then and
+  reported success. The turn fails at either end of the book. A note's popover keeps UIKit's
+  own elements and passes on UIKit's actions, and the reader adds none: a note has no
+  canvas to inspect an image in, and offered no inspection before either. And an item with
+  no action gives no list of actions, not an empty one.
+  What UIKit gives a text view was heard by itself on 2026-10-12, in a build that named every
+  action for the object that gave it
+  ([VoiceOver testing](voiceover-testing.md#harness-pitfalls-and-current-results)): the
+  scroll view one action for each run of its text that is a link, named by the link's
+  characters, "￼" for a link that holds only a picture or a hidden label, six in the
+  verification book and none for a picture that is not a link; and a page column none, on a
+  page that shows a link. VoiceOver ends the list of an item's actions with "Activate
+  Default" and starts again. On Mac VoiceOver is offered neither of the surface's two
+  actions ("Input and accessibility").
 - **Tables.** Attachments drawn natively (TextKit 2 has no `NSTextTable` on iOS), one
   image-drawn attachment per row so pages can break between any two rows; rows a rowspan
   joins, and the header, keep with the next row and share a page when they fit. `colspan`/
@@ -861,7 +880,9 @@ The following are the defaults. Host commands and accessibility actions stay ena
   and a line of continuous scroll the links of the whole book. So a line offers what
   is in it: on a page Next Page and Previous Page; on a picture's own line Inspect Image; on
   a table's row its cells' actions; and on a line of plain text or a link in continuous
-  scroll nothing, after which VoiceOver says no "Actions available". In continuous scroll it
+  scroll nothing, after which VoiceOver says no "Actions available". A page turn chosen in
+  the rotor is a command, and a note's popover keeps UIKit's own actions ("What an item
+  offers VoiceOver" under Decisions). In continuous scroll it
   starts at the first line on screen: on Mac at the insertion point kept there, on iOS at the
   first of the lines the scroll view lists (see "Continuous scroll" under Layout). Text that
   a book hides from the page and keeps for assistive technology is read where it stands, as

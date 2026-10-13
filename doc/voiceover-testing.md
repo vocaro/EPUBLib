@@ -29,10 +29,17 @@ picture: nothing, that it is decoration (an empty `alt`), or words. Each stands 
 text; a decorative one is also all that a link holds, and stands beside words in a link; and
 two come from a file that has a title of its own, one with an empty `alt` and one with none.
 None of the section's words is one VoiceOver uses for a picture or a link, so those in a
-transcript are VoiceOver's own. A fifth, **Scenes set apart** (`OPS/scenes.xhtml`), the
-book's last, holds rules: an `<hr>` between two paragraphs, one the book gives
-`role="presentation"`, and one alone on a page of its own, with a last paragraph on the page
-after it. None of its words is one a screen reader uses for a rule either. A second
+transcript are VoiceOver's own. A fifth, **Scenes set apart** (`OPS/scenes.xhtml`), holds
+rules: an `<hr>` between two paragraphs, one the book gives `role="presentation"`, and one
+alone on a page of its own, with a last paragraph on the page after it. None of its words is
+one a screen reader uses for a rule either. A sixth, **What each line offers**
+(`OPS/offers.xhtml`), the book's last, shows every kind of item at once, on one page and one
+screen, for what VoiceOver's rotor offers on each: its heading, lines of words ("Plain words
+above." and "Plain words below."), a link inside a line (**Lone jump**), a picture with words
+(**Square with words**) and one with none, and a table row whose second cell is a link ("Left
+cell" and "Right cell jump"). Sixty short lines follow ("Below line 01."), so the section's
+first line can be shown at the top in continuous scroll. None of its words is one VoiceOver
+uses for an action, a picture or a link. A second
 bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
@@ -40,8 +47,8 @@ twenty-third), so a line in the middle of a paragraph can be told from its first
 of the book is a few screens from the start of its last chapter. The first book's headings
 are "Page boundary verification" (level 1), which opens it, "Link target reached" (level 2)
 after the numbered paragraph, the two parked ones (level 1), each opening its section, and
-"Pictures and their words" and "Scenes set apart" (level 1), each opening one of the last
-two; the second book's are "Chapter one", "Chapter two" and "Chapter three", screens apart.
+"Pictures and their words", "Scenes set apart" and "What each line offers" (level 1), each
+opening one of the last three; the second book's are "Chapter one", "Chapter two" and "Chapter three", screens apart.
 Do not import private books for this check.
 
 On a Mac the same application can show AppKit's own text view in the reader's place, with
@@ -660,7 +667,9 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
   listed there.
 - `flick=down`, `flick=up`: one finger steps through the rotor. With the cursor on a line of
   a page it offers the line's actions, Next Page first; `doubletap=LABEL` on that same line
-  then performs the chosen one without moving the cursor. A line with no action, as plain
+  then performs the chosen one without moving the cursor. After the last of an item's actions
+  VoiceOver says "Activate Default" and starts again, so a list has been heard whole once
+  that phrase comes. A line with no action, as plain
   text is in continuous scroll, leaves the rotor on its own setting, and the flick steps by
   that. On an iPhone in landscape only the
   upward flick registered, which reaches the same actions.
@@ -899,7 +908,21 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     the picture's line says it and offers the inspection alone. A reader that offered more
     said, on any line of continuous scroll, "Previous Page", "Next Page", and the book's
     links by their words.
-12. Restore all original VoiceOver/scripting settings and independently verify restoration.
+12. What each kind of item offers, on an iPhone and iPad, on the section "What each line
+    offers", which shows them all at once. With the cursor on an item, step through the rotor
+    (`flick=down`) until VoiceOver says "Activate Default": what came before it is everything
+    the item offers. In pages "Plain words above.", the link "Lone jump" and "Plain words
+    below." offer Next Page and Previous Page and no more; "Square with words" offers those
+    and Inspect Image: Square with words; the picture without words, one move forward from
+    "Nameless picture", those and Inspect Image; and the table's row those, Select Table
+    Text: Left cell, Select Table Text: Right cell jump and Follow Table Link: Right cell
+    jump. In continuous scroll each offers the same without the two page turns, so a line of
+    words and the link offer nothing: the rotor has no Actions setting on them
+    (`rotor=Actions` ends in `MISSING`). No item offers a picture or a link that is not its
+    own, or "Verification link", which is in the book's first section. On a device, choose
+    Inspect Image on a picture and double-tap, and the inspector opens; choose Next Page on a
+    line of a page and double-tap, and the page turns.
+13. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
@@ -1574,6 +1597,75 @@ The Mac runner's transcript is plain text and needs no export.
   Not established: a physical iPhone after the change; a table row's actions under
   VoiceOver, which a unit test holds; and anything on a Mac, where the text areas and the
   surface's two actions are unchanged.
+- The same day the section of what each line offers, which shows every kind of item at
+  once, was stepped through with the rotor at 17 points in the
+  [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and an iPad Air
+  13-inch (M4)), before and after the same change made on the branch that reads a table by
+  its rows. Nobody listened. The lists are XCTest's record of VoiceOver's phrase after
+  each step of one finger down; a phrase that comes twice running in a transcript is one
+  entry, heard before and after a step that did not register.
+  Before, at `073f2b0`, in pages on both, on "Plain words above.", on the link "Lone jump"
+  and on "Plain words below.": "Next Page", "Previous Page", "Inspect Image: Square with
+  words", "Inspect Image", "Previous Page", "Next Page", "Activate Default", and round
+  again. "Square with words" offered its own inspection third and then the same two
+  inspections; the picture without words likewise; the table's row "Select Table Text: Left
+  cell", "Select Table Text: Right cell jump" and "Follow Table Link: Right cell jump" after
+  the first pair, then the two inspections and the second pair. In continuous scroll on
+  both, on a line of words: "Verification link", "￼", "￼", "￼ Jump with decoration", "￼",
+  "Lone jump", "Inspect Image: Square with words", "Inspect Image", "Previous Page", "Next
+  Page", "Activate Default". Ten actions, none of them the line's; the pictures and the row
+  offered their own first and then the same ten.
+  A build that put a letter before every action's name for the object that gave it
+  (`5c01fa8`, on the iPhone simulator) settled where each came from. On a line of a page:
+  "L Next Page" and "L Previous Page" from the line's own element, "K nil" for what UIKit
+  returned to the text view, "T Inspect Image: Square with words" and "T Inspect Image"
+  from the text view, and "S Previous Page" and "S Next Page" from the reader's SwiftUI
+  view. On a line of continuous scroll: "K Verification link", "K ￼", "K ￼", "K ￼ Jump with
+  decoration", "K ￼", "K Lone jump" and "K count 6", then the same two T and two S. UIKit's
+  six are the book's six runs of text that are links, in the book's order: the first
+  section's, the parked link of the hidden labels, the three of the pictures (two of them a
+  picture alone) and this section's own. A link in a table cell is not among them, and no
+  picture that is not a link.
+  After, at `5e6834c` on both, in pages: "Next Page", "Previous Page", "Activate Default"
+  on a line and on the link; "Inspect Image: Square with words", or "Inspect Image" on the
+  picture without words, before "Activate Default" on a picture; the three table actions
+  there on the row; and one turn of the rotor on a line came to Actions. In continuous
+  scroll: a step on a line or on the link read the line a character at a time ("P Papa",
+  "l Lima"), and thirty turns of the rotor on a line went round Containers, Lines, Words,
+  Characters, Headings and Speaking Rate and never came to Actions (`rotor=Actions:
+  MISSING`); "Square with words" said "Actions available" and offered "Inspect Image:
+  Square with words" and then "Activate Default", the picture without words "Inspect
+  Image", and the row its three. `5e6834c` is the change on the table branch's own merge
+  with `main`; a session in pages at `918ec8b`, the same change on an earlier merge, read
+  the same on both simulators.
+  The physical iPad Air 13-inch (M3) of the sessions above (1024 × 1366, upright, 17
+  points) read the section in pages at `331c326`, which has the table's rows and the other
+  branch's change merged in. "Plain words above." offered "Next Page", "Previous Page" and
+  "Activate Default"; "Square with words" those two, "Inspect Image: Square with words" and
+  "Activate Default"; and the row began "Next Page", "Previous Page", "Select Table Text:
+  Left cell". With Next Page chosen on "Plain words above." a double tap changed the screen,
+  and the screenshot shows the page that begins "Below line 18.", where the one before ended
+  at "Below line 17.": VoiceOver performed the line's own page turn. VoiceOver was off
+  afterward.
+  That turn was made with text selected: before it, Select Table Text: Left cell had been
+  chosen on the row and performed by a double tap. A second session ran the same two steps
+  on a build whose line still turned the page as it used to (`18323fd`, the same revision
+  with that one call put back, not in the branch), and there the double tap on Next Page
+  changed nothing: "nothing on screen changed in 2.0 s", the first page still in the
+  screenshot, and "Words before" for the next move forward. So VoiceOver performs Select
+  Table Text on a device, the selection held back a line's page turn as it was, and it does
+  not now. The selection itself is not to be seen in either screenshot.
+  One thing was seen and not looked into: after the turn VoiceOver's cursor was still drawn
+  where the line had stood, and a move forward from it went to the book's title under the
+  page.
+  Most sessions started that evening did not run. At load averages of 600 to 1,000
+  `devicectl` gave no answer in the runner's twenty seconds when a simulator's volume was
+  set, and later failed with "Timed out waiting for CoreDeviceService to fully initialize";
+  the iPad simulator's VoiceOver said nothing in three minutes twice; and XCTest failed two
+  sessions after their last step ("Critical process xctest crashed"), whose transcripts are
+  whole. After the last sessions in continuous scroll `devicectl` could not read back the
+  simulators' VoiceOver state; they were deleted, as every one was. One iPhone simulator came back at volume 60 during the labelled continuous-scroll
+  session and was muted again by the runner within a second (an `UNMUTED` line).
 - On 2026-10-12 the section of scenes was read on a Mac before and after a rule was given an
   element that says a separator is there, and with each other element that was tried.
   GitHub's hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode
