@@ -8,7 +8,8 @@ import XCTest
 
 @MainActor private struct ContractNativeEngine: EPUBReaderEngine {
     enum Fault {
-        case none, duplicateReady, noReady, acceptsCancellation, callbackAfterClose, callbackDuringClose, acceptsForeignBookmark, failureAfterReady
+        case none, duplicateReady, noReady, acceptsCancellation, callbackAfterClose, timedCallbackAfterClose, callbackDuringClose
+        case acceptsForeignBookmark, failureAfterReady
         // Search-result faults, for an engine with `Search.results`.
         case resultsAfterCompletion, noWrap, acceptsStaleResult, keepsResultsAfterClear, stepsAfterClear
     }
@@ -129,9 +130,18 @@ import XCTest
         closed = true
         results = nil
         if fault == .callbackDuringClose { onEvent?(.notice("synchronous late callback")) }
-        if fault == .callbackAfterClose {
-            Task { try? await Task.sleep(for: .milliseconds(30)); onEvent?(.notice("late")) }
-        } else { onEvent = nil }
+        switch fault {
+        case .callbackAfterClose:
+            // Queued, with no timer: the main actor runs it the first time the verifier waits.
+            Task { onEvent?(.notice("late")) }
+        case .timedCallbackAfterClose:
+            // From a timer of the engine's own, which can end together with the verifier's.
+            Task {
+                try? await Task.sleep(for: .milliseconds(30))
+                onEvent?(.notice("late, from a timer"))
+            }
+        default: onEvent = nil
+        }
     }
 }
 
@@ -148,7 +158,8 @@ import XCTest
     func testContractRejectsBrokenAdapters() async throws {
         for (fault, expected) in [(ContractNativeEngine.Fault.noReady, "Timed out"),
                                  (.duplicateReady, "exactly once"), (.acceptsCancellation, "Pre-cancelled"),
-                                 (.callbackAfterClose, "Callback after close"), (.callbackDuringClose, "Callback after close"),
+                                 (.callbackAfterClose, "Callback after close"), (.timedCallbackAfterClose, "Callback after close"),
+                                 (.callbackDuringClose, "Callback after close"),
                                  (.acceptsForeignBookmark, "incompatibleLocation"), (.failureAfterReady, "failure")] {
             do { try await verify(fault); XCTFail("Broken adapter passed: \(fault)") }
             catch let error as EPUBEngineContract.Failure { XCTAssertTrue(error.description.contains(expected), error.description) }

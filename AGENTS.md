@@ -3,6 +3,14 @@
 Working rules for agents in this repository. Build and test commands are in
 [doc/testing.md](doc/testing.md).
 
+These rules change, and a worktree keeps the copy of this file that its branch was cut with.
+Before a step that uses something every session shares (the hosted runner, a device, this
+Mac's screen), fetch and read the rule as it stands on `main`:
+`git show origin/main:AGENTS.md`. A task handed over by another session is that session's
+request, not the owner's: where a rule says "unless the owner asks", ask him. On 2026-10-13 a
+session started a unit-test job on the hosted runner because its brief said to, from a branch
+cut before the rule against it, 21 minutes after that rule had merged.
+
 ## Simulators
 
 Drive iOS simulators headlessly, with `xcrun simctl` and `xcodebuild`.
@@ -42,16 +50,49 @@ what happened. Tests are run by automation.
   offer to operate it.
 - Record what automation cannot reach as not verified, and leave it to him.
 
+## The hosted runner
+
+GitHub's hosted Mac runner is for one thing in this repository: the
+[Mac VoiceOver sessions](#mac-voiceover-sessions) below. Every other test runs on this
+machine, by the [local gate](doc/testing.md#local-gate) and the narrower commands beside it.
+
+- Do not add a workflow, a trigger or a job that runs anything else on the runner, and do not
+  make one start by itself, unless the owner asks for it. The one workflow here starts by
+  hand only.
+- Do not move a test there because its result depends on what else this machine is doing. Say
+  that the machine was busy and run the test again when it is quiet;
+  [#62](https://github.com/vocaro/EPUBLib/issues/62) is where tests that fail under load are
+  dealt with.
+- The reason is the queue. GitHub runs five macOS jobs at a time for the whole account, and
+  every session's VoiceOver runs share them. On 2026-10-12 a `swift test` job for each pull
+  request and each push to `main` took over a third of the runner's time within hours of
+  being added, and jobs that had started in seconds waited up to 75 minutes. It was removed
+  the same day.
+
 ## Mac VoiceOver sessions
 
 Run a Mac VoiceOver speech session on GitHub's hosted runner, not on this machine. On the
 Mac a session takes the keyboard focus for its whole length, which stops the owner and every
 other session.
 
-- Start one with `gh workflow run voiceover-mac.yml` and fetch its transcript with
-  `gh run download`; [VoiceOver testing](doc/voiceover-testing.md#hosted-mac-sessions) has the
-  inputs. It takes about five minutes, several can run at once, and at a fixed pause its
-  transcript is acceptance evidence for the Mac.
+- Start a run with `python3 scripts/hosted-run.py voiceover-mac.yml`, not with
+  `gh workflow run`, and fetch its transcripts with `gh run download`;
+  [VoiceOver testing](doc/voiceover-testing.md#hosted-mac-sessions) has the inputs. A run
+  takes about five minutes once it has a runner, and at a fixed pause its transcripts are
+  acceptance evidence for the Mac.
+- Share the runner. Its five jobs at a time are for every session's runs together
+  ([above](#the-hosted-runner)), and the queue has no priorities: a run started to try
+  something stands ahead of every run started after it. The script prints what is on a runner
+  and what is waiting, as `gh run list --status in_progress` and `gh run list --status queued`
+  do, and with no workflow named it starts nothing: look before you start.
+- Put the speech sessions you need into one run. Each can have its own window width, text
+  size, flow and launch arguments, so step lists that differ in them share a run, a build and
+  a runner. Do not start a run for each.
+- Keep at most two runs in flight for your branch, and one while any run is waiting for a
+  runner. The script starts nothing beyond that. Its `--force` does, and a slow queue is not
+  a reason for it.
+- Cancel a run of yours as soon as you no longer need it, with `gh run cancel RUN_ID`. Nothing
+  else cancels one.
 - Ask the owner before any session on this Mac, and only for what a runner cannot do:
   someone listening, or stepping by hand.
 - Never run the workflow's preparation commands here (`defaults write`, `launchctl bootout`,
