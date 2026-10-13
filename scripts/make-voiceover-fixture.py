@@ -28,13 +28,15 @@ files = {'mimetype': 'application/epub+zip',
                     'media-type="application/xhtml+xml"/><item id="grids" href="grids.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="ledger" href="ledger.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="tallrow" href="tallrow.xhtml" '
+                    'media-type="application/xhtml+xml"/><item id="edges" href="edges.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="image" href="square.svg" '
                     'media-type="image/svg+xml"/><item id="titled" href="titled.svg" '
                     'media-type="image/svg+xml"/></manifest><spine><itemref '
                     'idref="body"/><itemref idref="labels"/><itemref '
                     'idref="table"/><itemref idref="pictures"/><itemref '
                     'idref="scenes"/><itemref idref="offers"/><itemref idref="entries"/><itemref idref="cells"/><itemref '
-                    'idref="grids"/><itemref idref="ledger"/><itemref idref="tallrow"/></spine></package>',
+                    'idref="grids"/><itemref idref="ledger"/><itemref idref="tallrow"/><itemref '
+                    'idref="edges"/></spine></package>',
  'OPS/nav.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
                   'xmlns="http://www.w3.org/1999/xhtml" '
                   'xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav '
@@ -48,7 +50,8 @@ files = {'mimetype': 'application/epub+zip',
                   'entries</a></li><li><a href="cells.xhtml">Jumps inside a '
                   'grid</a></li><li><a href="grids.xhtml">Tables of data</a></li><li><a '
                   'href="ledger.xhtml">A table longer than a page</a></li><li><a '
-                  'href="tallrow.xhtml">A row taller than a page</a></li></ol></nav></body></html>',
+                  'href="tallrow.xhtml">A row taller than a page</a></li><li><a '
+                  'href="edges.xhtml">Jumps at the edges of a grid</a></li></ol></nav></body></html>',
  'OPS/square.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 '
                    '32"><rect width="32" height="32" fill="#007acc"/></svg>',
  'OPS/titled.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 '
@@ -212,6 +215,22 @@ files["OPS/tallrow.xhtml"] = (
     "<table><tr><th>Clause</th><th>Wording</th></tr><tr><td>Tall clause</td><td>"
     + " ".join(f"t{i:04d}" for i in range(1, 2601))
     + "</td></tr><tr><td>Short clause</td><td>Short wording</td></tr></table><p>Words after the clauses.</p></body></html>")
+# Jumps where a table of data has its header cells, the book's last section. Two rows are each
+# headed by a cell that is one link and nothing else, and a third by plain words; the middle
+# column is headed by such a link too, and the third row's cell under it is a link itself.
+# The section has no heading, so the book's last heading is where it was, and more than a
+# screen of lines follows the table. No word here is one VoiceOver uses for a table, a header
+# or a link.
+files["OPS/edges.xhtml"] = (
+    '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Jumps at the edges '
+    f"of a grid</title><style>{CELL_STYLE}</style></head><body><p>Jumps at the edges of a grid</p>"
+    '<p>Words before the routes.</p><table><thead><tr><th>Route</th><th><a href="body.xhtml#link-target">Built</a></th>'
+    '<th>Length</th></tr></thead><tbody><tr><th scope="row"><a href="body.xhtml#link-target">Dogwood</a></th>'
+    '<td>1912</td><td>Nine miles</td></tr><tr><th scope="row"><a href="body.xhtml#link-target">Elm</a></th>'
+    '<td>1947</td><td>Four miles</td></tr><tr><th scope="row">Fir</th>'
+    '<td><a href="body.xhtml#link-target">Relaid 1960</a></td><td>Six miles</td></tr></tbody></table>'
+    "<p>Words after the routes.</p>"
+    + "".join(f"<p>Line {i:02d} after the routes.</p>" for i in range(1, 61)) + "</body></html>")
 
 files["OPS/body.xhtml"] = files["OPS/body.xhtml"].replace(
     "NUMBERED_WORDS", " ".join(f"word{i:04d}" for i in range(1, 1201)))
@@ -237,7 +256,8 @@ files["OPS/cells.xhtml"] = files["OPS/cells.xhtml"].replace(
 chapters = {"one": range(1, 41), "two": range(41, 81), "three": range(81, 87)}
 paragraphs = dict(files)
 for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "scenes.xhtml", "offers.xhtml",
-             "entries.xhtml", "cells.xhtml", "grids.xhtml", "ledger.xhtml", "tallrow.xhtml", "square.svg", "titled.svg"]:
+             "entries.xhtml", "cells.xhtml", "grids.xhtml", "ledger.xhtml", "tallrow.xhtml", "edges.xhtml", "square.svg",
+             "titled.svg"]:
     del paragraphs["OPS/" + name]
 paragraphs["OPS/package.opf"] = (
     '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
