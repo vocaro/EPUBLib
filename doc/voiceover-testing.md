@@ -5125,14 +5125,124 @@ The Mac runner's transcript is plain text and needs no export.
   links of the section of parts below a jump after these, "Built hyperlink" was begun
   before "routes.", the text's links were the three and "upper jump", and the steps went
   on through that section's (run 38446095467, session 4). Walked to from the top of the
-  book the same link was said, as above. What differs was not found out, nothing was changed for it, and no
-  issue is filed for it yet.
+  book the same link was said, as above. The fault is the reader's, and the entry after
+  this one has its cause and the change made for it.
   Not heard: anyone listening, or any Mac but the runner; a header cell that is a link
   while it is off screen in continuous scroll or on another page than the cells it heads,
   where the table gives the header by its words as for any header cell, which unit tests
   hold; a column under two header cells one of which is a link; a header cell with words
   beside its link, which has no press; "press" chosen from the Actions menu; a larger text
   size; a spread of two columns; and Safari beside it.
+- After that on 2026-10-13 the fault the entry above found on the way was traced to the
+  reader and put right: in continuous scroll, in a reader opened at a section, Find Next
+  Link to a link in a table row some screens below left VoiceOver on the text area, with
+  the row on screen and its link out of the text's links. Hosted `xcode-27` runner, macOS
+  27.0.1, 600 wide at 17 points, a fixed pause of four seconds, link setting Speak, nobody
+  listening. The steps, in a reader launched with `-SampleHref OPS/grids.xhtml`:
+  `ax:caret=Stations on ax:focus in nextlink nextlink ax:links describe` and four more
+  `nextlink`.
+  Before, in a build with the change switched off at launch (`8327e2a`, run 38453482423,
+  session 1), as in the three runs of the entry above: "Reopened 1978 hyperlink", then
+  "Built hyperlink", "routes." and "text Page boundary verification"; `ax:links` listed
+  "Dogwood", "Elm", "Relaid 1960" and "upper jump"; `describe` said "text is in the
+  VoiceOver cursor Line 640"; and the next step said "Dogwood hyperlink". After, at
+  `5f2faf5` (run 38455085918, session 1): "Reopened 1978 hyperlink", then "Built
+  hyperlink", "hyperlink Built" and the hint, "You are currently on a hyperlink, inside of
+  a text area…"; `ax:links` listed "Built" first, then the four; `describe` said
+  "hyperlink is in the VoiceOver cursor"; and the next steps said "Dogwood hyperlink",
+  "Elm hyperlink", "Relaid 1960 hyperlink", and "an" and "hyperlink upper jump". `STATE`
+  was the same before and after, `SELECTION 19713,0 VISIBLE 19659,268`.
+  The cause was read from a reader that logs what VoiceOver asks of the scroll view's
+  text, its links and its table cells, and what the reader does about it (`b89cdfd`, run
+  38451213622, session 1, which said the fault). VoiceOver focused the link's element and
+  the reader showed the row where TextKit 2 estimated it stood, 23,852 points down, at the
+  top of a visible area 519 points high. The text between had not been laid out: eighty
+  lines, the table of forty rows and the row of 2,600 words, whose height was a guess.
+  Within a tenth of a second VoiceOver asked the element whether it had the focus, which
+  it had, then the text for its selected range, for the line its insertion point was on
+  (`AXInsertionPointLineNumber`, 639, in 8 ms where the same question then took under
+  one), for that line's range and for its bounds: `AXBoundsForRange 19713,2` came back 829
+  points below the bottom of the screen. AppKit counts lines from the text's first, so the
+  question had laid out all the text above the row. The row of 2,600 words took its
+  height, 2,145 points, and the header row's own paragraph stood at 25,282, 1,430 points
+  below where the view drew it, while the three rows after it stood where they were drawn,
+  at 23,886, 23,919 and 23,953. Then VoiceOver asked the text for its children. The header
+  row was no longer the row kept for the next link, so the reader looked for the rows on
+  screen, in that layout: the header row was not among them and the row of 2,600 words
+  was, and the header row's cells were taken away. The children were "Dogwood", "Elm",
+  "Relaid 1960", "upper jump" and the next heading, and VoiceOver, whose link was not
+  among them, was on the text area. Nothing moved the view afterwards, so it stayed so.
+  It is not the row being its table's first, and not the distance by itself: it is a row
+  shown where it is estimated to stand, with text between that is far from its estimate,
+  and the text above then laid out behind the view. A unit test with the link in a table's
+  second row fails the same way without the change. Why the walk from the top of the book
+  said the link all along was not read from a log: no walk was logged. In the reader's
+  code the difference would be in how it reaches the row: where its first scroll to the
+  estimated place does not bring the row to the top it lays out the text from the screen
+  to the row in one run, and nothing is left to move (`scrollLineToTop`); where the
+  estimate lands, as in the logged session, the text between stays estimated.
+  The change: the scroll view is held to its text, as it is before the reader's own read
+  of the screen, before the rows on screen are looked for and before an assistive client
+  is told what is on screen and where: the text's children, the bounds of a range, a
+  link's or a heading's place and a table row's. The bounds of a range are given a second
+  time when answering is what moved the text. In the logged session with the change
+  (`8327e2a`, run 38453482423, session 2) the first answer was the same 829 points below
+  the screen, the reader scrolled 1,430 points to where the row stood, the rows kept their
+  cells, and the answer given was on screen.
+  That build held the view in one scroll, and the same run showed that it is not always
+  enough. With no `ax:caret` step (`ax:focus in nextlink nextlink describe line nextline`,
+  session 3) VoiceOver asked for the bounds of its line as it went into the text, the
+  layout above took 10,866 points, and the scroll stopped 5,365 points short at the end of
+  a document that was still 12,312 points high and became 23,176 in that same scroll. The
+  view showed text of another section, VoiceOver scrolled it on by the scroll bar's value,
+  and the reader, taking that for a person's scroll, put the insertion point on the first
+  line then on screen, in the book's last section: "In text Tables of data" was followed
+  by "parts.", and the next `nextlink` went to "Built" and passed "Reopened 1978" by. So
+  the reader scrolls again until the line stands as far below the top as it stood, and the
+  rows on screen keep their cells while it does. At `5f2faf5` the same steps said "In text
+  Tables of data", "Reopened 1978 hyperlink", "Built hyperlink", "routes." and "hyperlink
+  Built", `describe` "hyperlink is in the VoiceOver cursor", and `line` "Route, Built,
+  Length table" (run 38455085918, session 2).
+  What else was heard at `5f2faf5` in that run, each as before the change. A row that is
+  not its table's first, from the section before it (`-SampleHref OPS/cells.xhtml`,
+  `ax:focus in` and six `nextlink`, session 3): the five links of the grid on screen, then
+  "Reopened 1978 hyperlink", "Birch, 1934 table" and "hyperlink Reopened 1978", `ax:links`
+  "Reopened 1978", the next heading and "Built", and `describe` "hyperlink is in the
+  VoiceOver cursor". The walk from the top of the book (`ax:links ax:focus in` and
+  twenty-four `nextlink`, session 4): the twenty-one links in order, "routes." and
+  "hyperlink Built" among them, and the last three again. No transcript of the run has
+  "ERROR" in it or VoiceOver's opening phrase a second time, there is no crash report, and
+  the run reports `"billable": {}`.
+  With `main` merged in, at `b71a6fe`, the first two step lists were heard once more (run
+  38456437527) and said the same: "Reopened 1978 hyperlink", "routes." and "hyperlink
+  Built", `ax:links` with "Built" first, `describe` "hyperlink is in the VoiceOver
+  cursor", the three links after it and "hyperlink upper jump", and in the session without
+  the caret step "In text Tables of data" and `line` "Route, Built, Length table". The
+  book there has 24,675 characters where it had 23,065, the row is where it was, and after
+  the caret step the screen began at character 17188 where it had begun at 17140.
+  The logging reader is not in the change (the two trial commits are reverted in
+  `8b83d10`). In its first run the reader quit in each session, after the steps that said
+  the fault in the first: a link's log line asked the link for its title through the
+  method it was logging, without end. The three reports macOS wrote say so, and that run
+  failed for it. The second session of that run began on the dialog macOS showed for it,
+  the reader quit again at `ax:links` in the third, and neither is evidence of anything.
+  With a caret set after the grid in the section before (`ax:caret=Shown words after the
+  grid`, run 38453482423, session 4) the first `nextlink` said "worded jump hyperlink", a
+  link above the caret: from a place in the text Find Next Link takes the first link the
+  text lists, as an earlier entry here has it.
+  Unit tests:
+  `testALinkInARowShownBelowEstimatedTextStaysTheTextsLinkWhenTheTextAboveIsLaidOut`, with
+  the link in a table's first row and in a later one, and
+  `testTheRowsOnScreenKeepTheirCellsWhenTheTextAboveIsLaidOutBehindTheView`
+  (`TableCellLinkAccessibilityTests`). Both fail without the change: the first with the
+  children "Dogwood" alone, the bounds of VoiceOver's line 888 points below the screen and
+  cells on the tall row; the second with the cells of the rows on screen gone.
+  Not heard: anyone listening, or any Mac but the runner; another width or text size; a
+  link of the text's own, not a cell's, reached the same way, whose element is kept by its
+  place in the text and was never seen to leave; VoiceOver's move to a heading below the
+  screen from a link, which was not tried here; pages, where a page is laid out whole. On
+  iPhone and iPad nothing changes: the hold is the Mac's, and the package was built for
+  the simulator and its tests were not run there.
 - On 2026-10-13 a table's select action was performed with VoiceOver on the physical iPad
   Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366, upright, 17 points), before and after a
   change to what it does ([#450](https://github.com/vocaro/EPUBLib/issues/450)), with the
