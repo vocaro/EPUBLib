@@ -66,6 +66,20 @@ final class TableModel: @unchecked Sendable {
             }
             return links == 1 && linked == words && words > 0
         }
+
+        /// The cell shows no words and nothing that is read as words: pictures and nothing
+        /// else, or nothing at all. A formula, a rule, a hidden label and a table inside the
+        /// cell are read, so a cell that holds one of them is not such a cell.
+        var isWordless: Bool {
+            var wordless = true
+            content.enumerateAttribute(.attachment, in: NSRange(location: 0, length: content.length)) { value, range, stop in
+                if value is ReaderImageAttachment { return }
+                guard value != nil || !(content.string as NSString).substring(with: range).allSatisfy(\.isWhitespace) else { return }
+                wordless = false
+                stop.pointee = true
+            }
+            return wordless
+        }
     }
     struct Row {
         var background: CGColor?
