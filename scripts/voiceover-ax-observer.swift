@@ -110,8 +110,11 @@ func embedded(_ element: AXUIElement) -> String {
         .compactMap { name, key in (attribute(element, key) as? String).flatMap { $0.isEmpty ? nil : "\(name) \"\($0)\"" } }
     let url = (attribute(element, kAXURLAttribute) as? URL).map { " URL \($0.absoluteString)" } ?? ""
     let children = (attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []).map { string($0, kAXRoleAttribute) }
+    // VoiceOver gives the keyboard focus to the element it moves to only where it can be set.
+    var focusable = DarwinBoolean(false)
+    AXUIElementIsAttributeSettable(element, kAXFocusedAttribute as CFString, &focusable)
     return ([string(element, kAXRoleAttribute), string(element, kAXSubroleAttribute)].filter { !$0.isEmpty } + said).joined(separator: " ")
-        + url + " ACTIONS \(actions(element))"
+        + url + " ACTIONS \(actions(element))" + (focusable.boolValue ? " FOCUSABLE" : "")
         + (children.isEmpty ? "" : " CHILDREN \(children.joined(separator: ","))")
 }
 /// Each run of a text's accessibility string that holds a link or an attachment, with the

@@ -1200,6 +1200,14 @@ import UIKit
         XCTAssertEqual(foot.height, 1, accuracy: 0.5)
         XCTAssertEqual(foot.width, page.width, accuracy: 1)
         XCTAssertEqual(second.accessibilityFrameInParentSpace().maxY, view.bounds.maxY, accuracy: 1)
+        // VoiceOver gives the focus to an element that says whether it has it, and to none
+        // that only takes it: the class answers both itself.
+        for selector in [#selector(NSAccessibilityElement.isAccessibilityFocused), #selector(NSAccessibilityElement.setAccessibilityFocused(_:))] {
+            let own = try XCTUnwrap(class_getInstanceMethod(ReaderHeadingAccessibilityElement.self, selector))
+            let inherited = try XCTUnwrap(class_getInstanceMethod(NSAccessibilityElement.self, selector))
+            XCTAssertNotEqual(method_getImplementation(own), method_getImplementation(inherited), "\(selector)")
+        }
+        XCTAssertFalse(second.isAccessibilityFocused())
         // Losing the focus, and what an assistive client reads of it, turn nothing.
         var shown = host.recorder.shown.count
         second.setAccessibilityFocused(false)

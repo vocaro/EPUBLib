@@ -678,8 +678,11 @@ final class ReaderHeadingAccessibilityElement: NSAccessibilityElement {
     }
 
     // VoiceOver focuses the element it moves to while its cursor and the keyboard focus go
-    // together (cursor tracking, which is on until a listener turns it off): a heading's, and
-    // never a link's (macOS 27.0.1). That is all it tells the reader of the move.
+    // together (cursor tracking, which is on until a listener turns it off), and that is all
+    // it tells the reader of the move. It focuses an element that says whether it has the
+    // focus and takes it: one that only took it was never given it (macOS 27.0.1).
+    override func isAccessibilityFocused() -> Bool { super.isAccessibilityFocused() }
+
     override func setAccessibilityFocused(_ focused: Bool) {
         super.setAccessibilityFocused(focused)
         guard focused, let view else { return }
