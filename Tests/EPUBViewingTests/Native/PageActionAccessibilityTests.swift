@@ -77,6 +77,30 @@ import AppKit
         XCTAssertEqual(canvas.visibleRange, first)
     }
 
+    func testATurnFromTheSecondColumnBringsKeyboardFocusToTheFirst() throws {
+        let host = host(size: CGSize(width: 1100, height: 420))
+        let canvas = host.canvas, window = host.window
+        let first = canvas.textViews[0], second = canvas.textViews[1]
+        // The book's first spread has none before it: nothing turns, and focus stays.
+        XCTAssertTrue(window.makeFirstResponder(second))
+        XCTAssertTrue(try perform("Previous Page", on: second))
+        XCTAssertTrue(window.firstResponder === second)
+        // VoiceOver follows keyboard focus, and would pass over the new first column otherwise.
+        XCTAssertTrue(try perform("Next Page", on: second))
+        XCTAssertTrue(canvas.textViews[0] === first, "a spread's columns are the same text areas on every page")
+        XCTAssertTrue(window.firstResponder === first)
+        XCTAssertTrue(window.makeFirstResponder(second))
+        second.keyDown(with: pageDown(in: host))
+        XCTAssertTrue(window.firstResponder === first, "a page key turns as the action does")
+        // From the first column focus is where it should be already.
+        XCTAssertTrue(try perform("Previous Page", on: first))
+        XCTAssertTrue(window.firstResponder === first)
+        // Focus outside the columns is the host's or the canvas's own, and is left alone.
+        XCTAssertTrue(window.makeFirstResponder(canvas))
+        XCTAssertTrue(try perform("Next Page", on: second))
+        XCTAssertTrue(window.firstResponder === canvas)
+    }
+
     func testContinuousScrollOffersScrollForwardAndScrollBackwardAndScrollsAStep() throws {
         let host = host(flow: .scrolled)
         let canvas = host.canvas, view = try XCTUnwrap(canvas.scrollTextView)

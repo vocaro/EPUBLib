@@ -438,23 +438,16 @@ final class ReaderTextView: NSTextView {
     // at every line and word inside one, that item is the text area, so each text area offers
     // the page turn itself: named as the host's buttons are for the flow, and doing what a page
     // key does. A view's named actions in SwiftUI reach no element of the window. A note's text
-    // has no canvas and no page to turn.
+    // has no canvas and no page to turn. The turn is made before the handler returns: made
+    // after it, VoiceOver settled on a line that was neither the one it had been on nor the
+    // new first one.
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         guard let canvas else { return super.accessibilityCustomActions() }
         let flow = canvas.configuration.flow
         return (super.accessibilityCustomActions() ?? []) + [EPUBPageAction.next, .previous].map { action in
             NSAccessibilityCustomAction(name: action.label(in: flow)) { [weak self] in
                 guard let canvas = self?.canvas else { return false }
-                // PROBE, not for merge: two switches for one hosted run.
-                let perform = { [weak self] in
-                    guard let self, let canvas = self.canvas else { return }
-                    let shown = canvas.visibleRange
-                    canvas.turnPageFromInput(forward: action == .next)
-                    if UserDefaults.standard.bool(forKey: "ProbeFocusFirst"), canvas.visibleRange != shown,
-                       let first = canvas.textViews.first, first !== self { canvas.focus(first) }
-                }
-                if UserDefaults.standard.bool(forKey: "ProbeDefer") { DispatchQueue.main.async(execute: perform) } else { perform() }
-                _ = canvas
+                canvas.turnPageFromInput(forward: action == .next)
                 return true
             }
         }

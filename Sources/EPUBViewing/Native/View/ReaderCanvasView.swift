@@ -1288,10 +1288,13 @@ import AppKit
         delegate?.canvas(self, didActivate: link, at: position, rect: view.convert(rect, to: self))
     }
 
-    /// A page-turn key, swipe, wheel tick or edge tap.
+    /// A page-turn key, swipe, wheel tick or edge tap, or a text area's page action on Mac.
     func turnPageFromInput(forward: Bool) {
         guard imageInspector == nil, !hasSelection, !isDraggingSelection else { return }
-        _ = turnPage(forward: forward)
+        guard turnPage(forward: forward) != .atBoundary else { return }
+        #if os(macOS)
+        focusFirstColumnAfterTurn()
+        #endif
     }
 
     /// Text is selected in a text view on screen.
