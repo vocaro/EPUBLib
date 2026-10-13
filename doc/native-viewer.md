@@ -209,9 +209,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   static text in every place it was heard. The static text was chosen because its word is
   what the element holds, as the stop's label is on iPhone and iPad, and because it is the
   element a hidden label already has. A link is text on Mac, so a rule that is all a link
-  holds is announced as any other. Not read: `role="presentation"` and `aria-hidden` on a
-  rule, which is announced like any other. A rule in a table cell is not announced on any
-  of the three. On Mac a cell is a text area of its own, which VoiceOver reaches by
+  holds has the element of any other rule; one was not heard. Not read:
+  `role="presentation"` and `aria-hidden` on a rule, which is announced like any other. A
+  rule in a table cell is not announced on any of the three. On Mac a cell is a text area of its own, which VoiceOver reaches by
   interacting with the row and then with the cell, and there it says nothing at a rule, by
   line, by word or reading on. A cell gives each of its attachments a static-text element
   labelled with its text equivalent, which for a rule is the empty string. Giving the rule
