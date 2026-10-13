@@ -139,9 +139,10 @@ final class ReaderRuleAttachment: ReaderAttachment {
     /// description of its own, since AppKit's for the role is "splitter". The element has no
     /// label, value or help, and VoiceOver says the role description alone.
     static func makeSeparator(_ element: NSAccessibilityElement) {
-        // Candidate F: no role of AppKit's, and the reader's word as the role description.
-        element.setAccessibilityRole(.unknown)
+        element.setAccessibilityRole(.splitter)
+        element.setAccessibilitySubrole(NSAccessibility.Subrole(rawValue: "AXContentSeparator"))
         element.setAccessibilityRoleDescription(spokenName.lowercased())
+        element.setAccessibilityOrientation(.horizontal)
         element.setAccessibilityLabel(nil)
         element.setAccessibilityValue(nil)
         element.setAccessibilityHelp(nil)
