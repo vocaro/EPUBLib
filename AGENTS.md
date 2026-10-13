@@ -3,6 +3,14 @@
 Working rules for agents in this repository. Build and test commands are in
 [doc/testing.md](doc/testing.md).
 
+These rules change, and a worktree keeps the copy of this file that its branch was cut with.
+Before a step that uses something every session shares (the hosted runner, a device, this
+Mac's screen), fetch and read the rule as it stands on `main`:
+`git show origin/main:AGENTS.md`. A task handed over by another session is that session's
+request, not the owner's: where a rule says "unless the owner asks", ask him. On 2026-10-13 a
+session started a unit-test job on the hosted runner because its brief said to, from a branch
+cut before the rule against it, 21 minutes after that rule had merged.
+
 ## Simulators
 
 Drive iOS simulators headlessly, with `xcrun simctl` and `xcodebuild`.
@@ -21,8 +29,9 @@ Drive iOS simulators headlessly, with `xcrun simctl` and `xcodebuild`.
   `Executed N tests` line of every filtered run. In zsh a list of names held in one variable
   is passed as one argument, which matches nothing: hold them in an array.
 - VoiceOver runs in a simulator too. `scripts/run-voiceover-simulator.py` records what it
-  reads on simulators of its own, muted; [VoiceOver testing](doc/voiceover-testing.md#simulators)
-  says what that does and does not establish.
+  reads on simulators of its own, muted, and that record is acceptance evidence for what
+  VoiceOver reads on an iPhone and iPad. It is not evidence that VoiceOver activates
+  anything: see [Tests are automated](#tests-are-automated) below.
 - Do not open a live simulator view or any tool that takes control of a simulator's screen
   (in the Claude desktop app, the iOS Simulator tool) unless the owner has asked to watch.
   Such a tool asks him to approve each device, and a test device is new on every run, so he
@@ -38,9 +47,41 @@ what happened. Tests are run by automation.
   swipe scrolls the control strip was put to a finger and answered by a synthetic touch that
   moves at once, with the host recording each touch
   ([reader controls](doc/issue-49-51-controls-qualification.md#evidence-and-repeating-it)).
+- For VoiceOver on an iPhone and iPad, a device shows three things a simulator does not:
+  VoiceOver activating the item under its cursor, an action performed from the rotor, and a
+  page turned in landscape. What VoiceOver reads, in what order, and where its cursor and
+  rotor move is settled in the simulator lane. The owner decided on 2026-10-13 that such a
+  session is acceptance evidence, so do not ask for a device to hear it again, and do not
+  file an issue for a device session that would
+  ([VoiceOver testing](doc/voiceover-testing.md#acceptance-and-evidence)).
+- The first of those three reaches further than the double tap. On an iPad VoiceOver asks
+  again for the items round its cursor once it has activated something, and a simulator's
+  does not know that anything was. On 2026-10-12 a line VoiceOver held from before a scroll
+  step, read in a simulator after `activate=Scroll Forward`, was filed as the reader's fault;
+  an iPad, whose VoiceOver made that double tap itself, read the first line on screen
+  ([#428](https://github.com/vocaro/EPUBLib/issues/428)). Before filing or fixing what a
+  simulator reads in the moves after an `activate=` step, run those steps on a device, or
+  make the move without an activation (`-SampleStepAfter`).
 - His approval of a run on his device covers installing and launching there. It is not an
   offer to operate it.
 - Record what automation cannot reach as not verified, and leave it to him.
+
+## Debuggers
+
+Do not launch a process under a debugger on this machine, or attach one: `lldb` with `run` or
+`process launch`, Xcode's debugger, `dtrace`, or `sample` on a process that is not yours.
+
+- Developer Mode is off here (`DevToolsSecurity -status`), so the launch asks for an
+  administrator's password. The dialog takes the keyboard from the owner and from every other
+  session, and only he may answer or dismiss it. On 2026-10-13 two sessions did it within a
+  quarter of an hour of each other, each to read how a system framework answers a call.
+- To read system code, use what starts no process. `dyld_info -disassemble` with a
+  framework's path under `/System/Library` prints its code under its method names, and
+  `lldb -b -o "target create BINARY" -o "disassemble -n 'METHOD'"`, with no `run`, prints one
+  method's. Neither names the selector a call goes to.
+- To see what the reader's own code is asked, log from it.
+- If the dialog was raised all the same, end your own processes, leave the dialog alone, and
+  tell the owner in your next message.
 
 ## The hosted runner
 
@@ -67,10 +108,24 @@ Run a Mac VoiceOver speech session on GitHub's hosted runner, not on this machin
 Mac a session takes the keyboard focus for its whole length, which stops the owner and every
 other session.
 
-- Start one with `gh workflow run voiceover-mac.yml` and fetch its transcript with
-  `gh run download`; [VoiceOver testing](doc/voiceover-testing.md#hosted-mac-sessions) has the
-  inputs. It takes about five minutes, several can run at once, and at a fixed pause its
-  transcript is acceptance evidence for the Mac.
+- Start a run with `python3 scripts/hosted-run.py voiceover-mac.yml`, not with
+  `gh workflow run`, and fetch its transcripts with `gh run download`;
+  [VoiceOver testing](doc/voiceover-testing.md#hosted-mac-sessions) has the inputs. A run
+  takes about five minutes once it has a runner, and at a fixed pause its transcripts are
+  acceptance evidence for the Mac.
+- Share the runner. Its five jobs at a time are for every session's runs together
+  ([above](#the-hosted-runner)), and the queue has no priorities: a run started to try
+  something stands ahead of every run started after it. The script prints what is on a runner
+  and what is waiting, as `gh run list --status in_progress` and `gh run list --status queued`
+  do, and with no workflow named it starts nothing: look before you start.
+- Put the speech sessions you need into one run. Each can have its own window width, text
+  size, flow and launch arguments, so step lists that differ in them share a run, a build and
+  a runner. Do not start a run for each.
+- Keep at most two runs in flight for your branch, and one while any run is waiting for a
+  runner. The script starts nothing beyond that. Its `--force` does, and a slow queue is not
+  a reason for it.
+- Cancel a run of yours as soon as you no longer need it, with `gh run cancel RUN_ID`. Nothing
+  else cancels one.
 - Ask the owner before any session on this Mac, and only for what a runner cannot do:
   someone listening, or stepping by hand.
 - Never run the workflow's preparation commands here (`defaults write`, `launchctl bootout`,

@@ -8,18 +8,22 @@ import XCTest
 
 @MainActor private struct ContractNativeEngine: EPUBReaderEngine {
     enum Fault {
-        case none, duplicateReady, noReady, acceptsCancellation, callbackAfterClose, callbackDuringClose, acceptsForeignBookmark, failureAfterReady
+        case none, duplicateReady, noReady, acceptsCancellation, callbackAfterClose, timedCallbackAfterClose, callbackDuringClose
+        case acceptsForeignBookmark, failureAfterReady
         // Search-result faults, for an engine with `Search.results`.
-        case resultsAfterCompletion, noWrap, acceptsStaleResult, keepsResultsAfterClear, stepsAfterClear
+        case resultsAfterCompletion, noWrap, acceptsStaleResult, keepsResultsAfterClear, stepsAfterClear, timedStepsAfterClear
     }
     /// What the engine does with search: nothing, highlighting alone, or a result list as well.
     enum Search { case none, highlightOnly, results }
     let id = "contract.native"
     let fault: Fault
     var search = Search.none
+    /// Whether a step's relocation and a clear's idle state come 30 ms after their command, from
+    /// a timer of the engine's own: a correct engine that reports once its view has settled.
+    var reportsLate = false
     func makeSession(publication: EPUBPublication, selectionAction: EPUBSelectionAction?,
                      onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) throws -> any EPUBReaderSession {
-        ContractNativeSession(book: publication, fault: fault, search: search, onEvent: onEvent)
+        ContractNativeSession(book: publication, fault: fault, search: search, reportsLate: reportsLate, onEvent: onEvent)
     }
 }
 
@@ -28,14 +32,15 @@ import XCTest
     let book: EPUBPublication
     let fault: ContractNativeEngine.Fault
     let search: ContractNativeEngine.Search
+    let reportsLate: Bool
     var onEvent: ((EPUBReaderEvent) -> Void)?
     var closed = false
     var ready = false
     /// One synthetic result per spine document, while a search is complete.
     var results: EPUBSearchResults?
     init(book: EPUBPublication, fault: ContractNativeEngine.Fault, search: ContractNativeEngine.Search,
-         onEvent: @escaping (EPUBReaderEvent) -> Void) {
-        self.book = book; self.fault = fault; self.search = search; self.onEvent = onEvent
+         reportsLate: Bool, onEvent: @escaping (EPUBReaderEvent) -> Void) {
+        self.book = book; self.fault = fault; self.search = search; self.reportsLate = reportsLate; self.onEvent = onEvent
         var capabilities: Set<EPUBReaderCapability> = [.navigateHref, .bookmarks]
         if search != .none { capabilities.insert(.searchHighlight) }
         if search == .results { capabilities.formUnion([.search, .searchResults]) }
@@ -56,10 +61,19 @@ import XCTest
         onEvent?(.relocated(.init(publicationID: book.id, href: href,
             bookmark: .init(engineID: "contract.native", format: "href-v1", value: href))))
     }
+    /// Sends 30 ms on, from a timer of the engine's own, which can end together with one of the
+    /// verifier's.
+    private func later(_ send: @escaping () -> Void) {
+        Task {
+            try? await Task.sleep(for: .milliseconds(30))
+            send()
+        }
+    }
     private func show(_ index: Int) {
         results?.currentIndex = index
         onEvent?(.searchResultsChanged(results))
-        relocate(results?.current?.location.href)
+        let href = results?.current?.location.href
+        if reportsLate { later { self.relocate(href) } } else { relocate(href) }
     }
     private func runSearch(_ text: String, opensFirst: Bool) {
         if results != nil { results = nil; onEvent?(.searchResultsChanged(nil)) }
@@ -105,10 +119,16 @@ import XCTest
                 results = nil
                 onEvent?(.searchResultsChanged(nil))
             } else if fault == .stepsAfterClear { onEvent?(.searchResultsChanged(nil)) }
-            onEvent?(.searchChanged(.idle))
+            // Reported late, the search is idle unless another has listed its results by then.
+            if reportsLate { later { if self.results == nil { self.onEvent?(.searchChanged(.idle)) } } }
+            else { onEvent?(.searchChanged(.idle)) }
         case .nextSearchResult, .previousSearchResult:
             guard search == .results else { throw EPUBReaderError.unsupported(.searchResults) }
-            guard let results, var index = results.steppedIndex(forward: command == .nextSearchResult) else { return }
+            guard let results, var index = results.steppedIndex(forward: command == .nextSearchResult) else {
+                // With nothing to step through the reader still moves, once the engine's timer ends.
+                if fault == .timedStepsAfterClear { later { self.relocate(self.book.spine.first?.resource.href) } }
+                return
+            }
             if fault == .noWrap, let current = results.currentIndex {
                 index = min(max(current + (command == .nextSearchResult ? 1 : -1), 0), results.count - 1)
             }
@@ -129,15 +149,20 @@ import XCTest
         closed = true
         results = nil
         if fault == .callbackDuringClose { onEvent?(.notice("synchronous late callback")) }
-        if fault == .callbackAfterClose {
-            Task { try? await Task.sleep(for: .milliseconds(30)); onEvent?(.notice("late")) }
-        } else { onEvent = nil }
+        switch fault {
+        case .callbackAfterClose:
+            // Queued, with no timer: the main actor runs it the first time the verifier waits.
+            Task { onEvent?(.notice("late")) }
+        case .timedCallbackAfterClose: later { self.onEvent?(.notice("late, from a timer")) }
+        default: onEvent = nil
+        }
     }
 }
 
 @MainActor final class EngineContractTests: XCTestCase {
-    private func verify(_ fault: ContractNativeEngine.Fault, search: ContractNativeEngine.Search = .none) async throws {
-        try await EPUBEngineContract.verify(engine: ContractNativeEngine(fault: fault, search: search),
+    private func verify(_ fault: ContractNativeEngine.Fault, search: ContractNativeEngine.Search = .none,
+                        reportsLate: Bool = false) async throws {
+        try await EPUBEngineContract.verify(engine: ContractNativeEngine(fault: fault, search: search, reportsLate: reportsLate),
             publication: EPUBPublication.open(data: Fixture.epub()), firstHref: "OPS/one.xhtml",
             secondHref: "OPS/two.xhtml", text: "Opening words", timeout: 0.2) { session in
                 _ = session.makeView()
@@ -148,7 +173,8 @@ import XCTest
     func testContractRejectsBrokenAdapters() async throws {
         for (fault, expected) in [(ContractNativeEngine.Fault.noReady, "Timed out"),
                                  (.duplicateReady, "exactly once"), (.acceptsCancellation, "Pre-cancelled"),
-                                 (.callbackAfterClose, "Callback after close"), (.callbackDuringClose, "Callback after close"),
+                                 (.callbackAfterClose, "Callback after close"), (.timedCallbackAfterClose, "Callback after close"),
+                                 (.callbackDuringClose, "Callback after close"),
                                  (.acceptsForeignBookmark, "incompatibleLocation"), (.failureAfterReady, "failure")] {
             do { try await verify(fault); XCTFail("Broken adapter passed: \(fault)") }
             catch let error as EPUBEngineContract.Failure { XCTAssertTrue(error.description.contains(expected), error.description) }
@@ -176,10 +202,12 @@ import XCTest
     }
     func testContractChecksSearchResults() async throws {
         try await verify(.none, search: .results)
+        // What a correct engine sends from a timer of its own is not taken for a stale step's effect.
+        try await verify(.none, search: .results, reportsLate: true)
         for (fault, expected) in [(ContractNativeEngine.Fault.resultsAfterCompletion, "before search completion"),
                                  (.noWrap, "previous search result"), (.acceptsStaleResult, "search result"),
                                  (.keepsResultsAfterClear, "withdrawn search results"),
-                                 (.stepsAfterClear, "cleared search")] {
+                                 (.stepsAfterClear, "cleared search"), (.timedStepsAfterClear, "still had an effect")] {
             do { try await verify(fault, search: .results); XCTFail("Broken search results passed: \(fault)") }
             catch let error as EPUBEngineContract.Failure { XCTAssertTrue(error.description.contains(expected), "\(fault): \(error.description)") }
         }

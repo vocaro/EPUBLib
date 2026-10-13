@@ -31,6 +31,8 @@ final class TableModel: @unchecked Sendable {
     }
     enum Placement { case top, middle, bottom }
     enum Alignment { case start, center, end }
+    /// A header cell's `scope`: what it is a header for.
+    enum Scope { case automatic, row, column, rowGroup, columnGroup }
 
     struct Cell {
         var row: Int, column: Int, rowSpan: Int, columnSpan: Int
@@ -38,6 +40,7 @@ final class TableModel: @unchecked Sendable {
         /// What VoiceOver reads.
         var text: String
         var isHeader: Bool
+        var scope: Scope = .automatic
         var padding: Insets
         var borders: Borders
         /// Padding plus the part of the borders inside the cell's slot.
@@ -51,6 +54,32 @@ final class TableModel: @unchecked Sendable {
         /// Min-content and max-content widths of `content`.
         var minContent: CGFloat
         var maxContent: CGFloat
+
+        /// The cell's words are one link and nothing else: to an assistive technology the
+        /// cell is that link, and following it is what the cell does.
+        var isLink: Bool {
+            var links = 0, linked = 0, words = 0
+            content.enumerateAttribute(.link, in: NSRange(location: 0, length: content.length)) { value, range, _ in
+                let count = (content.string as NSString).substring(with: range).filter { !$0.isWhitespace }.count
+                words += count
+                if value != nil { links += 1; linked += count }
+            }
+            return links == 1 && linked == words && words > 0
+        }
+
+        /// The cell shows no words and nothing that is read as words: pictures and nothing
+        /// else, or nothing at all. A formula, a rule, a hidden label and a table inside the
+        /// cell are read, so a cell that holds one of them is not such a cell.
+        var isWordless: Bool {
+            var wordless = true
+            content.enumerateAttribute(.attachment, in: NSRange(location: 0, length: content.length)) { value, range, stop in
+                if value is ReaderImageAttachment { return }
+                guard value != nil || !(content.string as NSString).substring(with: range).allSatisfy(\.isWhitespace) else { return }
+                wordless = false
+                stop.pointee = true
+            }
+            return wordless
+        }
     }
     struct Row {
         var background: CGColor?
@@ -81,6 +110,10 @@ final class TableModel: @unchecked Sendable {
     let background: CGColor?
     let alignment: Alignment
     let isRightToLeft: Bool
+    /// The table holds data, and is not there to arrange content side by side
+    /// (`TableContent.isData`): an assistive technology is given its cells, each with its row,
+    /// its column and their header cells, where a table that is not is given its rows.
+    let isData: Bool
 
     /// The scale a table wider than its line is drawn at, at least: below it, cells wrap by
     /// character instead.
@@ -90,16 +123,19 @@ final class TableModel: @unchecked Sendable {
 
     private let lock = NSLock()
     private var cachedConstraints: TableLayout.Constraints?
+    private var cachedHeaders: (columns: [[Int]], rows: [[Int]])?
     private var layouts: [LayoutKey: TableLayout] = [:]
     private var layoutOrder: [LayoutKey] = []
     struct LayoutKey: Hashable { let width: CGFloat; let height: CGFloat }
 
     init(cells: [Cell], rows: [Row], columnCount: Int, columns: [ComputedStyle.Length], width: ComputedStyle.Length,
-         collapse: Bool, spacing: CGSize, borders: Borders, background: CGColor?, alignment: Alignment, isRightToLeft: Bool) {
+         collapse: Bool, spacing: CGSize, borders: Borders, background: CGColor?, alignment: Alignment, isRightToLeft: Bool,
+         isData: Bool = false) {
         self.cells = cells; self.rows = rows; self.columnCount = columnCount; self.columns = columns
         self.width = width; self.collapse = collapse; self.spacing = collapse ? .zero : spacing
         self.borders = borders; self.background = background; self.alignment = alignment
         self.isRightToLeft = isRightToLeft
+        self.isData = isData
         groups = Self.groups(rows: rows, cells: cells)
         var rowCells = [[Int]](repeating: [], count: rows.count)
         for (index, cell) in cells.enumerated() {
@@ -149,6 +185,48 @@ final class TableModel: @unchecked Sendable {
         }
         return layout
     }
+
+    // MARK: Header cells
+
+    /// The header cells of each column and of each row, as indices into `cells`, in reading
+    /// order. HTML's rule for a `th` (the table model's "column header" and "row header"): its
+    /// `scope` says which it is; without one it heads its columns when its rows hold header
+    /// cells alone or it stands in `<thead>`, and otherwise its rows when its columns hold
+    /// header cells alone. `scope="colgroup"` and `"rowgroup"` are read as column and row.
+    private var headers: (columns: [[Int]], rows: [[Int]]) {
+        if let headers = lock.withLock({ cachedHeaders }) { return headers }
+        // Whether a data cell stands in each row and in each column.
+        var dataInRow = [Bool](repeating: false, count: rows.count), dataInColumn = [Bool](repeating: false, count: columnCount)
+        for cell in cells where !cell.isHeader {
+            for row in cell.row..<min(rows.count, cell.row + cell.rowSpan) { dataInRow[row] = true }
+            for column in cell.column..<min(columnCount, cell.column + cell.columnSpan) { dataInColumn[column] = true }
+        }
+        var columns = [[Int]](repeating: [], count: columnCount), rowHeaders = [[Int]](repeating: [], count: rows.count)
+        for (index, cell) in cells.enumerated() where cell.isHeader {
+            let ownRows = cell.row..<min(rows.count, cell.row + cell.rowSpan)
+            let ownColumns = cell.column..<min(columnCount, cell.column + cell.columnSpan)
+            let headsColumns: Bool, headsRows: Bool
+            switch cell.scope {
+            case .column, .columnGroup: (headsColumns, headsRows) = (true, false)
+            case .row, .rowGroup: (headsColumns, headsRows) = (false, true)
+            case .automatic:
+                headsColumns = rows[cell.row].isHeader || !ownRows.contains { dataInRow[$0] }
+                headsRows = !headsColumns && !ownColumns.contains { dataInColumn[$0] }
+            }
+            if headsColumns { for column in ownColumns { columns[column].append(index) } }
+            if headsRows { for row in ownRows { rowHeaders[row].append(index) } }
+        }
+        for column in columns.indices { columns[column].sort { cells[$0].row < cells[$1].row } }
+        for row in rowHeaders.indices { rowHeaders[row].sort { cells[$0].column < cells[$1].column } }
+        lock.withLock { cachedHeaders = (columns, rowHeaders) }
+        return (columns, rowHeaders)
+    }
+
+    /// The cells that head `column`, top first.
+    func columnHeaders(_ column: Int) -> [Int] { headers.columns.indices.contains(column) ? headers.columns[column] : [] }
+
+    /// The cells that head `row`, in column order.
+    func rowHeaders(_ row: Int) -> [Int] { headers.rows.indices.contains(row) ? headers.rows[row] : [] }
 
     /// Column min/max widths: independent of the line, computed once.
     var constraints: TableLayout.Constraints {

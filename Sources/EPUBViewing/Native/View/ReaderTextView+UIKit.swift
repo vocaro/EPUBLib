@@ -17,9 +17,9 @@ final class ReaderTextView: UITextView {
     var tableInteraction: ReaderTableInteraction?
     var containsTableRows = false
     weak var canvas: ReaderCanvasView?
-    private var pageAccessibilityCache: [ReaderPageAccessibilityElement]?
+    private var pageAccessibilityCache: ReaderAccessibilityList?
     /// The scroll view's listed lines, and where the view stood when they were measured.
-    private var scrollAccessibilityCache: (place: ScrollAccessibilityPlace, elements: [ReaderPageAccessibilityElement])?
+    private var scrollAccessibilityCache: (place: ScrollAccessibilityPlace, list: ReaderAccessibilityList)?
     /// The line of the scroll view an assistive technology's cursor is on: from the moment the
     /// line is told so until UIKit's focus notification names something that is not one of this
     /// view's lines.
@@ -27,9 +27,27 @@ final class ReaderTextView: UITextView {
     /// Whether that cursor is on something VoiceOver reaches after the scroll view's lines: one
     /// of the scroll view's own bars, or an item below the reading area.
     private var accessibilityCursorFollowsText = false
+    /// The line or table cell of a page column an assistive technology's cursor is on: from
+    /// the moment the element is told so until UIKit's focus notification names something
+    /// that is not one of this column's. VoiceOver goes on holding the element when the page
+    /// is turned under it, so this is then an item the column no longer lists
+    /// (`accessibilityCursorHasLeftThePage`), until the element is made an item of the page
+    /// shown (`accessibilityCursorStands(for:)`).
+    private var pageAccessibilityCursor: ReaderPageAccessibilityElement? {
+        didSet { pageAccessibilityCursorTable = pageAccessibilityCursor?.accessibilityContainer as? ReaderTableAccessibilityElement }
+    }
+    /// The element of the data table that cursor's cell is in. The column's list holds it
+    /// until the page is shown again, and the cell does not: this keeps it for
+    /// `accessibilityCursorKeepsItsLine`.
+    private var pageAccessibilityCursorTable: ReaderTableAccessibilityElement?
+    /// The elements that stand in the list for the scroll view's own bars (`scrollBarListed`).
+    private var scrollBarElements: [ReaderScrollBarAccessibilityElement] = []
     /// How many lines the scroll view lists past the screen: as many items as VoiceOver was seen
     /// to ask for at once (iOS 27.0).
     private static let accessibilityLinesPastScreen = 50
+    /// How far inside the area the insets leave UIKit brings what VoiceOver's cursor goes to
+    /// (iOS 27.0).
+    private static let accessibilityScrollMargin: CGFloat = 40
     private var imageGestureDelegate: ReaderImageGestureDelegate?
     private var selectionGestureDelegate: ReaderSpreadSelectionGestureDelegate?
     /// VoiceOver's Headings rotor for the lines this view lists.
@@ -55,10 +73,8 @@ final class ReaderTextView: UITextView {
         if pageColumn { selectionGestureDelegate = ReaderSpreadSelectionGestureDelegate.install(on: self) }
         textContainerInset = .zero
         textDragInteraction?.isEnabled = false
-        if !pageColumn {
-            for name in [UIAccessibility.elementFocusedNotification, UIAccessibility.voiceOverStatusDidChangeNotification] {
-                NotificationCenter.default.addObserver(self, selector: #selector(accessibilityFocusChanged(_:)), name: name, object: nil)
-            }
+        for name in [UIAccessibility.elementFocusedNotification, UIAccessibility.voiceOverStatusDidChangeNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(accessibilityFocusChanged(_:)), name: name, object: nil)
         }
         if pageColumn {
             isScrollEnabled = false
@@ -148,19 +164,15 @@ final class ReaderTextView: UITextView {
 
     override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
         get {
-            let rect = bounds.offsetBy(dx: -containerOrigin.x, dy: -containerOrigin.y)
-            guard let range = visibleCharacterRange(in: rect) else { return super.accessibilityCustomActions }
-            let actions = announcedImages(in: range).map { image, _ in
-                UIAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") {
-                    [weak self] _ in
-                    self?.canvas?.inspectImage(image)
-                    return self?.canvas != nil
-                }
-            }
-            let tableActions = (tableInteraction?.accessibilityActions() ?? []).map { action in
-                UIAccessibilityCustomAction(name: action.name) { _ in action.perform() }
-            }
-            return (super.accessibilityCustomActions ?? []) + actions + tableActions
+            // VoiceOver offers a container's actions on every element in it, after the
+            // element's own. A view that lists its lines offers none: each line offers what
+            // is in it. With UIKit's actions here, one for every link of the text, and the
+            // reader's for its images, a plain line offered the picture beside it, and a line
+            // of continuous scroll every link of the book.
+            guard !listsLines else { return nil }
+            // A note keeps UIKit's elements and what UIKit offers for them. The reader has
+            // nothing to add there: a note has no canvas to inspect an image in.
+            return super.accessibilityCustomActions
         }
         set { super.accessibilityCustomActions = newValue }
     }
@@ -180,34 +192,131 @@ final class ReaderTextView: UITextView {
     }
 
     override var accessibilityElements: [Any]? {
-        get { listsLines ? lineAccessibilityElements : super.accessibilityElements }
+        get { listsLines ? listedAccessibilityElements : super.accessibilityElements }
         set { super.accessibilityElements = newValue }
     }
 
     override func accessibilityElementCount() -> Int {
-        listsLines ? lineAccessibilityElements.count : super.accessibilityElementCount()
+        listsLines ? listedAccessibilityElements.count : super.accessibilityElementCount()
     }
 
     override func accessibilityElement(at index: Int) -> Any? {
         guard listsLines else { return super.accessibilityElement(at: index) }
-        let elements = lineAccessibilityElements
+        let elements = listedAccessibilityElements
         return elements.indices.contains(index) ? elements[index] : nil
     }
 
     override func index(ofAccessibilityElement element: Any) -> Int {
         guard listsLines else { return super.index(ofAccessibilityElement: element) }
-        let elements = lineAccessibilityElements
+        let elements = accessibilityList.listed
         if let index = elements.firstIndex(where: { $0 === element as AnyObject }) { return index }
-        // An element kept from before the list moved away and back stands for its line.
-        guard let kept = element as? ReaderPageAccessibilityElement, kept.view === self else { return NSNotFound }
-        return elements.firstIndex { $0.range == kept.range && $0.url == kept.url } ?? NSNotFound
+        // A bar's stand-in follows the last line, and UIKit's own bar is where its stand-in is.
+        if let index = scrollBarListed.firstIndex(where: { $0 === element as AnyObject || $0.bar === element as AnyObject }) {
+            return elements.count + index
+        }
+        // An element kept from before the list moved away and back stands for its line, which
+        // is known by its place in the book. A page column counts characters from its page's
+        // first: by those, a line of the page before stood for whichever line of the page
+        // turned to had the same ones, and VoiceOver went on from the middle of that page.
+        // A table kept so stands for the rows of it listed now.
+        if let kept = element as? ReaderTableAccessibilityElement, kept.view === self {
+            return elements.firstIndex { ($0 as? ReaderTableAccessibilityElement)?.table === kept.table } ?? NSNotFound
+        }
+        guard let kept = element as? ReaderPageAccessibilityElement, !kept.isCell, kept.view === self else { return NSNotFound }
+        return elements.firstIndex { ($0 as? ReaderPageAccessibilityElement)?.isSameLine(as: kept) == true } ?? NSNotFound
+    }
+
+    /// Whether an assistive technology's cursor is on a line of a page this column no longer
+    /// shows: the page was turned under it. A table's cell is listed by its table and has no
+    /// place in the column's own list, so it is looked for among the cells listed.
+    var accessibilityCursorHasLeftThePage: Bool {
+        guard let cursor = pageAccessibilityCursor else { return false }
+        if cursor.isCell { return !lineAccessibilityElements.contains { cursor.isSameLine(as: $0) } }
+        return index(ofAccessibilityElement: cursor) == NSNotFound
+    }
+
+    /// The line that holds `location`, in this view's characters, or the first one listed after it.
+    func accessibilityLine(from location: Int) -> Any? {
+        guard listsLines else { return nil }
+        return lineAccessibilityElements.first { NSMaxRange($0.range) > location }
+    }
+
+    /// Has the element an assistive technology's cursor was left on in this column stand for
+    /// `line`, a line or a data table's cell of the page now shown, here or in another column,
+    /// and gives it that item's place: a line's in the view's list, a cell's among the cells
+    /// its table's element lists. The answer is the element the cursor is on: that one, or
+    /// `line` where no cursor was left. VoiceOver keeps what was chosen in its rotor while
+    /// its cursor stays on one item, as a line's Next Page, and on coming to another item
+    /// its rotor is at its default. A line and a cell are one class of element for this: the
+    /// element under the cursor is a cell on one page and a line on the next.
+    ///
+    /// From a cell to a cell the answer is `line`, the new cell's own element. VoiceOver says
+    /// a cell's row and column, and where its table starts, of an item its cursor comes to,
+    /// and of the item already under its cursor only when that item was no cell before: a
+    /// line that became a cell was read as a new cell is, and a cell that became another
+    /// was read by its words alone, the rotor kept each time (iOS 27.0 simulator). A reader
+    /// of a table needs the row a page begins at more than the rotor's place.
+    func accessibilityCursorStands(for line: Any?) -> Any? {
+        guard let line = line as? ReaderPageAccessibilityElement, let cursor = pageAccessibilityCursor, cursor !== line,
+              !(cursor.isCell && line.isCell), let view = line.view, view.list(cursor, inPlaceOf: line) else { return line }
+        pageAccessibilityCursor = nil
+        view.pageAccessibilityCursor = cursor
+        return cursor
+    }
+
+    /// Has the element an assistive technology's cursor is on in this column go on as the
+    /// item of its line, or of its cell of a data table, when the column's page has been
+    /// shown again and still has that line: the host changed the appearance, or the text was
+    /// built again. A page shown has new elements for all it lists, and VoiceOver, told that
+    /// the layout changed, takes the new element where its cursor is for another item: it
+    /// sets its cursor there without a word, and its rotor is at its default
+    /// (`ReaderCanvasView.accessibilityPageWasShown`). The element it holds, listed where
+    /// that new one was, is the item its cursor is on already. It sets nothing, and what was
+    /// chosen in its rotor still stands (iOS 27.0 simulator).
+    ///
+    /// A cell keeps its element here too, where across a turn it does not
+    /// (`accessibilityCursorStands(for:)`): there the cursor comes to another cell, whose row
+    /// and column VoiceOver is to say, and here it stays on the cell it was on and VoiceOver
+    /// says nothing. Its table's element is kept with it, as the element of the table the
+    /// page now has. With the cell kept and a new element for its table, VoiceOver said the
+    /// cell's header cells and its words whenever it came back to it, and no longer its row
+    /// or its column: "Depth Twelve metres" where it had said "Depth Twelve metres Column
+    /// 3" (iOS 27.0 simulator).
+    func accessibilityCursorKeepsItsLine() {
+        guard let cursor = pageAccessibilityCursor,
+              let line = lineAccessibilityElements.first(where: { $0 !== cursor && cursor.isSameLine(as: $0) }) else { return }
+        let kept = pageAccessibilityCursorTable
+        guard list(cursor, inPlaceOf: line), let kept, let table = cursor.accessibilityContainer as? ReaderTableAccessibilityElement,
+              table !== kept, var list = pageAccessibilityCache, let place = list.listed.firstIndex(where: { $0 === table }) else { return }
+        kept.stand(for: table)
+        list.listed[place] = kept
+        pageAccessibilityCache = list
+    }
+
+    /// Lists `cursor` where this column lists `line`, as that item: a line's place in the
+    /// view's list, a cell's among the cells its table's element lists. Nothing changes when
+    /// `line` is not listed here.
+    private func list(_ cursor: ReaderPageAccessibilityElement, inPlaceOf line: ReaderPageAccessibilityElement) -> Bool {
+        guard var list = pageAccessibilityCache, let index = list.elements.firstIndex(where: { $0 === line }) else { return false }
+        if let table = line.accessibilityContainer as? ReaderTableAccessibilityElement {
+            guard table.cells.contains(where: { $0 === line }) else { return false }
+            cursor.stand(for: line)
+            table.list(table.cells.map { $0 === line ? cursor : $0 })
+        } else {
+            guard let place = list.listed.firstIndex(where: { $0 === line }) else { return false }
+            cursor.stand(for: line)
+            list.listed[place] = cursor
+        }
+        list.elements[index] = cursor
+        pageAccessibilityCache = list
+        return true
     }
 
     // VoiceOver's own Headings rotor moves among the elements it is given, and a page or a
     // screen holds few of a book's headings: past the last of them it finds none. So the lines'
     // container gives VoiceOver that rotor itself, and goes on to the book's next heading.
-    // What VoiceOver says of a line is the same with it: every line said "Actions available"
-    // before, in pages and in continuous scroll.
+    // A rotor is not an action: VoiceOver says "Actions available" of a line for the actions
+    // the line is offered, with this rotor and without it.
     override var accessibilityCustomRotors: [UIAccessibilityCustomRotor]? {
         get { listsLines ? [headingRotor] : super.accessibilityCustomRotors }
         set { super.accessibilityCustomRotors = newValue }
@@ -242,7 +351,7 @@ final class ReaderTextView: UITextView {
             return nil
         }
         // It can be on the page or the screen already; otherwise the reader goes to it.
-        if shown() == nil { canvas.show(target, selecting: nil) }
+        if shown() == nil { canvas.showForAccessibilityRotor(target) }
         return shown().map { UIAccessibilityCustomRotorItemResult(targetElement: $0, targetRange: nil) }
     }
 
@@ -251,22 +360,113 @@ final class ReaderTextView: UITextView {
 
     private var isCanvasScrollView: Bool { !isPageColumn && canvas?.scrollTextView === self }
 
-    private var lineAccessibilityElements: [ReaderPageAccessibilityElement] {
+    private var accessibilityList: ReaderAccessibilityList {
         isPageColumn ? pageAccessibilityElements : scrollAccessibilityElements
     }
 
-    private var pageAccessibilityElements: [ReaderPageAccessibilityElement] {
+    /// Every line and every table cell listed, in reading order.
+    private var lineAccessibilityElements: [ReaderPageAccessibilityElement] { accessibilityList.elements }
+
+    /// What the view lists: its lines, a table's cells inside an element for the table, and
+    /// after them a stand-in for each of the scroll view's own bars.
+    private var listedAccessibilityElements: [NSObject] { accessibilityList.listed + (scrollBarListed as [NSObject]) }
+
+    private var pageAccessibilityElements: ReaderAccessibilityList {
         if let pageAccessibilityCache { return pageAccessibilityCache }
-        let elements = accessibilityElements(for: pageAccessibilityLines, reusing: [])
-        pageAccessibilityCache = elements
-        return elements
+        let list = self.list(accessibilityElements(for: pageAccessibilityLines, reusing: []))
+        pageAccessibilityCache = list
+        return list
+    }
+
+    /// `elements` as an assistive technology is given them: each line, and a table's cells
+    /// inside an element for the table. A table's rows follow one another, so its cells do
+    /// too, also when the rows around a resting cursor and the rows on screen are listed
+    /// apart: one element holds both. A table keeps its element while any cell of it stays listed.
+    private func list(_ elements: [ReaderPageAccessibilityElement]) -> ReaderAccessibilityList {
+        var listed: [NSObject] = [], run: [ReaderPageAccessibilityElement] = []
+        func close() {
+            guard let model = run.first?.table else { return }
+            let table = run.lazy.compactMap { $0.accessibilityContainer as? ReaderTableAccessibilityElement }.first { $0.table === model }
+                ?? ReaderTableAccessibilityElement(view: self, table: model)
+            table.list(run)
+            listed.append(table)
+            run = []
+        }
+        for element in elements {
+            guard element.isCell else { close(); listed.append(element); continue }
+            if let last = run.last, last.table !== element.table { close() }
+            run.append(element)
+        }
+        close()
+        return ReaderAccessibilityList(elements: elements, listed: listed)
+    }
+
+    /// The scroll view's own scroll bars, as elements the view lists itself after its last line.
+    ///
+    /// UIKit gives VoiceOver a scroll view's bar after the view's last element and then holds
+    /// the bar to stand before the first: it keeps the bar among the views it calls the scroll
+    /// view's supplementary headers, and asked for the items each side of a header it answers
+    /// with the first line listed and with the control before the scroll view. So VoiceOver
+    /// read the screen a second time after the book's last line, and went back from the bar
+    /// to the control before the text. A bar hidden from assistive technology is no such
+    /// header, and is not given to VoiceOver at all. So each bar is hidden, and an element of
+    /// the reader's own is listed in its place: it says what the bar says and adjusts as the
+    /// bar adjusts, by asking the bar, and being an element of the list like any line it has
+    /// the last line before it and whatever follows the scroll view after it. A bar is a view
+    /// of the scroll view's own that is an accessibility element: the lines are no views.
+    private var scrollBarListed: [ReaderScrollBarAccessibilityElement] {
+        guard isCanvasScrollView else { return [] }
+        scrollBarElements.removeAll { $0.bar.superview !== self }
+        for bar in subviews where bar.isAccessibilityElement && !bar.accessibilityElementsHidden {
+            bar.accessibilityElementsHidden = true
+            scrollBarElements.append(ReaderScrollBarAccessibilityElement(view: self, bar: bar))
+        }
+        scrollBarElements.forEach { $0.refresh() }
+        return scrollBarElements
+    }
+
+    /// Where a bar's stand-in is for VoiceOver: the bar's own place, less what the insets
+    /// cover. UIKit scrolls the view until the area the insets leave holds the frame of the
+    /// item the cursor goes to, and a bar is as tall as the view: for the bar itself the view
+    /// went back by the top inset and 40 points at every move to it.
+    fileprivate func accessibilityFrame(ofScrollBar bar: UIView) -> CGRect {
+        let area = UIAccessibility.convertToScreenCoordinates(bounds.inset(by: adjustedContentInset), in: self)
+        let frame = bar.accessibilityFrame
+        return CGRect(x: frame.minX, y: area.minY, width: frame.width, height: area.height)
+    }
+
+    /// `area` of this view, less the side a scroll bar is on. A touch on the bar reached
+    /// UIKit's bar, a view, before any line the scroll view lists. An element in its place is
+    /// one of those the touch is tried against, and VoiceOver took a line that ended within a
+    /// few points of the finger for the one touched: a full line of a paragraph runs under
+    /// the bar's place, which is ten times as wide as the bar is drawn.
+    private func clearOfScrollBars(_ area: CGRect) -> CGRect {
+        var area = area
+        // An element's frame is the screen's. The view is upright on it and at its scale.
+        let origin = UIAccessibility.convertToScreenCoordinates(bounds, in: self).origin
+        for element in scrollBarListed {
+            let bar = element.bar.accessibilityFrame.offsetBy(dx: bounds.minX - origin.x, dy: bounds.minY - origin.y)
+            guard bar.height > bar.width else { continue }
+            let (minX, maxX) = bar.midX > area.midX ? (area.minX, min(area.maxX, bar.minX)) : (max(area.minX, bar.maxX), area.maxX)
+            area = CGRect(x: minX, y: area.minY, width: max(0, maxX - minX), height: area.height)
+        }
+        return area
+    }
+
+    /// Whether an assistive technology's cursor is on one of the scroll view's lines.
+    var accessibilityCursorIsOnALine: Bool { accessibilityCursor != nil }
+
+    /// An assistive technology's cursor came to a bar's stand-in.
+    fileprivate func accessibilityCursorMovedToScrollBar() {
+        accessibilityCursor = nil
+        accessibilityCursorFollowsText = true
     }
 
     /// The lines VoiceOver is given in continuous scroll: those on screen and the fifty after
     /// them. Moving into the text from a control it takes the first line listed, the first on
     /// screen. Moving back into it from below it takes the last, so while its cursor is on
     /// something that follows the text the list is the lines on screen alone and that is the
-    /// last of them.
+    /// last of them, or the line it was given as the last a move ago (`lastLineKept`).
     ///
     /// VoiceOver asks for the items after the one its cursor is on, then moves through what it
     /// was given and asks again only when it has used them. As a rule it asks for two. At its
@@ -276,15 +476,16 @@ final class ReaderTextView: UITextView {
     /// screen and of that line: UIKit scrolls the line it lands on into view, and so it reads on
     /// through the book in either direction. A line keeps its element while it is listed or
     /// under the cursor.
-    private var scrollAccessibilityElements: [ReaderPageAccessibilityElement] {
-        guard let canvas else { return [] }
+    private var scrollAccessibilityElements: ReaderAccessibilityList {
+        guard let canvas else { return ReaderAccessibilityList() }
         let place = ScrollAccessibilityPlace(offset: contentOffset, size: bounds.size, content: contentSize,
                                              insets: adjustedContentInset, cursor: accessibilityCursor.map(ObjectIdentifier.init),
-                                             cursorFollowsText: accessibilityCursorFollowsText)
-        if let cache = scrollAccessibilityCache, cache.place == place { return cache.elements }
-        guard let shown = canvas.scrollSpokenCharacters() else { return [] }
+                                             cursorFollowsText: accessibilityCursorFollowsText, bars: scrollBarListed.count)
+        if let cache = scrollAccessibilityCache, cache.place == place { return cache.list }
+        guard let shown = canvas.scrollSpokenCharacters() else { return ReaderAccessibilityList() }
         let past = Self.accessibilityLinesPastScreen
         var listed = [withLines(before: 0, after: accessibilityCursorFollowsText ? 0 : past, shown)]
+        if accessibilityCursorFollowsText, let kept = lastLineKept(past: shown) { listed = [shown.union(kept)] }
         if let cursor = accessibilityCursor, var held = line(containing: cursor.range.location)?.range {
             // A heading under the cursor can take several lines.
             if let last = line(containing: NSMaxRange(cursor.range) - 1) { held.formUnion(last.range) }
@@ -295,7 +496,7 @@ final class ReaderTextView: UITextView {
             else { listed = [screen.union(around)] }
         }
         let lines = listed.flatMap(measuredLines(in:))
-        let existing = (scrollAccessibilityCache?.elements ?? []) + [accessibilityCursor].compactMap { $0 }
+        let existing = (scrollAccessibilityCache?.list.elements ?? []) + [accessibilityCursor].compactMap { $0 }
         var elements = accessibilityElements(for: lines, reusing: existing)
         // A screen of decoration alone lists it, whatever is listed past the screen: VoiceOver
         // would otherwise come in at a line below the screen, and the reader would go there.
@@ -305,8 +506,8 @@ final class ReaderTextView: UITextView {
         // UIKit scrolls the line the cursor comes to until the area the insets leave holds its
         // frame, and then 40 points further. A first line on screen that the top inset cuts
         // would move the reader as VoiceOver came in, so a line on screen is listed by the
-        // part of it in that area.
-        let area = canvas.scrollVisibleContainerRect.offsetBy(dx: containerOrigin.x, dy: containerOrigin.y)
+        // part of it in that area, and by the part clear of the scroll bar.
+        let area = clearOfScrollBars(canvas.scrollVisibleContainerRect.offsetBy(dx: containerOrigin.x, dy: containerOrigin.y))
         for element in elements where NSIntersectionRange(element.range, shown).length > 0 {
             var frame = element.accessibilityFrameInContainerSpace
             // Hidden labels standing at the top with the first line can be a fraction above it.
@@ -314,8 +515,32 @@ final class ReaderTextView: UITextView {
             frame = frame.intersection(area)
             if !frame.isEmpty { element.accessibilityFrameInContainerSpace = frame }
         }
-        scrollAccessibilityCache = (place, elements)
-        return elements
+        let list = self.list(elements)
+        scrollAccessibilityCache = (place, list)
+        return list
+    }
+
+    /// The line the list goes on ending at while VoiceOver's cursor is after the text, where
+    /// that is no longer the last line on screen.
+    ///
+    /// As its cursor comes to a control below the reader VoiceOver is given the scroll bar and
+    /// the last line listed, and at its next move it asks for the line before that one. In
+    /// between it has UIKit bring the bar into view as it would a line. The bar is as tall as
+    /// the view, the top inset cuts it, and the view goes back by that inset and 40 points
+    /// more, wherever it has the room: the line VoiceOver holds is then below the screen, and
+    /// asked from a line that was no longer listed UIKit answered with the control before the
+    /// text. So the list still ends at the line it ended at when it was last made with the
+    /// cursor after the text, with the lines between that line and the screen, while the view
+    /// has gone back no further than one such move since. That holds each time the cursor
+    /// goes to the bar. After a longer move back, the person's or the reader's own, or a move
+    /// forward past that line, the list ends at the last line on screen again.
+    private func lastLineKept(past shown: NSRange) -> NSRange? {
+        guard let cache = scrollAccessibilityCache, cache.place.cursorFollowsText, cache.place.size == bounds.size,
+              cache.place.insets == adjustedContentInset, let last = cache.list.elements.last?.range,
+              NSMaxRange(last) > NSMaxRange(shown) else { return nil }
+        guard cache.place.offset.y - contentOffset.y <= adjustedContentInset.top + Self.accessibilityScrollMargin + 1 else { return nil }
+        // The last element can be part of its line: a link, or the words before one.
+        return line(containing: NSMaxRange(last) - 1).map { last.union($0.range) } ?? last
     }
 
     /// `range` with as many lines before it and after it, where the text has them.
@@ -332,11 +557,18 @@ final class ReaderTextView: UITextView {
         return result
     }
 
-    /// An assistive technology's cursor came to `element`, a line of the scroll view.
+    /// An assistive technology's cursor came to `element`, a line of this view.
     fileprivate func accessibilityCursorMoved(to element: ReaderPageAccessibilityElement) {
+        if isPageColumn { pageAccessibilityCursor = element }
         guard isCanvasScrollView else { return }
         accessibilityCursor = element
         accessibilityCursorFollowsText = false
+    }
+
+    /// Lists the lines again if the view or the cursor has moved since they were listed. A
+    /// table's element is asked for its cells without the text view being asked first.
+    fileprivate func updateAccessibilityList() {
+        if listsLines { _ = accessibilityList }
     }
 
     /// The cursor went to something that is not one of this view's lines, or VoiceOver was
@@ -348,9 +580,11 @@ final class ReaderTextView: UITextView {
         var followsText = false
         if notification.name == UIAccessibility.elementFocusedNotification {
             guard let focused = notification.userInfo?[UIAccessibility.focusedElementUserInfoKey],
-                  (focused as? ReaderPageAccessibilityElement)?.view !== self else { return }
-            followsText = accessibilityOrderPutsAfterLines(focused)
+                  (focused as? ReaderPageAccessibilityElement)?.view !== self,
+                  (focused as? ReaderScrollBarAccessibilityElement)?.view !== self else { return }
+            followsText = isCanvasScrollView && accessibilityOrderPutsAfterLines(focused)
         }
+        pageAccessibilityCursor = nil
         accessibilityCursor = nil
         accessibilityCursorFollowsText = followsText
     }
@@ -384,6 +618,10 @@ final class ReaderTextView: UITextView {
         guard let storage = contentStorage.textStorage else { return [] }
         let text = storage.string as NSString
         var elements: [ReaderPageAccessibilityElement] = []
+        // A table's cells by table and cell, those listed before and those listed so far: a
+        // table of a thousand cells is listed in time linear in them.
+        var keptCells: [ReaderTableCellKey: ReaderPageAccessibilityElement] = [:], cells = keptCells
+        for cell in existing { if let key = cell.key { keptCells[key] = cell } }
         for line in lines {
             // Layout flags (often stored on a paragraph's first UTF-16 unit), colors and
             // fonts do not define AX reading units. Keep each actual line intact except
@@ -406,6 +644,11 @@ final class ReaderTextView: UITextView {
                 runs.append((range, url, attachment, heading))
             }
             for (run, url, attachment, heading) in runs {
+                // A data table's row is its cells, each an element inside the table's.
+                if let row = attachment as? TableRowAttachment, row.table.isData {
+                    appendCells(of: row, at: run, line: line, reusing: keptCells, listed: &cells, to: &elements)
+                    continue
+                }
                 var range = run
                 if heading != nil, attachment == nil {
                     range = headingText(at: run.location, passingOverDecoration: passingOverDecoration)
@@ -417,12 +660,19 @@ final class ReaderTextView: UITextView {
                 // with nothing to say, and so is decoration between two of them: no element,
                 // or VoiceOver stops on silence.
                 if attachment == nil, label?.allSatisfy(\.isWhitespace) != false { continue }
-                let element = existing.first { $0.range == range && $0.url == url }
-                    ?? ReaderPageAccessibilityElement(view: self, range: range, url: url)
-                element.image = attachment as? ReaderImageAttachment
                 var traits: UIAccessibilityTraits = url == nil ? .staticText : .link
                 // A hidden label is words the page does not show, not a picture.
                 let isSpoken = attachment is SpokenLabelAttachment
+                // A table row is its cells' words, read once where the row stands. A row that
+                // shows pictures and no words is an image and no more, as a picture without
+                // words in a line is. One with nothing to say, or decoration alone, has no
+                // element, unless nothing listed can be read without it.
+                let isRow = attachment is TableRowAttachment
+                let isWordlessRow = isRow && label?.allSatisfy(\.isWhitespace) != false
+                if isWordlessRow, passingOverDecoration, announcedImages(in: range).isEmpty { continue }
+                let element = existing.first { !$0.isCell && $0.range == range && $0.url == url }
+                    ?? ReaderPageAccessibilityElement(view: self, range: range, url: url)
+                element.image = attachment as? ReaderImageAttachment
                 if attachment is ReaderRuleAttachment {
                     // A rule is a break between what stands before it and what follows:
                     // not a picture, which VoiceOver would call an image, and not words of
@@ -430,6 +680,8 @@ final class ReaderTextView: UITextView {
                     // of its own for one and the reader names it.
                     label = ReaderRuleAttachment.spokenName
                     traits.remove(.staticText)
+                } else if isRow {
+                    if isWordlessRow { label = nil; traits.insert(.image) }
                 } else if attachment != nil {
                     if !isSpoken { traits.insert(.image) }
                     // An image without words is an image and no more: the trait says so, in
@@ -525,6 +777,48 @@ final class ReaderTextView: UITextView {
         return NSRange(location: found.location, length: end - found.location)
     }
 
+    /// The cells read where a row of a data table stands, after `elements`. A cell that spans
+    /// rows is read where it starts; the lines of it that later rows of the same page hold are
+    /// added to it there. `kept` are the cells of the listing before, and `cells` those of this one.
+    private func appendCells(of row: TableRowAttachment, at range: NSRange, line: ReaderVisualLine,
+                             reusing kept: [ReaderTableCellKey: ReaderPageAccessibilityElement],
+                             listed cells: inout [ReaderTableCellKey: ReaderPageAccessibilityElement],
+                             to elements: inout [ReaderPageAccessibilityElement]) {
+        let rowFrame = segmentFrames(for: range).first ?? line.frame
+        for spoken in row.spokenCells(size: rowFrame.size, viewportHeight: readerContainer.viewportSize.height) {
+            let key = ReaderTableCellKey(table: ObjectIdentifier(row.table), cell: spoken.cell)
+            if let listed = cells[key] {
+                if !spoken.text.isEmpty {
+                    listed.accessibilityLabel = [listed.accessibilityLabel ?? "", spoken.text].filter { !$0.isEmpty }.joined(separator: " ")
+                    listed.accessibilityTraits.remove(.image)
+                }
+                listed.images += spoken.images
+                listed.continuations.append(range.location)
+                continue
+            }
+            // A cell is listed where it has something to say. One that says nothing anywhere
+            // is listed where it starts, for its place in the grid; one whose words stand on a
+            // later page, as a short cell centred beside a tall one does, is listed there.
+            guard !spoken.text.isEmpty || !spoken.images.isEmpty || (spoken.starts && spoken.isBlank) else { continue }
+            let element = kept[key].flatMap { $0.range == range ? $0 : nil }
+                ?? ReaderPageAccessibilityElement(view: self, range: range, table: row.table, cell: spoken.cell)
+            cells[key] = element
+            element.accessibilityLabel = spoken.text.isEmpty ? nil : spoken.text
+            element.position = canvas?.position(at: range.location, in: self)
+            element.continuations = []
+            element.images = spoken.images
+            // A cell of pictures without words is an image and no more, as a picture in a line is.
+            var traits: UIAccessibilityTraits = .staticText
+            if spoken.text.isEmpty, !spoken.images.isEmpty { traits.insert(.image) }
+            // A cell whose words are one link and nothing else is that link.
+            if row.table.cells[spoken.cell].isLink { traits = .link }
+            element.accessibilityTraits = traits
+            let placed = spoken.frame.offsetBy(dx: rowFrame.minX + containerOrigin.x, dy: rowFrame.minY + containerOrigin.y)
+            element.accessibilityFrameInContainerSpace = isPageColumn ? placed.intersection(bounds) : placed
+            elements.append(element)
+        }
+    }
+
     // VoiceOver reads the page, not the clipped context after it, with attachments as their text.
     override var accessibilityValue: String? {
         get { isPageColumn ? visibleText : super.accessibilityValue }
@@ -552,19 +846,117 @@ private struct ScrollAccessibilityPlace: Equatable {
     var insets: UIEdgeInsets
     var cursor: ObjectIdentifier?
     var cursorFollowsText: Bool
+    /// How many scroll bars the lines were listed clear of.
+    var bars: Int
 }
 
-/// A bounded slice of one visible line. VoiceOver's word/character navigation operates on
-/// this label rather than the native text view's longer paragraph storage.
-@MainActor private final class ReaderPageAccessibilityElement: UIAccessibilityElement {
+/// A scroll bar of the canvas's scroll view, as the scroll view lists it: UIKit's own bar,
+/// which is hidden from assistive technology, asked for everything it says and does.
+@MainActor private final class ReaderScrollBarAccessibilityElement: UIAccessibilityElement {
+    private(set) weak var view: ReaderTextView?
+    let bar: UIView
+
+    init(view: ReaderTextView, bar: UIView) {
+        self.view = view
+        self.bar = bar
+        super.init(accessibilityContainer: view)
+        isAccessibilityElement = true
+        refresh()
+    }
+
+    /// What the bar says now, and where it is. A subclass of `UIAccessibilityElement` cannot
+    /// answer for its label or value itself, so they are read from the bar whenever the
+    /// scroll view is asked for its elements, and after the bar is adjusted.
+    func refresh() {
+        accessibilityLabel = bar.accessibilityLabel
+        accessibilityValue = bar.accessibilityValue
+        accessibilityHint = bar.accessibilityHint
+        accessibilityTraits = bar.accessibilityTraits
+        if let view { accessibilityFrame = view.accessibilityFrame(ofScrollBar: bar) }
+    }
+
+    override func accessibilityIncrement() {
+        bar.accessibilityIncrement()
+        adjusted()
+    }
+
+    override func accessibilityDecrement() {
+        bar.accessibilityDecrement()
+        adjusted()
+    }
+
+    /// The bar has taken the view a tenth of the way through the book, with the cursor still
+    /// here, and UIKit tells VoiceOver nothing of it. VoiceOver holds the two lines it was
+    /// given before this element when its cursor came here. They are screens away now, no
+    /// longer listed, and the elements that stood for them are gone. At its next move back
+    /// VoiceOver found the nearer one gone and asked again from here, and then asked for one
+    /// more from the further: for an element UIKit no longer knew it was given nothing, noted
+    /// that as the start of the list, and two lines up it stayed where it was at every move
+    /// back. A layout change that names this element has VoiceOver drop what it holds and
+    /// ask again for the items each side of it, and it says nothing more for that than the
+    /// bar's new value.
+    private func adjusted() {
+        refresh()
+        view?.canvas?.postAccessibilityNotification(.layoutChanged, self)
+    }
+
+    override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
+        view?.accessibilityScroll(direction) ?? false
+    }
+
+    override func accessibilityElementDidBecomeFocused() {
+        super.accessibilityElementDidBecomeFocused()
+        view?.accessibilityCursorMovedToScrollBar()
+    }
+}
+
+/// What a text view that lists its lines gives an assistive technology: `elements`, every line
+/// and every table cell in reading order, and `listed`, the same with each table's cells inside
+/// an element for the table.
+private struct ReaderAccessibilityList {
+    var elements: [ReaderPageAccessibilityElement] = []
+    var listed: [NSObject] = []
+}
+
+/// A bounded slice of one visible line, or a cell of a data table. VoiceOver's word/character
+/// navigation operates on this label rather than the native text view's longer paragraph storage.
+///
+/// A line and a cell are one class, since the element an assistive technology's cursor is on
+/// goes on as whatever opens the page turned to (`stand(for:)`): a cell on one page, a line
+/// on the next.
+@MainActor private final class ReaderPageAccessibilityElement: UIAccessibilityElement, UIAccessibilityContainerDataTableCell {
     weak var view: ReaderTextView?
-    let range: NSRange
-    let url: URL?
+    private(set) var range: NSRange
+    private(set) var url: URL?
     /// Where the element's first character is in the book. It holds when the page the element
     /// was on has been turned, which is when VoiceOver asks the Headings rotor about it again.
     var position: ReaderTextPosition?
     /// The image the element stands for, when it is one.
     var image: ReaderImageAttachment?
+    /// The data table the element is a cell of, and the cell's index among the table's cells.
+    /// A line has no table. A cell is an element inside its table's, where its row stands
+    /// among the lines.
+    private(set) var table: TableModel?
+    private(set) var cell = 0
+    /// The pictures a cell shows here that say something.
+    var images: [ReaderImageAttachment] = []
+    /// The rows after a cell's own, on this page, that hold more of the cell's lines.
+    var continuations: [Int] = []
+
+    var isCell: Bool { table != nil }
+
+    var key: ReaderTableCellKey? { table.map { ReaderTableCellKey(table: ObjectIdentifier($0), cell: cell) } }
+
+    /// Whether `other` is the same characters of the book, wherever each view counted them
+    /// from. A cell is the same cell of the same row with the same words: every cell of a row
+    /// is at the row's place in the book, and a row cut at a page's end has a part of a cell
+    /// on each page.
+    func isSameLine(as other: ReaderPageAccessibilityElement) -> Bool {
+        guard url == other.url, range.length == other.range.length, isCell == other.isCell else { return false }
+        if isCell, cell != other.cell || accessibilityLabel != other.accessibilityLabel { return false }
+        if let position, let place = other.position { return position == place }
+        return position == nil && other.position == nil && range == other.range
+    }
 
     init(view: ReaderTextView, range: NSRange, url: URL?) {
         self.view = view
@@ -574,8 +966,91 @@ private struct ScrollAccessibilityPlace: Equatable {
         isAccessibilityElement = true
     }
 
+    /// A cell of `table`, where its row stands at `range`.
+    convenience init(view: ReaderTextView, range: NSRange, table: TableModel, cell: Int) {
+        self.init(view: view, range: range, url: nil)
+        self.table = table
+        self.cell = cell
+    }
+
+    /// Becomes `line`, an element made for a line or a cell of the page now shown: its
+    /// characters, its words, where it stands, what it is and so what it offers, and for a
+    /// cell its table, its place in it and its pictures. Nothing of the item this element
+    /// stood for is kept.
+    func stand(for line: ReaderPageAccessibilityElement) {
+        view = line.view
+        accessibilityContainer = line.accessibilityContainer
+        range = line.range
+        url = line.url
+        position = line.position
+        image = line.image
+        table = line.table
+        cell = line.cell
+        images = line.images
+        continuations = line.continuations
+        // A heading's level is in its attributed label, which is set after the label, as for
+        // a new element, and is not left on an element that was a heading.
+        accessibilityAttributedLabel = nil
+        accessibilityLabel = line.accessibilityLabel
+        if let label = line.accessibilityAttributedLabel { accessibilityAttributedLabel = label }
+        accessibilityTraits = line.accessibilityTraits
+        accessibilityLanguage = line.accessibilityLanguage
+        accessibilityFrameInContainerSpace = line.accessibilityFrameInContainerSpace
+    }
+
+    // UIKit takes an element for a cell of a data table when it answers for the protocol of
+    // one, and then asks it for its row and column. The class answers for both kinds, so each
+    // element answers for what it is now: a line is no cell to whoever asks it, has no row
+    // or column to give, and to one who asks all the same it gives the protocol's own answer
+    // for none.
+    nonisolated override func conforms(to aProtocol: Protocol) -> Bool {
+        guard protocol_isEqual(aProtocol, UIAccessibilityContainerDataTableCell.self) else { return super.conforms(to: aProtocol) }
+        return answersAsCell
+    }
+
+    nonisolated override func responds(to aSelector: Selector!) -> Bool {
+        if aSelector == #selector(accessibilityRowRange) || aSelector == #selector(accessibilityColumnRange) { return answersAsCell }
+        return super.responds(to: aSelector)
+    }
+
+    /// Whether the element is a cell, for a question that can come from any thread. The
+    /// element is the main thread's, and so is everything that asks about a cell.
+    private nonisolated var answersAsCell: Bool { Thread.isMainThread && MainActor.assumeIsolated { isCell } }
+
+    func accessibilityRowRange() -> NSRange {
+        guard let table else { return NSRange(location: NSNotFound, length: 0) }
+        (accessibilityContainer as? ReaderTableAccessibilityElement)?.asked = self
+        return NSRange(location: table.cells[cell].row, length: table.cells[cell].rowSpan)
+    }
+
+    func accessibilityColumnRange() -> NSRange {
+        guard let table else { return NSRange(location: NSNotFound, length: 0) }
+        (accessibilityContainer as? ReaderTableAccessibilityElement)?.asked = self
+        return NSRange(location: table.cells[cell].column, length: table.cells[cell].columnSpan)
+    }
+
+    /// What a cell's text views offer for the words shown here, where it is on screen.
+    private var interactions: (selection: [ReaderTableAction], links: [ReaderTableAction]) {
+        var selection: [ReaderTableAction] = [], selected = false, links: [ReaderTableAction] = []
+        for location in [range.location] + continuations {
+            guard let found = view?.tableInteraction?.accessibilityActions(at: location, cell: cell) else { continue }
+            // The rows a cell continues into are the same cell: one that holds a selection answers for it.
+            if selection.isEmpty || (found.selected && !selected) { (selection, selected) = (found.selection, found.selected) }
+            links += found.links
+        }
+        return (selection, links)
+    }
+
+    // A double tap on a cell follows its link when it has one and no other, and otherwise
+    // shows its picture when it has one and no words.
     override func accessibilityActivate() -> Bool {
         guard let view, let canvas = view.canvas else { return false }
+        if isCell {
+            let links = interactions.links
+            if links.count == 1 { return links[0].perform() }
+            if links.isEmpty, accessibilityLabel == nil, let image = images.first { canvas.inspectImage(image); return true }
+            return false
+        }
         if let url { canvas.activateLink(url, range: range, in: view); return true }
         if let image = image ?? view.announcedImages(in: range).first?.image { canvas.inspectImage(image); return true }
         return false
@@ -590,33 +1065,219 @@ private struct ScrollAccessibilityPlace: Equatable {
         view?.accessibilityCursorMoved(to: self)
     }
 
+    /// Words of a table's cell that this item reads are selected: of the cell itself, in any
+    /// of the rows it continues into, or of any cell of a row read whole.
+    var holdsSelection: Bool {
+        if isCell { return ([range.location] + continuations).contains { view?.tableInteraction?.holdsSelection(at: $0, cell: cell) == true } }
+        guard let view, let storage = view.contentStorage.textStorage, range.location < storage.length,
+              storage.attribute(.attachment, at: range.location, effectiveRange: nil) is TableRowAttachment else { return false }
+        return view.tableInteraction?.holdsSelection(at: range.location) ?? false
+    }
+
+    // VoiceOver says "Selected" of such an item whenever it comes to it, in its own language.
+    override var accessibilityTraits: UIAccessibilityTraits {
+        get { holdsSelection ? super.accessibilityTraits.union(.selected) : super.accessibilityTraits }
+        set { super.accessibilityTraits = newValue.subtracting(.selected) }
+    }
+
+    /// An action of a table's cell as VoiceOver is given it. VoiceOver keeps what an item says
+    /// and offers as it found them when its cursor came to the item, so after an action that
+    /// changes them, selecting and deselecting, it is told that the item changed: it reads
+    /// the item again, selected or not, and takes its actions as they now are.
+    func customAction(_ action: ReaderTableAction, named name: String? = nil) -> UIAccessibilityCustomAction {
+        UIAccessibilityCustomAction(name: name ?? action.name) { [weak self] _ in
+            guard action.perform() else { return false }
+            if action.changesItem, let self { view?.canvas?.postToAccessibility(.layoutChanged, self) }
+            return true
+        }
+    }
+
+    /// A page's elements turn the page. Continuous scroll scrolls natively, by VoiceOver's own
+    /// gesture.
+    func pageActions(of view: ReaderTextView) -> [UIAccessibilityCustomAction] {
+        guard view.isPageColumn else { return [] }
+        return [true, false].map { forward in
+            UIAccessibilityCustomAction(name: forward ? "Next Page" : "Previous Page") { [weak view] _ in
+                view?.canvas?.turnPageFromAccessibility(forward: forward) ?? false
+            }
+        }
+    }
+
     override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
         get {
             guard let view else { return nil }
-            // Continuous scroll scrolls natively, by VoiceOver's own gesture.
-            var actions = view.isPageColumn ? [true, false].map { forward in
-                UIAccessibilityCustomAction(name: forward ? "Next Page" : "Previous Page") { [weak view] _ in
-                    guard let canvas = view?.canvas else { return false }
-                    canvas.turnPageFromInput(forward: forward)
-                    return true
-                }
-            } : []
-            actions += (image.map { [$0] } ?? view.announcedImages(in: range).map(\.image)).map { image in
+            // These are all VoiceOver is to offer here: it adds the actions of whatever
+            // contains the item, and the text view and the reader around it have none.
+            var actions = pageActions(of: view)
+            actions += (isCell ? images : image.map { [$0] } ?? view.announcedImages(in: range).map(\.image)).map { image in
                 UIAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") { [weak view] _ in
                     guard let canvas = view?.canvas else { return false }
                     canvas.inspectImage(image)
                     return true
                 }
             }
-            if view.contentStorage.textStorage?.attribute(.attachment, at: range.location, effectiveRange: nil) is TableRowAttachment {
-                actions += (view.tableInteraction?.accessibilityActions() ?? []).map { action in
-                    UIAccessibilityCustomAction(name: action.name) { _ in action.perform() }
-                }
+            if isCell {
+                let found = interactions
+                actions += found.selection.map { customAction($0) }
+                actions += found.links.map { customAction($0, named: "Follow Link: " + $0.name) }
+            } else if view.contentStorage.textStorage?.attribute(.attachment, at: range.location, effectiveRange: nil) is TableRowAttachment {
+                actions += (view.tableInteraction?.accessibilityActions(at: range.location) ?? []).map { customAction($0) }
             }
-            return actions
+            return actions.isEmpty ? nil : actions
         }
         set { super.accessibilityCustomActions = newValue }
     }
+
+    // A cell's container is the table's element, which is no view.
+    override var accessibilityFrame: CGRect {
+        get {
+            guard isCell, let view else { return super.accessibilityFrame }
+            return UIAccessibility.convertToScreenCoordinates(accessibilityFrameInContainerSpace, in: view)
+        }
+        set { super.accessibilityFrame = newValue }
+    }
+}
+
+/// A cell among the cells listed: its table, and its index in the table's cells.
+private struct ReaderTableCellKey: Hashable {
+    let table: ObjectIdentifier
+    let cell: Int
+}
+
+/// A table that is data, as an assistive technology is given it: the cells listed of it, with
+/// the row and column each stands in and the cells that head them.
+@MainActor private final class ReaderTableAccessibilityElement: UIAccessibilityElement, UIAccessibilityContainerDataTable {
+    weak var view: ReaderTextView?
+    private(set) var table: TableModel
+    private(set) var cells: [ReaderPageAccessibilityElement] = []
+    private var listedByCell: [Int: ReaderPageAccessibilityElement] = [:]
+    /// The cell last asked where it stands. UIKit asks for a row's and a column's header
+    /// cells, not a cell's, and VoiceOver says them before the cell it comes to. A cell is
+    /// headed by the header cells above it and before it, so those after the cell asked are
+    /// left out: a header cell over a second row of them is not read under their names.
+    weak var asked: ReaderPageAccessibilityElement?
+    /// Header cells whose row is not listed, on another page or far off the screen.
+    private var unlistedHeaders: [Int: ReaderTableHeaderName] = [:]
+
+    init(view: ReaderTextView, table: TableModel) {
+        self.view = view
+        self.table = table
+        super.init(accessibilityContainer: view)
+        isAccessibilityElement = false
+        accessibilityContainerType = .dataTable
+    }
+
+    /// Becomes `other`, the element made for the same table of a page shown again: the table
+    /// as it was built again, and the cells listed of it, which are this element's from then
+    /// on. Nothing of the table as it was is kept.
+    func stand(for other: ReaderTableAccessibilityElement) {
+        view = other.view
+        table = other.table
+        asked = nil
+        unlistedHeaders = [:]
+        list(other.cells)
+    }
+
+    func list(_ cells: [ReaderPageAccessibilityElement]) {
+        self.cells = cells
+        listedByCell = [:]
+        for cell in cells {
+            cell.accessibilityContainer = self
+            listedByCell[cell.cell] = cell
+        }
+        accessibilityFrameInContainerSpace = cells.reduce(CGRect.null) { $0.union($1.accessibilityFrameInContainerSpace) }
+    }
+
+    /// The cells listed now. In continuous scroll the rows listed follow the cursor, and
+    /// VoiceOver asks a table for its next cell before it asks the text view for anything:
+    /// answered from the rows listed for the cell before, a table ended at the last of them.
+    private var listedCells: [ReaderPageAccessibilityElement] {
+        view?.updateAccessibilityList()
+        return cells
+    }
+
+    override var accessibilityElements: [Any]? {
+        get { listedCells }
+        set { super.accessibilityElements = newValue }
+    }
+
+    override var accessibilityFrame: CGRect {
+        get { view.map { UIAccessibility.convertToScreenCoordinates(accessibilityFrameInContainerSpace, in: $0) } ?? super.accessibilityFrame }
+        set { super.accessibilityFrame = newValue }
+    }
+
+    func accessibilityDataTableCellElement(forRow row: Int, column: Int) -> UIAccessibilityContainerDataTableCell? {
+        guard table.rowCells.indices.contains(row) else { return nil }
+        _ = listedCells
+        // The cell that covers the slot, among the few the row holds.
+        let cell = table.rowCells[row].first { table.cells[$0].column <= column && column < table.cells[$0].column + table.cells[$0].columnSpan }
+        return cell.flatMap { listedByCell[$0] }
+    }
+
+    func accessibilityRowCount() -> Int { table.rows.count }
+
+    func accessibilityColumnCount() -> Int { table.columnCount }
+
+    func accessibilityHeaderElements(forRow row: Int) -> [UIAccessibilityContainerDataTableCell]? {
+        var cells = table.rowHeaders(row)
+        if let asked, asked.accessibilityContainer === self, NSLocationInRange(row, NSRange(location: table.cells[asked.cell].row, length: table.cells[asked.cell].rowSpan)) {
+            cells = cells.filter { $0 == asked.cell || table.cells[$0].column < table.cells[asked.cell].column }
+        }
+        let headers = cells.compactMap(header)
+        return headers.isEmpty ? nil : headers
+    }
+
+    func accessibilityHeaderElements(forColumn column: Int) -> [UIAccessibilityContainerDataTableCell]? {
+        var cells = table.columnHeaders(column)
+        if let asked, asked.accessibilityContainer === self, NSLocationInRange(column, NSRange(location: table.cells[asked.cell].column, length: table.cells[asked.cell].columnSpan)) {
+            cells = cells.filter { $0 == asked.cell || table.cells[$0].row < table.cells[asked.cell].row }
+        }
+        let headers = cells.compactMap(header)
+        return headers.isEmpty ? nil : headers
+    }
+
+    override func accessibilityElementCount() -> Int { listedCells.count }
+
+    override func accessibilityElement(at index: Int) -> Any? {
+        let cells = listedCells
+        return cells.indices.contains(index) ? cells[index] : nil
+    }
+
+    override func index(ofAccessibilityElement element: Any) -> Int {
+        let cells = listedCells
+        if let index = cells.firstIndex(where: { $0 === element as AnyObject }) { return index }
+        // A cell kept from before the list moved away and back stands for the cell listed now.
+        guard let kept = element as? ReaderPageAccessibilityElement, kept.table === table else { return NSNotFound }
+        return cells.firstIndex { $0.cell == kept.cell && $0.range == kept.range } ?? NSNotFound
+    }
+
+    private func header(_ cell: Int) -> UIAccessibilityContainerDataTableCell? {
+        if let listed = listedByCell[cell] { return listed }
+        if let kept = unlistedHeaders[cell] { return kept }
+        guard !table.cells[cell].text.isEmpty else { return nil }
+        let name = ReaderTableHeaderName(table: self, cell: table.cells[cell])
+        unlistedHeaders[cell] = name
+        return name
+    }
+}
+
+/// A header cell of a row that is not listed: its words, for VoiceOver to say before a cell
+/// it heads, and nowhere for its cursor to go.
+@MainActor private final class ReaderTableHeaderName: UIAccessibilityElement, UIAccessibilityContainerDataTableCell {
+    private let rows: NSRange
+    private let columns: NSRange
+
+    init(table: ReaderTableAccessibilityElement, cell: TableModel.Cell) {
+        rows = NSRange(location: cell.row, length: cell.rowSpan)
+        columns = NSRange(location: cell.column, length: cell.columnSpan)
+        super.init(accessibilityContainer: table)
+        accessibilityLabel = cell.text
+        accessibilityTraits = .staticText
+    }
+
+    func accessibilityRowRange() -> NSRange { rows }
+
+    func accessibilityColumnRange() -> NSRange { columns }
 }
 
 /// Observes native selection gestures simultaneously and takes over only when their endpoint

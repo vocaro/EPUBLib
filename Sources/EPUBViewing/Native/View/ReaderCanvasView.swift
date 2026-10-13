@@ -46,6 +46,18 @@ import AppKit
     private var selectionDragAnchor: ReaderTextPosition?
     private var selectionDragOverridesNative = false
     private(set) var selectionContinuation: ReaderSelectionContinuation?
+    #if os(iOS)
+    /// Tells an assistive technology of something the reader did at its asking, which it
+    /// would not learn otherwise: that an item it holds has changed, to be read again with
+    /// the actions it now offers. UIKit's own post, which a test takes in its place.
+    var postToAccessibility: (UIAccessibility.Notification, Any?) -> Void = { UIAccessibility.post(notification: $0, argument: $1) }
+
+    /// Has an assistive technology say what nothing else would tell a listener, after
+    /// whatever it is saying.
+    func announce(_ words: String) {
+        postToAccessibility(.announcement, NSAttributedString(string: words, attributes: [.accessibilitySpeechQueueAnnouncement: true]))
+    }
+    #endif
 
     // Paginated flow.
     private(set) var spread: ReaderCanvasGeometry.Spread?
@@ -71,6 +83,18 @@ import AppKit
     static let heldLayoutBudget = 1_000_000
     /// Pagination this far past what is known runs over several turns of the run loop.
     private static let quickPagination = 50_000
+
+    /// The headings of one section's text. The text is not kept alive for them: a section
+    /// built again has another text, and its headings are then found again.
+    private final class SectionHeadings {
+        weak var text: NSAttributedString?
+        let headings: [(heading: ReaderHeading, range: NSRange)]
+        init(text: NSAttributedString, headings: [(heading: ReaderHeading, range: NSRange)]) {
+            self.text = text
+            self.headings = headings
+        }
+    }
+    private var sectionHeadings: [Int: SectionHeadings] = [:]
 
     // Continuous scroll.
     private(set) var scrollContainer: PlatformView?
@@ -99,19 +123,35 @@ import AppKit
     /// there is one (`scrollVisibleCharacters`): its location in the view's text. VoiceOver
     /// starts there, so the labels are heard before what they stand over.
     private var scrollEntry: Int?
+    /// The view is being held to its text (`settleScrollViewport` on the Mac), which moves
+    /// its offset and nothing on screen.
+    var isHoldingScrollPlace = false
     #if os(macOS)
     /// Where the reader last put the scroll view's insertion point (`placeScrollInsertionPoint`).
     private var placedScrollInsertionPoint: Int?
-    /// Posts the canvas's layout changes: the one after a spread is installed and the one after
-    /// the reader moves the scroll view itself. A test puts its own closure here to see what an
-    /// assistive client is told, and by which element.
+    /// Posts what the canvas tells an assistive client itself: the layout change after a spread
+    /// is installed, and after the reader moves the scroll view the insertion point's second
+    /// notice and the layout change (`placeScrollInsertionPoint`). A test puts its own closure
+    /// here to see what is posted, and by which element.
     var postAccessibilityNotification: @MainActor (Any, NSAccessibility.Notification, [NSAccessibility.NotificationUserInfoKey: Any]) -> Void = {
-        NSAccessibility.post(element: $0, notification: $1, userInfo: $2)
+        NSAccessibility.post(element: $0, notification: $1, userInfo: $2.isEmpty ? nil : $2)
     }
     #else
     /// The offset a rest for a new visible height left the scroll view at, until UIKit reports
     /// the scrolling of that inset change (`scrollViewDidChangeAdjustedContentInset`).
     var restedScrollOffset: CGFloat?
+    /// Posts what the canvas tells an assistive technology after a page turn and after a move
+    /// of its own in continuous scroll, and the layout change the scroll bar's stand-in tells
+    /// of after it is adjusted (`ReaderTextView`). A test puts its own closure here to see
+    /// what is posted, and with which element.
+    var postAccessibilityNotification: @MainActor (UIAccessibility.Notification, Any?) -> Void = {
+        UIAccessibility.post(notification: $0, argument: $1)
+    }
+    /// A page shown now leaves an assistive technology's cursor to whoever asked for the page:
+    /// VoiceOver's rotor, which takes the cursor to the item it is given
+    /// (`showForAccessibilityRotor`), and its scroll, which sends the cursor once the page is
+    /// announced (`accessibilityScroll`).
+    var accessibilityCursorIsHeld = false
     #endif
 
     var wheelTurner = ReaderWheelPageTurner()
@@ -293,6 +333,8 @@ import AppKit
     /// only when it differs after a passive one (scrolling, resizing).
     private func updateVisibleRange(force: Bool) {
         let range = configuration.flow == .scrolled ? scrollVisibleRange() : pagesVisibleRange()
+        // Every move of the scroll view ends here, with the viewport laid out where it stands.
+        if configuration.flow == .scrolled { refreshScrollTables() }
         guard let range else { return }
         let changed = range != visibleRange
         visibleRange = range
@@ -302,6 +344,8 @@ import AppKit
                 ?? ReaderTextPosition(section: range.start.section, offset: location) }
             placeScrollInsertionPoint(at: entry ?? range.start, requested: force)
         }
+        #else
+        if force, configuration.flow == .scrolled { accessibilityCursorFollowsTheScrollView(to: anchor) }
         #endif
         if force || changed { delegate?.canvas(self, didShow: range, sectionProgress: progress(of: range.start)) }
     }
@@ -484,6 +528,7 @@ import AppKit
         scrollBook = nil
         paginators.removeAll()
         paginatorUse.removeAll()
+        sectionHeadings.removeAll()
     }
 
     var cachedPaginatorCount: Int { paginators.count }
@@ -542,6 +587,8 @@ import AppKit
             postAccessibilityNotification(NSAccessibility.unignoredAncestor(of: self) ?? window, .layoutChanged,
                                           [.uiElements: columns.filter { !$0.isHidden }])
         }
+        #else
+        accessibilityPageWasShown(at: anchor)
         #endif
         trimPaginators()
         applyHighlights()
@@ -834,6 +881,24 @@ import AppKit
         }
     }
 
+    #if os(macOS)
+    /// Holds the text on screen in place (`settleScrollViewport`) before the scroll view's
+    /// layout is read for what is on screen by anything but the reader's own read of it: the
+    /// rows whose cells stand in the view, and what an assistive client is told is on screen
+    /// and where. VoiceOver asks the text which line its insertion point is on, and AppKit
+    /// counts the lines from the first, which lays out all the text above. A row shown below
+    /// text that was only estimated then stands screens from where the view draws it, while
+    /// the rows after it stand where they were drawn: read off that layout, the row was off
+    /// screen, and its link was no child of the text. Not while the reader moves the view
+    /// itself, which ends in its own read. True when the view moved.
+    @discardableResult func holdScrollPlace(of view: ReaderTextView) -> Bool {
+        guard view === scrollTextView, !isScrollingProgrammatically, !isHoldingScrollPlace else { return false }
+        let top = scrollVisibleContainerRect.minY
+        withProgrammaticScroll { settleScrollViewport() }
+        return scrollVisibleContainerRect.minY != top
+    }
+    #endif
+
     private func withProgrammaticScroll(_ body: () -> Void) {
         let wasScrolling = isScrollingProgrammatically
         isScrollingProgrammatically = true
@@ -841,15 +906,30 @@ import AppKit
         isScrollingProgrammatically = wasScrolling
     }
 
+    /// Gives the table rows now on screen in the scroll view their cells' text views, with the
+    /// highlights and the selection that run through them. Done as the view moves, and again
+    /// once the reader has read where the view stands (`updateVisibleRange`), which every move
+    /// ends in. The platform tells of a move when the offset changes, before TextKit has laid
+    /// the viewport out there, so the rows are then looked for in the layout of the place
+    /// before. After a step of a page, or the reader's last correction on its way to a
+    /// contents entry, the rows that layout had not reached had no cell to select in, follow
+    /// a link in or offer an assistive technology until the person scrolled; where the
+    /// correction was by more than a screen, as for a section a book opened at, none had (#472).
+    func refreshScrollTables() {
+        scrollTextView?.setTableHighlights(ReaderHighlight.drawingOrder(highlights))
+        if let range = currentSelection?.range, range.start.tableCell != nil || range.end.tableCell != nil {
+            _ = scrollTextView?.selectTableRange(range, reporting: false)
+        }
+    }
+
     /// The platform scroll view moved; reports the visible range at most every 150 ms. A move
     /// that leaves the view where it was last read is the platform's, and nobody scrolled; nor
     /// has anybody when the platform reports the reader's own scroll late (`byReader`).
     func scrollPositionDidChange(byReader: Bool = false) {
-        let ordered = ReaderHighlight.drawingOrder(highlights)
-        scrollTextView?.setTableHighlights(ordered)
-        if let range = currentSelection?.range, range.start.tableCell != nil || range.end.tableCell != nil {
-            _ = scrollTextView?.selectTableRange(range, reporting: false)
-        }
+        // While the view is held to its text the rows on screen are the ones that were. The
+        // layout of the place before has them off screen: their cells would be taken away
+        // and made again, and with them the links an assistive client holds.
+        if !isHoldingScrollPlace { refreshScrollTables() }
         guard !byReader, !isScrollingProgrammatically, !scrollViewStandsWhereRead else { return }
         anchorFollowsScroll = true
         guard !scrollReportPending else { return }
@@ -926,8 +1006,10 @@ import AppKit
     /// makes itself (`requested`) puts it at the visible start. After any other scrolling it
     /// follows only while it is where the reader last put it: one placed by a click, or by an
     /// assistive client that scrolls the view as it reads, stays there. A selection is never
-    /// moved. On iOS VoiceOver reads the text view's elements and enters at none: there the
-    /// scroll view lists its lines on screen (`ReaderTextView`).
+    /// moved. A move the reader makes itself is for VoiceOver to come along with, wherever its
+    /// cursor is, so the text view tells of the insertion point a second time and the window
+    /// of a layout change. On iOS VoiceOver reads the text view's elements and enters at none:
+    /// there the scroll view lists its lines on screen (`ReaderTextView`).
     private func placeScrollInsertionPoint(at start: ReaderTextPosition, requested: Bool) {
         guard let textView = scrollTextView else { return }
         if textView.selectedRange.length == 0, requested || textView.selectedRange.location == placedScrollInsertionPoint {
@@ -937,6 +1019,17 @@ import AppKit
                 isApplyingSelection = true
                 textView.selectedRange = NSRange(location: location, length: 0)
                 isApplyingSelection = false
+                // AppKit has told an assistive client of that move, once. VoiceOver, inside the
+                // text and not yet moved in it, kept its cursor on its line for the one notice:
+                // it said the word before the insertion point, and at the layout change below,
+                // or without one at its next command, scrolled the view back to its line by
+                // the scroll bar's value. The reader's step was undone, and the insertion
+                // point, still the reader's, followed that scroll. Told a second time,
+                // VoiceOver takes its cursor to the insertion point, as it does at the first
+                // notice once it has moved by line. Moving the insertion point twice did the
+                // same; moving it before the scroll, or posting the layout change from
+                // another element, first or not at all, did not (macOS 27.0.1, #473).
+                if requested { postAccessibilityNotification(textView, .selectedTextChanged, [:]) }
             }
         }
         // VoiceOver keeps its own cursor in a text area it has left, and on returning goes back
@@ -1221,24 +1314,55 @@ import AppKit
     }
 
     /// Where the heading of the book after `position` begins, or the one before it: where an
-    /// assistive technology's move by heading goes when the page or the screen has no more. A
-    /// heading is after a position it begins after and before one it ends at or before, so the
-    /// heading a position is inside is neither. A section that page turns step over is passed
-    /// over unless the search starts in it, and a section not built yet ends the search.
+    /// assistive technology's move by heading goes when the page or the screen has no more
+    /// (`bookHeading`).
     func heading(from position: ReaderTextPosition, forward: Bool) -> ReaderTextPosition? {
-        guard let dataSource else { return nil }
-        var section = position.section
+        bookHeading(from: position, forward: forward)?.position
+    }
+
+    /// The heading of the book after `position`, or the one before it. A heading is after a
+    /// position it begins after and before one it ends at or before, so the heading a position
+    /// is inside is neither. A section that page turns step over is passed over unless the
+    /// search starts in it or it is the one on screen, and a section not built yet ends the
+    /// search. From no position the search takes in every heading it can reach from the section
+    /// on screen, and begins before the first of them, or after the last: the whole book once
+    /// it is built, and until then the sections built so far around the reader.
+    func bookHeading(from position: ReaderTextPosition?, forward: Bool) -> ReaderBookHeading? {
+        guard let dataSource, dataSource.sectionCount > 0 else { return nil }
+        let shown = visibleRange?.start.section
+        func searched(_ section: Int) -> Bool { section == position?.section || section == shown || dataSource.isLinear(section: section) }
+        var section: Int
+        if let position { section = position.section } else {
+            // Back from the section on screen, against the search, through the sections built.
+            section = min(max(0, shown ?? 0), dataSource.sectionCount - 1)
+            let back = forward ? -1 : 1
+            while section + back >= 0, section + back < dataSource.sectionCount,
+                  !searched(section + back) || dataSource.text(forSection: section + back) != nil { section += back }
+        }
         while section >= 0, section < dataSource.sectionCount {
-            if section == position.section || dataSource.isLinear(section: section) {
-                guard let text = dataSource.text(forSection: section) else { return nil }
-                let headings = text.readerHeadings()
-                let found = forward ? headings.first { section > position.section || $0.range.location > position.offset }
-                    : headings.last { section < position.section || NSMaxRange($0.range) <= position.offset }
-                if let found { return ReaderTextPosition(section: section, offset: found.range.location) }
+            if searched(section) {
+                guard let headings = headings(inSection: section) else { return nil }
+                let found: (heading: ReaderHeading, range: NSRange)?
+                if let position {
+                    found = forward ? headings.first { section > position.section || $0.range.location > position.offset }
+                        : headings.last { section < position.section || NSMaxRange($0.range) <= position.offset }
+                } else { found = forward ? headings.first : headings.last }
+                if let found { return ReaderBookHeading(heading: found.heading, section: section, range: found.range) }
             }
             section += forward ? 1 : -1
         }
         return nil
+    }
+
+    /// A section's headings, found once for each text the data source gives for it; nil while
+    /// the section is not built.
+    func headings(inSection section: Int) -> [(heading: ReaderHeading, range: NSRange)]? {
+        guard let dataSource, section >= 0, section < dataSource.sectionCount,
+              let text = dataSource.text(forSection: section) else { return nil }
+        if let known = sectionHeadings[section], known.text === text { return known.headings }
+        let found = SectionHeadings(text: text, headings: text.readerHeadings())
+        sectionHeadings[section] = found
+        return found.headings
     }
 
     /// A non-empty `range` in a text view's own characters, clipped to what the view shows;
@@ -1291,7 +1415,23 @@ import AppKit
     /// A page-turn key, swipe, wheel tick or edge tap.
     func turnPageFromInput(forward: Bool) {
         guard imageInspector == nil, !hasSelection, !isDraggingSelection else { return }
-        _ = turnPage(forward: forward)
+        if turnPage(forward: forward) != .atBoundary { pageDidTurnFromTheText() }
+    }
+
+    /// A page turn an assistive technology asks for by name, as a host's command is: nothing
+    /// in it could be meant for a selection, so selected text does not hold it back. False at
+    /// either end of the book.
+    func turnPageFromAccessibility(forward: Bool) -> Bool {
+        guard imageInspector == nil, turnPage(forward: forward) != .atBoundary else { return false }
+        pageDidTurnFromTheText()
+        return true
+    }
+
+    /// A page turned by something done in the text, where keyboard focus and VoiceOver may be.
+    private func pageDidTurnFromTheText() {
+        #if os(macOS)
+        focusFirstColumnAfterTurn()
+        #endif
     }
 
     /// Text is selected in a text view on screen.

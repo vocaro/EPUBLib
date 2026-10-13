@@ -29,7 +29,15 @@ typealias TableNativeTextView = UITextView
     var onImage: ((ReaderImageAttachment) -> Void)?
     private var actionTitle: String?
     private var menuImage: ReaderImageAttachment?
-    private var highlightedCharacters: [NSRange] = []
+    private var highlights: [(range: NSRange, color: PlatformColor)] = []
+    private var highlightedCharacters: [NSRange] { highlights.map(\.range) }
+    #if os(macOS)
+    /// The accessibility element of each attachment VoiceOver is told of, by its location in
+    /// the cell's text, kept for as long as the cell is.
+    private var attachmentElements: [Int: NSAccessibilityElement] = [:]
+    /// The accessibility elements of the cell's links (`ReaderTextLinks+AppKit.swift`).
+    var linkElements = ReaderLinkElements()
+    #endif
     #if os(iOS)
     private var spreadSelectionDelegate: ReaderSpreadSelectionGestureDelegate?
     var copyTextToPasteboard: (String) -> Void = { UIPasteboard.general.string = $0 }
@@ -64,7 +72,12 @@ typealias TableNativeTextView = UITextView
         showsVerticalScrollIndicator = false
         showsHorizontalScrollIndicator = false
         dataDetectorTypes = []
+        // A surface for touch only. VoiceOver reads a row, where it stands among its page's
+        // lines, as its cells' words, and the row offers what its cells can do. A text view
+        // that is merely no element still gives UIKit's own elements for its text: VoiceOver
+        // took those before every line of a page column, and the rows repeated them.
         isAccessibilityElement = false
+        accessibilityElementsHidden = true
         let inspection = UITapGestureRecognizer(target: self, action: #selector(inspectCellImage(_:)))
         inspection.numberOfTapsRequired = 2
         inspection.delegate = self
@@ -115,13 +128,21 @@ typealias TableNativeTextView = UITextView
     }
 
     func setCellHighlights(_ runs: [(NSRange, PlatformColor)]) {
-        highlightedCharacters = runs.map(\.0)
-        cellStorage.removeAttribute(.backgroundColor, range: NSRange(location: 0, length: cellStorage.length))
-        for (range, color) in runs {
-            let run = NSIntersectionRange(range, shownCharacters)
-            if run.length > 0 { cellStorage.addAttribute(.backgroundColor, value: color, range: run) }
-        }
+        highlights = runs.map { ($0.0, $0.1) }
         updateInteractionInk()
+    }
+
+    /// The selection as the cell paints it itself, where UIKit paints none. UIKit draws a text
+    /// view's selection only while the view is first responder, which a touch in it makes it.
+    /// A selection set in code, as an assistive technology's action and a located passage set
+    /// it, was held, reported and copied, and nothing showed it.
+    private var paintedSelection: NSRange? {
+        #if os(iOS)
+        let run = NSIntersectionRange(cellSelection, shownCharacters)
+        return run.length > 0 && !isFirstResponder ? run : nil
+        #else
+        return nil
+        #endif
     }
 
     /// An opaque native selection/highlight background covers the original row ink. Redraw
@@ -131,6 +152,18 @@ typealias TableNativeTextView = UITextView
         cellManager.drawnCharacterRanges = ([cellSelection] + highlightedCharacters)
             .map { NSIntersectionRange($0, shownCharacters) }.filter { $0.length > 0 }
         cellStorage.beginEditing()
+        cellStorage.removeAttribute(.backgroundColor, range: full)
+        for (range, color) in highlights {
+            let run = NSIntersectionRange(range, shownCharacters)
+            if run.length > 0 { cellStorage.addAttribute(.backgroundColor, value: color, range: run) }
+        }
+        #if os(iOS)
+        // UIKit's own tint for selected text. It takes a highlight's place on the characters
+        // they share, where UIKit's would lie over it.
+        if let run = paintedSelection {
+            cellStorage.addAttribute(.backgroundColor, value: tintColor.withAlphaComponent(0.2), range: run)
+        }
+        #endif
         cellStorage.addAttribute(.foregroundColor, value: PlatformColor.clear, range: full)
         for range in [cellSelection] + highlightedCharacters {
             let run = NSIntersectionRange(range, shownCharacters)
@@ -202,15 +235,6 @@ typealias TableNativeTextView = UITextView
         return min(shownCharacters.upperBound, fraction > 0.5 ? composed.upperBound : composed.location)
     }
 
-    /// The images an assistive technology may inspect: all but the decoration it passes over.
-    private func imageActions() -> [ReaderImageAttachment] {
-        var images: [ReaderImageAttachment] = []
-        cellText.enumerateAttribute(.attachment, in: shownCharacters) { value, _, _ in
-            if let image = value as? ReaderImageAttachment, image.alternative != .decorative { images.append(image) }
-        }
-        return images
-    }
-
     private func unlinkedImage(at point: CGPoint) -> Bool {
         guard cellImage(at: point) != nil, cellSelection.length == 0,
               let container = cellManager.textContainers.first else { return false }
@@ -221,6 +245,10 @@ typealias TableNativeTextView = UITextView
     }
 
     #if os(macOS)
+    /// The cell of a table of data whose words the view holds, which is then what holds the
+    /// view for an assistive technology.
+    weak var tableCellElement: NSAccessibilityElement?
+    override func accessibilityParent() -> Any? { tableCellElement ?? super.accessibilityParent() }
     override var isFlipped: Bool { true }
     override var textContainerOrigin: NSPoint { CGPoint(x: -textOffset.x, y: -textOffset.y) }
     override func accessibilityValue() -> String? { (cellText.string as NSString).substring(with: shownCharacters) }
@@ -245,20 +273,74 @@ typealias TableNativeTextView = UITextView
         return (cellText.string as NSString).substring(with: full)
     }
 
+    /// An attachment in a cell is to an assistive client what it is in the text around the
+    /// table (`ReaderTextView.accessibilityAttributedString(for:)`): its character carries an
+    /// element that is an image named by its words, the words of a hidden label as text, or the
+    /// reader's word for a rule, and decoration carries none. The characters stay as they are.
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard let full = fullAccessibilityRange(range) else { return nil }
         let result = NSMutableAttributedString(attributedString:
             super.accessibilityAttributedString(for: full) ?? cellText.attributedSubstring(from: full))
         cellText.enumerateAttribute(.attachment, in: full) { value, characters, _ in
-            guard let textual = value as? ReaderTextualAttachment else { return }
-            let element = NSAccessibilityElement()
-            element.setAccessibilityRole(.staticText)
-            element.setAccessibilityLabel(textual.textEquivalent)
-            element.setAccessibilityParent(self)
+            guard let element = attachmentElement(for: value, at: characters) else { return }
             let relative = NSRange(location: characters.location - full.location, length: characters.length)
             result.addAttribute(.accessibilityAttachment, value: element, range: relative)
+            // A formula's reading has its own voice: the book's language or the generator's.
+            if let language = (value as? ReaderTextualAttachment)?.textLanguage {
+                result.addAttribute(.accessibilityLanguage, value: language, range: relative)
+            }
         }
+        addAccessibilityLinks(accessibilityLinks(in: full), to: result, of: full)
         return result
+    }
+
+    /// AppKit lists a text view's links as its children and nothing else: the reader's own
+    /// elements take their place, as in the text around the table.
+    override func accessibilityChildren() -> [Any]? {
+        (super.accessibilityChildren() ?? []).filter { $0 is NSView } + linkChildren()
+    }
+
+    /// The element of the attachment `value` at `range` of the cell's text, or none for what an
+    /// assistive client passes over: decoration, and anything else that has no words.
+    private func attachmentElement(for value: Any?, at range: NSRange) -> NSAccessibilityElement? {
+        if value is ReaderRuleAttachment {
+            let element = keptElement(at: range)
+            ReaderRuleAttachment.makeSeparator(element)
+            return element
+        }
+        if let image = value as? ReaderImageAttachment {
+            guard !cellText.passesOver(image, at: range) else { return nil }
+            let element = keptElement(at: range)
+            element.setReaderAttachment(words: image.alt, isText: false)
+            // VoiceOver reads the help of an element without a label as its name, in the line.
+            element.setAccessibilityHelp(image.alt.isEmpty ? nil : ReaderImageInspection.accessibilityHelp)
+            element.setAccessibilityCustomActions([inspectAction(image)])
+            return element
+        }
+        guard let words = (value as? ReaderTextualAttachment)?.textEquivalent, !words.isEmpty else { return nil }
+        let element = keptElement(at: range)
+        // A table inside the cell is its cells' words: its rows have no text views of their own.
+        element.setReaderAttachment(words: words, isText: value is SpokenLabelAttachment || value is TableRowAttachment)
+        return element
+    }
+
+    /// The element kept for the attachment at `range`, where that stands in the cell. VoiceOver
+    /// asks an element what it is after the read that gave it. An element made for one read
+    /// was gone by then, and VoiceOver said nothing at a cell's attachment.
+    private func keptElement(at range: NSRange) -> NSAccessibilityElement {
+        let element = attachmentElements[range.location] ?? NSAccessibilityElement()
+        attachmentElements[range.location] = element
+        element.setAccessibilityParent(self)
+        if let frame = cellFrame(of: range) { element.setAccessibilityFrameInParentSpace(frame) }
+        return element
+    }
+
+    /// Where the characters of `range` are drawn, in the cell's own coordinates.
+    private func cellFrame(of range: NSRange) -> CGRect? {
+        guard let container = cellManager.textContainers.first else { return nil }
+        let glyphs = cellManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        return cellManager.boundingRect(forGlyphRange: glyphs, in: container)
+            .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
     }
 
     override func accessibilitySelectedText() -> String? { cellText.readerPlainText(in: NSIntersectionRange(cellSelection, shownCharacters)) }
@@ -284,10 +366,7 @@ typealias TableNativeTextView = UITextView
         return accessibilityRange(for: min(index - shownCharacters.location, max(0, shownCharacters.length - 1)))
     }
     override func accessibilityFrame(for range: NSRange) -> NSRect {
-        guard let full = fullAccessibilityRange(range), let container = cellManager.textContainers.first else { return .zero }
-        let glyphs = cellManager.glyphRange(forCharacterRange: full, actualCharacterRange: nil)
-        let frame = cellManager.boundingRect(forGlyphRange: glyphs, in: container)
-            .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+        guard let full = fullAccessibilityRange(range), let frame = cellFrame(of: full) else { return .zero }
         return NSAccessibility.screenRect(fromView: self, rect: frame)
     }
     override func accessibilityRTF(for range: NSRange) -> Data? {
@@ -315,14 +394,29 @@ typealias TableNativeTextView = UITextView
         return lines.indices.contains(line) ? lines[line] : NSRange(location: NSNotFound, length: 0)
     }
     override func accessibilityLine(for index: Int) -> Int {
-        accessibilityLines().firstIndex { NSLocationInRange(index, $0) } ?? NSNotFound
+        let lines = accessibilityLines()
+        // The insertion point after the cell's last character is on its last line, as in a page
+        // column (`ReaderTextView.accessibilityLine(for:)`). VoiceOver leaves it there once it
+        // has read the cell's last word, and without a line there its Read Line said nothing.
+        // A cell's text never changes, so no offset past that one is the cell's.
+        if index == shownCharacters.length, !lines.isEmpty { return lines.count - 1 }
+        return lines.firstIndex { NSLocationInRange(index, $0) } ?? NSNotFound
     }
     override func accessibilityInsertionPointLineNumber() -> Int { accessibilityLine(for: accessibilitySelectedTextRange().location) }
-    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
-        imageActions().map { image in NSAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") {
-            [weak self] in self?.onImage?(image); return self?.onImage != nil
-        } }
+    /// The images an assistive technology may inspect: all but the decoration it passes over.
+    private func imageActions() -> [ReaderImageAttachment] {
+        var images: [ReaderImageAttachment] = []
+        cellText.enumerateAttribute(.attachment, in: shownCharacters) { value, _, _ in
+            if let image = value as? ReaderImageAttachment, image.alternative != .decorative { images.append(image) }
+        }
+        return images
     }
+    private func inspectAction(_ image: ReaderImageAttachment) -> NSAccessibilityCustomAction {
+        NSAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") {
+            [weak self] in self?.onImage?(image); return self?.onImage != nil
+        }
+    }
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? { imageActions().map(inspectAction) }
     override var writablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string] }
     override func writeSelection(to pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
         guard type == .string else { return false }
@@ -359,15 +453,20 @@ typealias TableNativeTextView = UITextView
         set { super.contentOffset = textOffset }
     }
     override func setContentOffset(_ contentOffset: CGPoint, animated: Bool) { super.setContentOffset(textOffset, animated: false) }
-    override var accessibilityValue: String? {
-        get { cellText.readerPlainText(in: shownCharacters) }
-        set { super.accessibilityValue = newValue }
+    // UIKit paints the selection from the one to the other, and the cell outside them.
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        updateInteractionInk()
+        return became
     }
-    override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
-        get { imageActions().map { image in UIAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") {
-            [weak self] _ in self?.onImage?(image); return self?.onImage != nil
-        } } }
-        set { super.accessibilityCustomActions = newValue }
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        updateInteractionInk()
+        return resigned
+    }
+    override func tintColorDidChange() {
+        super.tintColorDidChange()
+        updateInteractionInk()
     }
     override func copy(_ sender: Any?) { copyTextToPasteboard(onCopy?() ?? cellText.readerPlainText(in: cellSelection)) }
     @objc private func inspectCellImage(_ gesture: UITapGestureRecognizer) {
@@ -382,6 +481,40 @@ typealias TableNativeTextView = UITextView
 }
 
 #if os(macOS)
+// A cell's links for an assistive client are the reader's own elements, as a column's are:
+// each named by what it says, never by an attachment's character, with a place and a press.
+// Their ranges are the cell's whole text's; the cell gives its characters from the first one
+// it shows, and the accessibility string is asked for the same way.
+extension TableCellTextView: ReaderLinkHost {
+    var linkText: NSAttributedString? { cellText }
+    var linkCharacters: NSRange { shownCharacters }
+    var visibleLinkCharacters: NSRange { shownCharacters }
+
+    /// The cell's pictures that an assistive client is told of: all but the decoration it
+    /// passes over. Decoration that is all its link holds is the link, and stays.
+    func announcedImages(in range: NSRange?) -> [(image: ReaderImageAttachment, range: NSRange)] {
+        var images: [(ReaderImageAttachment, NSRange)] = []
+        cellText.enumerateAttribute(.attachment, in: NSIntersectionRange(range ?? shownCharacters, shownCharacters)) { value, run, _ in
+            if let image = value as? ReaderImageAttachment, !cellText.passesOver(image, at: run) { images.append((image, run)) }
+        }
+        return images
+    }
+
+    func linkBounds(_ range: NSRange) -> CGRect {
+        cellFrame(of: NSIntersectionRange(range, shownCharacters)) ?? .zero
+    }
+
+    func followLink(_ url: URL, at range: NSRange) -> Bool {
+        onLink?(url, range)
+        return onLink != nil
+    }
+
+    func inspectLinkedImage(_ image: ReaderImageAttachment) -> Bool {
+        onImage?(image)
+        return onImage != nil
+    }
+}
+
 extension TableCellTextView: NSTextViewDelegate {
     func textViewDidChangeSelection(_ notification: Notification) { changedSelection() }
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {

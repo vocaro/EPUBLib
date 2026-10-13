@@ -56,6 +56,32 @@ xcrun xctest -XCTest All -AppleShowScrollBars Always .build/debug/EPUBViewingTes
 xcrun xctest -XCTest All -AppleShowScrollBars WhenScrolling .build/debug/EPUBViewingTests.xctest
 ```
 
+A Mac test takes a window through a live resize, as a drag of its edge does, with
+`setFrame(_:display:animate:)`: AppKit tells every view that a live resize starts, resizes the
+window through the sizes between, and tells every view that it has ended, before the call
+returns. `viewWillStartLiveResize()` called on a view does not reach its subviews, and AppKit's
+text view does its own work when a resize ends
+([Layout](native-viewer.md#layout), "Continuous scroll"). `ScrolledLiveResizeTests` has the
+helper, with a view that counts the calls, and skips where AppKit resizes without one.
+
+A `swift test` that hangs can be made to say where. Written to a file or a pipe, its output
+arrives 16 KB at a time, so the log of a run that hangs stops short of the hang, or is empty.
+With `NSUnbufferedIO=YES` in its environment `swift test` writes each line as a test makes
+it, and the last `Test Case … started.` line with nothing after it names the test. A stack
+sample of the process running the tests, the `xctest` that `swift test` starts for a bundle,
+has every thread's frames, the test's own with its file and line, and needs no `sudo`:
+
+```sh
+NSUnbufferedIO=YES swift test --filter BoxAlignmentCanvasTests > pass.log 2>&1 &
+sample "$(pgrep -P $!)" 2 -file hang.txt
+```
+
+The second command is for when `pass.log` has stopped growing. `pgrep -P $!` finds the
+process this run started and no other session's. On 2026-10-12, with a test made to wait
+twenty seconds, a plain run's log was empty ten seconds in, the log of a run with
+`NSUnbufferedIO=YES` ended at that test's `started` line, and the sample had the test's frame
+on the main thread.
+
 ## Coverage
 
 Parser tests cover EPUB 2/3 structure, navigation, landmarks and page lists, resource access, identity, limits,
@@ -141,6 +167,80 @@ reader out. The bars are the system's own, in a test host; nothing is looked at 
 Each window's toolbar has an identifier of its own: toolbars that share one share their
 visibility across the windows of a process, so hiding one hides the next test's.
 
+Table reading-order tests hold a table on iPhone and iPad to one accessibility element for each
+row, between the lines around it and in both flows: text with its cells' words, the actions of
+its own cells, a row continued across pages by each page's own words, a row of pictures as an
+image without a name, and an empty row or a row of decoration as nothing unless the page holds
+nothing else. They also hold every view the reader mounts inside a text
+view that lists its lines to being hidden from assistive technology. That VoiceOver reads what
+such a view offers before the lines of a page column is known only from
+[speech sessions](voiceover-testing.md); no in-process query shows it.
+
+Table header tests hold the model to HTML's rule for which cells head a column and a row,
+with and without `scope`, in `thead` and for cells that span, and to the rule for which tables
+are data: each mark that makes one so, a `role` that decides either way, twenty rows or
+cells, the ways of ruling a grid, and backgrounds, which do not count in either appearance.
+Data table tests read, on iPhone and iPad and in both flows, what VoiceOver is given for such
+a table, through the protocols it uses: one container for the table between the lines around
+it, a cell element for every cell with its rows and columns, the cell for each slot, the
+header cells of a row and a column, frames where the cells are drawn, and each cell's actions,
+performed. They cover cells that span, a table split across pages with its header row on
+another page, a row taller than a page, cells of pictures, and a table marked as layout. Two
+stand in for VoiceOver's cursor in continuous scroll, as the scrolled-lines tests do: one
+reads on through a table of seventy rows and back, finding each next stop as UIKit does, in
+the cell's container and then in the text view, and then moves down a column row by row; the
+other rests the cursor in a table and scrolls away. Neither drives VoiceOver.
+Table select action tests perform Select Table Text on a row and Select Cell Text on a cell,
+in both flows, and hold each to the same: the reader reports the words, the canvas as drawn
+shows them selected, the item has the selected trait, VoiceOver is told that the item
+changed, and the item then offers Deselect, Copy and the host's selection action, each
+performed. The drawing is read from the canvas's pixels, counting those of the cell's ground
+that changed: the cell draws a selected word's ink over the row's own, which changes pixels
+at the letters' edges with no selection shown, and passed a count of any pixel. What the
+reader posts to an assistive technology is taken from the canvas
+(`ReaderCanvasView.postToAccessibility`) instead of posted. A third test selects a passage
+through two cells in code, as a located passage is, and reads each cell's share from the
+pixels, and a fourth holds a cell to painting no selection of its own while its view is first
+responder, when UIKit draws it, and to painting it again when the view gives that up. That
+VoiceOver reads the item again and takes its new actions when told is known only from
+[speech sessions](voiceover-testing.md) on a device: the tests passed before the reader told
+it anything, and an iPad's rotor still offered Select alone.
+Table scrolled-cell tests hold continuous scroll, on Mac, iPhone and iPad, to a text view on
+every cell of every row the screen shows after a move the reader makes itself, with nobody
+scrolling after it: a book opened at a chapter, a contents entry, a link to a cell from
+before it and from after it, steps of a page, and new sizes. They take what the reader
+mounted before they ask the layout anything, find each row on screen from the reader's own
+read of the visible lines, and require the row's cells inside the row as drawn, a second look
+that finds the same cells in the same places and, on iPhone and iPad, each cell's item
+offering its action. One test makes a scroll that is not the reader's, a screen at once as
+the system makes for an assistive technology or a drag of the scroll bar, and holds the rows
+it reaches to the same once the reader has read where the view stands. A last test holds a
+highlight set before the reader goes to its row, and a selection in the row a step back
+leaves last on screen, to being on their cells. The book
+has a table of 120 rows, taller than any screen here: the rows that went without cells were
+those TextKit had not laid out when the scroll view told of the move, the lowest on screen,
+and a test whose table stood whole at the top of its chapter passed without the change that
+it was written for ([#472](https://github.com/vocaro/EPUBLib/issues/472)). Each kind of move
+is made in a reader that has looked at nothing else, since a check lays text out past the
+screen and the next move then finds its rows. Without the change the contents entry, the
+first step of a page, the system's scroll and the highlight fail on iPhone and iPad, and on
+Mac all of those but the highlight; a new size, a link to a cell and the selection
+hold either way, the first because a new size ends in a layout pass that looks for the rows
+again, the others because the reader's last scroll to a cell is a small one made after the
+text is laid out. The test of a book opened at a chapter depends on whether every chapter is
+built when the commands arrive, and fails without the change in most runs, not all.
+
+Accessibility action tests hold each item of a page and of a screen on iPhone and iPad to
+offering its own actions and no more: a line, a heading and a link their page turns in pages
+and nothing in continuous scroll, an image also its own inspection, and a table row also what
+its cells can do. They read an item's actions and then those of every view above it, as
+VoiceOver gathers them, in a reader mounted in the public SwiftUI view, and perform each one.
+They give the text view an action through its setter and hold it to passing none on while it
+lists lines, and a note's text view to passing it on. A line's page turn is held to turning
+the page while text is selected and to failing at either end of the book. SwiftUI builds no
+accessibility elements in a test host, so that the reader view names no page action on iPhone
+and iPad is known only from speech sessions too.
+
 Heading tests cover which characters the builder marks as a heading and at what level: `h1`
 to `h6`, `role="heading"` with and without `aria-level`, a role that takes a heading away, a
 heading run in with its paragraph, hidden headings and hidden words inside a shown one. They
@@ -155,6 +255,101 @@ level in a column's rich text, and the rotor's headings asked for as VoiceOver w
 ask. None of them drives VoiceOver; the [VoiceOver testing process](voiceover-testing.md) has
 what it said.
 
+Page-turn tests on UIKit (`PageTurnAccessibilityTests`) put an assistive technology's cursor
+on a line of a page as UIKit tells the reader of it, by the line's own callback and the
+focus notification, and read what the canvas posts when the page is shown anew
+(`ReaderCanvasView.postAccessibilityNotification`). A page turned from a line posts one
+layout change with the element the cursor is on, which is then the first line of the page
+shown and has that line's place in the list, in one column and across a spread, where it
+moves to the left-hand column, into the next chapter and back into the one before, and
+again when the action is performed a second time with the cursor told of no other item; a
+position shown from a line makes that element the line that holds it; VoiceOver's scroll
+posts the page's number and then the element; and nothing is posted for a cursor on a
+control, for VoiceOver switched off, for a page shown again as it was, or for a move by
+heading. One test takes a single element through a book whose every page opens with another
+kind of item, a table row, a picture, a link, a heading, a formula and a rule, and back: on
+each page it must answer what a new element for that page's first item answers, in its
+label, heading level, traits, language, frame and actions, and activating it must do what
+that item does and nothing the last one did. Another takes the cursor through a book whose
+pages open with a data table's cells of each kind, a header cell, a cell that is a link, a
+cell of one picture and the cells of a table longer than a page, between pages of lines, and
+back. A line's element must become the cell that opens the next page, in the list of that
+page's table and not in the view's, with that cell's row, column, header cells and actions,
+and a cell's element the line; each must be a cell, or not, to one who asks it as UIKit does
+(`conformsToProtocol:` and `respondsToSelector:`). From a cell to a cell the element posted
+must be the new cell's own, and the cell left what it was. A third does the same across an
+iPad's spread, where the element changes column. They also hold an element kept from one page to
+standing for no line of the next, on pages whose lines have the same characters counted
+from each page's first, and to standing for its own line when its page is shown again. That
+VoiceOver reads the line for the layout change, draws its cursor there and keeps its rotor,
+is known only from [speech sessions](voiceover-testing.md) on a device.
+
+Table of data tests on AppKit (`TableDataMacAccessibilityTests`) read what a column and the
+scroll view give an assistive technology at each row of a table that holds data, on a reader
+built by the real pipeline, in pages and in continuous scroll: an `NSAccessibility` table of
+its own at each row's character, called by that row's words and with that row selected; its
+rows, each with its number in the whole table, its columns, and its cells with the rows and
+columns each covers, the text areas each holds on screen and its place; a header for each
+column and each row from the table and none from a cell, which is the header's own cell on
+screen and otherwise a static text with the header cells' words, for a column under two
+header cells, a header on another page and one scrolled far off the screen; a cell that
+spans answering for every slot it covers; the actions a cell
+offers, and that selecting a cell's words and following its link do so; a cell whose words
+are one link and nothing else pressed to follow it, holding a link called by its words with
+its text area inside, a header cell that is one link doing the same and still the header of
+its row or column itself, a cell with words beside its link or with two links not pressed,
+and a link cell far off the screen whose link holds nothing and whose press does nothing
+until it is brought on screen, with a header cell that is a link heading its column by name
+while it is off screen; a cell that shows pictures and nothing else holding an image for
+each, called by the picture's words or by nothing, without help, where the picture is drawn
+and with its Inspect Image, and no text area; a cell of decoration alone holding nothing; a
+cell that shows a picture among words holding its text area and then the picture's image;
+a header cell that is a picture still the header of its row itself; a cell that is a
+picture's link holding its link; a picture cell far off the screen holding its image
+there, where a cell of words with a picture among them is labelled with all of them; a
+table split across pages, with the page's rows, the whole
+table's count and a header cell named from another page; a row taller than a page, whose
+words each page's table says once; continuous scroll, where a table holds every row, says
+which are on screen and labels a cell that has no text area yet; and a table kept from a
+page that has been turned, which says nothing of the new one. For a table that is not data
+they read the group at each row's character: called by its cells' words in column order,
+holding the text areas of the cells on screen, and the same element when one character is
+asked for; a cell without words left out of the name, a described picture's words in it, a
+row of pictures nobody describes with no name and no help, and a row of a table of data
+that shows a picture still its table; in continuous scroll a row far below the screen the
+same group with nothing in it, which holds its cells once it is scrolled to; a row taller
+than a page called on each page by the words that page shows; and a group kept from a page
+that has been turned, which says nothing. And they read what the text gives at a row that
+has nothing to say, of cells that hold nothing or decoration alone, in a table marked as
+layout and in a table of data: no element at its character; a space for that character and
+for the break after it in the text's value, its string and its attributed string, each still
+as long as the text, whether the row or its break alone is asked for; and no line of its
+own, its line being part of the line after, with the rows of words each side a line apart
+and the insertion point after the row on that line. They hold that a table of data entered
+at another row still has such a row and its cells; that the lines follow one another through
+a long table with one, two and three such rows together, each character on the line the
+text gives for it and no line ending with such a row, where in continuous scroll the lines
+are AppKit's and are numbered through the book; that such rows opening a text are part of
+its first line, those ending one are a line together, and a text of them alone is one line;
+and that a row is not passed over when it holds a picture nobody describes, a link or a
+rule, while one of spaces, or with a table of decoration inside a cell, is. They read the
+elements through
+AppKit's own accessibility methods. The older informal ones (`accessibilityAttributeNames()`,
+`accessibilityAttributeValue(_:)`) do not show what a client is given: called on these
+elements in a test they listed five attributes, gave nil for every value, and the test
+process then ended with "freed pointer was not the last allocation". That a client of the
+accessibility API is given each attribute, and what VoiceOver says, is recorded with the
+[VoiceOver testing process](voiceover-testing.md#tables-on-mac).
+
+Table cell line tests on AppKit (`TableCellLineAccessibilityTests`) read the lines a cell's
+own text gives an assistive technology: the layout's lines, numbered from the first the cell
+shows and covering its text once; the offset after its last character on its last line, in a
+cell of one line, in one of several, and in each part of a cell cut at a page's end; no line
+for an offset past that one; and the insertion point's line with its characters, which is
+what VoiceOver's Read Line has to read. One of them takes its cells from a table built by the
+real pipeline and mounted on a page. VoiceOver said nothing for Read Line at the end of a
+cell's text while that offset had no line.
+
 Link tests on AppKit (`LinkAccessibilityTests`) read what a column and the scroll view give
 an assistive technology for a link: one element for a link whose font changes inside it, with
 its words, its place and a press that reports the link; the names of links that are pictures,
@@ -162,8 +357,27 @@ hidden labels and formulas, and never U+FFFC; a link element as the attachment o
 picture or label in a link, and none over a link's words; a hidden label's place, which has a
 size though the label has none; a link cut at a page's end and continued on the next page;
 the links on screen in continuous scroll; and a text view with no canvas, as a note's
-popover has, left with AppKit's own. What VoiceOver says of each is recorded with the
-[VoiceOver testing process](voiceover-testing.md#links).
+popover has, left with AppKit's own. `TableCellLinkAccessibilityTests` read the same of a
+table cell, which is a text view of its own: its links by what they say, with every range
+counted from the first character the cell shows; a link element at each picture, label or
+formula in a link and none at decoration after a link's first character; each link's place in
+its cell and its press reporting the cell and the offset; a cell that shows only the later
+lines of a row cut by a page; and the page, or the scroll view, listing its cells' links
+among its own in reading order, as children of its own. What VoiceOver says of each is
+recorded with the [VoiceOver testing process](voiceover-testing.md#links).
+
+Table cell tests on AppKit (`TableCoverageInteractionTests`) read what a cell's own text gives
+an assistive technology for each attachment it can hold, on a table built by the real pipeline
+with the entries of the VoiceOver fixture's seventh section: the reader's word for a rule, an
+image named by its words for a formula and for a picture, a hidden label's words as text, an
+image without a name for a picture nobody describes, and no element for decoration. They hold
+each element to the place its character is drawn at, the same content in a page's text to the
+same elements, a rule to having no words for a copy, a selection or its row, a part of a cell
+cut at a page's end to the attachments of its own lines, and a table inside a cell to its
+cells' words. One of them holds an element to outliving the string it was given in and to
+being the same on the next read: VoiceOver read nothing at a cell's attachment while a cell
+made its elements anew for every read. What VoiceOver says of each is recorded with the
+[VoiceOver testing process](voiceover-testing.md).
 
 Highlight paint tests read the pixels the mounted reader's views last drew: none in the
 highlight's color before a search, the matches after it, and none again after Clear Search,
@@ -210,7 +424,8 @@ typographic review, an accessibility audit or a memory budget measurement. They 
 VoiceOver speech or focus order, keyboard-only traversal, native toolbar overflow or iPhone Duo
 layouts ([#51](https://github.com/vocaro/EPUBLib/issues/51)), which need live sessions.
 The suite runs on OS 27; older platforms are outside the package's deployment targets. Simulator
-coverage does not substitute for hardware performance and accessibility testing.
+coverage does not substitute for hardware performance and accessibility testing, except for
+what a simulator's VoiceOver reads, as the next paragraph says.
 
 For real VoiceOver sessions, use the [VoiceOver testing process](voiceover-testing.md) and
 the isolated `Examples/VoiceOverVerification` reader. Its diagnostic speech probe is outside
@@ -218,8 +433,10 @@ the local gate because it takes control of the user interface and changes VoiceO
 `scripts/run-voiceover-simulator.py` runs that probe on simulators of its own, with no window
 and no sound, and takes over nothing: it records what a
 [simulator's VoiceOver](voiceover-testing.md#simulators) reads, in order and after a page
-turn. That VoiceOver activates nothing it reads, so page actions, the rotor and acceptance
-stay with the Mac and physical devices.
+turn, and that record is
+[acceptance evidence](voiceover-testing.md#acceptance-and-evidence) for it on an iPhone and
+iPad. That VoiceOver activates nothing it reads, so what VoiceOver activates, the actions it
+performs from the rotor and page turns in landscape stay with physical devices.
 
 ## Corpus runs
 
@@ -272,12 +489,43 @@ The verifier checks:
 - Close is idempotent; closed commands fail and later callbacks are suppressed.
 
 A minimal SwiftUI test engine runs the same checks with no renderer at all, as an engine with no
-search, one that only highlights and one that lists results. Deliberately broken
+search, one that only highlights, one that lists results, and one that lists them and reports a
+step's relocation and a clear's idle state 30 ms late, from a timer of its own. Deliberately broken
 engines demonstrate that missing/duplicate readiness, ignored cancellation, incompatible restoration,
 late callbacks, results published after completion, steps that do not wrap, stale results that
-still navigate and results kept after a clear fail the verifier. Adapter-specific tests must additionally check actual rendering,
-selection gestures, precise bookmark semantics and resource release. A bounded quiet period after
-close detects queued callbacks; it cannot prove that an engine will never emit a much later event.
+still navigate, results kept after a clear and a step of a cleared search that still moves the
+reader fail the verifier. Adapter-specific tests must additionally check actual rendering,
+selection gestures, precise bookmark semantics and resource release.
+
+A bounded quiet period after close detects late callbacks; it cannot prove that an engine will
+never emit a much later event. The verifier yields, so that what the engine queued while closing
+has started, waits 150 ms, waits 20 ms more and then looks. The second wait is for a callback
+sent from a timer of the engine's own. Two sleeps that are both overdue resume in either order,
+so a callback sent from a 30 ms sleep can arrive just after the 150 ms has ended. A look at that
+moment missed it one time in ten on GitHub's hosted runner, when these tests ran there on
+2026-10-12, and a few times in a thousand on a busy Mac. The yield is for a main thread kept
+from the engine's queued work until the 150 ms is nearly over: a timer started that late is due
+after the look. So one broken engine queues its late callback and another sends it from a 30 ms
+sleep, and both are caught. To make the race on a Mac, stop the test process across both sleeps
+(`kill -STOP`, then `kill -CONT` 200 ms later, from a helper process): both are overdue when it
+continues, and they are delivered together.
+
+The 20 ms is a margin and not a bound. Made that way on this Mac under heavy load on
+2026-10-13, the callback came after the 150 ms had ended in 1,416 of 11,235 attempts: within a
+millisecond in 1,402 of them, and more than 20 ms after in two, at 29 ms and 42 ms. Without the
+yield it came more than 20 ms after in 39 of 11,304.
+
+The search-results check waits the same way twice more, through the same `settle()`. After the
+clear it waits before it counts the events, so that what a correct engine still sends for the
+clear, its idle state or a relocation, is not taken for the effect of a stale step. After the
+stale steps it waits before it looks for that effect. With both sleeps made overdue together, a
+count taken the moment the 150 ms ended failed a correct engine that reports from a 30 ms sleep
+in 667 of 2,954 attempts, and a look at that moment let through a broken engine whose stale
+step moves the reader from a 30 ms sleep in 126 of 3,013. Waiting as after close, neither
+happened, in 2,979 and 3,028 attempts. Both engines are in `EngineContractTests`: the first must
+pass and the second must fail. The wait before the clear is a plain 150 ms. An event that comes
+just after it is counted all the same, by the wait after the clear: one did in 100 of 1,430
+attempts, and the engine passed in every one.
 
 The contract verifier requires at least two distinct section hrefs when the engine advertises href
 navigation. It permits a navigation to the already-current section to be a no-op. `send` acknowledges

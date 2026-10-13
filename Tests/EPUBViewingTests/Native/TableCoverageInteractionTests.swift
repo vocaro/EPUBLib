@@ -63,6 +63,7 @@ import UIKit
         #else
         XCTAssertEqual(cell.backgroundColor, .clear)
         XCTAssertFalse(cell.isAccessibilityElement)
+        XCTAssertTrue(cell.accessibilityElementsHidden, "for touch: VoiceOver reads the row")
         #endif
     }
 
@@ -216,7 +217,9 @@ import UIKit
         XCTAssertEqual(spoken.length, shown.length)
         let element = try XCTUnwrap(spoken.attribute(.accessibilityAttachment, at: 5, effectiveRange: nil) as? NSAccessibilityElement)
         XCTAssertEqual(element.accessibilityLabel(), "x squared")
-        XCTAssertEqual(element.accessibilityRole(), .staticText)
+        XCTAssertEqual(element.accessibilityRole(), .image, "named by its words, as in the text around a table")
+        XCTAssertTrue(element.accessibilityParent() as? NSView === cell)
+        XCTAssertEqual(element.accessibilityFrameInParentSpace(), glyphFrame(shown.location + 5, in: cell), "where it is drawn")
         XCTAssertNil(spoken.attribute(.accessibilityAttachment, at: 0, effectiveRange: nil))
         XCTAssertNil(cell.accessibilityAttributedString(for: NSRange(location: 0, length: shown.length + 1)), "past the shown lines")
         XCTAssertNil(cell.accessibilityRTF(for: NSRange(location: shown.length, length: 4)))
@@ -236,6 +239,203 @@ import UIKit
         XCTAssertEqual(cell.accessibilityRange(for: NSPoint(x: 10, y: 10)).location, NSNotFound, "without a window there is no screen point")
         XCTAssertEqual(cell.accessibilityFrame(for: NSRange(location: shown.length + 1, length: 1)), .zero)
         XCTAssertEqual(cell.accessibilityCustomActions()?.count, 0, "no image to inspect")
+    }
+
+    /// The elements `cell` gives in its rich text for `range`, each with its place in that text.
+    private func attachmentElements(of cell: TableCellTextView, in range: NSRange? = nil) throws -> [(location: Int, element: NSAccessibilityElement)] {
+        let range = range ?? NSRange(location: 0, length: cell.shownCharacters.length)
+        let rich = try XCTUnwrap(cell.accessibilityAttributedString(for: range))
+        XCTAssertEqual(rich.length, range.length)
+        var found: [(Int, NSAccessibilityElement)] = []
+        rich.enumerateAttribute(.accessibilityAttachment, in: NSRange(location: 0, length: rich.length)) { value, run, _ in
+            if let element = value as? NSAccessibilityElement { found.append((run.location, element)) }
+        }
+        return found
+    }
+
+    /// What an element is to an assistive client: its role, what it is called or holds, whether
+    /// it has help, and what it offers.
+    private func described(_ element: NSAccessibilityElement) -> String {
+        let role = [NSAccessibility.Role.staticText: "text", .image: "image", .group: "group", .link: "link"][element.accessibilityRole() ?? .unknown] ?? "other"
+        let actions = (element.accessibilityCustomActions() ?? []).map(\.name)
+        return "\(role) label \(element.accessibilityLabel() ?? "nil") value \(element.accessibilityValue() as? String ?? "nil")"
+            + (element.accessibilityHelp() == nil ? "" : " help") + (actions.isEmpty ? "" : " \(actions)")
+    }
+
+    /// What a cell can hold besides words, one kind to a cell, as the VoiceOver fixture's
+    /// section of entries has them (`scripts/make-voiceover-fixture.py`).
+    private static let entries = [
+        "<p>Upper part closes.</p><hr/><p>Lower half opens.</p>",
+        "Sum <math xmlns=\"http://www.w3.org/1998/Math/MathML\" alttext=\"x squared\"><msup><mi>x</mi><mn>2</mn></msup></math> stated.",
+        "Drawn <img src=\"square.png\" alt=\"Blue entry square\"/> shown.",
+        "<span class=\"parked\">Parked entry words.</span>Seen entry words.",
+        "Ornament <img src=\"square.png\" alt=\"\"/> passed.",
+        "Undescribed <img src=\"square.png\"/> stands.",
+    ]
+    private static let entryStyle = ".parked { position: absolute; left: -999em; } img { width: 20px; height: 20px; }"
+
+    private func hostOfEntries(nested: Bool = false) async throws -> (host: CanvasHost, cells: [TableCellTextView]) {
+        let rows = stride(from: 0, to: Self.entries.count, by: 2).map { "<tr><td>\(Self.entries[$0])</td><td>\(Self.entries[$0 + 1])</td></tr>" }.joined()
+        let inner = nested ? "<tr><td><table><tr><td>Inner one</td><td>Inner two</td></tr></table></td><td>Beside the inner grid.</td></tr>" : ""
+        let section = try TableCoverage.section("<p>Entries follow.</p><table border='1'>\(rows)\(inner)</table>", css: Self.entryStyle,
+                                                files: ["square.png": RichFixture.image(width: 40, height: 40)])
+        let host = try await host(section, size: CGSize(width: 480, height: 600))
+        let cells = mounted(host).map(\.cell)
+        XCTAssertEqual(cells.count, Self.entries.count + (nested ? 2 : 0), "a text of its own for each cell of the table, and none for a table inside one")
+        return (host, cells)
+    }
+
+    /// A cell is a text area of its own to VoiceOver on Mac, reached by interacting with its
+    /// row and then with it. Each attachment's character carries an element there, as it does
+    /// in the text around the table: the reader's word for a rule, an image named by its words
+    /// for a formula or a picture, a hidden label's words as text, an image without a name for
+    /// a picture nobody describes, and nothing for decoration.
+    func testACellsAttachmentsAreToAssistiveTechnologyWhatTheyAreInThePagesText() async throws {
+        let (host, cells) = try await hostOfEntries()
+        defer { host.close() }
+        let attachment = "\u{FFFC}"
+        XCTAssertEqual(cells.map { $0.accessibilityValue() ?? "" },
+                       ["Upper part closes.\n\(attachment)\nLower half opens.", "Sum \(attachment) stated.", "Drawn \(attachment) shown.",
+                        "\(attachment)Seen entry words.", "Ornament \(attachment) passed.", "Undescribed \(attachment) stands."],
+                       "the characters as they are, so every range matches")
+        let found = try cells.map { try attachmentElements(of: $0) }
+        XCTAssertEqual(found.map { $0.map(\.location) }, [[19], [4], [6], [0], [], [12]], "decoration has no element")
+        XCTAssertEqual(found.map { $0.map { described($0.element) } }, [
+            ["text label nil value \(ReaderRuleAttachment.spokenName)"],
+            ["image label x squared value nil"],
+            ["image label Blue entry square value nil help [\"Inspect Image: Blue entry square\"]"],
+            ["text label nil value Parked entry words."],
+            [],
+            ["image label nil value nil [\"Inspect Image\"]"],
+        ], "an image without a name has no help: VoiceOver reads the help of an element without a label in the label's place")
+        for (cell, elements) in zip(cells, found) {
+            for (location, element) in elements {
+                XCTAssertTrue(element.accessibilityParent() as? NSView === cell)
+                XCTAssertTrue((element.accessibilityChildren() ?? []).isEmpty)
+                XCTAssertEqual(cell.accessibilityString(for: NSRange(location: location, length: 1)), attachment)
+                XCTAssertEqual(element.accessibilityFrameInParentSpace(), glyphFrame(location, in: cell), "where it is drawn")
+            }
+        }
+        XCTAssertFalse(try XCTUnwrap(found[0].first).element.accessibilityFrameInParentSpace().isEmpty, "a rule has a place")
+        // A formula's reading has its own voice, as in the text around the table.
+        let rich = try XCTUnwrap(cells[1].accessibilityAttributedString(for: NSRange(location: 0, length: cells[1].shownCharacters.length)))
+        XCTAssertEqual(rich.attribute(.accessibilityLanguage, at: 4, effectiveRange: nil) as? String, "en")
+        // The picture's element opens the picture, as the cell's own action does.
+        XCTAssertNil(host.canvas.imageInspector)
+        XCTAssertTrue(try XCTUnwrap(found[2].first?.element.accessibilityCustomActions()?.first).handler?() ?? false)
+        XCTAssertNotNil(host.canvas.imageInspector)
+        host.canvas.imageInspector?.close()
+        XCTAssertEqual(cells.map { ($0.accessibilityCustomActions() ?? []).map(\.name) },
+                       [[], [], ["Inspect Image: Blue entry square"], [], [], ["Inspect Image"]])
+    }
+
+    /// The same content in a page's text gives the same elements: one function says what an
+    /// attachment is to an assistive client (`NSAccessibilityElement.setReaderAttachment`), and
+    /// a rule's is `ReaderRuleAttachment.makeSeparator` in both.
+    func testACellGivesTheElementsThePagesTextGivesForTheSameContent() async throws {
+        let (cellHost, cells) = try await hostOfEntries()
+        defer { cellHost.close() }
+        let inCells = try cells.map { try attachmentElements(of: $0).map { described($0.element) } }
+        let section = try TableCoverage.section(Self.entries.map { $0.hasPrefix("<p>") ? $0 : "<p>\($0)</p>" }.joined(),
+                                                css: Self.entryStyle, files: ["square.png": RichFixture.image(width: 40, height: 40)])
+        let pageHost = try await host(section, size: CGSize(width: 480, height: 1200))
+        defer { pageHost.close() }
+        let view = try XCTUnwrap(pageHost.canvas.textViews.first)
+        XCTAssertEqual(view.placement.visibleLength, section.string.length, "the section is one page")
+        let rich = try XCTUnwrap(view.accessibilityAttributedString(for: NSRange(location: 0, length: section.string.length)))
+        var onThePage: [String] = []
+        rich.enumerateAttribute(.accessibilityAttachment, in: NSRange(location: 0, length: rich.length)) { value, _, _ in
+            if let element = value as? NSAccessibilityElement { onThePage.append(described(element)) }
+        }
+        XCTAssertEqual(inCells.flatMap { $0 }, onThePage)
+        XCTAssertEqual(onThePage.count, 5)
+    }
+
+    /// VoiceOver asks an element what it is after the read that gave it. A cell made a new
+    /// element for every read and kept none, so the element was gone by then and VoiceOver
+    /// said nothing at a cell's attachment. An element is kept for as long as its cell is.
+    func testACellKeepsItsAttachmentElementsFromOneReadToTheNext() async throws {
+        let (host, cells) = try await hostOfEntries()
+        defer { host.close() }
+        let rule = cells[0]
+        weak var kept: NSAccessibilityElement?
+        var location = 0
+        try autoreleasepool {
+            let first = try XCTUnwrap(try attachmentElements(of: rule).first)
+            (kept, location) = (first.element, first.location)
+        }
+        let element = try XCTUnwrap(kept, "the element outlives the string it was given in")
+        XCTAssertEqual(element.accessibilityValue() as? String, ReaderRuleAttachment.spokenName)
+        XCTAssertTrue(try XCTUnwrap(try attachmentElements(of: rule).first).element === element, "the same element on the next read")
+        // A read of part of the cell gives it at its place in that part, and none where no attachment is.
+        let part = try attachmentElements(of: rule, in: NSRange(location: location - 3, length: 6))
+        XCTAssertEqual(part.map(\.location), [3])
+        XCTAssertTrue(part.first?.element === element)
+        XCTAssertTrue(try attachmentElements(of: rule, in: NSRange(location: 0, length: location)).isEmpty)
+        XCTAssertTrue(try attachmentElements(of: rule, in: NSRange(location: location + 1, length: 5)).isEmpty)
+        // Each cell has its own.
+        let formula = try XCTUnwrap(try attachmentElements(of: cells[1]).first).element
+        XCTAssertFalse(formula === element)
+        XCTAssertTrue(try XCTUnwrap(try attachmentElements(of: cells[1]).first).element === formula)
+    }
+
+    /// The reader's word for a rule is what VoiceOver is told and no word of the book: the
+    /// cell's text for a selection or a copy, and the row's for a listener on iPhone or iPad
+    /// and for a search, have nothing in the rule's place.
+    func testARuleInACellHasNoWordsForACopyASelectionOrItsRow() async throws {
+        let (host, cells) = try await hostOfEntries()
+        defer { host.close() }
+        let rule = cells[0]
+        XCTAssertEqual(rule.cellText.readerPlainText(), "Upper part closes.\n\nLower half opens.")
+        rule.cellSelection = rule.shownCharacters
+        XCTAssertEqual(rule.accessibilitySelectedText(), "Upper part closes.\n\nLower half opens.")
+        XCTAssertEqual(rule.accessibilitySelectedTextRange(), NSRange(location: 0, length: rule.cellText.length))
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.declareTypes([.string], owner: nil)
+        XCTAssertTrue(rule.writeSelection(to: pasteboard, type: .string))
+        XCTAssertEqual(pasteboard.string(forType: .string), "Upper part closes.\n\nLower half opens.")
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        XCTAssertFalse(view.visibleText.localizedCaseInsensitiveContains(ReaderRuleAttachment.spokenName))
+        XCTAssertTrue(view.visibleText.contains("Upper part closes. Lower half opens.\tSum x squared stated."), view.visibleText)
+        XCTAssertEqual(rule.accessibilityNumberOfCharacters(), rule.cellText.length)
+        XCTAssertEqual(rule.accessibilityRange(forLine: 1), NSRange(location: 19, length: 2), "the rule's line: its character and the break after it")
+    }
+
+    /// A row that goes on over a page's end has a text for each part of a cell. Each gives the
+    /// attachments of its own lines, at their places from the first character it shows.
+    func testAPartOfACellGivesTheAttachmentsOfItsOwnLines() throws {
+        let text = NSMutableAttributedString(attributedString: CanvasText.body("First line.\n"))
+        text.append(NSAttributedString(attachment: ReaderRuleAttachment(style: ComputedStyle(), isDark: false)))
+        text.append(CanvasText.body("\nThird line "))
+        let label = SpokenLabelAttachment(text: "mots gard\u{E9}s", language: "fr")
+        text.append(NSAttributedString(attachment: label))
+        text.append(CanvasText.body(" ends."))
+        let ruleAt = 12, labelAt = text.length - 7
+        let upper = surface(text, showing: NSRange(location: 0, length: ruleAt + 2))
+        let lower = surface(text, showing: NSRange(location: ruleAt + 2, length: text.length - ruleAt - 2))
+        XCTAssertEqual(try attachmentElements(of: upper).map { "\($0.location) \(described($0.element))" },
+                       ["\(ruleAt) text label nil value \(ReaderRuleAttachment.spokenName)"])
+        XCTAssertEqual(try attachmentElements(of: lower).map { "\($0.location) \(described($0.element))" },
+                       ["\(labelAt - ruleAt - 2) text label nil value mots gard\u{E9}s"])
+        // A label that says what language it is in is read in that language's voice.
+        let rich = try XCTUnwrap(lower.accessibilityAttributedString(for: NSRange(location: 0, length: lower.shownCharacters.length)))
+        XCTAssertEqual(rich.attribute(.accessibilityLanguage, at: labelAt - ruleAt - 2, effectiveRange: nil) as? String, "fr")
+        XCTAssertNotEqual(rich.attribute(.accessibilityLanguage, at: 0, effectiveRange: nil) as? String, "fr")
+        XCTAssertNil(upper.accessibilityAttributedString(for: NSRange(location: 0, length: ruleAt + 3)), "past the lines it shows")
+    }
+
+    /// A table inside a cell is drawn with its cell and has no text views of its own, so each
+    /// of its rows is its cells' words to a listener in the cell, as text.
+    func testATableInsideACellIsItsCellsWordsAsText() async throws {
+        let (host, cells) = try await hostOfEntries(nested: true)
+        defer { host.close() }
+        let outer = cells[6]
+        XCTAssertEqual(outer.accessibilityValue(), "\u{FFFC}")
+        XCTAssertEqual(try attachmentElements(of: outer).map { "\($0.location) \(described($0.element))" },
+                       ["0 text label nil value Inner one\tInner two"])
+        XCTAssertEqual(cells[7].accessibilityValue(), "Beside the inner grid.")
+        XCTAssertTrue(try attachmentElements(of: cells[7]).isEmpty)
     }
     #endif
 
@@ -384,7 +584,7 @@ import UIKit
             XCTAssertTrue(host.canvas.bounds.intersects(reported.rect), "where the link is, for a note's popover")
         }
         XCTAssertEqual(host.recorder.links.count, 2)
-        let actions = try XCTUnwrap(host.canvas.textViews.first?.tableInteraction).accessibilityActions().map(\.name)
+        let actions = try XCTUnwrap(host.canvas.textViews.first?.tableInteraction).accessibilityActionsOfEveryRow().map(\.name)
         XCTAssertTrue(actions.contains("Follow Table Link: the target"))
         XCTAssertTrue(actions.contains("Follow Table Link: outside"))
         XCTAssertTrue(actions.contains("Select Table Text: Plain"))

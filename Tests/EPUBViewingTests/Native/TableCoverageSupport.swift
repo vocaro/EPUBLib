@@ -83,3 +83,10 @@ enum TableCoverage {
     /// Zero padding and spacing, so column widths are the images' own.
     static let bare = "table { border-spacing: 0; } td, th { padding: 0; }"
 }
+
+extension ReaderTableInteraction {
+    /// What each row on screen offers an assistive technology for its cells, top to bottom.
+    func accessibilityActionsOfEveryRow() -> [ReaderTableAction] {
+        Set(cells.keys.map(\.location)).sorted().flatMap { accessibilityActions(at: $0) }
+    }
+}

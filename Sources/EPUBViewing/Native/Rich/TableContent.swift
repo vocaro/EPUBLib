@@ -414,6 +414,7 @@ enum TableContent {
             cells.append(TableModel.Cell(
                 row: item.row, column: item.column, rowSpan: item.rowSpan, columnSpan: item.columnSpan,
                 content: content, text: TableMeasure.spokenText(content), isHeader: element?.isHTML("th") ?? false,
+                scope: scope(element),
                 padding: padding, borders: borders, chrome: chrome,
                 background: isDark ? nil : (cellStyle.backgroundColor ?? color(element?.attribute("bgcolor")))?.cgColor,
                 placement: placement(cellStyle.verticalAlign, hint: valign),
@@ -434,9 +435,65 @@ enum TableContent {
             width: length(style.width, hint: table.attribute("width"), style: style), collapse: collapse,
             spacing: spacing, borders: tableBorders,
             background: isDark ? nil : (style.backgroundColor ?? color(table.attribute("bgcolor")))?.cgColor,
-            alignment: alignment, isRightToLeft: style.direction == .rtl)
+            alignment: alignment, isRightToLeft: style.direction == .rtl,
+            isData: isData(table, hasHeaderOrFooter: head != nil || !feet.isEmpty, rows: rowElements.map(\.row),
+                           cells: zip(placed, cells).map { ($0.cell.element, $0.row, $0.column, $1.borders) }))
         model.sourceOrder = table.order
         return Built(model: model, captions: captions, overflow: overflow)
+    }
+
+    private static func scope(_ cell: ContentNode?) -> TableModel.Scope {
+        guard let cell, cell.isHTML("th") else { return .automatic }
+        switch cell.attribute("scope")?.trimmingCharacters(in: .whitespaces).lowercased() {
+        case "row"?: return .row
+        case "col"?: return .column
+        case "rowgroup"?: return .rowGroup
+        case "colgroup"?: return .columnGroup
+        default: return .automatic
+        }
+    }
+
+    /// Whether a table holds data or arranges content, which HTML has no element to say. A
+    /// `role` decides it. Without one this is WebKit's test (`AXTableHelpers`, as Safari and
+    /// Apple Books apply it), on what this reader builds and draws: a table is data when it
+    /// has a caption, a summary, a header or footer group, columns or `rules`; a row or cell
+    /// role, or a cell that names its headers, its scope, an abbreviation or an axis; twenty
+    /// rows or twenty cells in a row; a first row or first column of header cells alone; ten
+    /// cells ruled above and below or on both sides, or half its cells so ruled or ruled on
+    /// any one side. One thing is wider than WebKit's: any header cell makes a table data,
+    /// since a row cannot say what a cell heads. One is narrower: WebKit also counts cells
+    /// with a background of their own and rows of alternating backgrounds, which the dark
+    /// appearance does not compute, and a table must be the same thing in either appearance.
+    private static func isData(_ table: ContentNode, hasHeaderOrFooter: Bool, rows: [ContentNode?],
+                               cells: [(element: ContentNode?, row: Int, column: Int, borders: TableModel.Borders)]) -> Bool {
+        func role(_ node: ContentNode?) -> String? { node?.attribute("role")?.trimmingCharacters(in: .whitespaces).lowercased() }
+        func has(_ node: ContentNode?, _ names: [String]) -> Bool {
+            names.contains { !(node?.attribute($0)?.trimmingCharacters(in: .whitespaces).isEmpty ?? true) }
+        }
+        switch role(table) {
+        case "presentation"?, "none"?: return false
+        case "table"?, "grid"?, "treegrid"?: return true
+        default: break
+        }
+        if hasHeaderOrFooter || has(table, ["summary", "rules"]) { return true }
+        if table.elementChildren.contains(where: { $0.isHTML && ["caption", "col", "colgroup"].contains($0.name) }) { return true }
+        if rows.contains(where: { role($0) == "row" }) { return true }
+        let widest = Dictionary(grouping: cells) { $0.row }.values.map { $0.count }.max() ?? 0
+        if (rows.count >= 20 && widest >= 2) || (rows.count >= 2 && widest >= 20) { return true }
+        let written = cells.filter { $0.element != nil }
+        if written.contains(where: { cell in
+            cell.element?.isHTML("th") == true || has(cell.element, ["headers", "abbr", "axis", "scope"])
+                || ["cell", "gridcell", "columnheader", "rowheader"].contains(role(cell.element) ?? "")
+        }) { return true }
+        guard written.count > 1 else { return false }
+        // Ruled as a grid. A cell counts once for each side, and once more when it is ruled on
+        // two facing sides.
+        let ruled = written.map { $0.borders }
+        let facing = ruled.filter { ($0.top != nil && $0.bottom != nil) || ($0.left != nil && $0.right != nil) }.count
+        let needed = written.count / 2
+        if facing >= 10 || facing >= needed { return true }
+        return [ruled.filter { $0.top != nil }, ruled.filter { $0.bottom != nil }, ruled.filter { $0.left != nil },
+                ruled.filter { $0.right != nil }].contains { $0.count >= needed }
     }
 
     private static func length(_ css: ComputedStyle.Length, hint: String?, style: ComputedStyle) -> ComputedStyle.Length {

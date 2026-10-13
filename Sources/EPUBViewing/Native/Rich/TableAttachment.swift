@@ -58,17 +58,108 @@ final class TableRowAttachment: ReaderAttachment {
 
     /// The cells that start in this row, joined by tabs. The rows' own line breaks separate rows,
     /// and the caption is a paragraph of its own.
-    override var textEquivalent: String {
+    override var textEquivalent: String { cellWords.joined(separator: "\t") }
+
+    /// The words of each cell read where this row stands, in column order: the cells that
+    /// start in a whole row, and each cell a continuation holds lines of, by those lines. A
+    /// cell without words is there with none.
+    var cellWords: [String] {
         if let fragment, let layout = fragmentLayout {
             return fragment.cells.sorted { table.cells[$0.cell].column < table.cells[$1.cell].column }.map { entry in
                 let lines = layout.cellText[entry.cell].lines
                 let range = NSRange(location: lines[entry.lines.lowerBound].characters.location,
                                     length: lines[entry.lines.upperBound - 1].characters.upperBound - lines[entry.lines.lowerBound].characters.location)
                 return layout.cellText[entry.cell].spokenText(in: range)
-            }.joined(separator: "\t")
+            }
         }
         return table.rowCells[row].map { table.cells[$0] }.filter { $0.row == row }
-            .sorted { $0.column < $1.column }.map(\.text).joined(separator: "\t")
+            .sorted { $0.column < $1.column }.map(\.text)
+    }
+
+    /// The row has nothing to say where it stands: its cells hold no words there, and nothing
+    /// but decoration besides, as a row that spaces out a table used for layout does. A link is
+    /// something to follow whatever it holds, and a rule or a formula something to say, so a
+    /// row that holds one is not such a row.
+    var saysNothing: Bool {
+        guard cellWords.allSatisfy({ $0.allSatisfy(\.isWhitespace) }) else { return false }
+        if let fragment, let layout = fragmentLayout {
+            return fragment.cells.allSatisfy { entry in
+                guard let first = entry.lines.first, let last = entry.lines.last else { return true }
+                let text = layout.cellText[entry.cell], start = text.lines[first].characters.location
+                return Self.saysNothing(text.interactionText, in: NSRange(location: start, length: text.lines[last].characters.upperBound - start))
+            }
+        }
+        return table.rowCells[row].map { table.cells[$0] }.filter { $0.row == row }
+            .allSatisfy { Self.saysNothing($0.content, in: NSRange(location: 0, length: $0.content.length)) }
+    }
+
+    private static func saysNothing(_ content: NSAttributedString, in range: NSRange) -> Bool {
+        var silent = true
+        content.enumerateAttributes(in: range) { attributes, _, stop in
+            if attributes[.link] != nil { silent = false }
+            else if let image = attributes[.attachment] as? ReaderImageAttachment { silent = image.alternative == .decorative }
+            else if let row = attributes[.attachment] as? TableRowAttachment { silent = row.saysNothing }
+            else if attributes[.attachment] != nil { silent = false }
+            if !silent { stop.pointee = true }
+        }
+        return silent
+    }
+
+    /// A cell where this row stands, for an assistive technology that is given cells.
+    struct SpokenCell {
+        var cell: Int
+        /// The words the cell shows here and has not said in a row above: all of them where
+        /// it starts in a whole row, a continuation's own in pages.
+        var text: String
+        /// The pictures among them that say something: not the ones the book marks as decoration.
+        var images: [ReaderImageAttachment]
+        /// Where each of those pictures is drawn, in the row's coordinates.
+        var imageFrames: [CGRect]
+        /// The cell's box in the row's coordinates, as drawn, not cut to the row.
+        var frame: CGRect
+        /// The cell begins here: in this row, at its top.
+        var starts: Bool
+        /// The cell has nothing to say anywhere: no words, and no picture but decoration.
+        var isBlank: Bool
+    }
+
+    /// The cells read where this row stands, in column order: those that start in it, and
+    /// those from rows above with lines of their own in it. A whole row gives a cell all its
+    /// words where it starts, like `textEquivalent`, and none where it goes on. A continuation
+    /// gives each cell the words of the lines it holds.
+    func spokenCells(size: CGSize, viewportHeight: CGFloat) -> [SpokenCell] {
+        let layout = layout(width: size.width, viewportHeight: viewportHeight)
+        let slice = fragment ?? layout.fragments(ofRow: row, maximumHeight: .greatestFiniteMagnitude)[0]
+        let scale = layout.scale * slice.fitScale
+        let isTop = slice.top <= layout.rowTops[row] + 0.01
+        var shown: [Int: Range<Int>] = [:]
+        for entry in slice.cells { shown[entry.cell] = entry.lines }
+        var members = Set(shown.keys)
+        if isTop { members.formUnion(table.rowCells[row].filter { table.cells[$0].row == row }) }
+        return members.sorted { (table.cells[$0].column, $0) < (table.cells[$1].column, $1) }.map { index in
+            let box = layout.cellFrames[index], text = layout.cellText[index]
+            let starts = isTop && table.cells[index].row == row
+            var words = "", lines = 0..<0
+            if fragment == nil {
+                if starts { (words, lines) = (table.cells[index].text, 0..<text.lines.count) }
+            } else if let own = shown[index], !own.isEmpty {
+                let first = text.lines[own.lowerBound].characters.location
+                words = text.spokenText(in: NSRange(location: first, length: text.lines[own.upperBound - 1].characters.upperBound - first))
+                lines = own
+            }
+            let isBlank = table.cells[index].text.isEmpty
+                && text.images(in: 0..<text.lines.count).allSatisfy { $0.image.alternative == .decorative }
+            let images = text.images(in: lines).filter { $0.image.alternative != .decorative }
+            let content = layout.contentFrames[index].origin
+            return SpokenCell(cell: index, text: words, images: images.map(\.image),
+                              imageFrames: images.map {
+                                  CGRect(x: (layout.originX + content.x + $0.frame.minX) * scale, y: (content.y + $0.frame.minY - slice.top) * scale,
+                                         width: $0.frame.width * scale, height: $0.frame.height * scale)
+                              },
+                              frame: CGRect(x: (layout.originX + box.minX) * scale, y: (box.minY - slice.top) * scale,
+                                            width: box.width * scale, height: box.height * scale),
+                              starts: starts, isBlank: isBlank)
+        }
     }
 
     /// Draws the row into the current flipped graphics context, its origin at the row's
