@@ -32,7 +32,15 @@ None of the section's words is one VoiceOver uses for a picture or a link, so th
 transcript are VoiceOver's own. A fifth, **Scenes set apart** (`OPS/scenes.xhtml`),
 holds rules: an `<hr>` between two paragraphs, one the book gives `role="presentation"`, and
 one alone on a page of its own, with a last paragraph on the page after it. None of its words
-is one a screen reader uses for a rule either. A second
+is one a screen reader uses for a rule either. A sixth, **Tables of data**
+(`OPS/grids.xhtml`), holds four tables, each ruled as a grid: one with a caption, a header
+row and a header cell in each row, an empty cell and a cell that is a link; one whose header
+cells span two rows and two columns, as two of its data cells do; one given
+`role="presentation"`; and one of plain cells that only its rules mark as data. A seventh,
+**A table longer than a page** (`OPS/ledger.xhtml`), has forty numbered rows under a header
+row, and an eighth, **A row taller than a page** (`OPS/tallrow.xhtml`), the book's last, a
+cell of 2,600 numbered words. None of their words is one VoiceOver uses for a table, so
+"row", "column" and "table" in a transcript are its own. A second
 bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
@@ -40,8 +48,9 @@ twenty-third), so a line in the middle of a paragraph can be told from its first
 of the book is a few screens from the start of its last chapter. The first book's headings
 are "Page boundary verification" (level 1), which opens it, "Link target reached" (level 2)
 after the numbered paragraph, the two parked ones (level 1), each opening its section, and
-"Pictures and their words" and "Scenes set apart" (level 1), each opening one of the last
-two; the second book's are "Chapter one", "Chapter two" and "Chapter three", screens apart.
+"Pictures and their words", "Scenes set apart", "Tables of data", "A table longer than a
+page" and "A row taller than a page" (level 1), each opening one of the last five; the second
+book's are "Chapter one", "Chapter two" and "Chapter three", screens apart.
 Do not import private books for this check.
 
 Use Xcode 27, OS 27, XcodeGen, Python 3, and a graphical Mac login. Select a signing team for

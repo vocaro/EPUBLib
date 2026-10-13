@@ -203,6 +203,21 @@ view that lists its lines to being hidden from assistive technology. That VoiceO
 such a view offers before the lines of a page column is known only from
 [speech sessions](voiceover-testing.md); no in-process query shows it.
 
+Table header tests hold the model to HTML's rule for which cells head a column and a row,
+with and without `scope`, in `thead` and for cells that span, and to the rule for which tables
+are data: each mark that makes one so, a `role` that decides either way, twenty rows or
+cells, the ways of ruling a grid, and backgrounds, which do not count in either appearance.
+Data table tests read, on iPhone and iPad and in both flows, what VoiceOver is given for such
+a table, through the protocols it uses: one container for the table between the lines around
+it, a cell element for every cell with its rows and columns, the cell for each slot, the
+header cells of a row and a column, frames where the cells are drawn, and each cell's actions,
+performed. They cover cells that span, a table split across pages with its header row on
+another page, a row taller than a page, cells of pictures, and a table marked as layout. Two
+stand in for VoiceOver's cursor in continuous scroll, as the scrolled-lines tests do: one
+reads on through a table of seventy rows and back, finding each next stop as UIKit does, in
+the cell's container and then in the text view, and then moves down a column row by row; the
+other rests the cursor in a table and scrolls away. Neither drives VoiceOver.
+
 Heading tests cover which characters the builder marks as a heading and at what level: `h1`
 to `h6`, `role="heading"` with and without `aria-level`, a role that takes a heading away, a
 heading run in with its paragraph, hidden headings and hidden words inside a shown one. They
