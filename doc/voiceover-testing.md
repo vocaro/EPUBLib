@@ -778,6 +778,21 @@ The Mac runner's transcript is plain text and needs no export.
   listed the lines on screen alone there since #301, and this is not changed. A first
   attempt listed the fifty lines before the screen there as well, to mirror the lines after
   it; the move back went wrong in the same way, and they were taken out.
+- The two lines that used to be listed each side were one short when VoiceOver moved back up
+  the screen, menu or no menu. With its cursor on a line it asks for the item before the
+  line two above, so three lines above the cursor must be listed, and two were unless more
+  of the screen lay above the cursor. UIKit scrolls the line the cursor is going to into
+  view before VoiceOver asks, which lists two more, so the answer was usually right. On
+  2026-10-12 another session saw VoiceOver leave the text for Bookmark at "Line 02 after the
+  table." or "Line 01" in two of three simulator sessions on main
+  (`TEST_RUNNER_VOICEOVER_HREF=OPS/table.xhtml`, `touch=Bookmark,forward=16,backward=16`,
+  with a second table added to the section, as #382 does), and one of ten did here. In the
+  six of those that were logged, the line VoiceOver asked from was the first line listed
+  until the scroll came, four milliseconds before the question. With fifty lines listed,
+  four sessions of the same steps read back to the heading, and the list at that question
+  began fifty lines above. Two more sessions gave no transcript: VoiceOver's automation
+  failed at the third move in one and the reader did not start in the other, at load
+  averages of 800 to 1,000.
 - `xcodebuild`'s console output lost three of one device run's 160 `VOICEOVER_EVENT` lines,
   three moves back in a row. The transcript attached to the result bundle had them all.
   Check a break against the attachment before taking it for VoiceOver's.
