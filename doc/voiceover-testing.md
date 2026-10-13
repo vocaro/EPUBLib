@@ -1044,11 +1044,22 @@ The Mac runner's transcript is plain text and needs no export.
   the link in the cell: with Follow Table Link: Eighth cell link chosen in the rotor, the
   fifth action in pages and the third in continuous scroll, a double tap on the row changed
   the screen and a touch then found "Link target reached". VoiceOver was off afterward. The
-  physical iPhone 17 Pro Max gave no result: one run ended in "Timed out while enabling
-  automation mode", and a second lost its authorization for UI testing after eighteen
-  seconds, with another app's control under VoiceOver's cursor, and left VoiceOver on. It
-  was switched off again with `devicectl device settings voiceover --disable`. Nobody
-  listened to any of these sessions.
+  physical iPhone 17 Pro Max (iOS 27.2, 440 × 956) gave no result at first: one run ended in
+  "Timed out while enabling automation mode", and a second lost its authorization for UI
+  testing after eighteen seconds, with another app's control under VoiceOver's cursor, and
+  left VoiceOver on. Later, with the phone free, it read the section at `edb13b1`, which has
+  the changes to images, rules and headings merged in, as the iPad had. In pages: "Parked
+  table heading" as a heading, the rows where they stand, on to "Line 06 after the table."
+  at the foot of the page, and back to Bookmark. In continuous scroll: on to "Line 10 after
+  the table." and back past the heading to the last line of the section before. In both
+  flows a double tap with Follow Table Link: Eighth cell link chosen opened "Link target
+  reached". A notification from another app took the place of one phrase in two sessions, a
+  move forward in pages and a step of the rotor in continuous scroll. xcodebuild took nearly
+  five minutes to start a session on the phone while the Mac was busy, so a deadline of five
+  minutes stopped the first continuous scroll session part way through the rotor and left
+  VoiceOver on; the rotor steps were run again alone. Each time VoiceOver was left on it was
+  switched off with `devicectl device settings voiceover --disable` and read back as off.
+  Nobody listened to any of these sessions.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
