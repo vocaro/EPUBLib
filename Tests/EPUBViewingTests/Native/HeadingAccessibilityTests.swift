@@ -198,10 +198,13 @@ import UIKit
                 for view in host.canvas.textViews where !view.isHidden {
                     let elements = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
                     // A heading's label leaves out the break after it; nothing else is left out.
-                    XCTAssertEqual(elements.map { $0.accessibilityLabel ?? "" }.joined().filter { $0 != "\n" }, view.visibleText.filter { $0 != "\n" })
-                    XCTAssertEqual(elements.filter { !$0.accessibilityTraits.contains(.header) }.map { $0.accessibilityLabel ?? "" }.joined().filter { $0 == "\n" }.count
-                                    + elements.filter { $0.accessibilityTraits.contains(.header) }.count,
-                                   view.visibleText.filter { $0 == "\n" }.count, "every paragraph's break is in a line's label or follows a heading")
+                    let labels: String = elements.map { $0.accessibilityLabel ?? "" }.joined()
+                    let shown: String = view.visibleText
+                    XCTAssertEqual(labels.filter { $0 != "\n" }, shown.filter { $0 != "\n" })
+                    let headingCount: Int = elements.filter { $0.accessibilityTraits.contains(.header) }.count
+                    let breaksRead: Int = labels.filter { $0 == "\n" }.count
+                    let breaksShown: Int = shown.filter { $0 == "\n" }.count
+                    XCTAssertEqual(breaksRead + headingCount, breaksShown, "every paragraph's break is in a line's label or follows a heading")
                     spoken += view.visibleText
                     headings += elements.filter { $0.accessibilityTraits.contains(.header) }.map(read)
                 }
@@ -219,7 +222,9 @@ import UIKit
     /// The item the view's Headings rotor gives with VoiceOver's cursor on `element` (on none of
     /// the view's lines when nil), as VoiceOver asks when a finger flicks down or up.
     private func rotorHeading(from element: UIAccessibilityElement?, in view: ReaderTextView, forward: Bool) throws -> UIAccessibilityElement? {
-        let rotor = try XCTUnwrap(view.accessibilityCustomRotors?.first { $0.systemRotorType == .heading }, "the view gives VoiceOver its Headings rotor")
+        // VoiceOver takes an item's rotors from the item and then from what holds it.
+        let rotors = (element?.accessibilityCustomRotors ?? []) + (view.accessibilityCustomRotors ?? [])
+        let rotor = try XCTUnwrap(rotors.first { $0.systemRotorType == .heading }, "the reader gives VoiceOver its Headings rotor here")
         let predicate = UIAccessibilityCustomRotorSearchPredicate()
         predicate.searchDirection = forward ? .next : .previous
         predicate.currentItem = UIAccessibilityCustomRotorItemResult(targetElement: element ?? view, targetRange: nil)
@@ -249,6 +254,10 @@ import UIKit
         XCTAssertTrue(try rotorHeading(from: nil, in: view, forward: false) === elements[7])
         XCTAssertTrue(zip(elements, try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])).allSatisfy { $0 === $1 },
                       "a page that holds the heading asked for is not shown again")
+        // The column gives every line of the page the rotor: each says "Actions available"
+        // for its page actions as it is, so the rotor adds nothing to what is said of it.
+        XCTAssertEqual(view.accessibilityCustomRotors?.map(\.systemRotorType), [.heading])
+        XCTAssertTrue(elements.allSatisfy { $0.accessibilityCustomRotors == nil && !($0.accessibilityCustomActions ?? []).isEmpty })
     }
 
     func testTheHeadingsRotorTurnsToThePageOfTheBooksNextHeading() throws {
@@ -315,8 +324,15 @@ import UIKit
         try await reader.wait("the whole book in the scroll view") { reader.session.canvas?.scrollBook != nil }
         try await reader.settle()
         let canvas = try XCTUnwrap(reader.session.canvas), view = try XCTUnwrap(canvas.scrollTextView)
-        var cursor = try XCTUnwrap(try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement]).first)
+        let opening = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+        var cursor = try XCTUnwrap(opening.first)
         XCTAssertEqual(read(cursor), "heading 1 First Chapter")
+        // Only the headings have the rotor here: VoiceOver says "Actions available" after an
+        // item that has one, and a line of the scroll view is read as its words and no more.
+        XCTAssertNil(view.accessibilityCustomRotors)
+        XCTAssertEqual(cursor.accessibilityCustomRotors?.map(\.systemRotorType), [.heading])
+        XCTAssertGreaterThan(opening.count, 3)
+        XCTAssertTrue(opening.dropFirst().allSatisfy { $0.accessibilityCustomRotors == nil && ($0.accessibilityCustomActions ?? []).isEmpty })
         // Each chapter's heading is many screens from the one before.
         var heard: [String] = [], sections: [Int] = []
         while let next = try rotorHeading(from: cursor, in: view, forward: true) {

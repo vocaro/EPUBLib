@@ -765,6 +765,28 @@ The Mac runner's transcript is plain text and needs no export.
   "Parked table heading", "Table row group", "Shown", "words". Nobody listened, and no
   workstation was used.
 
+- The same day a book's headings were heard on a Mac: GitHub's hosted `xcode-27` runner (image
+  `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in five
+  [hosted sessions](#hosted-mac-sessions) at `8baffa1`, in a window 600 points wide at 17
+  points, at the fixed pause. In continuous scroll `rotor` opened on "Page boundary
+  verification, heading level 1" and `listdown` went on through "Link target reached, heading
+  level 2", "Parked title heading, heading level 1" and "Parked table heading, heading level
+  1". `listchoose` on the third moved VoiceOver to "Parked title heading", whose line it read
+  as "Parked title heading By the parked author. Book image image". `nextheading` from the
+  first paragraph gave "Link target reached", with the insertion point on the heading and
+  the heading's line the first on screen, then "Parked title heading", "Parked table heading"
+  and "Heading not found"; from the text area without interacting it did the same. In pages
+  the first page's rotor opened on "Page boundary verification, heading level 1" and
+  `nextheading` from that heading gave "Heading not found", the page holding no other; the
+  page that opens with a hidden heading over a table (thirteen `ax:next` steps) listed
+  "Parked table heading, heading level 1" alone, and `listchoose` moved to it. VoiceOver read
+  a heading's words on moving to it and by line, and said its level nowhere but in the
+  rotor's list. At `53a7cbe`, before the list began with the first heading, the page whose
+  only heading was its first line gave "No items in Heading menu" and the scroll view's list
+  had three items. Control-Option-Command-Shift-H moved to the next heading, not the one
+  before. Not heard: two columns, a larger text size, a move back by a VoiceOver command, and
+  the hidden-labels page in pages, whose session ended twice in the runner script's check of
+  VoiceOver's state with no transcript written. Nobody listened, and no workstation was used.
 - On 2026-10-12 the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0) recorded, at 17
   points: on an iPhone 17 Pro word0001–word0016 in 4 lines and, after Next Page,
   word0017–word0080 in 16; on an iPad Air 13-inch (M4) in portrait word0001–word0301 in 36

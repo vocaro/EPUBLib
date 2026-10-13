@@ -27,7 +27,7 @@ final class ReaderTextView: UITextView {
     private var imageGestureDelegate: ReaderImageGestureDelegate?
     private var selectionGestureDelegate: ReaderSpreadSelectionGestureDelegate?
     /// VoiceOver's Headings rotor for the lines this view lists.
-    private lazy var headingRotor = UIAccessibilityCustomRotor(systemType: .heading) { [weak self] predicate in
+    fileprivate lazy var headingRotor = UIAccessibilityCustomRotor(systemType: .heading) { [weak self] predicate in
         self?.heading(for: predicate)
     }
 
@@ -198,10 +198,15 @@ final class ReaderTextView: UITextView {
     }
 
     // VoiceOver's own Headings rotor moves among the elements it is given, and a page or a
-    // screen holds few of a book's headings: past the last of them it finds none. So the lines'
-    // container gives VoiceOver that rotor itself, and goes on to the book's next heading.
+    // screen holds few of a book's headings: past the last of them it finds none. So the reader
+    // gives VoiceOver that rotor itself, and goes on to the book's next heading. VoiceOver
+    // says "Actions available" after every item that has such a rotor. A page's lines say so
+    // already, for their page actions, and the column gives them all the rotor. A line of the
+    // scroll view says nothing after its words, and there only the headings have it
+    // (`ReaderPageAccessibilityElement`): from a line that is no heading VoiceOver's own rotor
+    // finds the headings on screen, and from a heading the reader's goes on through the book.
     override var accessibilityCustomRotors: [UIAccessibilityCustomRotor]? {
-        get { listsLines ? [headingRotor] : super.accessibilityCustomRotors }
+        get { isPageColumn ? [headingRotor] : super.accessibilityCustomRotors }
         set { super.accessibilityCustomRotors = newValue }
     }
 
@@ -514,6 +519,16 @@ private struct ScrollAccessibilityPlace: Equatable {
     override func accessibilityElementDidBecomeFocused() {
         super.accessibilityElementDidBecomeFocused()
         view?.accessibilityCursorMoved(to: self)
+    }
+
+    // A heading of the scroll view has the reader's Headings rotor; a page column's lines
+    // take it from the column (`ReaderTextView.accessibilityCustomRotors`).
+    override var accessibilityCustomRotors: [UIAccessibilityCustomRotor]? {
+        get {
+            guard heading != nil, let view, !view.isPageColumn else { return super.accessibilityCustomRotors }
+            return [view.headingRotor]
+        }
+        set { super.accessibilityCustomRotors = newValue }
     }
 
     override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
