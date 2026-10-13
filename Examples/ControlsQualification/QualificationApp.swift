@@ -8,7 +8,7 @@ import SwiftUI
 /// arrangement and the toolbar placement; see doc/issue-49-51-controls-qualification.md.
 @main struct ControlsQualificationApp: App {
     #if os(iOS)
-    /// `-QualificationTouchTrace YES` records every touch, for a run by hand on a device.
+    /// `-QualificationTouchTrace YES` records every touch and what took it; see `TouchTrace`.
     init() {
         if UserDefaults.standard.bool(forKey: "QualificationTouchTrace") { TouchTrace.shared.start() }
     }

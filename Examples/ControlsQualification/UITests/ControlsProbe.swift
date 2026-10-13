@@ -107,14 +107,17 @@ import XCUIAutomation
             // The touch rests a tenth of a second before it moves. Two more numbers set the rest
             // in seconds and the speed in points a second: `0.5,0.36,0.5,0.28,0,1500` is a flick.
             // How long a touch rests decides whether a scroll view or the control under it has it.
+            // A seventh is the seconds it stays down at the end, which leaves a scroll view where
+            // the touch took it and not where a fling would.
             #if os(iOS)
             let points = argument.split(separator: ",").compactMap { Double($0) }
-            guard points.count == 4 || points.count == 6 else { return note(command, "BAD POINTS") }
+            guard [4, 6, 7].contains(points.count) else { return note(command, "BAD POINTS") }
             let window = app.windows.firstMatch
             let start = window.coordinate(withNormalizedOffset: CGVector(dx: points[0], dy: points[1]))
             let end = window.coordinate(withNormalizedOffset: CGVector(dx: points[2], dy: points[3]))
-            if points.count == 6 {
-                start.press(forDuration: points[4], thenDragTo: end, withVelocity: XCUIGestureVelocity(points[5]), thenHoldForDuration: 0)
+            if points.count > 4 {
+                start.press(forDuration: points[4], thenDragTo: end, withVelocity: XCUIGestureVelocity(points[5]),
+                            thenHoldForDuration: points.count == 7 ? points[6] : 0)
             } else {
                 start.press(forDuration: 0.1, thenDragTo: end)
             }

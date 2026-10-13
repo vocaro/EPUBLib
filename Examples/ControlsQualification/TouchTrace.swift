@@ -2,10 +2,13 @@
 import os
 import UIKit
 
-/// `-QualificationTouchTrace YES` records what a finger does, for a run by hand on a device. A
-/// UI test's touch is synthetic, and a control inside a scroll view can keep a synthetic touch
-/// that it gives up to a finger. Every touch is read where the application receives it, before
-/// any window, view or gesture recognizer has it, so the record changes nothing it records.
+/// `-QualificationTouchTrace YES` records what each touch did, the probe's or a finger's. The
+/// accessibility tree shows where things stand after a touch and not what became of the touch:
+/// whether it rested before it moved, and whether a scroll view or the control under it took
+/// it. A scroll view holds a touch for a moment before the control under it has it, so the
+/// same drag scrolls or does not by how long it rested. Every touch is read where the
+/// application receives it, before any window, view or gesture recognizer has it, so the
+/// record changes nothing it records.
 ///
 /// Each touch gets a number. Its lines say where it went down and on which view, how long it
 /// stayed and how far it went, when each scroll view began to drag, and where the scroll views,
@@ -14,8 +17,8 @@ import UIKit
 /// host's line of reader state is recorded whenever it changes, and so is the application
 /// becoming active or inactive and any two seconds in which its main thread did not run: an
 /// application that is covered or hung receives no touch, and the record would only be silent.
-/// Everything goes to standard output and to `Documents/touch-trace-<launch time>/`; the
-/// keyboard is another process and is in no picture.
+/// Everything goes to standard output and to `Documents/touch-trace-<launch time>/`. On a
+/// device the keyboard is another process: touches on it are not seen, and it is in no picture.
 @MainActor final class TouchTrace {
     static let shared = TouchTrace()
 
