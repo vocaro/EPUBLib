@@ -76,6 +76,23 @@ final class TableRowAttachment: ReaderAttachment {
             .sorted { $0.column < $1.column }.map(\.text)
     }
 
+    /// The row has nothing to say where it stands: its cells have no words, and no picture
+    /// but decoration.
+    var saysNothing: Bool {
+        guard cellWords.allSatisfy({ $0.allSatisfy(\.isWhitespace) }) else { return false }
+        func saysNothing(_ content: NSAttributedString, in range: NSRange) -> Bool {
+            var silent = true
+            content.enumerateAttribute(.attachment, in: range) { value, _, stop in
+                if let image = value as? ReaderImageAttachment { silent = image.alternative == .decorative }
+                else if let row = value as? TableRowAttachment { silent = row.saysNothing }
+                if !silent { stop.pointee = true }
+            }
+            return silent
+        }
+        return table.rowCells[row].map { table.cells[$0] }.filter { $0.row == row }
+            .allSatisfy { saysNothing($0.content, in: NSRange(location: 0, length: $0.content.length)) }
+    }
+
     /// A cell where this row stands, for an assistive technology that is given cells.
     struct SpokenCell {
         var cell: Int
