@@ -46,6 +46,15 @@ import AppKit
     private var selectionDragAnchor: ReaderTextPosition?
     private var selectionDragOverridesNative = false
     private(set) var selectionContinuation: ReaderSelectionContinuation?
+    #if os(iOS)
+    /// Has an assistive technology say what the reader did at its asking where nothing else
+    /// would tell a listener: text selected from VoiceOver's rotor, which is drawn and not read.
+    /// Queued, so that it follows whatever VoiceOver is saying and does not cut it short.
+    var announce: (String) -> Void = { words in
+        UIAccessibility.post(notification: .announcement,
+                             argument: NSAttributedString(string: words, attributes: [.accessibilitySpeechQueueAnnouncement: true]))
+    }
+    #endif
 
     // Paginated flow.
     private(set) var spread: ReaderCanvasGeometry.Spread?

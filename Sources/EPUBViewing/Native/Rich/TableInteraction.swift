@@ -44,20 +44,58 @@ import UIKit
         return nil
     }
 
+    /// What an assistive technology can do with the words `cell` shows: select them and, once
+    /// words of the cell are selected, take the selection away, copy it, or give it to the
+    /// host's selection action. The last two are what the edit menu offers a selection made
+    /// by touch; VoiceOver is given a row's or a cell's actions and never meets that menu.
+    /// `label` names the cell where a row holds several, and `uses` is false for a row's
+    /// later cells: a passage selected through several is one selection, to copy once.
+    private func selectionActions(of cell: TableCellTextView, named label: String?, uses: Bool = true) -> [(name: String, perform: @MainActor () -> Bool)] {
+        let words = cell.cellText.readerPlainText(in: cell.shownCharacters)
+        // A cell without words, a picture alone, has none to select or to name the action by.
+        guard !words.allSatisfy(\.isWhitespace) else { return [] }
+        let subject = label.map { "Table Text: " + $0 } ?? "Cell Text"
+        guard cell.cellSelection.length > 0 else {
+            return [("Select " + subject, { [weak self, weak cell] in
+                guard let cell else { return false }
+                cell.cellSelection = cell.shownCharacters
+                cell.onSelection?(cell.shownCharacters)
+                self?.announce("Selected: " + String(words.prefix(60)))
+                return true
+            })]
+        }
+        var result: [(String, @MainActor () -> Bool)] = [("Deselect " + subject, { [weak self] in
+            guard let canvas = self?.owner?.canvas else { return false }
+            canvas.clearSelection()
+            self?.announce("Deselected")
+            return true
+        })]
+        guard uses else { return result }
+        result.append(("Copy", { [weak self, weak cell] in
+            guard let cell else { return false }
+            cell.copy(nil)
+            self?.announce("Copied")
+            return true
+        }))
+        if let title = owner?.canvas?.configuration.selectionActionTitle {
+            result.append((title, { [weak cell] in cell?.onAction?(); return cell != nil }))
+        }
+        return result
+    }
+
+    /// What is drawn tells a listener nothing: says that an action selected, deselected or copied.
+    private func announce(_ words: String) {
+        #if os(iOS)
+        owner?.canvas?.announce(words)
+        #endif
+    }
+
     /// What an assistive technology can do with the cells shown of the row at `location`.
     func accessibilityActions(at location: Int) -> [(name: String, perform: @MainActor () -> Bool)] {
-        var result: [(String, @MainActor () -> Bool)] = []
+        var result: [(String, @MainActor () -> Bool)] = [], selected = false
         for (_, cell) in cells.filter({ $0.key.location == location }).sorted(by: { ($0.key.cell, $0.key.lower) < ($1.key.cell, $1.key.lower) }) {
-            let label = cell.cellText.readerPlainText(in: cell.shownCharacters)
-            // A cell without words, a picture alone, has none to name the action by.
-            if !label.allSatisfy(\.isWhitespace) {
-                result.append(("Select Table Text: " + String(label.prefix(60)), { [weak cell] in
-                    guard let cell else { return false }
-                    cell.cellSelection = cell.shownCharacters
-                    cell.onSelection?(cell.shownCharacters)
-                    return true
-                }))
-            }
+            result += selectionActions(of: cell, named: String(cell.cellText.readerPlainText(in: cell.shownCharacters).prefix(60)), uses: !selected)
+            selected = selected || cell.cellSelection.length > 0
             cell.cellText.enumerateAttribute(.link, in: cell.shownCharacters) { value, range, _ in
                 guard let url = value as? URL ?? (value as? String).flatMap(URL.init(string:)) else { return }
                 result.append(("Follow Table Link: " + cell.cellText.readerPlainText(in: range), { [weak cell] in
@@ -69,18 +107,16 @@ import UIKit
     }
 
     /// What an assistive technology can do with one cell of the row at `location`: select the
-    /// words it shows there, and follow each link among them.
-    func accessibilityActions(at location: Int, cell index: Int) -> (select: (@MainActor () -> Bool)?,
+    /// words it shows there or act on those selected, and follow each link among them.
+    /// `selected` says that the first are for a selection the cell holds.
+    func accessibilityActions(at location: Int, cell index: Int) -> (selection: [(name: String, perform: @MainActor () -> Bool)], selected: Bool,
                                                                      links: [(name: String, perform: @MainActor () -> Bool)]) {
-        var select: (@MainActor () -> Bool)?, links: [(String, @MainActor () -> Bool)] = []
+        var selection: [(String, @MainActor () -> Bool)] = [], selected = false, links: [(String, @MainActor () -> Bool)] = []
         for (_, cell) in cells.filter({ $0.key.location == location && $0.key.cell == index }).sorted(by: { $0.key.lower < $1.key.lower }) {
-            if select == nil, !cell.cellText.readerPlainText(in: cell.shownCharacters).allSatisfy(\.isWhitespace) {
-                select = { [weak cell] in
-                    guard let cell else { return false }
-                    cell.cellSelection = cell.shownCharacters
-                    cell.onSelection?(cell.shownCharacters)
-                    return true
-                }
+            // A cell shown in several pieces is one item: a piece that holds a selection answers for it.
+            if selection.isEmpty || (cell.cellSelection.length > 0 && !selected) {
+                let offered = selectionActions(of: cell, named: nil)
+                if !offered.isEmpty { (selection, selected) = (offered, cell.cellSelection.length > 0) }
             }
             cell.cellText.enumerateAttribute(.link, in: cell.shownCharacters) { value, range, _ in
                 guard let url = value as? URL ?? (value as? String).flatMap(URL.init(string:)) else { return }
@@ -89,7 +125,7 @@ import UIKit
                 }))
             }
         }
-        return (select, links)
+        return (selection, selected, links)
     }
 
     func refresh() {

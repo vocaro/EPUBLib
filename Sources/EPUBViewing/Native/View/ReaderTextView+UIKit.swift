@@ -800,14 +800,16 @@ private struct ReaderTableCellKey: Hashable {
     }
 
     /// What the cell's text views offer for the words shown here, where it is on screen.
-    private var interactions: (select: (@MainActor () -> Bool)?, links: [(name: String, perform: @MainActor () -> Bool)]) {
-        var select: (@MainActor () -> Bool)?, links: [(name: String, perform: @MainActor () -> Bool)] = []
+    private var interactions: (selection: [(name: String, perform: @MainActor () -> Bool)], links: [(name: String, perform: @MainActor () -> Bool)]) {
+        var selection: [(name: String, perform: @MainActor () -> Bool)] = [], selected = false
+        var links: [(name: String, perform: @MainActor () -> Bool)] = []
         for location in [range.location] + continuations {
             guard let found = view?.tableInteraction?.accessibilityActions(at: location, cell: cell) else { continue }
-            select = select ?? found.select
+            // The rows a cell continues into are the same cell: one that holds a selection answers for it.
+            if selection.isEmpty || (found.selected && !selected) { (selection, selected) = (found.selection, found.selected) }
             links += found.links
         }
-        return (select, links)
+        return (selection, links)
     }
 
     // A double tap follows the cell's link when it has one and no other, and otherwise shows
@@ -832,7 +834,7 @@ private struct ReaderTableCellKey: Hashable {
                 }
             }
             let found = interactions
-            if let select = found.select { actions.append(UIAccessibilityCustomAction(name: "Select Cell Text") { _ in select() }) }
+            actions += found.selection.map { action in UIAccessibilityCustomAction(name: action.name) { _ in action.perform() } }
             actions += found.links.map { link in UIAccessibilityCustomAction(name: "Follow Link: " + link.name) { _ in link.perform() } }
             return actions.isEmpty ? nil : actions
         }

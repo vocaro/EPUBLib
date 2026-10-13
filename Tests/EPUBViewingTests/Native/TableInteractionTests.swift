@@ -260,7 +260,13 @@ import UIKit
         let listed = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
         let table = try XCTUnwrap(listed.first { $0 is UIAccessibilityContainerDataTable }, "the table is one container")
         let cells = try XCTUnwrap(table.accessibilityElements as? [UIAccessibilityElement])
-        XCTAssertEqual(cells.filter { $0.accessibilityCustomActions?.contains { $0.name == "Select Cell Text" } == true }.count, cells.count)
+        // The passage selected above runs into the table: a cell that holds part of it offers to
+        // deselect and to copy, where the others offer to select.
+        func offering(_ name: String) -> Int { cells.filter { $0.accessibilityCustomActions?.contains { $0.name == name } == true }.count }
+        XCTAssertEqual(offering("Deselect Cell Text"), controller.cells.values.filter { $0.cellSelection.length > 0 }.count)
+        XCTAssertGreaterThan(offering("Deselect Cell Text"), 0)
+        XCTAssertEqual(offering("Copy"), offering("Deselect Cell Text"))
+        XCTAssertEqual(offering("Select Cell Text"), cells.count - offering("Deselect Cell Text"))
         let alpha = try XCTUnwrap(cells.first { $0.accessibilityLabel?.hasPrefix("Alpha") == true })
         XCTAssertFalse(alpha.accessibilityCustomActions?.contains { $0.name.hasPrefix("Follow Link") } == true)
         let links = try XCTUnwrap(cells.first { $0.accessibilityLabel?.contains("Outside link") == true })

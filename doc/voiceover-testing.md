@@ -685,6 +685,11 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
   text is in continuous scroll, leaves the rotor on its own setting, and the flick steps by
   that. On an iPhone in landscape only the
   upward flick registered, which reaches the same actions.
+- `choose=NAME`: one finger down through the rotor until VoiceOver names an action that begins
+  with NAME, twelve steps at most, each phrase recorded: where an action stands in an item's
+  list depends on what else the item offers. When it is not offered the step ends in
+  `MISSING`, and the next `doubletap` is skipped and says so, since it would perform
+  whichever action the rotor had come round to.
 - `flick=right`, `flick=left`: VoiceOver's next and previous item; `flick=right*12` repeats it.
 - `rotor=LABEL`: two fingers turned on the glass, which turns VoiceOver's rotor, repeated
   until VoiceOver's phrase begins with LABEL, thirty turns at most: `rotor=Headings`.
@@ -697,13 +702,24 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 - `rotate=landscape`, `rotate=portrait`: an iPad shows two columns in landscape and one in
   portrait. The probe waits for the screen as after `activate`, three seconds at most. End a
   session in the orientation it started in.
+- `listen=SECONDS`: every phrase VoiceOver comes to in that time, or that there was none:
+  what an action says for itself. The phrase recorded after another step is only the last.
+- `state`: the sample's own line of what the reader reports as selected and what its
+  selection action was last given, "Selected: nothing. Used: nothing.", which
+  `TEST_RUNNER_VOICEOVER_LAUNCH='-SampleSelectionLine YES'` puts under the reader. XCTest
+  reads it from its snapshot, so no touch moves VoiceOver's cursor.
+- `find=LABEL`: whether anything on screen has a name that begins with LABEL, and what kind
+  of element at what frame: an edit menu's Copy, which is in no item's list of actions.
+- `press=LABEL`: a finger held on the item for a second. With VoiceOver off it selects the
+  word under it and brings up the edit menu.
 - `wait=SECONDS`, and `screenshot`, attached to the result bundle: what is on the glass,
   independent of every accessibility snapshot.
 
 `TEST_RUNNER_VOICEOVER_FONT_SIZE` sets the launch text size, `TEST_RUNNER_VOICEOVER_FLOW=scrolled`
 opens the book in continuous scroll, `TEST_RUNNER_VOICEOVER_HREF` opens a section other than
-the first (`OPS/labels.xhtml`) and `TEST_RUNNER_VOICEOVER_BOOK=paragraphs` opens the book of
-ordinary paragraphs. `TEST_RUNNER_VOICEOVER_OFF=1`
+the first (`OPS/labels.xhtml`), `TEST_RUNNER_VOICEOVER_BOOK=paragraphs` opens the book of
+ordinary paragraphs and `TEST_RUNNER_VOICEOVER_LAUNCH` gives the reader further launch
+arguments, with spaces between. `TEST_RUNNER_VOICEOVER_OFF=1`
 leaves VoiceOver off, so the same steps are plain touches: use it to tell a VoiceOver failure
 from one of the reader's own. The probe stops when the reader is no longer in the foreground.
 Another session's tests on the same device bring their own app forward or switch VoiceOver
@@ -733,8 +749,8 @@ once; a simulator build needs no signing team. It creates an iPhone 17 Pro and a
 with `simctl` alone, sets each one's volume to 0 and runs one `xcodebuild
 test-without-building` for each at the same time, under `--timeout`. It deletes its simulators
 however the run ends, also when it is terminated, and never boots, changes or deletes one it
-did not create. `--steps`, `--font-size`, `--flow scrolled`, `--href OPS/labels.xhtml` and
-`--voiceover-off` are the probe's settings above. Each simulator gets `simulator-TYPE-STAMP.transcript.txt` beside its
+did not create. `--steps`, `--font-size`, `--flow scrolled`, `--href OPS/labels.xhtml`,
+`--launch '-SampleSelectionLine YES'` and `--voiceover-off` are the probe's settings above. Each simulator gets `simulator-TYPE-STAMP.transcript.txt` beside its
 log and result bundle in `.build/voiceover/results/`: the device, revision and steps, the
 probe's lines, then the result, with VoiceOver's state and the volume as `devicectl` reports
 them. The exit status is 0 only when every probe ran all its steps and passed, VoiceOver is
