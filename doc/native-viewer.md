@@ -309,6 +309,10 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   shows a link's target, and puts the insertion point on it, or on the row for a cell's
   link: `right` and `line` read on from the link, and from the row for a cell's link,
   "Table row group" when that was heard, before a row was called by its words.
+  The reader shows the link where TextKit 2 estimates it stands, and VoiceOver then asks
+  the text which line the insertion point is on, which lays out all the text above: the
+  view is held to the link through that, and a row shown keeps its cells, or its link
+  would leave the text's children with VoiceOver on it ("Continuous scroll").
   Told that the insertion point has moved, VoiceOver says the word beside its new place,
   and having shown a place the reader tells it that the layout changed, at which it says
   the item under its cursor again, role first. So VoiceOver says "words." and then
@@ -1140,6 +1144,27 @@ as they did.
   of where it was last read has not moved and nobody has scrolled it: its first line is still
   held, and the position kept is still the one shown, not the visible start
   ([#302](https://github.com/vocaro/EPUBLib/issues/302)).
+  The reader's own read of the screen is not the only one. The table rows on screen are
+  given their cells' text views from the layout, whenever the canvas is laid out or the
+  view scrolls, and on Mac an assistive client is told from it what is on screen and where:
+  the text's children, the bounds of a range, a link's or a heading's place, a table row's.
+  VoiceOver asks the text which line its insertion point is on, and AppKit counts the lines
+  from the first, which lays out all the text above. After Find Next Link had shown a table
+  row below text that was only estimated, a row taller than the screen among it, the
+  bounds VoiceOver asked for next put the row's own paragraph 1,430 points below where the
+  view drew it, and left the rows after it where they were drawn. Read off that layout the
+  row was off screen: it lost its cells, its link left the text's children, and VoiceOver,
+  whose cursor was on that link, was left on the text area. So the view is held to its
+  text before each of those reads, as before the reader's own, and the bounds of a range
+  are given a second time when answering is what moved the text. Straight after such a
+  layout the document can still be as tall as it was, which stops the scroll short of a
+  line near its end. The viewport laid out where the scroll stopped gives the document its
+  height, so the reader scrolls again until the line stands as far below the top as it
+  stood. The rows on screen keep their cells through the hold: the view's offset changes
+  before the viewport is laid out there, and rows looked for in the layout of the place
+  before would have their cells taken away and made again, and with them the links
+  VoiceOver holds ([VoiceOver testing](voiceover-testing.md#harness-pitfalls-and-current-results)
+  has the sessions).
   AppKit's text view also scrolls itself when a live resize of its window ends, after a drag
   of the window's edge and after a resize made with animation or by an assistive client: the
   paragraph under the clip view's top edge goes to that edge, from its first line
