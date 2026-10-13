@@ -64,10 +64,20 @@ row and a header cell in each row, an empty cell and a cell that is a link; one 
 cells span two rows and two columns, as two of its data cells do; one given
 `role="presentation"`; and one of plain cells that only its rules mark as data. A tenth,
 **A table longer than a page** (`OPS/ledger.xhtml`), has forty numbered rows under a header
-row, and an eleventh, **A row taller than a page** (`OPS/tallrow.xhtml`), the book's last, a
+row, and an eleventh, **A row taller than a page** (`OPS/tallrow.xhtml`), a
 cell of 2,600 numbered words. None of their words is one VoiceOver uses for a table, so
-"row", "column" and "table" in a transcript are its own. A second
-bundled book, opened with
+"row", "column" and "table" in a transcript are its own. A twelfth, **Parts below a jump**
+(`OPS/parts.xhtml`), the book's last, has a heading after a link on the same page, which no
+other section has: every other heading opens its section or stands pages after the link
+before it. It opens with plain words. A link, "upper jump", stands two lines above the
+heading "Second part opens", with "Earlier words finish." between them. A second link,
+"lower jump", ends the page, and the next page opens with "Middle words cease." and the
+heading "Third part opens" under it, so in a spread that heading is in the column beside
+the link, and in continuous scroll all of it is on one screen. A third link, "last jump",
+follows the book's last heading, and sixty numbered lines follow it. Each line before a
+heading ends in a word no other line has, so a word VoiceOver says of itself shows where it
+took it from. None of the section's words is one VoiceOver uses for a heading or a link. A
+second bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
@@ -76,7 +86,8 @@ are "Page boundary verification" (level 1), which opens it, "Link target reached
 after the numbered paragraph, the two parked ones (level 1), each opening its section, and
 "Pictures and their words", "Scenes set apart", "What each line offers", "Tables of data",
 "A table longer than a page" and "A row taller than a page" (level 1), each opening its
-section; the sections of entries and of jumps inside a grid, between "What each line
+section, and "Second part opens" (level 3) and "Third part opens" (level 4) inside the last
+one; the sections of entries and of jumps inside a grid, between "What each line
 offers" and "Tables of data", have none. The second book's are "Chapter one", "Chapter two"
 and "Chapter three", screens apart.
 Do not import private books for this check.
