@@ -841,8 +841,13 @@ private struct NativeSurface: View {
                     if edge == .leading { submit(.previousPage) }
                     if edge == .trailing { submit(.nextPage) }
                 }
+                #if os(macOS)
+                // Not on iPhone and iPad, where VoiceOver offers a container's actions on every
+                // item inside it: each line of a page has its own two, and these were offered
+                // after them, and on every line of continuous scroll, which has none.
                 .accessibilityAction(named: Text("Next Page")) { submit(.nextPage) }
                 .accessibilityAction(named: Text("Previous Page")) { submit(.previousPage) }
+                #endif
         }
     }
 

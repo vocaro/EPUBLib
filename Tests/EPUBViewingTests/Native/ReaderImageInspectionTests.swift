@@ -72,7 +72,12 @@ import UIKit
             let element = try XCTUnwrap(spoken.attribute(.accessibilityAttachment, at: 0, effectiveRange: nil) as? NSAccessibilityElement)
             XCTAssertEqual(element.accessibilityCustomActions()?.first?.name, "Inspect Image: Hashing example")
             #else
-            XCTAssertTrue(view.accessibilityCustomActions?.contains { $0.name == "Inspect Image: Hashing example" } == true)
+            // The image's own element offers it, and the text view, whose actions VoiceOver
+            // would offer on every line, does not.
+            let listed = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
+            XCTAssertEqual(listed.filter { $0.accessibilityCustomActions?.contains { $0.name == "Inspect Image: Hashing example" } == true }
+                .map(\.accessibilityLabel), ["Hashing example"])
+            XCTAssertNil(view.accessibilityCustomActions)
             #endif
             view.selectedRange = NSRange(location: 0, length: 6)
             #if os(macOS)

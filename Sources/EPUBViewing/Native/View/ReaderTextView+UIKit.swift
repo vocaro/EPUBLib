@@ -140,21 +140,12 @@ final class ReaderTextView: UITextView {
         return canvas.accessibilityScroll(direction)
     }
 
+    // VoiceOver offers on an item the actions of everything that contains it, after the item's
+    // own. A text view that lists its lines therefore offers none: each line, link, image and
+    // table row offers what is its own, and whatever the view offered was repeated on every
+    // one of them. A note keeps UIKit's elements, and with them what UIKit offers for them.
     override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
-        get {
-            let rect = bounds.offsetBy(dx: -containerOrigin.x, dy: -containerOrigin.y)
-            guard let range = visibleCharacterRange(in: rect) else { return super.accessibilityCustomActions }
-            let actions = announcedImages(in: range).map { image, _ in
-                UIAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") {
-                    [weak self] _ in
-                    self?.canvas?.inspectImage(image)
-                    return self?.canvas != nil
-                }
-            }
-            // Nothing for a table here: VoiceOver offers a container's actions on every element
-            // in it, and a row offers its own cells'.
-            return (super.accessibilityCustomActions ?? []) + actions
-        }
+        get { listsLines ? nil : super.accessibilityCustomActions }
         set { super.accessibilityCustomActions = newValue }
     }
 
@@ -559,12 +550,12 @@ private struct ScrollAccessibilityPlace: Equatable {
     override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
         get {
             guard let view else { return nil }
+            // These are all VoiceOver is to offer here: it adds the actions of whatever
+            // contains the item, and the text view and the reader around it have none.
             // Continuous scroll scrolls natively, by VoiceOver's own gesture.
             var actions = view.isPageColumn ? [true, false].map { forward in
                 UIAccessibilityCustomAction(name: forward ? "Next Page" : "Previous Page") { [weak view] _ in
-                    guard let canvas = view?.canvas else { return false }
-                    canvas.turnPageFromInput(forward: forward)
-                    return true
+                    view?.canvas?.turnPageFromAccessibility(forward: forward) ?? false
                 }
             } : []
             actions += (image.map { [$0] } ?? view.announcedImages(in: range).map(\.image)).map { image in
@@ -579,7 +570,7 @@ private struct ScrollAccessibilityPlace: Equatable {
                     UIAccessibilityCustomAction(name: action.name) { _ in action.perform() }
                 }
             }
-            return actions
+            return actions.isEmpty ? nil : actions
         }
         set { super.accessibilityCustomActions = newValue }
     }
