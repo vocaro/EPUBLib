@@ -15,38 +15,15 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     }
 }
 
-/// PROTOTYPE switches, read from the launch arguments, for hearing what VoiceOver does with each
-/// shape before one is chosen. Removed with the choice.
-enum ReaderDataTablePrototype {
-    /// What stands at a row's character in the text: `group` (the row group every table has
-    /// today), `rows` (the row, whose parent is the table), `table` (the table, at each of its
-    /// rows) or `first` (the table at its first row and nothing at the others).
-    static var shape: String { UserDefaults.standard.string(forKey: "ReaderMacTableShape") ?? "group" }
-    /// What a cell holds: `area` (the cell's text views), `static` (one static text) or
-    /// `label` (nothing, and the cell is labelled with its words).
-    static var cellText: String { UserDefaults.standard.string(forKey: "ReaderMacTableCellText") ?? "area" }
-    /// Whether a text view lists its tables among its children.
-    static var listsTables: Bool { UserDefaults.standard.bool(forKey: "ReaderMacTableChildren") }
-    /// Whether a row is labelled with its cells' words.
-    static var labelsRows: Bool { UserDefaults.standard.bool(forKey: "ReaderMacTableRowLabel") }
-    /// Whether the table at a row's character (`proxies`) says that row is selected.
-    static var selects: Bool { UserDefaults.standard.bool(forKey: "ReaderMacTableSelects") }
-    /// Whether the rows it says are visible begin at that row.
-    static var visibleFromEntry: Bool { UserDefaults.standard.bool(forKey: "ReaderMacTableVisibleFromEntry") }
-    /// Whether the table at a row's character (`proxies`) calls itself a table row.
-    static var rowWord: Bool { UserDefaults.standard.bool(forKey: "ReaderMacTableRowWord") }
-    /// Whether the one table (`table`) is labelled, with its first row's words.
-    static var labelsTable: Bool { UserDefaults.standard.bool(forKey: "ReaderMacTableLabel") }
-}
-
-/// The tables of data in one text view, as an assistive technology on the Mac is given them:
-/// a table element for each, with its rows, columns, cells and header cells.
+/// The tables of data in one text view, as an assistive technology on the Mac is given them
+/// (doc/native-viewer.md, "Data tables"). A table is drawn as an attachment for each row, so a
+/// row's character is all the text has to give a table at. Each row's character gives a table
+/// element of its own: the whole table, named by that row's words and with that row selected,
+/// which is where VoiceOver comes into it.
 @MainActor final class ReaderDataTables {
     private weak var view: ReaderTextView?
-    private var tables: [ObjectIdentifier: ReaderTableElement] = [:]
-    /// PROTOTYPE (`proxies`): a table for each row's character, entered at that row.
-    private var proxies: [Int: ReaderTableElement] = [:]
-    private var order: [ReaderTableElement] = []
+    /// The table given at each row's character.
+    private var tables: [Int: ReaderTableElement] = [:]
     /// The row characters of every table of data in the view's text, in order, by table.
     private var found: [ObjectIdentifier: [(location: Int, row: TableRowAttachment)]]?
 
@@ -55,8 +32,6 @@ enum ReaderDataTablePrototype {
     /// The view has other text: its tables are other tables.
     func reset() {
         tables.removeAll()
-        proxies.removeAll()
-        order.removeAll()
         found = nil
     }
 
@@ -77,62 +52,51 @@ enum ReaderDataTablePrototype {
         return all.filter { NSLocationInRange($0.location, shown) }
     }
 
-    func table(_ model: TableModel) -> ReaderTableElement? {
+    /// The table that stands for the row at `location` among the text's characters.
+    func element(at location: Int, of row: TableRowAttachment) -> ReaderTableElement? {
         guard let view else { return nil }
-        if let kept = tables[ObjectIdentifier(model)] { return kept }
-        let element = ReaderTableElement(view: view, owner: self, table: model)
-        tables[ObjectIdentifier(model)] = element
-        order.append(element)
-        return element
-    }
-
-    /// The tables an assistive technology has been given so far, in the order it met them.
-    var elements: [ReaderTableElement] { order.filter { !$0.rowElements.isEmpty } }
-
-    /// What stands for the row at `location` among the text's characters.
-    func element(at location: Int, of row: TableRowAttachment) -> NSAccessibilityElement? {
-        if ReaderDataTablePrototype.shape == "proxies", let view {
-            if let kept = proxies[location] { return kept }
-            let proxy = ReaderDataTablePrototype.selects
-                ? ReaderSelectingTableElement(view: view, owner: self, table: row.table, entry: location)
-                : ReaderTableElement(view: view, owner: self, table: row.table, entry: location)
-            proxies[location] = proxy
-            return proxy
-        }
-        guard let table = table(row.table) else { return nil }
-        switch ReaderDataTablePrototype.shape {
-        case "table": return table
-        case "first": return table.rowElements.first?.location == location ? table : nil
-        default: return table.rowElements.first { $0.location == location }
-        }
+        if let kept = tables[location], kept.table === row.table { return kept }
+        let table = ReaderTableElement(view: view, owner: self, table: row.table, entry: location)
+        tables[location] = table
+        return table
     }
 }
 
-/// A table of data: `NSAccessibility`'s table, with the rows the view shows of it.
-@MainActor class ReaderTableElement: NSAccessibilityElement {
+/// A table of data where one of its rows stands in the text: `NSAccessibility`'s table, with
+/// the rows the view shows of it, its columns, its cells and the cells that head them.
+///
+/// What VoiceOver does with it was heard, not read (doc/voiceover-testing.md). As it reads the
+/// text it says the label and "table", and after them the whole table's contents unless the
+/// table says which of its rows are selected. It comes into a table at its selected row, and
+/// otherwise at the first row on screen. With selected cells among its attributes as well, it
+/// says "No selection" of a table with none and reads a selected row's cells a second time.
+@MainActor final class ReaderTableElement: NSAccessibilityElement {
     private(set) weak var view: ReaderTextView?
     private weak var owner: ReaderDataTables?
     let table: TableModel
-    /// PROTOTYPE (`proxies`): the character of the row this table stands at in the text.
-    let entry: Int?
+    /// The character of the row the table stands at.
+    let entry: Int
     private var rowsByLocation: [Int: ReaderTableRowElement] = [:]
     private var cellsByIndex: [Int: ReaderTableCellElement] = [:]
     private var unlistedHeaders: [Int: ReaderTableCellElement] = [:]
     private var columns: [ReaderTableColumnElement] = []
-    /// The rows and cells listed, for the layout they were listed in.
-    private var listing: (key: [CGFloat], rows: [ReaderTableRowElement], cells: [Int: ReaderTableCellElement])?
+    /// The rows listed, for the text they were listed in.
+    private var listedRows: (key: [CGFloat], rows: [ReaderTableRowElement])?
+    /// The layout a page's cells were listed in.
+    private var pageKey: [CGFloat]?
 
-    init(view: ReaderTextView, owner: ReaderDataTables, table: TableModel, entry: Int? = nil) {
+    init(view: ReaderTextView, owner: ReaderDataTables, table: TableModel, entry: Int) {
         self.view = view
         self.owner = owner
         self.table = table
         self.entry = entry
         super.init()
-        // AppKit tells a client of the attributes an element has been given a value for.
+        // AppKit tells a client of an attribute that the element has been given a value for.
         setAccessibilityRole(.table)
         setAccessibilityParent(view)
         setAccessibilityRows([])
         setAccessibilityVisibleRows([])
+        setAccessibilitySelectedRows([])
         setAccessibilityColumns([])
         setAccessibilityVisibleColumns([])
         setAccessibilityVisibleCells([])
@@ -154,61 +118,103 @@ enum ReaderDataTablePrototype {
         return view.segmentFrames(for: NSRange(location: location, length: 1)).first?.offsetBy(dx: origin.x, dy: origin.y)
     }
 
-    /// The rows the view shows, each with the cells read where it stands. A cell is read where
-    /// it has something to say: where it starts, or in pages in the first row of the page that
-    /// holds lines of it. A cell with nothing to say anywhere is read where it starts.
-    private func list() -> (rows: [ReaderTableRowElement], cells: [Int: ReaderTableCellElement]) {
-        guard let view, let owner else { return ([], [:]) }
-        let key = [view.bounds.width, view.readerContainer.viewportSize.width, view.readerContainer.viewportSize.height,
-                   CGFloat(view.shownCharacters.length)]
-        if let listing, listing.key == key { return (listing.rows, listing.cells) }
-        var rows: [ReaderTableRowElement] = [], cells: [Int: ReaderTableCellElement] = [:]
-        for (location, row) in owner.rows(of: table) {
-            let element = rowsByLocation[location] ?? ReaderTableRowElement(table: self, location: location, row: row)
-            rowsByLocation[location] = element
-            element.cells = []
-            rows.append(element)
-            guard let frame = frame(ofRowAt: location) else { continue }
-            for spoken in row.spokenCells(size: frame.size, viewportHeight: view.readerContainer.viewportSize.height) {
-                if let listed = cells[spoken.cell] {
-                    listed.text = [listed.text, spoken.text].filter { !$0.isEmpty }.joined(separator: " ")
-                    listed.images += spoken.images
-                    listed.locations.append(location)
-                    continue
-                }
-                guard !spoken.text.isEmpty || !spoken.images.isEmpty || (spoken.starts && spoken.isBlank) else { continue }
-                let cell = cellsByIndex[spoken.cell] ?? ReaderTableCellElement(table: self, cell: spoken.cell)
-                cellsByIndex[spoken.cell] = cell
-                cell.row = element
-                cell.text = spoken.text
-                cell.images = spoken.images
-                cell.locations = [location]
-                cell.frameInRow = spoken.frame
-                cells[spoken.cell] = cell
-                element.cells.append(cell)
-            }
-        }
-        listing = (key, rows, cells)
-        return (rows, cells)
+    /// What the cells listed depend on: the line a row is laid out on, and the page shown.
+    private var layoutKey: [CGFloat] {
+        guard let view else { return [] }
+        return [frame(ofRowAt: entry)?.width ?? 0, view.readerContainer.viewportSize.height, CGFloat(view.shownCharacters.length)]
     }
 
-    var rowElements: [ReaderTableRowElement] { list().rows }
-    var listedCells: [Int: ReaderTableCellElement] { list().cells }
+    /// The rows the view shows, in order: a page's own, or in continuous scroll every row.
+    var rowElements: [ReaderTableRowElement] {
+        guard let view, let owner else { return [] }
+        let key = [CGFloat(view.shownCharacters.length), CGFloat(view.textLength)]
+        if let listedRows, listedRows.key == key { return listedRows.rows }
+        let rows = owner.rows(of: table).map { location, row in
+            rowsByLocation[location] ?? ReaderTableRowElement(table: self, location: location, row: row)
+        }
+        rowsByLocation = Dictionary(rows.map { ($0.location, $0) }) { first, _ in first }
+        listedRows = (key, rows)
+        return rows
+    }
+
+    /// The row the table stands at.
+    private var entryRow: ReaderTableRowElement? { rowElements.first { $0.location == entry } }
+
+    /// The cells read where `row` stands. A cell is read where it has something to say: where
+    /// it starts, or in pages in the first row of the page that holds lines of it. A cell with
+    /// nothing to say anywhere is read where it starts.
+    func cells(of row: ReaderTableRowElement) -> [ReaderTableCellElement] {
+        guard let view else { return [] }
+        let key = layoutKey
+        if view.isPageColumn {
+            // A page's rows are few, and a cell from a row above is read once among them.
+            if pageKey != key {
+                var listed: [Int: ReaderTableCellElement] = [:]
+                for element in rowElements { element.list(cells(shownBy: element, among: &listed), for: key) }
+                pageKey = key
+            }
+        } else if row.listedFor != key {
+            // In continuous scroll a cell says all its words where it starts.
+            var listed: [Int: ReaderTableCellElement] = [:]
+            row.list(cells(shownBy: row, among: &listed), for: key)
+        }
+        return row.listed
+    }
+
+    private func cells(shownBy row: ReaderTableRowElement, among listed: inout [Int: ReaderTableCellElement]) -> [ReaderTableCellElement] {
+        // Every row of a table is laid out on a line of one width, and a long table's rows
+        // are not all laid out to list one of them.
+        guard let view, let width = frame(ofRowAt: entry)?.width ?? frame(ofRowAt: row.location)?.width else { return [] }
+        var result: [ReaderTableCellElement] = []
+        for spoken in row.row.spokenCells(size: CGSize(width: width, height: 0), viewportHeight: view.readerContainer.viewportSize.height) {
+            if let cell = listed[spoken.cell] {
+                cell.text = [cell.text, spoken.text].filter { !$0.isEmpty }.joined(separator: " ")
+                cell.images += spoken.images
+                cell.locations.append(row.location)
+                continue
+            }
+            guard !spoken.text.isEmpty || !spoken.images.isEmpty || (spoken.starts && spoken.isBlank) else { continue }
+            let cell = cellsByIndex[spoken.cell] ?? ReaderTableCellElement(table: self, cell: spoken.cell)
+            cellsByIndex[spoken.cell] = cell
+            cell.row = row
+            cell.text = spoken.text
+            cell.images = spoken.images
+            cell.locations = [row.location]
+            cell.frameInRow = spoken.frame
+            listed[spoken.cell] = cell
+            result.append(cell)
+        }
+        return result
+    }
+
+    /// The element of the cell at `index` of the table's cells, where the view shows it.
+    func listed(_ index: Int) -> ReaderTableCellElement? {
+        guard let view, table.cells.indices.contains(index) else { return nil }
+        if view.isPageColumn {
+            // On a page a cell is read in the first of its rows the page shows.
+            for row in rowElements {
+                if let cell = cells(of: row).first(where: { $0.cell == index }) { return cell }
+            }
+            return nil
+        }
+        guard let row = rowElements.first(where: { $0.row.row == table.cells[index].row }) else { return nil }
+        return cells(of: row).first { $0.cell == index }
+    }
 
     /// The element of a header cell: the one listed, or for a header cell on another page its
     /// words alone, for VoiceOver to say and nowhere for its cursor to go.
-    func header(_ cell: Int) -> ReaderTableCellElement? {
-        if let listed = listedCells[cell] { return listed }
-        if let kept = unlistedHeaders[cell] { return kept }
-        guard table.cells.indices.contains(cell), !table.cells[cell].text.isEmpty else { return nil }
-        let name = ReaderTableCellElement(table: self, cell: cell)
-        name.text = table.cells[cell].text
-        unlistedHeaders[cell] = name
+    func header(_ index: Int) -> ReaderTableCellElement? {
+        if let listed = listed(index) { return listed }
+        if let kept = unlistedHeaders[index] { return kept }
+        guard table.cells.indices.contains(index), !table.cells[index].text.isEmpty else { return nil }
+        let name = ReaderTableCellElement(table: self, cell: index)
+        name.text = table.cells[index].text
+        unlistedHeaders[index] = name
         return name
     }
 
     /// The header cells of the columns `cell` stands in that are above it, and of its rows
-    /// that are before it.
+    /// that are before it. HTML's header cells, as `TableModel` has them.
     func headers(of cell: Int) -> (columns: [ReaderTableCellElement], rows: [ReaderTableCellElement]) {
         let model = table.cells[cell]
         var above: [Int] = [], before: [Int] = []
@@ -226,25 +232,20 @@ enum ReaderDataTablePrototype {
     }
 
     func cells(inColumn column: Int) -> [ReaderTableCellElement] {
-        rowElements.flatMap { $0.cells }.filter { NSLocationInRange(column, $0.columns) }
+        rowElements.flatMap { cells(of: $0) }.filter { NSLocationInRange(column, $0.columns) }
     }
 
     // MARK: NSAccessibility
 
     override func accessibilityRole() -> NSAccessibility.Role? { .table }
     override func accessibilityParent() -> Any? { onMain(self) { $0.view } }
+    override func accessibilityLabel() -> String? { onMain(self) { $0.words } }
     override func accessibilityRows() -> [Any]? { onMain(self) { $0.rowElements } }
     override func accessibilityVisibleRows() -> [Any]? { onMain(self) { $0.visibleRows } }
-    private var visibleRows: [ReaderTableRowElement] {
-        guard let view else { return [] }
-        let visible = view.visibleRect
-        var rows = rowElements.filter { frame(ofRowAt: $0.location).map { !$0.intersection(visible).isEmpty } ?? false }
-        if ReaderDataTablePrototype.visibleFromEntry, let entry { rows = rows.filter { $0.location >= entry } }
-        return rows
-    }
+    override func accessibilitySelectedRows() -> [Any]? { onMain(self) { $0.entryRow.map { [$0] } ?? [] } }
     override func accessibilityColumns() -> [Any]? { onMain(self) { $0.columns } }
     override func accessibilityVisibleColumns() -> [Any]? { onMain(self) { $0.columns } }
-    override func accessibilityVisibleCells() -> [Any]? { onMain(self) { $0.visibleRows.flatMap { $0.cells } } }
+    override func accessibilityVisibleCells() -> [Any]? { onMain(self) { table in table.visibleRows.flatMap { table.cells(of: $0) } } }
     override func accessibilityChildren() -> [Any]? { onMain(self) { $0.rowElements + $0.columns } }
     override func accessibilityRowCount() -> Int { onMain(self) { $0.table.rows.count } }
     override func accessibilityColumnCount() -> Int { onMain(self) { $0.table.columnCount } }
@@ -252,20 +253,27 @@ enum ReaderDataTablePrototype {
     override func accessibilityRowHeaderUIElements() -> [Any]? { onMain(self) { $0.rowHeaders } }
     override func accessibilityCell(forColumn column: Int, row: Int) -> Any? { onMain(self) { $0.cell(column: column, row: row) } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
-    override func accessibilityLabel() -> String? { onMain(self) { $0.words } }
-    override func accessibilityRoleDescription() -> String? {
-        onMain(self) { $0.entry != nil && ReaderDataTablePrototype.rowWord ? "table row" : NSAccessibility.Role.table.description(with: nil) }
+
+    /// What the table is called where it stands: the words its row shows there. They are all
+    /// VoiceOver says of the row as it reads the text by line or by word.
+    private var words: String? {
+        guard let row = entryRow else { return nil }
+        let words = cells(of: row).map { $0.text }.filter { !$0.isEmpty }.joined(separator: ", ")
+        return words.isEmpty ? nil : words
     }
 
-    /// The row the table stands at in the text.
-    fileprivate var selected: ReaderTableRowElement? {
-        guard let entry else { return nil }
-        return rowElements.first { $0.location == entry }
-    }
-    /// What the table is called: the words of the row it stands at.
-    private var words: String? {
-        let row = entry.flatMap { entry in rowElements.first { $0.location == entry } } ?? (ReaderDataTablePrototype.labelsTable ? rowElements.first : nil)
-        return row.map { $0.cells.map { $0.text }.filter { !$0.isEmpty }.joined(separator: ", ") }
+    /// The rows on screen: a page's own, and in continuous scroll those in the visible part.
+    private var visibleRows: [ReaderTableRowElement] {
+        guard let view else { return [] }
+        let rows = rowElements
+        guard !view.isPageColumn else { return rows }
+        let visible = view.visibleRect
+        // The lines at the top and the bottom of the screen bound the rows there, so that a
+        // long table's rows are not all laid out to find the few on screen.
+        let first = view.characterOffset(at: CGPoint(x: visible.midX, y: visible.minY)) - 2
+        let last = view.characterOffset(at: CGPoint(x: visible.midX, y: visible.maxY)) + 2
+        return rows.filter { $0.location >= first && $0.location <= last }
+            .filter { frame(ofRowAt: $0.location).map { !$0.intersection(visible).isEmpty } ?? false }
     }
 
     /// The cells that head a column, in column order and top first in each.
@@ -274,31 +282,27 @@ enum ReaderDataTablePrototype {
         for column in 0..<table.columnCount { for header in table.columnHeaders(column) where !seen.contains(header) { seen.append(header) } }
         return seen.compactMap { header($0) }
     }
+
     /// The cells that head a row, in row order.
     private var rowHeaders: [ReaderTableCellElement] {
         var seen: [Int] = []
         for row in table.rows.indices { for header in table.rowHeaders(row) where !seen.contains(header) { seen.append(header) } }
         return seen.compactMap { header($0) }
     }
-    /// The cell that covers a slot of the grid, where the view shows it.
+
+    /// The cell that covers a slot of the grid, where the view shows it. A cell that spans
+    /// answers for every slot it covers.
     func cell(column: Int, row: Int) -> ReaderTableCellElement? {
         guard table.rowCells.indices.contains(row) else { return nil }
         let cell = table.rowCells[row].first { table.cells[$0].column <= column && column < table.cells[$0].column + table.cells[$0].columnSpan }
-        return cell.flatMap { listedCells[$0] }
+        return cell.flatMap { listed($0) }
     }
-    private var screenFrame: NSRect {
-        guard let view else { return .zero }
-        let locations = entry.map { [$0] } ?? rowElements.map(\.location)
-        let frame = locations.compactMap { frame(ofRowAt: $0) }.reduce(CGRect.null) { $0.union($1) }
-        return frame.isNull ? .zero : NSAccessibility.screenRect(fromView: view, rect: frame)
-    }
-}
 
-/// PROTOTYPE (`proxies` with a selection): a table that says the row it stands at is selected.
-/// VoiceOver says "No selection" of any table that has the attribute, so a table that selects
-/// nothing must not have it.
-@MainActor final class ReaderSelectingTableElement: ReaderTableElement {
-    override func accessibilitySelectedRows() -> [Any]? { onMain(self) { $0.selected.map { [$0] } ?? [] } }
+    /// Where the table stands in the text: its row's place.
+    private var screenFrame: NSRect {
+        guard let view, let frame = frame(ofRowAt: entry) else { return .zero }
+        return NSAccessibility.screenRect(fromView: view, rect: frame)
+    }
 }
 
 /// A row of a table of data, where it stands in the view: a whole row, or in pages the part of
@@ -307,7 +311,9 @@ enum ReaderDataTablePrototype {
     private unowned let table: ReaderTableElement
     let location: Int
     let row: TableRowAttachment
-    var cells: [ReaderTableCellElement] = []
+    /// The cells read in the row, and the layout they were listed in.
+    private(set) var listed: [ReaderTableCellElement] = []
+    private(set) var listedFor: [CGFloat]?
 
     init(table: ReaderTableElement, location: Int, row: TableRowAttachment) {
         self.table = table
@@ -321,24 +327,20 @@ enum ReaderDataTablePrototype {
         setAccessibilityChildren([])
     }
 
+    func list(_ cells: [ReaderTableCellElement], for key: [CGFloat]) {
+        listed = cells
+        listedFor = key
+    }
+
     override func accessibilityRole() -> NSAccessibility.Role? { .row }
     override func accessibilitySubrole() -> NSAccessibility.Subrole? { .tableRow }
     override func accessibilityParent() -> Any? { onMain(self) { $0.table } }
+    /// The row's number in the whole table, which a page of it keeps.
     override func accessibilityIndex() -> Int { onMain(self) { $0.row.row } }
-    override func accessibilityChildren() -> [Any]? { onMain(self) { $0.listedCells } }
-    override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.listedCells } }
-    override func accessibilityLabel() -> String? { onMain(self) { $0.rowWords } }
+    override func accessibilityChildren() -> [Any]? { onMain(self) { $0.table.cells(of: $0) } }
+    override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.table.cells(of: $0) } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
 
-    /// The cells read in the row, as the view shows them now.
-    var listedCells: [ReaderTableCellElement] {
-        _ = table.rowElements
-        return cells
-    }
-    private var rowWords: String? {
-        guard ReaderDataTablePrototype.labelsRows else { return nil }
-        return listedCells.map { $0.text }.filter { !$0.isEmpty }.joined(separator: ", ")
-    }
     private var screenFrame: NSRect {
         guard let view = table.view, let frame = table.frame(ofRowAt: location) else { return .zero }
         return NSAccessibility.screenRect(fromView: view, rect: frame)
@@ -358,8 +360,6 @@ enum ReaderDataTablePrototype {
         setAccessibilityParent(table)
         setAccessibilityIndex(column)
         setAccessibilityChildren([])
-        setAccessibilityRows([])
-        setAccessibilityVisibleRows([])
     }
 
     override func accessibilityRole() -> NSAccessibility.Role? { .column }
@@ -368,11 +368,17 @@ enum ReaderDataTablePrototype {
     override func accessibilityChildren() -> [Any]? { onMain(self) { $0.table.cells(inColumn: $0.column) } }
     override func accessibilityHeader() -> Any? { onMain(self) { $0.header } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
-    private var header: ReaderTableCellElement? { table.table.columnHeaders(column).first.flatMap { table.header($0) } }
-    private var screenFrame: NSRect { table.cells(inColumn: column).map { $0.screenFrame }.reduce(NSRect.null) { $0.union($1) } }
+
+    private var header: ReaderTableCellElement? { table.table.columnHeaders(column).first.flatMap { index in table.header(index) } }
+    private var screenFrame: NSRect {
+        let frame = table.cells(inColumn: column).map { $0.screenFrame }.reduce(NSRect.null) { $0.union($1) }
+        return frame.isNull ? .zero : frame
+    }
 }
 
-/// A cell of a table of data, where the view shows it.
+/// A cell of a table of data, where the view shows it. It holds the text areas of its words
+/// while they are on screen, so that VoiceOver can go into it and read by word, and is
+/// labelled with its words where it has none.
 @MainActor final class ReaderTableCellElement: NSAccessibilityElement {
     private unowned let table: ReaderTableElement
     let cell: Int
@@ -386,64 +392,50 @@ enum ReaderDataTablePrototype {
     var locations: [Int] = []
     /// Its box in its row's coordinates.
     var frameInRow = CGRect.zero
-    private lazy var words: NSAccessibilityElement = {
-        let element = NSAccessibilityElement()
-        element.setAccessibilityRole(.staticText)
-        element.setAccessibilityParent(self)
-        return element
-    }()
 
     init(table: ReaderTableElement, cell: Int) {
         self.table = table
         self.cell = cell
         super.init()
-        let model = table.table.cells[cell]
         setAccessibilityRole(.cell)
-        setAccessibilityRowIndexRange(NSRange(location: model.row, length: model.rowSpan))
-        setAccessibilityColumnIndexRange(NSRange(location: model.column, length: model.columnSpan))
+        setAccessibilityRowIndexRange(rows)
+        setAccessibilityColumnIndexRange(columns)
         setAccessibilityColumnHeaderUIElements([])
         setAccessibilityRowHeaderUIElements([])
         setAccessibilityChildren([])
     }
 
-    /// The text views that hold the cell's words here, where they are on screen.
+    /// The rows the cell covers, counted in the whole table.
+    var rows: NSRange { NSRange(location: table.table.cells[cell].row, length: table.table.cells[cell].rowSpan) }
+    var columns: NSRange { NSRange(location: table.table.cells[cell].column, length: table.table.cells[cell].columnSpan) }
+
+    /// The text views that hold the cell's words here, where they are on screen. Every table
+    /// that stands at a row of this one holds the same views: a view answers to the cell
+    /// that asked for it last, which is the cell of the table VoiceOver is in.
     private var textViews: [TableCellTextView] {
         guard let interaction = table.view?.tableInteraction else { return [] }
-        return locations.flatMap { interaction.accessibilityCells(at: $0, cell: cell) }
+        let views = locations.flatMap { interaction.accessibilityCells(at: $0, cell: cell) }
+        for view in views { view.tableCellElement = self }
+        return views
     }
 
     override func accessibilityRole() -> NSAccessibility.Role? { .cell }
     override func accessibilityParent() -> Any? { onMain(self) { $0.row ?? $0.table } }
     override func accessibilityRowIndexRange() -> NSRange { onMain(self) { $0.rows } }
     override func accessibilityColumnIndexRange() -> NSRange { onMain(self) { $0.columns } }
-    var rows: NSRange { NSRange(location: table.table.cells[cell].row, length: table.table.cells[cell].rowSpan) }
-    var columns: NSRange { NSRange(location: table.table.cells[cell].column, length: table.table.cells[cell].columnSpan) }
     override func accessibilityColumnHeaderUIElements() -> [Any]? { onMain(self) { $0.table.headers(of: $0.cell).columns } }
     override func accessibilityRowHeaderUIElements() -> [Any]? { onMain(self) { $0.table.headers(of: $0.cell).rows } }
-    override func accessibilityChildren() -> [Any]? { onMain(self) { $0.held } }
-    override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.held } }
+    override func accessibilityChildren() -> [Any]? { onMain(self) { $0.textViews } }
+    override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.textViews } }
     override func accessibilityLabel() -> String? { onMain(self) { $0.label } }
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? { onMain(self) { $0.actions } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
 
-    /// What the cell holds for an assistive technology.
-    private var held: [Any] {
-        switch ReaderDataTablePrototype.cellText {
-        case "label": return []
-        case "static":
-            guard !text.isEmpty else { return [] }
-            words.setAccessibilityValue(text)
-            return [words]
-        default:
-            let views = textViews
-            for view in views { view.tableCellElement = self }
-            return views
-        }
-    }
-    private var label: String? {
-        if ReaderDataTablePrototype.cellText == "label" || held.isEmpty { return text.isEmpty ? nil : text }
-        return nil
-    }
+    /// The cell's words, where no text view says them: off screen, and for a header cell
+    /// named on a page that does not show it.
+    private var label: String? { text.isEmpty || !textViews.isEmpty ? nil : text }
+
+    /// What the cell can do itself: show each picture, select its words, follow each link.
     private var actions: [NSAccessibilityCustomAction]? {
         guard let view = table.view else { return nil }
         var actions = images.map { image in
@@ -454,14 +446,17 @@ enum ReaderDataTablePrototype {
             }
         }
         var select: (@MainActor () -> Bool)?
+        var links: [NSAccessibilityCustomAction] = []
         for location in locations {
             guard let found = view.tableInteraction?.accessibilityActions(at: location, cell: cell) else { continue }
             select = select ?? found.select
-            actions += found.links.map { link in NSAccessibilityCustomAction(name: "Follow Link: " + link.name) { link.perform() } }
+            links += found.links.map { link in NSAccessibilityCustomAction(name: "Follow Link: " + link.name) { link.perform() } }
         }
-        if let select { actions.insert(NSAccessibilityCustomAction(name: "Select Cell Text") { select() }, at: images.count) }
+        if let select { actions.append(NSAccessibilityCustomAction(name: "Select Cell Text") { select() }) }
+        actions += links
         return actions.isEmpty ? nil : actions
     }
+
     var screenFrame: NSRect {
         guard let view = table.view, let location = locations.first, let rowFrame = table.frame(ofRowAt: location) else { return .zero }
         let frame = frameInRow.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY)
