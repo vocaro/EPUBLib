@@ -856,7 +856,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   canvas, which holds every line: with the two named there, VoiceOver said "Actions
   available" after every line of continuous scroll and offered to turn a page that flow does
   not have, and on a page it offered the pair twice. A text view that lists its lines offers
-  no action for the same reason. With UIKit's actions for the links and attachments of its
+  no action for the same reason. With UIKit's actions for the links of its
   text and the reader's for its pictures there, a plain line offered the picture beside it,
   and a line of continuous scroll the links of the whole book. So a line offers what
   is in it: on a page Next Page and Previous Page; on a picture's own line Inspect Image; on

@@ -885,7 +885,7 @@ import XCTest
     /// line, "Verification link", four more links, "Inspect Image: Blue verification square",
     /// "Previous Page" and "Next Page"; on a plain line of a page, "Next Page", "Previous
     /// Page", the picture, and "Previous Page" and "Next Page" again. None was the line's.
-    /// The text view gave UIKit's actions for the links and attachments of its text and the
+    /// The text view gave UIKit's actions for the links of its text and the
     /// reader's for its pictures and tables, and the canvas had the two the reader's SwiftUI
     /// surface named. This holds the lines and the text view to their own. SwiftUI gives a
     /// view no action in a test host, where no assistive technology runs, so what the surface

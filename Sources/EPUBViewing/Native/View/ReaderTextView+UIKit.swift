@@ -153,9 +153,9 @@ final class ReaderTextView: UITextView {
         get {
             // VoiceOver offers a container's actions on every element in it, after the
             // element's own. A view that lists its lines offers none: each line offers what
-            // is in it. With UIKit's actions here, one for every link and attachment of the
-            // text, and the reader's for its images, a plain line offered the picture beside
-            // it, and a line of continuous scroll every link of the book.
+            // is in it. With UIKit's actions here, one for every link of the text, and the
+            // reader's for its images, a plain line offered the picture beside it, and a line
+            // of continuous scroll every link of the book.
             guard !listsLines else { return nil }
             let rect = bounds.offsetBy(dx: -containerOrigin.x, dy: -containerOrigin.y)
             guard let range = visibleCharacterRange(in: rect) else { return super.accessibilityCustomActions }
