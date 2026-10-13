@@ -645,10 +645,14 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    by cell, "North, Row 1, Column 1, Table start, 2 rows 2 columns". On the section with a
    table longer than a page, in continuous scroll, VoiceOver reads on through all forty
    rows and back, every cell once and in order, the view following, and names a column's
-   header cell far below the header row: "Sum, Sum 39, Row 40, Column 3". In pages the
-   page after the first goes on at the next row's number, and does not say "Table start".
-   On the section with a row taller than a page, each page's cell reads the words that
-   page shows.
+   header cell far below the header row: "Sum, Sum 39, Row 40, Column 3" on the way back.
+   With the rotor on Rows it moves down a column past the screen, a row at a time. In
+   pages the page after the first goes on at the next row's number and names a column's
+   header cell though its row is on the page before: "Entry 28, Row 29, Column 1, Table
+   start, 41 rows 3 columns" and "Item, Item 28, Column 2" on an iPad at 17 points.
+   VoiceOver says "Table start" at the first cell a page lists and "Table end" at the last,
+   so a page in the middle of a table says both. On the section with a row taller than a
+   page, each page's cell reads the words that page shows.
 7. On the section of pictures, in pages and in continuous scroll. VoiceOver stops between
    "Undescribed picture" and "stands here." and says that an image is there, with no name.
    It reads "Decoration" and "passed over." with nothing between them, and the same for
@@ -1129,6 +1133,87 @@ The Mac runner's transcript is plain text and needs no export.
   VoiceOver on; the rotor steps were run again alone. Each time VoiceOver was left on it was
   switched off with `devicectl device settings voiceover --disable` and read back as off.
   Nobody listened to any of these sessions.
+- On 2026-10-12 the three sections of tables were read at 17 points before and after a table
+  of data was given to VoiceOver cell by cell: before at `17a4a36`, which is main with #382
+  and this change's fixture and probe, and after at `bc473cb`. Nobody listened; the phrases
+  are XCTest's record of VoiceOver's speech.
+  In the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and an iPad Air
+  13-inch (M4)), moving forward from Bookmark on the section of tables of data, in pages.
+  Before, a row was an item: "Stations on the branch", "Station Opened Depth", "Alder 1901
+  Twelve metres", "Birch 1934", "Cedar Reopened 1978 Forty metres", "Words between the
+  grids.", "Service Hours", "Leaves Arrives", "Express Nine Noon", "Stopper Ten Three",
+  "Nothing on Sunday", then "Left side Right side", "Lower left Lower right", "North Wet" and
+  "South Dry"; on the last row of the first table the rotor offered Next Page, Previous Page,
+  Select Table Text for each of its three cells and Follow Table Link: Reopened 1978. After:
+  "Stations on the branch", "Station Column header Row 1 Column 1 Table start 4 rows 3
+  column" (the 64 characters a simulator's phrase has), "Opened Column header Column 2",
+  "Depth Column header Column 3", "Station Alder Row header Row 2 Column 1", "Opened 1901
+  Column 2", "Depth Twelve metres Column 3", "Station Birch Row header Row 3 Column 1",
+  "Opened 1934 Column 2", "Depth Column 3" for the empty cell, "Station Cedar Row header Row
+  4 Column 1", "Opened Reopened 1978 Column 2 Link", "Depth Forty metres Column 3 Table end";
+  in the second table "Service Column header Spans 2 rows Row 1 Column 1 Table start",
+  "Hours Column header Spans 2 columns Column 2", "Leaves Column header Row 2 Column 2",
+  "Arrives Column header Column 3", "Service Express Row 3 Column 1", "Hours Leaves Nine
+  Column 2", "Arrives Noon Column 3", "Service Stopper Spans 2 rows Row 4 Column 1", "Hours
+  Leaves Ten Column 2", "Arrives Three Column 3", "Leaves Nothing on Sunday Spans 2 columns
+  Row 5 Column 2 Table en"; then "Left side Right side" and "Lower left Lower right" as
+  before, for the table with `role="presentation"`, and "North Row 1 Column 1 Table start 2
+  rows 2 columns", "Wet Column 2", "South Row 2 Column 1", "Dry Column 2 Table end" for the
+  ruled table of plain cells. VoiceOver says a header cell's words before a cell only when
+  they differ from the cell before's, and so on the way back: "Alder Depth Twelve metres Row
+  2 Column 3". The iPhone's first page ends after the first table and read the same. With
+  the rotor on Rows from "Alder": "Birch Row header Row 3", "Cedar Row header Row 4", where
+  it stays, and back up to "Station Column header Row 1 Table start 4 rows 3 columns"; from
+  "Nine" on the iPad: "Ten Row 4", "Nothing on Sunday Spans 2 columns Row 5 Table end", and
+  up to "Leaves Column header Row 2" and "Hours Column header Spans 2 columns Row 1". On
+  "Reopened 1978" the rotor offered Next Page, Previous Page, Select Cell Text and Follow
+  Link: Reopened 1978. With the rotor on Headings, from a cell, `flick=up` went to "Tables of
+  data Heading". In continuous scroll on the iPad the same items came forward and back, and
+  the cell offered Select Cell Text and Follow Link: Reopened 1978.
+  On the section with a table longer than a page, in continuous scroll, 136 moves forward
+  and 136 back on each simulator: every one of the 120 cells below the header row once and
+  in order each way, "Entry Entry 13 Row 14 Column 1", "Item Item 13 Column 2", past the
+  screen, to "Sum Sum 40 Column 3 Table end" and "Words after the ledger.", and back from
+  "Sum 40 Row 41 Column 3 Table end" through "Sum Sum 39 Row 40 Column 3", where the header
+  row is forty rows above the screen, to "Words before the ledger.". Before, the rows came
+  in order as "Entry 13 Item 13 Sum 13". In pages on the iPad: the first page to "Item Item
+  14 Column 2" in 46 moves; after Next Page "Entry 28 Row 29 Column 1 Table start 41 rows 3
+  columns", "Item Item 28 Column 2", "Sum Sum 28 Column 3", "Entry Entry 29 Row 30 Column 1",
+  and with the rotor on Rows "Item 31 Row 32" to "Item 33 Row 34" and back up to "Item 28 Row
+  29". An earlier session of the same steps on the iPhone, at a load average near 600, did
+  not turn the page: its double tap on Next Page changed nothing in two seconds.
+  The sessions ran while the Mac's load average stood between 400 and 1,000. Sessions at an
+  earlier revision of this change, before the probe waited out a repeated phrase, recorded
+  one cell twice and the next not at all here and there, and on the iPad simulator 136
+  moves forward reached only the ninety-sixth cell while the 136 back gave every cell; the
+  counts showed the first to be the record and not the reader. One session's touch on "Item
+  02" at 28 points found nothing on the iPhone simulator, so the rotor's Rows past the
+  screen was recorded on the device alone.
+- The same day a physical iPad Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366) read the same
+  sections at `bc473cb`, and at `7d8e7f4` for the rotor's Rows, which differs from it in the
+  probe and one test. In pages on the tables of data, the simulators' items with whole
+  phrases: "Station Column header Row 1 Column 1 Table start 4 rows 3 columns", "Leaves
+  Nothing on Sunday Spans 2 columns Row 5 Column 2 Table end". With Follow Link: Reopened
+  1978 chosen in the rotor, the fourth action in pages and the second in continuous scroll,
+  a double tap on the cell changed the screen and a touch then found "Link target reached
+  Heading"; a plain double tap on the cell, with no action chosen, did the same. With
+  Select Cell Text chosen, a double tap gave "Select Cell Text" and the screenshot shows
+  VoiceOver's cursor on the cell's box and no highlight in it: that the words were selected
+  there is shown by the unit test only. The rotor's Rows moved down and up a column in both
+  tables as on the simulators. In continuous scroll at 23 points, 136 moves forward and 136
+  back through the long table gave all 120 cells once and in order each way; at 28 points,
+  with the rotor on Rows, thirty-four flicks down from "Item 02 Row 3" went a row at a time
+  to "Item 36 Row 37", past the screen, and thirty-six up went back to "Item 01 Row 2" and
+  "Item Column header Row 1". In pages at 23 points the page after the first began "Entry
+  19 Row 20 Column 1 Table start 41 rows 3 columns", "Item Item 19 Column 2". On the row
+  taller than a page: "Clause Column header Row 1 Column 1 Table start 3 rows 2 columns"
+  and "Wording Column header Column 2 Table end" on the first page, and after Next Page
+  "Tall clause Row 2 Column 1 Table start 3 rows 2 columns" and one item for the tall cell,
+  "Wording t0001 t0002" and on to `t1707`, the words that page shows. The probe's two-finger
+  turns came round to the same five rotor settings on this iPad, none of them Rows, until
+  it made its smallest turn alone, which moved one setting at a time. VoiceOver was off
+  after every session, and the iPad was claimed in the shared file for the half hour. The
+  physical iPhone was not used.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).

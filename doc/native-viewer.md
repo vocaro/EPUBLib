@@ -319,7 +319,12 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     cell's interaction surface, so a cell listed past the screen has them once it is on
     screen, which is where VoiceOver's cursor brings it.
   - **Pages.** A page's table holds the cells that page shows, each with its row's number
-    in the whole table, so the second page of a table starts at "Row 14" and not at 1. The
+    in the whole table, so the second page of a table starts at "Row 29" and not at 1.
+    VoiceOver says "Table start" and the whole table's count of rows and columns at the
+    first cell listed, and "Table end" at the last, whatever their numbers: a page that
+    shows the middle of a table says both, and the row's number says where in the table
+    the page is. The first cell VoiceOver comes to in a table is said without its header
+    cells. The
     rows of another page are not there to move to; Next Page goes on, as from a line. A
     column's header cell on another page is still named before the cells it heads: the
     table answers with an element that has the header's words and is nowhere to go. A
