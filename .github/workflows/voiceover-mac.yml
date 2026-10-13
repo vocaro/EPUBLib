@@ -102,7 +102,7 @@ jobs:
           # workflow's, so a ref older than they are can be built and heard too.
           git fetch --quiet --depth 1 origin "$GITHUB_SHA"
           git checkout FETCH_HEAD -- scripts/run-voiceover-mac.py scripts/run-voiceover-sessions.py \
-            scripts/voiceover-ax-observer.swift
+            scripts/voiceover-ax-observer.swift scripts/voiceover-link-verbosity.swift
 
       - name: Check the inputs and describe the runner
         run: |

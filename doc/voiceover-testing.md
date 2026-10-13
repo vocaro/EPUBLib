@@ -363,8 +363,8 @@ gh run download RUN_ID --name voiceover-mac-transcripts --dir .build/voiceover/h
 `ref` input names another one. The inputs, all optional:
 
 - `ref`: a branch, a tag or a full commit SHA whose reader and probe are built. The runner,
-  observer and session scripts still come from the `--ref` branch, so a commit older than this
-  workflow can be heard, and two commits compared, with one harness.
+  observer, session and link-setting scripts still come from the `--ref` branch, so a commit
+  older than this workflow can be heard, and two commits compared, with one harness.
 - `steps`: the steps `scripts/run-voiceover-mac.py` takes, quoted as on a command line, as in
   `"activate=Next Page"`. A `;` or a line break starts another session. Each session gets a
   fresh reader, and `ax:width` with the `width` input before its own steps. Left empty, one
