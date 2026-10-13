@@ -1307,14 +1307,34 @@ The Mac runner's transcript is plain text and needs no export.
     back from there gave the last line on screen and the line above it, and at every
     further move back VoiceOver stayed on that line, in three sessions of three; moves
     forward went on. The log has the line it asked the index of as the element listed,
-    on screen, and nothing after the question. This is not understood. With UIKit's own
-    bar the same flick read nothing and left the cursor on no item, in the one session
-    that tried it.
+    on screen, and nothing after the question. This is not understood, and the iPad did
+    the same (below). With UIKit's own bar the same flick read nothing and left the
+    cursor on no item, in the one simulator session that tried it.
 
-  Not run on a device: the element. The physical iPad showed as unavailable to the Mac
-  from 00:01 on 2026-10-13, so the device sessions above are the dropped attempt's, and
-  establish only that UIKit on iPadOS 27.2 places and answers for its bar as the simulator
-  does.
+  The same element on the physical iPad Air 13-inch (M3), iPadOS 27.2, at 23 points, on
+  2026-10-13 at `b5e135f` (the simulator sessions' code with main merged in), VoiceOver
+  switched on for each session and off after it, and the transcripts passed through a
+  filter that keeps the book's and the sample's words alone:
+  - Upright at the end of the book
+    (`…,touch=p086w36,forward=3,backward=8,forward=10,point=0.982:0.6,backward=4,forward=6`):
+    `p086w36 … p086w40`, "Vertical scroll bar, 15 pages 100%", "VoiceOver Paragraph
+    Verification" twice; back, the bar, the last line and six lines above it in order;
+    forward, the same lines, the bar and the footer; from the touch on the bar, the last
+    line and three above it, and forward to the bar and the footer. The bar read 99% in
+    the dropped attempt's sessions, with the view 88 points back for it.
+  - On its side, the same steps between `rotate=landscape` and `rotate=portrait`, with
+    `point=0.987:0.6`: the same, with "22 pages 100%". The phrase at the turn to landscape
+    was not one of the book's or the sample's and was withheld unread, as in the session
+    of the day before.
+  - Upright after two scroll steps
+    (`…,touch=VoiceOver Paragraph,backward=12,forward=5,point=0.982:0.6,backward=3,point=0.982:0.6,flick=down,wait=2,backward=5,forward=3`):
+    "Vertical scroll bar, 15 pages 15%", `p015w15 … p015w21`, the last line in the
+    reader's view, and ten lines above it in order; five forward; from the touch on the
+    bar, `p016w08` and two above it. After the flick the bar read 27%, from 17%. The
+    phrase at the flick itself was withheld: the filter knows no bare percentage. Then
+    back: `p023w36 … p023w40`, `p023w29 … p023w35`, and that line again at each of three
+    further moves; forward, the line after it, the bar and the footer. So the stop after
+    an adjustment is the device's too.
 - The two lines that used to be listed each side were one short when VoiceOver moved back up
   the screen, menu or no menu. With its cursor on a line it asks for the item before the
   line two above, so three lines above the cursor must be listed, and two were unless more
