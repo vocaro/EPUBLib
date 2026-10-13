@@ -3664,14 +3664,16 @@ The Mac runner's transcript is plain text and needs no export.
   reader: the section of tables of data and the long table, each opened as a file in Safari
   27.0.1 (`22625.1.29.11.28`) on the same hosted runner (image `20261006.0244.1`, macOS
   27.0.1 `26A434`, Xcode 27.0), a window 600 points wide, a fixed pause of four seconds.
-  The reader was that of [#476](https://github.com/vocaro/EPUBLib/pull/476), built at
-  `f9eb33b` with its code as at `846ac4e`, in pages, 600 wide at 17 points, given the same
-  keys from the table's first cell. Safari: run 38416799829 (four sessions on the tables of
-  data) and run 38419267112 (the long table, and three sessions at two seconds a key). The
-  reader: run 38419223106, and run 38416874099 for the second page (its second session) and
-  for the first table by line and by word. How Safari is driven was found in run
-  38414486982, with the next key half a second after a phrase; [Safari on Mac](#safari-on-mac)
-  has it. Nobody listened, and the runner's screenshots show Safari's page white.
+  The reader was `main` at `3f3ae69`, which has
+  [#476](https://github.com/vocaro/EPUBLib/pull/476), built at `e8032b1` with this harness,
+  in pages, 600 wide at 17 points, given the same keys from the table's first cell. Safari:
+  run 38416799829 (four sessions on the tables of data) and run 38419267112 (the long
+  table, and three sessions at two seconds a key). The reader: run 38422077936. The same
+  keys had gone to #476's branch before it merged (`f9eb33b`, runs 38419223106 and
+  38416874099), and what it said was the same but in the two places marked. How Safari is
+  driven was found in run 38414486982, with the next key half a second after a phrase;
+  [Safari on Mac](#safari-on-mac) has it. Nobody listened, and the runner's screenshots
+  show Safari's page white.
   A phrase is cut at 64 characters, shown by "…". Safari reads on by VoiceOver's next item
   (Control-Option-Right) and the reader by line (Control-Option-Down); every other key is
   the same in both. In the reader "going in" is Control-Option-Shift-Down on a row's line,
@@ -3685,16 +3687,16 @@ The Mac runner's transcript is plain text and needs no export.
   | Its second row | "row 2 of 4 Station Alder column 1 of 3", "Opened 1901 column 2 of 3", "Depth Twelve metres column 3 of 3" | "Alder, 1901, Twelve metres table" |
   | The row with an empty cell | "row 3 of 4 Station Birch column 1 of 3", "Opened 1934 column 2 of 3", "Depth blank column 3 of 3" | "Birch, 1934 table" |
   | The row with a link | "row 4 of 4 Station Cedar column 1 of 3", "Opened link Reopened 1978 column 2 of 3", "Depth Forty metres column 3 of 3" | "Cedar, Reopened 1978, Forty metres table" |
-  | Past the last cell | "end of table", "Words between the grids." | the next line of the text, by word "Words" |
+  | Past the last cell | "end of table", "Words between the grids." | the next line of the text ("Words", by word, run 38416874099) |
   | The table whose cells span | "table 3 columns, 5 rows", "Service column 1 of 3", "spans 2 columns Hours column 2 of 3", "row 2 of 5 Service Leaves column 1 of 3", "Hours Arrives column 2 of 3", "row 3 of 5 Service Express column 1 of 3", "Hours Nine column 2 of 3", "Noon column 3 of 3", "row 4 of 5 Service Stopper column 1 of 3", "Hours Ten column 2 of 3", "Three column 3 of 3", "row 5 of 5 Service spans 2 columns Nothing on Sunday column 1 of…", "end of table" | "Service, Hours table", "Leaves, Arrives table", "Express, Nine, Noon table", "Stopper, Ten, Three table", "Nothing on Sunday table" |
   | The table marked as layout | "Left side", "Right side", "Lower left", "Lower right" | "Table row group", recorded once for the two rows |
   | The ruled table of plain cells | "table 2 columns, 2 rows", "North column 1 of 2", "Wet column 2 of 2", "row 2 of 2 South column 1 of 2", "Dry column 2 of 2", "end of table" | "North, Wet table", the page's last line |
-  | The long table | "table 3 columns, 41 rows", "Entry column 1 of 3", "Item column 2 of 3", "Sum column 3 of 3", "row 2 of 41 Entry Entry 01 column 1 of 3", "Item Item 01 column 2 of 3" | "Entry, Item, Sum table", "Entry 01, Item 01, Sum 01 table" (run 38391040735) |
+  | The long table | "table 3 columns, 41 rows", "Entry column 1 of 3", "Item column 2 of 3", "Sum column 3 of 3", "row 2 of 41 Entry Entry 01 column 1 of 3", "Item Item 01 column 2 of 3" | "Entry, Item, Sum table", "Entry 01, Item 01, Sum 01 table" (the second by word, run 38416874099) |
   | Going into the first table | "In Stations on the branch table No selection. Station row 1 of 4…" | "In Station, Opened, Depth table Station column 1, row 1" |
   | Into the second | "In table No selection. Service row 1 of 5 column 1 of 3" | "In Service, Hours table Service column 1, row 1" |
   | Into the ruled one | "In table No selection. column 1 of 2 North row 1 of 2 column 1 o…" | "In North, Wet table column 1 of 2 North" |
   | Into the long one | "In table No selection. Entry row 1 of 41 column 1 of 3" (at two seconds a key) | "In Entry, Item, Sum table Entry column 1, row 1" |
-  | Into a table at a later row | the first cell, whatever was read before | that row: "In Alder, 1901, Twelve metres table Station Alder" (run 38391040735) |
+  | Into a table at a later row | the first cell, whatever was read before | that row: "In Cedar, Reopened 1978, Forty metres table Station Cedar" |
   | Across the header row | "Opened column 2 of 3", "Depth column 3 of 3" | "Opened column 2, row 1", "Depth column 3, row 1" |
   | On into the next row and along it | "row 2 of 4 Station Alder column 1 of 3", "Opened 1901 column 2 of 3", "Depth Twelve metres column 3 of 3" | "Station Alder", "Opened 1901", "Depth Twelve metres" |
   | Down a column to an empty cell, on, and back | "row 3 of 4 Birch blank column 3 of 3", "row 4 of 4 Cedar Forty metres", "row 3 of 4 Birch blank column 3 of 3" | "Birch empty cell", "Cedar Forty metres", "Birch empty cell" |
@@ -3704,7 +3706,7 @@ The Mac runner's transcript is plain text and needs no export.
   | Control-Option-C on the empty cell | " Depth" | "Depth" |
   | Control-Option-R there | "row 3 of 4" | "Birch" |
   | Control-Option-C twice | " Depth", "Birch blank Cedar Forty metres" | "Depth", "Birch empty cell Cedar Forty metres cell" |
-  | Control-Option-R twice | nothing recorded | "Depth empty cell", "Birch" |
+  | Control-Option-R twice | nothing recorded | nothing new recorded; on #476's branch "Depth empty cell", "Birch" |
   | Control-Option-Shift-T, once and twice | nothing recorded | "￼", the row's character in the text, and nothing |
   | Control-Option-C and R on "Item 03" | " Item", "row 4 of 41" | "Item", "row 4 of 41" |
   | The header cell that spans two columns | "spans 2 columns Hours column 2 of 3" | "Hours, Leaves Hours" |
@@ -3719,7 +3721,7 @@ The Mac runner's transcript is plain text and needs no export.
   | Control-Option-F3 there | "Reopened 1978 link is in the VoiceOver cursor" | "Reopened 1978 cell is in the VoiceOver cursor" |
   | Its Actions menu | "Actions menu 2 items", "press", "show menu" | "Actions menu 2 items", "Select Cell Text", "Follow Link: Reopened 1978" |
   | Going into it and out | "In link Reopened 1978 Reopened 1978", "Out of link Reopened 1978" | "In text Reopened 1978", "Out of text" |
-  | Following the link | "press" chosen from the menu: "press link Reopened 1978", then "Failed to open page web content", "Safari Can’t Open the Page" | Control-Option-Space on the cell: the page with "Link target reached" was shown, and "VoiceOver Verification window Open EPUB… button" |
+  | Following the link | "press" chosen from the menu: "press link Reopened 1978", then "Failed to open page web content", "Safari Can’t Open the Page" | Control-Option-Space on the cell: the page with "Link target reached" was shown, and "word1187 word1188 …", "text word1187 …"; on #476's branch "VoiceOver Verification window Open EPUB… button" |
   | Leaving the table | "Out of table" | "Out of Station, Opened, Depth table" |
   | VoiceOver's hint on a cell | "You are currently on a selectable text, inside of a cell." | "actions available You are currently on a cell, inside of a table…" |
 
@@ -3737,9 +3739,12 @@ The Mac runner's transcript is plain text and needs no export.
   that say "Table row group" and none of the words, as before #476.
   Following the link failed in Safari for what is likely a reason of the session's own:
   the section is a file, and Safari was given that file and not the one beside it. In the
-  reader Control-Option-Space on the cell followed the link though the cell has no press,
-  and VoiceOver's cursor then left the text for the window's first button; chosen from
-  the Actions menu, Follow Link left it on the text (run 38391040735).
+  reader Control-Option-Space on the cell followed the link in both sessions that sent it,
+  though the cell has no press. After it VoiceOver read the new page and was on its text
+  at `e8032b1`, as it was when Follow Link was chosen from the Actions menu (run
+  38391040735); at `f9eb33b` it left the text for the window's first button, which is the
+  page turned under a table's element of
+  [#485](https://github.com/vocaro/EPUBLib/issues/485). One session each.
   What Safari gives a client of the accessibility API (`ax:tables`): one `AXTable` for a
   table, its title the caption (`AXTitle` "Stations on the branch") and no label, with
   `AXRows` (41 for the long table, 28 or 29 of them `AXVisibleRows`), `AXColumns`,
@@ -3753,16 +3758,17 @@ The Mac runner's transcript is plain text and needs no export.
   table of plain cells is a table with no header.
   Safari has the second table's grid wrong. Its two cells that span rows are one row deep
   (`AXRowIndexRange` 0,1 for "Service" and 3,1 for "Stopper"), so "Leaves" stands in the
-  first column, under "Service" and as the header of its row, the column of "Nine" is
-  headed by "Hours" alone, and "Nothing on Sunday" covers the first two columns. That
-  table's rows are children of `table` itself, which XHTML allows and an HTML parser never
-  leaves, and WebKit's accessibility code ends a row group after each such row:
+  first column, under "Service" and as the header of its row, the column of "Nine" is headed
+  by "Hours" alone, and "Nothing on Sunday" covers the first two columns. The reader gives
+  "Service" rows 0,2 and "Nothing on Sunday" columns 1,2, as HTML has them. That table's
+  rows are children of `table` itself, which XHTML allows and an HTML parser never leaves,
+  and WebKit's accessibility code ends a row group after each such row:
   `processTableDescendant` in `AccessibilityNodeObject.cpp` empties its list of
-  downward-growing cells before each child of the table and runs the algorithm for ending
-  a row group after a row (WebKit at `ef9ea9b`, read on 2026-10-13), where HTML's algorithm
-  goes on to the next row. The first table and the long one have `thead` and `tbody`. So
-  how Safari reads a header under another, with the grid right, was not heard: the
-  fixture's one such table has its rows under `table`.
+  downward-growing cells before each child of the table and runs the algorithm for ending a
+  row group after a row (WebKit at `ef9ea9b`, read on 2026-10-13), where HTML's algorithm
+  goes on to the next row. The first table and the long one have `thead` and `tbody`. So how
+  Safari reads a header under another, with the grid right, was not heard: the fixture's one
+  such table has its rows under `table`.
   VoiceOver quit in Safari at Control-Option-C in three sessions: at the first press, on
   "Item 03" of the long table, at four seconds a key (run 38416874099, session 5), and at
   the eighth press and the ninth in two sessions of the tables of data at two seconds (run
@@ -3775,14 +3781,17 @@ The Mac runner's transcript is plain text and needs no export.
   `-[SCRTable _columnHeaderDescriptionForCellElement:headerIndex:]`: the method for a web
   page's cell beside the one that failed in the reader while a cell named its own header
   cells (the entry above). Safari's cells name theirs. The reader, whose cells name none,
-  was pressed Control-Option-C six times in these sessions and did not quit.
+  was pressed Control-Option-C twelve times in its sessions here and did not quit. The
+  reports and the three transcripts are for
+  [#483](https://github.com/vocaro/EPUBLib/issues/483): the fault shows in Safari with an
+  HTML table, without the reader.
   Four reader sessions of run 38416874099 (the first, third, fourth and sixth) sent
   Control-Option-Shift-Down a line early and then read by word; nothing is taken from them
-  but the first table by word and by line. Not heard: anyone listening, or any Mac but the
-  runner; Apple Books; the book served over HTTP, or a link followed out of a section in
-  Safari; the same tables parsed as HTML; a header under another in a table whose rows
-  stand in `tbody`; the reader in continuous scroll or in two columns beside Safari; and
-  VoiceOver in another language or with its verbosity changed.
+  but the first table and the long one by word. Not heard: anyone listening, or any Mac but
+  the runner; Apple Books; the book served over HTTP, or a link followed out of a section in
+  Safari; the same tables parsed as HTML; a header under another in a table whose rows stand
+  in `tbody`; the reader in continuous scroll or in two columns beside Safari; and VoiceOver
+  in another language or with its verbosity changed.
 - On 2026-10-13 a table's select action was performed with VoiceOver on the physical iPad
   Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366, upright, 17 points), before and after a
   change to what it does ([#450](https://github.com/vocaro/EPUBLib/issues/450)), with the

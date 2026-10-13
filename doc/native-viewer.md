@@ -611,6 +611,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
         reader's own that need translating, where VoiceOver's are translated for it. The
         size is worth it, because it tells a listener whether to go in. It is to be heard
         on a runner first: what VoiceOver does with more in that label is not known.
+        Whether the caption is to name the table is with
+        [#486](https://github.com/vocaro/EPUBLib/issues/486); in Safari it does, and it is
+        no item of its own.
       - **Where a cell stands.** Safari says "row 3 of 4" at each new row and "column 2 of
         3" at each cell. The reader says the headers, and a number only where nothing
         heads a row or a column ("column 2 of 2 Wet"), where VoiceOver cannot move on
@@ -624,12 +627,13 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
         VoiceOver's cursor on the link, whose Actions menu has "press". The reader: "Opened
         Reopened 1978", and "actions available" in the hint that follows; "link" is not
         said, and Follow Link is in the Actions menu. Control-Option-Space on the cell did
-        follow the link in the one session that pressed it, though the cell has no press,
-        and VoiceOver's cursor then left the text for the window's first button; Follow
-        Link from the menu left it on the text. Closing it: a cell whose words are one
-        link given a press that follows it, as a double tap does on iPhone and iPad, and
-        then heard, for whether VoiceOver calls such a cell a link or the reader has to,
-        and for where VoiceOver's cursor is after the turn.
+        follow the link in the two sessions that pressed it, though the cell has no press;
+        after it VoiceOver was on the new page's text in one and out of the text, on the
+        window's first button, in the other, on an earlier build
+        ([#485](https://github.com/vocaro/EPUBLib/issues/485)). Closing it: a cell whose
+        words are one link given a press that follows it, as a double tap does on iPhone
+        and iPad, and then heard, for whether VoiceOver calls such a cell a link or the
+        reader has to.
       - **A table that is not data.** Safari reads the four cells of the table marked as
         layout as four items with their words: "Left side", "Right side", "Lower left",
         "Lower right". The reader says "Table row group" at each row and none of the
@@ -654,7 +658,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       three of ten sessions of Safari that pressed it, with the exception it raised in
       the reader, here from its method for a web page's cell
       (`-[SCRWebTableCell columnHeaderDescription]`). Safari's cells name their own
-      header cells; the reader's name none, and the table gives the headers.
+      header cells; the reader's name none, and the table gives the headers. So the fault
+      can be shown to Apple with Safari and a table, and no app of ours
+      ([#483](https://github.com/vocaro/EPUBLib/issues/483)).
     - **Not done.** A cell offers no page turn: the text area does, one step out of the
       table. Nothing gives VoiceOver the table's caption as the table's name; it is a
       line of the text before the rows or after them, as it is drawn. Both are to be
