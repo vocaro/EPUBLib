@@ -29,6 +29,12 @@ enum ReaderDataTablePrototype {
     static var listsTables: Bool { UserDefaults.standard.bool(forKey: "ReaderMacTableChildren") }
     /// Whether a row is labelled with its cells' words.
     static var labelsRows: Bool { UserDefaults.standard.bool(forKey: "ReaderMacTableRowLabel") }
+    /// Whether the table at a row's character (`proxies`) says that row is selected.
+    static var selects: Bool { UserDefaults.standard.bool(forKey: "ReaderMacTableSelects") }
+    /// Whether the table at a row's character (`proxies`) calls itself a table row.
+    static var rowWord: Bool { UserDefaults.standard.bool(forKey: "ReaderMacTableRowWord") }
+    /// Whether the one table (`table`) is labelled, with its first row's words.
+    static var labelsTable: Bool { UserDefaults.standard.bool(forKey: "ReaderMacTableLabel") }
 }
 
 /// The tables of data in one text view, as an assistive technology on the Mac is given them:
@@ -36,6 +42,8 @@ enum ReaderDataTablePrototype {
 @MainActor final class ReaderDataTables {
     private weak var view: ReaderTextView?
     private var tables: [ObjectIdentifier: ReaderTableElement] = [:]
+    /// PROTOTYPE (`proxies`): a table for each row's character, entered at that row.
+    private var proxies: [Int: ReaderTableElement] = [:]
     private var order: [ReaderTableElement] = []
     /// The row characters of every table of data in the view's text, in order, by table.
     private var found: [ObjectIdentifier: [(location: Int, row: TableRowAttachment)]]?
@@ -45,6 +53,7 @@ enum ReaderDataTablePrototype {
     /// The view has other text: its tables are other tables.
     func reset() {
         tables.removeAll()
+        proxies.removeAll()
         order.removeAll()
         found = nil
     }
@@ -80,6 +89,12 @@ enum ReaderDataTablePrototype {
 
     /// What stands for the row at `location` among the text's characters.
     func element(at location: Int, of row: TableRowAttachment) -> NSAccessibilityElement? {
+        if ReaderDataTablePrototype.shape == "proxies", let view {
+            if let kept = proxies[location] { return kept }
+            let proxy = ReaderTableElement(view: view, owner: self, table: row.table, entry: location)
+            proxies[location] = proxy
+            return proxy
+        }
         guard let table = table(row.table) else { return nil }
         switch ReaderDataTablePrototype.shape {
         case "table": return table
@@ -94,6 +109,8 @@ enum ReaderDataTablePrototype {
     private(set) weak var view: ReaderTextView?
     private weak var owner: ReaderDataTables?
     let table: TableModel
+    /// PROTOTYPE (`proxies`): the character of the row this table stands at in the text.
+    let entry: Int?
     private var rowsByLocation: [Int: ReaderTableRowElement] = [:]
     private var cellsByIndex: [Int: ReaderTableCellElement] = [:]
     private var unlistedHeaders: [Int: ReaderTableCellElement] = [:]
@@ -101,11 +118,14 @@ enum ReaderDataTablePrototype {
     /// The rows and cells listed, for the layout they were listed in.
     private var listing: (key: [CGFloat], rows: [ReaderTableRowElement], cells: [Int: ReaderTableCellElement])?
 
-    init(view: ReaderTextView, owner: ReaderDataTables, table: TableModel) {
+    init(view: ReaderTextView, owner: ReaderDataTables, table: TableModel, entry: Int? = nil) {
         self.view = view
         self.owner = owner
         self.table = table
+        self.entry = entry
         super.init()
+        setAccessibilitySelectedRows([])
+        setAccessibilitySelectedCells([])
         // AppKit tells a client of the attributes an element has been given a value for.
         setAccessibilityRole(.table)
         setAccessibilityParent(view)
@@ -228,6 +248,23 @@ enum ReaderDataTablePrototype {
     override func accessibilityRowHeaderUIElements() -> [Any]? { onMain(self) { $0.rowHeaders } }
     override func accessibilityCell(forColumn column: Int, row: Int) -> Any? { onMain(self) { $0.cell(column: column, row: row) } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
+    override func accessibilityLabel() -> String? { onMain(self) { $0.words } }
+    override func accessibilityRoleDescription() -> String? {
+        onMain(self) { $0.entry != nil && ReaderDataTablePrototype.rowWord ? "table row" : NSAccessibility.Role.table.description(with: nil) }
+    }
+    override func accessibilitySelectedRows() -> [Any]? { onMain(self) { $0.selected.map { [$0] } ?? [] } }
+    override func accessibilitySelectedCells() -> [Any]? { onMain(self) { $0.selected?.cells.first.map { [$0] } ?? [] } }
+
+    /// The row the table stands at in the text, where it says one is selected.
+    private var selected: ReaderTableRowElement? {
+        guard ReaderDataTablePrototype.selects, let entry else { return nil }
+        return rowElements.first { $0.location == entry }
+    }
+    /// What the table is called: the words of the row it stands at.
+    private var words: String? {
+        let row = entry.flatMap { entry in rowElements.first { $0.location == entry } } ?? (ReaderDataTablePrototype.labelsTable ? rowElements.first : nil)
+        return row.map { $0.cells.map { $0.text }.filter { !$0.isEmpty }.joined(separator: ", ") }
+    }
 
     /// The cells that head a column, in column order and top first in each.
     private var columnHeaders: [ReaderTableCellElement] {
@@ -249,7 +286,8 @@ enum ReaderDataTablePrototype {
     }
     private var screenFrame: NSRect {
         guard let view else { return .zero }
-        let frame = rowElements.compactMap { frame(ofRowAt: $0.location) }.reduce(CGRect.null) { $0.union($1) }
+        let locations = entry.map { [$0] } ?? rowElements.map(\.location)
+        let frame = locations.compactMap { frame(ofRowAt: $0) }.reduce(CGRect.null) { $0.union($1) }
         return frame.isNull ? .zero : NSAccessibility.screenRect(fromView: view, rect: frame)
     }
 }
@@ -280,7 +318,7 @@ enum ReaderDataTablePrototype {
     override func accessibilityIndex() -> Int { onMain(self) { $0.row.row } }
     override func accessibilityChildren() -> [Any]? { onMain(self) { $0.listedCells } }
     override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.listedCells } }
-    override func accessibilityLabel() -> String? { onMain(self) { $0.words } }
+    override func accessibilityLabel() -> String? { onMain(self) { $0.rowWords } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
 
     /// The cells read in the row, as the view shows them now.
@@ -288,7 +326,7 @@ enum ReaderDataTablePrototype {
         _ = table.rowElements
         return cells
     }
-    private var words: String? {
+    private var rowWords: String? {
         guard ReaderDataTablePrototype.labelsRows else { return nil }
         return listedCells.map { $0.text }.filter { !$0.isEmpty }.joined(separator: ", ")
     }
