@@ -31,6 +31,9 @@ struct ReaderLinkElements {
     /// Each link's element as a child of the text the view stands in, by its location: a
     /// table cell's links are listed by its page as well.
     var listed: [Int: ReaderLinkAccessibilityElement] = [:]
+    /// Where each table row that has a link in a cell stands in the text, in order, found
+    /// once for each text the view is given.
+    var linkedRows: [Int]?
 }
 
 /// A text view that gives an assistive client the reader's own elements for its links: a page
@@ -253,16 +256,52 @@ extension ReaderTextView: ReaderLinkHost {
     /// an element for a place only when it is among the children of its text, and from the
     /// last link on screen Find Next Link began again with the first: the link below was
     /// reached by reading or scrolling to it. The element is the link's own, kept by its
-    /// place in the text, so it is the same one when the link is on screen.
+    /// place in the text, so it is the same one when the link is on screen. Where the next
+    /// link is in a table row, the row keeps its cells while it is below the screen
+    /// (`ReaderTableInteraction.keepRow`), and its links are the next ones: a row off screen
+    /// has no cells otherwise, and a cell's link is the cell's element.
     func linkChildrenWithCells() -> [(place: Int, element: ReaderLinkAccessibilityElement)] {
         var found = linkChildren().map { (place: $0.range.location, element: $0) }
+        let end = NSMaxRange(visibleLinkCharacters)
+        let next = isPageColumn ? nil : accessibilityLink(after: end)
+        if !isPageColumn { tableInteraction?.keepRow(at: linkedRow(from: end, to: next?.range.location ?? textLength)) }
+        var below = false
         for (location, cell) in tableInteraction?.accessibilityCellsInOrder ?? [] {
-            found += cell.linkChildren(listedIn: self, at: location).map { (place: location, element: $0) }
+            let links = cell.linkChildren(listedIn: self, at: location)
+            found += links.map { (place: location, element: $0) }
+            if location >= end, !links.isEmpty { below = true }
         }
-        if !isPageColumn, let next = accessibilityLink(after: NSMaxRange(visibleLinkCharacters)) {
-            found.append((next.range.location, linkElement(for: next.url, at: next.range)))
-        }
+        if !below, let next { found.append((next.range.location, linkElement(for: next.url, at: next.range))) }
         return found
+    }
+
+    /// Where the first table row with a link in a cell stands, of those from `lower` up to
+    /// `upper`, or none.
+    private func linkedRow(from lower: Int, to upper: Int) -> Int? {
+        let rows = linkElements.linkedRows ?? linkedRows()
+        linkElements.linkedRows = rows
+        return rows.first { $0 >= lower }.flatMap { $0 < upper ? $0 : nil }
+    }
+
+    /// Where each table row that has a link in a cell stands in the text.
+    private func linkedRows() -> [Int] {
+        guard containsTableRows, let text = contentStorage.textStorage else { return [] }
+        var linked: [ObjectIdentifier: Set<Int>] = [:], rows: [Int] = []
+        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, run, _ in
+            guard let row = value as? TableRowAttachment else { return }
+            let table = ObjectIdentifier(row.table)
+            if linked[table] == nil {
+                linked[table] = Set(row.table.cells.filter { cell in
+                    var found = false
+                    cell.content.enumerateAttribute(.link, in: NSRange(location: 0, length: cell.content.length)) { value, _, stop in
+                        if value != nil { found = true; stop.pointee = true }
+                    }
+                    return found
+                }.map(\.row))
+            }
+            if linked[table]?.contains(row.row) == true { rows.append(run.location) }
+        }
+        return rows
     }
 
     /// VoiceOver's cursor is on the link's element and not in the text, and its next move by
