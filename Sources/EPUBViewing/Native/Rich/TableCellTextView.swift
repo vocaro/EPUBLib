@@ -251,7 +251,7 @@ typealias TableNativeTextView = UITextView
     override func accessibilityParent() -> Any? { tableCellElement ?? super.accessibilityParent() }
     override var isFlipped: Bool { true }
     override var textContainerOrigin: NSPoint { CGPoint(x: -textOffset.x, y: -textOffset.y) }
-    override func accessibilityValue() -> String? { trialValue ?? (cellText.string as NSString).substring(with: shownCharacters) }
+    override func accessibilityValue() -> String? { (cellText.string as NSString).substring(with: shownCharacters) }
     override func accessibilityNumberOfCharacters() -> Int { shownCharacters.length }
     override func accessibilityVisibleCharacterRange() -> NSRange { NSRange(location: 0, length: shownCharacters.length) }
 
@@ -448,7 +448,6 @@ typealias TableNativeTextView = UITextView
     @objc private func inspectMenuImage(_ sender: Any?) { if let image = menuImage { onImage?(image) } }
     // TRIAL, not for main: what the cell's text area is called, for a cell that shows pictures.
     var trialLabel: String?
-    var trialValue: String?
     override func accessibilityLabel() -> String? { trialLabel }
     #else
     override var contentOffset: CGPoint {
