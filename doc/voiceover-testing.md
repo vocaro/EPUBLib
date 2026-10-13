@@ -788,8 +788,9 @@ The Mac runner's transcript is plain text and needs no export.
 - With the fifty lines after the screen listed, and fifty each side while the cursor is on a
   line, the same day, through XCTest's VoiceOver service, VoiceOver switched on for each
   session and off after it; nobody listened. The iPad's two sessions were run at `667b110`
-  and again at `b2760c6`, which has main merged in, with the same phrases. iPad on its side
-  at 23 points,
+  and again at `b2760c6` and `bcc55f3`, each with main merged in, with the same phrases but
+  for "Chapter two Heading" once main had headings as elements. iPad on its side at 23
+  points,
   `rotate=landscape,activate=Contents,activate=Chapter two,wait=2,visible,screenshot,forward=5,screenshot,forward=62,visible,backward=72,visible,rotate=portrait`:
   the fifth move gave "Chapter two", the sixty-two after it every line once and in order
   from `p041w01` to `p051w08 … p051w14`, past `p043w36 … p043w40` to `p044w01` and on with
