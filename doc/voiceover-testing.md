@@ -1091,10 +1091,16 @@ The Mac runner's transcript is plain text and needs no export.
   column. There too the search took a cursor resting on a column for nowhere, and
   `nextheading` from the page of `word0286` went back to the first page. Leaving out the
   reader's layout-change notice for the page turned to, or putting the insertion point on
-  the heading before posting it, did not change what VoiceOver read on arriving. Not heard: a heading that lands in the right
-  column of a spread, a book still being built, a section that page turns step over, words
-  typed in the rotor's list, and a move back by a VoiceOver command. Nobody listened, and
-  no workstation was used.
+  the heading before posting it, did not change what VoiceOver read on arriving. At
+  `c3313e2`, with the link elements of #412 merged, a session in one column repeated the
+  list, a choice from it and two moves, with the same result. With VoiceOver's cursor on a
+  link, reached by `nextlink`, `nextheading` said "Heading not found" there, and so did
+  main at `150698b` in continuous scroll, where the same step from the text gave "Link
+  target reached": a link's element has no rotor
+  ([#431](https://github.com/vocaro/EPUBLib/issues/431)). Not heard: a heading that lands
+  in the right column of a spread, a book still being built, a section that page turns
+  step over, words typed in the rotor's list, and a move back by a VoiceOver command.
+  Nobody listened, and no workstation was used.
 - To see what VoiceOver asks of the reader, have the reader write it to a file. `log show`
   on the hosted runner returned no line the sandboxed reader logged. A throwaway branch
   that appends each query to a file in `FileManager.default.temporaryDirectory`, with a
