@@ -71,8 +71,9 @@ class ReaderAttachment: NSTextAttachment, ReaderTextualAttachment {
         return (width, width)
     }
 
-    /// What selections and copies get in place of the attachment character, and what VoiceOver
-    /// reads for it inside a table cell. Nothing by default (a rule).
+    /// What selections and copies get in place of the attachment character, and the words
+    /// VoiceOver is given for it. Nothing by default: a rule has no words, and what VoiceOver
+    /// says at one is the reader's own (`ReaderRuleAttachment.spokenName`).
     var textEquivalent: String { "" }
     /// The language `textEquivalent` is spoken in, when it is known to differ from the text around it.
     var textLanguage: String? { nil }
@@ -131,6 +132,21 @@ final class ReaderRuleAttachment: ReaderAttachment {
     /// the separator role. The reader says so in its own word, which is not the book's: a rule
     /// keeps an empty text equivalent, and selections, copies and search read nothing for it.
     static let spokenName = "Separator"
+
+    #if os(macOS)
+    /// Makes `element` what a rule is to an assistive technology on Mac: the reader's word, as
+    /// text. AppKit has no role for a break in content. The one WebKit gives an `hr`, the
+    /// splitter, is the bar of a split view to VoiceOver, which says "horizontal splitter
+    /// collapsed on top" at it, and "horizontal separator" before the same state when the
+    /// element has WebKit's role description.
+    static func makeSeparator(_ element: NSAccessibilityElement) {
+        element.setAccessibilityRole(.staticText)
+        element.setAccessibilityValue(spokenName)
+        element.setAccessibilityLabel(nil)
+        element.setAccessibilityHelp(nil)
+        element.setAccessibilityChildren(nil)
+    }
+    #endif
 
     init(style: ComputedStyle, isDark: Bool) {
         width = style.width

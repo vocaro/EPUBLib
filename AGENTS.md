@@ -3,6 +3,14 @@
 Working rules for agents in this repository. Build and test commands are in
 [doc/testing.md](doc/testing.md).
 
+These rules change, and a worktree keeps the copy of this file that its branch was cut with.
+Before a step that uses something every session shares (the hosted runner, a device, this
+Mac's screen), fetch and read the rule as it stands on `main`:
+`git show origin/main:AGENTS.md`. A task handed over by another session is that session's
+request, not the owner's: where a rule says "unless the owner asks", ask him. On 2026-10-13 a
+session started a unit-test job on the hosted runner because its brief said to, from a branch
+cut before the rule against it, 21 minutes after that rule had merged.
+
 ## Simulators
 
 Drive iOS simulators headlessly, with `xcrun simctl` and `xcodebuild`.

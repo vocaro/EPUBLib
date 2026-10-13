@@ -30,6 +30,9 @@ final class ReaderTextView: UITextView {
     /// How many lines the scroll view lists past the screen: as many items as VoiceOver was seen
     /// to ask for at once (iOS 27.0).
     private static let accessibilityLinesPastScreen = 50
+    /// How far inside the area the insets leave UIKit brings what VoiceOver's cursor goes to
+    /// (iOS 27.0).
+    private static let accessibilityScrollMargin: CGFloat = 40
     private var imageGestureDelegate: ReaderImageGestureDelegate?
     private var selectionGestureDelegate: ReaderSpreadSelectionGestureDelegate?
     /// VoiceOver's Headings rotor for the lines this view lists.
@@ -148,18 +151,15 @@ final class ReaderTextView: UITextView {
 
     override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
         get {
-            let rect = bounds.offsetBy(dx: -containerOrigin.x, dy: -containerOrigin.y)
-            guard let range = visibleCharacterRange(in: rect) else { return super.accessibilityCustomActions }
-            let actions = announcedImages(in: range).map { image, _ in
-                UIAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") {
-                    [weak self] _ in
-                    self?.canvas?.inspectImage(image)
-                    return self?.canvas != nil
-                }
-            }
-            // Nothing for a table here: VoiceOver offers a container's actions on every element
-            // in it, and a row offers its own cells'.
-            return (super.accessibilityCustomActions ?? []) + actions
+            // VoiceOver offers a container's actions on every element in it, after the
+            // element's own. A view that lists its lines offers none: each line offers what
+            // is in it. With UIKit's actions here, one for every link of the text, and the
+            // reader's for its images, a plain line offered the picture beside it, and a line
+            // of continuous scroll every link of the book.
+            guard !listsLines else { return nil }
+            // A note keeps UIKit's elements and what UIKit offers for them. The reader has
+            // nothing to add there: a note has no canvas to inspect an image in.
+            return super.accessibilityCustomActions
         }
         set { super.accessibilityCustomActions = newValue }
     }
@@ -205,8 +205,8 @@ final class ReaderTextView: UITextView {
     // VoiceOver's own Headings rotor moves among the elements it is given, and a page or a
     // screen holds few of a book's headings: past the last of them it finds none. So the lines'
     // container gives VoiceOver that rotor itself, and goes on to the book's next heading.
-    // What VoiceOver says of a line is the same with it: every line said "Actions available"
-    // before, in pages and in continuous scroll.
+    // A rotor is not an action: VoiceOver says "Actions available" of a line for the actions
+    // the line is offered, with this rotor and without it.
     override var accessibilityCustomRotors: [UIAccessibilityCustomRotor]? {
         get { listsLines ? [headingRotor] : super.accessibilityCustomRotors }
         set { super.accessibilityCustomRotors = newValue }
@@ -265,7 +265,7 @@ final class ReaderTextView: UITextView {
     /// them. Moving into the text from a control it takes the first line listed, the first on
     /// screen. Moving back into it from below it takes the last, so while its cursor is on
     /// something that follows the text the list is the lines on screen alone and that is the
-    /// last of them.
+    /// last of them, or the line it was given as the last a move ago (`lastLineKept`).
     ///
     /// VoiceOver asks for the items after the one its cursor is on, then moves through what it
     /// was given and asks again only when it has used them. As a rule it asks for two. At its
@@ -284,6 +284,7 @@ final class ReaderTextView: UITextView {
         guard let shown = canvas.scrollSpokenCharacters() else { return [] }
         let past = Self.accessibilityLinesPastScreen
         var listed = [withLines(before: 0, after: accessibilityCursorFollowsText ? 0 : past, shown)]
+        if accessibilityCursorFollowsText, let kept = lastLineKept(past: shown) { listed = [shown.union(kept)] }
         if let cursor = accessibilityCursor, var held = line(containing: cursor.range.location)?.range {
             // A heading under the cursor can take several lines.
             if let last = line(containing: NSMaxRange(cursor.range) - 1) { held.formUnion(last.range) }
@@ -315,6 +316,29 @@ final class ReaderTextView: UITextView {
         }
         scrollAccessibilityCache = (place, elements)
         return elements
+    }
+
+    /// The line the list goes on ending at while VoiceOver's cursor is after the text, where
+    /// that is no longer the last line on screen.
+    ///
+    /// As its cursor comes to a control below the reader VoiceOver is given the scroll bar and
+    /// the last line listed, and at its next move it asks for the line before that one. In
+    /// between it has UIKit bring the bar into view as it would a line. The bar is as tall as
+    /// the view, the top inset cuts it, and the view goes back by that inset and 40 points
+    /// more, wherever it has the room: the line VoiceOver holds is then below the screen, and
+    /// asked from a line that was no longer listed UIKit answered with the control before the
+    /// text. So the list still ends at the line it ended at when it was last made with the
+    /// cursor after the text, with the lines between that line and the screen, while the view
+    /// has gone back no further than one such move since. That holds each time the cursor
+    /// goes to the bar. After a longer move back, the person's or the reader's own, or a move
+    /// forward past that line, the list ends at the last line on screen again.
+    private func lastLineKept(past shown: NSRange) -> NSRange? {
+        guard let cache = scrollAccessibilityCache, cache.place.cursorFollowsText, cache.place.size == bounds.size,
+              cache.place.insets == adjustedContentInset, let last = cache.elements.last?.range,
+              NSMaxRange(last) > NSMaxRange(shown) else { return nil }
+        guard cache.place.offset.y - contentOffset.y <= adjustedContentInset.top + Self.accessibilityScrollMargin + 1 else { return nil }
+        // The last element can be part of its line: a link, or the words before one.
+        return line(containing: NSMaxRange(last) - 1).map { last.union($0.range) } ?? last
     }
 
     /// `range` with as many lines before it and after it, where the text has them.
@@ -601,12 +625,12 @@ private struct ScrollAccessibilityPlace: Equatable {
     override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
         get {
             guard let view else { return nil }
+            // These are all VoiceOver is to offer here: it adds the actions of whatever
+            // contains the item, and the text view and the reader around it have none.
             // Continuous scroll scrolls natively, by VoiceOver's own gesture.
             var actions = view.isPageColumn ? [true, false].map { forward in
                 UIAccessibilityCustomAction(name: forward ? "Next Page" : "Previous Page") { [weak view] _ in
-                    guard let canvas = view?.canvas else { return false }
-                    canvas.turnPageFromInput(forward: forward)
-                    return true
+                    view?.canvas?.turnPageFromAccessibility(forward: forward) ?? false
                 }
             } : []
             actions += (image.map { [$0] } ?? view.announcedImages(in: range).map(\.image)).map { image in
@@ -621,7 +645,7 @@ private struct ScrollAccessibilityPlace: Equatable {
                     UIAccessibilityCustomAction(name: action.name) { _ in action.perform() }
                 }
             }
-            return actions
+            return actions.isEmpty ? nil : actions
         }
         set { super.accessibilityCustomActions = newValue }
     }
