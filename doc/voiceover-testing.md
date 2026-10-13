@@ -373,10 +373,11 @@ TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wai
    the scroll bar, then the last line that was on screen, then every line above it in order,
    on past the top of the screen. Run it where the view has room to go back, after two
    scroll steps, and at the end of the book
-   (`activate=Contents,activate=Chapter three,wait=2` and three scroll steps): as the cursor
-   goes to the scroll bar UIKit takes the view back 88 points. "Bookmark" straight after the
-   scroll bar, or after one line, is the failure of
-   [#367](https://github.com/vocaro/EPUBLib/issues/367). The line after the scroll bar is
+   (`activate=Contents,activate=Chapter three,wait=2` and three scroll steps). "Bookmark"
+   straight after the scroll bar, or after one line, is the failure of
+   [#367](https://github.com/vocaro/EPUBLib/issues/367): as the cursor went to the scroll
+   bar UIKit took the view back 88 points, which it no longer does (step 10). The line after
+   the scroll bar is
    the last line in the reader's own view. `visible` gives a later one as the window's last:
    with the cursor on a control before the text it counts every listed line that lies inside
    the window, and the first lines listed after the screen lie under the sample's footer.
@@ -385,6 +386,23 @@ TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wai
    simulator. An iPhone's lines are short enough to show the whole phrase in the 64
    characters a transcript keeps. In the first book the picture's own line says it, and
    `flick=down` there reads "Inspect Image: Blue verification square" and then "Activate".
+10. At the end of the book (`activate=Contents,activate=Chapter three,wait=2` and scroll
+    steps until Scroll Forward is dimmed) put the cursor on a line near the last, with
+    `touch=p086w36` on an iPad at 23 points or `point=0.5:0.6` on an iPhone, and move
+    forward past the last line, back and forward again (`forward=12,backward=8,forward=10`
+    on the iPhone): the book's last line, "Vertical scroll bar", then the item below the
+    reader, where VoiceOver stays; back, the scroll bar, the last line and the lines above
+    it in order; forward, the same lines, the scroll bar and the item below. The first line
+    on screen straight after the scroll bar, or a jump up the screen one move after coming
+    back to the last line, is the failure of
+    [#342](https://github.com/vocaro/EPUBLib/issues/342). Then touch the bar itself, at the
+    reader's right-hand edge (`point=0.955:0.6` on an iPhone 17 Pro, `point=0.982:0.6` on
+    an iPad upright): `backward=4` reads the last line listed and the lines above it, where
+    it read "Bookmark", and `forward=1` from the bar reads the item below the reader. Do
+    the same after two scroll steps, where the last line listed is the last in the reader's
+    view. Nothing scrolls as the cursor goes to the bar: at the end of the book the bar reads
+    100%, where it read 99% while the view went back for it. `flick=down` on the bar scrolls
+    by a page and reads the new value.
 
 Drive at least one session with `flick=right*20` and `flick=left*30` in place of `forward`
 and `backward`: those are VoiceOver's own gestures for the next and previous item, where the
@@ -1277,6 +1295,95 @@ The Mac runner's transcript is plain text and needs no export.
   ([#342](https://github.com/vocaro/EPUBLib/issues/342)). The bar's accessibility frame was
   the height of the scroll view, which is why UIKit moves the view for it: the top inset
   cuts it.
+- The scroll bar's place among the lines
+  ([#342](https://github.com/vocaro/EPUBLib/issues/342)), 2026-10-12 and 13, through XCTest's
+  VoiceOver service; nobody listened. Simulators of the session's own on iOS 27.0, the
+  iPhone 17 Pro at 17 points and the iPad Air 13-inch (M4) at 23, in the book of ordinary
+  paragraphs. A build that logged UIKit's requests and its own enumeration of an item's
+  neighbours (not committed) showed why the bar stood where it did:
+  - The scroll view's `_accessibilitySupplementaryHeaderViews` held the vertical bar. Asked
+    for the item after the bar, UIKit enumerated from the reader's canvas, a child of the
+    host's view, with the bar as that child's header 0, and gave the canvas's first leaf:
+    the first line listed. Asked for the item before, it gave the child before the canvas,
+    Bookmark. `index(ofAccessibilityElement:)` was asked for the bar only as an attribute
+    of the bar, as VoiceOver's cursor went to it, and never while UIKit looked for the
+    bar's neighbours: answered with one past the last line, the transcript was unchanged.
+  - With the bar's `accessibilityElementsHidden` set, the header list was empty, and UIKit
+    asked the scroll view for the bar's index and enumerated from there. An index equal to
+    the count gave the sample's footer as the item after and still Bookmark as the item
+    before; with the bar listed at that index, the last line. A bar hidden from the start
+    was never read: the last line, the footer, and back.
+  - The bar hidden and listed from that first question until the cursor was elsewhere read
+    every session right, the physical iPad Air 13-inch (M3) on iPadOS 27.2 among them, on
+    2026-10-12 at `3fa3121`, VoiceOver switched on for each session and off after it. At
+    the end of the book, upright: `p086w36 … p086w40`, "Vertical scroll bar, 15 pages 99%",
+    "VoiceOver Paragraph Verification", where VoiceOver stayed; back, the bar, the last
+    line and six lines above it in order; forward the same. On its side the same with 22
+    pages, and from a touch on the bar the last line and three above it. It was dropped
+    all the same. It rested on VoiceOver asking for the bar's index before anything else,
+    the view still went back 88 points at every move to the bar, and in one simulator
+    session of six a touch on the bar took VoiceOver's cursor to the bar and, 150 ms
+    later, to the line under the finger: hidden, the bar was no longer what the finger
+    was on.
+
+  With the bar hidden for good and the reader's own element listed for it, at `9a2ce50`,
+  in the simulators:
+  - iPhone, the end of the book
+    (`…,point=0.5:0.6,forward=12,backward=8,forward=10,point=0.955:0.6,backward=5,forward=8`):
+    nine lines to `p086w40`, "Vertical scroll bar, 41 pages 100%", "VoiceOver Paragraph
+    Verification" twice; back, the bar, `p086w40` and six lines above it in order; forward,
+    the same lines, the bar and the footer; from the touch on the bar, `p086w40` and four
+    above it. The view's offset did not change once in the session. It went back 88 points
+    at each move to UIKit's own bar, which is why that bar read 99%.
+  - iPad, the end of the book (`…,touch=p086w36,forward=3,backward=8,forward=10,point=0.982:0.6,backward=4,forward=6`):
+    the same, with "15 pages 100%".
+  - Mid-book from below, step 8's session with touches on the bar added
+    (`…,touch=VoiceOver Paragraph,backward=30,visible,forward=8,point=0.955:0.6,backward=6,forward=9,point=0.955:0.6,forward=2`):
+    the bar, `p006w01 … p006w04` and 29 lines above it in order, eight forward; from the
+    bar by touch, `p004w31` and five above it; and the footer after the bar. On the iPad
+    44 moves back from the footer gave the bar and 43 lines in order from `p015w22`.
+  - The top of the book, the two-step session and the menu session of step 7: in order as
+    before, with no scroll bar among the lines.
+  - Eight touches down the bar's place after two scroll steps (`point=0.955:Y` for Y from
+    0.45 to 0.8). On main: the bar eight times. With the element and the lines listed
+    whole: the bar five times and a line three times, each a five-word line ending 6
+    points from the finger. With the lines listed clear of the bar: the bar eight times,
+    and at `point=0.93:0.7`, where a full line's frame used to reach, the bar. At
+    `point=0.955:0.4`, under the top inset, main gave the bar and the element is not
+    there.
+  - Adjusting the bar (`point=0.955:0.6,flick=down`) read the new value, "13%" or "15%",
+    with the view some three screens on, and VoiceOver's cursor still on the bar. Moving
+    back from there gave the last line on screen and the line above it, and at every
+    further move back VoiceOver stayed on that line, in three sessions of three; moves
+    forward went on. The log has the line it asked the index of as the element listed,
+    on screen, and nothing after the question. This is not understood, and the iPad did
+    the same (below). With UIKit's own bar the same flick read nothing and left the
+    cursor on no item, in the one simulator session that tried it.
+
+  The same element on the physical iPad Air 13-inch (M3), iPadOS 27.2, at 23 points, on
+  2026-10-13 at `b5e135f` (the simulator sessions' code with main merged in), VoiceOver
+  switched on for each session and off after it, and the transcripts passed through a
+  filter that keeps the book's and the sample's words alone:
+  - Upright at the end of the book
+    (`…,touch=p086w36,forward=3,backward=8,forward=10,point=0.982:0.6,backward=4,forward=6`):
+    `p086w36 … p086w40`, "Vertical scroll bar, 15 pages 100%", "VoiceOver Paragraph
+    Verification" twice; back, the bar, the last line and six lines above it in order;
+    forward, the same lines, the bar and the footer; from the touch on the bar, the last
+    line and three above it, and forward to the bar and the footer. The bar read 99% in
+    the dropped attempt's sessions, with the view 88 points back for it.
+  - On its side, the same steps between `rotate=landscape` and `rotate=portrait`, with
+    `point=0.987:0.6`: the same, with "22 pages 100%". The phrase at the turn to landscape
+    was not one of the book's or the sample's and was withheld unread, as in the session
+    of the day before.
+  - Upright after two scroll steps
+    (`…,touch=VoiceOver Paragraph,backward=12,forward=5,point=0.982:0.6,backward=3,point=0.982:0.6,flick=down,wait=2,backward=5,forward=3`):
+    "Vertical scroll bar, 15 pages 15%", `p015w15 … p015w21`, the last line in the
+    reader's view, and ten lines above it in order; five forward; from the touch on the
+    bar, `p016w08` and two above it. After the flick the bar read 27%, from 17%. The
+    phrase at the flick itself was withheld: the filter knows no bare percentage. Then
+    back: `p023w36 … p023w40`, `p023w29 … p023w35`, and that line again at each of three
+    further moves; forward, the line after it, the bar and the footer. So the stop after
+    an adjustment is the device's too.
 - The two lines that used to be listed each side were one short when VoiceOver moved back up
   the screen, menu or no menu. With its cursor on a line it asks for the item before the
   line two above, so three lines above the cursor must be listed, and two were unless more
