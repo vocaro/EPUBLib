@@ -864,6 +864,11 @@ printf 'drag=0.5,0.52,0.5,0.22,0,1500\ndrag=0.75,0.27,0.75,0.46,0,300,0.6\n' > s
 The first is a swipe of 200 points from the middle of an upright iPhone SE; the trace gave its
 rest as 0.02 s. With a rest of 0.05 the trace gave 0.08 to 0.10 s, and with 0.3, 0.32 to
 0.45 s. The second moves the strip of an iPhone SE on its side 64 points and leaves it there.
+A touch that is over in 0.02 s is too short for a scroll view to take: a drag of 30 points at
+1500 points a second moved nothing, and the same drag at 300 scrolled the strip to its end. A
+touch that rests 0.3 s or more on a menu opens it, and every later touch of the run then goes
+to the menu, so make it the last step. The `tree` line of a run's `meta.txt` speaks for
+`Sources` alone: a change to the host or the probe is not in it.
 A `swipe` step starts where XCTest puts it, which with the keyboard up was on the keyboard. On
 an iPhone SE on its side a quick downward drag that started 18 or 50 points from the top of
 the screen made the host inactive each of eleven times and sent it to the background in ten;
