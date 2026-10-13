@@ -1033,10 +1033,14 @@ Go: the native viewer is the bundled engine.
   stylesheet's declarations are the exception: they are charged only in part, as their entry below
   says, and what they cost the renderer is not bounded. The screen's own work is counted too, in
   steps for the gradients it looks up, the elements it walks and the CSS it reads, and a drawing
-  that spends its budget of steps shows its fallback text with the same disclosure: that bounds the
-  screen and not the renderer, and the one kind of drawing within the other limits known to spend
-  it is built to, a `<style>` inside other `<style>` elements, whose CSS is read again for each of
-  them, at least three deep with megabytes of CSS or some sixty deep with a few hundred kilobytes.
+  that spends its budget of steps shows its fallback text with the same disclosure: that limits the
+  screen's own reading and not what the renderer does, and it does not bound all of the screen's
+  work either, since a visit to an element is one step though it goes over every child the element
+  has, and what bounds that is the limit on expanded local references; the one kind of drawing
+  within the other limits known to spend the budget is built to, a `<style>` inside another, whose
+  CSS is read again for each `<style>` it stands in (as measured with a sheet built to be read
+  eight times, megabytes of CSS two `<style>` elements deep where the drawing also holds a `<use>`
+  tree to walk and, without one, megabytes three deep or some 140 KB sixty deep).
   - A gradient's stops are copied into a fresh paint server for every shape it paints by `fill` or
     `stroke`, directly or inherited, in an attribute or a `style` declaration, through a gradient
     `href` chain, and through each `<use>`; each shape is charged the stops its fill names and those
