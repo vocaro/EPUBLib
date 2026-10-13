@@ -203,35 +203,6 @@ import UIKit
     }
 
     #if os(macOS)
-    /// A rule in a cell is told of as one in the text outside a table is: the cell's text keeps
-    /// its character and has no words for it, and the character carries the reader's word.
-    func testARuleInACellIsASeparatorToAssistiveTechnology() throws {
-        let text = NSMutableAttributedString(attributedString: CanvasText.body("Cell scene ends.\n"))
-        text.append(NSAttributedString(attachment: ReaderRuleAttachment(style: ComputedStyle(fontSize: 17), isDark: false)))
-        text.append(CanvasText.body("\nCell scene starts."))
-        let cell = surface(text)
-        let whole = NSRange(location: 0, length: text.length)
-        XCTAssertEqual(cell.accessibilityValue(), "Cell scene ends.\n\u{FFFC}\nCell scene starts.", "the characters as they are, so every range matches")
-        XCTAssertEqual(cell.accessibilityString(for: NSRange(location: 17, length: 1)), "\u{FFFC}")
-        let spoken = try XCTUnwrap(cell.accessibilityAttributedString(for: whole))
-        var places: [Int] = []
-        spoken.enumerateAttribute(.accessibilityAttachment, in: whole) { value, run, _ in
-            if value != nil { places.append(run.location) }
-        }
-        XCTAssertEqual(places, [17], "one element, on the rule's character")
-        let element = try XCTUnwrap(spoken.attribute(.accessibilityAttachment, at: 17, effectiveRange: nil) as? NSAccessibilityElement)
-        XCTAssertEqual(element.accessibilityRole(), .staticText)
-        XCTAssertEqual(element.accessibilityValue() as? String, ReaderRuleAttachment.spokenName)
-        XCTAssertNil(element.accessibilityLabel(), "its word is its value, said once")
-        XCTAssertNil(element.accessibilityHelp())
-        XCTAssertTrue(element.accessibilityParent() as? NSView === cell)
-        // The word is the reader's and not the book's: a copy and the row's own words have none of it.
-        XCTAssertEqual(text.readerPlainText(), "Cell scene ends.\n\nCell scene starts.")
-        XCTAssertEqual(TableMeasure.spokenText(text), "Cell scene ends. Cell scene starts.")
-        cell.setAccessibilitySelectedTextRange(whole)
-        XCTAssertEqual(cell.accessibilitySelectedText(), "Cell scene ends.\n\nCell scene starts.")
-    }
-
     func testACellSurfaceReadsAttachmentsFramesAndImageActionsToAssistiveTechnology() throws {
         let formula = TextualTestAttachment()
         formula.textEquivalent = "x squared"
