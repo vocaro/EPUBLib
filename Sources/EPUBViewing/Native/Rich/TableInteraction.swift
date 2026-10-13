@@ -31,6 +31,12 @@ import UIKit
         }.map(\.value)
     }
 
+    /// The cells on screen in reading order, each with its row's place in the text.
+    var accessibilityCellsInOrder: [(location: Int, cell: TableCellTextView)] {
+        cells.sorted { ($0.key.location, $0.key.cell, $0.key.lower) < ($1.key.location, $1.key.cell, $1.key.lower) }
+            .map { ($0.key.location, $0.value) }
+    }
+
     /// The text views of one cell of the row at `location`, in the order of the lines they hold.
     func accessibilityCells(at location: Int, cell index: Int) -> [TableCellTextView] {
         cells.filter { $0.key.location == location && $0.key.cell == index }.sorted { $0.key.lower < $1.key.lower }.map(\.value)
