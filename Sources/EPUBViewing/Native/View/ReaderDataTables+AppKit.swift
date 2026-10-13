@@ -467,6 +467,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
         for view in views {
             view.tableCellElement = holder
             view.trialLabel = Self.pictureTrial == "arealabel" && !images.isEmpty && !text.isEmpty ? text : nil
+            view.trialValue = Self.pictureTrial == "areavalue" && !images.isEmpty && !text.isEmpty ? text : nil
         }
         return views
     }
@@ -477,13 +478,17 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     // words, and no text area; one of decoration alone holds nothing. "around": a cell that
     // is one picture and nothing else holds an image with its text areas inside. For any
     // cell that shows a picture that says something: "arealabel", its text areas are called
-    // by the cell's words; "celllabel", the cell is.
+    // by the cell's words; "celllabel", the cell is; "areavalue", its text areas give the
+    // cell's words for their value. "amongbeside": a cell that shows pictures among words
+    // holds its text areas and then an image for each picture.
     static let pictureTrial = UserDefaults.standard.string(forKey: "TablePictureCell") ?? ""
     /// The pictures the cell shows, where it shows nothing else and is no link.
     var pictures: [ReaderImageAttachment]? { holdsLink ? nil : table?.table.cells[cell].pictures }
     private var kept: [ReaderTableCellImageElement] = []
+    /// The pictures the cell holds images for.
+    var shownPictures: [ReaderImageAttachment] { pictures ?? (Self.pictureTrial == "amongbeside" ? images : []) }
     var pictureElements: [ReaderTableCellImageElement] {
-        let count = pictures?.count ?? 0
+        let count = shownPictures.count
         while kept.count < count { kept.append(ReaderTableCellImageElement(cell: self, index: kept.count)) }
         return Array(kept.prefix(count))
     }
@@ -532,6 +537,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
         if holdsLink { return [link] }
         if Self.pictureTrial == "inplace", pictures != nil { return pictureElements }
         if Self.pictureTrial == "around", pictures?.count == 1 { return pictureElements }
+        if Self.pictureTrial == "amongbeside", pictures == nil, !images.isEmpty { return textViews + pictureElements }
         return textViews
     }
 
@@ -657,7 +663,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? { onMain(self) { $0.actions } }
 
     private var image: ReaderImageAttachment? {
-        guard let pictures = cell?.pictures, pictures.indices.contains(index) else { return nil }
+        guard let pictures = cell?.shownPictures, pictures.indices.contains(index) else { return nil }
         return pictures[index]
     }
 
