@@ -247,17 +247,10 @@ typealias TableNativeTextView = UITextView
             super.accessibilityAttributedString(for: full) ?? cellText.attributedSubstring(from: full))
         cellText.enumerateAttribute(.attachment, in: full) { value, characters, _ in
             guard let textual = value as? ReaderTextualAttachment else { return }
-            // Probe: a new element on every read, as before, with the frame of its character.
             let element = NSAccessibilityElement()
             element.setAccessibilityRole(.staticText)
             element.setAccessibilityLabel(textual.textEquivalent)
             element.setAccessibilityParent(self)
-            if value is ReaderRuleAttachment { ReaderRuleAttachment.makeSeparator(element) }
-            if let container = cellManager.textContainers.first {
-                let glyphs = cellManager.glyphRange(forCharacterRange: characters, actualCharacterRange: nil)
-                element.setAccessibilityFrameInParentSpace(cellManager.boundingRect(forGlyphRange: glyphs, in: container)
-                    .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y))
-            }
             let relative = NSRange(location: characters.location - full.location, length: characters.length)
             result.addAttribute(.accessibilityAttachment, value: element, range: relative)
         }

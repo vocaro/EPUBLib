@@ -107,9 +107,10 @@ files = {'mimetype': 'application/epub+zip',
                      'scenes.</p></body></html>',
  # What a table's entry can hold besides words: a rule between two paragraphs, a formula, a
  # described picture, a hidden label, decoration and a picture nobody describes. Each entry
- # is a text of its own to VoiceOver on a Mac. The section has no heading, so the book's
- # headings are those of the sections before it, and no word here is one a screen reader
- # uses for a rule, a picture, a formula, a table or a text.
+ # is a text of its own to VoiceOver on a Mac. A second formula stands after the table, in
+ # the page's own text, to compare. The section has no heading, so the book's headings are
+ # those of the sections before it, and no word here is one a screen reader uses for a rule,
+ # a picture, a formula, a table or a text.
  'OPS/entries.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
                       'xmlns="http://www.w3.org/1999/xhtml"><head><title>Things inside '
                       'entries</title><style>.parked { position: absolute; left: -999em; } td { '
@@ -122,8 +123,10 @@ files = {'mimetype': 'application/epub+zip',
                       'square"/> shown.</td><td><span class="parked">Parked entry '
                       'words.</span>Seen entry words.</td></tr><tr><td>Ornament <img '
                       'src="square.svg" alt=""/> passed.</td><td>Undescribed <img '
-                      'src="square.svg"/> stands.</td></tr></table><p>Entries are '
-                      'over.</p>ENTRY_LINES_AFTER</body></html>'}
+                      'src="square.svg"/> stands.</td></tr></table><p>Beyond them <math '
+                      'xmlns="http://www.w3.org/1998/Math/MathML" alttext="y '
+                      'cubed"><msup><mi>y</mi><mn>3</mn></msup></math> '
+                      'ends.</p>ENTRY_LINES_AFTER</body></html>'}
 files["OPS/body.xhtml"] = files["OPS/body.xhtml"].replace(
     "NUMBERED_WORDS", " ".join(f"word{i:04d}" for i in range(1, 1201)))
 # More than a screen of lines, so that the section's first line can be shown at the top.
