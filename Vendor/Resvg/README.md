@@ -6,7 +6,8 @@ EPUBViewing uses resvg 0.48.1, MIT/Apache-2.0, from upstream commit
 
 `Resvg.xcframework` contains static macOS arm64/x86_64, iOS arm64, and iOS simulator
 arm64/x86_64 libraries, built with isolated Rust 1.95.0 and the upstream production
-profile (`opt-level=3`, LTO, one codegen unit, stripped debug information).
+profile (`opt-level=3`, LTO, one codegen unit, stripped debug information), with
+`panic = "unwind"` explicitly set so boundary catches can run.
 Features: `text,raster-images`; filesystem font scanning, font memory mapping, and
 SVGZ are disabled. Swift package consumers do not need Rust. Only EPUBViewing
 depends on CResvg; the headless products retain their existing dependencies.
@@ -24,7 +25,7 @@ inventory and archive checksums. `EPUBLIB_RESVG_BUILD_DIR` and
 targets are macOS 11.0 and iOS 10.0 (Rust's Apple defaults); EPUBLib itself
 requires iOS/macOS 27.
 
-The only upstream changes, in `scripts/patch-resvg.py`, close every non-data image
+The resource-policy upstream changes, in `scripts/patch-resvg.py`, close every non-data image
 resolver, allow raster data types only (never nested SVG/SVGZ), and fix the C API's
 feature gates so filesystem font methods compile to no-ops. Fonts are supplied
 as host-exported CoreText SFNT outline bytes, with SVG/COLR/bitmap color-glyph
@@ -49,20 +50,35 @@ stack, and a walk into a loop it did not begin in never returns. Neither is a pa
 `SVGReferenceScreen.swift` refuses those drawings first. It reads a `url(#…)` as svgtypes
 0.16.1 does (`funciri.rs`), a stylesheet and a `style` attribute as simplecss 0.2.2 does,
 step for step, and takes the elements that are drawn where they stand from
-`convert_element` in `usvg/parser/converter.rs`. It also refuses every linear gradient
-whose `spreadMethod` is `reflect` or `repeat`, and that one is a panic: tiny-skia 0.12.0
-paints such a gradient that has no length with the average of its stops
-(`average_gradient_color` in `shaders/linear_gradient.rs`) and unwraps a colour that
-rounding has carried past one. A gradient that pads paints its last stop there, and a
-radial gradient has no such path. Which gradients have no length is usvg's resolution of
-lengths to say (`usvg/parser/units.rs`), on coordinates it may take through `href`, and
-the screen does not reproduce it: the spread alone decides, read as `convert_spread_method`
-and `resolve_lg_attr` in `usvg/parser/paint_server.rs` read it, from an attribute only
-and through `href` from a gradient of either kind. So a repeating or reflecting linear
-gradient of any length is refused, which can be narrowed once a panic is caught at the C
-boundary (#231). usvg also writes a `spreadMethod` for the gradients of a COLR glyph
-(`usvg/text/colr.rs`), which no screen of the SVG sees; fonts reach it with their colour
-tables removed. Review the screen against those sources whenever the renderer is updated.
+`convert_element` in `usvg/parser/converter.rs`. Repeating and reflecting gradients are resolved by the renderer itself.
+Review the remaining loop/depth screen against those sources whenever the renderer is updated.
+
+`scripts/resvg-panic-boundary.py` and its Rust helper wrap both parse entry points,
+all tree queries and render entry points in `catch_unwind`, using Rust-ABI inner
+functions: an inner `extern "C"` would abort before the catch. A tree's opaque
+handle owns a mutex-protected optional tree. Calls on one tree serialize; after a
+caught panic its state is dropped while that lock is still held, and every later
+query or draw fails. Separate trees can still render concurrently. The upstream
+void `resvg_render` remains available; EPUBLib calls the added boolean
+`resvg_render_checked` so it can distinguish failure from a transparent image.
+
+The default Rust panic hook is deliberately unchanged: caught panic diagnostics
+still go to stderr. There is no process-global hook replacement that could silence
+a host's own Rust panics. EPUBLib never invokes `resvg_init_log`.
+
+SVG initialization draws a 64-pixel raster so a known render-stage panic, as well
+as a parse panic, can still become section fallback text with the usual `svg`
+disclosure. That small raster is not a proof about other sizes. Every later draw
+is independently guarded. If a later size panics, its attachment paints its
+alternative text at the drawing's position, and earlier successful cached sizes
+are ignored. Its text equivalent and accessibility label retain those same words.
+The section's report is immutable after construction, so a failure first discovered
+at a later draw does not add a retrospective `svg` disclosure to that report.
+A caller inspecting the bitmap directly receives nil on failure.
+
+Unwinding does not contain stack overflow, allocation failure, memory or CPU
+exhaustion, or a parser loop that never returns; their screens and budgets stay.
+The image output size bound remains a capacity bound, not a prediction of panics.
 
 The XCFramework is approximately 45 MiB before compression. `checksums.json`
 records the exact vendored archive hashes. `dependencies.json` identifies the

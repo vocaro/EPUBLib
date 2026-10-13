@@ -10,6 +10,9 @@ final class SVGRenderer: @unchecked Sendable {
     private let options: SVGRenderOptions
     let size: CGSize
     private let maximumRasterPixels: Int
+    private let failureLock = NSLock()
+    private var failed = false
+    var hasFailedRendering: Bool { failureLock.withLock { failed } }
 
     init?(_ data: Data, fonts: [SVGFontData] = []) {
         guard !data.isEmpty, data.count <= SVGContent.maximumBytes,
@@ -31,12 +34,16 @@ final class SVGRenderer: @unchecked Sendable {
         size = CGSize(width: CGFloat(dimensions.width), height: CGFloat(dimensions.height))
         let layers = SVGContent.isolatedLayers(document.root)
         maximumRasterPixels = layers == 0 ? 16 * 1024 * 1024 : (96 * 1024 * 1024) / (4 + 25 * 5 * layers)
+        // A small raster catches parse-independent failures while section construction can
+        // still substitute text and disclose the unsupported drawing. Larger draws remain
+        // guarded independently: passing this raster is not a proof about another size.
+        guard render(maxPixelSize: 64) != nil else { return nil }
     }
 
     deinit { resvg_tree_destroy(tree) }
 
     func render(maxPixelSize: Int) -> CGImage? {
-        guard maxPixelSize > 0 else { return nil }
+        guard maxPixelSize > 0, !hasFailedRendering else { return nil }
         let scale = min(CGFloat(min(maxPixelSize, ReaderImageSource.maximumSVGDimension)) / max(size.width, size.height),
                         sqrt(CGFloat(maximumRasterPixels) / (size.width * size.height)))
         let width = max(1, Int((size.width * scale).rounded(.down)))
@@ -45,8 +52,12 @@ final class SVGRenderer: @unchecked Sendable {
         var bytes = Data(count: width * height * 4)
         var transform = resvg_transform_identity()
         transform.a = Float(scale); transform.d = Float(scale)
-        bytes.withUnsafeMutableBytes {
-            resvg_render(tree, transform, UInt32(width), UInt32(height), $0.baseAddress!.assumingMemoryBound(to: CChar.self))
+        let rendered = bytes.withUnsafeMutableBytes {
+            resvg_render_checked(tree, transform, UInt32(width), UInt32(height), $0.baseAddress!.assumingMemoryBound(to: CChar.self))
+        }
+        guard rendered else {
+            failureLock.withLock { failed = true }
+            return nil
         }
         guard let provider = CGDataProvider(data: bytes as CFData), let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
         // tiny-skia produces premultiplied, top-to-bottom RGBA, which CGImage consumes directly.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply the small, auditable EPUBLib resource policy to pinned resvg 0.48.1."""
+"""Apply EPUBLib resource and unwind-boundary policies to pinned resvg 0.48.1."""
 from pathlib import Path
 import sys
 
@@ -28,4 +28,9 @@ end = text.index('/// @brief Destroys the #resvg_options.', start)
 part = text[start:end].replace('#[cfg(feature = "text")]', '#[cfg(all(feature = "text", feature = "system-fonts"))]')
 part = part.replace('#[cfg(not(feature = "text"))]', '#[cfg(not(all(feature = "text", feature = "system-fonts")))]')
 text = text[:start] + part + text[end:]
-source.write_text(text)
+# The panic wrappers live separately so their ownership and synchronization are reviewable.
+import importlib.util
+spec = importlib.util.spec_from_file_location("panic_boundary", Path(__file__).with_name("resvg-panic-boundary.py"))
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.patch(Path(sys.argv[1]), text)

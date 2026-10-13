@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreText
 import Foundation
 #if os(iOS)
 import UIKit
@@ -228,7 +229,33 @@ final class ReaderImageAttachment: ReaderAttachment {
         // to a size no source reaches; an infinite one, or none, asks for the smallest decode.
         let long = max(rect.width, rect.height) * scale
         let pixels = long.isFinite ? Int(min(long, CGFloat(1 << 30)).rounded(.up)) : 1
-        return cache.image(for: source, maxPixelSize: pixels, inverted: invertsColors, lightBackdrop: isDark)
+        if let image = cache.image(for: source, maxPixelSize: pixels, inverted: invertsColors, lightBackdrop: isDark) { return image }
+        guard source.hasFailedSVGRendering else { return nil }
+        return fallbackBitmap(size: rect.size, scale: scale)
+    }
+
+    /// A panic at a later raster size cannot replace the already-built section string.
+    /// Paint its alternative at the failed drawing's position instead of leaving a hole.
+    /// The attachment's text equivalent and accessibility label already carry these words.
+    func fallbackBitmap(size: CGSize, scale: CGFloat) -> CGImage? {
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return nil }
+        let scale = scale.isFinite && scale > 0 ? min(scale, 4) : 1
+        let width = max(1, Int(min(size.width * scale, 4096).rounded(.up)))
+        let height = max(1, Int(min(size.height * scale, 4096).rounded(.up)))
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        let words = alt.isEmpty ? "Image unavailable" : alt
+        let font = CTFontCreateWithName("Helvetica" as CFString, max(8, min(fontSize * scale, CGFloat(height))), nil)
+        let color = isDark ? CGColor(gray: 1, alpha: 1) : CGColor(gray: 0, alpha: 1)
+        let text = NSAttributedString(string: words, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): color,
+        ])
+        let path = CGPath(rect: CGRect(x: 0, y: 0, width: width, height: height), transform: nil)
+        let frame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(text), CFRange(), path, nil)
+        CTFrameDraw(frame, context)
+        return context.makeImage()
     }
 
     private func render(_ size: CGSize) -> PlatformImage? {

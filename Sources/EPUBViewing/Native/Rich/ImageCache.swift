@@ -22,6 +22,8 @@ final class ReaderImageSource: @unchecked Sendable {
     /// Pixels (bitmap) or points (SVG), with EXIF orientation applied.
     let pixelSize: CGSize
     private let svgRenderer: SVGRenderer?
+    /// A later-size SVG render failed; attachments retain their words as a visible fallback.
+    var hasFailedSVGRendering: Bool { svgRenderer?.hasFailedRendering ?? false }
 
     /// Bitmaps over this many pixels are refused as unreadable rather than decoded.
     static let maximumPixelCount = 64 * 1024 * 1024
@@ -132,6 +134,8 @@ final class ReaderImageCache: @unchecked Sendable {
     /// and cache reuse for the inspector's memory budget; `lightBackdrop` is display-only.
     func image(for source: ReaderImageSource, maxPixelSize: Int, inverted: Bool = false,
                lightBackdrop: Bool = false, maximumDecodedPixelSize: Int? = nil) -> CGImage? {
+        // Once a tree has failed, even an earlier successful size must give its fallback.
+        guard !source.hasFailedSVGRendering else { return nil }
         let long = max(source.pixelSize.width, source.pixelSize.height)
         let available = long.isFinite ? max(1, Int(min(long, CGFloat(1 << 30)).rounded(.up))) : 1
         let bucket = maximumDecodedPixelSize.map { min(Self.bucket(maxPixelSize), max(1, $0)) } ?? Self.bucket(maxPixelSize)
@@ -140,9 +144,12 @@ final class ReaderImageCache: @unchecked Sendable {
         // An explicit author inversion supplies its own dark-appearance treatment.
         let backdrop = lightBackdrop && !inverted
         let key = Key(source: source.key, pixels: pixels, inverted: inverted, lightBackdrop: backdrop)
-        if let image = lock.withLock({ hit(key, maximumDecodedPixelSize: maximumDecodedPixelSize) }) { return image }
+        if let image = lock.withLock({ hit(key, maximumDecodedPixelSize: maximumDecodedPixelSize) }) {
+            return source.hasFailedSVGRendering ? nil : image
+        }
         guard let decoded = source.decode(maxPixelSize: pixels),
               let image = inverted ? Self.inverted(decoded) : (backdrop ? Self.addingLightBackdrop(decoded) : decoded) else { return nil }
+        guard !source.hasFailedSVGRendering else { return nil }
         let entry = Entry(image: image, cost: image.bytesPerRow * image.height, used: 0)
         lock.withLock {
             decodes += 1
