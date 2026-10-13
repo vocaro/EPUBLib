@@ -182,6 +182,21 @@ stand in for VoiceOver's cursor in continuous scroll, as the scrolled-lines test
 reads on through a table of seventy rows and back, finding each next stop as UIKit does, in
 the cell's container and then in the text view, and then moves down a column row by row; the
 other rests the cursor in a table and scrolls away. Neither drives VoiceOver.
+Table select action tests perform Select Table Text on a row and Select Cell Text on a cell,
+in both flows, and hold each to the same: the reader reports the words, the canvas as drawn
+shows them selected, the item has the selected trait, VoiceOver is told that the item
+changed, and the item then offers Deselect, Copy and the host's selection action, each
+performed. The drawing is read from the canvas's pixels, counting those of the cell's ground
+that changed: the cell draws a selected word's ink over the row's own, which changes pixels
+at the letters' edges with no selection shown, and passed a count of any pixel. What the
+reader posts to an assistive technology is taken from the canvas
+(`ReaderCanvasView.postToAccessibility`) instead of posted. A third test selects a passage
+through two cells in code, as a located passage is, and reads each cell's share from the
+pixels, and a fourth holds a cell to painting no selection of its own while its view is first
+responder, when UIKit draws it, and to painting it again when the view gives that up. That
+VoiceOver reads the item again and takes its new actions when told is known only from
+[speech sessions](voiceover-testing.md) on a device: the tests passed before the reader told
+it anything, and an iPad's rotor still offered Select alone.
 
 Accessibility action tests hold each item of a page and of a screen on iPhone and iPad to
 offering its own actions and no more: a line, a heading and a link their page turns in pages
@@ -236,6 +251,26 @@ standing for no line of the next, on pages whose lines have the same characters 
 from each page's first, and to standing for its own line when its page is shown again. That
 VoiceOver reads the line for the layout change, draws its cursor there and keeps its rotor,
 is known only from [speech sessions](voiceover-testing.md) on a device.
+
+Table of data tests on AppKit (`TableDataMacAccessibilityTests`) read what a column and the
+scroll view give an assistive technology at each row of a table that holds data, on a reader
+built by the real pipeline, in pages and in continuous scroll: an `NSAccessibility` table of
+its own at each row's character, called by that row's words and with that row selected; its
+rows, each with its number in the whole table, its columns, and its cells with the rows and
+columns each covers, the text areas each holds on screen and its place; a header for each
+column and each row from the table and none from a cell, which is the header's own cell on
+screen and otherwise a static text with the header cells' words, for a column under two
+header cells, a header on another page and one scrolled far off the screen; a cell that
+spans answering for every slot it covers; the actions a cell
+offers, and that selecting a cell's words and following its link do so; a table that is not
+data left a group for each row; a table split across pages, with the page's rows, the whole
+table's count and a header cell named from another page; a row taller than a page, whose
+words each page's table says once; continuous scroll, where a table holds every row, says
+which are on screen and labels a cell that has no text area yet; and a table kept from a
+page that has been turned, which says nothing of the new one. They read the elements through
+AppKit's own accessibility methods. That a client of the accessibility API is given each
+attribute, and what VoiceOver says, is recorded with the
+[VoiceOver testing process](voiceover-testing.md#tables-on-mac).
 
 Table cell line tests on AppKit (`TableCellLineAccessibilityTests`) read the lines a cell's
 own text gives an assistive technology: the layout's lines, numbered from the first the cell

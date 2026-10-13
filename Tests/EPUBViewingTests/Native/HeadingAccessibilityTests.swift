@@ -1130,24 +1130,250 @@ import UIKit
         XCTAssertEqual(headings[2].accessibilityFrame().midY, view.accessibilityFrame(for: under).midY, accuracy: 14)
         // The elements are kept while the text is: VoiceOver's cursor stays on the one it has.
         XCTAssertTrue(zip(headings, headingChildren(of: view)).allSatisfy { $0 === $1 })
-        // A page gives its own headings, as it gives its own links.
+        // A page gives its own headings, as it gives its own links, and after them the next
+        // one of the book, which is on a later page.
         let chapter = try chapter()
         let pages = self.host(chapter.string, size: CGSize(width: 320, height: 560))
+        let all = ["A chapter title long enough to take two lines of a narrow page column", "Second level", "Third level on two lines", "Fourth level"]
         var seen: [String] = [], turns = 0
         repeat {
             let column = try XCTUnwrap(pages.canvas.textViews.first)
-            for heading in headingChildren(of: column) {
+            let headings = headingChildren(of: column)
+            for heading in headings where heading.elsewhere == nil {
                 XCTAssertLessThanOrEqual(NSMaxRange(heading.range), column.shownCharacters.length, heading.accessibilityLabel() ?? "")
                 seen.append(heading.accessibilityLabel() ?? "")
             }
+            let following = headings.filter { $0.elsewhere != nil }.map { $0.accessibilityLabel() ?? "" }
+            XCTAssertEqual(following, seen.count < all.count ? [all[seen.count]] : [], "page \(turns): the next one after the page, and none after the last")
+            XCTAssertTrue(headings.last?.elsewhere != nil || following.isEmpty, "it is the last of the children")
             turns += 1
         } while turns < 100 && pages.canvas.turnPage(forward: true) == .turned
-        XCTAssertEqual(seen, ["A chapter title long enough to take two lines of a narrow page column", "Second level",
-                              "Third level on two lines", "Fourth level"], "each on the page that shows it")
+        XCTAssertEqual(seen, all, "each on the page that shows it")
         // A text view with no canvas, as a note's popover has, keeps AppKit's children.
         let note = H.view(section.string, size: CGSize(width: 300, height: 400), pageColumn: false)
         XCTAssertFalse((note.accessibilityChildren() ?? []).contains { $0 is ReaderHeadingAccessibilityElement })
         _ = host
+    }
+
+    /// Two chapters in paging. The first opens with a heading and a link, goes on for pages,
+    /// and ends on a page that holds two headings with a link between them; the second is a
+    /// heading and a link after it, the last of the book.
+    private func pagedBook() throws -> CanvasHost {
+        let first = try H.build("""
+            <h1>First title</h1><p>Opening words and <a href="two.xhtml">a first link</a>.</p><p>\(CanvasText.sentence(500, seed: 1))</p>\
+            <h2>Second part</h2><p>Words with <a href="two.xhtml">a second link</a> in them.</p><h3>Third part</h3><p>Words under it.</p>
+            """, css: Self.css + "h2 { break-before: page } ")
+        let last = try H.build("<h1>Last title</h1><p>Closing words and <a href=\"one.xhtml\">a last link</a>.</p>", css: Self.css)
+        let host = CanvasHost(FakeCanvasSource([first.string, last.string]), size: CGSize(width: 320, height: 560))
+        hosts.append(host)
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        host.layOut()
+        return host
+    }
+
+    private func column(_ host: CanvasHost, _ index: Int = 0) throws -> ReaderTextView {
+        host.layOut()
+        let columns = host.canvas.textViews
+        return try XCTUnwrap(columns.indices.contains(index) ? columns[index] : nil)
+    }
+
+    /// From a link VoiceOver finds the next heading among the children of the link's text
+    /// and nowhere else, and it takes an element for a place only when it is one of them. So
+    /// a page's children end with the book's next heading, which is on a later page: an
+    /// element at the foot of the column, called by the heading's words. VoiceOver focuses the
+    /// element it moves to. The reader then turns to the heading's page, and that element is
+    /// the heading's own there, with the insertion point on the heading.
+    func testAPagesChildrenEndWithTheBooksNextHeadingAndFocusingItTurnsToItsPage() throws {
+        let host = try pagedBook()
+        var view = try column(host)
+        XCTAssertEqual(children(of: view), ["heading First title", "link a first link", "heading Second part"])
+        let second = try XCTUnwrap(headingChildren(of: view).last)
+        let start = try XCTUnwrap((host.source.sections[0]?.string as NSString?)?.range(of: "Second part"))
+        XCTAssertEqual(second.elsewhere, ReaderTextPosition(section: 0, offset: start.location))
+        XCTAssertEqual(second.accessibilityRole(), .headingRole)
+        XCTAssertEqual(second.accessibilityValue() as? Int, 2)
+        XCTAssertTrue(second.accessibilityParent() as AnyObject === view)
+        XCTAssertTrue(headingChildren(of: view).last === second, "kept while the page is")
+        // Its characters are on no line of the page: it stands at the column's foot.
+        let foot = second.accessibilityFrame(), page = view.accessibilityFrame()
+        XCTAssertEqual(foot.minY, page.minY, accuracy: 1)
+        XCTAssertEqual(foot.height, 1, accuracy: 0.5)
+        XCTAssertEqual(foot.width, page.width, accuracy: 1)
+        XCTAssertEqual(second.accessibilityFrameInParentSpace().maxY, view.bounds.maxY, accuracy: 1)
+        // VoiceOver gives the focus to an element that says whether it has it, and to none
+        // that only takes it: the class answers both itself.
+        for selector in [#selector(NSAccessibilityElement.isAccessibilityFocused), #selector(NSAccessibilityElement.setAccessibilityFocused(_:))] {
+            let own = try XCTUnwrap(class_getInstanceMethod(ReaderHeadingAccessibilityElement.self, selector))
+            let inherited = try XCTUnwrap(class_getInstanceMethod(NSAccessibilityElement.self, selector))
+            XCTAssertNotEqual(method_getImplementation(own), method_getImplementation(inherited), "\(selector)")
+        }
+        XCTAssertFalse(second.isAccessibilityFocused())
+        // Losing the focus, and what an assistive client reads of it, turn nothing.
+        var shown = host.recorder.shown.count
+        second.setAccessibilityFocused(false)
+        _ = second.accessibilityLabel()
+        XCTAssertEqual(host.recorder.shown.count, shown)
+        // VoiceOver moves to it.
+        second.setAccessibilityFocused(true)
+        XCTAssertEqual(host.recorder.shown.count, shown + 1, "the reader turned to its page")
+        view = try column(host)
+        XCTAssertEqual(children(of: view), ["heading Second part", "link a second link", "heading Third part", "heading Last title"])
+        XCTAssertTrue(headingChildren(of: view).first === second, "the element VoiceOver is on is the heading's on the new page")
+        XCTAssertNil(second.elsewhere)
+        XCTAssertEqual(view.plainText(in: second.range), "Second part")
+        XCTAssertTrue(second.accessibilityParent() as AnyObject === view)
+        XCTAssertGreaterThan(second.accessibilityFrame().height, 2, "where its words are")
+        XCTAssertTrue(view.accessibilityFrame().insetBy(dx: -1, dy: -1).contains(second.accessibilityFrame()))
+        XCTAssertEqual(view.selectedRange, NSRange(location: second.range.location, length: 0), "reading on starts at the heading")
+        // A heading on the page: the insertion point goes to it, and nothing turns.
+        shown = host.recorder.shown.count
+        let third = try XCTUnwrap(headingChildren(of: view).dropFirst().first)
+        third.setAccessibilityFocused(true)
+        XCTAssertEqual(view.selectedRange, NSRange(location: third.range.location, length: 0))
+        XCTAssertEqual(host.recorder.shown.count, shown)
+        // The next chapter's, which is the book's last: nothing follows it.
+        let last = try XCTUnwrap(headingChildren(of: view).dropFirst(2).first)
+        XCTAssertEqual(last.elsewhere, ReaderTextPosition(section: 1, offset: 0))
+        XCTAssertEqual(last.accessibilityValue() as? Int, 1)
+        last.setAccessibilityFocused(true)
+        XCTAssertEqual(host.recorder.shown.count, shown + 1)
+        view = try column(host)
+        XCTAssertEqual(children(of: view), ["heading Last title", "link a last link"])
+        XCTAssertTrue(headingChildren(of: view).first === last)
+        XCTAssertEqual(view.selectedRange, NSRange(location: 0, length: 0))
+        // A page turned by anything else gives its own elements, and the one kept from the
+        // page before is no child of it.
+        XCTAssertEqual(host.canvas.turnPage(forward: false), .turned)
+        view = try column(host)
+        XCTAssertFalse(headingChildren(of: view).contains { $0 === last || $0 === second })
+        XCTAssertEqual(headingChildren(of: view).last?.elsewhere, ReaderTextPosition(section: 1, offset: 0))
+    }
+
+    /// A chapter that is not built yet ends the list, as it ends the rotor's.
+    func testAPageGivesNoNextHeadingWhileTheChapterThatHoldsItIsNotBuilt() throws {
+        let section = try H.build("<h1>Title</h1><p>Words and <a href=\"two.xhtml\">a link</a>.</p>", css: Self.css)
+        let after = try H.build("<h1>The chapter after</h1><p>End.</p>", css: Self.css)
+        let source = FakeCanvasSource([section.string, nil])
+        let host = CanvasHost(source, size: CGSize(width: 320, height: 560))
+        hosts.append(host)
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        XCTAssertEqual(children(of: try column(host)), ["heading Title", "link a link"])
+        source.sections[1] = after.string
+        XCTAssertEqual(children(of: try column(host)), ["heading Title", "link a link", "heading The chapter after"])
+    }
+
+    /// Each column of a spread gives the next heading after its own page. For the left column
+    /// that can be one the right column shows: no page is turned for it, and the element
+    /// VoiceOver moved to becomes the right column's own. A turn can put the heading in
+    /// either column.
+    func testEachColumnOfASpreadGivesTheNextHeadingAfterItsOwnPage() throws {
+        // Each heading opens a page, so the first spread holds two and the second the other two.
+        let body = (1...4).map { "<h1>Heading \($0)</h1><p>Words of part \($0) and <a href=\"two.xhtml\">link \($0)</a>.</p>" }.joined()
+        let section = try H.build(body, css: Self.css + "h1 { break-before: page } ")
+        let host = CanvasHost(FakeCanvasSource([section.string]), size: CGSize(width: 1100, height: 420))
+        hosts.append(host)
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        var left = try column(host, 0), right = try column(host, 1)
+        XCTAssertEqual(children(of: left), ["heading Heading 1", "link link 1", "heading Heading 2"])
+        XCTAssertEqual(children(of: right), ["heading Heading 2", "link link 2", "heading Heading 3"])
+        var shown = host.recorder.shown.count
+        let second = try XCTUnwrap(headingChildren(of: left).last)
+        XCTAssertTrue(second.accessibilityParent() as AnyObject === left)
+        XCTAssertFalse(second === headingChildren(of: right).first)
+        second.setAccessibilityFocused(true)
+        XCTAssertEqual(host.recorder.shown.count, shown, "the right column shows it")
+        XCTAssertTrue(headingChildren(of: right).first === second, "the right column's own element now")
+        XCTAssertTrue(second.accessibilityParent() as AnyObject === right)
+        XCTAssertEqual(second.range.location, 0)
+        XCTAssertTrue(right.accessibilityFrame().insetBy(dx: -1, dy: -1).contains(second.accessibilityFrame()))
+        XCTAssertEqual(right.selectedRange, NSRange(location: 0, length: 0))
+        // The left column gives the same heading again, with another element.
+        let again = try XCTUnwrap(headingChildren(of: left).last)
+        XCTAssertEqual(again.accessibilityLabel(), "Heading 2")
+        XCTAssertFalse(again === second)
+        XCTAssertTrue(again.accessibilityParent() as AnyObject === left)
+        // From the right column the next one is on the next spread, in its left column.
+        let third = try XCTUnwrap(headingChildren(of: right).last)
+        third.setAccessibilityFocused(true)
+        XCTAssertEqual(host.recorder.shown.count, shown + 1)
+        left = try column(host, 0)
+        right = try column(host, 1)
+        XCTAssertTrue(headingChildren(of: left).first === third)
+        XCTAssertEqual(children(of: left), ["heading Heading 3", "link link 3", "heading Heading 4"])
+        XCTAssertEqual(children(of: right), ["heading Heading 4", "link link 4"])
+
+        // A heading on the fourth page of a chapter is in the right column of its spread.
+        let odd = try H.build("<h1>Heading 1</h1><p>Words.</p><p class=\"turn\">Second page.</p><p class=\"turn\">Third page.</p><h1>Heading 2</h1><p>End.</p>",
+                              css: Self.css + "h1, .turn { break-before: page } ")
+        let other = CanvasHost(FakeCanvasSource([odd.string]), size: CGSize(width: 1100, height: 420))
+        hosts.append(other)
+        other.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        left = try column(other, 0)
+        right = try column(other, 1)
+        XCTAssertEqual(children(of: left), ["heading Heading 1", "heading Heading 2"])
+        XCTAssertEqual(children(of: right), ["heading Heading 2"])
+        shown = other.recorder.shown.count
+        let far = try XCTUnwrap(headingChildren(of: left).last)
+        far.setAccessibilityFocused(true)
+        XCTAssertEqual(other.recorder.shown.count, shown + 1)
+        left = try column(other, 0)
+        right = try column(other, 1)
+        XCTAssertTrue(left.plainText(in: left.shownCharacters).hasPrefix("Third page."))
+        XCTAssertEqual(children(of: left), ["heading Heading 2"], "the third page has no heading of its own, and the next one is beside it")
+        XCTAssertFalse(headingChildren(of: left).first === far)
+        XCTAssertEqual(children(of: right), ["heading Heading 2"])
+        XCTAssertTrue(headingChildren(of: right).first === far)
+        XCTAssertTrue(far.accessibilityParent() as AnyObject === right)
+        XCTAssertEqual(right.selectedRange, NSRange(location: far.range.location, length: 0))
+    }
+
+    /// In continuous scroll the next heading below the screen is a child already. VoiceOver's
+    /// cursor is on the element it moves to and not in the text, and its next move by word or
+    /// by line starts from the insertion point: the reader puts that on the heading, and
+    /// shows one that is below the screen as it shows a link's target.
+    func testFocusingAHeadingsElementInContinuousScrollPutsTheInsertionPointOnTheHeading() throws {
+        let (host, view) = try scrolledChapters()
+        let headings = headingChildren(of: view)
+        XCTAssertEqual(headings.map { $0.accessibilityLabel() ?? "" }, ["First chapter", "Second chapter"])
+        guard headings.count == 2 else { return }
+        XCTAssertTrue(headings.allSatisfy { $0.elsewhere == nil }, "characters of the view's own text, on screen or below it")
+        let visible = view.accessibilityVisibleCharacterRange()
+        view.selectedRange = NSRange(location: 40, length: 5)
+        var shown = host.recorder.shown.count
+        headings[0].setAccessibilityFocused(true)
+        XCTAssertEqual(view.selectedRange, NSRange(location: headings[0].range.location, length: 0))
+        XCTAssertEqual(view.accessibilityVisibleCharacterRange(), visible, "one on screen is left where it is")
+        XCTAssertEqual(host.recorder.shown.count, shown)
+        shown = host.recorder.shown.count
+        headings[1].setAccessibilityFocused(true)
+        host.layOut()
+        XCTAssertEqual(host.recorder.shown.count, shown + 1, "the reader showed it")
+        XCTAssertEqual(view.selectedRange, NSRange(location: headings[1].range.location, length: 0))
+        XCTAssertGreaterThan(NSIntersectionRange(headings[1].range, view.accessibilityVisibleCharacterRange()).length, 0, "on screen now")
+        XCTAssertTrue(headingChildren(of: view).first === headings[1], "the same element")
+        XCTAssertEqual(headingChildren(of: view).map { $0.accessibilityLabel() ?? "" }, ["Second chapter", "A part of the second"])
+    }
+
+    /// A text does not offer VoiceOver's search for elements (`AXUIElementsForSearchPredicate`),
+    /// which would end the move by heading at the book's last heading in place of beginning
+    /// again. A text area that offers it is asked for every kind of item VoiceOver looks for,
+    /// and can answer with elements alone: its moves to the next change of font or of style
+    /// left the text, where they find the place in a text that offers none, and a search for
+    /// a kind nothing in the window has was asked without end (macOS 27.0.1). Nor do the
+    /// elements offer it: one that does is asked in place of being looked at, with no start,
+    /// and so is every child after it.
+    @available(macOS, deprecated: 10.10)
+    func testNeitherATextNorItsElementsOfferTheSearchForElements() throws {
+        let host = try pagedBook()
+        let view = try column(host)
+        let search = NSAccessibility.ParameterizedAttribute.uiElementsForSearchPredicateParameterizedAttribute
+        XCTAssertFalse(view.accessibilityParameterizedAttributeNames().contains(search))
+        XCTAssertTrue(view.accessibilityParameterizedAttributeNames().contains(.stringForRange), "AppKit's own are there")
+        let own = (view.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityElement }
+        XCTAssertEqual(own.count, 3)
+        for element in own { XCTAssertFalse(element.accessibilityParameterizedAttributeNames().contains(search)) }
+        let (_, scroll) = try scrolledChapters()
+        XCTAssertFalse(scroll.accessibilityParameterizedAttributeNames().contains(search))
     }
 
     /// The scroll view lists the links of the paragraphs on screen. Its headings are those on
