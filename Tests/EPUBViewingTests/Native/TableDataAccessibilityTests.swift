@@ -333,7 +333,8 @@ import XCTest
         let (_, canvas, view) = try await reader(book, scrolled: false)
         var read: [String] = [], others: [String] = [], pages = 0
         repeat {
-            let table = try XCTUnwrap(try tables(in: view).first, "page \(pages + 1)")
+            // The table is all its chapter holds; the page after its last is the next chapter's.
+            guard let table = try tables(in: view).first else { break }
             XCTAssertEqual(try listed(view).count, 1, "page \(pages + 1): the table and nothing else")
             XCTAssertEqual(table.accessibilityRowCount(), 2)
             for cell in try cells(of: table) {
@@ -492,8 +493,8 @@ import XCTest
     }
 
     /// The cursor resting in a table that the person then scrolls away from: the rows around
-    /// the cursor stay listed apart from those on screen, each run in an element of its own,
-    /// and the cursor's cell stays where VoiceOver left it.
+    /// the cursor stay listed with those on screen, as lines do, in the table's one element,
+    /// and the rows between them are not there to move to.
     func testACursorRestingInATableKeepsItsRowsListedWhenThePersonScrollsAway() async throws {
         let rows = 120
         let book = try book(Self.ledger(rows: rows) + "<p>Words after the ledger.</p>")
@@ -503,13 +504,18 @@ import XCTest
         let table = try XCTUnwrap(cell.accessibilityContainer as? Table)
         view.contentOffset.y += 2_400
         let listed = try tables(in: view)
-        XCTAssertEqual(listed.count, 2, "the rows around the cursor, and the rows on screen")
-        XCTAssertTrue(listed[0] === table, "the cursor's table keeps its element")
-        XCTAssertTrue(try cells(of: listed[0]).contains { $0 === cell }, "and its cell")
-        XCTAssertFalse(try cells(of: listed[1]).contains { $0.accessibilityRowRange().location < 10 })
-        XCTAssertEqual(listed[0].index(ofAccessibilityElement: cell), try XCTUnwrap(try cells(of: listed[0]).firstIndex { $0 === cell }))
-        XCTAssertEqual(listed[1].index(ofAccessibilityElement: cell), NSNotFound)
-        XCTAssertEqual(view.index(ofAccessibilityElement: listed[1]), 1)
+        XCTAssertEqual(listed.count, 1, "one element for the table, whatever of it is listed")
+        XCTAssertTrue(listed.first === table, "the same element")
+        let cells = try cells(of: table)
+        XCTAssertTrue(cells.contains { $0 === cell }, "the cursor's cell keeps its element")
+        let listedRows = Set(cells.map { $0.accessibilityRowRange().location }).sorted()
+        XCTAssertEqual(Array(listedRows.prefix(5)), [1, 2, 3, 4, 5], "the cursor's row and two each side")
+        let far = try XCTUnwrap(listedRows.dropFirst(5).first, "the rows on screen are listed too")
+        XCTAssertGreaterThan(far, 20, "the screen is far below the cursor for this to show anything")
+        XCTAssertEqual(listedRows.dropFirst(5).last.map { $0 - far + 1 }, listedRows.count - 5, "the rows on screen follow one another")
+        XCTAssertNil(table.accessibilityDataTableCellElement(forRow: 10, column: 1), "a row between is not listed")
+        XCTAssertNotNil(table.accessibilityDataTableCellElement(forRow: far, column: 1))
+        XCTAssertEqual(table.index(ofAccessibilityElement: cell), try XCTUnwrap(cells.firstIndex { $0 === cell }))
     }
 }
 

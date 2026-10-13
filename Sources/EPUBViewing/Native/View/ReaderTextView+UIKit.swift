@@ -264,17 +264,16 @@ final class ReaderTextView: UITextView {
         return list
     }
 
-    /// `elements` as an assistive technology is given them: each line, and each run of a
-    /// table's cells inside an element for the table. A table keeps its element while any cell
-    /// of it stays listed: the one the cursor's cell is in, where two runs have come together.
+    /// `elements` as an assistive technology is given them: each line, and a table's cells
+    /// inside an element for the table. A table's rows follow one another, so its cells do
+    /// too, also when the rows around a resting cursor and the rows on screen are listed
+    /// apart: one element holds both. A table keeps its element while any cell of it stays listed.
     private func list(_ elements: [ReaderPageAccessibilityElement]) -> ReaderAccessibilityList {
         var listed: [NSObject] = [], run: [ReaderTableCellAccessibilityElement] = []
         func close() {
             guard let first = run.first else { return }
-            let kept = (run.filter { $0 === accessibilityCursor } + run).lazy
-                .compactMap { $0.accessibilityContainer as? ReaderTableAccessibilityElement }
-                .first { table in !listed.contains { $0 === table } }
-            let table = kept ?? ReaderTableAccessibilityElement(view: self, table: first.table)
+            let table = run.lazy.compactMap { $0.accessibilityContainer as? ReaderTableAccessibilityElement }.first
+                ?? ReaderTableAccessibilityElement(view: self, table: first.table)
             table.list(run)
             listed.append(table)
             run = []

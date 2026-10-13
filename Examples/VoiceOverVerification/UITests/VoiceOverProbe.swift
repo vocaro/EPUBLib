@@ -185,10 +185,19 @@ import XCUIAutomation
                     }
                 }
             case "forward", "backward":
-                // A counted number of moves, where `read` would go on through a whole book.
+                // A counted number of moves, where `read` would go on through a whole book. On a
+                // busy Mac the service can hand back the phrase from before the move, which reads
+                // as an item said twice and the next one missing: a phrase that repeats the last
+                // waits three seconds for VoiceOver's own, and is recorded as it stands after them.
                 for _ in 0..<(Int(parts.last ?? "") ?? 1) {
-                    if parts[0] == "forward" { record("moveForward", try voiceOver.moveForward()) }
-                    else { record("moveBackward", try voiceOver.moveBackward()) }
+                    let before = events.last?["utterance"]
+                    var phrase = try (parts[0] == "forward" ? voiceOver.moveForward() : voiceOver.moveBackward()).utterance
+                    let limit = Date().addingTimeInterval(3)
+                    while phrase == before, Date() < limit {
+                        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+                        phrase = (try? voiceOver.currentSpeech().utterance) ?? phrase
+                    }
+                    note(parts[0] == "forward" ? "moveForward" : "moveBackward", phrase)
                 }
             case "visible":
                 // The numbered lines XCTest sees in each column, to compare with the speech. In

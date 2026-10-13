@@ -418,7 +418,10 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
   nothing, because the item before says the same or VoiceOver does not move back, three more
   repeats end the read, as three did before. A `read` line says which way it ended.
 - `forward=COUNT`, `backward=COUNT`: that many moves to the next or previous item, where
-  `read` would go on through a whole book in continuous scroll.
+  `read` would go on through a whole book in continuous scroll. On a saturated Mac the service
+  can hand back the phrase from before a move, which reads as one item said twice and the
+  next missing, so a phrase that repeats the last waits three seconds for a new one. A move
+  that stays on the last item costs those seconds.
 - `visible`: the window size and each column's first and last numbered lines as XCTest sees
   them, to compare with the speech. Lines listed above or below the window, as in continuous
   scroll while the cursor is in the text, are counted apart.
