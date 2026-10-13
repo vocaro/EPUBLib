@@ -535,6 +535,12 @@ import XCTest
                 XCTAssertNotNil(canvas.imageInspector, "\(flow): \(action.name)")
                 canvas.imageInspector?.close()
             }
+            for (cell, name) in [(cells[2], "Inspect Image: Blue square"), (cells[4], "Inspect Image: Blue crest"), (cells[7], "Inspect Image: Blue star")] {
+                XCTAssertNil(canvas.imageInspector, flow)
+                try perform(name, on: cell)
+                XCTAssertNotNil(canvas.imageInspector, "\(flow): \(name) from its cell")
+                canvas.imageInspector?.close()
+            }
 
             // A header cell that is a picture is still what heads its row: VoiceOver reads a
             // header cell by what the things it holds are called, and does not read a cell
