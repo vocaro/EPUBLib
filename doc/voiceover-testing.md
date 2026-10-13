@@ -1948,9 +1948,25 @@ The Mac runner's transcript is plain text and needs no export.
   in the fourth session of run 38361875335; the sessions above have `describe` between the
   two. A session at 56 points that looked for "Shown words after" (run 38360769105) found
   the line on the next page and never reached a cell.
+  Cells that hold a picture, a formula or a hidden label. `main` gained the section of
+  entries while these were recorded, so its cells were heard on that `main`, `7fa9231`, run
+  38365047824, and on the change merged with it, `bee900d`, run 38365114165, at 17 points
+  with the reader opened at the section, the same four sessions in each. In all four cells
+  both readers said the same up to the last word, and with the cursor on it `describe` said
+  "word: shown. end of text is in the VoiceOver cursor", or the cell's own last word in
+  that place, with "Line 2" before it after the change in a cell of two lines. Then, for
+  `line` on the last word and again after "end of text": in the described picture's cell,
+  nothing before and "Drawn Blue entry square image shown." after; in the hidden label's,
+  whose lines are "Parked entry words. Seen entry" and "words.", nothing before and "words."
+  after, and `previousline` from there nothing before and "Parked entry words. Seen entry"
+  after; in the formula's, in continuous scroll, nothing before and "stated." after, and
+  `previousline` nothing before and "Sum x squared image" after; in the cell of the picture
+  nobody describes, whose second line opens with the picture, nothing before and "image
+  stands." after. The session on "Third cell" in pages said at `bee900d` what it had said
+  at `774f82c`, phrase for phrase.
   Not heard: a part of a cell cut at a page's end, which is unit-tested
-  (`TableCellLineAccessibilityTests`); a cell that holds a picture, a formula or a hidden
-  label, which the fixture on `main` does not have; a physical Mac, or anyone listening.
+  (`TableCellLineAccessibilityTests`); a cell whose last character is a picture or a
+  formula; a physical Mac, or anyone listening.
 - On 2026-10-12 the section with a hidden heading over a table, with its second table, was
   read at 17 points before and after a table's rows became single items: at `2053be8` and at
   `1e3e5c3`, in the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and
