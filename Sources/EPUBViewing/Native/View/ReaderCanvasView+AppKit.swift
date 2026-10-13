@@ -73,7 +73,9 @@ extension ReaderCanvasView: NSTextViewDelegate {
     }
 
     @objc private func scrollBoundsDidChange(_ notification: Notification) {
-        if (notification.object as? NSClipView)?.documentView === scrollTextView { scrollPositionDidChange() }
+        guard (notification.object as? NSClipView)?.documentView === scrollTextView else { return }
+        // Nobody scrolled when the text view moved itself, or was put back (`holdingScrollPlace`).
+        scrollPositionDidChange(byReader: scrollTextView?.isEndingLiveResize == true)
     }
 
     @objc private func scrollViewportDidChange(_ notification: Notification) {
@@ -148,6 +150,17 @@ extension ReaderCanvasView: NSTextViewDelegate {
               let line = scrollTextView?.lineFrame(containing: place.location), abs(line.minY - place.lineTop) > 0.5 else { return }
         scrollToContainerY(scrollVisibleContainerRect.minY + line.minY - place.lineTop)
         scrollPlace = (place.location, line.minY, scrollVisibleContainerRect.minY)
+    }
+
+    /// Runs `scroll`, in which AppKit moves the scroll view by itself, and puts the view back
+    /// where it stood: at the offset it had, and then with its first line where that line was,
+    /// should the layout AppKit's scroll made have moved it. The view is as it was before
+    /// anything is drawn, and the position the reader keeps is the one it kept before.
+    func holdingScrollPlace(through scroll: () -> Void) {
+        guard scrollVisibleCharacters() != nil, let place = scrollPlace else { return scroll() }
+        scroll()
+        scrollToContainerY(place.visibleTop)
+        settleScrollViewport()
     }
 
     private var maximumScrollOffset: CGFloat {
