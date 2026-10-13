@@ -492,9 +492,13 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     shows the middle of a table says both, and the row's number says where in the table
     the page is. The first cell VoiceOver comes to in a table is said without its header
     cells. The
-    rows of another page are not there to move to; Next Page goes on, as from a line. The
-    cursor is then on a new item with the rotor at its default, where a line's item goes
-    with the page and keeps the action chosen ("A page turned under VoiceOver's cursor"
+    rows of another page are not there to move to; Next Page goes on, as from a line. Into
+    a table and out of one the item under the cursor goes with the page and keeps the
+    action chosen: a line's item becomes the cell that opens the next page, and a cell's
+    item the line, and with Next Page chosen each double tap turns another page across
+    them (iPadOS 27.2). From a cell to a cell, as on every later page of a table longer than
+    a page, the cursor is on a new item with the rotor at its default, since that is the
+    item VoiceOver reads with its row and column ("A page turned under VoiceOver's cursor"
     under Input and accessibility). A
     column's header cell on another page is still named before the cells it heads: the
     table answers with an element that has the header's words and is nowhere to go. A
@@ -1415,9 +1419,38 @@ The following are the defaults. Host commands and accessibility actions stay ena
   on the line, and said nothing. With the line's words announced as well it said them
   and kept the rotor, but an announcement is the reader's string and not the item read:
   of an item VoiceOver also says what it is, a heading, a link or an image.
-  A data table's cell is the exception, from it or to it. A cell is an item of another
-  kind, inside its table's, which no line's item can become, so there VoiceOver is given
-  the new item and its rotor starts again. Three cursors are left alone.
+  A data table's cell goes with the page as a line does, into a table and out of one. A
+  cell is an item inside its table's, and UIKit takes an item for a cell when it answers
+  for the protocol of one (`UIAccessibilityContainerDataTableCell`). So a line and a cell
+  are one class of item, which answers whoever asks whether it is a cell, and whether it
+  has a row and a column to give, by what it is at the time; a line asked all the same
+  gives the protocol's own answer for neither. A line's item becomes the cell that opens
+  the page turned to, among the cells of that page's table, and VoiceOver reads it as it
+  reads a cell it comes to: "Entry 27, Row 28, Column 1, Table start, 41 rows 3 columns".
+  A cell's item becomes the line that opens the next page and is read as a line, with no
+  row or column said of it or of the lines after it. The rotor keeps the action each
+  time, and the next double tap performs it (iPadOS 27.2). With Next Page chosen on a
+  cell, a double tap read the line that opens the next page and a second the first line
+  of the page after. Chosen on a heading whose next page opens with a cell, a double tap
+  read the cell, with its row and column as above, and a second turned the page from
+  that cell onto a page of lines.
+  From a cell to a cell is the exception: VoiceOver is given the new cell's own item, and
+  its rotor starts again there, so a second double tap turns nothing. Given the item it
+  held, a simulator's VoiceOver kept the rotor and said the cell's words alone, "Entry
+  15", where of a new item it says "Entry 15, Row 16, Column 1, Table start, 41 rows 3
+  columns". It says a cell's row and column of an item its cursor
+  comes to, and of the item already under its cursor only when that item was no cell
+  before. Nothing the reader posts changed that: told of a screen change it said nothing
+  at all, and given the table in place of the cell, or the table's own item kept from the
+  page before, or the change with no item named first, it said the same words alone. The
+  reader can say the place itself. With "Row 16, Column 1" as the item's value VoiceOver
+  said "Entry 15 Row 16, Column 1", and with it as an announcement it said the place
+  before the words. Those are the reader's words in the reader's language, not
+  VoiceOver's, and a VoiceOver that said its own would say the place twice, so neither is
+  done (iOS 27.0 simulator). A reader of a table needs the row a page begins at more than
+  the rotor's place: on each later page of a table longer than a page, Next Page still
+  takes its flick down.
+  Three cursors are left alone.
   One that is not in the text stays where it is: after the host's Next Page button
   VoiceOver is still on the button, and moving into the text from there met the new page's
   first line before this and does now. One whose line is still on the page keeps it, as

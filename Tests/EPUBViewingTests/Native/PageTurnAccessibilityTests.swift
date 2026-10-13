@@ -315,22 +315,35 @@ import XCTest
             manifest: "<item id=\"square\" href=\"square.svg\" media-type=\"image/svg+xml\"/>", files: ["OPS/square.svg": square]))
     }
 
-    /// What an element answers an assistive technology that asks about it.
+    /// What an element answers an assistive technology that asks about it. A cell of a table
+    /// of data also answers where it stands in the table, and its table which cells head it.
     private struct Answers: Equatable {
         var label: String?
         var headingLevel: Int?
         var traits: UIAccessibilityTraits
         var language: String?
         var frame: CGRect
+        var screenFrame: CGRect
         var actions: [String]
+        var rows: NSRange?
+        var columns: NSRange?
+        var headers: [String]?
     }
 
     private func answers(_ element: UIAccessibilityElement) -> Answers {
         let label = element.accessibilityAttributedLabel
         let level = (label?.length ?? 0) > 0 ? label?.attribute(.accessibilityTextHeadingLevel, at: 0, effectiveRange: nil) as? Int : nil
+        let cell = element as? UIAccessibilityContainerDataTableCell
+        let rows = cell?.accessibilityRowRange(), columns = cell?.accessibilityColumnRange()
+        var headers: [String]?
+        if let table = element.accessibilityContainer as? UIAccessibilityContainerDataTable, let rows, let columns {
+            headers = ((table.accessibilityHeaderElements?(forRow: rows.location) ?? []) + (table.accessibilityHeaderElements?(forColumn: columns.location) ?? []))
+                .map { ($0 as? UIAccessibilityElement)?.accessibilityLabel ?? "" }
+        }
         return Answers(label: element.accessibilityLabel, headingLevel: level, traits: element.accessibilityTraits,
                        language: element.accessibilityLanguage, frame: element.accessibilityFrameInContainerSpace,
-                       actions: (element.accessibilityCustomActions ?? []).map(\.name))
+                       screenFrame: element.accessibilityFrame, actions: (element.accessibilityCustomActions ?? []).map(\.name),
+                       rows: rows, columns: columns, headers: headers)
     }
 
     /// One element is taken through every page of the book and back, by its own page actions
@@ -429,60 +442,270 @@ import XCTest
         XCTAssertTrue(posts.isEmpty)
     }
 
-    /// A data table's cell is an element of another kind, inside its table's: no line's
-    /// element becomes a cell and no cell's a line. From a cell and to one VoiceOver is given
-    /// the element made for the page shown, as it was for every line before, and its rotor
-    /// starts again there.
-    func testACellOfADataTableIsLeftAndComeToAsAnElementOfItsOwn() async throws {
-        let ledger = "<table><thead><tr><th>Entry</th><th>Sum</th></tr></thead><tbody><tr><td>Entry 01</td><td>Sum 01</td></tr></tbody></table>"
-        let reader = try SessionCoverageReader(publication: try EPUBPublication.open(data: SessionCoverageBook.epub([
-            SessionCoverageBook.Section("opening", "<p>Plain opening words.</p>"),
-            SessionCoverageBook.Section("ledger", ledger + "<p>Words under the ledger.</p>"),
+    // MARK: A data table's cell
+
+    /// A book whose pages open with each kind of cell, between pages of lines: a header cell
+    /// of plain words, a cell that is one link, a cell of a picture without words, and the
+    /// cells of a table longer than a page.
+    private static func cells() throws -> EPUBPublication {
+        let rows = (1...60).map { String(format: "<tr><td>Entry %02d</td><td>Sum %02d</td></tr>", $0, $0) }.joined()
+        return try EPUBPublication.open(data: SessionCoverageBook.epub([
+            SessionCoverageBook.Section("opening", "<p>Plain opening words.</p><p>A second opening line.</p>"),
+            SessionCoverageBook.Section("stations", "<table><tr><th>Station</th><th>Opened</th></tr><tr><td>Alder</td><td>1901</td></tr></table><p>Words under the stations.</p>"),
+            SessionCoverageBook.Section("jumps", "<table><tr><th><a href=\"notes.xhtml\">Jump cell</a></th><th>Beside the jump</th></tr></table>"),
+            SessionCoverageBook.Section("pictures", "<table><tr><th><img src=\"square.svg\"/></th><th>Beside the picture</th></tr></table>"),
+            SessionCoverageBook.Section("ledger", "<table><thead><tr><th>Entry</th><th>Sum</th></tr></thead><tbody>\(rows)</tbody></table><p>Words under the ledger.</p>"),
             SessionCoverageBook.Section("closing", "<p>Plain closing words.</p><p>A second closing line.</p>"),
-            SessionCoverageBook.Section("last", "<p>The last words.</p>")])))
+            SessionCoverageBook.Section("notes", "<h1>Notes</h1><p>The linked note.</p>")],
+            manifest: "<item id=\"square\" href=\"square.svg\" media-type=\"image/svg+xml\"/>", files: ["OPS/square.svg": square]))
+    }
+
+    /// What a page gives an assistive technology, in reading order: each line, and each cell
+    /// of a table of data where the table's element stands.
+    private func items(of view: ReaderTextView) throws -> [UIAccessibilityElement] {
+        try elements(of: view).flatMap { element -> [UIAccessibilityElement] in
+            guard element is UIAccessibilityContainerDataTable else { return [element] }
+            return try XCTUnwrap(element.accessibilityElements as? [UIAccessibilityElement])
+        }
+    }
+
+    /// Whether `element` is a cell of a data table to one who asks it, as UIKit does, for the
+    /// protocol of one and for the two things the protocol has a cell answer.
+    private func answersAsCell(_ element: UIAccessibilityElement) -> [Bool] {
+        [element.conforms(to: UIAccessibilityContainerDataTableCell.self),
+         element.responds(to: #selector(UIAccessibilityContainerDataTableCell.accessibilityRowRange)),
+         element.responds(to: #selector(UIAccessibilityContainerDataTableCell.accessibilityColumnRange))]
+    }
+
+    /// A line and a data table's cell are one kind of element, so the element under the cursor
+    /// follows the page into a table and out of one, and VoiceOver's rotor stays on the page
+    /// action chosen: a line's element becomes the cell that opens the page turned to, and a
+    /// cell's the line. From a cell to a cell VoiceOver is given the new cell's own element,
+    /// since it says a cell's row and column of an item its cursor comes to. The cursor is
+    /// taken through the book and back by the page actions of the element it is on. On each
+    /// page that element must be what a new element for the page's first item is, in every
+    /// answer and nothing of the item before: a cell in the list of the table that page shows
+    /// and nowhere in the view's, with that cell's row, column, header cells and actions, or
+    /// a line in the view's list that is no cell to whoever asks.
+    func testTheElementUnderTheCursorIsALineOnOnePageAndACellOfADataTableOnAnother() async throws {
+        let reader = try SessionCoverageReader(publication: try Self.cells())
         readers.append(reader)
         reader.window?.resize(to: CGSize(width: 402, height: 874))
         try await reader.settle()
         let canvas = try XCTUnwrap(reader.session.canvas)
         let view = try XCTUnwrap(canvas.textViews.first { !$0.isHidden })
         canvas.postAccessibilityNotification = { [weak self] in self?.posts.append(($0, $1)) }
-        func shown(_ section: Int) async throws {
-            try await reader.wait("section \(section)") { canvas.visibleRange?.start.section == section }
+        let closing = 5
+        /// Waits for the page that `turn` shows.
+        func page(_ label: String, after turn: () throws -> Void) async throws {
+            let from = canvas.visibleRange?.start
+            try turn()
+            try await reader.wait("another page, \(label)") { canvas.visibleRange?.start != from }
         }
 
-        // From a line to a page that opens with a table: the cursor is sent to its first cell.
-        let line = try elements(of: view)[0]
-        focus(line)
-        try perform("Next Page", on: line)
-        try await shown(1)
-        let cell = try cursorSent()
-        XCTAssertFalse(cell === line)
-        XCTAssertTrue(cell is UIAccessibilityContainerDataTableCell)
-        XCTAssertEqual(cell.accessibilityLabel, "Entry")
-        let table = try XCTUnwrap(try elements(of: view).first as? UIAccessibilityContainerDataTable & UIAccessibilityElement)
-        XCTAssertTrue(table.accessibilityElements?.first as? UIAccessibilityElement === cell, "the table's first cell")
-        XCTAssertFalse(try elements(of: view).contains { $0 === line })
-        XCTAssertEqual(view.index(ofAccessibilityElement: line), NSNotFound, "the line is one of the page before")
-        XCTAssertEqual(line.accessibilityLabel?.trimmingCharacters(in: .newlines), "Plain opening words.", "and is what it was")
+        // Each page with no cursor in the text: its items are new, and nothing is posted.
+        var fresh: [[Answers]] = [], sections: [Int] = []
+        while true {
+            let section = try XCTUnwrap(canvas.visibleRange?.start.section)
+            fresh.append(try items(of: view).map(answers))
+            sections.append(section)
+            if section == closing { break }
+            try await page("unturned page \(fresh.count)") { XCTAssertNotEqual(canvas.turnPage(forward: true), .atBoundary) }
+        }
+        XCTAssertTrue(posts.isEmpty)
+        let ledger = sections.indices.filter { sections[$0] == 4 }
+        XCTAssertGreaterThan(ledger.count, 2, "the long table must take three pages for a turn from cell to cell inside it")
+        XCTAssertEqual(sections.filter { $0 != 4 }, [0, 1, 2, 3, 5], "every other section is one page")
+        // What each page opens with: lines, then a cell of each kind, the long table's pages, lines.
+        let opens = fresh.map { $0[0] }
+        XCTAssertEqual(opens.map { $0.rows != nil }, [false, true, true, true] + ledger.map { _ in true } + [false])
+        XCTAssertEqual(opens.prefix(4).map(\.label), ["Plain opening words.\n", "Station", "Jump cell", nil])
+        XCTAssertEqual(opens[4].label, "Entry")
+        XCTAssertEqual(opens.last?.label, "Plain closing words.\n")
+        let turns = ["Next Page", "Previous Page"]
+        XCTAssertEqual(opens.prefix(5).map(\.actions), [
+            turns, turns + ["Select Cell Text"], turns + ["Select Cell Text", "Follow Link: Jump cell"], turns + ["Inspect Image"],
+            turns + ["Select Cell Text"]])
+        XCTAssertEqual(opens.prefix(4).map(\.traits), [.staticText, .staticText, .link, [.staticText, .image]])
+        for (index, place) in ledger.enumerated().dropFirst() {
+            XCTAssertEqual(opens[place].columns, NSRange(location: 0, length: 1), "page \(place)")
+            XCTAssertGreaterThan(try XCTUnwrap(opens[place].rows).location, try XCTUnwrap(opens[ledger[index - 1]].rows).location,
+                                 "page \(place) goes on below the rows of the page before")
+            XCTAssertEqual(opens[place].headers, ["Entry"], "page \(place): the column's header by name, from a row that is not on it")
+            XCTAssertTrue(opens[place].label?.hasPrefix("Entry ") == true, "page \(place)")
+        }
+        canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        try await reader.wait("the first page") { canvas.visibleRange?.start.section == 0 }
+        XCTAssertTrue(posts.isEmpty)
 
-        // From the cell to a page of lines: the cursor is sent to the first line, a new element.
-        focus(cell, from: line)
-        try perform("Next Page", on: cell)
-        try await shown(2)
-        let next = try cursorSent()
-        XCTAssertFalse(next === cell)
-        XCTAssertFalse(next is UIAccessibilityContainerDataTableCell)
-        XCTAssertTrue(try elements(of: view)[0] === next)
-        XCTAssertEqual(next.accessibilityLabel?.trimmingCharacters(in: .newlines), "Plain closing words.")
-        XCTAssertEqual(cell.accessibilityLabel, "Entry", "the cell is what it was")
+        // The cursor on the first page's second line. From there each page is turned by the
+        // action of the element the cursor is on, and the cursor follows as VoiceOver's does:
+        // it stays on the element it is given back, and goes to one it is given anew.
+        var cursor = try elements(of: view)[1], place = 0, stood = 0, given = 0
+        XCTAssertEqual(answers(cursor), fresh[0][1])
+        XCTAssertEqual(answersAsCell(cursor), [false, false, false], "a line is no cell")
+        focus(cursor)
+        func turn(to next: Int) async throws {
+            let left = answers(cursor), wasCell = left.rows != nil, isCell = opens[next].rows != nil
+            try await page("page \(next)") { try perform(next > place ? "Next Page" : "Previous Page", on: cursor) }
+            place = next
+            let sent = try cursorSent()
+            let listed = try items(of: view)
+            XCTAssertTrue(listed[0] === sent, "page \(place): VoiceOver is given the page's first item")
+            XCTAssertEqual(listed.map(answers), fresh[place], "page \(place)")
+            if wasCell && isCell {
+                XCTAssertFalse(sent === cursor, "page \(place): from a cell to a cell, the new cell's own element")
+                XCTAssertFalse(listed.contains { $0 === cursor }, "page \(place)")
+                XCTAssertEqual(answers(cursor).label, left.label, "page \(place): the cell left is what it was")
+                XCTAssertEqual(answers(cursor).rows, left.rows, "page \(place)")
+                XCTAssertEqual(answersAsCell(cursor), [true, true, true], "page \(place)")
+                focus(sent, from: cursor)
+                cursor = sent
+                given += 1
+            } else {
+                XCTAssertTrue(sent === cursor, "page \(place): the element under the cursor, which was \(wasCell ? "a cell" : "a line")")
+                stood += 1
+            }
+            XCTAssertFalse(view.accessibilityCursorHasLeftThePage, "page \(place)")
+            XCTAssertEqual(answersAsCell(cursor), [isCell, isCell, isCell], "page \(place)")
+            XCTAssertEqual(cursor is UIAccessibilityContainerDataTableCell, isCell, "page \(place)")
+            guard isCell else {
+                XCTAssertTrue(cursor.accessibilityContainer as? ReaderTextView === view, "page \(place)")
+                XCTAssertEqual(view.index(ofAccessibilityElement: cursor), 0, "page \(place)")
+                return
+            }
+            let table = try XCTUnwrap(try elements(of: view).first as? UIAccessibilityElement & UIAccessibilityContainerDataTable, "page \(place)")
+            XCTAssertTrue(cursor.accessibilityContainer as? UIAccessibilityElement === table, "page \(place): it is in the table shown")
+            XCTAssertEqual(table.index(ofAccessibilityElement: cursor), 0, "page \(place)")
+            XCTAssertTrue(table.accessibilityElement(at: 0) as? UIAccessibilityElement === cursor, "page \(place)")
+            XCTAssertEqual(view.index(ofAccessibilityElement: cursor), NSNotFound, "page \(place): a cell is in its table's list")
+            let rows = try XCTUnwrap(opens[place].rows), columns = try XCTUnwrap(opens[place].columns)
+            XCTAssertTrue(table.accessibilityDataTableCellElement(forRow: rows.location, column: columns.location) as? UIAccessibilityElement === cursor,
+                          "page \(place): the table finds it by its row and column")
+            XCTAssertEqual(table.accessibilityElements?.count, fresh[place].filter { $0.rows != nil }.count, "page \(place): every cell once")
+            // What its actions do is the cell's too: of plain cells, each selects its own words.
+            switch sections[place] {
+            case 2: break // A cell that is a link is followed, below: that leaves the page.
+            case 3:
+                XCTAssertNil(canvas.imageInspector)
+                XCTAssertTrue(cursor.accessibilityActivate(), "a cell of one picture is inspected")
+                XCTAssertNotNil(canvas.imageInspector)
+                canvas.imageInspector?.close()
+            default:
+                XCTAssertFalse(cursor.accessibilityActivate(), "page \(place): a cell of plain words opens nothing")
+                let select = try XCTUnwrap(cursor.accessibilityCustomActions?.first { $0.name == "Select Cell Text" }, "page \(place)")
+                XCTAssertTrue(try XCTUnwrap(select.actionHandler)(select), "page \(place)")
+                let words = try XCTUnwrap(opens[place].label)
+                try await reader.wait("page \(place): the words of \(words) selected") { reader.session.selection?.text == words }
+                canvas.clearSelection()
+            }
+        }
+        for next in Array(1..<fresh.count) + Array((0..<(fresh.count - 1)).reversed()) { try await turn(to: next) }
+        XCTAssertTrue(posts.isEmpty)
+        XCTAssertEqual(answers(cursor), fresh[0][0], "back on the first page it is the first line")
+        // Into the first table and out of the last, each way: four times the element went with
+        // the page, a line that became a cell or a cell that became a line.
+        XCTAssertEqual(stood, 4)
+        XCTAssertEqual(given, 2 * (fresh.count - 3), "and from cell to cell it was given anew")
 
-        // From that line on, the element under the cursor follows the page again.
-        focus(next, from: cell)
-        try perform("Next Page", on: next)
-        try await shown(3)
-        XCTAssertTrue(try cursorSent() === next)
-        XCTAssertEqual(next.accessibilityLabel?.trimmingCharacters(in: .newlines), "The last words.")
-        XCTAssertTrue(try elements(of: view)[0] === next)
+        // The cell that is a link is two turns from the first page, the second from a cell,
+        // and activating it follows the link. The page that shows is turned under the cursor
+        // like any other, and the element, a cell until then, is the line of the link's
+        // target, and no cell.
+        for next in 1...2 { try await turn(to: next) }
+        posts.removeAll()
+        XCTAssertEqual(answers(cursor), fresh[2][0])
+        try await page("the link's target") { XCTAssertTrue(cursor.accessibilityActivate()) }
+        XCTAssertEqual(canvas.visibleRange?.start.section, 6)
+        XCTAssertTrue(try cursorSent() === cursor)
+        XCTAssertEqual(cursor.accessibilityLabel?.trimmingCharacters(in: .newlines), "Notes")
+        XCTAssertEqual(cursor.accessibilityTraits, [.staticText, .header])
+        XCTAssertEqual(answersAsCell(cursor), [false, false, false])
+        XCTAssertEqual(cursor.accessibilityCustomActions?.map(\.name), turns, "a heading that was a link's cell a page ago offers the turns alone")
+        XCTAssertFalse(cursor.accessibilityActivate(), "and follows nothing")
+        XCTAssertEqual(canvas.visibleRange?.start.section, 6)
+        XCTAssertTrue(posts.isEmpty)
+    }
+
+    /// On an iPad's spread the element goes with the page into the other column. A cell of
+    /// the right-hand page that ends the long table becomes the first line of the next
+    /// chapter, in the left-hand column, and from that line Previous Page makes it the first
+    /// cell of the spread before: it answers for its place on the screen through the column
+    /// it is in now. From a cell to the first cell of the next spread VoiceOver is given that
+    /// cell's own element.
+    func testACellAndALineStandForEachOtherAcrossASpread() async throws {
+        let reader = try SessionCoverageReader(publication: try Self.cells())
+        readers.append(reader)
+        reader.window?.resize(to: CGSize(width: 1100, height: 520))
+        try await reader.settle()
+        let canvas = try XCTUnwrap(reader.session.canvas)
+        canvas.postAccessibilityNotification = { [weak self] in self?.posts.append(($0, $1)) }
+        canvas.show(ReaderTextPosition(section: 4, offset: 0), selecting: nil)
+        try await reader.wait("the long table") { canvas.visibleRange?.start.section == 4 }
+        let columns = canvas.textViews.filter { !$0.isHidden }
+        XCTAssertEqual(columns.count, 2)
+        func spread(_ label: String, after turn: () throws -> Void) async throws {
+            let from = canvas.visibleRange?.start
+            try turn()
+            try await reader.wait(label) { canvas.visibleRange?.start != from }
+        }
+        func rows(_ element: UIAccessibilityElement) -> Int? { (element as? UIAccessibilityContainerDataTableCell)?.accessibilityRowRange().location }
+
+        // From a cell of the right-hand page to the first cell of the next spread: a new element.
+        var cursor = try XCTUnwrap(try items(of: columns[1]).dropFirst(3).first)
+        XCTAssertEqual(answersAsCell(cursor), [true, true, true], "the right-hand page holds rows of the table")
+        let before = try XCTUnwrap(rows(cursor))
+        focus(cursor)
+        try await spread("the next spread") { try perform("Next Page", on: cursor) }
+        var sent = try cursorSent()
+        XCTAssertFalse(sent === cursor)
+        XCTAssertTrue(try items(of: columns[0])[0] === sent, "the first cell of the left-hand page")
+        XCTAssertGreaterThan(try XCTUnwrap(rows(sent)), before)
+        focus(sent, from: cursor)
+        cursor = sent
+
+        // On to the spread that ends the table, and from a cell of its last page into the next chapter.
+        func shown() throws -> [UIAccessibilityElement] { try columns.filter { !$0.isHidden }.flatMap { try self.items(of: $0) } }
+        var spreads = 0
+        while try !shown().contains(where: { $0.accessibilityLabel?.hasPrefix("Words under the ledger.") == true }), spreads < 40 {
+            try await spread("a later spread") { try perform("Next Page", on: cursor) }
+            sent = try cursorSent()
+            XCTAssertFalse(sent === cursor, "from cell to cell")
+            focus(sent, from: cursor)
+            cursor = sent
+            spreads += 1
+        }
+        let cell = try XCTUnwrap(try shown().last { self.answersAsCell($0) == [true, true, true] }, "the table's last cell")
+        XCTAssertEqual(cell.accessibilityLabel, "Sum 60")
+        focus(cell, from: cursor)
+        try await spread("the next chapter") { try perform("Next Page", on: cell) }
+        XCTAssertEqual(canvas.visibleRange?.start.section, 5)
+        XCTAssertTrue(try cursorSent() === cell, "the element under the cursor")
+        XCTAssertTrue(try elements(of: columns[0])[0] === cell, "which is the left-hand page's first line")
+        XCTAssertTrue(cell.accessibilityContainer as? ReaderTextView === columns[0])
+        XCTAssertEqual(cell.accessibilityLabel, "Plain closing words.\n")
+        XCTAssertEqual(answersAsCell(cell), [false, false, false])
+        // A line's place on the screen is UIKit's to work out, from its place in its column.
+        XCTAssertTrue(columns[0].bounds.insetBy(dx: -0.5, dy: -0.5).contains(cell.accessibilityFrameInContainerSpace))
+        for column in columns { XCTAssertFalse(column.accessibilityCursorHasLeftThePage) }
+
+        // Back: the line becomes the first cell of the spread before, in the left-hand column's table.
+        try await spread("the table's last spread") { try perform("Previous Page", on: cell) }
+        XCTAssertEqual(canvas.visibleRange?.start.section, 4)
+        XCTAssertTrue(try cursorSent() === cell)
+        let left = try items(of: columns[0])
+        XCTAssertTrue(left[0] === cell, "the first cell of the left-hand page")
+        XCTAssertEqual(answersAsCell(cell), [true, true, true])
+        XCTAssertTrue(cell.accessibilityLabel?.hasPrefix("Entry ") == true)
+        let table = try XCTUnwrap(try elements(of: columns[0]).first as? UIAccessibilityElement & UIAccessibilityContainerDataTable)
+        XCTAssertTrue(cell.accessibilityContainer as? UIAccessibilityElement === table)
+        XCTAssertTrue(table.accessibilityDataTableCellElement(forRow: try XCTUnwrap(rows(cell)), column: 0) as? UIAccessibilityElement === cell)
+        XCTAssertEqual(cell.accessibilityFrame, UIAccessibility.convertToScreenCoordinates(cell.accessibilityFrameInContainerSpace, in: columns[0]),
+                       "a cell's place on the screen is its column's, whatever holds it")
+        XCTAssertTrue(columns[0].bounds.insetBy(dx: -0.5, dy: -0.5).contains(cell.accessibilityFrameInContainerSpace))
+        XCTAssertTrue(table.accessibilityElement(at: 1) as? UIAccessibilityElement === left[1], "its neighbour is the cell beside it")
+        XCTAssertTrue(left[1].accessibilityLabel?.hasPrefix("Sum ") == true)
+        for column in columns { XCTAssertFalse(column.accessibilityCursorHasLeftThePage) }
     }
 }
 #endif
