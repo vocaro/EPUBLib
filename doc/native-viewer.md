@@ -421,7 +421,9 @@ as they did.
   put it, so one placed by a click or by VoiceOver, which scrolls the view as it reads, stays.
   A selection is never moved, and nothing is scrolled. Each such move also posts a layout
   change naming the text view: without it VoiceOver, back in a text it had left, returns to
-  its own previous cursor and scrolls the view there.
+  its own previous cursor and scrolls the view there. The window posts this one. That is not
+  enough for a spread's columns (Pages, below) and was heard to be enough here
+  ([#373](https://github.com/vocaro/EPUBLib/issues/373)).
   On iOS, VoiceOver walks a text view's accessibility elements and, moving in from a control,
   takes the first. UIKit's own are every paragraph of the book, so it took the book's first
   paragraph and scrolled the reader back to it. The scroll view lists its lines instead, as a
@@ -460,7 +462,15 @@ as they did.
   layout change is posted by the element that holds the columns, the canvas's nearest
   accessibility ancestor. Posted by the window, it left VoiceOver the text cursor it keeps in
   a column it has left: after a page turn VoiceOver came back to the column at the offset it
-  had on the page before ([#337](https://github.com/vocaro/EPUBLib/issues/337)). The
+  had on the page before ([#337](https://github.com/vocaro/EPUBLib/issues/337)). The canvas
+  is reached only through `EPUBReaderView`, and SwiftUI's hosting view makes a group of a
+  window's content, so there is such an element in every host; were there none, the window
+  would post and VoiceOver would keep its cursor. It was heard with the page controls beside
+  the columns and in the window's toolbar. A VoiceOver cursor resting on that element itself
+  moves into one of the columns, as a rule the left, when a spread is installed. Whether
+  VoiceOver also gives up a cursor it keeps in another text area of the same group was not
+  heard
+  ([#373](https://github.com/vocaro/EPUBLib/issues/373)). The
   insertion point after a page's last character, and an offset an assistive client kept from
   a longer page, are on its last line.
   UIKit exposes visible line/run accessibility children with links, attachment labels and
