@@ -183,6 +183,17 @@ reads on through a table of seventy rows and back, finding each next stop as UIK
 the cell's container and then in the text view, and then moves down a column row by row; the
 other rests the cursor in a table and scrolls away. Neither drives VoiceOver.
 
+Accessibility action tests hold each item of a page and of a screen on iPhone and iPad to
+offering its own actions and no more: a line, a heading and a link their page turns in pages
+and nothing in continuous scroll, an image also its own inspection, and a table row also what
+its cells can do. They read an item's actions and then those of every view above it, as
+VoiceOver gathers them, in a reader mounted in the public SwiftUI view, and perform each one.
+They give the text view an action through its setter and hold it to passing none on while it
+lists lines, and a note's text view to passing it on. A line's page turn is held to turning
+the page while text is selected and to failing at either end of the book. SwiftUI builds no
+accessibility elements in a test host, so that the reader view names no page action on iPhone
+and iPad is known only from speech sessions too.
+
 Heading tests cover which characters the builder marks as a heading and at what level: `h1`
 to `h6`, `role="heading"` with and without `aria-level`, a role that takes a heading away, a
 heading run in with its paragraph, hidden headings and hidden words inside a shown one. They

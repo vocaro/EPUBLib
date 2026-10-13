@@ -220,7 +220,9 @@ Apply `epubReaderPageControls(_:)` to the retained `EPUBReaderView` for the bund
 reader. `EPUBPageControls()` keeps existing behavior: 56-point edge zones, iOS horizontal
 swipes, Mac wheel/trackpad turns, and Left/Page Up previous, Right/Page Down/Space next,
 Shift-Space previous. `.hostOnly` disables all direct page input; buttons can still send
-`.nextPage` / `.previousPage`, and VoiceOver page actions remain available.
+`.nextPage` / `.previousPage`, and VoiceOver page actions remain available. On Mac VoiceOver
+is offered no page action ([native viewer](native-viewer.md#input-and-accessibility)), so a
+host that uses `.hostOnly` there gives a listener buttons.
 
 <!-- snippet:pageControls -->
 ```swift

@@ -266,7 +266,8 @@ import UIKit
         let links = try XCTUnwrap(cells.first { $0.accessibilityLabel?.contains("Outside link") == true })
         XCTAssertTrue(links.accessibilityCustomActions?.contains { $0.name == "Follow Link: Outside link" } == true)
         XCTAssertFalse(listed.contains { $0.accessibilityCustomActions?.contains { $0.name.contains("Table") } == true })
-        XCTAssertFalse(view.accessibilityCustomActions?.contains { $0.name.contains("Table") || $0.name.contains("Cell") } == true)
+        // VoiceOver would offer on every item whatever the text view around them offered.
+        XCTAssertNil(view.accessibilityCustomActions)
         #endif
         canvas.clearSelection()
         let select = try XCTUnwrap(controller.accessibilityActionsOfEveryRow().first { $0.name.contains("Select Table Text: Alpha") })
