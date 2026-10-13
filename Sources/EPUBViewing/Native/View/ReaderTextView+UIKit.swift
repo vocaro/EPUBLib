@@ -31,7 +31,8 @@ final class ReaderTextView: UITextView {
     /// line is told so until UIKit's focus notification names something that is not one of
     /// this column's lines. VoiceOver goes on holding the element when the page is turned
     /// under it, so this is then a line the column no longer lists
-    /// (`accessibilityCursorHasLeftThePage`).
+    /// (`accessibilityCursorHasLeftThePage`), until the element is made a line of the page
+    /// shown (`accessibilityCursorStands(for:)`).
     private var pageAccessibilityCursor: ReaderPageAccessibilityElement?
     /// The elements that stand in the list for the scroll view's own bars (`scrollBarListed`).
     private var scrollBarElements: [ReaderScrollBarAccessibilityElement] = []
@@ -233,6 +234,29 @@ final class ReaderTextView: UITextView {
     func accessibilityLine(from location: Int) -> Any? {
         guard listsLines else { return nil }
         return lineAccessibilityElements.first { NSMaxRange($0.range) > location }
+    }
+
+    /// Has the element an assistive technology's cursor was left on in this column stand for
+    /// `line`, a line of the page now shown, here or in another column, and gives it that
+    /// line's place in the list. The answer is the element the cursor is on: that one, or
+    /// `line` where no cursor was left. VoiceOver keeps what was chosen in its rotor while
+    /// its cursor stays on one item, as a line's Next Page, and on coming to another item
+    /// its rotor is at its default. A data table's cell is an element of another kind, inside
+    /// its table's: it becomes no line and no line becomes one, so from a cell or to one the
+    /// answer is `line`.
+    func accessibilityCursorStands(for line: Any?) -> Any? {
+        guard let line = line as? ReaderPageAccessibilityElement, let cursor = pageAccessibilityCursor, cursor !== line,
+              !(cursor is ReaderTableCellAccessibilityElement), !(line is ReaderTableCellAccessibilityElement),
+              let view = line.view, var list = view.pageAccessibilityCache,
+              let index = list.elements.firstIndex(where: { $0 === line }),
+              let place = list.listed.firstIndex(where: { $0 === line }) else { return line }
+        cursor.stand(for: line)
+        list.elements[index] = cursor
+        list.listed[place] = cursor
+        view.pageAccessibilityCache = list
+        pageAccessibilityCursor = nil
+        view.pageAccessibilityCursor = cursor
+        return cursor
     }
 
     // VoiceOver's own Headings rotor moves among the elements it is given, and a page or a
@@ -826,8 +850,8 @@ private struct ReaderAccessibilityList {
 /// this label rather than the native text view's longer paragraph storage.
 @MainActor private class ReaderPageAccessibilityElement: UIAccessibilityElement {
     weak var view: ReaderTextView?
-    let range: NSRange
-    let url: URL?
+    private(set) var range: NSRange
+    private(set) var url: URL?
     /// Where the element's first character is in the book. It holds when the page the element
     /// was on has been turned, which is when VoiceOver asks the Headings rotor about it again.
     var position: ReaderTextPosition?
@@ -847,6 +871,26 @@ private struct ReaderAccessibilityList {
         self.url = url
         super.init(accessibilityContainer: view)
         isAccessibilityElement = true
+    }
+
+    /// Becomes `line`, an element made for a line of the page now shown: its characters, its
+    /// words, where it stands, what it is and so what it offers. Nothing of the line this
+    /// element stood for is kept.
+    func stand(for line: ReaderPageAccessibilityElement) {
+        view = line.view
+        accessibilityContainer = line.accessibilityContainer
+        range = line.range
+        url = line.url
+        position = line.position
+        image = line.image
+        // A heading's level is in its attributed label, which is set after the label, as for
+        // a new element, and is not left on an element that was a heading.
+        accessibilityAttributedLabel = nil
+        accessibilityLabel = line.accessibilityLabel
+        if let label = line.accessibilityAttributedLabel { accessibilityAttributedLabel = label }
+        accessibilityTraits = line.accessibilityTraits
+        accessibilityLanguage = line.accessibilityLanguage
+        accessibilityFrameInContainerSpace = line.accessibilityFrameInContainerSpace
     }
 
     override func accessibilityActivate() -> Bool {

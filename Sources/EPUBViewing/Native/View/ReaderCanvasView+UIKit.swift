@@ -311,18 +311,23 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         return true
     }
 
-    /// Sends an assistive technology's cursor to the page now shown, when the line it was on
-    /// is no longer there. VoiceOver keeps its cursor on the element it was given, and a line
+    /// Keeps an assistive technology's cursor in the text when the line it was on is no longer
+    /// on the page shown. VoiceOver keeps its cursor on the element it was given, and a line
     /// of a page that has been turned is no element of the page shown: the cursor stayed drawn
     /// where the line had stood, and the next move went by that element, out of the text to
     /// whatever follows the reader, or to the middle of the new page (`index(ofAccessibilityElement:)`).
-    /// So VoiceOver is told the layout changed and given the line that holds `position`, the
-    /// position shown: the page's first line after a page turn, and the line of a link's
-    /// target after a link. It reads that line and goes on from it. A cursor that is not in
-    /// the text, as on a host's page button, is left where it is, and so is one whose line is
-    /// still on the page.
+    /// So the element VoiceOver holds becomes the line that holds `position`, the position
+    /// shown: the page's first line after a page turn, and the line of a link's target after
+    /// a link (`ReaderTextView.accessibilityCursorStands(for:)`). VoiceOver is told the layout
+    /// changed and given that element. It reads the line, draws its cursor there and goes on
+    /// from it, and its cursor has not changed item, so what was chosen in its rotor still
+    /// stands: a second double tap turns the page again. Given a new element for that line it
+    /// read the same and its rotor was back at its default (iPadOS 27.2), and so it is still
+    /// from a data table's cell or to one, which no line's element can become. A cursor that
+    /// is not in the text, as on a host's page button, is left where it is, and so is one
+    /// whose line is still on the page.
     func accessibilityCursorFollowsThePage(to position: ReaderTextPosition?) {
-        guard !accessibilityCursorIsHeld, columns.contains(where: \.accessibilityCursorHasLeftThePage) else { return }
+        guard !accessibilityCursorIsHeld, let left = columns.first(where: \.accessibilityCursorHasLeftThePage) else { return }
         let shown = columns.filter { !$0.isHidden }
         var line: Any?, found = false
         for view in shown where line == nil {
@@ -332,7 +337,8 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
                 line = view.accessibilityLine(from: local.location)
             }
         }
-        postAccessibilityNotification(.layoutChanged, line ?? shown.lazy.compactMap { $0.accessibilityLine(from: 0) }.first)
+        line = line ?? shown.lazy.compactMap { $0.accessibilityLine(from: 0) }.first
+        postAccessibilityNotification(.layoutChanged, left.accessibilityCursorStands(for: line))
     }
 
     /// Shows `position` for VoiceOver's rotor, which takes the cursor to the item it is given.
