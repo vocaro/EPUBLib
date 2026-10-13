@@ -30,6 +30,10 @@ typealias TableNativeTextView = UITextView
     private var actionTitle: String?
     private var menuImage: ReaderImageAttachment?
     private var highlightedCharacters: [NSRange] = []
+    #if os(macOS)
+    /// The accessibility elements of the cell's links (`ReaderTextLinks+AppKit.swift`).
+    var linkElements = ReaderLinkElements()
+    #endif
     #if os(iOS)
     private var spreadSelectionDelegate: ReaderSpreadSelectionGestureDelegate?
     var copyTextToPasteboard: (String) -> Void = { UIPasteboard.general.string = $0 }
@@ -258,7 +262,14 @@ typealias TableNativeTextView = UITextView
             let relative = NSRange(location: characters.location - full.location, length: characters.length)
             result.addAttribute(.accessibilityAttachment, value: element, range: relative)
         }
+        addAccessibilityLinks(accessibilityLinks(in: full), to: result, of: full)
         return result
+    }
+
+    /// AppKit lists a text view's links as its children and nothing else: the reader's own
+    /// elements take their place, as in the text around the table.
+    override func accessibilityChildren() -> [Any]? {
+        (super.accessibilityChildren() ?? []).filter { $0 is NSView } + linkChildren()
     }
 
     override func accessibilitySelectedText() -> String? { cellText.readerPlainText(in: NSIntersectionRange(cellSelection, shownCharacters)) }
@@ -382,6 +393,43 @@ typealias TableNativeTextView = UITextView
 }
 
 #if os(macOS)
+// A cell's links for an assistive client are the reader's own elements, as a column's are:
+// each named by what it says, never by an attachment's character, with a place and a press.
+// Their ranges are the cell's whole text's; the cell gives its characters from the first one
+// it shows, and the accessibility string is asked for the same way.
+extension TableCellTextView: ReaderLinkHost {
+    var linkText: NSAttributedString? { cellText }
+    var linkCharacters: NSRange { shownCharacters }
+    var visibleLinkCharacters: NSRange { shownCharacters }
+
+    /// The cell's pictures that an assistive client is told of: all but the decoration it
+    /// passes over. Decoration that is all its link holds is the link, and stays.
+    func announcedImages(in range: NSRange?) -> [(image: ReaderImageAttachment, range: NSRange)] {
+        var images: [(ReaderImageAttachment, NSRange)] = []
+        cellText.enumerateAttribute(.attachment, in: NSIntersectionRange(range ?? shownCharacters, shownCharacters)) { value, run, _ in
+            if let image = value as? ReaderImageAttachment, !cellText.passesOver(image, at: run) { images.append((image, run)) }
+        }
+        return images
+    }
+
+    func linkBounds(_ range: NSRange) -> CGRect {
+        guard let container = cellManager.textContainers.first else { return .zero }
+        let glyphs = cellManager.glyphRange(forCharacterRange: NSIntersectionRange(range, shownCharacters), actualCharacterRange: nil)
+        return cellManager.boundingRect(forGlyphRange: glyphs, in: container)
+            .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+    }
+
+    func followLink(_ url: URL, at range: NSRange) -> Bool {
+        onLink?(url, range)
+        return onLink != nil
+    }
+
+    func inspectLinkedImage(_ image: ReaderImageAttachment) -> Bool {
+        onImage?(image)
+        return onImage != nil
+    }
+}
+
 extension TableCellTextView: NSTextViewDelegate {
     func textViewDidChangeSelection(_ notification: Notification) { changedSelection() }
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {

@@ -18,6 +18,9 @@ import AppKit
 // VoiceOver announces an element given as a character's attachment as it reads, so there it
 // says "hyperlink" and the name by word, by line and in Read All. It announces none at a
 // character of words, so a link of words alone is still read as its words.
+//
+// A table cell is a text view of its own (`TableCellTextView`), which VoiceOver reads once it
+// interacts with the cell's row and then with the cell. It gives its links the same way.
 
 /// The accessibility elements of a text view's links, kept while its text is.
 struct ReaderLinkElements {
@@ -27,23 +30,38 @@ struct ReaderLinkElements {
     var attachments: [Int: ReaderLinkAccessibilityElement] = [:]
 }
 
-extension ReaderTextView {
-    /// The characters an assistive client is given: a page column's own page, or all the text.
-    private var exposedCharacters: NSRange {
-        isPageColumn ? shownCharacters : NSRange(location: 0, length: textLength)
-    }
+/// A text view that gives an assistive client the reader's own elements for its links: a page
+/// column, the continuous-scroll view, or a table cell.
+@MainActor protocol ReaderLinkHost: NSView, Sendable {
+    /// The text the links are in, or none where a link does nothing: a note's popover.
+    var linkText: NSAttributedString? { get }
+    /// The characters of it an assistive client is given.
+    var linkCharacters: NSRange { get }
+    /// The characters on screen, whose links Find Next Link moves through.
+    var visibleLinkCharacters: NSRange { get }
+    var linkElements: ReaderLinkElements { get set }
+    /// The images of `range` that an assistive client is told of.
+    func announcedImages(in range: NSRange?) -> [(image: ReaderImageAttachment, range: NSRange)]
+    /// Where the characters of `range` are, in this view's coordinates. A hidden label has a
+    /// place and no size.
+    func linkBounds(_ range: NSRange) -> CGRect
+    /// Follows the link at `range`. False where nothing takes it.
+    func followLink(_ url: URL, at range: NSRange) -> Bool
+    /// Enlarges a picture that stands in a link. False where nothing takes it.
+    func inspectLinkedImage(_ image: ReaderImageAttachment) -> Bool
+}
 
+extension ReaderLinkHost {
     /// Each link that has characters in `range`, whole: a link ends where its target changes
-    /// and, in a page column, where the page does. A note's popover has none: its links do
-    /// nothing.
+    /// and where the characters given do, at a page's end or a cell's last line on the page.
     func accessibilityLinks(in range: NSRange) -> [(url: URL, range: NSRange)] {
-        guard canvas != nil, let storage = contentStorage.textStorage else { return [] }
-        let exposed = exposedCharacters
+        guard let text = linkText else { return [] }
+        let exposed = NSIntersectionRange(linkCharacters, NSRange(location: 0, length: text.length))
         var result: [(URL, NSRange)] = []
-        storage.enumerateAttribute(.link, in: NSIntersectionRange(range, exposed)) { value, run, _ in
+        text.enumerateAttribute(.link, in: NSIntersectionRange(range, exposed)) { value, run, _ in
             guard let url = value as? URL ?? (value as? String).flatMap(URL.init(string:)) else { return }
             var whole = run
-            _ = storage.attribute(.link, at: run.location, longestEffectiveRange: &whole, in: exposed)
+            _ = text.attribute(.link, at: run.location, longestEffectiveRange: &whole, in: exposed)
             result.append((url, whole))
         }
         return result
@@ -52,7 +70,7 @@ extension ReaderTextView {
     /// Gives `result`, the accessibility string of `range`, the reader's element for each link
     /// in place of AppKit's, and for each attachment in a link an element that is a link.
     func addAccessibilityLinks(_ links: [(url: URL, range: NSRange)], to result: NSMutableAttributedString, of range: NSRange) {
-        guard let storage = contentStorage.textStorage else { return }
+        guard let text = linkText else { return }
         func local(_ part: NSRange) -> NSRange? {
             let part = NSIntersectionRange(part, range)
             let local = NSRange(location: part.location - range.location, length: part.length)
@@ -61,7 +79,7 @@ extension ReaderTextView {
         for (url, whole) in links {
             guard let part = local(whole) else { continue }
             result.addAttribute(.accessibilityLink, value: linkElement(for: url, at: whole), range: part)
-            storage.enumerateAttribute(.attachment, in: NSIntersectionRange(whole, range)) { value, run, _ in
+            text.enumerateAttribute(.attachment, in: NSIntersectionRange(whole, range)) { value, run, _ in
                 // A table row is a group of its cells, whatever link it stands in.
                 guard value != nil, !(value is TableRowAttachment), let part = local(run),
                       let element = linkElement(forAttachmentAt: run, of: url, at: whole) else { return }
@@ -95,10 +113,10 @@ extension ReaderTextView {
 
     /// Whether `range` has characters of its own to read, beside its attachments.
     private func hasWords(_ range: NSRange) -> Bool {
-        guard let storage = contentStorage.textStorage else { return false }
+        guard let text = linkText else { return false }
         var found = false
-        storage.enumerateAttribute(.attachment, in: NSIntersectionRange(range, NSRange(location: 0, length: storage.length))) { value, run, stop in
-            if value == nil, !(storage.string as NSString).substring(with: run).allSatisfy(\.isWhitespace) {
+        text.enumerateAttribute(.attachment, in: NSIntersectionRange(range, NSRange(location: 0, length: text.length))) { value, run, stop in
+            if value == nil, !(text.string as NSString).substring(with: run).allSatisfy(\.isWhitespace) {
                 found = true
                 stop.pointee = true
             }
@@ -115,8 +133,7 @@ extension ReaderTextView {
         // A picture in a link is followed, not enlarged, by a press: inspection stays an action.
         element.setAccessibilityCustomActions(announcedImages(in: range).map { image, _ in
             NSAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") { [weak self] in
-                self?.canvas?.inspectImage(image)
-                return self?.canvas != nil
+                self?.inspectLinkedImage(image) ?? false
             }
         })
     }
@@ -126,12 +143,14 @@ extension ReaderTextView {
     /// else is said to be a picture, in the system's own word for one, after any words the
     /// pictures have: an element that is a link cannot be an image as well.
     func linkTitle(_ range: NSRange) -> String {
-        let words = plainText(in: range).split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        guard let storage = contentStorage.textStorage, !announcedImages(in: range).isEmpty else { return words }
+        guard let text = linkText else { return "" }
+        let range = NSIntersectionRange(range, NSRange(location: 0, length: text.length))
+        let words = text.readerPlainText(in: range).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard !announcedImages(in: range).isEmpty else { return words }
         var picturesOnly = true
-        storage.enumerateAttribute(.attachment, in: NSIntersectionRange(range, NSRange(location: 0, length: storage.length))) { value, run, stop in
+        text.enumerateAttribute(.attachment, in: range) { value, run, stop in
             if value is ReaderImageAttachment { return }
-            if value != nil || !(storage.string as NSString).substring(with: run).allSatisfy(\.isWhitespace) {
+            if value != nil || !(text.string as NSString).substring(with: run).allSatisfy(\.isWhitespace) {
                 picturesOnly = false
                 stop.pointee = true
             }
@@ -143,17 +162,42 @@ extension ReaderTextView {
     /// The links on screen, which VoiceOver's Find Next Link moves through, in place of
     /// AppKit's own.
     func linkChildren() -> [ReaderLinkAccessibilityElement] {
-        accessibilityLinks(in: accessibilityVisibleCharacterRange()).map { linkElement(for: $0.url, at: $0.range) }
+        accessibilityLinks(in: visibleLinkCharacters).map { linkElement(for: $0.url, at: $0.range) }
     }
 
     /// Where the characters of a link are, in this view's coordinates: at least a point, so
     /// that a hidden label, which takes no room, still has a place for VoiceOver's cursor.
     fileprivate func linkFrame(_ range: NSRange) -> CGRect {
+        var frame = linkBounds(range)
+        frame.size = CGSize(width: max(frame.width, 1), height: max(frame.height, 1))
+        return frame
+    }
+}
+
+extension ReaderTextView: ReaderLinkHost {
+    var linkText: NSAttributedString? { canvas == nil ? nil : contentStorage.textStorage }
+
+    /// A page column's own page, or all the text.
+    var linkCharacters: NSRange { isPageColumn ? shownCharacters : NSRange(location: 0, length: textLength) }
+
+    var visibleLinkCharacters: NSRange { accessibilityVisibleCharacterRange() }
+
+    func linkBounds(_ range: NSRange) -> CGRect {
         var frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
         if frame.isNull { frame = lineFrame(containing: range.location) ?? .zero }
-        frame.size = CGSize(width: max(frame.width, 1), height: max(frame.height, 1))
         let origin = containerOrigin
         return frame.offsetBy(dx: origin.x, dy: origin.y)
+    }
+
+    func followLink(_ url: URL, at range: NSRange) -> Bool {
+        guard let canvas else { return false }
+        canvas.activateLink(url, range: range, in: self)
+        return true
+    }
+
+    func inspectLinkedImage(_ image: ReaderImageAttachment) -> Bool {
+        canvas?.inspectImage(image)
+        return canvas != nil
     }
 }
 
@@ -162,7 +206,7 @@ extension ReaderTextView {
 /// an attachment's element, what VoiceOver announces as it reads. Control-Option-Space
 /// presses it. It has AppKit's role for a link in text, which VoiceOver calls a hyperlink.
 final class ReaderLinkAccessibilityElement: NSAccessibilityElement {
-    weak var view: ReaderTextView?
+    weak var view: (any ReaderLinkHost)?
     /// The link's target in the reader's own scheme. Not given to assistive clients: nothing
     /// can open it.
     var url: URL?
@@ -191,11 +235,7 @@ final class ReaderLinkAccessibilityElement: NSAccessibilityElement {
     override func accessibilityPerformPress() -> Bool {
         guard let view, let url else { return false }
         let range = range
-        return MainActor.assumeIsolated {
-            guard let canvas = view.canvas else { return false }
-            canvas.activateLink(url, range: range, in: view)
-            return true
-        }
+        return MainActor.assumeIsolated { view.followLink(url, at: range) }
     }
 }
 #endif
