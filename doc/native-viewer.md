@@ -636,7 +636,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     in the rotor turn the page either way. A passage that runs through several cells of a
     row is one selection, and the row offers Copy and the host's action once.
   - **Not done.** A line outside a table offers no selection to VoiceOver, as before. On Mac
-    a cell's text area is VoiceOver's own to select in, and nothing here changes it.
+    a cell's text area is VoiceOver's own to select in and to use a selection from. A cell
+    of a table of data offers Select Cell Text there and none of the three above, and
+    does not offer it while its words are selected.
   - **Not shown.** A cell of a table of data in continuous scroll, on a device. In the
     section the sessions opened the book at, the cells had no text views, so their items
     had no actions, with this change and without it. That is a fault of its own and not
