@@ -50,6 +50,23 @@ what happened. Tests are run by automation.
   offer to operate it.
 - Record what automation cannot reach as not verified, and leave it to him.
 
+## Debuggers
+
+Do not launch a process under a debugger on this machine, or attach one: `lldb` with `run` or
+`process launch`, Xcode's debugger, `dtrace`, or `sample` on a process that is not yours.
+
+- Developer Mode is off here (`DevToolsSecurity -status`), so the launch asks for an
+  administrator's password. The dialog takes the keyboard from the owner and from every other
+  session, and only he may answer or dismiss it. On 2026-10-13 two sessions did it within a
+  quarter of an hour of each other, each to read how a system framework answers a call.
+- To read system code, use what starts no process. `dyld_info -disassemble` with a
+  framework's path under `/System/Library` prints its code under its method names, and
+  `lldb -b -o "target create BINARY" -o "disassemble -n 'METHOD'"`, with no `run`, prints one
+  method's. Neither names the selector a call goes to.
+- To see what the reader's own code is asked, log from it.
+- If the dialog was raised all the same, end your own processes, leave the dialog alone, and
+  tell the owner in your next message.
+
 ## The hosted runner
 
 GitHub's hosted Mac runner is for one thing in this repository: the

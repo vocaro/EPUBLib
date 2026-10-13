@@ -281,8 +281,11 @@ table's count and a header cell named from another page; a row taller than a pag
 words each page's table says once; continuous scroll, where a table holds every row, says
 which are on screen and labels a cell that has no text area yet; and a table kept from a
 page that has been turned, which says nothing of the new one. They read the elements through
-AppKit's own accessibility methods. That a client of the accessibility API is given each
-attribute, and what VoiceOver says, is recorded with the
+AppKit's own accessibility methods. The older informal ones (`accessibilityAttributeNames()`,
+`accessibilityAttributeValue(_:)`) do not show what a client is given: called on these
+elements in a test they listed five attributes, gave nil for every value, and the test
+process then ended with "freed pointer was not the last allocation". That a client of the
+accessibility API is given each attribute, and what VoiceOver says, is recorded with the
 [VoiceOver testing process](voiceover-testing.md#tables-on-mac).
 
 Table cell line tests on AppKit (`TableCellLineAccessibilityTests`) read the lines a cell's
