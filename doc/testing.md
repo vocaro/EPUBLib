@@ -15,7 +15,7 @@ sources, runs the Mac tests and the full test suite on dedicated iPhone 17 Pro a
 deleted on exit; existing devices are never selected or shut down. Agents working in the
 repository drive simulators the same way, headlessly ([notes for agents](../AGENTS.md)). iOS logs live in
 `.build/validation/`. `EPUB_SIM_RUNTIME` selects a different installed runtime by identifier.
-The Mac tests alone also run on a [hosted runner](#hosted-mac-tests), for a pull request and for `main`.
+The Mac tests and the two checks also run on a [hosted runner](#hosted-mac-tests), for a pull request and for `main`.
 
 For narrower checks:
 
@@ -57,13 +57,15 @@ xcrun xctest -XCTest All -AppleShowScrollBars WhenScrolling .build/debug/EPUBVie
 ## Hosted Mac tests
 
 The [Mac unit tests workflow](../.github/workflows/unit-tests-mac.yml) runs `swift test` on
-GitHub's hosted `xcode-27` runner. Nothing else runs on that machine, so a result does not
+GitHub's hosted `xcode-27` runner, under a stated kind of scroll bar, and then the gate's
+module and documentation checks. Nothing else runs on that machine, so a result does not
 depend on what other worktrees are building, and the standard runner costs nothing in this
 public repository. A run starts for a pull request, which is tested as merged into its base,
 for a push to `main`, and by hand:
 
 ```sh
 gh workflow run unit-tests-mac.yml --ref YOUR_BRANCH
+gh workflow run unit-tests-mac.yml --ref YOUR_BRANCH -f scroll_bars=both
 gh workflow run unit-tests-mac.yml --ref YOUR_BRANCH -f filter=ReaderCanvasViewTests -f repeat=20
 gh run list --workflow unit-tests-mac.yml --limit 3
 gh run watch RUN_ID --exit-status
@@ -81,6 +83,34 @@ The inputs, all optional:
 - `repeat`: the number of passes, 1 unless given. The tests are built once and run that many
   times, each pass a new process. It is for a test that fails now and then: the runner is the
   quiet machine that tells a test's own timing from a workstation's load.
+- `scroll_bars`: the [scroll bars](#local-gate) the tests run under: `legacy` unless given,
+  `overlay`, `both` for a job under each, or `automatic` for the runner's own setting.
+
+Each job runs under one kind of scroll bar, which its name gives: `swift test, legacy scroll
+bars`. A pull request's run has one job, under legacy ones, the kind that takes its width from
+the text. A push to `main` has two, one under each kind, and so has a run by hand with
+`scroll_bars=both`. The two are on runners of their own, so the second adds nothing to the
+time of a run once it has a runner, and about twelve minutes of a runner to its cost; a pull
+request has one job because every run in the repository waits for the same few runners. A
+failure that needs overlay scroll bars therefore shows first in the run for `main`, unless a
+run by hand asked for both before the merge.
+
+A job gets its kind from the runner's "Show scroll bars" setting, which it writes before it
+builds: `defaults write -g AppleShowScrollBars Always` for legacy ones and `WhenScrolling`
+for overlay ones. It does that only on GitHub's machine, which is discarded after the job,
+and stops on any other; never run it on a workstation, where the arguments
+[above](#local-gate) give one process either kind and change no setting. The job then starts
+a process that reads the kind as it starts and two seconds later, prints both
+(`Scroll bars: legacy as a process starts, legacy two seconds later`) and fails unless both
+are the job's kind. The tests say it too: `ScrolledAccessibilityReadTests` prints
+`Scroll bars this Mac prefers: legacy` in the log of a pass that runs it.
+
+Left alone, the runner is a Mac on the automatic setting with a pointing device, the virtual
+machine's `Virtual USB Digitizer`. A process there reads overlay when it first asks and
+legacy a second later, as on a Mac with a mouse. `scroll_bars=automatic` runs the tests so:
+the first test of a process to ask meets overlay scroll bars and the tests after it legacy
+ones. It is for a failure that needs the change itself. Every hosted run was like that before
+the jobs set a kind, and printed `Scroll bars: overlay`, having asked once.
 
 The job fails unless every pass exits 0, and no test is retried: a test that fails there
 failed on a machine doing nothing else. `gh run view RUN_ID` lists each failed assertion with
@@ -89,24 +119,42 @@ pass, `Pass 1 of 1: … tests, … failed, … skipped, … s, swift test exit �
 passes the failed tests with the number of passes each failed in; the run's summary page has
 the same as a table.
 
-A job has forty minutes. On 2026-10-12 the build took two minutes and a pass of every test ten
-and a half, thirteen minutes for the run: 2,494 tests, 2,443 of XCTest's and 51 of Swift
-Testing's, with 52 skipped, most of them the opt-in [corpus runs](#corpus-runs). Fifty passes
-of `ReaderCanvasViewTests` took fourteen minutes. A pass is started only if one as long as the
-longest so far would end three minutes before the job's limit; otherwise the passes left are
-reported as not run, and the job fails. A new run for the same pull request, or by hand for
-the same ref, filter and count, cancels one still in progress. A run for `main` is not
-cancelled; of the runs waiting behind it only the newest is kept.
+After the tests, and whatever their result, a job runs the two checks of the gate that need
+no simulator, `scripts/check-modules.py` and `scripts/check-docs.py`, in under ten seconds.
+The second compares the documentation's snippets with the sample's shared sources, which the
+job's build has compiled by then as the `ReaderSampleSupport` target. A change to
+documentation alone starts no run, so a snippet that such a change leaves stale fails the
+next run that does start, whoever's it is.
+
+A job has forty minutes. On 2026-10-13 a job took eleven to fifteen minutes, the build two
+or three of them and a pass of every test nine to twelve. A pass was 2,534 tests then, 2,483
+of XCTest's and 51 of Swift Testing's, with 52 skipped, most of them the opt-in
+[corpus runs](#corpus-runs).
+Fifty passes of `ReaderCanvasViewTests` took fourteen minutes. A pass is started only if one
+as long as the longest so far would end three minutes before the job's limit; otherwise the
+passes left are reported as not run, and the job fails. A pass that hangs is not stopped: the
+job runs to its limit and is cancelled there, and what the pass had printed, which reaches
+the log in blocks, is lost with it. A new run for the same pull request, or by hand for the
+same ref, filter, count and scroll bars, cancels one still in progress. A run for `main` is
+not cancelled; of the runs waiting behind it only the newest is kept.
+
+A job waits for a runner before it starts. Five jobs run at a time in the repository, these
+and the [VoiceOver sessions](voiceover-testing.md#hosted-mac-sessions) together, and the rest
+wait. On the evening of 2026-10-12, with about thirty runs an hour, half of 73 jobs started
+within ten seconds, 16 waited more than five minutes and the longest eleven; an hour later,
+with a run for every pull request as well, the second job of a run waited twelve minutes in
+one run and thirty-two in another.
 
 A hosted run differs from the [local gate](#local-gate):
 
-- It runs the Mac tests only. The simulator suites, the module and documentation checks and
-  the sample builds are the gate's.
+- It runs the Mac tests and the module and documentation checks. The simulator suites and the
+  sample builds are the gate's.
 - The runner has three processors and 7 GB of memory, and macOS and Xcode are the image's,
   which the job prints before it builds: on 2026-10-12, macOS 27.0.1 (`26A434`) and Xcode 27.0.
-- Its scroll bars are overlay ones, which the job prints too. A test that says which kind it
-  means runs as it does anywhere; nothing there runs the whole bundle under legacy scroll
-  bars, as `-AppleShowScrollBars Always` does above.
+- A job's scroll bars are one kind from the start of every process, and a test that says which
+  kind it means runs as it does anywhere. A pull request's run has no job under overlay ones,
+  and only `scroll_bars=automatic` has a process change from overlay to legacy a moment after
+  it starts, as one does on a Mac with a mouse.
 - It holds no corpora and no `epubcheck`, so the opt-in runs are skipped.
 
 ## Coverage
