@@ -559,7 +559,10 @@ final class ReaderTextView: UITextView {
                 listed.continuations.append(range.location)
                 continue
             }
-            guard spoken.starts || !spoken.text.isEmpty else { continue }
+            // A cell is listed where it has something to say. One that says nothing anywhere
+            // is listed where it starts, for its place in the grid; one whose words stand on a
+            // later page, as a short cell centred beside a tall one does, is listed there.
+            guard !spoken.text.isEmpty || !spoken.images.isEmpty || (spoken.starts && spoken.isBlank) else { continue }
             let element = kept[key].flatMap { $0.range == range ? $0 : nil }
                 ?? ReaderTableCellAccessibilityElement(view: self, range: range, table: row.table, cell: spoken.cell)
             cells[key] = element

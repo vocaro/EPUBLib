@@ -325,13 +325,15 @@ import XCTest
 
     /// A row taller than a page continues on the next: on each page the cell is the same cell
     /// of the table, reading the words its continuation shows there, so they are read once
-    /// across the pages. A cell that has said all its words is not listed again.
+    /// across the pages. A cell is listed on the page where it has something to say: the short
+    /// cell beside the tall one is centred in the row, so its words stand some pages in, and
+    /// it is no stop without words on the pages before. Nor is a cell that has said all of its.
     func testACellContinuedAcrossPagesReadsEachPagesOwnWords() async throws {
-        let said = (1...700).map { "w\($0)" }
+        let said = (1...2_400).map { "w\($0)" }
         let book = try book("<table><tr><th>Clause</th><th>Wording</th></tr><tr><td>Label</td><td>" + said.joined(separator: " ")
                             + "</td></tr></table>")
         let (_, canvas, view) = try await reader(book, scrolled: false)
-        var read: [String] = [], others: [String] = [], pages = 0
+        var read: [String] = [], others: [String] = [], pages = 0, labelPage: Int?
         repeat {
             // The table is all its chapter holds; the page after its last is the next chapter's.
             guard let table = try tables(in: view).first else { break }
@@ -340,15 +342,18 @@ import XCTest
             for cell in try cells(of: table) {
                 let words = (cell.accessibilityLabel ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
                 if cell.accessibilityRowRange().location == 1, cell.accessibilityColumnRange().location == 1 { read += words } else { others += words }
+                if words == ["Label"] { labelPage = pages }
                 XCTAssertFalse(words.isEmpty, "page \(pages + 1): no stop without words")
                 XCTAssertTrue(view.bounds.insetBy(dx: -0.5, dy: -0.5).contains(cell.accessibilityFrameInContainerSpace), "page \(pages + 1)")
             }
             XCTAssertEqual(labels(table.accessibilityHeaderElements?(forColumn: 1)), ["Wording"], "page \(pages + 1)")
             pages += 1
         } while pages < 40 && canvas.turnPage(forward: true) == .turned
-        XCTAssertGreaterThan(pages, 1, "the row must be taller than a page for this to show anything")
+        XCTAssertGreaterThan(pages, 3, "the row must be some pages tall for this to show anything")
         XCTAssertEqual(read, said, "every word of the tall cell once, in order, across \(pages) pages")
-        XCTAssertEqual(others, ["Clause", "Wording", "Label"], "the other cells once, on the page they are on")
+        XCTAssertEqual(others.sorted(), ["Clause", "Label", "Wording"], "the other cells once, each on the page its words are on")
+        let found = try XCTUnwrap(labelPage)
+        XCTAssertTrue(found > 0 && found < pages - 1, "the short cell's words stand in the middle of the row, on page \(found + 1) of \(pages)")
     }
 
     /// A cell of pictures without words is an image, as a picture in a line is, and a cell of

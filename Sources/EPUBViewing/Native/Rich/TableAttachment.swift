@@ -83,6 +83,8 @@ final class TableRowAttachment: ReaderAttachment {
         var frame: CGRect
         /// The cell begins here: in this row, at its top.
         var starts: Bool
+        /// The cell has nothing to say anywhere: no words, and no picture but decoration.
+        var isBlank: Bool
     }
 
     /// The cells read where this row stands, in column order: those that start in it, and
@@ -109,11 +111,13 @@ final class TableRowAttachment: ReaderAttachment {
                 words = text.spokenText(in: NSRange(location: first, length: text.lines[own.upperBound - 1].characters.upperBound - first))
                 lines = own
             }
+            let isBlank = table.cells[index].text.isEmpty
+                && text.images(in: 0..<text.lines.count).allSatisfy { $0.image.alternative == .decorative }
             return SpokenCell(cell: index, text: words,
                               images: text.images(in: lines).map(\.image).filter { $0.alternative != .decorative },
                               frame: CGRect(x: (layout.originX + box.minX) * scale, y: (box.minY - slice.top) * scale,
                                             width: box.width * scale, height: box.height * scale),
-                              starts: starts)
+                              starts: starts, isBlank: isBlank)
         }
     }
 
