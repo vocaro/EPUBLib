@@ -1678,7 +1678,8 @@ The Mac runner's transcript is plain text and needs no export.
   "Row 2 Column 1" on the row's first page: the cell is centred in a row ten pages tall, so
   its words stand some pages in. A cell is since listed on the page where it has something
   to say, and at `1c4f136` that page began with the tall cell, "t0001 t0002".
-  **One thing is not resolved, on the simulator alone.** In continuous scroll on the iPad
+  **One thing went wrong before main's list of fifty lines past the screen was merged in,
+  on the simulator alone.** In continuous scroll on the iPad
   simulator, reading on from Bookmark to "Line 10 after the grids.", which scrolls the view
   until the first table's header row lies under the reader's top inset, and then back, left
   the text at "Station Alder Row header Column 1" for Bookmark in two sessions of three at
@@ -1689,8 +1690,15 @@ The Mac runner's transcript is plain text and needs no export.
   `1c4f136` did so cell by cell in two of two, the second from "Line 24 after the grids.".
   Reading back through the long table, which scrolls the view at every row, was complete on
   both simulators, and the iPhone simulator read the same section on to "Line 10 after
-  the grids." and back complete in its one session. What the iPad simulator's VoiceOver
-  does there is not known; it is iOS 27.0 and the iPad 27.2.
+  the grids." and back complete in its one session. The thirty-nine items it read back
+  before leaving are those that were listed before "Line 10" at the moment it turned
+  round, two lines above the first on screen: it had taken them all at once and walked
+  only those, as [#339](https://github.com/vocaro/EPUBLib/issues/339) describes. At
+  `25ae60e`, with main merged in and fifty lines listed each side
+  ([#380](https://github.com/vocaro/EPUBLib/pull/380)), the same steps on the iPad
+  simulator read back complete in two sessions of two, through "Depth Column header Row 1
+  Column 3" and "Stations on the branch" to "Tables of data Heading" and "Last words of the
+  scenes.".
   The sessions ran while the Mac's load average stood between 400 and 1,000. Sessions at an
   earlier revision of this change, before the probe waited out a repeated phrase, recorded
   one cell twice and the next not at all here and there, and on the iPad simulator 136

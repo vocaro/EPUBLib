@@ -409,13 +409,14 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   - **Not done.** The Mac is unchanged: a row is a group there. A table inside a cell is
     read as its cell's words, as before. Headings inside a table are not found by the
     Headings rotor, as before.
-  - **Not resolved.** On an iPad simulator (iOS 27.0), VoiceOver reading back up into a
-    table whose first row lay under the reader's top inset left the text for the control
-    before it in two sessions of three, where it had read back row by row before this
-    change. A physical iPad (iPadOS 27.2) read back cell by cell in the same place. And on
-    an iPhone simulator the rotor went from Rows to Actions part of the way back up a
-    column, which the iPad did not do
+  - **Not resolved.** On an iPhone simulator the rotor went from Rows to Actions part of the
+    way back up a column in continuous scroll, which a physical iPad did not do in seventy
+    such moves. A cell offers its actions only once it is on screen, which may be why
     ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-12 on tables of data).
+    A table's cells are many more stops than its rows, so the batch VoiceOver takes when
+    the screen changes under it covers fewer lines: with two lines listed past the screen,
+    as before [#380](https://github.com/vocaro/EPUBLib/pull/380), reading back into a
+    table left the text on an iPad simulator; with fifty it did not.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
   in place and also show in popovers.
