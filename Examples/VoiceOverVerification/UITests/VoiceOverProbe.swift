@@ -12,7 +12,8 @@ import XCUIAutomation
         guard wasEnabled else { throw XCTSkip("Run with scripts/run-voiceover-mac.py") }
         // Attach to a fresh, normally launched reader; do not relaunch it. Unless asked for its
         // snapshots, never query it: XCTest's Automation Running banner would then take the
-        // VoiceOver cursor whenever the runner types.
+        // VoiceOver cursor whenever the runner types. Without snapshots nothing below names an
+        // application, so the same recording serves a session the runner holds in Safari.
         let app = XCUIApplication(bundleIdentifier: "org.epubreaderlib.voiceoververify.mac")
         let snapshots = environment["VOICEOVER_SNAPSHOTS"] != nil
         if snapshots { app.activate() }
