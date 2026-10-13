@@ -79,6 +79,12 @@ import XCTest
         view.plainText(in: try XCTUnwrap(view.line(containing: location), file: file, line: line).range)
     }
 
+    /// The labels of `elements` one after another, as the text they are read from has them: a
+    /// heading's label is its words, and the break that ends its paragraph follows them.
+    private func text(of elements: some Sequence<UIAccessibilityElement>) -> String {
+        elements.map { ($0.accessibilityLabel ?? "") + ($0.accessibilityTraits.contains(.header) ? "\n" : "") }.joined()
+    }
+
     /// The area of the scroll view not under the bars, in its own coordinates.
     private func visibleArea(of subject: Subject) -> CGRect {
         subject.canvas.scrollVisibleContainerRect.offsetBy(dx: subject.view.containerOrigin.x, dy: subject.view.containerOrigin.y)
@@ -90,10 +96,10 @@ import XCTest
     /// The lines on screen among `listed`, which starts with them.
     private func onScreen(_ listed: [UIAccessibilityElement], _ subject: Subject,
                           file: StaticString = #filePath, line: UInt = #line) throws -> [UIAccessibilityElement] {
-        let text = subject.view.plainText(in: try shown(subject, file: file, line: line))
+        let shownText = subject.view.plainText(in: try shown(subject, file: file, line: line))
         for count in 1...max(1, listed.count) {
             let lines = Array(listed.prefix(count))
-            if lines.map({ $0.accessibilityLabel ?? "" }).joined() == text { return lines }
+            if text(of: lines) == shownText { return lines }
         }
         XCTFail("the list does not start with the lines on screen", file: file, line: line)
         return []
@@ -108,11 +114,11 @@ import XCTest
         let listed = try elements(of: view, file: file, line: line)
         XCTAssertFalse(view.isAccessibilityElement, "\(label): the text view is a container of its lines", file: file, line: line)
         let first = try lineText(at: shown.location, in: view, file: file, line: line)
-        XCTAssertEqual(listed.first?.accessibilityLabel, first,
+        XCTAssertEqual(text(of: listed.prefix(1)), first,
                        "\(label): the first line on screen begins \"\(first.prefix(24))\" and VoiceOver would meet "
                         + "\"\((listed.first?.accessibilityLabel ?? "").prefix(24))\"", file: file, line: line)
         let screen = try onScreen(listed, subject, file: file, line: line)
-        XCTAssertEqual(screen.last?.accessibilityLabel, try lineText(at: NSMaxRange(shown) - 1, in: view, file: file, line: line),
+        XCTAssertEqual(text(of: screen.suffix(1)), try lineText(at: NSMaxRange(shown) - 1, in: view, file: file, line: line),
                        "\(label): the last of them is the last line on screen", file: file, line: line)
         // By the scroll view's own geometry, not only the reader's range: each line on screen is
         // listed by the part of it inside the area the bars leave.
@@ -129,10 +135,9 @@ import XCTest
             after.append(view.plainText(in: next.range))
             end = NSMaxRange(next.range)
         }
-        XCTAssertEqual(listed.dropFirst(screen.count).map { $0.accessibilityLabel ?? "" }, after,
+        XCTAssertEqual(text(of: listed.dropFirst(screen.count)), after.joined(),
                        "\(label): the \(after.count) lines after the screen are listed after it, and no more", file: file, line: line)
-        XCTAssertEqual(listed.map { $0.accessibilityLabel ?? "" }.joined(),
-                       view.plainText(in: NSRange(location: shown.location, length: end - shown.location)),
+        XCTAssertEqual(text(of: listed), view.plainText(in: NSRange(location: shown.location, length: end - shown.location)),
                        "\(label): every character from the first line on screen is listed once, in order", file: file, line: line)
         for (above, below) in zip(listed, listed.dropFirst()) {
             XCTAssertLessThanOrEqual(above.accessibilityFrameInContainerSpace.minY, below.accessibilityFrameInContainerSpace.minY,
@@ -169,13 +174,13 @@ import XCTest
         // From pages in the middle of the book.
         let unlaid = unlaidParagraphs(of: view)
         XCTAssertGreaterThan(unlaid, 100, "most of the book is only estimated")
-        XCTAssertEqual(try elements(of: view).first?.accessibilityLabel, "Chapter pass\n")
+        XCTAssertEqual(try elements(of: view).first?.accessibilityLabel, "Chapter pass", "a heading is read as its words")
         try assertTheListIsTheScreenAndTheLinesAfterIt("switched from pages", subject)
         XCTAssertGreaterThan(unlaidParagraphs(of: view), unlaid - 20, "listing them lays out the fifty lines after the screen and no more")
         // By the table of contents.
         try await reader.session.send(.navigate(href: reader.publication.spine[1].resource.href))
         try await reader.wait("the second chapter") { reader.section == 1 }
-        XCTAssertEqual(try elements(of: view).first?.accessibilityLabel, "Chapter harbor\n")
+        XCTAssertEqual(try elements(of: view).first?.accessibilityLabel, "Chapter harbor", "a heading is read as its words")
         try assertTheListIsTheScreenAndTheLinesAfterIt("chosen from the contents", subject)
         // Scroll Forward and Scroll Backward: a step ends in the middle of a paragraph, and the
         // first line listed is the one on screen, not its paragraph's first.
@@ -290,9 +295,7 @@ import XCTest
         XCTAssertEqual(listed.count, before.count + past)
         XCTAssertEqual(before.count, screen + past)
         XCTAssertTrue(zip(listed.dropFirst(past), before).allSatisfy { $0 === $1 }, "a line keeps its element while it is listed")
-        XCTAssertEqual(listed.prefix(past).map { $0.accessibilityLabel ?? "" }.joined() + view.plainText(in: opening)
-                        + listed.suffix(past).map { $0.accessibilityLabel ?? "" }.joined(),
-                       listed.map { $0.accessibilityLabel ?? "" }.joined())
+        XCTAssertEqual(text(of: listed.prefix(past)) + view.plainText(in: opening) + text(of: listed.suffix(past)), text(of: listed))
         XCTAssertEqual(listed[past - 1].accessibilityLabel, try lineText(at: opening.location - 1, in: view))
         XCTAssertEqual(listed[past + screen].accessibilityLabel, try lineText(at: NSMaxRange(opening), in: view))
         XCTAssertEqual(try shown(subject), opening, "listing them moves nothing")
@@ -308,10 +311,10 @@ import XCTest
 
         // Forward through more than three screens: every line once, in order, each with a line
         // listed after it to go on to, and the view following.
-        var read = listed[past...(past + 1)].map { $0.accessibilityLabel ?? "" }.joined()
+        var read = text(of: listed[past...(past + 1)])
         for _ in 0..<(screen * 3 + 5) {
             cursor = try XCTUnwrap(try move(from: cursor, forward: true, in: view), "the text goes on past the screen")
-            read += cursor.accessibilityLabel ?? ""
+            read += text(of: [cursor])
             XCTAssertTrue(cursorArea(of: view).insetBy(dx: -1_000, dy: -0.01).contains(cursor.accessibilityFrameInContainerSpace),
                           "\"\((cursor.accessibilityLabel ?? "").prefix(24))\" is not where the cursor can be seen")
         }
@@ -322,10 +325,10 @@ import XCTest
 
         // And back, past the top of the screen it started on, from the line read last.
         let readEnd = opening.location + (read as NSString).length
-        var back = cursor.accessibilityLabel ?? ""
+        var back = text(of: [cursor])
         for _ in 0..<(screen * 4 + 5) {
             cursor = try XCTUnwrap(try move(from: cursor, forward: false, in: view), "the text goes back past the screen")
-            back = (cursor.accessibilityLabel ?? "") + back
+            back = text(of: [cursor]) + back
             XCTAssertTrue(cursorArea(of: view).insetBy(dx: -1_000, dy: -0.01).contains(cursor.accessibilityFrameInContainerSpace),
                           "\"\((cursor.accessibilityLabel ?? "").prefix(24))\" is not where the cursor can be seen")
         }
@@ -395,6 +398,7 @@ import XCTest
         let first = try XCTUnwrap(listed.first)
         XCTAssertEqual(first.accessibilityLabel, "Hidden table heading")
         XCTAssertFalse(first.accessibilityTraits.contains(.image), "words, not a picture")
+        XCTAssertTrue(first.accessibilityTraits.contains(.header), "a heading, though the page shows none of it")
         XCTAssertTrue(listed.dropFirst().first?.accessibilityLabel?.contains("First cell") ?? false,
                       "then the row: \(listed.dropFirst().first?.accessibilityLabel ?? "nothing")")
         let area = canvas.scrollVisibleContainerRect.offsetBy(dx: view.containerOrigin.x, dy: view.containerOrigin.y)
@@ -436,7 +440,7 @@ import XCTest
         focus(control, from: nil, in: view)
         let given = items(46, after: nil, in: view)
         XCTAssertEqual(given.count, 46, "VoiceOver asked for 46 lines and the screen holds \(screen)")
-        XCTAssertEqual(given.first?.accessibilityLabel, try lineText(at: opening.location, in: view), "it comes in at the first line on screen")
+        XCTAssertEqual(text(of: given.prefix(1)), try lineText(at: opening.location, in: view), "it comes in at the first line on screen")
         XCTAssertEqual(try shown(subject), opening, "listing them moves nothing")
         // It moves through them: each is still the element listed for its line when the cursor
         // comes to it, and UIKit has scrolled it into view.
@@ -447,7 +451,7 @@ import XCTest
                           "\"\((item.accessibilityLabel ?? "").prefix(24))\" is no longer the element listed for its line")
             XCTAssertTrue(cursorArea(of: view).insetBy(dx: -1_000, dy: -0.01).contains(item.accessibilityFrameInContainerSpace),
                           "\"\((item.accessibilityLabel ?? "").prefix(24))\" is not where the cursor can be seen")
-            read += item.accessibilityLabel ?? ""
+            read += text(of: [item])
             previous = item
         }
         var end = opening.location + (read as NSString).length
@@ -460,13 +464,13 @@ import XCTest
         let last = try XCTUnwrap(given.last)
         let more = items(past, after: last, in: view)
         XCTAssertEqual(more.count, past, "fifty lines follow the cursor's")
-        let following = more.map { $0.accessibilityLabel ?? "" }.joined()
+        let following = text(of: more)
         XCTAssertEqual(following, view.plainText(in: NSRange(location: end, length: (following as NSString).length)))
         let back = items(past, after: last, forward: false, in: view)
         XCTAssertEqual(back.count, past, "and fifty come before it")
         XCTAssertTrue(zip(back, given.dropLast().reversed()).allSatisfy { $0 === $1 }, "those it has read are the same elements")
-        let preceding = back.reversed().map { $0.accessibilityLabel ?? "" }.joined()
-        end -= ((last.accessibilityLabel ?? "") as NSString).length
+        let preceding = text(of: back.reversed())
+        end -= (text(of: [last]) as NSString).length
         XCTAssertEqual(preceding, view.plainText(in: NSRange(location: end - (preceding as NSString).length, length: (preceding as NSString).length)))
         XCTAssertLessThan(end - (preceding as NSString).length, opening.location, "back past the line it came in at")
         XCTAssertNil(canvas.currentSelection)
@@ -491,7 +495,7 @@ import XCTest
         for (name, below) in [("a control below the reader", item(at: area.maxY + 8)), ("the scroll bar", bar)] {
             focus(below, from: nil, in: view)
             let listed = try elements(of: view)
-            XCTAssertEqual(listed.map { $0.accessibilityLabel ?? "" }.joined(), view.plainText(in: opening), "\(name): the lines on screen and no others")
+            XCTAssertEqual(text(of: listed), view.plainText(in: opening), "\(name): the lines on screen and no others")
             XCTAssertEqual(listed.last?.accessibilityLabel, try lineText(at: NSMaxRange(opening) - 1, in: view),
                            "\(name): VoiceOver would meet the last line on screen")
             XCTAssertTrue(zip(listed, ahead).allSatisfy { $0 === $1 }, "\(name): the lines on screen keep their elements")
@@ -583,6 +587,76 @@ import XCTest
         }
     }
 
+    /// A heading is one element however many lines it takes, and the same element whichever of
+    /// its lines are on screen. With its first line scrolled above the top it is still listed
+    /// whole, by the part of it in the reading area, so VoiceOver coming to it moves nothing;
+    /// and when the lines before the screen are listed too, it is not listed a second time.
+    func testAHeadingHalfAboveTheScreenIsOneElementAndStaysThatElement() async throws {
+        let title = "A chapter heading that is long enough to take three lines of a narrow screen at this text size"
+        let prose = (1...40).map { "<p>p\($0) " + CanvasText.sentence(50, seed: $0) + "</p>" }.joined()
+        let reader = try SessionCoverageReader(try SessionCoverageBook.epub([
+            SessionCoverageBook.Section("front", "<h1>Front</h1>" + prose, title: "Front"),
+            SessionCoverageBook.Section("long", "<h1>\(title)</h1>" + prose, title: "Long")]))
+        readers.append(reader)
+        reader.window?.resize(to: CGSize(width: 402, height: 874))
+        try await reader.settle()
+        try await reader.session.send(.navigate(href: reader.publication.spine[1].resource.href))
+        try await reader.wait("the second chapter") { reader.section == 1 }
+        try await reader.session.send(.style(EPUBReaderStyle(flow: .scrolled)))
+        try await reader.wait("the whole book in the scroll view") { reader.session.canvas?.scrollBook != nil }
+        try await reader.settle()
+        let canvas = try XCTUnwrap(reader.session.canvas), view = try XCTUnwrap(canvas.scrollTextView)
+        let subject: Subject = (reader, canvas, view)
+        let start = try XCTUnwrap(canvas.scrollBook).location(of: ReaderTextPosition(section: 1, offset: 0))
+        // The heading's words and the break that ends its paragraph.
+        let heading = NSRange(location: start, length: (title as NSString).length + 1)
+        let lines = view.measuredLines(in: heading)
+        XCTAssertGreaterThanOrEqual(lines.count, 2, "the heading must wrap for this to show anything")
+
+        // Whole on screen at the chapter's start: one element over all its lines.
+        let whole = try XCTUnwrap(try elements(of: view).first)
+        XCTAssertEqual(whole.accessibilityLabel, title)
+        XCTAssertTrue(whole.accessibilityTraits.contains(.header))
+        XCTAssertEqual(whole.accessibilityAttributedLabel?.attribute(.accessibilityTextHeadingLevel, at: 0, effectiveRange: nil) as? Int, 1)
+        XCTAssertGreaterThan(whole.accessibilityFrameInContainerSpace.height, lines[0].frame.height * 1.5)
+        XCTAssertFalse(try onScreen(try elements(of: view), subject).isEmpty,
+                       "every character on screen is listed once, the heading's among them, before the lines after the screen")
+
+        // Its first line above the top of the screen.
+        view.contentOffset.y = lines[1].frame.minY + view.containerOrigin.y - view.adjustedContentInset.top
+        let before = canvas.visibleRange
+        try await reader.wait("the place scrolled to") { canvas.visibleRange != before }
+        XCTAssertEqual(try shown(subject).location, lines[1].range.location, "the heading's second line is the first on screen")
+        let listed = try elements(of: view)
+        let cut = try XCTUnwrap(listed.first)
+        XCTAssertTrue(cut === whole, "the same element as when all of it showed")
+        XCTAssertEqual(cut.accessibilityLabel, title, "read whole, from its first word")
+        let area = visibleArea(of: subject).insetBy(dx: -1_000, dy: -0.01)
+        XCTAssertTrue(cut.accessibilityFrameInContainerSpace.height > 0 && area.contains(cut.accessibilityFrameInContainerSpace),
+                      "listed at \(cut.accessibilityFrameInContainerSpace), outside \(area)")
+        XCTAssertEqual(listed.dropFirst().first?.accessibilityLabel, try lineText(at: NSMaxRange(heading), in: view), "then the line under it")
+        XCTAssertEqual(listed.filter { $0.accessibilityTraits.contains(.header) }.count, 1)
+
+        // VoiceOver's cursor comes to it: nothing scrolls, the lines before the screen are
+        // listed before it, and it is still one element, the same one.
+        let offset = view.contentOffset
+        focus(cut, from: nil, in: view)
+        XCTAssertEqual(view.contentOffset, offset, "moving onto the heading moved the reader")
+        let grown = try elements(of: view)
+        XCTAssertEqual(grown.filter { $0.accessibilityTraits.contains(.header) }.count, 1, "the heading is listed once")
+        let index = view.index(ofAccessibilityElement: cut)
+        XCTAssertTrue(index != NSNotFound && grown[index] === cut)
+        XCTAssertGreaterThan(index, 0, "the end of the chapter before is listed before it")
+        let earlier = view.plainText(in: NSRange(location: 0, length: start))
+        for line in grown.prefix(index) {
+            XCTAssertTrue(earlier.contains(line.accessibilityLabel ?? "\u{0}"), "\(line.accessibilityLabel ?? "") is a line of the chapter before")
+        }
+        // On to the line under it and back: one stop each way.
+        let under = try XCTUnwrap(try move(from: cut, forward: true, in: view))
+        XCTAssertEqual(under.accessibilityLabel, try lineText(at: NSMaxRange(heading), in: view))
+        XCTAssertTrue(try XCTUnwrap(try move(from: under, forward: false, in: view)) === cut)
+    }
+
     /// A book that opens on pictures it marks as decoration, each a screen high: a cover and a
     /// frontispiece with `alt=""`. VoiceOver passes decoration over, but a screen of nothing
     /// else would leave it no line to come in at or to scroll from, so there it is listed, as
@@ -634,6 +708,50 @@ import XCTest
         listed = try elements(of: view)
         XCTAssertFalse(listed.contains { $0.accessibilityTraits.contains(.image) }, "no picture is listed beside words")
         XCTAssertTrue(listed.first === next, "nothing readable stands before the first words")
+    }
+
+    /// A rule between two scenes on screen: a line of its own that VoiceOver stops on between
+    /// the paragraphs it parts, named by the reader and not an image. Moving on from the line
+    /// before it and back from the line after it both come to it.
+    func testARuleOnScreenIsAStopBetweenTheLinesItParts() async throws {
+        let prose = (1...40).map { "<p>p\($0) " + CanvasText.sentence(50, seed: $0) + "</p>" }.joined()
+        let reader = try SessionCoverageReader(try SessionCoverageBook.epub([
+            SessionCoverageBook.Section("scenes", "<p>First scene ends.</p><hr/><p>Second scene starts.</p>" + prose, title: "Scenes")]))
+        readers.append(reader)
+        reader.window?.resize(to: CGSize(width: 402, height: 874))
+        try await reader.settle()
+        try await reader.session.send(.style(EPUBReaderStyle(flow: .scrolled)))
+        try await reader.wait("the whole book in the scroll view") { reader.session.canvas?.scrollBook != nil }
+        try await reader.settle()
+        let canvas = try XCTUnwrap(reader.session.canvas), view = try XCTUnwrap(canvas.scrollTextView)
+        let subject: Subject = (reader, canvas, view)
+
+        var listed = try elements(of: view)
+        XCTAssertEqual(listed.prefix(3).map { $0.accessibilityLabel ?? "" }, ["First scene ends.\n", "Separator", "Second scene starts.\n"])
+        XCTAssertTrue(listed.count > 3 && (listed[3].accessibilityLabel ?? "").hasPrefix("p1 "), "then the prose: \(listed.count) listed")
+        let rule = listed[1]
+        XCTAssertEqual(rule.accessibilityTraits, [], "not an image and not words of the book")
+        XCTAssertFalse(listed.contains { $0.accessibilityTraits.contains(.image) })
+        let frame = rule.accessibilityFrameInContainerSpace
+        XCTAssertTrue(frame.height > 0 && visibleArea(of: subject).insetBy(dx: -1_000, dy: -0.01).contains(frame), "\(frame)")
+        XCTAssertGreaterThan(frame.minY, listed[0].accessibilityFrameInContainerSpace.midY)
+        XCTAssertLessThan(frame.maxY, listed[2].accessibilityFrameInContainerSpace.midY)
+        XCTAssertTrue((rule.accessibilityCustomActions ?? []).isEmpty, "continuous scroll scrolls natively")
+        XCTAssertFalse(rule.accessibilityActivate(), "a rule opens nothing")
+
+        // The cursor comes to it from either side, and it keeps its element while it is there.
+        let offset = view.contentOffset
+        focus(listed[0], from: nil, in: view)
+        let reached = try XCTUnwrap(try move(from: listed[0], forward: true, in: view))
+        XCTAssertEqual(reached.accessibilityLabel, "Separator")
+        XCTAssertTrue(reached === rule)
+        let after = try XCTUnwrap(try move(from: reached, forward: true, in: view))
+        XCTAssertEqual(after.accessibilityLabel, "Second scene starts.\n")
+        let back = try XCTUnwrap(try move(from: after, forward: false, in: view))
+        XCTAssertTrue(back === rule, "moving back stops on the rule too")
+        XCTAssertEqual(view.contentOffset, offset, "nothing scrolled: the rule is on screen")
+        listed = try elements(of: view)
+        XCTAssertEqual(listed.filter { $0.accessibilityLabel == "Separator" }.count, 1)
     }
 
     func testANoteKeepsUIKitsOwnTextElements() {

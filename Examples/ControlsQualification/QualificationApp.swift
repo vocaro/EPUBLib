@@ -7,6 +7,13 @@ import SwiftUI
 /// opened at launch, in an ordinary `NavigationStack`. Launch arguments choose the book, the
 /// arrangement and the toolbar placement; see doc/issue-49-51-controls-qualification.md.
 @main struct ControlsQualificationApp: App {
+    #if os(iOS)
+    /// `-QualificationTouchTrace YES` records every touch and what took it; see `TouchTrace`.
+    init() {
+        if UserDefaults.standard.bool(forKey: "QualificationTouchTrace") { TouchTrace.shared.start() }
+    }
+    #endif
+
     var body: some Scene {
         WindowGroup {
             NavigationStack { QualificationScreen() }
@@ -85,8 +92,8 @@ struct QualificationScreen: View {
         switch defaults.string(forKey: "QualificationHost") ?? "toolbar" {
         case "strip":
             VStack(spacing: 0) {
-                // Padding hides the strip's own layout priority from the stack.
-                EPUBReaderControlStrip(controls: controls).padding(.horizontal).layoutPriority(1)
+                // Padding and a frame hide the strip's own layout priority from the stack.
+                strip(controls).padding(.horizontal).layoutPriority(1)
                 reader(controls)
             }
         case "navigator":
@@ -122,6 +129,20 @@ struct QualificationScreen: View {
         }
     }
 
+    /// `-QualificationStripGroups pages,contents,appearance,readingMode` gives the strip those
+    /// groups in that order, and `-QualificationStripRoom <points>` offers it no more height than
+    /// that: a strip without its search field raises no keyboard to be short of room under.
+    @ViewBuilder private func strip(_ controls: EPUBReaderControls) -> some View {
+        let names = (defaults.string(forKey: "QualificationStripGroups") ?? "").split(separator: ",")
+        let groups = names.isEmpty ? EPUBReaderControlGroup.allCases : names.compactMap { EPUBReaderControlGroup(rawValue: String($0)) }
+        let room = defaults.double(forKey: "QualificationStripRoom")
+        if room > 0 {
+            EPUBReaderControlStrip(controls: controls, groups: groups).frame(maxHeight: room)
+        } else {
+            EPUBReaderControlStrip(controls: controls, groups: groups)
+        }
+    }
+
     /// `-QualificationTitle NO` leaves the navigation bar to the toolbar items alone.
     @ViewBuilder private func titled(_ view: some View, _ controls: EPUBReaderControls) -> some View {
         if defaults.object(forKey: "QualificationTitle") == nil || defaults.bool(forKey: "QualificationTitle") {
@@ -140,6 +161,9 @@ struct QualificationScreen: View {
             Text(Self.summary(controls))
                 .font(.caption2).lineLimit(2).dynamicTypeSize(.small).padding(4)
                 .accessibilityIdentifier("qualification.status")
+                #if os(iOS)
+                .onChange(of: Self.summary(controls), initial: true) { TouchTrace.shared.note("status " + $1) }
+                #endif
         }
     }
 

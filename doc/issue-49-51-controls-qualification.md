@@ -194,13 +194,51 @@ iPhone 17 Pro. One drag on the strip, with the keyboard still up, brought the re
 the strip's bottom edge wherever the strip scrolls, with Appearance, Contents and the match row
 above it: all of the match row but on the iPhone SE on its side at `accessibility-medium`,
 where 30 of its 33 points showed, and at the largest size on the iPhones on their sides, where
-the strip showed the reading mode, Appearance and the lower third to half of Contents. Where
-the drag starts matters. One that began beside a row, between two rows or at Search and Clear
-Search scrolled the strip. One that began in the field did not, on the iPhone SE on its side
-at the largest size, and neither did a drag or a swipe that began on Contents on the upright
-iPhone SE: the field and the menus keep a touch that starts on them. That is the probe's
-synthetic touch; a finger was not tried. Beside the top safe area the strip scrolls under the
-status bar, as any scroll view does.
+the strip showed the reading mode, Appearance and the lower third to half of Contents. Beside
+the top safe area the strip scrolls under the status bar, as any scroll view does.
+
+A touch scrolls the strip from anywhere on it, a control included, if it moves soon after it
+goes down. Those runs read otherwise. The probe's drag scrolled the strip from beside a row,
+between two rows and at Search and Clear Search, and not from the field on the iPhone SE on
+its side or from Contents on the upright iPhone SE, where a swipe did not either, and the field
+and the menus were taken to keep a touch that starts on them. On 2026-10-12 at `1eb150a` the
+host recorded each touch itself ([Evidence](#evidence-and-repeating-it)): the view it went down
+on, when it had moved 10 points, and when the strip's scroll view began to drag. The probe's
+drag rests 0.15 s before it moves. Its swipe never touched Contents: it went down at y = 434,
+on the keyboard's suggestions, whose top is at 407.
+
+On an iPhone SE simulator (iOS 27.0) at the largest size, with the keyboard up over the
+results, synthetic touches went down on each control and moved after four rests, upright,
+where the strip has 95 points to scroll, and on its side, where it has 256:
+
+| Touch went down on | Moved after 0.02 to 0.03 s | 0.05 to 0.10 s | 0.15 to 0.17 s | 0.32 to 0.45 s |
+| --- | --- | --- | --- | --- |
+| The field | scrolled, 2 of 2 | scrolled, 2 of 2 | scrolled, 1 of 6 | kept, 2 of 2 |
+| Contents | scrolled, 3 of 3 | scrolled, 4 of 4 | scrolled, 2 of 6 | menu opened (upright) |
+| Appearance | scrolled, 3 of 3 | scrolled, 3 of 3 | scrolled, 2 of 6 | menu opened (on its side) |
+| The reading mode | scrolled, 2 of 2 | scrolled, 2 of 2 | scrolled, 2 of 5 | kept, 2 of 2 |
+| Between two rows or beside a row | scrolled, 3 of 3 | | | |
+
+All 21 touches on a control that moved within a tenth of a second scrolled the strip, upward
+and downward, a drag at 300 points a second among them. In 20 the scroll view began to drag
+0.03 to 0.12 s after the touch went down; the other was down for 0.03 s in all and had lifted
+before it did. No menu opened, the reading mode stayed Paging and the keyboard stayed up. Of
+the 23 that rested 0.15 to 0.17 s, 7 scrolled the strip and the control kept 16: nothing
+scrolled, no menu opened and the reading mode did not change. That rest is about where a
+scroll view hands a touch to the control under it: the same drag went either way from one try
+to the next, which is how the probe's drag came to scroll from one place and not another. After
+0.32 s or more the field and the reading mode kept the touch. A menu, after 0.38 and 0.45 s,
+opened under it, which put the keyboard away as a tap on a menu does. A control in any scroll
+view answers so: a swipe scrolls, and a touch that rests on a control before it moves has
+pressed it. Each of the five touches the reading mode kept also brought up a large view of its
+two symbols, which stayed after the touch lifted ([For the owner to judge](#for-the-owner-to-judge),
+item 15).
+
+These are XCTest's touches on a simulator, timed as a swipe and as a press; a finger was not
+tried. On its side the menus were touched with the strip scrolled part of the way, 54 points
+or more down the screen: in an earlier run that day a quick downward drag that began 50 points
+from the top did not reach the strip, the application having left the foreground, as the host
+recorded.
 
 Three seconds after the keyboard's Search key was touched, the keyboard was down and nothing
 had keyboard focus, in all twenty runs; tapping the field brought both back. Return was a
@@ -244,7 +282,66 @@ again after the padding; see [reader-controls.md](reader-controls.md). On a Mac 
 it was. Nothing raises a keyboard there, and a scroll view is a scroll area in the Mac's
 accessibility tree, a container round what it holds: read on macOS 27.0 from a window of a
 button, a field, a menu and a segmented picker, with and without a scroll view round them.
-VoiceOver was not run on it.
+VoiceOver was run over both later, as below.
+
+Three things that [#364](https://github.com/vocaro/EPUBLib/issues/364) listed as never run were
+run on 2026-10-12 for [#385](https://github.com/vocaro/EPUBLib/issues/385), with the library at
+`7d0d687` and the host of `bd7ca30`.
+
+Without its search field the strip is as wide as its groups, with room and short of it. The
+host gave it the other four groups and, since such a strip raises no keyboard, offered it no
+more than a height ([Evidence](#evidence-and-repeating-it)). On an iPhone SE simulator, where
+the host's stack centres the strip in the window:
+
+| Text size | Pose | The groups | With room | Short of room |
+| --- | --- | --- | --- | --- |
+| `large` | upright | a column 103 points tall, Appearance the widest at 123 | 123 wide, at x = 126 | the same, offered 24 points with 79 to scroll |
+| `large` | on its side | a row 358 wide and 31 tall | 358 wide, at x = 154 | the same, offered 24 points |
+| largest | upright | a column 244 points tall, Appearance 330 wide | 330 wide, at x = 22 | the same, offered 150 points with 94 to scroll |
+| largest | on its side | a column 244 points tall, Appearance 353 wide | 353 wide, at x = 157 | the same, offered 150 points with 94 to scroll |
+
+Upright, a drag scrolled the short strip to its end at both sizes, and two flicks on the strip
+that had room at `large` moved nothing.
+
+At the text sizes that had not been run, on an iPhone on its side with the keyboard up over the
+results of a search for "lantern", the page buttons and the field were on screen at every size.
+An iPhone 17 Pro has 157 points for the strip there and an iPhone SE 148:
+
+| Text size | iPhone 17 Pro: the groups | To scroll | iPhone SE: the groups | To scroll |
+| --- | --- | --- | --- | --- |
+| `large` | a row over the match row, 61 tall | nothing | a column, 168 | 20 |
+| `extra-large` | a row over the match row, 64 | nothing | a column, 178 | 31 |
+| `extra-extra-large` | a row over the match row, 68 | nothing | a column, 191 | 43 |
+| `extra-extra-extra-large` | a column, 204 | 47 | a column, 204 | 56 |
+| `accessibility-medium` | a column, 236 | 79 | a column, 236 | 89 |
+| `accessibility-large` | a column, 270 | 113 | a column, 270 | 123 |
+| `accessibility-extra-large` | a column, 317 | 161 | a column, 318 | 170 |
+| `accessibility-extra-extra-large` | a column, 364 | 207 | a column, 366 | 218 |
+| largest | a column, 402 | 246 | a column, 403 | 256 |
+
+On the iPhone 17 Pro the strip first runs short of room at `extra-extra-extra-large`, the size
+at which its row becomes a column: up to `extra-extra-large` it takes the 61 to 68 points it
+needs and does not scroll. On the iPhone SE it is a column from `large` and scrolls at every
+size. A drag that began on the field or beside it scrolled the strip wherever it had anything
+to scroll, to its end where that was 123 points or less.
+
+Mac VoiceOver reads each of the strip's controls as an item of its own, and would not if the
+strip were a scroll view there. Five sessions ran on the hosted runner (macOS 27.0.1, Xcode
+27.0, five seconds after each key) over the sample's strip, which adds a bookmark menu to the
+strip's eight controls: on `main` at `7d0d687`, and at `f3fc983`, a branch whose one change
+makes the Mac's strip the scroll view it is on iPhone. On `main`, nine presses of
+Control-Option-Left from the reader's first column spoke "No bookmark saved Bookmark menu
+button", "Reading Mode radio group", "Appearance menu button", "Contents menu button", "Clear
+Search button", "Search button", "Search in book edit text", "Next Page button" and "Previous
+Page button", and Control-Option-Right spoke the same nine on the way back, in a window 1100
+points wide and in one of 600. With the scroll view the first press spoke "scroll area", with
+no name, and the second "Use Toolbar button", which stands before the strip: the nine were
+passed over, at both widths. Interacting with the scroll area spoke "In scroll area 9 items
+Previous Page button" and reached the nine in order; Control-Option-Right from the last of
+them stayed on it, and only ending the interaction, "Out of scroll area", led on to the text.
+So the Mac's exception spares a VoiceOver user two commands and a container with no name, for
+controls that nothing on a Mac leaves short of room. No control was operated through VoiceOver
+in these sessions.
 
 **Continuous scroll lost its place after an accessibility read.** On iOS the scrolled reader is
 a text view whose accessibility lists every paragraph of the book, and reading that list (an
@@ -578,7 +675,8 @@ probe now keeps them in the result bundle.
 "VoiceOverVerificationMac not responding" as it started, then "Automation Running", and
 nothing else through fourteen Control-Option-Left steps. Four other test hosts were running on
 the Mac. No control was spoken, so this session establishes nothing; VoiceOver was restored to
-off and checked.
+off and checked. On 2026-10-12 five sessions on the hosted runner did speak the strip's
+controls; they are in the entry for #330 under [Defects found and fixed](#defects-found-and-fixed).
 
 **Keyboard-only traversal** was not attempted. Keyboard navigation is off in this Mac's
 settings (`AppleKeyboardUIMode` 0), so Tab stops only at text fields and lists, and the
@@ -646,6 +744,15 @@ Described, not decided. None of these was changed.
     item 12's question. Item 12's answer removes it after a search: the keyboard is away
     before Search Results can be tapped, and the list is 167 points tall. A reader who taps
     the field again and then Search Results has the keyboard under the list as before.
+15. **The reading mode's large view outstays the touch.** At the largest text size a touch
+    that rests 0.15 s or more on the strip's reading mode brings up a large view of its two
+    symbols, 100 points wide, over Contents and Appearance: the system's, for a segmented
+    control at that size. When the touch then dragged off the control and lifted, the view
+    stayed until the next touch went down, five times of five on an iPhone SE simulator
+    (2026-10-12, `1eb150a`). The next touch put it away. The strip's scroll view took four of
+    those next touches as it takes any swipe; after the fifth, on its side, the strip stood
+    with the field at its top edge, 197 points from its end, where the swipe began. The
+    touches were synthetic; a touch that lifts on the control was not tried.
 
 ## Not verified
 
@@ -653,8 +760,10 @@ Described, not decided. None of these was changed.
   VoiceOver, Switch Control, a hardware keyboard.
 - VoiceOver's audio and anything past the 64 characters the service returns, including the
   rest of each hint.
-- Mac VoiceOver over the controls, and Mac keyboard-only traversal, as above. Focus after
-  closing Search on the Mac is covered by the regression of #58, not here.
+- Mac VoiceOver over the toolbar and the search pane, any control operated through Mac
+  VoiceOver, and Mac keyboard-only traversal, as above: VoiceOver was heard over the strip's
+  controls and no further. Focus after closing Search on the Mac is covered by the regression
+  of #58, not here.
 - On the Mac: choosing through the toolbar's overflow menu, a result row, the appearance
   submenu, a refused search, a right-to-left book, large text and windows narrower than 560
   points.
@@ -669,11 +778,14 @@ Described, not decided. None of these was changed.
 - Choosing a row in a host's own sheet of `EPUBSearchResultList`, and the host-placed
   navigator on iPad and the iPhone Duo.
 - The control strip under the VoiceOver service.
-- The strip's scrolling under a finger. The probe's drag and swipe scrolled it from between
-  its rows and from its buttons, and not from the field, Contents or Appearance; whether a
-  quick swipe that starts on one of those scrolls it on a device was not tried. Nor was the
-  strip under a keyboard taller than the simulator's English one, in an iPad window smaller
-  than the screen, with host views in it, or under the reader instead of over it.
+- A finger on the strip, and the strip on a device. What scrolls it was settled with XCTest's
+  touches on an iPhone SE simulator, where the rest before a touch moves decides it and the
+  host recorded that rest for every touch. A swipe is a touch that moves at once, and one that
+  moved within a tenth of a second scrolled the strip every time; a finger's own timing was
+  not measured. Nor was the strip under a keyboard taller than the simulator's English one, in
+  an iPad window smaller than the screen, with host views in it, or under the reader instead
+  of over it. Without its search field it was run on an iPhone SE only, and the text sizes
+  between `large` and the largest on iPhones on their sides only.
 
 ## Evidence and repeating it
 
@@ -710,8 +822,13 @@ The probe's steps are documented where they are handled, in
 `Examples/ControlsQualification/UITests/ControlsProbe.swift`. Host arguments:
 `-QualificationBook ltr|rtl|long`, `-QualificationHost toolbar|strip|navigator`,
 `-QualificationPlacement automatic|leading|bottom`, `-QualificationHostItems <count>`,
-`-QualificationFlow scrolled`, `-QualificationFontSize <points>`, `-QualificationTitle NO` and,
-on the Mac, `-QualificationWindowSize <width>x<height>`. For the iPhone Duo set `DEVELOPER_DIR`
+`-QualificationFlow scrolled`, `-QualificationFontSize <points>`, `-QualificationTitle NO`,
+`-QualificationTouchTrace YES`, for the strip `-QualificationStripGroups <names>` (its groups
+in order, as `pages,contents,appearance,readingMode`) and `-QualificationStripRoom <points>`
+(the most height it is offered), and, on the Mac, `-QualificationWindowSize <width>x<height>`.
+UIKit's own `-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityXXXL`
+gives the host the largest text size without a change to the simulator; on the iPhone SE the
+strip's frames were those `signal=content_size` gave. For the iPhone Duo set `DEVELOPER_DIR`
 to Xcode 27.1 for the build and the run, and pass `--hinge-script`; never send that simulator
 `simctl io screenConfig`, which crash-loops its SpringBoard. For the Mac pass `--mac` in place
 of `--device`, with a signed build, and ask whoever is using the Mac first: the probe takes its
@@ -719,3 +836,62 @@ pointer and keyboard. A new simulator shows the keyboard's first-run card once; 
 before typing. A run stopped part-way leaves the simulator as it was, with VoiceOver on or the
 text size large: restore both before the next run, because with VoiceOver on a tap only moves
 its cursor.
+
+A tree and a screenshot show where things stand after a touch, not what became of the touch.
+With `-QualificationTouchTrace YES` the host records every touch where the application
+receives it: the view it went down on, when it had moved 10 points, when each scroll view
+began to drag, and the scroll views, the keyboard and any menu before it, as it lifted and a
+second later, with a picture of the window then and the touch drawn on it. It also records
+the application leaving the foreground and its main thread standing still, either of which
+makes a touch go nowhere. The lines go to the host's standard output and, with the pictures,
+to `Documents/touch-trace-<launch time>/` in its container:
+
+```sh
+ls "$(xcrun simctl get_app_container "$DEVICE" org.epubreaderlib.controlsqualification data)/Documents"
+```
+
+A `drag` step rests a tenth of a second before it moves, which the host measures as 0.15 to
+0.17 s. That is about as long as a scroll view holds a touch back from the control under it,
+and a drag that starts on a control is taken by one or the other from one try to the next. Two
+more numbers set the rest in seconds and the speed in points a second, and a seventh keeps the
+touch down at the end, which leaves a scroll view where the touch took it and not where a
+fling would:
+
+```sh
+printf 'drag=0.5,0.52,0.5,0.22,0,1500\ndrag=0.75,0.27,0.75,0.46,0,300,0.6\n' > steps.txt
+```
+
+The first is a swipe of 200 points from the middle of an upright iPhone SE; the trace gave its
+rest as 0.02 s. With a rest of 0.05 the trace gave 0.08 to 0.10 s, and with 0.3, 0.32 to
+0.45 s. The second moves the strip of an iPhone SE on its side 64 points and leaves it there.
+A touch that is over in 0.02 s is too short for a scroll view to take: a drag of 30 points at
+1500 points a second moved nothing, and the same drag at 300 scrolled the strip to its end. A
+touch that rests 0.3 s or more on a menu opens it, and every later touch of the run then goes
+to the menu, so make it the last step. The `tree` line of a run's `meta.txt` speaks for
+`Sources` alone: a change to the host or the probe is not in it.
+A `swipe` step starts where XCTest puts it, which with the keyboard up was on the keyboard. On
+an iPhone SE on its side a quick downward drag that started 18 or 50 points from the top of
+the screen made the host inactive each of eleven times and sent it to the background in ten;
+none of three from 54 points did. The same host runs on a device, for a finger: build the
+`ControlsQualification` target for it, install and launch it with `devicectl`, and copy the
+trace back with `devicectl device copy from --domain-type appDataContainer`. It recorded one
+tap on an iPhone 17 Pro Max (iOS 27.2) that way, and nothing more was tried there.
+
+The other text sizes go to the host as the largest does, `UICTContentSizeCategoryXL` and `XXL`
+for the two above `large`, then `XXXL`, `AccessibilityM`, `AccessibilityL`, `AccessibilityXL`
+and `AccessibilityXXL`. The host's record of any touch gives the strip's scroll view, the
+height of its groups and the height it has, which is how the tables for #385 were read.
+
+The Mac VoiceOver sessions over the strip ran on the hosted runner, as
+[VoiceOver testing](voiceover-testing.md#hosted-mac-sessions) describes, with one more `-f ref=`
+for the branch that makes the Mac's strip a scroll view. That branch removes the two
+`#if os(macOS)` conditions from `EPUBReaderControlStrip`, so that its body is the scroll view on
+every platform. The runs were 38330310982 and 38330313378 on `main`, and 38330405314,
+38330407452 and 38331587898 on the branch; their transcripts are kept five days.
+
+```sh
+STEPS='ax:next ax:focus left left left left left left left left left left left right right right right right right right right right right right'
+gh workflow run voiceover-mac.yml --ref YOUR_BRANCH -f width=1100 -f steps="$STEPS"
+gh workflow run voiceover-mac.yml --ref YOUR_BRANCH -f ref=SCROLL_VIEW_BRANCH -f width=1100 \
+  -f steps='ax:next ax:focus left left in right right right right right right right right right right right out right right'
+```
