@@ -181,7 +181,8 @@ final class ReaderTextView: NSTextView {
     /// that stands for text gets an image element labelled with its text equivalent, through
     /// the attachment attribute VoiceOver reads in text. A hidden label is text, not an image.
     /// An image without words is an image element without a label, and one the book marks as
-    /// decoration is left with nothing, for VoiceOver to pass over.
+    /// decoration is left with nothing, for VoiceOver to pass over. A rule has no words and is
+    /// a separator element, for VoiceOver to say that a break is there.
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard !isPageColumn || validPageAccessibilityRange(range),
               let base = super.accessibilityAttributedString(for: range) else { return nil }
@@ -190,11 +191,6 @@ final class ReaderTextView: NSTextView {
         let rules = rules(in: range)
         guard !attachments.isEmpty || !images.isEmpty || !rules.isEmpty else { return base }
         let result = NSMutableAttributedString(attributedString: base)
-        for run in rules {
-            let local = NSRange(location: run.location - range.location, length: run.length)
-            guard NSMaxRange(local) <= result.length else { continue }
-            result.addAttribute(.accessibilityAttachment, value: ruleElement(at: run), range: local)
-        }
         for (attachment, text, run) in attachments {
             let local = NSRange(location: run.location - range.location, length: run.length)
             guard NSMaxRange(local) <= result.length else { continue }
@@ -229,6 +225,13 @@ final class ReaderTextView: NSTextView {
             element.setAccessibilityCustomActions(actions)
             result.addAttribute(.accessibilityAttachment, value: element, range: local)
         }
+        for run in rules {
+            let local = NSRange(location: run.location - range.location, length: run.length)
+            guard NSMaxRange(local) <= result.length else { continue }
+            let element = attachmentElement(at: run)
+            ReaderRuleAttachment.makeSeparator(element)
+            result.addAttribute(.accessibilityAttachment, value: element, range: local)
+        }
         return result
     }
 
@@ -242,27 +245,8 @@ final class ReaderTextView: NSTextView {
         return result
     }
 
-    // Candidate E: what WebKit gives an hr, as candidate C, but left enabled.
-    private func ruleElement(at range: NSRange) -> NSAccessibilityElement {
-        let element = attachmentElements[range.location] ?? NSAccessibilityElement()
-        attachmentElements[range.location] = element
-        element.setAccessibilityRole(.splitter)
-        element.setAccessibilitySubrole(NSAccessibility.Subrole(rawValue: "AXContentSeparator"))
-        element.setAccessibilityRoleDescription(ReaderRuleAttachment.spokenName.lowercased())
-        element.setAccessibilityOrientation(.horizontal)
-        element.setAccessibilityValue(nil)
-        element.setAccessibilityParent(self)
-        let frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
-        if !frame.isNull {
-            let origin = containerOrigin
-            element.setAccessibilityFrameInParentSpace(frame.offsetBy(dx: origin.x, dy: origin.y))
-        }
-        return element
-    }
-
     private func accessibilityElement(at range: NSRange, label: String, isText: Bool = false) -> NSAccessibilityElement {
-        let element = attachmentElements[range.location] ?? NSAccessibilityElement()
-        attachmentElements[range.location] = element
+        let element = attachmentElement(at: range)
         if let cells = tableInteraction?.accessibilityCells(at: range.location), !cells.isEmpty {
             element.setAccessibilityRole(.group)
             element.setAccessibilityLabel("Table row")
@@ -277,6 +261,13 @@ final class ReaderTextView: NSTextView {
             element.setAccessibilityLabel(label.isEmpty ? nil : label)
             element.setAccessibilityChildren(nil)
         }
+        return element
+    }
+
+    /// The element kept for the attachment at `range`, where that stands in the view.
+    private func attachmentElement(at range: NSRange) -> NSAccessibilityElement {
+        let element = attachmentElements[range.location] ?? NSAccessibilityElement()
+        attachmentElements[range.location] = element
         element.setAccessibilityParent(self)
         let frame = segmentFrames(for: range).reduce(CGRect.null) { $0.union($1) }
         if !frame.isNull {

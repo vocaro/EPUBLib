@@ -307,18 +307,98 @@ import UIKit
     }
 
     #if os(macOS)
-    /// On Mac the text area is the element, and a rule is a character of its value with no
-    /// element of its own: VoiceOver passes it over. Nothing is made up for it.
-    func testARuleHasNoElementOfItsOwnOnMac() throws {
-        let (section, _, view) = try pageWithRules()
-        XCTAssertEqual(view.accessibilityValue(), section.string.string, "the characters as they are, so every range matches")
-        let rich = try XCTUnwrap(view.accessibilityAttributedString(for: NSRange(location: 0, length: section.string.length)))
-        var elements: [Int] = []
-        rich.enumerateAttribute(.accessibilityAttachment, in: NSRange(location: 0, length: rich.length)) { value, range, _ in
-            if value != nil { elements.append(range.location) }
+    /// The elements `view` gives in its rich text for `range`, each with its place in that text.
+    private func attachmentElements(of view: ReaderTextView, in range: NSRange) throws -> [(location: Int, element: NSAccessibilityElement)] {
+        let rich = try XCTUnwrap(view.accessibilityAttributedString(for: range))
+        var found: [(Int, NSAccessibilityElement)] = []
+        rich.enumerateAttribute(.accessibilityAttachment, in: NSRange(location: 0, length: rich.length)) { value, run, _ in
+            if let element = value as? NSAccessibilityElement { found.append((run.location, element)) }
         }
-        XCTAssertEqual(elements, [], "no image element, no label and no help stand for a rule")
+        return found
+    }
+
+    /// What WebKit gives an `hr` on Mac, which AppKit has no role for: a splitter that is a
+    /// break in content, called a separator. It has no name, no value and no help, so the role
+    /// description is all VoiceOver has to say.
+    private func assertIsASeparator(_ element: NSAccessibilityElement, in view: ReaderTextView, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(element.accessibilityRole(), .splitter, file: file, line: line)
+        XCTAssertEqual(element.accessibilitySubrole()?.rawValue, "AXContentSeparator", "a break in content, not the bar of a split view", file: file, line: line)
+        XCTAssertEqual(element.accessibilityRoleDescription(), "separator", file: file, line: line)
+        XCTAssertEqual(element.accessibilityOrientation(), .horizontal, file: file, line: line)
+        XCTAssertNil(element.accessibilityLabel(), "the word is the role's and not a name", file: file, line: line)
+        XCTAssertNil(element.accessibilityValue(), file: file, line: line)
+        XCTAssertNil(element.accessibilityHelp(), "VoiceOver reads the help of an element without a label in the label's place", file: file, line: line)
+        XCTAssertTrue((element.accessibilityCustomActions() ?? []).isEmpty, "a rule opens nothing", file: file, line: line)
+        XCTAssertTrue(element.accessibilityParent() as? ReaderTextView === view, file: file, line: line)
+        XCTAssertFalse(element.accessibilityFrameInParentSpace().isEmpty, "it has a place", file: file, line: line)
+    }
+
+    /// On Mac the text area is the element and a rule is a character of its value. The
+    /// character carries a separator element, so that VoiceOver says a break is there, and the
+    /// value and every range stay those of the characters.
+    func testARuleIsASeparatorElementWithoutWordsOnMac() throws {
+        let (section, _, view) = try pageWithRules()
+        let whole = NSRange(location: 0, length: section.string.length)
+        XCTAssertEqual(view.accessibilityValue(), section.string.string, "the characters as they are, so every range matches")
+        XCTAssertEqual(view.accessibilityNumberOfCharacters(), section.string.length)
+        let found = try attachmentElements(of: view, in: whole)
+        XCTAssertEqual(found.map(\.location), [18, 41], "one element for each rule, on the rule's own character")
+        for (location, element) in found {
+            XCTAssertEqual(view.accessibilityString(for: NSRange(location: location, length: 1)), "\u{FFFC}")
+            assertIsASeparator(element, in: view)
+            let drawn = view.segmentFrames(for: NSRange(location: location, length: 1)).reduce(CGRect.null) { $0.union($1) }
+            XCTAssertEqual(element.accessibilityFrameInParentSpace(), drawn.offsetBy(dx: view.containerOrigin.x, dy: view.containerOrigin.y),
+                           "where the rule is drawn")
+        }
+        XCTAssertNotEqual(found.first?.element.accessibilityFrameInParentSpace(), found.last?.element.accessibilityFrameInParentSpace())
+        // The second rule is all its link holds. On Mac a link is text, and the rule in it is a rule.
+        XCTAssertNotNil(section.string.attribute(.link, at: 41, effectiveRange: nil))
+        // A read of part of the page gives the same elements, at their places in that part.
+        let again = try attachmentElements(of: view, in: whole)
+        XCTAssertTrue(zip(found, again).allSatisfy { $0.element === $1.element } && again.count == 2, "an element is kept from one read to the next")
+        let part = try attachmentElements(of: view, in: NSRange(location: 18, length: 24))
+        XCTAssertEqual(part.map(\.location), [0, 23])
+        XCTAssertTrue(zip(found, part).allSatisfy { $0.element === $1.element })
+        XCTAssertTrue(try attachmentElements(of: view, in: NSRange(location: 0, length: 18)).isEmpty, "none where there is no rule")
+        XCTAssertTrue(try attachmentElements(of: view, in: NSRange(location: 19, length: 22)).isEmpty)
+        // The rule is still no image and has no words: nothing else stands for it.
         XCTAssertTrue(view.textualAttachments().isEmpty && view.announcedImages().isEmpty)
+        XCTAssertEqual(view.visibleText, "First scene ends.\n\nSecond scene starts.\n\nLast words.")
+    }
+
+    /// A page that holds a rule and nothing else has one character, which is the separator.
+    func testAPageThatHoldsARuleAloneHasItsSeparatorOnMac() throws {
+        let section = try BoxLayoutHarness.build("<hr/>", css: BoxLayoutHarness.reset)
+        XCTAssertEqual(section.string.string, "\u{FFFC}")
+        let host = host([section.string, CanvasText.body("Next section.")])
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        XCTAssertEqual(view.accessibilityValue(), "\u{FFFC}")
+        XCTAssertEqual(view.accessibilityRange(forLine: 0), NSRange(location: 0, length: 1))
+        let found = try attachmentElements(of: view, in: NSRange(location: 0, length: 1))
+        XCTAssertEqual(found.map(\.location), [0])
+        assertIsASeparator(try XCTUnwrap(found.first).element, in: view)
+        XCTAssertEqual(view.visibleText, "", "the page has no words")
+        // The next page's text replaces it: a new read gives no separator and keeps no element.
+        XCTAssertEqual(host.canvas.turnPage(forward: true), .turned)
+        XCTAssertEqual(view.accessibilityValue(), "Next section.")
+        XCTAssertTrue(try attachmentElements(of: view, in: NSRange(location: 0, length: 13)).isEmpty)
+    }
+
+    /// In continuous scroll one text area holds the book, and a rule in it is a separator too.
+    func testARuleIsASeparatorInContinuousScrollOnMac() throws {
+        let section = try BoxLayoutHarness.build("<p>First scene ends.</p><hr/><p>Second scene starts.</p>", css: BoxLayoutHarness.reset)
+        var configuration = ReaderCanvasConfiguration()
+        configuration.flow = .scrolled
+        let host = CanvasHost(FakeCanvasSource([section.string]), size: CGSize(width: 420, height: 350), configuration: configuration)
+        hosts.append(host)
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        host.layOut()
+        let view = try XCTUnwrap(host.canvas.textViews.first)
+        XCTAssertFalse(view.isPageColumn)
+        XCTAssertEqual(view.accessibilityValue(), "First scene ends.\n\u{FFFC}\nSecond scene starts.", "the characters as they are")
+        let found = try attachmentElements(of: view, in: NSRange(location: 0, length: section.string.length))
+        XCTAssertEqual(found.map(\.location), [18])
+        assertIsASeparator(try XCTUnwrap(found.first).element, in: view)
     }
     #else
     /// A rule is a stop of its own between the lines it parts. It is not a picture, which
