@@ -847,7 +847,20 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    cell is an item by itself, and moving back gives the same items in reverse. On the last
    row the rotor offers Select Table Text for its two cells and Follow Table Link: Eighth
    cell link, which opens the first section at "Link target reached"; a line beside the
-   tables offers none of them.
+   tables offers none of them. On a Mac a cell is a text of its own, and VoiceOver reads its
+   line wherever its cursor is in it. In a window 600 points wide at 17 points, with the
+   reader opened at that section (`"launch=-SampleHref OPS/table.xhtml"`), in pages and in
+   continuous scroll, `"ax:caret=Shown words after"`, a focus change to the text, `in` and
+   `left` put VoiceOver on the first table's second row, "Table row group"; `in` there says
+   "In Table row group 2 items text Third cell", and `in` again "In text Third cell". `line`
+   then says "Third cell" on entering, after `right` has said "Third", after a second
+   `right` has said "cell", the cell's last word, and after a third has said "end of text".
+   A reader whose cells have no line for the end of their text says nothing for the last
+   two, and counts "-9,223,372,036,854,775,808 lines" there for `linecount`, where the
+   answer is "1 line 1 visible line". At 56 points the cells take two lines each and the
+   table has the page to itself: two `right` steps from the text's first line reach the
+   first row, `line` says "First" on entering its first cell and "cell" with the cursor at
+   the end of the cell's text, and `previousline` from there says "First".
 7. On the section of pictures, in pages and in continuous scroll. VoiceOver stops between
    "Undescribed picture" and "stands here." and says that an image is there, with no name.
    It reads "Decoration" and "passed over." with nothing between them, and the same for
@@ -1862,6 +1875,50 @@ The Mac runner's transcript is plain text and needs no export.
   Actions menu as under a rotor: the runner closes one first, and in the one session left under
   a menu it wrote `STEP listclose, sent by the runner in case the Actions menu is still open`,
   VoiceOver said "Closing Actions menu" and switched off.
+- On 2026-10-13 VoiceOver's Read Line was heard in a table cell on a Mac, before and after a
+  cell gave a line for the end of its text. GitHub's hosted `xcode-27` runner (image
+  `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), VoiceOver's link setting Speak, a
+  window 600 points wide, at the fixed pause. Nobody listened and no workstation was used.
+  Before is `main` at `0128fa6`, runs 38360769105 and 38363804998. After is `774f82c`, that
+  `main` with the change, runs 38361875335 and 38363855146. Each step list was run on both.
+  A cell of one line, "Third cell" in the section with a hidden heading over a table, at 17
+  points: in pages `"launch=-SampleHref OPS/table.xhtml" "ax:caret=Shown words after"
+  ax:focus=search ax:focus=0 in left in in`, and in continuous scroll the same with
+  `ax:focus` for the two focus steps. Both readers, in both flows: "In text Shown words
+  after the table.", "Table row group", "In Table row group 2 items text Third cell" and
+  "In text Third cell"; `line` said "Third cell" on entering, and again after `right` had
+  said "Third". After the next `right`, "cell", `line` said nothing before and "Third cell"
+  after. After one more, "end of text", the same: nothing, and then "Third cell". In pages
+  `textend` said "end of text end of text" and `line` after it nothing before and "Third
+  cell" after, and after `firstword`, "Third", `line` said "Third cell" in both. With the
+  cursor on "cell", `describe` said "word: cell end of text is in the VoiceOver cursor" in
+  both, and `linecount` "-9,223,372,036,854,775,808 lines 9,223,372,036,854,775,808 visib"
+  before, the 64 characters the probe records, and "1 line 1 visible line" after.
+  A cell whose words are a link, "Right cell jump" in the section of what each line offers
+  (`"launch=-SampleHref OPS/offers.xhtml" "ax:caret=Plain words below" ax:focus=search
+  ax:focus=0 in left in right in`): "In Table row group 2 items text Left cell", "text
+  Right cell jump" and "In text Right cell jump" in both, and `line` "Right cell jump" on
+  entering. After "Right", "cell" and "jump" by word `line` said nothing before and "Right
+  cell jump" after, and the same after "end of text".
+  A cell of two lines. At 56 points the first table's cells read "First" over "cell", and
+  the page holds the hidden heading and the table's two rows and nothing else
+  (`text_size=56 "launch=-SampleHref OPS/table.xhtml" ax:focus=search ax:focus=0 in right
+  right in in`): "In text Parked table heading", "Parked table heading", "Table row group",
+  "In Table row group 2 items text First cell" and "In text First" in both, and `line`
+  "First" on entering and after `right` had said "First". After the next `right`, "cell",
+  `describe` said "word: cell end of text is in the VoiceOver cursor" before and "Line 2
+  word: cell end of text is in the VoiceOver cursor Line" after. `line` then said nothing
+  before and "cell" after, and the same after "end of text". From there `previousline` and
+  `nextline` said nothing before, and "First" and "cell" after: without a line for the end
+  of its text a cell gave VoiceOver no line to move from either.
+  The probe records a phrase VoiceOver repeats once. In a cell whose last line is one word,
+  `line` straight after `right` has said that word shows no new phrase in either reader, as
+  in the fourth session of run 38361875335; the sessions above have `describe` between the
+  two. A session at 56 points that looked for "Shown words after" (run 38360769105) found
+  the line on the next page and never reached a cell.
+  Not heard: a part of a cell cut at a page's end, which is unit-tested
+  (`TableCellLineAccessibilityTests`); a cell that holds a picture, a formula or a hidden
+  label, which the fixture on `main` does not have; a physical Mac, or anyone listening.
 - On 2026-10-12 the section with a hidden heading over a table, with its second table, was
   read at 17 points before and after a table's rows became single items: at `2053be8` and at
   `1e3e5c3`, in the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and
