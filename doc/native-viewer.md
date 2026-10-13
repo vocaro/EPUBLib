@@ -916,8 +916,8 @@ The following are the defaults. Host commands and accessibility actions stay ena
   the item it was given, and a page's lines are items of that page: turn the page and the
   cursor is on a line that is no longer shown. After a line's Next Page it stayed drawn
   where the line had stood, and the next move went by the old item: to the book's title
-  under the page, or, from a page whose lines hold as many characters as the next page's,
-  to a line in the middle of the new page, then the line before it, then that line again.
+  under the page, or to a line somewhere down the new page, then the line before it, then
+  that line again.
   So a page column knows which of its lines the cursor is on. UIKit tells a line when the
   cursor comes to it and names every item the cursor goes to, and whatever is not a line of
   that column ends it. When a page is shown and the cursor's line is no longer on it, the
@@ -928,8 +928,8 @@ The following are the defaults. Host commands and accessibility actions stay ena
   top of the page. This is so whoever turned the page: a line's own action, VoiceOver's
   scroll, a key, or the host while the cursor is in the text. The cursor is then on a new
   item, where VoiceOver's rotor is at its default again: to turn several pages from the
-  text a listener flicks down to Next Page before each double tap (iPadOS 27.2). Three
-  cursors are left alone.
+  text a listener flicks down to Next Page before each double tap, where on the line left
+  behind a second double tap turned again (iPadOS 27.2). Three cursors are left alone.
   One that is not in the text stays where it is: after the host's Next Page button
   VoiceOver is still on the button, and moving into the text from there met the new page's
   first line before this and does now. One whose line is still on the page keeps it, as
@@ -944,8 +944,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   from an earlier list stands for its line by the line's place
   in the book (`index(ofAccessibilityElement:)`). It was matched by its characters as the
   view counts them, and a page column counts from its page's first: a line of the page
-  before then stood for whichever line of the page shown had the same ones, which is what
-  took VoiceOver to the middle of a page.
+  before then stood for whichever line of the page shown had the same ones.
 - VoiceOver on Mac is offered neither named action, in pages or in continuous scroll
   (macOS 27.0.1), so the names Next Page and Previous Page, wrong for a flow without pages,
   are heard nowhere there. The window gives an assistive client the hosting view's group

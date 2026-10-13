@@ -27,9 +27,11 @@ final class ReaderTextView: UITextView {
     /// Whether that cursor is on something VoiceOver reaches after the scroll view's lines: one
     /// of the scroll view's own bars, or an item below the reading area.
     private var accessibilityCursorFollowsText = false
-    /// The line of a page column an assistive technology's cursor is on, known the same way.
-    /// VoiceOver goes on holding the element when the page is turned under it, so this is then
-    /// a line the column no longer lists (`accessibilityCursorHasLeftThePage`).
+    /// The line of a page column an assistive technology's cursor is on: from the moment the
+    /// line is told so until UIKit's focus notification names something that is not one of
+    /// this column's lines. VoiceOver goes on holding the element when the page is turned
+    /// under it, so this is then a line the column no longer lists
+    /// (`accessibilityCursorHasLeftThePage`).
     private var pageAccessibilityCursor: ReaderPageAccessibilityElement?
     /// How many lines the scroll view lists past the screen: as many items as VoiceOver was seen
     /// to ask for at once (iOS 27.0).
@@ -373,7 +375,7 @@ final class ReaderTextView: UITextView {
         return result
     }
 
-    /// An assistive technology's cursor came to `element`, a line of the scroll view.
+    /// An assistive technology's cursor came to `element`, a line of this view.
     fileprivate func accessibilityCursorMoved(to element: ReaderPageAccessibilityElement) {
         if isPageColumn { pageAccessibilityCursor = element }
         guard isCanvasScrollView else { return }

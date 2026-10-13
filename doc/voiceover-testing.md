@@ -2041,10 +2041,19 @@ The Mac runner's transcript is plain text and needs no export.
   four lines below the cursor, the line above that, and the first again. From "word0818
   …", Previous Page showed `word0294`–`word0654` with the cursor over "word0450 …", and
   the moves read "word0474 …", "word0466 …", "word0474 …". Those two pages are full of
-  lines of eight and nine words, and the line VoiceOver held had, counted from the top of
-  its own page, the characters of a line further down the page turned to: the reader told
-  UIKit that the old line was that one (`index(ofAccessibilityElement:)`, which a unit
-  test now holds to the line's place in the book).
+  lines of eight and nine words. The reader answered for an element of the page before by
+  its characters counted from the top of its own page (`index(ofAccessibilityElement:)`),
+  and on such pages those are the characters of a line of the page turned to. A unit test
+  now holds the answer to the line's place in the book.
+  Before again, at `7fa9231` with the probe's `listen` step, the `main` the change was
+  last merged with. VoiceOver said nothing by itself after either turn. From "word0001 …"
+  the three moves read "word0573 …", "word0565 …", "word0573 …", near the foot of the page
+  that begins at `word0294`, where the first session had read the title; from "word0450
+  …", "word0939 …", "word0931 …", "word0939 …". The line it came to was not the same from
+  one session to the next, and was the page's first in none. With Previous Page chosen
+  and performed from "word0818 …", a second double tap with no flick before it turned the
+  page again, to `word0001`–`word0293`: on the line left behind the rotor stayed where it
+  was.
   A page turned by the control strip's button needed no change. With the cursor taken
   from a line to the button (`activate=Next Page`), VoiceOver stayed on "Next Page Button",
   and moving forward read the strip's eight other controls and then "word0294 …",
@@ -2060,12 +2069,18 @@ The Mac runner's transcript is plain text and needs no export.
   with the cursor on "Verification link", a double tap showed the book's last page,
   `word1013`–`word1200`, and VoiceOver read "Link target reached Heading" by itself, the
   line of the link's target, below the twenty-one lines of words that begin that page; the
-  next moves read "This is the end of the numbered paragraph." and the book's title.
+  next moves read "This is the end of the numbered paragraph." and the book's title. A
+  turn by the control strip's button read as it had: VoiceOver stayed on "Next Page
+  Button", moving forward read the eight controls and then "word0294 …", "word0302 …",
+  "word0310 …", "word0319 …", and after Previous Page "Previous Page dimmed", the controls
+  and "Page boundary verification Heading".
   What the change costs was seen in the same session. The cursor is on a new item after a
   turn, and VoiceOver's rotor is at its default there: with Previous Page chosen and
   performed from "word0818 …", a second double tap, with no flick before it, read the
-  first line again and left `word0294`–`word0654` on screen. A listener turning several
-  pages from the text flicks down before each double tap.
+  first line again and left `word0294`–`word0654` on screen, where before the change it
+  had turned the page again. A listener turning several pages from the text now flicks
+  down before each double tap. On the control strip's button the cursor stays on the
+  button, and double taps turn page after page as they did.
   The [simulator lane](#simulators) read the same change another way, since a simulator's
   VoiceOver performs no action: the cursor is put on a line, and `doubletap=Next Page`
   lands one plain touch on the control strip's button while the cursor stays on the line.
@@ -2075,7 +2090,11 @@ The Mac runner's transcript is plain text and needs no export.
   the moves read "VoiceOver Page Boundary Verification", "word0061 …", "word0065 …", on a
   page that begins at `word0017`; from "word0025 …", the third line of that page, the
   moves read "word0093 …", "word0089 …", "word0093 …" on the page that begins at
-  `word0081`; and after Previous Page "word0029 …", "word0025 …", "word0029 …".
+  `word0081`; and after Previous Page "word0029 …", "word0025 …", "word0029 …". After, at
+  `7466dea`: VoiceOver read "word0017 word0018 word0019 word0020" by itself, the first line
+  of the page, and the moves read "word0021 …", "word0025 …", "word0029 …"; from "word0025
+  …" it read "word0081 …" and the moves "word0085 …", "word0089 …", "word0093 …"; and
+  after Previous Page "word0017 …" and the same three.
   The order of the two things VoiceOver's scroll posts was tried there too, in a build
   with a switch for what is posted (not in the branch). The page's number and then the
   line: "Page 2", then "word0017 word0018 word0019 word0020", and the moves read on from
