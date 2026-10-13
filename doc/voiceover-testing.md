@@ -2247,8 +2247,8 @@ The Mac runner's transcript is plain text and needs no export.
   VoiceOver service, VoiceOver switched on for each session and read back as off after it;
   nobody listened, and no device has run it. "Before" is `8328237`, which is main at
   `9a8e66b` with the sample's `-SampleDarkAfter` and nothing else, and "after" is
-  `f822c8a`; each step list was a session of its own on each, thirty-four in all, at load
-  averages from 4 to 90. The sample itself turns the page (`-SampleStepAfter`) or shows it
+  `f822c8a`; each step list was a session of its own on each, thirty-six in all, at load
+  averages from 4 to 93. The sample itself turns the page (`-SampleStepAfter`) or shows it
   again dark (`-SampleDarkAfter`), of which VoiceOver knows nothing, as it knows nothing of
   a key. The iPhone's first page holds "Chapter one" and twelve lines, and its second
   begins at `p002w19 …`. VoiceOver's own log is quoted ([Simulators](#simulators)).
@@ -2318,6 +2318,14 @@ The Mac runner's transcript is plain text and needs no export.
   - The cursor back on the last control (`touch=Bookmark,forward=2,backward=2,listen=22,screenshot,forward=4`).
     Before: "Chapter one Heading", "Bookmark", "Chapter one Heading", `p001w01 …`. After:
     the heading and three lines in order.
+  - The rotor's choice on a line (`touch=p001w01,flick=down,listen=22,screenshot,flick=down,forward=2`,
+    dark at 20 seconds). Before: "Next Page", and after the change "Previous Page" at the
+    second flick, the rotor where it was, then `p002w05 …` and `p002w01 …`, lines from
+    further down the page and out of order: the log has `Found element: p001w06 …` taken
+    as it was and `Will set element: p002w05 …`. After: "Next Page" again at the second
+    flick, then `p001w06 …` and `p001w11 …`. The rotor is at its default again, because
+    VoiceOver set its cursor on the line's new item at the forced update: the cost of the
+    change there is one flick down.
   - The iPad, the cursor in a table's cell
     (`OPS/grids.xhtml`, `touch=Twelve metres,backward=2,forward=2,listen=22,screenshot,backward=1,forward=3`).
     Before the change the moves read "Opened 1901 Column 2", "Station Alder Row header

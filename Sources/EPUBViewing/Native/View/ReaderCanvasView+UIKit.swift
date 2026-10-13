@@ -362,7 +362,9 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// page shown again, a move back and a move forward took it out of the text, to the
     /// control it had touched before it began to read. Told of the layout change it drops
     /// what it holds 0.8 s later, by its own log, says nothing and stays where it is, and
-    /// its moves from there are through the items of the page shown.
+    /// its moves from there are through the items of the page shown. On a line of a page
+    /// shown again it sets its cursor on that line's new item, where its rotor is at its
+    /// default.
     ///
     /// Nothing is posted for a page VoiceOver asked for itself: by its rotor, which takes
     /// the cursor to the item it is given, and by its scroll, which is announced

@@ -1664,7 +1664,11 @@ The following are the defaults. Host commands and accessibility actions stay ena
   no element (`ReaderCanvasView.accessibilityPageWasShown`), as it does after a move of
   its own in continuous scroll. VoiceOver drops everything it holds 0.8 s later, by its own
   log, says nothing and stays where it is, and its moves from there are through the items
-  of the page shown. A second such change right beside the one that sends the cursor,
+  of the page shown. On a line of a page shown again it sets its cursor on that line's new
+  item as it does so, and its rotor is at its default there: an action chosen before the
+  page was shown again takes one flick down to choose again. Having the item it holds
+  stand for the line, as it does across a turn, would keep the rotor and is not done. A
+  second such change right beside the one that sends the cursor,
   before it or after it, as a page shown again for a new size just before a turn would
   post, left what VoiceOver read and its rotor as they were in nine sessions of ten, and
   in the tenth the line was read some seconds late. On a device VoiceOver asks again by
