@@ -149,8 +149,17 @@ new phrase is recorded:
   cursor and name it.
 - `describe`: Control-Option-F3 once, what is in the VoiceOver cursor. `attributes`:
   Control-Option-T, the text attributes there.
-- `actions`: Control-Option-Command-Space, the menu of the item's actions. The `list` keys
-  of `rotor` move in it and close it.
+- `actions`: Control-Option-Command-Space, VoiceOver's Actions menu, which holds the actions
+  of the item under its cursor. VoiceOver says "Actions menu" and how many items it has.
+  `listdown` and `listup` say each one, `listchoose` performs the one last said, and
+  `listclose` closes the menu, at which VoiceOver says "Closing Actions menu".
+  `"listchoose=show menu"` sends Return only if one of VoiceOver's last two phrases contains
+  the label, as `activate=LABEL` does. On a group the menu held the actions of what the
+  group holds, one after another, and on the sample's group with its controls embedded
+  VoiceOver said nothing and opened no menu: the list keys after it went to the reader, where
+  Down Arrow moves the insertion point. The runner closes a menu a session can have left
+  open as it does a rotor, with `STEP listclose, sent by the runner in case the Actions menu
+  is still open`.
 - `pagedown`, `pageup`: the reader's own page keys, without VoiceOver modifiers.
 - `ax:STEP`: a step of the observer described below, through the accessibility API.
 
@@ -204,7 +213,9 @@ selection and the numbered-word span of its value:
 
 - `next`, `previous`: press the page buttons, found by label or help rather than index.
 - `press=LABEL`: press any other button by its label, as in `"ax:press=Use Toolbar"`, which
-  moves the sample's controls from the reader's group to the window's toolbar.
+  moves the sample's controls from the reader's group to the window's toolbar, or a segment
+  of Reading Mode: `"ax:press=Continuous Scroll"` and `ax:press=Paging` change the flow
+  while the reader is open.
 - `larger`, `smaller`: choose the Appearance menu's text-size items.
 - `width=POINTS`: resize the window.
 - `focus`, `focus=COLUMN`, `focus=search`: give the last column, a numbered column or the
@@ -215,6 +226,15 @@ selection and the numbered-word span of its value:
   `LINK` line is a run of the text's accessibility string with the element given as its
   link, the element given as its attachment, or both: each one's role, what it is called,
   and its actions.
+- `actions`: print each column, everything that holds it up to the window, and any other
+  element with a named action, as an `ELEMENT` line: its number in the order an assistive
+  client meets it, its depth under the window, its role, what it is called and its actions,
+  one an application names itself in quotation marks. VoiceOver's Actions menu holds the
+  actions of the item under its cursor, so the lines show where the cursor would have to be
+  for a named action to be offered. `actions=all` prints every element of the window.
+- `action=NAME`: perform a named action on the first of those elements that has it, without
+  VoiceOver, as in `"ax:action=Next Page"`. It prints `MISSING` when no element has one of
+  that name.
 - `caret=WORDS`: put the insertion point before the first of these words, as in
   `"ax:caret=Bare jump"`. VoiceOver enters a text at its insertion point, so `in` then starts
   on that line and `right` reads the word.
