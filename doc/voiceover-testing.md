@@ -29,10 +29,17 @@ picture: nothing, that it is decoration (an empty `alt`), or words. Each stands 
 text; a decorative one is also all that a link holds, and stands beside words in a link; and
 two come from a file that has a title of its own, one with an empty `alt` and one with none.
 None of the section's words is one VoiceOver uses for a picture or a link, so those in a
-transcript are VoiceOver's own. A fifth, **Scenes set apart** (`OPS/scenes.xhtml`), the
-book's last, holds rules: an `<hr>` between two paragraphs, one the book gives
-`role="presentation"`, and one alone on a page of its own, with a last paragraph on the page
-after it. None of its words is one a screen reader uses for a rule either. A second
+transcript are VoiceOver's own. A fifth, **Scenes set apart** (`OPS/scenes.xhtml`), holds
+rules: an `<hr>` between two paragraphs, one the book gives `role="presentation"`, and one
+alone on a page of its own, with a last paragraph on the page after it. None of its words is
+one a screen reader uses for a rule either. A sixth, **What each line offers**
+(`OPS/offers.xhtml`), the book's last, shows every kind of item at once, on one page and one
+screen, for what VoiceOver's rotor offers on each: its heading, lines of words ("Plain words
+above." and "Plain words below."), a link inside a line (**Lone jump**), a picture with words
+(**Square with words**) and one with none, and a table row whose second cell is a link ("Left
+cell" and "Right cell jump"). Sixty short lines follow ("Below line 01."), so the section's
+first line can be shown at the top in continuous scroll. None of its words is one VoiceOver
+uses for an action, a picture or a link. A second
 bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
@@ -40,8 +47,8 @@ twenty-third), so a line in the middle of a paragraph can be told from its first
 of the book is a few screens from the start of its last chapter. The first book's headings
 are "Page boundary verification" (level 1), which opens it, "Link target reached" (level 2)
 after the numbered paragraph, the two parked ones (level 1), each opening its section, and
-"Pictures and their words" and "Scenes set apart" (level 1), each opening one of the last
-two; the second book's are "Chapter one", "Chapter two" and "Chapter three", screens apart.
+"Pictures and their words", "Scenes set apart" and "What each line offers" (level 1), each
+opening one of the last three; the second book's are "Chapter one", "Chapter two" and "Chapter three", screens apart.
 Do not import private books for this check.
 
 Use Xcode 27, OS 27, XcodeGen, Python 3, and a graphical Mac login. Select a signing team for
