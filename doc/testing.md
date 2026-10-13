@@ -56,6 +56,24 @@ xcrun xctest -XCTest All -AppleShowScrollBars Always .build/debug/EPUBViewingTes
 xcrun xctest -XCTest All -AppleShowScrollBars WhenScrolling .build/debug/EPUBViewingTests.xctest
 ```
 
+A `swift test` that hangs can be made to say where. Written to a file or a pipe, its output
+arrives 16 KB at a time, so the log of a run that hangs stops short of the hang, or is empty.
+With `NSUnbufferedIO=YES` in its environment `swift test` writes each line as a test makes
+it, and the last `Test Case … started.` line with nothing after it names the test. A stack
+sample of the process running the tests, the `xctest` that `swift test` starts for a bundle,
+has every thread's frames, the test's own with its file and line, and needs no `sudo`:
+
+```sh
+NSUnbufferedIO=YES swift test --filter BoxAlignmentCanvasTests > pass.log 2>&1 &
+sample "$(pgrep -P $!)" 2 -file hang.txt
+```
+
+The second command is for when `pass.log` has stopped growing. `pgrep -P $!` finds the
+process this run started and no other session's. On 2026-10-12, with a test made to wait
+twenty seconds, a plain run's log was empty ten seconds in, the log of a run with
+`NSUnbufferedIO=YES` ended at that test's `started` line, and the sample had the test's frame
+on the main thread.
+
 ## Coverage
 
 Parser tests cover EPUB 2/3 structure, navigation, landmarks and page lists, resource access, identity, limits,
