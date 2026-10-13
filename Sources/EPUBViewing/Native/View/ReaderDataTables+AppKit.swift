@@ -487,10 +487,21 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     // the link's words happen to stand there.
     override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
         if selector == #selector(accessibilityPerformPress) { return onMain(self) { $0.isLink } }
+        if selector == #selector(accessibilitySubrole) { return onMain(self) { $0.trial == "subrole" } }
         return super.isAccessibilitySelectorAllowed(selector)
     }
 
     override func accessibilityPerformPress() -> Bool { onMain(self) { $0.followLink() } }
+
+    // TRIAL, not for main: a link cell that holds its text areas and says it is a link by a
+    // subrole or by a role description, chosen at launch with `-TableLinkCell NAME`.
+    private static let trial = UserDefaults.standard.string(forKey: "TableLinkCell") ?? ""
+    private var trial: String { isLink ? Self.trial : "" }
+    override func accessibilitySubrole() -> NSAccessibility.Subrole? { onMain(self) { $0.trial == "subrole" ? .textLink : nil } }
+    override func accessibilityRoleDescription() -> String? {
+        if onMain(self, { $0.trial == "description" }) { return NSAccessibility.Role.link.description(with: .textLink) }
+        return super.accessibilityRoleDescription()
+    }
 
     /// The cell's words, where no text view says them: off screen, and for a header cell
     /// given by name. They are the cell's label, or the title of the link it holds.
@@ -516,7 +527,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// as any other does: VoiceOver reads what a header cell holds before each cell under it,
     /// and what it would say of a link there was not heard.
     var holdsLink: Bool {
-        guard isLink, let table else { return false }
+        guard isLink, trial.isEmpty, let table else { return false }
         return !table.table.cells[cell].isHeader
     }
 
