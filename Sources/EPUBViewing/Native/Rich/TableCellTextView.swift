@@ -34,6 +34,8 @@ typealias TableNativeTextView = UITextView
     /// The accessibility element of each attachment VoiceOver is told of, by its location in
     /// the cell's text, kept for as long as the cell is.
     private var attachmentElements: [Int: NSAccessibilityElement] = [:]
+    /// The accessibility elements of the cell's links (`ReaderTextLinks+AppKit.swift`).
+    var linkElements = ReaderLinkElements()
     #endif
     #if os(iOS)
     private var spreadSelectionDelegate: ReaderSpreadSelectionGestureDelegate?
@@ -263,7 +265,14 @@ typealias TableNativeTextView = UITextView
                 result.addAttribute(.accessibilityLanguage, value: language, range: relative)
             }
         }
+        addAccessibilityLinks(accessibilityLinks(in: full), to: result, of: full)
         return result
+    }
+
+    /// AppKit lists a text view's links as its children and nothing else: the reader's own
+    /// elements take their place, as in the text around the table.
+    override func accessibilityChildren() -> [Any]? {
+        (super.accessibilityChildren() ?? []).filter { $0 is NSView } + linkChildren()
     }
 
     /// The element of the attachment `value` at `range` of the cell's text, or none for what an
@@ -360,7 +369,13 @@ typealias TableNativeTextView = UITextView
         return lines.indices.contains(line) ? lines[line] : NSRange(location: NSNotFound, length: 0)
     }
     override func accessibilityLine(for index: Int) -> Int {
-        accessibilityLines().firstIndex { NSLocationInRange(index, $0) } ?? NSNotFound
+        let lines = accessibilityLines()
+        // The insertion point after the cell's last character is on its last line, as in a page
+        // column (`ReaderTextView.accessibilityLine(for:)`). VoiceOver leaves it there once it
+        // has read the cell's last word, and without a line there its Read Line said nothing.
+        // A cell's text never changes, so no offset past that one is the cell's.
+        if index == shownCharacters.length, !lines.isEmpty { return lines.count - 1 }
+        return lines.firstIndex { NSLocationInRange(index, $0) } ?? NSNotFound
     }
     override func accessibilityInsertionPointLineNumber() -> Int { accessibilityLine(for: accessibilitySelectedTextRange().location) }
     /// The images an assistive technology may inspect: all but the decoration it passes over.
@@ -426,6 +441,40 @@ typealias TableNativeTextView = UITextView
 }
 
 #if os(macOS)
+// A cell's links for an assistive client are the reader's own elements, as a column's are:
+// each named by what it says, never by an attachment's character, with a place and a press.
+// Their ranges are the cell's whole text's; the cell gives its characters from the first one
+// it shows, and the accessibility string is asked for the same way.
+extension TableCellTextView: ReaderLinkHost {
+    var linkText: NSAttributedString? { cellText }
+    var linkCharacters: NSRange { shownCharacters }
+    var visibleLinkCharacters: NSRange { shownCharacters }
+
+    /// The cell's pictures that an assistive client is told of: all but the decoration it
+    /// passes over. Decoration that is all its link holds is the link, and stays.
+    func announcedImages(in range: NSRange?) -> [(image: ReaderImageAttachment, range: NSRange)] {
+        var images: [(ReaderImageAttachment, NSRange)] = []
+        cellText.enumerateAttribute(.attachment, in: NSIntersectionRange(range ?? shownCharacters, shownCharacters)) { value, run, _ in
+            if let image = value as? ReaderImageAttachment, !cellText.passesOver(image, at: run) { images.append((image, run)) }
+        }
+        return images
+    }
+
+    func linkBounds(_ range: NSRange) -> CGRect {
+        cellFrame(of: NSIntersectionRange(range, shownCharacters)) ?? .zero
+    }
+
+    func followLink(_ url: URL, at range: NSRange) -> Bool {
+        onLink?(url, range)
+        return onLink != nil
+    }
+
+    func inspectLinkedImage(_ image: ReaderImageAttachment) -> Bool {
+        onImage?(image)
+        return onImage != nil
+    }
+}
+
 extension TableCellTextView: NSTextViewDelegate {
     func textViewDidChangeSelection(_ notification: Notification) { changedSelection() }
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {

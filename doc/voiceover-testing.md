@@ -40,14 +40,24 @@ above." and "Plain words below."), a link inside a line (**Lone jump**), a pictu
 cell" and "Right cell jump"). Sixty short lines follow ("Below line 01."), so the section's
 first line can be shown at the top in continuous scroll. None of its words is one VoiceOver
 uses for an action, a picture or a link. A seventh, **Things inside
-entries** (`OPS/entries.xhtml`), the book's last, holds a table whose cells hold what a cell
+entries** (`OPS/entries.xhtml`), holds a table whose cells hold what a cell
 can besides words, one kind to a cell: a rule between two paragraphs and a formula in the
 first row, a described picture and a hidden label in the second, decoration and a picture
 nobody describes in the third, and a table of its own in the fourth. "Entries follow."
 stands before the table and a second formula after it, in the page's own text, and the
 section goes on for more than a screen. It has no heading, so the book's headings are those
 of the sections before it. None of its words is one a screen reader uses for a rule, a
-picture, a formula, a table or a text. A second
+picture, a formula, a table or a text. An eighth, **Jumps inside a grid**
+(`OPS/cells.xhtml`), the book's last, holds links in the cells of a table of three rows and
+two columns, after two lines of words and before sixty numbered ones. It has no heading
+either. The first row has a cell
+of plain words and a link of words, "worded jump", in a cell that runs on to three lines at
+17 points in a 600-point window. The second has a link that is a picture with words,
+"Described entry jump", and one that is a picture with an empty `alt`. The third has a link
+that holds such decoration and the words "Entry jump with decoration", and a link that is a
+hidden label, "Parked entry jump", before the cell's shown words. Every link goes to "Link
+target reached" in the first section. None of the section's words is one VoiceOver uses for a
+picture, a link, a table or a text. A second
 bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
@@ -56,7 +66,8 @@ of the book is a few screens from the start of its last chapter. The first book'
 are "Page boundary verification" (level 1), which opens it, "Link target reached" (level 2)
 after the numbered paragraph, the two parked ones (level 1), each opening its section, and
 "Pictures and their words", "Scenes set apart" and "What each line offers" (level 1), each
-opening one of the three sections before the last, which has none; the second book's are "Chapter one", "Chapter two" and "Chapter three", screens apart.
+opening one of the three sections before the last two, which have none; the second book's
+are "Chapter one", "Chapter two" and "Chapter three", screens apart.
 Do not import private books for this check.
 
 On a Mac the same application can show AppKit's own text view in the reader's place, with
@@ -255,13 +266,18 @@ selection and the numbered-word span of its value:
 - `larger`, `smaller`: choose the Appearance menu's text-size items.
 - `width=POINTS`: resize the window.
 - `focus`, `focus=COLUMN`, `focus=search`: give the last column, a numbered column or the
-  search field keyboard focus, without a click.
+  search field keyboard focus, without a click. `focus=0.2` gives it to a table cell, by the
+  name `links` prints. That does not bring VoiceOver into the cell: its `in` then entered the
+  page's text. See [Links](#links) for the way in.
 - `lines`: print every accessibility line of each column.
 - `links`: print what each column gives an assistive client for its links and attachments.
   A `CHILD` line is one of the text's own children, which Find Next Link moves through. A
   `LINK` line is a run of the text's accessibility string with the element given as its
   link, the element given as its attachment, or both: each one's role, what it is called,
-  and its actions.
+  and its actions. A table row is one such run, a group that holds a text area for each of
+  its cells on screen. Each cell follows its column with a name of its own, `0.3` for the
+  first column's fourth, and the same lines with `CELL` before them: `CELL 0.3 VALUE`, and
+  `CELL CHILD` and `CELL LINK` for what the cell's own text gives.
 - `actions`: print each column, everything that holds it up to the window, and any other
   element with a named action, as an `ELEMENT` line: its number in the order an assistive
   client meets it, its depth under the window, its role, what it is called and its actions,
@@ -273,11 +289,11 @@ selection and the numbered-word span of its value:
   prints `MISSING` when no element has one of that name, and otherwise the status the
   accessibility API gave. For `"ax:action=Scroll Forward"` in continuous scroll that status
   is -25200, a failure, though the view scrolls: read the `STATE` after it.
-- `caret=WORDS`: put the insertion point before the first of these words, as in
-  `"ax:caret=Bare jump"`. VoiceOver enters a text at its insertion point, so `in` then starts
-  on that line and `right` reads the word.
-- `follow=WORDS`: press the link that names the words or holds them, by its own action and
-  without VoiceOver.
+- `caret=WORDS`: put the insertion point before the first of these words, in a column or in
+  a cell, as in `"ax:caret=Bare jump"`. VoiceOver enters a text at its insertion point, so
+  `in` then starts on that line and `right` reads the word.
+- `follow=WORDS`: press the link that names the words or holds them, in a column or in a
+  cell, by its own action and without VoiceOver.
 - `wait=SECONDS`: only observe. Without steps the observer only observes; a single step of
   `-` reads steps from standard input.
 
@@ -439,6 +455,25 @@ without VoiceOver. `ax:caret=WORDS` before `ax:focus in` starts VoiceOver on a l
 a few `right` steps reach it. After a link is followed the transcript has `AXValueChanged`
 with the page that holds the target, in the fixture the one with "Link target reached".
 
+A link in a table cell is in a text of its own, inside its row. Moving by word in the
+page's text VoiceOver stops on a row and says "Table row group". Rows that follow one
+another are stops of their own, and the probe records a phrase said twice running once.
+`in` there interacts with the row: "In Table row group 2 items" and the first cell's text.
+`right` moves to the next cell and a second `in` enters the cell, where `right`, `line`,
+`nextline`, `nextlink` and `activate` do in the cell's text what they do in the page's.
+`"ax:caret=grid."` puts the insertion point one word before the fixture's table of links,
+so after `ax:focus=search ax:focus=0 in` two `right` steps reach its first row and each
+further one the next row. In continuous scroll enter with `ax:focus in`: after the focus
+change from the search field the first `in` there said the book's first line, and a second
+was needed. `ax:focus=0.2` gives a cell keyboard focus and does not bring VoiceOver into it.
+`ax:links` prints each cell's own links as `CELL CHILD` and `CELL LINK` lines, and the
+page's `CHILD` lines hold the links of the cells on screen among the page's own.
+`nextlink` from the page's text goes through all of those. VoiceOver's place in the page's
+text does not move with it, so `right` after one of a cell's links reads on from the word
+VoiceOver had reached before the table. In the runs on links `line` said nothing with
+VoiceOver's cursor on a cell's last word or past it, in main's reader as with the cells'
+own elements. A cell has a line there since: see the record of Read Line in a table cell.
+
 What VoiceOver says of a link as it reads depends on a setting: VoiceOver Utility, Verbosity,
 Text, "When encountering a link/attachment", which can be Speak, Change Pitch, Play Tone or Do
 Nothing. A transcript holds speech and neither tones nor pitch, so every hosted run reads the
@@ -529,7 +564,9 @@ Preparing the runner and building take about two minutes and the boundary sessio
 at the fixed pause, so a run of that one session has uploaded its transcript about five minutes
 after it has a runner. A session that could not end three minutes before the job's limit is
 reported as not run, and the job fails. That leaves the sessions of a run about fifteen
-minutes between them: four of the boundary session's length, or a dozen short ones. On
+minutes between them: four of the boundary session's length, or a dozen short ones. At the
+fixed pause a session took about 35 seconds and 5 more for each key, so seven sessions of
+ninety keys between them filled a job. On
 2026-10-13 four sessions of five or six steps, each with a width, text size, flow or pause of
 its own, took 239 seconds of a job of 5 minutes 50 seconds, the build 82 of them (run
 38344667427); as four runs they would have built four times, on four runners. Nothing cancels
@@ -906,7 +943,20 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    cell is an item by itself, and moving back gives the same items in reverse. On the last
    row the rotor offers Select Table Text for its two cells and Follow Table Link: Eighth
    cell link, which opens the first section at "Link target reached"; a line beside the
-   tables offers none of them.
+   tables offers none of them. On a Mac a cell is a text of its own, and VoiceOver reads its
+   line wherever its cursor is in it. In a window 600 points wide at 17 points, with the
+   reader opened at that section (`"launch=-SampleHref OPS/table.xhtml"`), in pages and in
+   continuous scroll, `"ax:caret=Shown words after"`, a focus change to the text, `in` and
+   `left` put VoiceOver on the first table's second row, "Table row group"; `in` there says
+   "In Table row group 2 items text Third cell", and `in` again "In text Third cell". `line`
+   then says "Third cell" on entering, after `right` has said "Third", after a second
+   `right` has said "cell", the cell's last word, and after a third has said "end of text".
+   A reader whose cells have no line for the end of their text says nothing for the last
+   two, and counts "-9,223,372,036,854,775,808 lines" there for `linecount`, where the
+   answer is "1 line 1 visible line". At 56 points the cells take two lines each and the
+   table has the page to itself: two `right` steps from the text's first line reach the
+   first row, `line` says "First" on entering its first cell and "cell" with the cursor at
+   the end of the cell's text, and `previousline` from there says "First".
 7. On the section of pictures, in pages and in continuous scroll. VoiceOver stops between
    "Undescribed picture" and "stands here." and says that an image is there, with no name.
    It reads "Decoration" and "passed over." with nothing between them, and the same for
@@ -1025,7 +1075,19 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     are currently on a text area", and after no line of five moved to. A step in continuous
     scroll made straight after `in` is undone, with the action and with `pagedown`: that is
     VoiceOver's return to the start of the text, and no failure of the action.
-15. Restore all original VoiceOver/scripting settings and independently verify restoration.
+15. Links in a table's cells on a Mac, in pages and in continuous scroll, on the fixture's
+    last section (`-SampleHref OPS/cells.xhtml`). `ax:links` gives each cell's link by what
+    it says, "worded jump", "Described entry jump, image", "image", "Entry jump with
+    decoration" and "Parked entry jump", none by U+FFFC, and the page's `CHILD` lines hold
+    the same five. Inside a cell, reached through its row, VoiceOver reads "worded jump" as
+    its words and nothing else, and says "hyperlink Described entry jump, image",
+    "hyperlink image", "hyperlink" before "Entry" and "hyperlink Parked entry jump", by word
+    and in the cell's line. `nextlink` there says the cell's link by its name and
+    "hyperlink". `activate` from there, from a word of the link's line and from a picture
+    reached by word shows the page with "Link target reached". From the page's text
+    `nextlink` goes through the five in order and begins again with the first, and
+    `activate` follows the one it is on.
+16. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
@@ -1763,9 +1825,10 @@ The Mac runner's transcript is plain text and needs no export.
   On the Mac: GitHub's hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1
   `26A434`, Xcode 27.0), a window 600 points wide, run 38327683951 at `81f8d88` (pages) and
   runs 38328830423 (pages) and 38328832799 (continuous scroll) at `d432df6`. The scenes'
-  first page is 22 `ax:next` steps in, the page of a rule alone 23 and the last 24. In
-  continuous scroll 28 `ax:next` steps reach the end of the book, where `lastword` puts
-  VoiceOver on "scenes."; `textend` goes to the end of the book's first section instead. The
+  first page is 22 `ax:next` steps in, the page of a rule alone 23 and the last 24. The
+  section was then the book's last: in
+  continuous scroll 28 `ax:next` steps reached the end of the book, where `lastword` put
+  VoiceOver on "scenes."; `textend` went to the end of the book's first section instead. The
   reader gives a rule no element there, and both revisions read the same. Pages by line:
   "Scenes set apart", "First scene ends.", a phrase with nothing in it, "Second scene
   starts.", a phrase with nothing in it, "Words after an ornament.": VoiceOver stops on the
@@ -2230,6 +2293,94 @@ The Mac runner's transcript is plain text and needs no export.
   selected and a turn under `EPUBPageControls.hostOnly`, which unit tests hold and the
   sample has no switch for; a right-to-left spread; a spread whose next section is not
   built yet; and VoiceOver's cursor on a table's row or cell, which keeps its own actions.
+- On 2026-10-13 VoiceOver's Read Line was heard in a table cell on a Mac, before and after a
+  cell gave a line for the end of its text. GitHub's hosted `xcode-27` runner (image
+  `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), VoiceOver's link setting Speak, a
+  window 600 points wide, at the fixed pause. Nobody listened and no workstation was used.
+  Before is `main` at `0128fa6`, runs 38360769105 and 38363804998. After is `774f82c`, that
+  `main` with the change, runs 38361875335 and 38363855146. Each step list was run on both.
+  The two readers differ in one answer, the line of the offset after a cell's last
+  character, so what changed in the speech is what VoiceOver asks of that offset. The
+  observer prints no cell's selection; in a page's text the selection after `right` is the
+  end of the word VoiceOver said, `SELECTION 7,0` after "Entries".
+  A cell of one line, "Third cell" in the section with a hidden heading over a table, at 17
+  points: in pages `"launch=-SampleHref OPS/table.xhtml" "ax:caret=Shown words after"
+  ax:focus=search ax:focus=0 in left in in`, and in continuous scroll the same with
+  `ax:focus` for the two focus steps. Both readers, in both flows: "In text Shown words
+  after the table.", "Table row group", "In Table row group 2 items text Third cell" and
+  "In text Third cell"; `line` said "Third cell" on entering, and again after `right` had
+  said "Third". After the next `right`, "cell", `line` said nothing before and "Third cell"
+  after. After one more, "end of text", the same: nothing, and then "Third cell". In pages
+  `textend` said "end of text end of text" and `line` after it nothing before and "Third
+  cell" after, and after `firstword`, "Third", `line` said "Third cell" in both. With the
+  cursor on "cell", `describe` said "word: cell end of text is in the VoiceOver cursor" in
+  both, and `linecount` "-9,223,372,036,854,775,808 lines 9,223,372,036,854,775,808 visib"
+  before, the 64 characters the probe records, and "1 line 1 visible line" after.
+  A cell whose words are a link, "Right cell jump" in the section of what each line offers
+  (`"launch=-SampleHref OPS/offers.xhtml" "ax:caret=Plain words below" ax:focus=search
+  ax:focus=0 in left in right in`): "In Table row group 2 items text Left cell", "text
+  Right cell jump" and "In text Right cell jump" in both, and `line` "Right cell jump" on
+  entering. After "Right", "cell" and "jump" by word `line` said nothing before and "Right
+  cell jump" after, and the same after "end of text".
+  A cell of two lines. At 56 points the first table's cells read "First" over "cell", and
+  the page holds the hidden heading and the table's two rows and nothing else
+  (`text_size=56 "launch=-SampleHref OPS/table.xhtml" ax:focus=search ax:focus=0 in right
+  right in in`): "In text Parked table heading", "Parked table heading", "Table row group",
+  "In Table row group 2 items text First cell" and "In text First" in both, and `line`
+  "First" on entering and after `right` had said "First". After the next `right`, "cell",
+  `describe` said "word: cell end of text is in the VoiceOver cursor" before and "Line 2
+  word: cell end of text is in the VoiceOver cursor Line" after. `line` then said nothing
+  before and "cell" after, and the same after "end of text". From there `previousline` and
+  `nextline` said nothing before, and "First" and "cell" after: without a line for the end
+  of its text a cell gave VoiceOver no line to move from either.
+  The probe records a phrase VoiceOver repeats once. In a cell whose last line is one word,
+  `line` straight after `right` has said that word shows no new phrase in either reader, as
+  in the fourth session of run 38361875335; the sessions above have `describe` between the
+  two. A session at 56 points that looked for "Shown words after" (run 38360769105) found
+  the line on the next page and never reached a cell.
+  Cells that hold a picture, a formula or a hidden label. `main` gained the section of
+  entries while these were recorded, so its cells were heard on that `main`, `7fa9231`, run
+  38365047824, and on the change merged with it, `bee900d`, run 38365114165, at 17 points
+  with the reader opened at the section, the same four sessions in each. In all four cells
+  both readers said the same up to the last word, and with the cursor on it `describe` said
+  "word: shown. end of text is in the VoiceOver cursor", or the cell's own last word in
+  that place, with "Line 2" before it after the change in a cell of two lines. Then, for
+  `line` on the last word and again after "end of text": in the described picture's cell,
+  nothing before and "Drawn Blue entry square image shown." after; in the hidden label's,
+  whose lines are "Parked entry words. Seen entry" and "words.", nothing before and "words."
+  after, and `previousline` from there nothing before and "Parked entry words. Seen entry"
+  after; in the formula's, in continuous scroll, nothing before and "stated." after, and
+  `previousline` nothing before and "Sum x squared image" after; in the cell of the picture
+  nobody describes, whose second line opens with the picture, nothing before and "image
+  stands." after. The session on "Third cell" in pages said at `bee900d` what it had said
+  at `774f82c`, phrase for phrase.
+  A picture's actions in a cell, and the cells of the section of entries in continuous
+  scroll, which the record of that section left unheard: at `d3e1f87`, #453's branch before
+  `main` was last merged into it, runs 38361206010 and 38362735530, with the reader opened
+  at the section. A cell's code there is what `main` has had since #453 merged.
+  Four `right` steps from the text's first line reach the second row, `in` twice enters the
+  described picture's cell and two `right` steps put VoiceOver on the picture, "Blue entry
+  square image". `actions` there said "Actions menu 2 items", `listdown` "show menu" and a
+  second `listdown` "Inspect Image: Blue entry square"; on the picture nobody describes the
+  second was "Inspect Image". `"listchoose=Inspect Image"` then opened the inspector, in
+  pages and in continuous scroll: `ax:actions=all` printed Zoom Out, Zoom In, Fit, Close,
+  "Magnification" and an image called "Blue entry square", or one with no name, and the
+  application posted the value "100%". VoiceOver said "Inspect Image: Blue entry square
+  text Drawn Blue entry square i" and for `describe`, in pages, "text is in the VoiceOver
+  cursor Line 3": its cursor stayed on the text and did not go to the inspector. Whether it
+  goes there from a picture in a page's own text was not compared. "show menu" is the menu's first
+  item, so one `listdown` before `"listchoose=Inspect Image"` chooses nothing and the
+  runner stops the session, as it did the second of run 38361206010. In continuous scroll
+  the cells said what they say in pages: "In text Drawn Blue entry square image shown." and
+  "Blue entry square image" by word; "text Parked entry words. Seen entry words." and
+  "Parked entry words." by word; "text Sum x squared image stated." and "x squared image"
+  by word; "Ornament", a step with no phrase and "passed."; "Undescribed", "image" and
+  "stands.". From the first row there, two `out` steps and `right` said "Drawn Blue entry
+  square shown. Parked entry words. Seen entry wo" at the second row, its cells' words,
+  and the next `right` "Table row group".
+  Not heard: a part of a cell cut at a page's end, which is unit-tested
+  (`TableCellLineAccessibilityTests`); a cell whose last character is a picture or a
+  formula; a physical Mac, or anyone listening.
 - On 2026-10-12 the section with a hidden heading over a table, with its second table, was
   read at 17 points before and after a table's rows became single items: at `2053be8` and at
   `1e3e5c3`, in the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and
@@ -2349,10 +2500,99 @@ The Mac runner's transcript is plain text and needs no export.
   merged in afterwards, has "What each line offers" as its sixth, so the section of entries
   is the seventh, with the same content and still opened by name. That merge changes
   nothing in a cell's code, and the sessions were not recorded again on it.
-  Not heard: the Inspect Image action of a picture in a cell chosen through VoiceOver; a
-  picture, a formula or a hidden label inside a link in a cell; a part of a cell cut at a
-  page's end; a formula without `alttext`, whose reading is generated; a rule or a picture
-  in a table inside a cell; and an iPhone or iPad, where nothing changes.
+  Not heard: a picture, a formula or a hidden label inside a link in a cell; a part of a
+  cell cut at a page's end; a formula without `alttext`, whose reading is generated; a rule
+  or a picture in a table inside a cell; and an iPhone or iPad, where nothing changes. The
+  Inspect Image action of a picture in a cell was chosen through VoiceOver afterwards, and
+  the other cells heard in continuous scroll: see the record of Read Line in a table cell.
+- On 2026-10-13 links in a table's cells were heard on a Mac: GitHub's hosted `xcode-27`
+  runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in a window 600 points
+  wide at 17 points, on the fixture's last section (`-SampleHref OPS/cells.xhtml`), with
+  VoiceOver's link setting at Speak, at the fixed pause. Nobody listened, and no workstation
+  was used. The section's first line, "Jumps inside a grid", was a heading in these runs. It
+  is a paragraph now, so that the book's headings stay those of the earlier sections.
+  The way into a cell was the same in every session. By word in the page's text: "grid."
+  and then "Table row group". `in` there: "In Table row group 2 items text Plain first
+  entry.". `right`: "text Before the worded jump after it, and then enough further wo".
+  `in`: "In text Before the worded jump after it, and then".
+  First main's reader with the new section, at `e3536cd`, in pages (run 38348189249) and in
+  continuous scroll (run 38349867508), the same in both but for where one line of the first
+  cell ends. `ax:links`: no child of the
+  page's text, each row a group of two text areas, and each cell's link AppKit's, titled
+  "worded jump", "￼", "￼", "￼ Entry jump with decoration" and "￼"; the element a cell gave
+  as an attachment's printed neither a role nor a name. The cell with the link of words: by
+  word "Before", "the", "worded", "jump", "after"; by line "Before the worded jump after it,
+  and then", " it, and then" (the rest of the line, as after entering a page), "enough
+  further words to carry this entry on to", back to the first, and "beginning of text";
+  Find Next Link "worded jump hyperlink" and the hint; Control-Option-Space the page with
+  "Link target reached" (`AXValueChanged` with `word1187` to `word1200`), and in continuous
+  scroll the view at the target (`ENTRY`). The described picture: the cell was "text
+  Described: "; by word "Described:", a step with no phrase, "end of text"; Find Next Link
+  "￼ hyperlink", followed from there. The decoration alone: "Bare:", a step with no phrase,
+  "end of text"; "￼ hyperlink", followed. Decoration and words: a step with no phrase,
+  "Entry", "jump", "with", "decoration"; "￼ Entry jump with decoration hyperlink",
+  followed. The hidden label: a step with no phrase, "Shown", "last", "entry."; Find Next
+  Link said "text Shown last entry.", the cell again, and Control-Option-Space then did
+  nothing. From the page's text Find Next Link said "Link not found". With VoiceOver on a
+  cell of the row and not in it, Find Next Link went to the page's first line, and in
+  continuous scroll to the book's first line, which the view then showed. `line` said
+  nothing in the four cells where the cursor was on the cell's last word or past it.
+  Then the reader's own elements in the cells, at `69917b1`, in pages (run 38352961195)
+  and in continuous scroll (run 38352965104), again the same in both. `ax:links`: each
+  cell's child and link titled "worded jump",
+  "Described entry jump, image", "image", "Entry jump with decoration" and "Parked entry
+  jump", a link element as the attachment of each picture and label, one without a name
+  for the decoration before "Entry", and the five again as children of the page's text. The
+  link of words as before, phrase for phrase. The described picture: the row was "In Table
+  row group 2 items text Described:  hyperlink Described" and the cell "In text Described:
+  hyperlink Described entry jump, image"; `line` on entering "Described:  hyperlink
+  Described entry jump, image"; by word "Described:", "hyperlink Described entry jump,
+  image", "end of text"; Find Next Link "Described entry jump, image hyperlink", and
+  "actions available" before the hint. The decoration alone: by line "Bare:  hyperlink
+  image"; by word "Bare:", "hyperlink image"; "image hyperlink". Decoration and words: by
+  line "hyperlink  Entry jump", the cell's first; by word "hyperlink", "Entry", "jump",
+  "with", "decoration"; "Entry jump with decoration hyperlink". The hidden label: by line
+  "hyperlink Parked entry jump Shown last entry."; by word "hyperlink Parked entry jump",
+  "Shown", "last", "entry."; "Parked entry jump hyperlink". Control-Option-Space after Find
+  Next Link followed each of the five, and so it did from "hyperlink image", reached by
+  word; in pages it also followed "worded jump" from the word "after" on that link's line.
+  Each time the page with "Link target reached" came, or in continuous scroll the view
+  went to it.
+  From the page's text, in pages (run 38352309093, at `69917b1`) and in the last session
+  of the scroll run: Find Next Link "worded jump hyperlink", "Described entry jump, image
+  hyperlink", "image hyperlink", "Entry jump with decoration hyperlink", "Parked entry jump
+  hyperlink" and "worded jump hyperlink" again, each with "You are currently on a
+  hyperlink, inside of a text area", and Control-Option-Space from there the target. In
+  pages, after the second of them `right` said "grid." and `line` "Shown words before the
+  grid.": VoiceOver's place in the page's text had not moved, and Control-Option-Space
+  then did nothing. With VoiceOver on a cell of the row, Find Next Link went to the page's
+  first line as before, and a second one said "worded jump hyperlink".
+  Once more at `75e28b6`, the same reader with main merged in up to `7b0cce2`, in one run
+  of five sessions (38356059690), three in pages and two in continuous scroll: the described
+  picture and the hidden label in their cells, and Find Next Link from the page's text in
+  both flows. The same phrases, and each link followed.
+  And at `87f032a`, with main merged in up to `7fa9231`, which has the elements a cell now
+  keeps for its other attachments, and with the section's first line a paragraph, in one
+  run of seven sessions (38369535055). In pages: the described picture, the decoration
+  alone, decoration and words and the hidden label, each in its cell by line, by word, with
+  Find Next Link and Control-Option-Space, and Find Next Link from the page's text. In
+  continuous scroll: Find Next Link from the page's text, and the hidden label in its
+  cell. The same phrases again, and each link followed. And once the page's headings had
+  become its children beside its links, at `6d6c584` (run 38373248427, three sessions): Find
+  Next Link from the page's text in pages and in continuous scroll, and the hidden label
+  in its cell, as before.
+  What did not work, heard once and left out, at `e54ad50` (run 38350087032): the cells'
+  own elements as the page's children. From the page Find Next Link said "worded jump
+  hyperlink" and then "Last link worded jump hyperlink" at every further press. VoiceOver
+  goes on from a link through the children of that link's parent, which was the cell. In
+  the same run `line` still said nothing after a cell's last word.
+  The way in was found in two runs with `--advance-after 0.5` (38346989450 in pages,
+  38346991372 in continuous scroll), which are no evidence. `ax:focus=0.2` there gave a
+  cell keyboard focus, and `in` then entered the page's text.
+  Not heard: listening; a workstation; two columns; a cell's link where a row goes on over
+  a page's end, which the unit tests read; Read All in a cell with a link; link settings
+  other than Speak; and a note's popover. What a cell says of a picture, a formula or a
+  hidden label outside a link is in the entry before this one.
 - On 2026-10-12 and 13 pages were turned under VoiceOver's cursor before and after the
   reader sent the cursor to the page shown
   ([#449](https://github.com/vocaro/EPUBLib/issues/449)). The device is the physical iPad Air 13-inch
