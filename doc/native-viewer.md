@@ -1711,11 +1711,42 @@ The following are the defaults. Host commands and accessibility actions stay ena
   done (iOS 27.0 simulator). A reader of a table needs the row a page begins at more than
   the rotor's place: on each later page of a table longer than a page, Next Page still
   takes its flick down.
-  Three cursors are left alone.
+  Three cursors are left where they are, and two of them are told of the page.
   One that is not in the text stays where it is: after the host's Next Page button
-  VoiceOver is still on the button, and moving into the text from there met the new page's
-  first line before this and does now. One whose line is still on the page keeps it, as
-  when the same page is shown again. And a move by heading that turns the page posts
+  VoiceOver is still on the button. One whose line is still on the page keeps it, as when
+  the same page is shown again: the host changes the appearance, or the text is built
+  again. What VoiceOver holds is not left to it in either. It keeps the items it was given
+  each side of its cursor, two as a rule and as many as fifty at a move it makes while
+  holding nothing, as after a menu closes ("Continuous scroll" above), and nothing told it
+  that a page had been shown under them by something it did not do, a key on a keyboard
+  or the host's own command. A page shown again has new items for its lines, so what
+  VoiceOver holds is gone then as it is after a turn. An item it held and had not been on
+  it tried as it came to it, found gone, and asked again. An item its cursor had been on
+  it took without asking and read from what it had kept of it, and at the move after
+  that it found the item gone and set its cursor on the item it had last touched (iOS
+  27.0 simulator). Back on the last control before the text after reading into a page
+  that was then turned, or on the page button with the whole page held after a menu, its
+  move into the text read the first line of the page before, and its next put it back
+  on the control: the page shown was reached the second time round. On a line of a page
+  that was then shown again, one move back and one forward took it out of the text, to
+  the control it had touched before it began to read.
+  So when a page is shown and no cursor has left it, the canvas posts a layout change with
+  no element (`ReaderCanvasView.accessibilityPageWasShown`), as it does after a move of
+  its own in continuous scroll. VoiceOver drops everything it holds 0.8 s later, by its own
+  log, says nothing and stays where it is, and its moves from there are through the items
+  of the page shown. On a line of a page shown again it sets its cursor on that line's new
+  item as it does so, and its rotor is at its default there: an action chosen before the
+  page was shown again takes one flick down to choose again. Having the item it holds
+  stand for the line, as it does across a turn, would keep the rotor and is not done. A
+  second such change right beside the one that sends the cursor,
+  before it or after it, as a page shown again for a new size just before a turn would
+  post, left what VoiceOver read and its rotor as they were in nine sessions of ten, and
+  in the tenth the line was read some seconds late. On a device VoiceOver asks again by
+  itself once it has activated an item, as an iPad did after its double tap on Scroll
+  Forward ("Continuous scroll" above), so this is for what it did not do itself; no
+  device has run it
+  ([VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current results"). And
+  a move by heading that turns the page posts
   nothing, since VoiceOver goes to the item the rotor gives it. VoiceOver's scroll, three
   fingers swiped, announces "Page N" as before, and the cursor is sent after the
   announcement. Posted in that order after a page turned under a simulator's cursor,
