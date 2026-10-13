@@ -21,6 +21,7 @@ final class ReaderTextView: NSTextView {
     private var attachmentElements: [Int: NSAccessibilityElement] = [:]
     /// The accessibility element of each link, by the location of its first character.
     private var linkElements: [Int: ReaderLinkAccessibilityElement] = [:]
+    private var linkMarkers: [Int: ReaderLinkAccessibilityElement] = [:]
     private lazy var linkSearch = ReaderLinkRotorSearch(view: self)
     private lazy var linkRotor = NSAccessibilityCustomRotor(rotorType: .link, itemSearchDelegate: linkSearch)
     private var menuImage: ReaderImageAttachment?
@@ -237,6 +238,30 @@ final class ReaderTextView: NSTextView {
             result.addAttribute(.accessibilityLink, value: element, range: local)
             if probe == "attach" {
                 result.addAttribute(.accessibilityAttachment, value: element, range: local)
+                continue
+            }
+            if probe == "mark" || probe == "markall", let storage = contentStorage.textStorage {
+                // The link's first character that is no attachment, if it has one.
+                var first: Int?
+                storage.enumerateAttribute(.attachment, in: whole) { value, run, stop in
+                    if value == nil { first = run.location; stop.pointee = true }
+                }
+                if let first {
+                    let marker = linkMarkers[whole.location] ?? ReaderLinkAccessibilityElement()
+                    linkMarkers[whole.location] = marker
+                    marker.view = self
+                    marker.url = url
+                    marker.range = whole
+                    marker.setAccessibilityParent(self)
+                    let marked = probe == "markall" ? part : NSIntersectionRange(NSRange(location: first, length: 1), range)
+                    if marked.length > 0 {
+                        result.addAttribute(.accessibilityAttachment, value: marker,
+                                            range: NSRange(location: marked.location - range.location, length: marked.length))
+                    }
+                } else if NSLocationInRange(whole.location, range) {
+                    result.addAttribute(.accessibilityAttachment, value: element,
+                                        range: NSRange(location: whole.location - range.location, length: 1))
+                }
                 continue
             }
             guard whole.length == 1, probe == "merge" || probe == "child",
