@@ -446,9 +446,7 @@ typealias TableNativeTextView = UITextView
     }
     @objc private func performCellAction(_ sender: Any?) { onAction?() }
     @objc private func inspectMenuImage(_ sender: Any?) { if let image = menuImage { onImage?(image) } }
-    // TRIAL, not for main: what the cell's text area is called, for a cell that shows pictures.
-    var trialLabel: String?
-    override func accessibilityLabel() -> String? { trialLabel }
+    override func accessibilityLabel() -> String? { nil }
     #else
     override var contentOffset: CGPoint {
         get { super.contentOffset }
