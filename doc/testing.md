@@ -295,11 +295,12 @@ screen and otherwise a static text with the header cells' words, for a column un
 header cells, a header on another page and one scrolled far off the screen; a cell that
 spans answering for every slot it covers; the actions a cell
 offers, and that selecting a cell's words and following its link do so; a cell whose words
-are one link and nothing else pressed to follow it, holding a link with its text area
-inside, a header cell that is one link pressed and holding its own text area, a cell with
-words beside its link or with two links not pressed, and a link cell far off the screen
-whose link has the cell's words for its title and whose press does nothing until it is
-brought on screen; a table split across pages, with the page's rows, the whole
+are one link and nothing else pressed to follow it, holding a link called by its words with
+its text area inside, a header cell that is one link doing the same and still the header of
+its row or column itself, a cell with words beside its link or with two links not pressed,
+and a link cell far off the screen whose link holds nothing and whose press does nothing
+until it is brought on screen, with a header cell that is a link heading its column by name
+while it is off screen; a table split across pages, with the page's rows, the whole
 table's count and a header cell named from another page; a row taller than a page, whose
 words each page's table says once; continuous scroll, where a table holds every row, says
 which are on screen and labels a cell that has no text area yet; and a table kept from a
