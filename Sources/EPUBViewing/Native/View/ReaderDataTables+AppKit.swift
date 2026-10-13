@@ -243,9 +243,11 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     }
 
     /// What heads a column or a row. Its one header cell, where that is on screen with its
-    /// text areas: VoiceOver reads a header cell by what it holds, and does not read a cell
-    /// under itself. Otherwise the words of its header cells, top or first one first, as
-    /// static text: several header cells, one on another page, or one far off the screen.
+    /// text areas: VoiceOver does not read a cell under itself, and reads a header cell by
+    /// what each thing the cell holds is called, a text area by its value and a link by its
+    /// title, looking no further in. Otherwise the words of its header cells, top or first
+    /// one first, as static text: several header cells, one on another page, or one far off
+    /// the screen.
     private func headerElement(_ cells: [Int], key: Int) -> NSAccessibilityElement {
         if cells.count == 1, let listed = listed(cells[0]), listed.holdsText { return listed }
         let words = cells.map { table.cells[$0].text }.filter { !$0.isEmpty }.joined(separator: ", ")
@@ -420,7 +422,8 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 /// A cell of a table of data, where the view shows it. It holds the text areas of its words
 /// while they are on screen, so that VoiceOver can go into it and read by word, and is
 /// labelled with its words where it has none. A cell whose words are one link and nothing
-/// else is pressed to follow it, and holds a link with its text areas inside.
+/// else, a header cell among them, is pressed to follow it, and holds a link called by its
+/// words with its text areas inside.
 @MainActor final class ReaderTableCellElement: NSAccessibilityElement {
     /// A client can keep the element after its table has gone, with the page it was on.
     private weak var table: ReaderTableElement?
@@ -435,7 +438,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     var locations: [Int] = []
     /// Its box in its row's coordinates.
     var frameInRow = CGRect.zero
-    /// The link the cell holds where its words are one link (`holdsLink`).
+    /// The link the cell holds where its words are one link (`isLink`).
     private lazy var link = ReaderTableCellLinkElement(cell: self)
 
     init(table: ReaderTableElement, cell: Int) {
@@ -462,7 +465,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     var textViews: [TableCellTextView] {
         guard let interaction = table?.view?.tableInteraction else { return [] }
         let views = locations.flatMap { interaction.accessibilityCells(at: $0, cell: cell) }
-        let holder: NSAccessibilityElement = holdsLink ? link : self
+        let holder: NSAccessibilityElement = isLink ? link : self
         for view in views { view.tableCellElement = holder }
         return views
     }
@@ -477,7 +480,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityColumnIndexRange() -> NSRange { onMain(self) { $0.columns } }
     override func accessibilityChildren() -> [Any]? { onMain(self) { $0.held } }
     override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.held } }
-    override func accessibilityLabel() -> String? { onMain(self) { $0.holdsLink ? nil : $0.unsaid } }
+    override func accessibilityLabel() -> String? { onMain(self) { $0.isLink ? nil : $0.unsaid } }
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? { onMain(self) { $0.actions } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
 
@@ -493,32 +496,37 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityPerformPress() -> Bool { onMain(self) { $0.followLink() } }
 
     /// The cell's words, where no text view says them: off screen, and for a header cell
-    /// given by name. They are the cell's label, or the title of the link it holds.
+    /// given by name. They are the label of a cell that is not a link.
     var unsaid: String? { text.isEmpty || !textViews.isEmpty ? nil : text }
 
     /// What the cell holds: the text areas of its words, or the link they are inside.
-    private var held: [Any] { holdsLink ? [link] : textViews }
+    private var held: [Any] { isLink ? [link] : textViews }
 
     /// The cell's words are one link and nothing else, where a link goes somewhere: the cell
     /// is pressed to follow it, as a double tap follows it on iPhone and iPad. A cell with
     /// words beside its link, or with several links, has no press: which of them a press
     /// would mean is not the cell's to say, and each link is an action by its words.
-    private var isLink: Bool {
+    ///
+    /// Such a cell holds a link, and the link its text areas, as a web view's cell does. That
+    /// is what makes VoiceOver say that the cell is a link as it comes to it: it says what a
+    /// cell holds, "Reopened 1978 hyperlink", and nothing of what the cell says it is
+    /// (doc/voiceover-testing.md has what it did with a subrole, a role description, a link
+    /// in place of the text areas and one beside them). A header cell that is one link holds
+    /// one too, and the link's title is how VoiceOver still reads that header before each
+    /// cell it heads (`linkTitle`).
+    var isLink: Bool {
         guard let table, table.view?.canvas != nil else { return false }
         return table.table.cells[cell].isLink
     }
 
-    /// The cell holds a link, and the link its text areas, as a web view's cell does. That
-    /// is what makes VoiceOver say that the cell is a link as it comes to it: it says what a
-    /// cell holds, "Reopened 1978 hyperlink", and nothing of what the cell says it is
-    /// (doc/voiceover-testing.md has what it did with a subrole, a role description, a link
-    /// in place of the text areas and one beside them). A header cell holds its text areas
-    /// as any other does: VoiceOver reads what a header cell holds before each cell under it,
-    /// and what it would say of a link there was not heard.
-    var holdsLink: Bool {
-        guard isLink, let table else { return false }
-        return !table.table.cells[cell].isHeader
-    }
+    /// What the link the cell holds is called: the cell's words, on screen and off it. Off
+    /// screen they are all that says them. On screen the link's text areas say them too, and
+    /// VoiceOver says them once as it comes to the cell, "Dogwood hyperlink", as it does of
+    /// a link without a title. The title is for a header cell: before each cell it heads
+    /// VoiceOver said nothing of a header cell whose link had none, "1912" where it says
+    /// "Dogwood 1912", and the column's and the row's numbers at Control-Option-C and
+    /// Control-Option-R (doc/voiceover-testing.md).
+    var linkTitle: String? { text.isEmpty ? nil : text }
 
     /// Follows the cell's link, as its Follow Link action does: from the text view that shows
     /// the link. False for a cell off screen, which has none until it is brought there.
@@ -563,9 +571,9 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 }
 
 /// The link that a cell holds whose words are one link and nothing else: all the cell holds,
-/// with the cell's text areas inside it while they are on screen and the cell's words for its
-/// title where they are not. It has the role of the reader's other links, which VoiceOver
-/// calls a hyperlink, stands where the cell does, and is pressed as the cell is.
+/// with the cell's words for its title and the cell's text areas inside it while they are on
+/// screen. It has the role of the reader's other links, which VoiceOver calls a hyperlink,
+/// stands where the cell does, and is pressed as the cell is.
 @MainActor final class ReaderTableCellLinkElement: NSAccessibilityElement {
     /// A client can keep the element after its cell has gone, with the page it was on.
     private weak var cell: ReaderTableCellElement?
@@ -582,7 +590,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityRole() -> NSAccessibility.Role? { .link }
     override func accessibilitySubrole() -> NSAccessibility.Subrole? { .textLink }
     override func accessibilityParent() -> Any? { onMain(self) { $0.cell } }
-    override func accessibilityTitle() -> String? { onMain(self) { $0.cell?.unsaid } }
+    override func accessibilityTitle() -> String? { onMain(self) { $0.cell?.linkTitle } }
     override func accessibilityChildren() -> [Any]? { onMain(self) { $0.held } }
     override func accessibilityVisibleChildren() -> [Any]? { onMain(self) { $0.held } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.cell?.screenFrame ?? .zero } }
@@ -590,7 +598,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 
     /// The cell's text areas, while the cell holds this link.
     private var held: [TableCellTextView] {
-        guard let cell, cell.holdsLink else { return [] }
+        guard let cell, cell.isLink else { return [] }
         return cell.textViews
     }
 }

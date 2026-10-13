@@ -66,7 +66,13 @@ cells span two rows and two columns, as two of its data cells do; one given
 **A table longer than a page** (`OPS/ledger.xhtml`), has forty numbered rows under a header
 row, and an eleventh, **A row taller than a page** (`OPS/tallrow.xhtml`), a
 cell of 2,600 numbered words. None of their words is one VoiceOver uses for a table, so
-"row", "column" and "table" in a transcript are its own. A twelfth, **Parts below a jump**
+"row", "column" and "table" in a transcript are its own. A twelfth, **Jumps at the edges of
+a grid** (`OPS/edges.xhtml`), holds a table of data whose header cells are links: the rows
+"Dogwood" and "Elm" are each headed by a cell that is one link and nothing else, the row
+"Fir" by plain words, and the middle column by such a link, "Built", over "1912", "1947"
+and a cell that is a link itself, "Relaid 1960". "Words before the routes." stands before
+the table and sixty numbered lines after it. It has no heading, and none of its words is
+one VoiceOver uses for a table, a header or a link. A thirteenth, **Parts below a jump**
 (`OPS/parts.xhtml`), has a heading after a link on the same page, which no
 other section has: every other heading opens its section or stands pages after the link
 before it. It opens with plain words. A link, "upper jump", stands two lines above the
@@ -77,7 +83,7 @@ the link, and in continuous scroll all of it is on one screen. A third link, "la
 follows the book's last heading, and sixty numbered lines follow it. Each line before a
 heading ends in a word no other line has, so a word VoiceOver says of itself shows where it
 took it from. None of the section's words is one VoiceOver uses for a heading or a link. A
-thirteenth, **Squares inside grids** (`OPS/squares.xhtml`), the book's last, holds pictures
+fourteenth, **Squares inside grids** (`OPS/squares.xhtml`), the book's last, holds pictures
 in rows that have no words of their own. Its first table is given `role="presentation"`: a
 row of two pictures nobody describes and nothing else, between the rows "Top near", "Top
 far" and "Foot near", "Foot far". Its second, which begins a page of its own, is a table
@@ -98,8 +104,8 @@ after the numbered paragraph, the two parked ones (level 1), each opening its se
 "A table longer than a page" and "A row taller than a page" (level 1), each opening its
 section, and "Second part opens" (level 3) and "Third part opens" (level 4) inside the
 section of parts below a jump; the sections of entries and of jumps inside a grid, between
-"What each line offers" and "Tables of data", have none, and neither has the last, of
-squares inside grids. The second book's are "Chapter one", "Chapter two"
+"What each line offers" and "Tables of data", have none, and neither has the section of
+jumps at a grid's edges nor the last, of squares inside grids. The second book's are "Chapter one", "Chapter two"
 and "Chapter three", screens apart.
 Do not import private books for this check.
 
@@ -637,6 +643,16 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
   Reopened 1978 text Reopened 1978" and `in` again "In text Reopened 1978", where `right`
   moves by word; `out` says "Out of text" and `out` again "Out of hyperlink Reopened 1978",
   which is back on the cell.
+- A header cell that is one link is said the same way, with its place after it where
+  nothing heads it: "Built hyperlink column 2, row 1" along a header row, "Elm hyperlink
+  column 1, row 3" down a column of row headers, "Route Dogwood hyperlink" along its own
+  row. The cells it heads say its words and no "hyperlink", "Dogwood 1912", and so do
+  `columnheader` and `rowheader`, "Built" and "Dogwood". A cell said without its header
+  there, "1912", with "column 2 of 3" at `columnheader`, is a header cell whose link has no
+  title: VoiceOver reads a header cell by what each thing it holds is called. A header
+  cell's name said before the cell itself, "Elm Elm hyperlink", is a header that the table
+  gives as something other than the cell. On a cell of a header row `columnheader` says
+  the row's words, "Route, Built, Length".
 - After a link is followed in pages, `describe` says where VoiceOver is: "text is in the
   VoiceOver cursor Line 1" on the new page's text area, where `in` goes into the page's
   first line, and "Open EPUB… button is in the VoiceOver cursor" where it has left the text
@@ -699,10 +715,11 @@ tables from those words on, the first of them whole, which in continuous scroll 
 to a table that is not the book's first.
 
 Open the reader at a section of tables (`"launch=-SampleHref OPS/grids.xhtml"`,
-`OPS/ledger.xhtml`, `OPS/tallrow.xhtml`). At 600 points and 17, the first page of the tables
-of data holds the first table and the second page the next two and one row of the fourth;
-the long table's first page holds its header row and seven entries, and the tall row's first
-page its header row alone. The section of squares inside grids (`OPS/squares.xhtml`) has its
+`OPS/ledger.xhtml`, `OPS/tallrow.xhtml`, `OPS/edges.xhtml`). At 600 points and 17, the first
+page of the tables of data holds the first table and the second page the next two and one
+row of the fourth; the long table's first page holds its header row and seven entries, the
+tall row's first page its header row alone, and the first page of the header cells that are
+links their whole table, under two lines of words. The section of squares inside grids (`OPS/squares.xhtml`) has its
 table marked as layout on its first page and its table of data at the top of its second,
 one `ax:next` on. In continuous scroll the reader opened at a section shows that section,
 which the `VISIBLE` range of a `STATE` line says, though VoiceOver's opening phrases are the
@@ -1595,9 +1612,9 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     Parked link to the target", with `SELECTION` at the link and the link's line the first
     on screen; `right` says the link again and then "Shown", `line` "hyperlink Parked link
     to the target Shown last words.", and `activate` straight after the second `nextlink`
-    follows the link. Twenty `nextlink` steps from the top name the book's seventeen links
-    in order, the cells' among them, and then the last three again, "upper jump", "lower
-    jump" and "last jump": those share one screen, and past the book's last link
+    follows the link. Twenty-four `nextlink` steps from the top name the book's twenty-one
+    links in order, the cells' among them, and then the last three again, "upper jump",
+    "lower jump" and "last jump": those share one screen, and past the book's last link
     VoiceOver begins again with the first one on screen. A
     reader without the link below among the children says "Verification link hyperlink"
     and then "Last link Verification link hyperlink".
@@ -4999,9 +5016,123 @@ The Mac runner's transcript is plain text and needs no export.
   menu; a link cell far off the screen in continuous scroll, whose link is called by the
   cell's words and holds nothing; a cell whose link is a picture; a link cell continued on
   the next page; a header cell that is a link, which has the press and holds its own text
-  area; a cell with words beside its link or with two links, which unit tests hold to no
-  press; a link whose target is already on the page; a spread of two columns; and Safari
-  beside it again.
+  area (heard since: the next entry); a cell with words beside its link or with two links,
+  which unit tests hold to no press; a link whose target is already on the page; a spread
+  of two columns; and Safari beside it again.
+- Last on 2026-10-13 a header cell that is a link was heard on a Mac, before and after it
+  was given a link to hold: the table of the section of header cells that are links
+  (`-SampleHref OPS/edges.xhtml`), which was added for it, on GitHub's hosted `xcode-27`
+  runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in a window 600
+  points wide at 17 points, with VoiceOver's link setting at Speak, at a fixed pause of
+  four seconds. Nobody listened. Before is the reader of
+  [#508](https://github.com/vocaro/EPUBLib/pull/508) with the section added (`8e99caf`
+  with no launch argument, run 38438639310, sessions 1 and 4). After is `0399bce` (run
+  38443342254), and with `main` at `9a8e66b` merged in, `9537d19` (run 38446095467), where
+  the two sessions were recorded once more and said the same: phrase for phrase in pages,
+  and in continuous scroll but for a line of the page that VoiceOver read on to, or not,
+  after the link was followed.
+  The same steps each time. In pages: `ax:caret=Words before the routes`, a focus change
+  to the text, `in`, `line` and two `nextline` to "Route, Built, Length table", then `in
+  right nextline columnheader rowheader left describe actions listdown listdown listdown
+  listclose nextline nextline right previousline left activate`. In continuous scroll the
+  same way in, then `in right nextline columnheader rowheader left nextline right
+  previousline previousline describe activate`. A phrase is cut at 64 characters, shown
+  by "…".
+
+  | Move | Before | After |
+  | --- | --- | --- |
+  | Into the table at its header row | "In Route, Built, Length table Route column 1, row 1" | the same |
+  | Along the header row to the column's header cell, a link | "Built column 2, row 1" | "Built hyperlink column 2, row 1" |
+  | The hint that follows | "actions available You are currently on a cell, inside of a table…" | "actions available You are currently on a hyperlink cell, inside…" |
+  | Down its column to the cell under it | "Dogwood 1912" | the same |
+  | Control-Option-C and Control-Option-R there | "Built", "Dogwood" | the same |
+  | Along the row to the row's header cell, a link | "Route Dogwood" | "Route Dogwood hyperlink" |
+  | Control-Option-F3 | "Dogwood cell is in the VoiceOver cursor" | "Dogwood hyperlink hyperlink cell is in the VoiceOver cursor" |
+  | The Actions menu | "Actions menu 3 items", "Select Cell Text", "Follow Link: Dogwood", "press" | the same |
+  | Closing the menu | "Closing Actions menu", "Dogwood cell" | "Closing Actions menu", "Dogwood hyperlink hyperlink cell" |
+  | Down the column of row headers to the next, a link | "Elm column 1, row 3" | "Elm hyperlink column 1, row 3" |
+  | And to the next, of plain words | "Fir column 1, row 4" | the same |
+  | Along that row to a link cell under the link that heads its column | "Built Relaid 1960 hyperlink" | the same |
+  | Up the column, and along the row to its header | "Elm 1947", "Route Elm" | "Elm 1947", "Route Elm hyperlink" |
+  | Control-Option-Space there, in pages | the page with "Link target reached" was shown; "word1187 …", "text word1187 …" | the same |
+  | Control-Option-F3 after it | "text is in the VoiceOver cursor Line 1" | the same |
+  | Up the column to the column's header cell, in continuous scroll | "Built" | "Built hyperlink" |
+  | Control-Option-F3 there | "Built cell is in the VoiceOver cursor" | "Built hyperlink hyperlink cell is in the VoiceOver cursor" |
+  | Control-Option-Space there | the view at "Link target reached"; "Link", "text Page boundary verification" | the same |
+  | Control-Option-F3 after it | "text is in the VoiceOver cursor Line 202" | the same |
+  | A header cell that is a link in `ax:tables` | `AXCell` that holds `AXTextArea`, with `AXPress`, "Select Cell Text" and "Follow Link: Built" | `AXCell` that holds `AXLink`, with the same three |
+
+  Every row but those for a flow was the same in pages and in continuous scroll. By line
+  the header row was "Route, Built, Length table" before and after. The other rows were
+  heard after, "Dogwood, 1912, Nine miles table", "Elm, 1947, Four miles table" and "Fir,
+  Relaid 1960, Six miles table" (run 38443342254, session 5), and `ax:tables` gave each
+  row's table those words for its label before.
+  How the header cell is to hold its link was found by trial, each way chosen at launch in
+  one build: `8e99caf` (run 38438639310, three ways in pages and in continuous scroll,
+  which agreed) and `91e8297` (run 38441259597, five in pages). In every one the cell has
+  the press and holds a link with its text area inside; they differ in what the link or
+  the cell is called and in what the table gives as the header of the row or column:
+
+  | The header cell | Coming to it | Coming to a cell it heads | Control-Option-C and -R there |
+  | --- | --- | --- | --- |
+  | Holds its text area, as before | "Built column 2, row 1", "Elm column 1, row 3" | "Dogwood 1912" | "Built", "Dogwood" |
+  | Holds a link without a title, as other cells then did | "Built hyperlink column 2, row 1", "Elm hyperlink column 1, row 3" | "1912", and "column 2 of 3 Relaid 1960 hyperlink" along the row | "column 2 of 3", "row 2 of 4" |
+  | The same, and the table gives the header by its words, as static text | "Built Built hyperlink", "Elm Elm hyperlink" | "Dogwood 1912" | "Built", "Dogwood" |
+  | The same, and the table gives the cell's text area as the header | "Built Built hyperlink", "Elm Elm hyperlink" | "Dogwood 1912" | "Built", "Dogwood" |
+  | The same, and the table gives the cell's link as the header | "column 2 of 3 Built hyperlink", "Elm hyperlink" | "1912" | "column 2 of 3", "row 2 of 4" |
+  | Holds a link without a title, and has its words for its own value | "Built hyperlink column 2, row 1", "Elm hyperlink column 1, row 3" | "1912" | "column 2 of 3", "Dogwood" |
+  | Holds a link with the cell's words for its label | as with the title | "Dogwood 1912" | "Built", "Dogwood" |
+  | Holds a link with the cell's words for its title | "Built hyperlink column 2, row 1", "Elm hyperlink column 1, row 3" | "Dogwood 1912" | "Built", "Dogwood" |
+
+  Along its own row every way but the first said "Route Dogwood hyperlink". The reader
+  keeps the title: VoiceOver reads a header cell before the cells it heads by what each
+  thing the cell holds is called, a text area's value or a link's title or label, and no
+  further in. A header that is not the cell itself is said before the cell too. The title
+  is on the link of every cell that is one link, on screen as off it. The words are said
+  once on coming to such a cell, and the way in is as it was before the title (run
+  38443342254, session 5, in pages): on "Relaid 1960", which is no header, `describe`
+  "Relaid 1960 hyperlink hyperlink cell is in the VoiceOver cursor", `in` "In hyperlink
+  Relaid 1960 text Relaid 1960", `in` "In text Relaid 1960", `right` "Relaid", `out` "Out
+  of text" and `out` "Out of hyperlink Relaid 1960"; on the header cell "Elm", `in` "In
+  hyperlink Elm text Elm" and `out` "Out of hyperlink Elm".
+  VoiceOver did not quit. Two sessions at two seconds a key on `0399bce`, in pages and in
+  continuous scroll (run 38443342254, sessions 3 and 4), went through the table's twelve
+  cells with Control-Option-C after each of eleven moves on and Control-Option-R after
+  each of eleven back, the three header cells that are links twice each, and said the
+  same as each other at every step: "Route Dogwood hyperlink" and "Route", "Built 1912"
+  and "Built", and on the way back "Built 1947" and "Elm", "Route Elm hyperlink" and "row
+  3 of 4". On a cell of the header row Control-Option-C said the row's words, "Route,
+  Built, Length", on "Built" and on "Length" alike, which was not on record, and
+  Control-Option-R "row 1 of 4", as it had. None of the twenty-two sessions of the five
+  runs has "ERROR" in it or VoiceOver's opening phrase a second time, and no run has a
+  crash report.
+  The book's links, with the section's four among them, at `9537d19` (run 38446095467,
+  session 3): in continuous scroll from the top of the book twenty-four `nextlink` steps
+  named twenty-one links in order. After "Reopened 1978" came "routes." and "hyperlink
+  Built", the header row being below the screen, then "Dogwood hyperlink", "Elm
+  hyperlink" and "Relaid 1960 hyperlink", then "an" and "hyperlink upper jump", "lower
+  jump hyperlink" and "last jump hyperlink", and the last three again.
+  One fault was found on the way, and it is not the header cell's: it was there with the
+  header cell as it was. With the reader opened in continuous scroll at the section of
+  tables of data (`-SampleHref OPS/grids.xhtml`, `ax:caret=Stations on`), `nextlink` said
+  "Reopened 1978 hyperlink", and the next one, to "Built" some screens below, said
+  "routes." and then "text Page boundary verification": `describe` gave "text is in the
+  VoiceOver cursor Line 640", and `ax:links` listed "Dogwood", "Elm" and "Relaid 1960" as
+  the text's links and no "Built", though its row was on screen (`VISIBLE 19659,268`, the
+  row at 19713). Further `nextlink` steps said the three and began again with "Dogwood".
+  That is the header cell as it was, at `8e99caf` (run 38446046206). After, at `0399bce`,
+  the steps said the same (run 38443342254, session 6). At `9537d19`, whose book has the
+  links of the section of parts below a jump after these, "Built hyperlink" was begun
+  before "routes.", the text's links were the three and "upper jump", and the steps went
+  on through that section's (run 38446095467, session 4). Walked to from the top of the
+  book the same link was said, as above. What differs was not found out, nothing was changed for it, and no
+  issue is filed for it yet.
+  Not heard: anyone listening, or any Mac but the runner; a header cell that is a link
+  while it is off screen in continuous scroll or on another page than the cells it heads,
+  where the table gives the header by its words as for any header cell, which unit tests
+  hold; a column under two header cells one of which is a link; a header cell with words
+  beside its link, which has no press; "press" chosen from the Actions menu; a larger text
+  size; a spread of two columns; and Safari beside it.
 - On 2026-10-13 a table's select action was performed with VoiceOver on the physical iPad
   Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366, upright, 17 points), before and after a
   change to what it does ([#450](https://github.com/vocaro/EPUBLib/issues/450)), with the
