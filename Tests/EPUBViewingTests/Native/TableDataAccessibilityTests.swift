@@ -428,8 +428,10 @@ import XCTest
         let book = try book("<p>Words before the ledger.</p>" + Self.ledger(rows: rows) + "<p>Words after the ledger.</p>"
                             + SessionCoverageBook.filler(60))
         let (_, canvas, view) = try await reader(book, scrolled: true)
-        let onScreen = try cells(of: try XCTUnwrap(try tables(in: view).first))
-        XCTAssertLessThan(onScreen.count, (rows + 1) * 3, "the table must be longer than the screen for this to show anything")
+        // Cells are listed past the screen too; those on it are the ones the view shows.
+        let onScreen = try cells(of: try XCTUnwrap(try tables(in: view).first)).filter { view.bounds.intersects($0.accessibilityFrameInContainerSpace) }
+        XCTAssertFalse(onScreen.isEmpty, "the table starts on screen")
+        XCTAssertLessThan(onScreen.count, (rows + 1) * 3 / 2, "the table must be much longer than the screen for this to show anything")
         XCTAssertEqual(try XCTUnwrap(try tables(in: view).first).accessibilityRowCount(), rows + 1)
 
         // Into the text at its first line, and on.
