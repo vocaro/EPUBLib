@@ -154,9 +154,9 @@ import XCTest
 
     /// A row of pictures without words is a picture, as an image in a line is; a row that
     /// shows neither words nor pictures is no stop at all, where VoiceOver would rest on
-    /// silence.
+    /// silence. The pictures have no `alt` at all: an empty one marks decoration.
     func testARowOfPicturesIsAPictureAndARowOfNothingIsNoElement() async throws {
-        let body = "<table><tr>" + TableCoverage.box(40) + TableCoverage.box(30) + "</tr>"
+        let body = "<table><tr><td><img src='w40.png'/></td><td><img src='w30.png'/></td></tr>"
             + "<tr><td></td><td> </td></tr>"
             + "<tr><td><img src='w40.png' alt='A drawn map'/></td><td>Beside the map</td></tr></table><p>Words after the table.</p>"
         let book = try TableCoverage.publication(body, files: TableCoverage.images([40, 30], height: 20))
