@@ -332,6 +332,7 @@ final class ReaderTextView: UITextView {
     /// decoration has none, unless nothing listed can be read without it: a page or a screen
     /// that holds decoration alone would leave VoiceOver no place in the text to turn the page
     /// or read on from, so its images are listed, as images without a name.
+    /// A rule always has one, so a page that holds a rule alone is turned from the rule.
     private func accessibilityElements(for lines: [ReaderVisualLine],
                                        reusing existing: [ReaderPageAccessibilityElement]) -> [ReaderPageAccessibilityElement] {
         let elements = accessibilityElements(for: lines, reusing: existing, passingOverDecoration: true)
@@ -381,7 +382,14 @@ final class ReaderTextView: UITextView {
                 var traits: UIAccessibilityTraits = url == nil ? .staticText : .link
                 // A hidden label is words the page does not show, not a picture.
                 let isSpoken = attachment is SpokenLabelAttachment
-                if attachment != nil {
+                if attachment is ReaderRuleAttachment {
+                    // A rule is a break between what stands before it and what follows:
+                    // not a picture, which VoiceOver would call an image, and not words of
+                    // the book. UIKit has no trait for a separator, so VoiceOver has no word
+                    // of its own for one and the reader names it.
+                    label = ReaderRuleAttachment.spokenName
+                    traits.remove(.staticText)
+                } else if attachment != nil {
                     if !isSpoken { traits.insert(.image) }
                     // An image without words is an image and no more: the trait says so, in
                     // VoiceOver's own language, and the reader makes up no name for it.

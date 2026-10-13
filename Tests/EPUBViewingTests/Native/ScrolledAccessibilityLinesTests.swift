@@ -482,6 +482,50 @@ import XCTest
         XCTAssertTrue(listed.first === next, "nothing readable stands before the first words")
     }
 
+    /// A rule between two scenes on screen: a line of its own that VoiceOver stops on between
+    /// the paragraphs it parts, named by the reader and not an image. Moving on from the line
+    /// before it and back from the line after it both come to it.
+    func testARuleOnScreenIsAStopBetweenTheLinesItParts() async throws {
+        let prose = (1...40).map { "<p>p\($0) " + CanvasText.sentence(50, seed: $0) + "</p>" }.joined()
+        let reader = try SessionCoverageReader(try SessionCoverageBook.epub([
+            SessionCoverageBook.Section("scenes", "<p>First scene ends.</p><hr/><p>Second scene starts.</p>" + prose, title: "Scenes")]))
+        readers.append(reader)
+        reader.window?.resize(to: CGSize(width: 402, height: 874))
+        try await reader.settle()
+        try await reader.session.send(.style(EPUBReaderStyle(flow: .scrolled)))
+        try await reader.wait("the whole book in the scroll view") { reader.session.canvas?.scrollBook != nil }
+        try await reader.settle()
+        let canvas = try XCTUnwrap(reader.session.canvas), view = try XCTUnwrap(canvas.scrollTextView)
+        let subject: Subject = (reader, canvas, view)
+
+        var listed = try elements(of: view)
+        XCTAssertEqual(listed.prefix(3).map { $0.accessibilityLabel ?? "" }, ["First scene ends.\n", "Separator", "Second scene starts.\n"])
+        XCTAssertTrue(listed.count > 3 && (listed[3].accessibilityLabel ?? "").hasPrefix("p1 "), "then the prose: \(listed.count) listed")
+        let rule = listed[1]
+        XCTAssertEqual(rule.accessibilityTraits, [], "not an image and not words of the book")
+        XCTAssertFalse(listed.contains { $0.accessibilityTraits.contains(.image) })
+        let frame = rule.accessibilityFrameInContainerSpace
+        XCTAssertTrue(frame.height > 0 && visibleArea(of: subject).insetBy(dx: -1_000, dy: -0.01).contains(frame), "\(frame)")
+        XCTAssertGreaterThan(frame.minY, listed[0].accessibilityFrameInContainerSpace.midY)
+        XCTAssertLessThan(frame.maxY, listed[2].accessibilityFrameInContainerSpace.midY)
+        XCTAssertTrue((rule.accessibilityCustomActions ?? []).isEmpty, "continuous scroll scrolls natively")
+        XCTAssertFalse(rule.accessibilityActivate(), "a rule opens nothing")
+
+        // The cursor comes to it from either side, and it keeps its element while it is there.
+        let offset = view.contentOffset
+        focus(listed[0], from: nil, in: view)
+        let reached = try XCTUnwrap(try move(from: listed[0], forward: true, in: view))
+        XCTAssertEqual(reached.accessibilityLabel, "Separator")
+        XCTAssertTrue(reached === rule)
+        let after = try XCTUnwrap(try move(from: reached, forward: true, in: view))
+        XCTAssertEqual(after.accessibilityLabel, "Second scene starts.\n")
+        let back = try XCTUnwrap(try move(from: after, forward: false, in: view))
+        XCTAssertTrue(back === rule, "moving back stops on the rule too")
+        XCTAssertEqual(view.contentOffset, offset, "nothing scrolled: the rule is on screen")
+        listed = try elements(of: view)
+        XCTAssertEqual(listed.filter { $0.accessibilityLabel == "Separator" }.count, 1)
+    }
+
     func testANoteKeepsUIKitsOwnTextElements() {
         // A note's popover is a text view of its own, never scrolled by the reader: its text
         // starts at its first line, which is where UIKit's elements start.
