@@ -132,7 +132,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   publication's. Without `alttext` the reading is generated from the markup, and elementary
   math is read row by row. MathMLLayout 0.1.1 generates English only, so a generated reading is
   tagged English whatever the book's language, for an English voice to read, rather than
-  handed to the book's voice as if it were its language.
+  handed to the book's voice as if it were its language. On Mac a formula's character carries
+  an image element named by the reading, in a page's text and in a table cell's, and
+  VoiceOver says the reading and then its own word for an image: "y cubed image".
 - **SVG.** Inline and archive SVG illustrations render through the bundled resvg static
   renderer, including paths, text, gradients, transforms, clipping, local definitions and
   `viewBox`/`preserveAspectRatio`. A plain single-image wrapper retains the raster-image fast
@@ -172,10 +174,15 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   says nothing for it by line or in Read All, and moving by word its cursor takes one step
   across it for which no phrase was recorded. An image without words has no help text on
   Mac, where VoiceOver reads the help of an element without a label in the label's place.
-  Not read: `role="presentation"`, `aria-hidden` and `aria-label` on an image. An
-  image in a table cell is read by its words in the cell's text, and one without words is
-  not announced there. In a note's popover on iPhone and iPad the text is read by UIKit's
-  own elements, which were not heard with an image in them.
+  Not read: `role="presentation"`, `aria-hidden` and `aria-label` on an image. On
+  iPhone and iPad an image in a table cell is read by its words in the cell's text, and one
+  without words is not announced there. On Mac a cell is a text area of its own, which
+  VoiceOver reaches by interacting with the cell's row and then with the cell, and an image
+  there is what it is in the text around the table: VoiceOver says its words and "image",
+  or "image" alone where it has no `alt`, and passes over decoration, and the image's
+  element has the Inspect Image action. It said nothing at any image in a cell before
+  ("Rules" below has why). In a note's popover on iPhone and iPad the text is read by
+  UIKit's own elements, which were not heard with an image in them.
 - **Rules.** An `<hr>` is a break between the paragraphs it parts: a change of scene or of
   subject. A book writes one so that the break need not be seen to be known, and HTML maps
   the element to the separator role for that reason. It is drawn as a line and has no words,
@@ -213,14 +220,26 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   that is all its link holds, or that opens a link of words, has the link's element in its
   place, without a name ("Links for VoiceOver on Mac" below), and one elsewhere in a link
   has its own. No rule in a link was heard. Not read: `role="presentation"` and
-  `aria-hidden` on a rule, which is announced like any other. A rule in a table cell is
-  not announced on any of the three. On Mac a cell is a text area of its own, which
-  VoiceOver reaches by interacting with the row and then with the cell, and there it says
-  nothing at a rule, by line, by word or reading on. A cell gives each of its attachments
-  a static-text element labelled with its text equivalent, which for a rule is the empty
-  string. Giving the rule the element it has outside a table changed nothing that VoiceOver
-  said, so the cell was left as it was; why a cell's elements are not read is not known.
-  On iPhone and iPad a rule in a cell has no words in the cell's text and is not announced
+  `aria-hidden` on a rule, which is announced like any other. On Mac a table cell is a
+  text area of its own, which VoiceOver reaches by interacting with the row and then with
+  the cell. A rule in a cell has the same element there, and VoiceOver says "Separator" at
+  it by line, by word and reading on, in pages and in continuous scroll, and as it reads
+  the cell on entering the row. Before, it said nothing at a rule in a cell, and nothing
+  at a formula, a picture or a hidden label there either, whatever element the cell gave.
+  A cell made a new element for each attachment at every read of its rich text and kept
+  none, where a page's text keeps its elements from one read to the next. VoiceOver asks
+  an element what it is after the read that gave it, and by then an element that nothing
+  holds is gone. Two things set a cell's elements apart from a page's, and each was heard
+  alone: with the elements kept and nothing else changed VoiceOver read every one, and
+  with a frame for each, which they also lacked, and none kept, it read none. A cell now
+  keeps its elements for as long as it stands, gives each the place its character is
+  drawn at, and makes each what the page's text makes of the same attachment, through the
+  same function (`NSAccessibilityElement.setReaderAttachment`): an image named by its
+  words for a picture or a formula, the words of a hidden label as text, and nothing for
+  decoration. A table inside a cell has no text views of its own, so each of its rows is
+  its cells' words there, as text. A rule's text equivalent is empty in a cell as
+  anywhere, so a copy, a selection and the row's own words have nothing in its place. On
+  iPhone and iPad a rule in a cell has no words in the cell's text and is not announced
   there, and UIKit's own elements in a note's popover were not heard with a rule in them.
   A note's popover on Mac is a text area of the page's kind and was not heard either.
 - **Links for VoiceOver on Mac.** AppKit gives a text view's links to an assistive client
@@ -259,7 +278,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   link elements as its results it said "Link not found". So in continuous scroll a link
   below the screen is reached by reading or scrolling to it. A note's popover keeps AppKit's
   elements, and its links do nothing. A link in a table cell is the cell's own text view's,
-  and AppKit's.
+  and AppKit's; a picture, a formula or a hidden label in such a link has the element it
+  has outside a link, and was not heard.
 - **Image inspection.** Double-click or double-tap an unlinked book image to inspect it in a separate
   native zoomable scroll surface, including images drawn inside table cells. On Mac, images
   also offer an Inspect Image context-menu action; UIKit supplies an attachment action and
@@ -890,7 +910,8 @@ The following are the defaults. Host commands and accessibility actions stay ena
   with an empty `alt` is passed over, and one with none is announced as an image without a
   name ("Alternative text" under Decisions). At a rule VoiceOver says "Separator", from a
   stop of its own on iPhone and iPad and from an element in the text on Mac ("Rules" under
-  Decisions).
+  Decisions). On Mac all of this holds inside a table cell too, whose text VoiceOver reads
+  once it interacts with the cell's row and then with the cell.
 - A page turned under VoiceOver's cursor, on iPhone and iPad. VoiceOver keeps its cursor on
   the item it was given, and a page's lines are items of that page: turn the page and the
   cursor is on a line that is no longer shown. After a line's Next Page it stayed drawn
