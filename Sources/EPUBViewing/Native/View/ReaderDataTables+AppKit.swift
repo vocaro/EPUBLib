@@ -240,7 +240,7 @@ enum ReaderDataTablePrototype {
     /// What heads a column or a row: its one header cell where the view lists it, and
     /// otherwise an element that says the words of its header cells and holds nothing.
     private func headerElement(_ cells: [Int], key: Int) -> NSAccessibilityElement {
-        if cells.count == 1, let listed = listed(cells[0]) { return listed }
+        if cells.count == 1, let listed = listed(cells[0]), listed.holdsText { return listed }
         if let kept = headerNames[key] { return kept }
         let words = cells.map { table.cells[$0].text }.filter { !$0.isEmpty }.joined(separator: ", ")
         let name = ReaderTableHeaderElement(table: self, words: words)
@@ -400,11 +400,12 @@ enum ReaderDataTablePrototype {
         super.init()
         setAccessibilityRole(.cell)
         setAccessibilityParent(table)
+        setAccessibilityTitle(words)
     }
 
     override func accessibilityRole() -> NSAccessibility.Role? { .cell }
     override func accessibilityParent() -> Any? { onMain(self) { $0.table } }
-    override func accessibilityLabel() -> String? { onMain(self) { $0.words.isEmpty ? nil : $0.words } }
+    override func accessibilityTitle() -> String? { onMain(self) { $0.words.isEmpty ? nil : $0.words } }
 }
 
 /// A cell of a table of data, where the view shows it. It holds the text areas of its words
@@ -451,6 +452,10 @@ enum ReaderDataTablePrototype {
         for view in views { view.tableCellElement = self }
         return views
     }
+
+    /// Whether the cell's words are in text areas it holds, which is where VoiceOver reads a
+    /// header cell's words from.
+    var holdsText: Bool { !textViews.isEmpty }
 
     override func accessibilityRole() -> NSAccessibility.Role? { .cell }
     override func accessibilityParent() -> Any? { onMain(self) { $0.row ?? $0.table } }
