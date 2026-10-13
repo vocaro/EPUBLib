@@ -26,36 +26,70 @@ on:
         description: How many times the tests run, one pass after another in one build.
         type: string
         default: '1'
+      scroll_bars:
+        description: >-
+          The scroll bars the tests run under. legacy: as a Mac with a mouse shows. overlay: as
+          a Mac with a trackpad shows. both: each of those in a job of its own. automatic: the
+          runner's own setting, overlay as a process starts and legacy a moment later.
+        type: choice
+        options: [legacy, overlay, both, automatic]
+        default: legacy
 
-run-name: ${{ github.event_name == 'workflow_dispatch' && format('Mac unit tests, {0}, {1}{2}', inputs.ref || github.ref_name, inputs.filter || 'every test', inputs.repeat != '1' && format(', {0} passes', inputs.repeat) || '') || '' }}
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Mac unit tests, {0}, {1}{2}, {3} scroll bars', inputs.ref || github.ref_name, inputs.filter || 'every test', inputs.repeat != '1' && format(', {0} passes', inputs.repeat) || '', inputs.scroll_bars == 'both' && 'both kinds of' || inputs.scroll_bars) || '' }}
 
 permissions:
   contents: read
 
-# A newer run for the same pull request, or by hand for the same ref, filter and count,
-# replaces one still in progress. A run for main finishes; of those waiting behind it only the
-# newest is kept.
+# A newer run for the same pull request, or by hand for the same ref, filter, count and scroll
+# bars, replaces one still in progress. A run for main finishes; of those waiting behind it only
+# the newest is kept.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.ref || github.ref }}-${{ inputs.filter }}-${{ inputs.repeat }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.ref || github.ref }}-${{ inputs.filter }}-${{ inputs.repeat }}-${{ inputs.scroll_bars }}
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
   test:
-    name: swift test
+    name: swift test, ${{ matrix.scroll_bars }} scroll bars
     # The standard label only: a larger runner, such as xcode-27-xlarge, is billed even in a
     # public repository.
     runs-on: xcode-27
     timeout-minutes: 40
+    strategy:
+      # Which kinds a test fails under is part of the result, so one job does not stop the other.
+      fail-fast: false
+      matrix:
+        # By hand, the kinds asked for. A push to main gets both. A pull request gets legacy
+        # ones only: each job takes a runner from the few that every run in the repository
+        # waits for. To give a pull request both, put 'both' in place of the expression in the
+        # inner brackets.
+        scroll_bars: ${{ fromJSON((inputs.scroll_bars || (github.event_name == 'push' && 'both' || 'legacy')) == 'both' && '["overlay", "legacy"]' || format('["{0}"]', inputs.scroll_bars || 'legacy')) }}
     defaults:
       run:
         shell: bash
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      SCROLL_BARS: ${{ matrix.scroll_bars }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
+
+      - name: Set the scroll bars
+        if: matrix.scroll_bars != 'automatic'
+        run: |
+          # "Show scroll bars" is a setting of the logged-in user: for GitHub's disposable
+          # machine only. A workstation runs a bundle under either kind by an argument, with no
+          # setting changed ("Local gate" in doc/testing.md).
+          if [ "$RUNNER_ENVIRONMENT" != github-hosted ]; then
+            echo "::error::This step changes the scroll bar setting of a disposable hosted runner and must not run on $RUNNER_ENVIRONMENT"
+            exit 1
+          fi
+          case "$SCROLL_BARS" in
+            overlay) defaults write -g AppleShowScrollBars WhenScrolling ;;
+            legacy) defaults write -g AppleShowScrollBars Always ;;
+            *) echo "::error::No setting gives '$SCROLL_BARS' scroll bars"; exit 1 ;;
+          esac
 
       - name: Describe the runner
         run: |
@@ -65,14 +99,22 @@ jobs:
           echo "System: $(sw_vers -productName) $(sw_vers -productVersion) $(sw_vers -buildVersion)"
           echo "Xcode: $(xcodebuild -version | tr '\n' ' ')"
           echo "Processors: $(sysctl -n hw.ncpu), memory: $(($(sysctl -n hw.memsize) / 1073741824)) GB"
-          # Some canvas tests lay text out beside a scroll bar, and the kind a Mac shows
-          # follows its pointing device. A process learns the kind a moment after it starts.
+          # Some canvas tests lay text out beside a scroll bar. On the automatic setting a
+          # process starts with overlay ones and learns of a pointing device, which makes them
+          # legacy, a moment after it first asks: so the kind is read twice.
           cat > "$RUNNER_TEMP/scroll-bars.swift" <<'SWIFT'
           import AppKit
-          RunLoop.main.run(until: Date(timeIntervalSinceNow: 1))
-          print(NSScroller.preferredScrollerStyle == .legacy ? "legacy" : "overlay")
+          let first = NSScroller.preferredScrollerStyle
+          RunLoop.main.run(until: Date(timeIntervalSinceNow: 2))
+          let later = NSScroller.preferredScrollerStyle
+          print(first == .legacy ? "legacy" : "overlay", later == .legacy ? "legacy" : "overlay")
           SWIFT
-          echo "Scroll bars: $(swift "$RUNNER_TEMP/scroll-bars.swift" 2> /dev/null || echo unknown)"
+          read -r first later <<< "$(swift "$RUNNER_TEMP/scroll-bars.swift" || echo unknown unknown)"
+          echo "Scroll bars: $first as a process starts, $later two seconds later"
+          if [ "$SCROLL_BARS" != automatic ] && [ "$first $later" != "$SCROLL_BARS $SCROLL_BARS" ]; then
+            echo "::error::A process on the runner has $first scroll bars and then $later ones, and this job is for $SCROLL_BARS ones"
+            exit 1
+          fi
 
       - name: Build
         run: |
@@ -171,3 +213,17 @@ jobs:
             } | tee -a "$GITHUB_STEP_SUMMARY"
           fi
           exit "$result"
+
+      # Two checks of the local gate that need no simulator. They run whatever the tests did, so
+      # that neither result hides the other.
+      - name: Check module boundaries
+        if: ${{ !cancelled() }}
+        run: python3 scripts/check-modules.py
+
+      - name: Check documentation snippets
+        if: ${{ !cancelled() }}
+        run: |
+          # The snippets come from the sample's shared sources. The build above compiled them
+          # with every other target; building that one by name says so and has nothing to do.
+          swift build --target ReaderSampleSupport
+          python3 scripts/check-docs.py
