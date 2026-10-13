@@ -975,7 +975,24 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
     own, or "Verification link", which is in the book's first section. On a device, choose
     Inspect Image on a picture and double-tap, and the inspector opens; choose Next Page on a
     line of a page and double-tap, and the page turns.
-13. Restore all original VoiceOver/scripting settings and independently verify restoration.
+13. A table's text selected, on an iPhone and iPad, with the sample's selection line under
+    the reader (`TEST_RUNNER_VOICEOVER_LAUNCH='-SampleSelectionLine YES'`). On a cell of the
+    tables of data, choose Select Cell Text in the rotor (`choose=Select Cell Text`) and
+    double-tap. VoiceOver reads the cell again as selected, "selected Alder Row header Row 2
+    Column 1"; `state` says "Selected: Alder. Used: nothing."; and a screenshot shows the
+    cell's words on the tint of selected text. One step on, the rotor offers Copy, then Use
+    passage, which is the sample's selection action. With Use passage chosen a double tap
+    brings `state` to "Selected: Alder. Used: Alder.". Deselect Cell Text stands where Select
+    Cell Text stood; chosen and double-tapped, VoiceOver reads the cell without "selected",
+    the tint is gone and `state` says "Selected: nothing.". A touch on another cell and back
+    says "selected" again while the words are selected. The same on a row of a table that
+    is not data, with Select Table Text and Deselect Table Text and the cell's words after
+    each: VoiceOver reads the row as selected, and the tint is on that cell alone. In pages
+    and in continuous scroll. Copy is heard to be offered and is not performed on a device,
+    whose clipboard is its owner's; the unit tests perform it. With VoiceOver off
+    (`TEST_RUNNER_VOICEOVER_OFF=1`), `press=Alder` selects the word by touch: UIKit draws
+    it, with its handles and once, and the edit menu has Copy.
+14. Restore all original VoiceOver/scripting settings and independently verify restoration.
 
 Keep logs and `.xcresult` bundles under `.build/voiceover/`. Export text attachments with:
 
@@ -1707,7 +1724,8 @@ The Mac runner's transcript is plain text and needs no export.
   changed nothing: "nothing on screen changed in 2.0 s", the first page still in the
   screenshot, and "Words before" for the next move forward. So VoiceOver performs Select
   Table Text on a device, the selection held back a line's page turn as it was, and it does
-  not now. The selection itself is not to be seen in either screenshot.
+  not now. The selection itself is not to be seen in either screenshot; the entry of
+  2026-10-13 on a table's select action has why, and what shows it now.
   One thing was seen and not looked into: after the turn VoiceOver's cursor was still drawn
   where the line had stood, and a move forward from it went to the book's title under the
   page.
@@ -2074,7 +2092,8 @@ The Mac runner's transcript is plain text and needs no export.
   Heading"; a plain double tap on the cell, with no action chosen, did the same. With
   Select Cell Text chosen, a double tap gave "Select Cell Text" and the screenshot shows
   VoiceOver's cursor on the cell's box and no highlight in it: that the words were selected
-  there is shown by the unit test only. The rotor's Rows moved down and up a column in both
+  there is shown by the unit test only (the entry of 2026-10-13 below shows it on the
+  device, and what the action does now). The rotor's Rows moved down and up a column in both
   tables as on the simulators. In continuous scroll at 23 points, 136 moves forward and 136
   back through the long table gave all 120 cells once and in order each way; at 28 points,
   with the rotor on Rows, thirty-four flicks down from "Item 02 Row 3" went a row at a time
@@ -2098,6 +2117,59 @@ The Mac runner's transcript is plain text and needs no export.
   pages and the walk on to "Line 10 after the grids." and back in continuous scroll gave the
   phrases they had given before, the link was followed, and the long table gave its 120
   cells once and in order each way. The physical iPhone was not used.
+- On 2026-10-13 a table's select action was performed with VoiceOver on the physical iPad
+  Air 13-inch (M3) (iPadOS 27.2, 1024 × 1366, upright, 17 points), before and after a
+  change to what it does ([#450](https://github.com/vocaro/EPUBLib/issues/450)), with the
+  sample's selection line under the reader. Nobody listened. Every revision here is the
+  branch that reads a table of data by its cells with this change on it, without the three
+  commits `main` had gained by then.
+  Before, at `35a8f53`, which has the probe's new steps and nothing of the change. In
+  pages, on "Alder" in the tables of data, the rotor offered Next Page, Previous Page and
+  Select Cell Text. With that chosen a double tap left VoiceOver's phrase at "Select Cell
+  Text", and no other came in four seconds. The reader's line said "Selected: Alder. Used:
+  nothing.": the words were selected on the device, and the host was told. The screenshot
+  shows VoiceOver's cursor round the cell and the cell's ground white throughout. Nothing
+  on screen was named Copy or Use passage, and thirty-six more steps of the rotor went
+  round Activate Default, Next Page, Previous Page and Select Cell Text. On the row "First
+  cell Second cell" of the section with a hidden heading over a table, the same with
+  Select Table Text: Second cell: the phrase stayed, the line said "Selected: Second cell.
+  Used: nothing.", and in the screenshot "Second cell" is a little heavier than "First
+  cell", where the cell had drawn its ink over the row's, with no tint behind it.
+  A first change, at `3e5289d`, painted the selection, posted an announcement and offered
+  the three actions. On the iPad the double tap brought "Selected: Alder", the reader's own
+  announcement, and the screenshot shows the tint behind "Alder". The rotor went round the
+  same four actions as before, through thirty-six steps: VoiceOver keeps an item's actions
+  as it found them when its cursor came to the item. The unit tests of that revision
+  passed.
+  After, at `2738aa9`, which marks the item selected and tells VoiceOver that it changed,
+  in place of the announcement. On "Alder" in pages the double tap brought "selected Alder
+  Row header Row 2 Column 1" and "Selected: Alder. Used: nothing."; the screenshot shows
+  the tint behind "Alder" and nowhere else; the rotor's next two steps were "Copy" and "Use
+  passage"; with Use passage chosen a double tap brought "Selected: Alder. Used: Alder.";
+  and four steps on stood "Deselect Cell Text", where a double tap brought "Alder Row
+  header Row 2 Column 1" and "Selected: nothing. Used: Alder.", with no tint left in the
+  screenshot. Selected once more, a touch on "Birch" and then on "Alder" said "selected
+  Alder Row header Row 2 Column 1". On the row in pages: "selected First cell Second cell",
+  "Selected: Second cell. Used: nothing.", the tint behind "Second cell" alone, "Copy", "Use
+  passage", "Selected: Second cell. Used: Second cell.", and "Deselect Table Text: Second
+  cell" after "Select Table Text: First cell", which brought "First cell Second cell" and
+  "Selected: nothing.". In continuous scroll the row gave the same phrases and lines, with
+  the tint in its screenshot. CELL_IN_CONTINUOUS_SCROLL
+  With VoiceOver off, a finger held on "Alder" for a second selected it ("Selected: Alder.
+  Used: nothing."): the screenshot shows UIKit's tint and its two handles, once, and an
+  edit menu of Copy, a symbol, Look Up, Translate and an arrow for more. Nothing on screen
+  was named Use passage: by the code a cell's menu has the host's action after the
+  system's, where a line's has it first. The iPad simulator (iPad Air 13-inch (M4), iOS
+  27.0) gave the same line and the same drawing for that touch at `f76814e`, its menu Copy,
+  Look Up, Translate, Search Web and the arrow.
+  Copy was not performed on the iPad, where it would have replaced what its owner had
+  copied; the unit tests perform it. That VoiceOver speaks an announcement posted from an
+  item's action, as "Copied" is, is what the `3e5289d` session heard.
+  A step through the rotor took six seconds, most of it XCTest waiting, so a list gone
+  round three times took over three minutes. The iPad was unavailable to `devicectl` from
+  23:52 until about 01:20 and was shared with three other sessions' runs after that. Each
+  session here claimed it in the shared file and read VoiceOver back as off afterward, and
+  no session recorded a phrase that was not the book's, the sample's or VoiceOver's own.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).
