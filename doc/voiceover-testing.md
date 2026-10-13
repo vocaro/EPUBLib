@@ -1,9 +1,11 @@
 # VoiceOver testing
 
-Use real VoiceOver speech to verify the paginated reader on a Mac, physical iPhone and
-physical iPad. Native accessibility API tests support this work but do not establish what
-VoiceOver reads. A [simulator's VoiceOver](#simulators) does read, with no device, window or
-sound, but it activates nothing, and its sessions are not acceptance evidence. The sessions
+Use real VoiceOver speech to verify the paginated reader on a Mac, iPhone and iPad. Native
+accessibility API tests support this work but do not establish what VoiceOver reads. A
+[simulator's VoiceOver](#simulators) does read, with no device, window or sound, and its
+sessions are acceptance evidence for what VoiceOver reads on an iPhone and iPad. It activates
+nothing, so what VoiceOver activates or performs is shown on a physical iPhone and iPad;
+[Acceptance and evidence](#acceptance-and-evidence) says which a check needs. The sessions
 are recorded in the
 [Mac verification](issue-55-voiceover-mac.md) and the
 [iPad and iPhone verification](issue-28-voiceover-devices.md); the acceptance matrix is in
@@ -902,13 +904,15 @@ XCTest cannot perform VoiceOver's three-finger scroll, and its synthesized hardw
 (Control-Option-Space, Option with an arrow) did not reach VoiceOver on an iPad. The probe
 turns pages by activating the page buttons or a line's Next Page action. A transcript that
 begins in an editing field, with the keyboard's keys after the page, is not a reading-order
-result. Use physical-device sessions for acceptance.
+result. [Acceptance and evidence](#acceptance-and-evidence) says which checks need a physical
+device and which a simulator settles.
 
 ## Simulators
 
 `scripts/run-voiceover-simulator.py` runs the same probe on simulators of its own, with no
-device, no Simulator window and no sound. It is a quick check of what VoiceOver reads, not
-acceptance evidence:
+device, no Simulator window and no sound. Its sessions are acceptance evidence for what
+VoiceOver reads and in what order, and not for what VoiceOver activates
+([Acceptance and evidence](#acceptance-and-evidence)):
 
 ```sh
 python3 scripts/run-voiceover-simulator.py
@@ -986,9 +990,10 @@ and the double tap on the heading, the touch arrived on the heading and the page
 With VoiceOver off the same touches turn the page in both orientations, and on physical
 devices VoiceOver performs every one of these
 ([iPad and iPhone verification](issue-28-voiceover-devices.md)), so the difference is the
-simulator's and not the probe's or the reader's. Page actions, the rotor and turns in
-landscape need a device. To read a later landscape spread on a simulator, turn pages in
-portrait and then rotate: the reader keeps its place.
+simulator's and not the probe's or the reader's. VoiceOver activating an item, an action
+performed from the rotor and a page turned in landscape need a device. Turning the rotor and
+moving by it do not. To read a later landscape spread on a simulator, turn pages in portrait
+and then rotate: the reader keeps its place.
 
 VoiceOver keeps a log of its own in a simulator, and it says what VoiceOver did where a
 transcript says only what it read. Stream it for the length of a session:
@@ -1017,8 +1022,9 @@ not read.
 A move costs half a second and a touch about five and a half, most of it XCTest waiting for
 an event that VoiceOver keeps from the reader. The end of a `read` costs 3.3 seconds and an
 `activate` or `rotate` a little over one after the gesture. The simulators are not the
-devices of the record: an iPhone 17 Pro shows 402 × 874 points and its pages hold fewer lines
-than the iPhone 17 Pro Max's. In landscape the sample's control strip stacks and leaves its
+physical devices of the record: an iPhone 17 Pro shows 402 × 874 points and its pages hold
+fewer lines than the iPhone 17 Pro Max's, so a page's first and last words are not the
+same on both. In landscape the sample's control strip stacks and leaves its
 reader one line at 17 points, so `visible` finds no numbered line on the first spread. All of
 this is the iOS 27.0 runtime. The 27.1 runtime of Xcode 27.1 offers only the iPhone Duo and
 was not compared.
@@ -1034,7 +1040,27 @@ one on a workstation is. Record its runner image and image version, such as `xco
 20261006.0244.1, beside the OS and Xcode versions; `runner.txt` in the run's download has all
 three, and the job's "Set up job" log prints the image. Everything else here applies to it
 unchanged. A hosted session that completes is no more an acceptance result than any other:
-read its transcript against the visible text. The iPhone and iPad still need physical devices.
+read its transcript against the visible text.
+
+For the iPhone and iPad, a session in the [simulator lane](#simulators) is acceptance
+evidence for what VoiceOver reads, in what order, and where its cursor and its rotor move.
+The owner decided so on 2026-10-13; until then every such result was also owed a physical
+device. Record the session as a simulator's, with its device type and runtime where a
+device's model and OS would stand. A physical iPhone or iPad is needed for what a simulator's
+VoiceOver does not do:
+
+- activating the item under its cursor: a button, a link, a line's default action;
+- performing an action chosen in the rotor: Next Page from a line, Inspect Image, Select Cell
+  Text, Follow Link;
+- turning the page in landscape.
+
+In the steps below that is each double tap whose result is VoiceOver's own doing. A page
+turned in portrait with `activate=Next Page` is turned by a plain touch on the button, so the
+page that follows and VoiceOver's reading of it count, and that VoiceOver activated the
+button does not. A change to what VoiceOver reads needs no device session, and no issue is
+filed to ask for one. A change to what an activation or an action does needs one, for that
+step. The simulators run iOS 27.0 and are other models than the physical devices, so where a
+simulator and a device differ, the device's result stands and the difference is recorded.
 
 Sessions that show a change by what VoiceOver said before and after it are recorded on the
 same main. Merge main into the branch first, and take as "before" a commit that holds main
