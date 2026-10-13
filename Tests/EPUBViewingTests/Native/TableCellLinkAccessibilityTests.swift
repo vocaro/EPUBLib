@@ -264,42 +264,30 @@ import XCTest
             .sorted { ($0.key.location, $0.key.cell, $0.key.lower) < ($1.key.location, $1.key.cell, $1.key.lower) }
     }
 
-    /// VoiceOver focuses the element it moves to. A cell's link that the page lists is no
-    /// character of the page's text: the page's insertion point goes to the cell's row, which
-    /// is one, so that reading on by word starts at the row and not where VoiceOver last
-    /// read. Inside a cell the link's own element puts the cell's insertion point on the link.
-    func testACellsLinkTakesTheFocusAtItsRowOnThePageAndAtItsWordsInTheCell() async throws {
+    /// VoiceOver focuses the element it moves to. A cell's link on screen is left as it is,
+    /// the one the page lists and the cell's own: told that an insertion point has moved,
+    /// VoiceOver says the word beside it over the link's name (`LinkAccessibilityTests`).
+    func testACellsLinkOnScreenTakesTheFocusAndIsLeftAsItIs() async throws {
         let mounted = try await mount(Self.grid, cells: 6)
         let listed = children(of: mounted.view)
         guard listed.count == 7 else { return XCTFail("\(listed.count) links") }
-        let rows = Array(Set(mounted.cells.map(\.key.location))).sorted()
-        XCTAssertEqual(rows.count, 3)
-        XCTAssertEqual(mounted.view.selectedRange, NSRange(location: 0, length: 0))
-        XCTAssertFalse(listed.contains { $0.isAccessibilityFocused() })
-        // "worded jump", in the first row's second cell.
-        listed[1].setAccessibilityFocused(true)
-        XCTAssertEqual(mounted.view.selectedRange, NSRange(location: rows[0], length: 0), "the row the link's cell is in")
-        XCTAssertTrue(listed[1].isAccessibilityFocused())
-        XCTAssertFalse(listed[0].isAccessibilityFocused())
-        XCTAssertFalse(listed[2].isAccessibilityFocused(), "a link of another row")
-        // Both links of the second row are at that row.
-        listed[3].setAccessibilityFocused(true)
-        XCTAssertEqual(mounted.view.selectedRange, NSRange(location: rows[1], length: 0))
-        XCTAssertTrue(listed[2].isAccessibilityFocused())
-        XCTAssertTrue(listed[3].isAccessibilityFocused())
-        // The page's own link after the table.
-        listed[6].setAccessibilityFocused(true)
-        XCTAssertEqual(mounted.view.selectedRange, NSRange(location: listed[6].range.location, length: 0))
-        XCTAssertFalse(listed[3].isAccessibilityFocused())
-        // Inside the cell, the cell's own element: the insertion point is the cell's.
         let cell = mounted.cells[1].cell
         let own = try XCTUnwrap(links(in: cell).first)
         XCTAssertEqual(own.element.accessibilityTitle(), "worded jump")
-        XCTAssertFalse(own.element.isAccessibilityFocused())
-        own.element.setAccessibilityFocused(true)
-        XCTAssertEqual(cell.accessibilitySelectedTextRange(), NSRange(location: own.range.location, length: 0))
-        XCTAssertTrue(own.element.isAccessibilityFocused())
-        XCTAssertEqual(mounted.view.selectedRange, NSRange(location: listed[6].range.location, length: 0), "the page's is left where it was")
+        let shown = mounted.host.recorder.shown.count, inCell = cell.accessibilitySelectedTextRange()
+        for link in listed + [own.element] {
+            XCTAssertFalse(link.isAccessibilityFocused(), link.accessibilityTitle() ?? "")
+            link.setAccessibilityFocused(true)
+            XCTAssertEqual(mounted.view.selectedRange, NSRange(location: 0, length: 0), link.accessibilityTitle() ?? "")
+        }
+        XCTAssertEqual(cell.accessibilitySelectedTextRange(), inCell)
+        XCTAssertEqual(mounted.host.recorder.shown.count, shown)
+        // A link the page lists stands at its cell's row, one character of the page's text.
+        let rows = Array(Set(mounted.cells.map(\.key.location))).sorted()
+        XCTAssertEqual(rows.count, 3)
+        mounted.view.setAccessibilitySelectedTextRange(NSRange(location: rows[1], length: 0))
+        XCTAssertEqual(listed.map { $0.isAccessibilityFocused() }, [false, false, true, true, false, false, false], "both links of the second row")
+        XCTAssertFalse(own.element.isAccessibilityFocused(), "the cell's own element has none: VoiceOver is inside the cell there")
         // The presses are what they were.
         XCTAssertTrue(listed[1].accessibilityPerformPress())
         XCTAssertTrue(own.element.accessibilityPerformPress())
