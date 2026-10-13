@@ -268,11 +268,8 @@ typealias TableNativeTextView = UITextView
         return NSRange(location: lower - shownCharacters.location, length: upper - lower)
     }
 
-    // TRIAL, not for main: the words of a range in place of its characters.
-    var trialWords = false
     override func accessibilityString(for range: NSRange) -> String? {
         guard let full = fullAccessibilityRange(range) else { return nil }
-        if trialWords { return cellText.readerPlainText(in: full) }
         return (cellText.string as NSString).substring(with: full)
     }
 
