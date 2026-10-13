@@ -309,10 +309,17 @@ TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wai
    bar" among the lines is the failure of
    [#339](https://github.com/vocaro/EPUBLib/issues/339). On an iPad run it on its side as
    well, with `rotate=landscape` first and `rotate=portrait` last.
-8. `touch=LABEL` on an item below the reader and `backward=4` come into the text from below:
-   the scroll bar, then the last line on screen, then the lines above it. Away from the top
-   of the book the move after the last line on screen goes to the control before the text
-   ([#367](https://github.com/vocaro/EPUBLib/issues/367)).
+8. `touch=LABEL` on an item below the reader and `backward=30` come into the text from below:
+   the scroll bar, then the last line that was on screen, then every line above it in order,
+   on past the top of the screen. Run it where the view has room to go back, after two
+   scroll steps, and at the end of the book
+   (`activate=Contents,activate=Chapter three,wait=2` and three scroll steps): as the cursor
+   goes to the scroll bar UIKit takes the view back 88 points. "Bookmark" straight after the
+   scroll bar, or after one line, is the failure of
+   [#367](https://github.com/vocaro/EPUBLib/issues/367). The line after the scroll bar is
+   the last line in the reader's own view. `visible` gives a later one as the window's last:
+   with the cursor on a control before the text it counts every listed line that lies inside
+   the window, and the first lines listed after the screen lie under the sample's footer.
 9. No line of plain text has "Actions available" after it, and `flick=down` with the cursor on
    one reads no action: it steps by the rotor's own setting, a character of the line on a
    simulator. An iPhone's lines are short enough to show the whole phrase in the 64
@@ -821,9 +828,16 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    "Separator", and never "Image". It says the same before "Words after an ornament.",
    where the rule has `role="presentation"`, which the reader does not read. On the page
    that holds a rule alone it says "Separator" and nothing else in the text, and Next Page
-   from there shows "Last words of the scenes.". On Mac it says nothing at a rule: moving
-   by line it stops between the two scenes without a phrase, and no transcript has
-   "Separator" or "image" in it.
+   from there shows "Last words of the scenes.". On a Mac, in a window 600 points wide at
+   17 points, open the reader at the section (`"launch=-SampleHref OPS/scenes.xhtml"`).
+   Moving by line VoiceOver says "Separator" between "First scene ends." and "Second scene
+   starts." and again before "Words after an ornament."; moving by word a rule is one stop
+   that says the same; and `readall` from the page's first word says it in both places. On
+   the page that holds a rule alone, one `ax:next` step on, it says "In text Separator" on
+   entering and "end of text" on the next line. In continuous scroll, where thirty
+   `ax:next` steps from the start of the book and `lastword` put VoiceOver on "scenes.", it
+   says "Separator" on each of the three lines between "Last words of the scenes." and
+   "First scene ends.". No transcript has "splitter", "collapsed" or "image" at a rule.
 9. Headings. On an iPhone or iPad VoiceOver says "Heading" after a heading's words, shown or
    hidden, and reads a heading that takes several lines as one item. With the rotor on
    Headings (`rotor=Headings`, turned after the touch that places the cursor), `flick=down`
@@ -1066,6 +1080,69 @@ The Mac runner's transcript is plain text and needs no export.
   listed the lines on screen alone there since #301, and this is not changed. A first
   attempt listed the fifty lines before the screen there as well, to mirror the lines after
   it; the move back went wrong in the same way, and they were taken out.
+- With the list keeping its last line while VoiceOver's cursor is after the text
+  ([#367](https://github.com/vocaro/EPUBLib/issues/367)), the same day at `916e4cd`,
+  through XCTest's VoiceOver service, VoiceOver switched on for each session and off after
+  it; nobody listened. On the physical iPad Air 13-inch (M3), iPadOS 27.2, at 23 points in
+  the book of ordinary paragraphs, each session ended with `touch=VoiceOver Paragraph` and
+  moves back:
+  - Upright after two scroll steps, 44 moves: "Vertical scroll bar", `p015w15 … p015w21`,
+    the last line in the reader's view, and 42 lines above it once each and in order to
+    `p008w20`, past `p010w15`, the first that had been on screen; then six forward in order.
+  - Upright after fifteen scroll steps, 46 moves: the scroll bar, `p078w36 … p078w40` and 44
+    lines above it in order to `p071w22`, past `p074w01`.
+  - Upright at the end of the book
+    (`activate=Contents,activate=Chapter three,wait=2,activate=Scroll Forward`, the button
+    dimmed), 46 moves: the scroll bar, `p086w36 … p086w40`, the book's last line, and the
+    lines above it in order through "Chapter three Heading" to `p079w29`, past `p082w08`.
+  - On its side after two scroll steps, 40 moves: the scroll bar, `p010w22 … p010w28` and 38
+    lines above it in order to `p004w07`, past `p007w08`.
+  - On its side at the end of the book, 40 moves: the scroll bar, `p086w36 … p086w40` and
+    the lines above it in order through the heading to `p080w28`, past `p083w36`.
+
+  The upright session at the end of the book was run thirteen times. Twelve read every line
+  in order, 11 to 44 of them. In the first of the thirteen, four lines up, after
+  `p086w15 … p086w21`, the next move gave "Open EPUB… Button", the first item on the screen,
+  and VoiceOver's cursor stayed there. Seven of the twelve were then run with the logging
+  build to catch it, and none did: the cause is not known. The log could be fetched from
+  four of the seven, and in those the lists were thrown away at launch and never after.
+  It has the change at work: a list of 29 lines ending at `p086w36` as the cursor came to
+  the footer; the view 88 points back at the move to the bar, and a list of 31 from the
+  new first line on screen to the same element for `p086w36`, so that the line before it
+  was `p086w29`; then UIKit bringing `p086w36` back into view before the cursor came to
+  it. VoiceOver asked for two items as its cursor landed and one at each move, and twice
+  for ten after the menu; it did not ask for fifty.
+- The same change in simulators of the session's own (iOS 27.0), the iPhone 17 Pro at 17
+  points. The issue's steps,
+  `activate=Scroll Forward,activate=Scroll Forward,wait=2,visible,touch=VoiceOver Paragraph,backward=30,visible,forward=8`:
+  before the change "Vertical scroll bar" and then "Bookmark"; with it the scroll bar,
+  `p006w01 … p006w04`, 28 lines above it in order to `p003w05` and eight forward. The log:
+  the view at 775 and a list of 18 ending at `p006w01`; at 687 a list of 20, from
+  `p004w01` to `p006w01`; then UIKit taking the view to 962 for `p006w01`, where the screen
+  held the line VoiceOver asked from next. With the footer touched a second time after one
+  move to the bar (`…,backward=1,wait=1,touch=VoiceOver Paragraph,backward=7`) the view
+  went back 88 points at each move to the bar, to 599, with `p006w01` still the last of 24
+  listed, and the lines were read in order from it. At the end of the book: before the
+  change the scroll bar, `p086w40` and Bookmark; with it the scroll bar, `p086w40` and
+  eleven lines above it in order. After a menu
+  (`activate=Contents,activate=Chapter two,wait=2,touch=VoiceOver Paragraph,backward=26`):
+  the scroll bar and 24 lines in order through "Chapter two Heading" into the chapter
+  before. The two-step session and the menu session of #339 read on and back in order as
+  before. On the iPad Air 13-inch (M4) simulator at 23 points, 44 moves back gave the
+  scroll bar and 40 lines in order, with three moves that took over two seconds and gave
+  the phrase before them again, at a load average of 860; no line was missing.
+- The scroll bar itself, in the simulator's log, and not changed by #367. UIKit asks the
+  scroll view for the bar's place with `index(ofAccessibilityElement:)` and gets
+  `NSNotFound`, from UIKit's own implementation as from the reader's. Asked for the item
+  before the bar it then gave Bookmark, and for the item after it the first line listed.
+  So forward past the book's last line
+  (`activate=Contents,activate=Chapter three,wait=2` and three scroll steps,
+  `point=0.5:0.6,forward=14,backward=8`): `p086w40`, "Vertical scroll bar", then
+  `p085w01`, the first line on screen, and on down the screen a second time; and back from
+  there the scroll bar and then Bookmark, not `p086w40`
+  ([#342](https://github.com/vocaro/EPUBLib/issues/342)). The bar's accessibility frame was
+  the height of the scroll view, which is why UIKit moves the view for it: the top inset
+  cuts it.
 - The two lines that used to be listed each side were one short when VoiceOver moved back up
   the screen, menu or no menu. With its cursor on a line it asks for the item before the
   line two above, so three lines above the cursor must be listed, and two were unless more
@@ -1410,6 +1487,80 @@ The Mac runner's transcript is plain text and needs no export.
   Not established: a physical iPhone after the change; a table row's actions under
   VoiceOver, which a unit test holds; and anything on a Mac, where the text areas and the
   surface's two actions are unchanged.
+- On 2026-10-12 the section of scenes was read on a Mac before and after a rule was given an
+  element that says a separator is there, and with each other element that was tried.
+  GitHub's hosted `xcode-27` runner (image `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode
+  27.0), a window 600 points wide at 17 points, at the fixed pause. Nobody listened and no
+  workstation was used. Before and after were recorded on the same `main` (`5b096d8`).
+  Before, at `5b096d8`, runs 38333729257 (pages) and 38333734464 (continuous scroll): as in
+  the record above, a phrase with nothing in it on each rule's line, a step with no phrase
+  by word, and on the page of a rule alone "In text" and then "end of text". `readall` from
+  the page's first word, which that record did not have: "Scenes set apart", "First scene
+  ends.", a phrase with nothing in it, "Second scene starts.", the same, "Words after an
+  ornament.".
+  After, at `e3f5240`, runs 38342098837 (pages) and 38342104207 (continuous scroll). Pages
+  by line: "Scenes set apart", "First scene ends.", "Separator", "Second scene starts.",
+  "Separator", "Words after an ornament.". By word: "Scenes", "set", "apart", "First",
+  "scene", "ends.", "Separator", "Second", "scene", "starts.", "Separator", "Words",
+  "after", "an", "ornament.", a step with no phrase, "end of text". `readall` from
+  "Scenes": the six phrases heard by line, in order. On the page of a rule alone: "In text
+  Separator" on entering, "Separator" for the line and for the word, no phrase for a move
+  right, and "end of text" for the next line. Continuous scroll, back by line from
+  "scenes.": "Last words of the scenes.", "Separator", "Words after an ornament.",
+  "Separator", "Second scene starts.", "Separator", "First scene ends.", "Scenes set
+  apart". `readall` from there: a phrase with nothing in it where "First scene ends." is
+  read, which the session before the change has too, then "Separator", "Second scene
+  starts.", "Separator", "Words after an ornament.", "Separator", "Last words of the
+  scenes.". Back by word from "scenes.": a step with no phrase, as before the change, then
+  "the", "of", "words", "Last", "Separator", "ornament.", "an", "after", "Words",
+  "Separator", "starts.", "scene", "Second". The pages' `LINE` and `STATE` lines are the
+  same before and after: a rule's line is two characters of the text area's value, the rule
+  and the break after it.
+  With `main` at `a49d12e` merged in, which marks headings in the same rich text, at
+  `e4b1e22`, run 38342923798, pages: the same six phrases by line and with `readall`, and
+  on the page of a rule alone "In text Separator", "Separator" for the line and for the
+  word, no phrase for a move right and "end of text". Those two revisions also gave a rule
+  in a table cell the element, which the change as it is does not; the scenes hold no
+  table. The change as it is, at `6e9b055`, run 38346365216, pages: the same phrases by
+  line, by word, with `readall` and on the page of a rule alone as at `e3f5240`. With
+  `main` at `449182f` merged in as well, which gives the links of the same rich text
+  elements of the reader's own, at `14b2696`, run 38349644406, three sessions in one run:
+  "Separator" at every rule in pages by line, with `readall` and by word, on the page of a
+  rule alone, and in continuous scroll back by line, with `readall` and back by word. And
+  with `main` at `8d78dc1`, whose fixture has a second table in the section before the
+  pictures, at `86a5121`, run 38353724021: the scenes' first page is still 22 `ax:next`
+  steps in; opened at the section with `-SampleHref OPS/scenes.xhtml`, the same phrases by
+  line, with `readall` and by word, and the page of a rule alone one `ax:next` step on; in
+  continuous scroll thirty `ax:next` steps and `lastword` gave "scenes.", and the lines
+  back from there and `readall` were as before.
+  The other elements, each a commit that differs in nothing but what a rule's character
+  carries, heard in pages by line, by word, with `readall` and on the page of a rule alone.
+  AppKit's splitter role and nothing else, `3073331`, run 38333879354: "horizontal splitter
+  collapsed on top" at each rule, with two spaces after "splitter", and "horizontal
+  splitter" for `word` on the page of a rule alone; continuous scroll said the same (run
+  38333881836). The splitter role with the subrole `AXContentSeparator`, `d664ccf`, run
+  38333889187: the same. Those two with the role description "separator", a horizontal
+  orientation and not enabled, which is all that WebKit gives an `hr`, `efb3747`, run
+  38333903411: "horizontal separator no action available collapsed on top". Static text
+  with the value "Separator", `1dd8ea3`, run 38333917655: "Separator", as after. AppKit's
+  unknown role with the role description "separator", `563bc29`, run 38339554059:
+  "separator" in the same places. Not heard: WebKit's attributes on an element left
+  enabled, and any of these but the first in continuous scroll. Their runs were stopped
+  while they waited for a runner, once the pages had shown what each says.
+  A table cell. At `5b096d8`, run 38333986334, on the page that opens with a table: a move
+  by word onto a row said "Table row group", `in` on the second row "In Table row group 2
+  items text Third cell" and a move right "text Fourth cell". A row is a group, and each
+  cell a text area in it. For two sessions the scenes were given a table at their end, one cell holding
+  "Cell scene ends.", a rule and "Cell scene starts."; the fixture in the repository has
+  none. At `3f77069`, run 38340763586, with the cell as it is: `in` on the row said "In
+  Table row group 2 items text Cell scene ends.", `in` again "In text Cell scene ends.",
+  then by line "Cell scene ends.", a phrase with nothing in it, "Cell scene starts.", by
+  word a step with no phrase after "ends.", and `readall` the same three phrases as by
+  line. At `e1d32b7`, run 38342113877, with the cell's rule given the element a rule has
+  outside a table: the same, phrase for phrase.
+  Not heard: a physical Mac, or anyone listening; a rule in a note's popover; VoiceOver in
+  a language other than English or with its verbosity changed; and what Safari or Books
+  says at an `<hr>` on a Mac, which was not compared.
 - On 2026-10-12 and 13 links were heard on a Mac: GitHub's hosted `xcode-27` runner (image
   `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), in a window 600 points wide at 17
   points, with VoiceOver's link setting at Speak, as the runner has it. Nobody listened, and

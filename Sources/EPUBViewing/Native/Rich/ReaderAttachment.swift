@@ -132,6 +132,21 @@ final class ReaderRuleAttachment: ReaderAttachment {
     /// keeps an empty text equivalent, and selections, copies and search read nothing for it.
     static let spokenName = "Separator"
 
+    #if os(macOS)
+    /// Makes `element` what a rule is to an assistive technology on Mac: the reader's word, as
+    /// text. AppKit has no role for a break in content. The one WebKit gives an `hr`, the
+    /// splitter, is the bar of a split view to VoiceOver, which says "horizontal splitter
+    /// collapsed on top" at it, and "horizontal separator" before the same state when the
+    /// element has WebKit's role description.
+    static func makeSeparator(_ element: NSAccessibilityElement) {
+        element.setAccessibilityRole(.staticText)
+        element.setAccessibilityValue(spokenName)
+        element.setAccessibilityLabel(nil)
+        element.setAccessibilityHelp(nil)
+        element.setAccessibilityChildren(nil)
+    }
+    #endif
+
     init(style: ComputedStyle, isDark: Bool) {
         width = style.width
         let border = style.border.top
