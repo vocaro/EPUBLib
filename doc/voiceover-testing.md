@@ -149,8 +149,17 @@ new phrase is recorded:
   cursor and name it.
 - `describe`: Control-Option-F3 once, what is in the VoiceOver cursor. `attributes`:
   Control-Option-T, the text attributes there.
-- `actions`: Control-Option-Command-Space, the menu of the item's actions. The `list` keys
-  of `rotor` move in it and close it.
+- `actions`: Control-Option-Command-Space, VoiceOver's Actions menu, which holds the actions
+  of the item under its cursor. VoiceOver says "Actions menu" and how many items it has.
+  `listdown` and `listup` say each one, `listchoose` performs the one last said, and
+  `listclose` closes the menu, at which VoiceOver says "Closing Actions menu".
+  `"listchoose=show menu"` sends Return only if one of VoiceOver's last two phrases contains
+  the label, as `activate=LABEL` does. On a group the menu held the actions of what the
+  group holds, one after another, and on the sample's group with its controls embedded
+  VoiceOver said nothing and opened no menu: the list keys after it went to the reader, where
+  Down Arrow moves the insertion point. The runner closes a menu a session can have left
+  open as it does a rotor, with `STEP listclose, sent by the runner in case the Actions menu
+  is still open`.
 - `pagedown`, `pageup`: the reader's own page keys, without VoiceOver modifiers.
 - `ax:STEP`: a step of the observer described below, through the accessibility API.
 
@@ -204,7 +213,9 @@ selection and the numbered-word span of its value:
 
 - `next`, `previous`: press the page buttons, found by label or help rather than index.
 - `press=LABEL`: press any other button by its label, as in `"ax:press=Use Toolbar"`, which
-  moves the sample's controls from the reader's group to the window's toolbar.
+  moves the sample's controls from the reader's group to the window's toolbar, or a segment
+  of Reading Mode: `"ax:press=Continuous Scroll"` and `ax:press=Paging` change the flow
+  while the reader is open.
 - `larger`, `smaller`: choose the Appearance menu's text-size items.
 - `width=POINTS`: resize the window.
 - `focus`, `focus=COLUMN`, `focus=search`: give the last column, a numbered column or the
@@ -215,6 +226,15 @@ selection and the numbered-word span of its value:
   `LINK` line is a run of the text's accessibility string with the element given as its
   link, the element given as its attachment, or both: each one's role, what it is called,
   and its actions.
+- `actions`: print each column, everything that holds it up to the window, and any other
+  element with a named action, as an `ELEMENT` line: its number in the order an assistive
+  client meets it, its depth under the window, its role, what it is called and its actions,
+  one an application names itself in quotation marks. VoiceOver's Actions menu holds the
+  actions of the item under its cursor, so the lines show where the cursor would have to be
+  for a named action to be offered. `actions=all` prints every element of the window.
+- `action=NAME`: perform a named action on the first of those elements that has it, without
+  VoiceOver, as in `"ax:action=Next Page"`. It prints `MISSING` when no element has one of
+  that name.
 - `caret=WORDS`: put the insertion point before the first of these words, as in
   `"ax:caret=Bare jump"`. VoiceOver enters a text at its insertion point, so `in` then starts
   on that line and `right` reads the word.
@@ -1632,6 +1652,57 @@ The Mac runner's transcript is plain text and needs no export.
   and Change Pitch leave nothing in a transcript; a link in a table cell or a note's
   popover; a link that wraps onto a second line or crosses a page's end, which the unit
   tests read; and a link below the screen in continuous scroll.
+- On 2026-10-13 the reader's named actions were looked for on a Mac. `NativeSurface` names Next
+  Page and Previous Page with SwiftUI's `accessibilityAction(named:)` in both flows, and in
+  continuous scroll, which has no pages, the sample's buttons for the same commands are Scroll
+  Forward and Scroll Backward. VoiceOver was offered neither action anywhere, in pages or in
+  continuous scroll, so nothing is heard under a wrong name and the reader was left as it is.
+  [Hosted sessions](#hosted-mac-sessions) on `xcode-27` (image 20261006.0244.1, macOS 27.0.1
+  `26A434`, Xcode 27.0), main's reader at `531a534`, at a fixed pause of four seconds, with
+  VoiceOver brought to the column by `ax:focus=search ax:focus=0`: runs 38351606579, 38353526126
+  and 38354465519, seventeen sessions. Nobody listened.
+  What an assistive client is given, from `ax:actions`. In pages: the window, under it `AXGroup
+  AXHostingView` with `ACTIONS none`, and under that one `AXTextArea` for each column with
+  `ACTIONS AXShowMenu`. In continuous scroll an `AXScrollArea` with AppKit's
+  `AXScrollLeftByPage`, `AXScrollRightByPage`, `AXScrollUpByPage` and `AXScrollDownByPage`
+  stands between the group and the one text area. It was the same in one column and in two, at
+  17 points and at 23, on a later page, two scroll steps into the book of paragraphs, and after
+  `"ax:press=Continuous Scroll"` and `ax:press=Paging` with the reader open. `ax:actions=all`
+  found a named action on no element of the window while the sample's controls were embedded,
+  and with them in the toolbar only the toolbar's own "Move previous", "Move next" and "Remove
+  from toolbar". `"ax:action=Next Page"` printed `MISSING action=Next Page` in both flows, where
+  `"ax:action=Move next"` printed `ACTION Move next ON AXButton LABEL "Search" STATUS 0` and the
+  toolbar's order changed.
+  What VoiceOver said. On the column (Control-Option-F3: "text is in the VoiceOver cursor Line
+  1") `actions` gave "Actions menu 1 item" and `listdown` "show menu"; three more `listdown`
+  gave nothing, and `listclose` "Closing Actions menu". Inside the text, after `in` ("In text
+  Page boundary verifica"), the same two phrases; on the right column of two and on its first
+  line on the second spread ("word0324 word0325 word0326 word0327 word0328") the same; in
+  continuous scroll on the text area, inside it, and on the line "p006w29 p006w30 p006w31
+  p006w32 p006w33 p006w34 p006w35" of the book of paragraphs the same. `"listchoose=show menu"`
+  opened the text's contextual menu: "show menu text Page boundary verification", "menu (11
+  items)", and under two `listdown` "Look Up “wor”" and "Translate “wor”".
+  On the group that holds the columns, which `out` reaches in pages ("Out of group", and
+  Control-Option-F3 "Open EPUB… button Open Sample button Close button Use Toolbar bu"),
+  `actions` was followed by no phrase, three times in two sessions, and no menu opened: in the
+  first session the `listdown` keys after it moved the column's insertion point, and VoiceOver
+  read from there ("tion", "Read the numbered words across two consecutive"). With the sample's
+  controls in the toolbar the same group said "Actions menu 10 items": "cancel" and "press" four
+  times, "show menu" and "cancel", which are the actions of the six elements the group then
+  holds, in their order: four buttons, the column and a static text. In continuous scroll `out`
+  left the cursor on the text area ("You are currently on a text area."), sent once and sent
+  twice.
+  Not established. Why the actions reach no element: `ReaderCanvasView`, the view the surface
+  wraps, is not an accessibility element on Mac, and where SwiftUI puts a named action of such a
+  view was not found. A unit-test host does not show it, so no test holds any of this: there the
+  hosting view reports no accessibility children, not even the columns, in either flow, and
+  neither it, the view SwiftUI hosts the canvas in nor the canvas has a custom action. What
+  VoiceOver's own scroll commands do with the scroll area's four actions, and whether it has
+  anything to scroll in pages, where no element has a scroll action. Why the group's menu does
+  not open with the controls embedded. Whether VoiceOver ignores its Command-F5 under an open
+  Actions menu as under a rotor: the runner closes one first, and in the one session left under
+  a menu it wrote `STEP listclose, sent by the runner in case the Actions menu is still open`,
+  VoiceOver said "Closing Actions menu" and switched off.
 - On 2026-10-12 the section with a hidden heading over a table, with its second table, was
   read at 17 points before and after a table's rows became single items: at `2053be8` and at
   `1e3e5c3`, in the [simulator lane](#simulators) (Xcode 27.0, iOS 27.0, an iPhone 17 Pro and
