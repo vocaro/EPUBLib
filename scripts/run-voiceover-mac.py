@@ -24,9 +24,15 @@ COMMANDS = {
     "line": (37, False), "nextline": (125, False), "previousline": (126, False),
     "word": (13, False), "firstword": (115, False), "lastword": (119, False),
     "textstart": (115, True), "textend": (119, True), "readall": (0, False), "activate": (49, False),
-    "linecount": (99, False)}
+    "linecount": (99, False), "rotor": (32, False)}
 TWICE = {"linecount"}  # Control-Option-F3 twice reads the total and visible line counts.
+# VoiceOver's move to the next heading, Control-Option-Command-H, as (key code, with Shift).
+# With Shift it asked the reader's rotor for the next heading too, on macOS 27.0.1.
+HEADING_COMMANDS = {"nextheading": (4, False)}
 READER_KEYS = {"pagedown": 121, "pageup": 116}  # The reader's own keys, without modifiers.
+# Plain keys for the lists `rotor` opens: across the lists, along one, choose, close. With no
+# list open the reader takes them as its own.
+LIST_KEYS = {"listleft": 123, "listright": 124, "listdown": 125, "listup": 126, "listchoose": 36, "listclose": 53}
 PHRASE = re.compile(r"^VOICEOVER_EVENT (\S+) heard: ?(.*)$", re.M)
 BANNER = "Automation Running"  # XCTest's banner, a window of its own that can take the VoiceOver cursor.
 
@@ -34,7 +40,8 @@ BANNER = "Automation Running"  # XCTest's banner, a window of its own that can t
 def unknown(steps):
     """The steps that are no VoiceOver command, reader key or observer step."""
     return [step for step in steps
-            if step.split("=")[0] not in COMMANDS and step not in READER_KEYS and not step.startswith("ax:")]
+            if step.split("=")[0] not in COMMANDS and step not in HEADING_COMMANDS and step not in READER_KEYS
+            and step not in LIST_KEYS and not step.startswith("ax:")]
 
 
 def enabled():
@@ -121,7 +128,8 @@ def main():
                              "--pause only when none is recorded; later phrases of that key are cut short")
     parser.add_argument("--xctest-values", action="store_true", help="also record XCTest's snapshot of each column")
     parser.add_argument("steps", nargs="*", metavar="STEP",
-                        help=f"ax:STEP or one of {', '.join(list(COMMANDS) + list(READER_KEYS))}")
+                        help="ax:STEP or one of "
+                             + ", ".join(list(COMMANDS) + list(HEADING_COMMANDS) + list(READER_KEYS) + list(LIST_KEYS)))
     args = parser.parse_args()
     if not 1 <= args.timeout <= 300:
         parser.error("--timeout must be between 1 and 300 seconds")
@@ -203,8 +211,11 @@ def main():
                         if label and not any(label in text for _, text in phrases(log_path)[-2:]):
                             raise RuntimeError(f"VoiceOver did not name {label} before {step}; session stopped")
                         sent = now()
-                        if name in READER_KEYS:
-                            keystroke(READER_KEYS[name], "")
+                        if name in READER_KEYS or name in LIST_KEYS:
+                            keystroke({**READER_KEYS, **LIST_KEYS}[name], "")
+                        elif name in HEADING_COMMANDS:
+                            code, shift = HEADING_COMMANDS[name]
+                            keystroke(code, "control down, option down, command down" + (", shift down" if shift else ""))
                         else:
                             code, shift = COMMANDS[name]
                             keystroke(code, "control down, option down" + (", shift down" if shift else ""),
