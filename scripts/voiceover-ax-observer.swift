@@ -205,8 +205,8 @@ func said(_ element: AXUIElement) -> String {
 func elementList(_ element: AXUIElement, _ name: String) -> [AXUIElement] { attribute(element, name) as? [AXUIElement] ?? [] }
 /// Each table a column's text gives at a row's character, as a client of the accessibility
 /// API is given it: what it is called, its counts, the row it says is selected and its header
-/// cells. The first table of a column is given whole: its attributes, its rows, and each cell
-/// with the rows and columns it covers, what it holds and the cells that head it.
+/// for each column and row. The first table of a column is given whole: its attributes, its
+/// rows, and each cell with the rows and columns it covers, what it holds and its actions.
 func tables() {
     for (index, text) in columns().enumerated() {
         var seen: [AXUIElement] = []
@@ -241,11 +241,9 @@ func tables() {
                 log("TABLEROW \(number).\(String(format: "%02d", line)) \(string(row, kAXRoleAttribute)) \(string(row, kAXSubroleAttribute)) INDEX \(attribute(row, kAXIndexAttribute) as? Int ?? -1) CELLS \(cells.count)")
                 for (place, cell) in cells.enumerated() {
                     func span(_ name: String) -> String { range(attribute(cell, name)).map { "\($0.location),\($0.length)" } ?? "none" }
-                    func heads(_ name: String) -> String { elementList(cell, name).map { "\"\(said($0))\"" }.joined(separator: ",") }
                     let held = elementList(cell, kAXChildrenAttribute).map { string($0, kAXRoleAttribute) }.joined(separator: ",")
                     log("TABLECELL \(number).\(String(format: "%02d", line)).\(place) \(string(cell, kAXRoleAttribute)) ROWS \(span("AXRowIndexRange")) COLUMNS \(span("AXColumnIndexRange"))"
-                        + " SAID \"\(said(cell).prefix(40))\" HOLDS \(held.isEmpty ? "nothing" : held) COLUMNHEADERS \(heads(kAXColumnHeaderUIElementsAttribute))"
-                        + " ROWHEADERS \(heads("AXRowHeaderUIElements")) ACTIONS \(actions(cell))")
+                        + " SAID \"\(said(cell).prefix(40))\" HOLDS \(held.isEmpty ? "nothing" : held) ACTIONS \(actions(cell))")
                 }
             }
         }

@@ -511,11 +511,19 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
 - `in` goes into the table at that row and says the first cell with its headers: "In Birch,
   1934 table Station Birch". `right` and `left` move along the row and on into the next,
   `nextline` and `previousline` (Control-Option-Down and Up) along the column. VoiceOver
-  says a header cell when it has changed since the cell before, then the cell: "Opened
-  1934", "Cedar Forty metres". An empty cell is "empty cell". Where it cannot go on, at the
-  table's last row or moving down inside a cell that spans, it says the cell and "column 2,
-  row 41". In the table's first row, on a header cell, `columnheader` read the table's name
-  and `rowheader` said "row 1 of 4".
+  says a header when it has changed since the cell before, then the cell: "Opened 1934",
+  "Cedar Forty metres". An empty cell is "empty cell". Where it cannot go on, at the table's
+  last row, at a page's first or last, or moving down inside a cell that spans, it says the
+  cell and "column 2, row 41".
+- `columnheader` and `rowheader` say the header of the cell's column and of its row,
+  "Depth", "Birch". Where nothing heads them VoiceOver says the number: on the first table's
+  header row "Depth column 3, row 1" for a move and "row 1 of 4" for `rowheader`, and on a
+  row's own header cell "row 3 of 4". A column under two header cells is headed by both,
+  "Hours, Leaves Nine", and so is the lower of the two itself, "Hours, Leaves Leaves".
+- A session in which VoiceOver starts again in the middle ("ERROR 3" and then "VoiceOver on
+  VoiceOverVerificationMac…") is one in which it quit. It did so when a cell named header
+  cells of its own, most often within eight headers at two seconds a key. A session of
+  moves across rows with `columnheader` after each (`pause=2`) is the test for it.
 - `in` on a cell goes into its text, "In text 1934", where `right` moves by word; `out`
   comes back to the cell, and `out` again to the row's line in the text.
 - `actions` on a cell says "Actions menu" and its count, and `listdown` each of Select Cell
@@ -529,10 +537,11 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
 `ax:tables` prints what the text gives at each row's character before anything is said. For
 each table a `TABLE` line has its place in the text, its label, how many rows it holds and
 shows, the row it says is selected, its count of rows and columns in the whole table, and
-its column and row header cells by their words. The first table of a column is given whole:
-its attributes by name, a `TABLEROW` line for each of its first twelve rows, and for each
-cell a `TABLECELL` line with the rows and columns it covers, what it says, what it holds
-(`AXTextArea` on screen, nothing off it), its own header cells and its actions.
+the header it gives for each column and each row by its words, with nothing between the
+quotation marks where a row or a column has none. The first table of a column is given
+whole: its attributes by name, a `TABLEROW` line for each of its first twelve rows, and for
+each cell a `TABLECELL` line with the rows and columns it covers, what it says, what it
+holds (`AXTextArea` on screen, nothing off it) and its actions.
 
 Open the reader at a section of tables (`"launch=-SampleHref OPS/grids.xhtml"`,
 `OPS/ledger.xhtml`, `OPS/tallrow.xhtml`). At 600 points and 17, the first page of the tables
@@ -1033,6 +1042,23 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    VoiceOver says "Table start" at the first cell a page lists and "Table end" at the last,
    so a page in the middle of a table says both. On the section with a row taller than a
    page, each page's cell reads the words that page shows.
+   On a Mac the same sections are read at each row and inside its table
+   ([Tables on Mac](#tables-on-mac)), in a window 600 points wide at 17 points. By line
+   and by word VoiceOver says each row of a table of data by its words and "table":
+   "Station, Opened, Depth table", "Alder, 1901, Twelve metres table"; and "Table row
+   group" at each row of the table with `role="presentation"`. `in` on "Birch, 1934 table"
+   says "In Birch, 1934 table Station Birch", `right` "Opened 1934" and "Depth empty cell",
+   `nextline` "Cedar Forty metres", `columnheader` "Depth" and `rowheader` "Cedar". `in` on
+   a cell goes into its words, "In text 1934". On "Reopened 1978" `actions` holds Select
+   Cell Text and Follow Link: Reopened 1978, and choosing the second opens the first
+   section at "Link target reached". In the second table VoiceOver says "Hours, Leaves
+   Nine" and "Service Express", and moving down from "Stopper" it stays, "Stopper column 1,
+   row 4". On the long table's second page `in` on the first row says "In Entry 08, Item
+   08, Sum 08 table Entry Entry 08": the header is named from the page before, and
+   `rowheader` says "row 9 of 41". In continuous scroll, `in` on "Entry 38, Item 38, Sum 38
+   table" says "Entry Entry 38", and twenty-eight `nextline` steps from the header row read
+   "Entry 01" to "Entry 28", each once, the view following.
+   No session has "ERROR 3" in it.
    On a Mac a cell is a text of its own, and VoiceOver reads its
    line wherever its cursor is in it. In a window 600 points wide at 17 points, with the
    reader opened at that section (`"launch=-SampleHref OPS/table.xhtml"`), in pages and in
@@ -2909,6 +2935,85 @@ The Mac runner's transcript is plain text and needs no export.
   physical iPhone; a page turned by a key with the cursor in the text; and Switch Control
   or any other assistive technology that keeps a cursor. VoiceOver was read back as off
   after every device session.
+- On 2026-10-13 the three sections of tables were read on a Mac before and after a table of
+  data was given to VoiceOver as a table: GitHub's hosted `xcode-27` runner (image
+  `20261006.0244.1`, macOS 27.0.1 `26A434`, Xcode 27.0), a window 600 points wide at 17
+  points, a fixed pause of four seconds, the same steps both times. Before at `593b907`,
+  which is `main`: runs 38383252896 (pages) and 38388226307 (continuous scroll). After at
+  `66b2f8b`: runs 38391040735 and 38391133441. Nobody listened.
+  The tables of data, pages. Before, by line and by word, each row said "Table row group"
+  and none of its words; `in` on the second row "In Table row group 3 items text Alder",
+  then "text 1901", "text Twelve metres"; Control-Option-Down stayed on "text Twelve
+  metres", Control-Option-C read the character "T" and Control-Option-R said nothing. The
+  Actions menu inside a cell was the text area's "show menu", which opened a menu of
+  thirteen items. After: "Station, Opened, Depth table", "Alder, 1901, Twelve metres
+  table", "Birch, 1934 table", "Cedar, Reopened 1978, Forty metres table", and the same
+  back up. `in` on Alder's: "In Alder, 1901, Twelve metres table Station Alder", "Opened
+  1901", "Depth Twelve metres", down "Birch empty cell", Control-Option-C "Depth",
+  Control-Option-R "Birch". By word "Stations", "on", "the", "branch" and then each row as
+  by line; `in` on Birch's, `right` "Opened 1934", `in` "In text 1934", `right` "1934",
+  `out` "Out of text"; `actions` "Actions menu 1 item", "Select Cell Text", and chosen,
+  "Select Cell Text 1934 cell". On Cedar's row, at "Opened Reopened 1978", "Actions menu 2
+  items", "Select Cell Text", "Follow Link: Reopened 1978", and chosen, the page changed to
+  the one with "Link target reached" (`word1187` first). Before, the same keys chose "show
+  menu" there.
+  The second page, with the table whose cells span, the table marked as layout and the
+  first row of the ruled one. After: "Service, Hours table", "Leaves, Arrives table"; `in`
+  there "In Leaves, Arrives table Hours, Leaves Leaves", `right` "Hours, Arrives Arrives",
+  `right` "Service Express", down "Stopper", down again "Stopper column 1, row 4"; `out`,
+  and by line "Express, Nine, Noon table", "Stopper, Ten, Three table", "Nothing on Sunday
+  table", "Words before the layout.", "Table row group", "Words after the layout.". Before:
+  "Table row group" at each row, `in` on the second "In Table row group 2 items text
+  Leaves", `right` "text Arrives", and Control-Option-Down stayed there.
+  The long table, pages. After: "Entry, Item, Sum table", "Entry 01, Item 01, Sum 01
+  table", `in` "In Entry 01, Item 01, Sum 01 table Entry Entry 01", "Item Item 01", `out`.
+  Then a page turn by the host's button, with VoiceOver's cursor on the table it had left:
+  after, "text Entry 08, Item 08, Sum 08 table", VoiceOver on the text area and not in it,
+  so the steps that followed read the first row from outside; before, "VoiceOver
+  Verification window Open EPUB… button", VoiceOver out of the text altogether. The tall
+  row: its first page says "Clause, Wording table" and the second, after, the page's words
+  and then `in` "In t0001 t0002 …", `in` again "In text t0001 …", `right` "t0001"; before,
+  "Table row group" and "In Table row group text t0001 …".
+  Continuous scroll. Before, by line, "Table row group" at the rows on screen and a row's
+  words and "image" at one off it ("Entry 39 Item 39 Sum 39 image", "Short clause Short
+  wording image"); `in` gave a row's text areas, and Control-Option-Down did not move.
+  After, by line through the section of tables of data, each row by its words and "table"
+  down to "Nothing on Sunday table", "Words before the layout." and "Table row group";
+  `in` on Birch's "In Birch, 1934 table Station Birch", "Opened 1934", "Depth empty cell",
+  down "Cedar Forty metres", "Depth", "Cedar". In the long table, from "Words after the
+  ledger." three lines up to "Entry 38, Item 38, Sum 38 table"; `in` "Entry Entry 38",
+  "Item Item 38", up "Item 37", down "Item 38", "Item 39", "Item 40", and at the end "Item
+  40 column 2, row 41", the header row thirty-eight rows above the screen throughout. From the header row, twenty-eight moves
+  down read "Entry 01" to "Entry 28", each once, with the view following
+  (`AXValueChanged` from the reader as it went), and `out` brought the view back to the
+  header row's line. The tall row is one line there, "Tall clause, t0001 t0002 …", and its
+  cell "Wording t0001 …".
+  How the shape was found, on the same runner. What stands at a row's character was tried
+  as the row itself, as one table for every row, as a table at the first row alone, and as
+  a table for each row (runs 38363647251, 38368626343, 38370804197, 38372891705);
+  [the native viewer](native-viewer.md) ("Data tables", "On Mac") has what VoiceOver did
+  with each. Through `ax:tables` a client of the accessibility API was given, for the table
+  at each row, `AXRows`, `AXVisibleRows`, `AXSelectedRows`, `AXColumns`, `AXVisibleCells`,
+  `AXColumnHeaderUIElements`, `AXRowHeaderUIElements`, `AXRowCount` and `AXColumnCount`, and
+  for each cell its `AXRowIndexRange` and `AXColumnIndexRange`.
+  VoiceOver quit six times while a cell named its own header cells: once at four seconds a
+  key in continuous scroll (run 38368626343, before reports were collected), once at four
+  seconds in pages (run 38379235409), in each of three sessions at two seconds (run
+  38381039862), and in one of five at two seconds once those header cells were elements of
+  their own (run 38383168370). The five reports macOS wrote have one backtrace, an
+  exception from `__CFStringCheckAndReplace` in `-[SCRCell columnHeaderDescription]` under
+  `-[SCRTable _columnHeaderDescriptionForCellElement:headerIndex:]`. With the headers given
+  by the table for each column and row it did not quit: seventeen sessions at two or three
+  seconds a key (runs 38386166417, 38388118801, 38389952858 and, on the code as it is,
+  38392704337), each of about twenty moves among cells with Control-Option-C or
+  Control-Option-R after each, and the ten sessions above. In those, a header that was a
+  cell with a title or a label and nothing in it was not said ("column 2 of 3 Nine"), and
+  one that was a static text, a button with a title or a cell holding a static text was
+  ("Hours, Leaves Nine"). The reader keeps the static text.
+  Not heard: anyone listening, or any Mac but the runner; a spread of two columns; a table
+  in a note's popover; Inspect Image chosen from a cell; a cell's `headers` attribute;
+  VoiceOver in another language or with its verbosity changed; and what Safari or Books
+  says of the same tables on a Mac, which was not compared.
 
 The harness uses Apple's [native VoiceOver service](https://developer.apple.com/documentation/xcuiautomation/xcuivoiceoverservice).
 The observer checks the [value-change notification contract](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/valuechanged).

@@ -476,6 +476,7 @@ import XCTest
         XCTAssertTrue(first.accessibilityParent() as AnyObject === view, "still the column's")
         XCTAssertNil(first.accessibilityLabel())
         XCTAssertEqual(first.accessibilitySelectedRows()?.count, 0)
+        XCTAssertEqual(first.accessibilityColumnHeaderUIElements()?.count, 0)
         XCTAssertNil(first.accessibilityCell(forColumn: 0, row: 0))
         XCTAssertEqual(kept.accessibilityChildren()?.count, 0)
         XCTAssertEqual(kept.accessibilityFrame(), .zero)

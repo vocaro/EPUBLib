@@ -227,8 +227,11 @@ scroll view give an assistive technology at each row of a table that holds data,
 built by the real pipeline, in pages and in continuous scroll: an `NSAccessibility` table of
 its own at each row's character, called by that row's words and with that row selected; its
 rows, each with its number in the whole table, its columns, and its cells with the rows and
-columns each covers, the text areas each holds on screen, its place, and the header cells
-above and before it; a cell that spans answering for every slot it covers; the actions a cell
+columns each covers, the text areas each holds on screen and its place; a header for each
+column and each row from the table and none from a cell, which is the header's own cell on
+screen and otherwise a static text with the header cells' words, for a column under two
+header cells, a header on another page and one scrolled far off the screen; a cell that
+spans answering for every slot it covers; the actions a cell
 offers, and that selecting a cell's words and following its link do so; a table that is not
 data left a group for each row; a table split across pages, with the page's rows, the whole
 table's count and a header cell named from another page; a row taller than a page, whose

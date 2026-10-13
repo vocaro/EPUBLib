@@ -65,7 +65,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 }
 
 /// A table of data where one of its rows stands in the text: `NSAccessibility`'s table, with
-/// the rows the view shows of it, its columns, its cells and the cells that head them.
+/// the rows the view shows of it, its columns, its cells, and a header for each column and row.
 ///
 /// What VoiceOver does with it was heard, not read (doc/voiceover-testing.md). As it reads the
 /// text it says the label and "table", and after them the whole table's contents unless the
@@ -227,7 +227,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// The header of each column, in column order. None where no column has a header cell.
     private var columnHeaders: [NSAccessibilityElement] {
         let heads = (0..<table.columnCount).map { table.columnHeaders($0) }
-        guard heads.contains(where: { !$0.isEmpty }) else { return [] }
+        guard view != nil, heads.contains(where: { !$0.isEmpty }) else { return [] }
         return heads.enumerated().map { headerElement($1, key: $0) }
     }
 
@@ -235,7 +235,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// its rows by their numbers in the whole table.
     private var rowHeaders: [NSAccessibilityElement] {
         let heads = table.rows.indices.map { table.rowHeaders($0) }
-        guard heads.contains(where: { !$0.isEmpty }) else { return [] }
+        guard view != nil, heads.contains(where: { !$0.isEmpty }) else { return [] }
         return heads.enumerated().map { headerElement($1, key: -1 - $0) }
     }
 

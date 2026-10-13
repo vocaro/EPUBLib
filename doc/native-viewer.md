@@ -490,11 +490,11 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   - **On Mac.** VoiceOver on Mac reads a text area by line and by word, and meets a table
     only as the element the text gives at an attachment's character. A table is an
     attachment for each row, so each row's character gives AppKit's table, `AXTable`: the
-    whole table, with the rows the view shows of it, its columns, and its cells, each with
-    the rows and the columns it covers and the header cells above and before it, as
-    `TableModel` has them. The table at a row is called by that row's words and says that
-    row is selected. A table that is not data is as it was, a group for each row. Each
-    part of this was heard on a hosted runner before it was kept
+    whole table, with the rows the view shows of it, its columns, its cells, each with the
+    rows and the columns it covers, and a header for each column and each row, from HTML's
+    header cells as `TableModel` has them. The table at a row is called by that row's words
+    and says that row is selected. A table that is not data is as it was, a group for each
+    row. Each part of this was heard on a hosted runner before it was kept
     ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-13 on tables of data
     on Mac):
     - **Reading the text.** By line and by word VoiceOver says a row's words and its own
@@ -503,8 +503,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       lines, as it was. In continuous scroll a row off screen is the same element as on
       it, where a row without its cells' text views had been an image called by its words.
     - **Inside.** Control-Option-Shift-Down goes into the table at that row, and VoiceOver's
-      table navigation is then its own: across a row it says the column's header cells and
-      the cell ("Opened 1901", "Depth empty cell"), down a column the row's ("Cedar Forty
+      table navigation is then its own: across a row it says the column's header and the
+      cell ("Opened 1901", "Depth empty cell"), down a column the row's ("Cedar Forty
       metres"); Control-Option-C and Control-Option-R say the column's and the row's
       header, and twice the rest of the column and of the row. A cell that spans is one
       stop that answers for every slot it covers: moving down inside one, and at the
@@ -512,22 +512,50 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       Rows above the one it came in at are there to move up to.
     - **A cell** holds its text areas while it is on screen, so Control-Option-Shift-Down
       on a cell goes into its words, by word and by line, as it did from a row's group.
-      A cell off screen in continuous scroll, and a header cell on another page, is
-      labelled with its words and holds nothing. VoiceOver's Actions menu
-      (Control-Option-Command-Space) on a cell holds what the cell can do itself: Select
-      Cell Text, Follow Link with the link's words for each link, and Inspect Image for
-      each picture. A cell has no press of its own.
+      A cell off screen in continuous scroll is labelled with its words and holds nothing.
+      VoiceOver's Actions menu (Control-Option-Command-Space) on a cell holds what the
+      cell can do itself: Select Cell Text, Follow Link with the link's words for each
+      link, and Inspect Image for each picture. A cell has no press of its own.
+    - **Header cells, and VoiceOver quitting.** AppKit lets a cell name its own header
+      cells, which is how HTML has them and what a web view does. Given that, VoiceOver
+      quit: an exception in its own `-[SCRCell columnHeaderDescription]`, by the reports
+      macOS wrote, at a move to a cell under a header or at Control-Option-C. That method
+      appends the first header's description to a string without looking at it, and the
+      description came back nil now and then, whatever the header was: the cell listed in
+      the header's row, holding a text area, a label as well or a label alone (three
+      sessions of three at two seconds a key, and two of those recorded at four), or an
+      element of its own with a label (one session of seven at two seconds). Its method
+      for a row's header is the same code. So no cell names a header. The table does, as
+      AppKit's own tables do: one header for each column and one for each row of the whole
+      table, and VoiceOver takes the one at a cell's column and at its row. With that it
+      said the same headers and did not quit, in seventeen sessions at two or three
+      seconds a key and ten at four.
+      What heads a column or a row is its one header cell, where that cell is on screen
+      with its text areas: VoiceOver reads a header cell by what it holds, and does not
+      read a cell under itself. Otherwise it is a static text with the words of its header
+      cells, top or first one first: for a column under several header cells ("Hours,
+      Leaves Nine"), a header on another page, and one far off the screen in continuous
+      scroll ("Item Item 38", thirty-eight rows down). VoiceOver said nothing of a header
+      that was a cell with a title or a label and nothing in it. Where nothing heads a
+      column or a row the table gives an element without words, and VoiceOver says the
+      number instead: "column 2 of 3", "row 1 of 4". One header for a column costs this: a
+      header cell under another is read under the column's whole header, its own words
+      among them, "Hours, Leaves Leaves". A cell's `headers` attribute is not followed, as
+      on iPhone and iPad.
     - **Pages.** A page's table holds the rows that page shows, each with its number in
-      the whole table, and its count of rows is the whole table's. A column's header cell
-      on another page is named all the same. The rows of another page are not there to
-      move to: at a page's last row VoiceOver stays, and the page is turned as from a line.
+      the whole table, and its count of rows is the whole table's. The rows of another
+      page are not there to move to: at a page's last row VoiceOver stays, and the page is
+      turned as from a line. A page turned with VoiceOver's cursor on a table it has left,
+      and not back in the text, leaves VoiceOver on the text area and not in it; with a
+      row group it left the text for the window's first button, before and after.
     - **Continuous scroll.** One text area holds the book, and a table holds every row.
       Moving down a column VoiceOver goes on past the screen and the view follows it,
       twenty-eight rows in one session, each once and in order. Leaving the table puts
       VoiceOver back on the line it came in from, and the view goes back there with it.
     - **What it costs.** A table is one table element for each of its rows to an assistive
       client, each of them whole, and what VoiceOver remembers of its place in a table it
-      remembers for the one it was in. VoiceOver says "table" after every row's words.
+      remembers for the one it was in. A table says a row is selected that nobody
+      selected. VoiceOver says "table" after every row's words.
       After Control-Option-Shift-Up, moving by line and going in again enters the table it
       left, not the one on the new line; moving by word first enters the new one. Row
       groups do the same, before and after. A row taller than a page is called by all the
@@ -542,12 +570,14 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       a table at its selected row, or failing that at the first row on screen, so a table
       that selects the row it stands at is entered there, and says only its label and
       "table" as long as it says nothing of selected cells.
+    - **Not done.** A cell offers no page turn: the text area does, one step out of the
+      table. Nothing gives VoiceOver the table's caption as the table's name; it is a
+      line of the text before the rows or after them, as it is drawn.
     - **Not heard.** Anyone listening, or a Mac that is not the hosted runner. What Safari
       or Books says of the same table on a Mac was not recorded, so "as Safari does" is
-      true of the roles and attributes given and not of the speech. In one session of an
-      earlier shape, which had selected cells as well, VoiceOver quit on a move across a
-      row in continuous scroll; it did not in six later sessions there, four of them with
-      the shape kept.
+      true of the roles and attributes given and not of the speech. A table in a spread of
+      two columns, one in a note's popover, a picture's Inspect Image chosen from a cell,
+      and VoiceOver in a language other than English.
   - **Not done.** A table inside a cell is read as its cell's words, as before. Headings
     inside a table are not found by the Headings rotor, as before.
   - **Not resolved.** On an iPhone simulator the rotor once went from Rows to Actions part
