@@ -89,19 +89,17 @@ import XCTest
         ((link(of: cell)?.accessibilityChildren() ?? cell.accessibilityChildren()) ?? []).compactMap { $0 as? TableCellTextView }
     }
 
-    /// The image a cell holds for each of its pictures, where it shows pictures and nothing else.
+    /// The image a cell holds for each picture it shows.
     private func images(of cell: ReaderTableCellElement) -> [ReaderTableCellImageElement] {
         (cell.accessibilityChildren() ?? []).compactMap { $0 as? ReaderTableCellImageElement }
     }
 
-    /// What a cell says: the words of its text areas, or what its images are called, or where
-    /// it has neither its label, or the title of the link it holds.
+    /// What a cell says: the words of its text areas and then what its images are called, or
+    /// where it has neither its label, or the title of the link it holds.
     private func said(_ cell: ReaderTableCellElement) -> String {
-        let pictures = images(of: cell)
-        guard pictures.isEmpty else { return pictures.map { $0.accessibilityLabel() ?? "" }.joined(separator: " ") }
-        let views = textAreas(of: cell)
-        guard !views.isEmpty else { return cell.accessibilityLabel() ?? link(of: cell)?.accessibilityTitle() ?? "" }
-        return views.map { $0.accessibilityValue() ?? "" }.joined(separator: " ")
+        let views = textAreas(of: cell), pictures = images(of: cell)
+        guard !views.isEmpty || !pictures.isEmpty else { return cell.accessibilityLabel() ?? link(of: cell)?.accessibilityTitle() ?? "" }
+        return (views.map { $0.accessibilityValue() ?? "" } + pictures.map { $0.accessibilityLabel() ?? "" }).joined(separator: " ")
     }
 
     private func said(_ cells: [Any]?) -> [String] { (cells ?? []).compactMap { $0 as? ReaderTableCellElement }.map(said) }
@@ -465,14 +463,15 @@ import XCTest
 
     /// A cell that shows pictures and nothing else holds an image for each of them, called by
     /// the picture's words, in place of its text area. VoiceOver says what a cell holds, a
-    /// text area by its value, and at a picture that value is the attachment's character: it
-    /// said the column's header and that character at such a cell, for a described picture as
-    /// for any other, where it now says "Blue badge image" (doc/voiceover-testing.md). A
-    /// picture nobody describes is an image without a name, which VoiceOver says in its own
-    /// word, and decoration is no image: a cell of decoration alone holds nothing, as an empty
-    /// one does. A picture among words stays in its cell's text area, and so does anything
-    /// that is read as words. A cell that is a link holds its link, whatever the link shows.
-    func testACellThatShowsPicturesAndNothingElseHoldsAnImageForEach() async throws {
+    /// text area by its characters, and a picture's is the attachment's character: it said
+    /// the column's header and that character at such a cell, for a described picture as for
+    /// any other, where it now says "Blue badge image" (doc/voiceover-testing.md). A picture
+    /// nobody describes is an image without a name, which VoiceOver says in its own word, and
+    /// decoration is no image: a cell of decoration alone holds nothing, as an empty one
+    /// does. A cell that shows a picture among words holds its text area, where VoiceOver
+    /// reads by word, and then the picture's image, which VoiceOver says after the words. A
+    /// cell that is a link holds its link, whatever the link shows, and a rule is no picture.
+    func testACellThatShowsPicturesHoldsAnImageForEach() async throws {
         let book = try picturedBook("<p>Words before the table.</p>" + Self.pictured + "<p>Words after the table.</p>" + SessionCoverageBook.filler(120))
         for scrolled in [false, true] {
             let flow = scrolled ? "continuous scroll" : "pages"
@@ -485,15 +484,18 @@ import XCTest
             let cells = try cells(of: table)
             XCTAssertEqual(cells.count, 10, flow)
             XCTAssertEqual(cells.map { images(of: $0).map { $0.accessibilityLabel() } },
-                           [[], [], ["Blue square"], [nil], [], [], ["Blue shield"], ["Blue ring", "Blue star"], [], []],
-                           "\(flow): an image for each picture that says something, where the cell shows nothing else")
+                           [[], [], ["Blue square"], [nil], ["Blue crest"], [], ["Blue shield"], ["Blue ring", "Blue star"], [], []],
+                           "\(flow): an image for each picture that says something, and none for a link's or for decoration")
             XCTAssertEqual(cells.map { textAreas(of: $0).map { $0.accessibilityValue() ?? "" } },
                            [["Mark"], ["Meaning"], [], [], ["Worn \u{FFFC} daily"], [], [], [], ["\u{FFFC}"], ["\u{FFFC}"]],
-                           "\(flow): a text area for words, for a picture among them, for a link and for a rule, and none beside an image")
-            XCTAssertEqual(cells.map { $0.accessibilityChildren()?.count }, [1, 1, 1, 1, 1, 0, 1, 2, 1, 1], "\(flow): a cell of decoration alone holds nothing")
+                           "\(flow): a text area for words, for a picture among them, for a link and for a rule, and none where a cell shows pictures alone")
+            XCTAssertEqual(cells.map { $0.accessibilityChildren()?.count }, [1, 1, 1, 1, 2, 0, 1, 2, 1, 1], "\(flow): a cell of decoration alone holds nothing")
+            XCTAssertTrue(cells[4].accessibilityChildren()?.first is TableCellTextView, "\(flow): a picture among words comes after the words' text area")
+            XCTAssertTrue(textAreas(of: cells[4]).first?.accessibilityParent() as AnyObject === cells[4], flow)
             XCTAssertEqual(link(of: cells[8]) != nil, true, "\(flow): the cell that is a link holds its link, though the link is a picture")
             XCTAssertTrue(cells.allSatisfy { $0.accessibilityLabel() == nil }, "\(flow): no cell is called by its words as well")
-            XCTAssertEqual(cells.map(said), ["Mark", "Meaning", "Blue square", "", "Worn \u{FFFC} daily", "", "Blue shield", "Blue ring Blue star", "\u{FFFC}", "\u{FFFC}"], flow)
+            XCTAssertEqual(cells.map(said), ["Mark", "Meaning", "Blue square", "", "Worn \u{FFFC} daily Blue crest", "", "Blue shield", "Blue ring Blue star",
+                                             "\u{FFFC}", "\u{FFFC}"], flow)
 
             for (number, cell) in cells.enumerated() {
                 for (order, image) in images(of: cell).enumerated() {
@@ -503,7 +505,7 @@ import XCTest
                     XCTAssertEqual(image.accessibilityChildren()?.count ?? 0, 0, label)
                     // VoiceOver read an image's help into the cell's phrase each time it came to the cell.
                     XCTAssertNil(image.accessibilityHelp(), label)
-                    XCTAssertTrue(cell.accessibilityVisibleChildren()?[order] as AnyObject === image, label)
+                    XCTAssertTrue((cell.accessibilityVisibleChildren() ?? []).compactMap { $0 as? ReaderTableCellImageElement }[order] === image, label)
                     // It stands where its picture is drawn, inside its cell: the picture's 32
                     // points across, and down the line the picture stands on.
                     let frame = image.accessibilityFrame()
@@ -523,9 +525,10 @@ import XCTest
                                                 ["Inspect Image: Blue crest", "Select Cell Text"], [], ["Inspect Image: Blue shield", "Select Cell Text"],
                                                 ["Inspect Image: Blue ring", "Inspect Image: Blue star", "Select Cell Text"],
                                                 ["Inspect Image: Blue gate", "Select Cell Text", "Follow Link: Blue gate"], []], flow)
-            XCTAssertEqual([cells[2], cells[3], cells[7]].flatMap { images(of: $0) }.map { ($0.accessibilityCustomActions() ?? []).map(\.name) },
-                           [["Inspect Image: Blue square"], ["Inspect Image"], ["Inspect Image: Blue ring"], ["Inspect Image: Blue star"]], flow)
-            for image in images(of: cells[3]) + [pair[1]] {
+            XCTAssertEqual([cells[2], cells[3], cells[4], cells[7]].flatMap { images(of: $0) }.map { ($0.accessibilityCustomActions() ?? []).map(\.name) },
+                           [["Inspect Image: Blue square"], ["Inspect Image"], ["Inspect Image: Blue crest"], ["Inspect Image: Blue ring"],
+                            ["Inspect Image: Blue star"]], flow)
+            for image in images(of: cells[3]) + images(of: cells[4]) + [pair[1]] {
                 XCTAssertNil(canvas.imageInspector, flow)
                 let action = try XCTUnwrap(image.accessibilityCustomActions()?.first, flow)
                 XCTAssertTrue(try XCTUnwrap(action.handler, flow)(), "\(flow): \(action.name)")
@@ -542,13 +545,17 @@ import XCTest
         }
     }
 
-    /// An image needs no text area, so a cell far off the screen in continuous scroll holds the
-    /// image it holds on screen, where a cell of words is labelled with them and holds nothing:
-    /// VoiceOver is given the same of a picture wherever the view is. A cell kept from text the
-    /// view no longer shows holds nothing, and an image kept from it is called nothing.
+    /// An image needs no text area, so a cell far off the screen in continuous scroll that
+    /// shows a picture and nothing else holds the image it holds on screen: VoiceOver is given
+    /// the same of it wherever the view is. A cell of words there is labelled with them, a
+    /// picture's among them, and holds nothing until its text area is on screen. A cell kept
+    /// from text the view no longer shows holds nothing, and an image kept from it is called
+    /// nothing.
     func testACellThatShowsAPictureOffScreenHoldsItsImage() async throws {
-        let entries = (1...60).map { String(format: "<tr><td>Entry %02d</td><td><img src=\"square.svg\" alt=\"Mark %02d\"/></td></tr>", $0, $0) }.joined()
-        let book = try picturedBook("<p>Words before the ledger.</p><table><thead><tr><th>Entry</th><th>Mark</th></tr></thead><tbody>" + entries
+        let entries = (1...60).map {
+            String(format: "<tr><td>Entry %02d</td><td><img src=\"square.svg\" alt=\"Mark %02d\"/></td><td>Kept <img src=\"square.svg\" alt=\"Seal %02d\"/></td></tr>", $0, $0, $0)
+        }.joined()
+        let book = try picturedBook("<p>Words before the ledger.</p><table><thead><tr><th>Entry</th><th>Mark</th><th>Seal</th></tr></thead><tbody>" + entries
                                     + "</tbody></table><p>Words after the ledger.</p>")
         let (_, _, view) = try await reader(book, scrolled: true)
         let table = try XCTUnwrap(try tables(in: view).first)
@@ -556,6 +563,9 @@ import XCTest
         let beside = try XCTUnwrap(table.accessibilityCell(forColumn: 0, row: 55) as? ReaderTableCellElement)
         XCTAssertEqual(beside.accessibilityLabel(), "Entry 55", "off screen a cell of words is labelled with them")
         XCTAssertEqual(beside.accessibilityChildren()?.count, 0)
+        let among = try XCTUnwrap(table.accessibilityCell(forColumn: 2, row: 55) as? ReaderTableCellElement)
+        XCTAssertEqual(among.accessibilityLabel(), "Kept Seal 55", "and so is one with a picture among its words, the picture's too")
+        XCTAssertEqual(among.accessibilityChildren()?.count, 0, "with no image to say them twice")
         let image = try XCTUnwrap(images(of: far).first)
         XCTAssertEqual(far.accessibilityChildren()?.count, 1)
         XCTAssertEqual(image.accessibilityLabel(), "Mark 55")
@@ -572,6 +582,8 @@ import XCTest
         XCTAssertTrue(images(of: far).first === image, "on screen it is the same image")
         XCTAssertEqual(far.accessibilityChildren()?.count, 1, "and no text area beside it")
         XCTAssertNil(far.accessibilityLabel())
+        XCTAssertEqual(said(among), "Kept \u{FFFC} Seal 55", "on screen the cell of words holds its text area, and then its picture's image")
+        XCTAssertNil(among.accessibilityLabel())
 
         // In pages another chapter is other text in the column: the cell is of a table that has gone.
         let (paged, _, column) = try await reader(book, scrolled: false)

@@ -425,8 +425,9 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 /// while they are on screen, so that VoiceOver can go into it and read by word, and is
 /// labelled with its words where it has none. A cell whose words are one link and nothing
 /// else, a header cell among them, is pressed to follow it, and holds a link called by its
-/// words with its text areas inside. A cell that shows pictures and nothing else holds an
-/// image for each in place of its text areas.
+/// words with its text areas inside. A cell that shows pictures holds an image for each: in
+/// place of its text areas where it shows nothing else, and after them where the pictures
+/// stand among words.
 @MainActor final class ReaderTableCellElement: NSAccessibilityElement {
     /// A client can keep the element after its table has gone, with the page it was on.
     private weak var table: ReaderTableElement?
@@ -446,9 +447,8 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     var frameInRow = CGRect.zero
     /// The link the cell holds where its words are one link (`isLink`).
     private lazy var link = ReaderTableCellLinkElement(cell: self)
-    /// The images the cell holds where it shows pictures and nothing else (`holdsPictures`),
-    /// kept for as long as the cell is: VoiceOver asks an element what it is after the read
-    /// that gave it.
+    /// The images the cell holds for the pictures it shows (`heldPictures`), kept for as long
+    /// as the cell is: VoiceOver asks an element what it is after the read that gave it.
     private var pictures: [ReaderTableCellImageElement] = []
 
     init(table: ReaderTableElement, cell: Int) {
@@ -509,11 +509,14 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// given by name. They are the label of a cell that is not a link.
     var unsaid: String? { text.isEmpty || !textViews.isEmpty ? nil : text }
 
-    /// What the cell holds: the text areas of its words, or the link they are inside, or an
-    /// image for each of its pictures.
+    /// What the cell holds: the text areas of its words and then an image for each picture
+    /// among them, or the images alone where it shows nothing else, or the link its text
+    /// areas are inside.
     private var held: [Any] {
         if isLink { return [link] }
-        return holdsPictures ? heldPictures : textViews
+        if holdsPictures { return heldPictures }
+        let views = textViews
+        return views.isEmpty ? [] : views + heldPictures
     }
 
     /// The cell's words are one link and nothing else, where a link goes somewhere: the cell
@@ -545,12 +548,11 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// The cell shows pictures and nothing else, or nothing at all, and is no link. It holds
     /// an image for each picture that says something, called by the picture's words, and no
     /// text area, as a web view's cell holds an image. VoiceOver says what a cell holds, a
-    /// text area by its value, and a picture's place in a text area's value is the
-    /// attachment's character: at the cell it said the column's header and that character,
-    /// for a described picture as for any other. With the image it says "Sign Blue badge
-    /// image", and "image cell" for a picture nobody describes. A cell of decoration alone
-    /// holds nothing and is "empty cell", like a cell with nothing in it. A picture among
-    /// words stays in its cell's text area, where VoiceOver reads it by word
+    /// text area by its characters, and a picture's place among a text area's characters is
+    /// the attachment's character: at the cell it said the column's header and that
+    /// character, for a described picture as for any other. With the image it says "Sign
+    /// Blue badge image", and "image cell" for a picture nobody describes. A cell of
+    /// decoration alone holds nothing and is "empty cell", like a cell with nothing in it
     /// (doc/voiceover-testing.md has what was heard, and the other ways that were tried).
     var holdsPictures: Bool {
         guard let table, table.view != nil else { return false }
@@ -558,10 +560,26 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
         return model.isWordless && !model.isLink
     }
 
-    /// The image of each picture the cell shows here, in the order they stand.
+    /// The image of each picture the cell shows here that says something, in the order they
+    /// stand. They are all a cell holds that shows pictures and nothing else. A cell that
+    /// shows pictures among words holds them after its text areas. Its words are in a text
+    /// area for VoiceOver to read by word, and a picture is nothing VoiceOver says of a text
+    /// area at a cell: a transcript has "Crest Worn", the attachment's character and "daily"
+    /// there. With the image after the text area it has those and then ", Blue crest image",
+    /// the picture's words last wherever the picture stands among the cell's. That costs a
+    /// step: such a cell is "cell 2 items", Control-Option-Shift-Down goes to its text area,
+    /// and pressed again it goes into the words.
     private var heldPictures: [ReaderTableCellImageElement] {
         while pictures.count < images.count { pictures.append(ReaderTableCellImageElement(cell: self, index: pictures.count)) }
         return Array(pictures.prefix(images.count))
+    }
+
+    /// The picture the cell holds its image at `index` for. None once the cell holds no image:
+    /// when the view shows other text, for a cell that is a link, and for a cell of words
+    /// whose text areas are off screen, which is labelled with all its words.
+    func picture(at index: Int) -> ReaderImageAttachment? {
+        guard images.indices.contains(index), let table, table.view != nil, !isLink else { return nil }
+        return holdsPictures || !textViews.isEmpty ? images[index] : nil
     }
 
     /// Shows the picture larger, as its Inspect Image action does. False without a reader to
@@ -654,12 +672,12 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     }
 }
 
-/// A picture in a cell that shows pictures and nothing else: an image called by the picture's
-/// words, or by nothing where nobody describes it, which VoiceOver says in its own word. It
-/// stands where the picture is drawn, holds nothing, and offers the picture's Inspect Image
-/// as the cell does. It has no help. The image VoiceOver is given at a picture's character in
-/// text has the sentence about Inspect Image for its help, and VoiceOver read that into the
-/// cell's phrase each time it came to the cell: "Sign Blue badge image Double-click or choose
+/// A picture a cell of a table of data shows: an image called by the picture's words, or by
+/// nothing where nobody describes it, which VoiceOver says in its own word. It stands where
+/// the picture is drawn, holds nothing, and offers the picture's Inspect Image as the cell
+/// does. It has no help. The image VoiceOver is given at a picture's character in text has
+/// the sentence about Inspect Image for its help, and VoiceOver read that into the cell's
+/// phrase each time it came to the cell: "Sign Blue badge image Double-click or choose
 /// Inspect Image to enlarge."
 @MainActor final class ReaderTableCellImageElement: NSAccessibilityElement {
     /// A client can keep the element after its cell has gone, with the page it was on.
@@ -683,10 +701,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? { onMain(self) { $0.actions } }
 
     /// The picture, while its cell shows it and holds this image for it.
-    private var image: ReaderImageAttachment? {
-        guard let cell, cell.holdsPictures, cell.images.indices.contains(index) else { return nil }
-        return cell.images[index]
-    }
+    private var image: ReaderImageAttachment? { cell?.picture(at: index) }
 
     private var words: String? {
         guard let alt = image?.alt, !alt.isEmpty else { return nil }
