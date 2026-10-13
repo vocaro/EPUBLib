@@ -994,48 +994,59 @@ import UIKit
         return found
     }
 
-    /// The heading the text's rotor gives when asked from a link's element, as VoiceOver asks
-    /// once when its rotor opens with its cursor on a link (macOS 27.0.1): the element, at the
-    /// first character and none of it. AppKit hands the search whatever element the client
-    /// names, and `NSAccessibilityElement` does not declare the protocol an item's
-    /// initializer takes, hence the cast.
-    private func heading(of view: ReaderTextView, from link: ReaderLinkAccessibilityElement, forward: Bool) throws -> String? {
-        let rotor = try XCTUnwrap(view.accessibilityCustomRotors().first { $0.type == .heading })
-        let parameters = NSAccessibilityCustomRotor.SearchParameters()
-        let current = NSAccessibilityCustomRotor.ItemResult(targetElement: unsafeBitCast(link, to: (any NSAccessibilityElementProtocol).self))
-        current.targetRange = NSRange(location: 0, length: 0)
-        parameters.currentItem = current
-        parameters.searchDirection = forward ? .next : .previous
-        let result = try XCTUnwrap(rotor.itemSearchDelegate).rotor(rotor, resultFor: parameters)
-        XCTAssertTrue(result == nil || result?.targetElement === view)
-        return result?.customLabel
+    /// The item VoiceOver asks from once when its rotor opens with its cursor on a link (macOS
+    /// 27.0.1): the link's element, at the first character and none of it. AppKit hands the
+    /// search whatever element the client names, and `NSAccessibilityElement` does not declare
+    /// the protocol an item's initializer takes, hence the cast.
+    private func resting(on link: ReaderLinkAccessibilityElement) -> NSAccessibilityCustomRotor.ItemResult {
+        let item = NSAccessibilityCustomRotor.ItemResult(targetElement: unsafeBitCast(link, to: (any NSAccessibilityElementProtocol).self))
+        item.targetRange = Self.resting
+        return item
     }
 
     /// With its cursor on a link VoiceOver's rotor still has the text's Headings list: it asks
-    /// the text for its rotors as well as the link. Having walked the list it asks once more
-    /// from the link's element. Answered with no item, as a place after the page's last
-    /// heading would be, the list opened with no row chosen and Return did nothing; so an
-    /// element that is no place in the text is nowhere, and the answer is the first heading.
-    func testAPageColumnsRotorAskedFromALinkBeginsTheList() throws {
+    /// the text for its rotors as well as the link, which has none. Having walked the list it
+    /// asks once more, from the link's element. A link's element is no place in the text, and
+    /// the search takes it as it takes a cursor resting on the column: at the top of the page.
+    /// Answered with no item where headings were listed, VoiceOver opened the list with no
+    /// row chosen and Return did nothing.
+    func testAPageColumnsRotorAskedFromALinkStandsAtTheTopOfItsPage() throws {
+        let before = try H.build("<h1>The chapter before</h1><p>Words.</p>", css: Self.css)
         let section = try H.build("""
             <h1>First title</h1><p>Words with <a href="two.xhtml">a link before</a> the rest.</p>\
             <h2>Second <a href="two.xhtml">linked</a> part</h2><p><a class="sr" href="three.xhtml">Hidden link</a>Words under it.</p>\
             <h3>Third part</h3><p>Last words and <a href="four.xhtml">a last link</a>.</p>
             """, css: Self.css)
-        let host = host(section.string, size: CGSize(width: 320, height: 640))
+        let after = try H.build("<h1>The chapter after</h1><p>End.</p>", css: Self.css)
+        let host = CanvasHost(FakeCanvasSource([before.string, section.string, after.string]), size: CGSize(width: 320, height: 640))
+        hosts.append(host)
+        host.canvas.show(ReaderTextPosition(section: 1, offset: 0), selecting: nil)
+        host.layOut()
         let view = try XCTUnwrap(host.canvas.textViews.first)
-        XCTAssertEqual(view.shownCharacters.length, section.string.length, "the whole section is on the page")
-        let headings = try rotorHeadings(of: view, listing: true).map(\.label)
-        XCTAssertEqual(headings, ["First title, heading level 1", "Second linked part, heading level 2", "Third part, heading level 3"])
+        XCTAssertEqual(view.shownCharacters.length, section.string.length, "the whole chapter is on the page")
+        XCTAssertEqual(try listedHeadings(by: view).map(\.label), [
+            "The chapter before, heading level 1", "First title, heading level 1", "Second linked part, heading level 2",
+            "Third part, heading level 3", "The chapter after, heading level 1"])
         let found = try links(in: view, view.shownCharacters)
         XCTAssertEqual(found.map { $0.accessibilityTitle() ?? "" }, ["a link before", "linked", "Hidden link", "a last link"])
-        XCTAssertGreaterThan(try XCTUnwrap(found.last).range.location, try XCTUnwrap(section.string.readerHeadings().last).range.location,
-                             "no heading follows the last link")
+        let shown = host.recorder.shown.count
         for link in found {
-            XCTAssertEqual(try heading(of: view, from: link, forward: true), headings.first, link.accessibilityTitle() ?? "")
-            XCTAssertEqual(try heading(of: view, from: link, forward: false), headings.last, link.accessibilityTitle() ?? "")
+            let name = link.accessibilityTitle() ?? ""
             XCTAssertTrue(link.accessibilityCustomRotors().isEmpty, "the list is the text's, which VoiceOver asks too")
+            let next = try XCTUnwrap(try rotorHeading(of: view, from: resting(on: link)), name)
+            XCTAssertEqual(next.label, "First title, heading level 1", "\(name): the heading that opens the page, not the book's first")
+            XCTAssertTrue(next.column === view, name)
+            XCTAssertEqual(try rotorHeading(of: view, from: resting(on: link), forward: false)?.label, "Third part, heading level 3", name)
+            // As from the column itself with VoiceOver's cursor at rest on it.
+            XCTAssertEqual(next.label, try rotorHeading(of: view, from: place(Self.resting, in: view))?.label, name)
         }
+        XCTAssertEqual(host.recorder.shown.count, shown, "nothing is shown for a question")
+    }
+
+    private func heading(of view: ReaderTextView, from link: ReaderLinkAccessibilityElement, forward: Bool) throws -> String? {
+        let result = try rotorHeading(of: view, from: resting(on: link), forward: forward)
+        XCTAssertTrue(result == nil || result?.column === view)
+        return result?.label
     }
 
     /// Three chapters in continuous scroll, each some screens long: a link under the first
@@ -1057,6 +1068,9 @@ import UIKit
         return (host, try XCTUnwrap(host.canvas.scrollTextView))
     }
 
+    /// The scroll view's text is the whole book, and an element that is no place in it is
+    /// nowhere: the first heading, or the last. No heading follows the book's last link, and
+    /// the answer from it is still an item.
     func testTheScrollViewsRotorAskedFromALinkBeginsTheList() throws {
         let (_, view) = try scrolledChapters()
         let headings = try rotorHeadings(of: view, listing: true).map(\.label)
