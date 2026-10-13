@@ -82,6 +82,43 @@ struct ImageSizing: Equatable, Sendable {
     }
 }
 
+/// What a book gives in place of an image to someone who cannot see it. HTML tells an empty
+/// `alt` from a missing one, and so does the reader: assistive technology passes over the first
+/// and announces the second as an image nobody has described.
+enum ImageAlternative: Equatable, Sendable {
+    /// Words that stand for the image: its `alt`, or the title an SVG gives itself.
+    case text(String)
+    /// `alt=""`: decoration, or a picture of words the book also has as text. It adds nothing
+    /// to what is read, copied or searched.
+    case decorative
+    /// No alternative at all. The image may be content; the reader says that it is an image
+    /// and makes up no name for it.
+    case missing
+
+    /// An `alt` attribute as the book wrote it: absent, blank, or words.
+    init(alt: String?) {
+        guard let alt else { self = .missing; return }
+        let words = Self.collapsed(alt)
+        self = words.isEmpty ? .decorative : .text(words)
+    }
+
+    /// A name from somewhere other than `alt` (a `title`, an SVG's own title), which says
+    /// nothing about decoration when it is blank or absent.
+    init(name: String?) {
+        let words = Self.collapsed(name ?? "")
+        self = words.isEmpty ? .missing : .text(words)
+    }
+
+    /// The words, or none.
+    var text: String {
+        if case .text(let words) = self { words } else { "" }
+    }
+
+    private static func collapsed(_ text: String) -> String {
+        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+}
+
 /// An image shown in the text: `<img>`, SVG `<image>`, an image `<object>`/`<embed>`, or an
 /// SVG drawn by the platform decoder. Sized when laid out, decoded only when drawn: TextKit 2
 /// asks `image(for:…)` at display time on both platforms, and the bitmap comes downsampled to
@@ -89,7 +126,7 @@ struct ImageSizing: Equatable, Sendable {
 final class ReaderImageAttachment: ReaderAttachment {
     let source: ReaderImageSource
     let sizing: ImageSizing
-    let alt: String
+    let alternative: ImageAlternative
     /// Where the image is drawn inside the attachment, as fractions of it (an SVG `<image>`
     /// placed inside its viewBox); nil fills it.
     let contentRect: CGRect?
@@ -102,9 +139,9 @@ final class ReaderImageAttachment: ReaderAttachment {
     let isDark: Bool
     let cache: ReaderImageCache
 
-    init(source: ReaderImageSource, sizing: ImageSizing, alt: String, style: ComputedStyle,
+    init(source: ReaderImageSource, sizing: ImageSizing, alternative: ImageAlternative, style: ComputedStyle,
          contentRect: CGRect? = nil, isDark: Bool = false, cache: ReaderImageCache) {
-        self.source = source; self.sizing = sizing; self.alt = alt; self.contentRect = contentRect
+        self.source = source; self.sizing = sizing; self.alternative = alternative; self.contentRect = contentRect
         isBlock = style.display.isBlockLevel
         verticalAlign = style.verticalAlign
         fontSize = style.fontSize
@@ -117,6 +154,8 @@ final class ReaderImageAttachment: ReaderAttachment {
 
     /// The decoded archive path the image came from (empty for inline SVG).
     var path: String { source.path }
+    /// The words that stand for the image, empty for decoration and for an image without any.
+    var alt: String { alternative.text }
     /// The alt text (an SVG's title).
     override var textEquivalent: String { alt }
 

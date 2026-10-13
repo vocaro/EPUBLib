@@ -49,12 +49,15 @@ import UIKit
         var result: [(String, @MainActor () -> Bool)] = []
         for (_, cell) in cells.filter({ $0.key.location == location }).sorted(by: { ($0.key.cell, $0.key.lower) < ($1.key.cell, $1.key.lower) }) {
             let label = cell.cellText.readerPlainText(in: cell.shownCharacters)
-            result.append(("Select Table Text: " + String(label.prefix(60)), { [weak cell] in
-                guard let cell else { return false }
-                cell.cellSelection = cell.shownCharacters
-                cell.onSelection?(cell.shownCharacters)
-                return true
-            }))
+            // A cell without words, a picture alone, has none to name the action by.
+            if !label.allSatisfy(\.isWhitespace) {
+                result.append(("Select Table Text: " + String(label.prefix(60)), { [weak cell] in
+                    guard let cell else { return false }
+                    cell.cellSelection = cell.shownCharacters
+                    cell.onSelection?(cell.shownCharacters)
+                    return true
+                }))
+            }
             cell.cellText.enumerateAttribute(.link, in: cell.shownCharacters) { value, range, _ in
                 guard let url = value as? URL ?? (value as? String).flatMap(URL.init(string:)) else { return }
                 result.append(("Follow Table Link: " + cell.cellText.readerPlainText(in: range), { [weak cell] in

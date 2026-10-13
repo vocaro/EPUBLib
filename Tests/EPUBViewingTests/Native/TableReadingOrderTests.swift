@@ -152,25 +152,43 @@ import XCTest
         XCTAssertEqual(read, ["Label"] + said, "every word once, in order, across \(pages) pages")
     }
 
-    /// A row of pictures without words is a picture, as an image in a line is; a row that
-    /// shows neither words nor pictures is no stop at all, where VoiceOver would rest on
-    /// silence. The pictures have no `alt` at all: an empty one marks decoration.
-    func testARowOfPicturesIsAPictureAndARowOfNothingIsNoElement() async throws {
+    /// A row of pictures without words is an image and no more, as a picture without words in
+    /// a line is. A row that shows nothing, or only pictures the book marks as decoration with
+    /// an empty `alt`, is no stop at all, where VoiceOver would rest on silence.
+    func testARowOfPicturesIsAnImageAndARowWithNothingToSayIsNoElement() async throws {
         let body = "<table><tr><td><img src='w40.png'/></td><td><img src='w30.png'/></td></tr>"
             + "<tr><td></td><td> </td></tr>"
+            + "<tr>" + TableCoverage.box(40) + TableCoverage.box(30) + "</tr>"
             + "<tr><td><img src='w40.png' alt='A drawn map'/></td><td>Beside the map</td></tr></table><p>Words after the table.</p>"
         let book = try TableCoverage.publication(body, files: TableCoverage.images([40, 30], height: 20))
         for scrolled in [false, true] {
             let flow = scrolled ? "continuous scroll" : "pages"
             let (_, _, view) = try await reader(book, scrolled: scrolled)
             let elements = Array(try listed(view).prefix(3))
-            XCTAssertEqual(elements.map(words), ["Book image", "A drawn map\tBeside the map", "Words after the table."], flow)
+            XCTAssertEqual(elements.map { $0.accessibilityLabel?.trimmingCharacters(in: .newlines) },
+                           [nil, "A drawn map\tBeside the map", "Words after the table."],
+                           "\(flow): no name is made up for the pictures, and the empty row and the row of decoration are passed over")
             XCTAssertEqual(elements.map { $0.accessibilityTraits.contains(.image) }, [true, false, false], flow)
             XCTAssertEqual(elements.map { $0.accessibilityTraits.contains(.staticText) }, [true, true, true], flow)
-            XCTAssertEqual(actions(elements[0]).filter { $0.hasPrefix("Inspect Image") }, ["Inspect Image", "Inspect Image"], flow)
-            XCTAssertEqual(actions(elements[1]).filter { $0.hasPrefix("Inspect Image") }, ["Inspect Image: A drawn map"], flow)
-            XCTAssertEqual(actions(elements[2]).filter { $0.contains("Image") || $0.contains("Table") }, [], flow)
+            // A picture is inspected, and a cell is selected by its words when it has any.
+            let turns = scrolled ? [] : ["Next Page", "Previous Page"]
+            XCTAssertEqual(actions(elements[0]), turns + ["Inspect Image", "Inspect Image"], flow)
+            XCTAssertEqual(actions(elements[1]), turns + ["Inspect Image: A drawn map", "Select Table Text: A drawn map",
+                                                          "Select Table Text: Beside the map"], flow)
+            XCTAssertEqual(actions(elements[2]), turns, flow)
         }
+    }
+
+    /// A page that holds nothing but decoration lists it after all, so VoiceOver has a place
+    /// there to turn the page from: a row of decoration alone is then an image without a name.
+    func testARowOfDecorationAloneIsListedWhenItsPageHoldsNothingElse() async throws {
+        let book = try TableCoverage.publication("<table><tr>" + TableCoverage.box(40) + TableCoverage.box(30) + "</tr></table>",
+                                                 files: TableCoverage.images([40, 30], height: 20))
+        let (_, _, view) = try await reader(book, scrolled: false)
+        let elements = try listed(view)
+        XCTAssertEqual(elements.map(\.accessibilityLabel), [nil])
+        XCTAssertTrue(elements[0].accessibilityTraits.contains(.image))
+        XCTAssertEqual(actions(elements[0]), ["Next Page", "Previous Page"], "decoration is not offered for inspection")
     }
 }
 #endif

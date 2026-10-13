@@ -180,11 +180,13 @@ final class ReaderTextView: NSTextView {
     /// A TextKit 2 text view exposes nothing for an attachment drawn from its image, so each one
     /// that stands for text gets an image element labelled with its text equivalent, through
     /// the attachment attribute VoiceOver reads in text. A hidden label is text, not an image.
+    /// An image without words is an image element without a label, and one the book marks as
+    /// decoration is left with nothing, for VoiceOver to pass over.
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard !isPageColumn || validPageAccessibilityRange(range),
               let base = super.accessibilityAttributedString(for: range) else { return nil }
         let attachments = textualAttachments(in: range)
-        let images = imageAttachments(in: range)
+        let images = announcedImages(in: range)
         guard !attachments.isEmpty || !images.isEmpty else { return base }
         let result = NSMutableAttributedString(attributedString: base)
         for (attachment, text, run) in attachments {
@@ -206,9 +208,11 @@ final class ReaderTextView: NSTextView {
         for (image, run) in images where exposed.insert(run).inserted {
             let local = NSRange(location: run.location - range.location, length: run.length)
             guard NSMaxRange(local) <= result.length else { continue }
-            let label = attachments.first { $0.range == run }?.text ?? (image.alt.isEmpty ? "Book image" : image.alt)
+            // The role says that it is an image, in VoiceOver's own language: no name is made up.
+            let label = attachments.first { $0.range == run }?.text ?? image.alt
             let element = accessibilityElement(at: run, label: label)
-            element.setAccessibilityHelp("Double-click or choose Inspect Image to enlarge.")
+            // VoiceOver reads the help of an element without a label as its name, in the line.
+            element.setAccessibilityHelp(label.isEmpty ? nil : "Double-click or choose Inspect Image to enlarge.")
             let actions = images.filter { $0.range == run }.map { entry in
                 NSAccessibilityCustomAction(name: entry.image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(entry.image.alt)") {
                     [weak self] in
@@ -236,7 +240,7 @@ final class ReaderTextView: NSTextView {
             element.setAccessibilityChildren(nil)
         } else {
             element.setAccessibilityRole(.image)
-            element.setAccessibilityLabel(label)
+            element.setAccessibilityLabel(label.isEmpty ? nil : label)
             element.setAccessibilityChildren(nil)
         }
         element.setAccessibilityParent(self)

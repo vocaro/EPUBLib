@@ -20,19 +20,25 @@ files = {'mimetype': 'application/epub+zip',
                     'properties="nav"/><item id="body" href="body.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="labels" href="labels.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="table" href="table.xhtml" '
+                    'media-type="application/xhtml+xml"/><item id="pictures" href="pictures.xhtml" '
                     'media-type="application/xhtml+xml"/><item id="image" href="square.svg" '
+                    'media-type="image/svg+xml"/><item id="titled" href="titled.svg" '
                     'media-type="image/svg+xml"/></manifest><spine><itemref '
                     'idref="body"/><itemref idref="labels"/><itemref '
-                    'idref="table"/></spine></package>',
+                    'idref="table"/><itemref idref="pictures"/></spine></package>',
  'OPS/nav.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
                   'xmlns="http://www.w3.org/1999/xhtml" '
                   'xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav '
                   'epub:type="toc"><ol><li><a href="body.xhtml">Page boundary '
                   'verification</a></li><li><a href="labels.xhtml">Hidden '
                   'labels</a></li><li><a href="table.xhtml">Hidden heading over a '
-                  'table</a></li></ol></nav></body></html>',
+                  'table</a></li><li><a href="pictures.xhtml">Pictures and their '
+                  'words</a></li></ol></nav></body></html>',
  'OPS/square.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 '
                    '32"><rect width="32" height="32" fill="#007acc"/></svg>',
+ 'OPS/titled.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 '
+                   '32"><title>Square with a title of its own</title><rect width="32" height="32" '
+                   'fill="#cc7a00"/></svg>',
  'OPS/body.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
                    'xmlns="http://www.w3.org/1999/xhtml"><head><title>Page boundary '
                    'verification</title><style>p.sequence { text-align: justify; } img { width: '
@@ -65,7 +71,23 @@ files = {'mimetype': 'application/epub+zip',
                     'padding: 0.25em 0.5em; }</style></head><body><h1 class="parked">Parked '
                     'table heading</h1><table><tr><td>First cell</td><td>Second '
                     'cell</td></tr><tr><td>Third cell</td><td>Fourth '
-                    'cell</td></tr></table><p>Shown words after the table.</p>LINES_AFTER</body></html>'}
+                    'cell</td></tr></table><p>Shown words after the table.</p>LINES_AFTER</body></html>',
+ # What a book says a picture is to someone who cannot see it: nothing at all, decoration (an
+ # empty alt), or words; alone, inside a link, and in a file that has a title of its own. No
+ # word here is one VoiceOver uses for a picture or a link, so those in a transcript are its own.
+ 'OPS/pictures.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
+                       'xmlns="http://www.w3.org/1999/xhtml"><head><title>Pictures and their '
+                       'words</title><style>img { width: 32px; height: 32px; '
+                       '}</style></head><body><h1>Pictures and their words</h1><p>Undescribed '
+                       'picture <img src="square.svg"/> stands here.</p><p>Decoration <img '
+                       'src="square.svg" alt=""/> passed over.</p><p>Bare jump: <a '
+                       'href="body.xhtml#link-target"><img src="square.svg" '
+                       'alt=""/></a></p><p><a href="body.xhtml#link-target"><img '
+                       'src="square.svg" alt=""/> Jump with decoration</a></p><p><a '
+                       'href="body.xhtml#link-target"><img src="square.svg" alt="Described '
+                       'jump"/></a></p><p>Titled decoration <img src="titled.svg" alt=""/> '
+                       'passed over.</p><p>Titled picture <img src="titled.svg"/> stands '
+                       'here.</p><p>Last words about pictures.</p></body></html>'}
 files["OPS/body.xhtml"] = files["OPS/body.xhtml"].replace(
     "NUMBERED_WORDS", " ".join(f"word{i:04d}" for i in range(1, 1201)))
 # More than a screen of lines, so that the section's first line can be shown at the top.
@@ -81,7 +103,8 @@ files["OPS/table.xhtml"] = files["OPS/table.xhtml"].replace("LINES_AFTER", "".jo
 # end of the book is a few screens from the start of its last chapter.
 chapters = {"one": range(1, 41), "two": range(41, 81), "three": range(81, 87)}
 paragraphs = dict(files)
-del paragraphs["OPS/body.xhtml"], paragraphs["OPS/labels.xhtml"], paragraphs["OPS/table.xhtml"], paragraphs["OPS/square.svg"]
+for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "square.svg", "titled.svg"]:
+    del paragraphs["OPS/" + name]
 paragraphs["OPS/package.opf"] = (
     '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
     'unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier '
