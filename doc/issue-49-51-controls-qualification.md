@@ -282,7 +282,66 @@ again after the padding; see [reader-controls.md](reader-controls.md). On a Mac 
 it was. Nothing raises a keyboard there, and a scroll view is a scroll area in the Mac's
 accessibility tree, a container round what it holds: read on macOS 27.0 from a window of a
 button, a field, a menu and a segmented picker, with and without a scroll view round them.
-VoiceOver was not run on it.
+VoiceOver was run over both later, as below.
+
+Three things that [#364](https://github.com/vocaro/EPUBLib/issues/364) listed as never run were
+run on 2026-10-12 for [#385](https://github.com/vocaro/EPUBLib/issues/385), with the library at
+`7d0d687` and the host of `bd7ca30`.
+
+Without its search field the strip is as wide as its groups, with room and short of it. The
+host gave it the other four groups and, since such a strip raises no keyboard, offered it no
+more than a height ([Evidence](#evidence-and-repeating-it)). On an iPhone SE simulator, where
+the host's stack centres the strip in the window:
+
+| Text size | Pose | The groups | With room | Short of room |
+| --- | --- | --- | --- | --- |
+| `large` | upright | a column 103 points tall, Appearance the widest at 123 | 123 wide, at x = 126 | the same, offered 24 points with 79 to scroll |
+| `large` | on its side | a row 358 wide and 31 tall | 358 wide, at x = 154 | the same, offered 24 points |
+| largest | upright | a column 244 points tall, Appearance 330 wide | 330 wide, at x = 22 | the same, offered 150 points with 94 to scroll |
+| largest | on its side | a column 244 points tall, Appearance 353 wide | 353 wide, at x = 157 | the same, offered 150 points with 94 to scroll |
+
+Upright, a drag scrolled the short strip to its end at both sizes, and two flicks on the strip
+that had room at `large` moved nothing.
+
+At the text sizes that had not been run, on an iPhone on its side with the keyboard up over the
+results of a search for "lantern", the page buttons and the field were on screen at every size.
+An iPhone 17 Pro has 157 points for the strip there and an iPhone SE 148:
+
+| Text size | iPhone 17 Pro: the groups | To scroll | iPhone SE: the groups | To scroll |
+| --- | --- | --- | --- | --- |
+| `large` | a row over the match row, 61 tall | nothing | a column, 168 | 20 |
+| `extra-large` | a row over the match row, 64 | nothing | a column, 178 | 31 |
+| `extra-extra-large` | a row over the match row, 68 | nothing | a column, 191 | 43 |
+| `extra-extra-extra-large` | a column, 204 | 47 | a column, 204 | 56 |
+| `accessibility-medium` | a column, 236 | 79 | a column, 236 | 89 |
+| `accessibility-large` | a column, 270 | 113 | a column, 270 | 123 |
+| `accessibility-extra-large` | a column, 317 | 161 | a column, 318 | 170 |
+| `accessibility-extra-extra-large` | a column, 364 | 207 | a column, 366 | 218 |
+| largest | a column, 402 | 246 | a column, 403 | 256 |
+
+On the iPhone 17 Pro the strip first runs short of room at `extra-extra-extra-large`, the size
+at which its row becomes a column: up to `extra-extra-large` it takes the 61 to 68 points it
+needs and does not scroll. On the iPhone SE it is a column from `large` and scrolls at every
+size. A drag that began on the field or beside it scrolled the strip wherever it had anything
+to scroll, to its end where that was 123 points or less.
+
+Mac VoiceOver reads each of the strip's controls as an item of its own, and would not if the
+strip were a scroll view there. Five sessions ran on the hosted runner (macOS 27.0.1, Xcode
+27.0, five seconds after each key) over the sample's strip, which adds a bookmark menu to the
+strip's eight controls: on `main` at `7d0d687`, and at `f3fc983`, a branch whose one change
+makes the Mac's strip the scroll view it is on iPhone. On `main`, nine presses of
+Control-Option-Left from the reader's first column spoke "No bookmark saved Bookmark menu
+button", "Reading Mode radio group", "Appearance menu button", "Contents menu button", "Clear
+Search button", "Search button", "Search in book edit text", "Next Page button" and "Previous
+Page button", and Control-Option-Right spoke the same nine on the way back, in a window 1100
+points wide and in one of 600. With the scroll view the first press spoke "scroll area", with
+no name, and the second "Use Toolbar button", which stands before the strip: the nine were
+passed over, at both widths. Interacting with the scroll area spoke "In scroll area 9 items
+Previous Page button" and reached the nine in order; Control-Option-Right from the last of
+them stayed on it, and only ending the interaction, "Out of scroll area", led on to the text.
+So the Mac's exception spares a VoiceOver user two commands and a container with no name, for
+controls that nothing on a Mac leaves short of room. No control was operated through VoiceOver
+in these sessions.
 
 **Continuous scroll lost its place after an accessibility read.** On iOS the scrolled reader is
 a text view whose accessibility lists every paragraph of the book, and reading that list (an
@@ -616,7 +675,8 @@ probe now keeps them in the result bundle.
 "VoiceOverVerificationMac not responding" as it started, then "Automation Running", and
 nothing else through fourteen Control-Option-Left steps. Four other test hosts were running on
 the Mac. No control was spoken, so this session establishes nothing; VoiceOver was restored to
-off and checked.
+off and checked. On 2026-10-12 five sessions on the hosted runner did speak the strip's
+controls; they are in the entry for #330 under [Defects found and fixed](#defects-found-and-fixed).
 
 **Keyboard-only traversal** was not attempted. Keyboard navigation is off in this Mac's
 settings (`AppleKeyboardUIMode` 0), so Tab stops only at text fields and lists, and the
@@ -700,8 +760,10 @@ Described, not decided. None of these was changed.
   VoiceOver, Switch Control, a hardware keyboard.
 - VoiceOver's audio and anything past the 64 characters the service returns, including the
   rest of each hint.
-- Mac VoiceOver over the controls, and Mac keyboard-only traversal, as above. Focus after
-  closing Search on the Mac is covered by the regression of #58, not here.
+- Mac VoiceOver over the toolbar and the search pane, any control operated through Mac
+  VoiceOver, and Mac keyboard-only traversal, as above: VoiceOver was heard over the strip's
+  controls and no further. Focus after closing Search on the Mac is covered by the regression
+  of #58, not here.
 - On the Mac: choosing through the toolbar's overflow menu, a result row, the appearance
   submenu, a refused search, a right-to-left book, large text and windows narrower than 560
   points.
@@ -722,7 +784,8 @@ Described, not decided. None of these was changed.
   moved within a tenth of a second scrolled the strip every time; a finger's own timing was
   not measured. Nor was the strip under a keyboard taller than the simulator's English one, in
   an iPad window smaller than the screen, with host views in it, or under the reader instead
-  of over it.
+  of over it. Without its search field it was run on an iPhone SE only, and the text sizes
+  between `large` and the largest on iPhones on their sides only.
 
 ## Evidence and repeating it
 
@@ -760,7 +823,9 @@ The probe's steps are documented where they are handled, in
 `-QualificationBook ltr|rtl|long`, `-QualificationHost toolbar|strip|navigator`,
 `-QualificationPlacement automatic|leading|bottom`, `-QualificationHostItems <count>`,
 `-QualificationFlow scrolled`, `-QualificationFontSize <points>`, `-QualificationTitle NO`,
-`-QualificationTouchTrace YES` and, on the Mac, `-QualificationWindowSize <width>x<height>`.
+`-QualificationTouchTrace YES`, for the strip `-QualificationStripGroups <names>` (its groups
+in order, as `pages,contents,appearance,readingMode`) and `-QualificationStripRoom <points>`
+(the most height it is offered), and, on the Mac, `-QualificationWindowSize <width>x<height>`.
 UIKit's own `-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityXXXL`
 gives the host the largest text size without a change to the simulator; on the iPhone SE the
 strip's frames were those `signal=content_size` gave. For the iPhone Duo set `DEVELOPER_DIR`
@@ -806,3 +871,22 @@ none of three from 54 points did. The same host runs on a device, for a finger: 
 `ControlsQualification` target for it, install and launch it with `devicectl`, and copy the
 trace back with `devicectl device copy from --domain-type appDataContainer`. It recorded one
 tap on an iPhone 17 Pro Max (iOS 27.2) that way, and nothing more was tried there.
+
+The other text sizes go to the host as the largest does, `UICTContentSizeCategoryXL` and `XXL`
+for the two above `large`, then `XXXL`, `AccessibilityM`, `AccessibilityL`, `AccessibilityXL`
+and `AccessibilityXXL`. The host's record of any touch gives the strip's scroll view, the
+height of its groups and the height it has, which is how the tables for #385 were read.
+
+The Mac VoiceOver sessions over the strip ran on the hosted runner, as
+[VoiceOver testing](voiceover-testing.md#hosted-mac-sessions) describes, with one more `-f ref=`
+for the branch that makes the Mac's strip a scroll view. That branch removes the two
+`#if os(macOS)` conditions from `EPUBReaderControlStrip`, so that its body is the scroll view on
+every platform. The runs were 38330310982 and 38330313378 on `main`, and 38330405314,
+38330407452 and 38331587898 on the branch; their transcripts are kept five days.
+
+```sh
+STEPS='ax:next ax:focus left left left left left left left left left left left right right right right right right right right right right right'
+gh workflow run voiceover-mac.yml --ref YOUR_BRANCH -f width=1100 -f steps="$STEPS"
+gh workflow run voiceover-mac.yml --ref YOUR_BRANCH -f ref=SCROLL_VIEW_BRANCH -f width=1100 \
+  -f steps='ax:next ax:focus left left in right right right right right right right right right right right out right right'
+```
