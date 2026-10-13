@@ -15,15 +15,6 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     }
 }
 
-/// PROTOTYPE switches for finding what stops VoiceOver quitting in `-[SCRCell columnHeaderDescription]`.
-enum ReaderDataTablePrototype {
-    /// What a cell holds and is called: `area` (its text views, and a label only without them),
-    /// `both` (its text views and always a label) or `label` (a label and nothing held).
-    static var cells: String { UserDefaults.standard.string(forKey: "ReaderMacTableCells") ?? "area" }
-    /// Whether a cell's header cells are given as elements of their own that hold nothing.
-    static var headerNames: Bool { UserDefaults.standard.bool(forKey: "ReaderMacTableHeaderNames") }
-}
-
 /// The tables of data in one text view, as an assistive technology on the Mac is given them
 /// (doc/native-viewer.md, "Data tables"). A table is drawn as an attachment for each row, so a
 /// row's character is all the text has to give a table at. Each row's character gives a table
@@ -92,7 +83,7 @@ enum ReaderDataTablePrototype {
     let entry: Int
     private var rowsByLocation: [Int: ReaderTableRowElement] = [:]
     private var cellsByIndex: [Int: ReaderTableCellElement] = [:]
-    private var unlistedHeaders: [Int: ReaderTableCellElement] = [:]
+    private var headerNames: [Int: ReaderTableCellElement] = [:]
     private var columns: [ReaderTableColumnElement] = []
     /// The rows listed, for the text they were listed in.
     private var listedRows: (key: [CGFloat], rows: [ReaderTableRowElement])?
@@ -224,16 +215,19 @@ enum ReaderDataTablePrototype {
         return cells(of: row).first { $0.cell == index }
     }
 
-    /// The element of a header cell: the one listed, or for a header cell on another page its
-    /// words alone, for VoiceOver to say and nowhere for its cursor to go.
+    /// A header cell as it is given for the cells it heads: an element of its own, in no row,
+    /// that has the header's words and the rows and columns it covers, and holds nothing. It
+    /// is there for VoiceOver to say and is nowhere for its cursor to go, and it serves a
+    /// header cell on another page as well as one on this. It is not the cell listed in the
+    /// header's row: given that one, VoiceOver quit, in `-[SCRCell columnHeaderDescription]`
+    /// by its crash reports, at one header in six read at a slow pace and within four at a
+    /// fast one (macOS 27.0.1, doc/voiceover-testing.md).
     func header(_ index: Int) -> ReaderTableCellElement? {
-        if !ReaderDataTablePrototype.headerNames, let listed = listed(index) { return listed }
-        if let kept = unlistedHeaders[index] { return kept }
+        if let kept = headerNames[index] { return kept }
         guard table.cells.indices.contains(index), !table.cells[index].text.isEmpty else { return nil }
         let name = ReaderTableCellElement(table: self, cell: index)
-        name.isName = true
         name.text = table.cells[index].text
-        unlistedHeaders[index] = name
+        headerNames[index] = name
         return name
     }
 
@@ -411,7 +405,7 @@ enum ReaderDataTablePrototype {
     /// A client can keep the element after its table has gone, with the page it was on.
     private weak var table: ReaderTableElement?
     let cell: Int
-    /// The row it is read in. None for a header cell on another page.
+    /// The row it is read in. None for a header cell given by name (`ReaderTableElement.header`).
     weak var row: ReaderTableRowElement?
     /// The words it shows here.
     var text = ""
@@ -421,8 +415,6 @@ enum ReaderDataTablePrototype {
     var locations: [Int] = []
     /// Its box in its row's coordinates.
     var frameInRow = CGRect.zero
-    /// PROTOTYPE: a header cell given by name alone.
-    var isName = false
 
     init(table: ReaderTableElement, cell: Int) {
         self.table = table
@@ -447,7 +439,7 @@ enum ReaderDataTablePrototype {
     /// that stands at a row of this one holds the same views: a view answers to the cell
     /// that asked for it last, which is the cell of the table VoiceOver is in.
     private var textViews: [TableCellTextView] {
-        guard !isName, ReaderDataTablePrototype.cells != "label", let interaction = table?.view?.tableInteraction else { return [] }
+        guard let interaction = table?.view?.tableInteraction else { return [] }
         let views = locations.flatMap { interaction.accessibilityCells(at: $0, cell: cell) }
         for view in views { view.tableCellElement = self }
         return views
@@ -466,8 +458,8 @@ enum ReaderDataTablePrototype {
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
 
     /// The cell's words, where no text view says them: off screen, and for a header cell
-    /// named on a page that does not show it.
-    private var label: String? { text.isEmpty || (ReaderDataTablePrototype.cells == "area" && !textViews.isEmpty) ? nil : text }
+    /// given by name.
+    private var label: String? { text.isEmpty || !textViews.isEmpty ? nil : text }
 
     /// What the cell can do itself: show each picture, select its words, follow each link.
     private var actions: [NSAccessibilityCustomAction]? {
