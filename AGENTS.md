@@ -54,6 +54,14 @@ what happened. Tests are run by automation.
   session is acceptance evidence, so do not ask for a device to hear it again, and do not
   file an issue for a device session that would
   ([VoiceOver testing](doc/voiceover-testing.md#acceptance-and-evidence)).
+- The first of those three reaches further than the double tap. On an iPad VoiceOver asks
+  again for the items round its cursor once it has activated something, and a simulator's
+  does not know that anything was. On 2026-10-12 a line VoiceOver held from before a scroll
+  step, read in a simulator after `activate=Scroll Forward`, was filed as the reader's fault;
+  an iPad, whose VoiceOver made that double tap itself, read the first line on screen
+  ([#428](https://github.com/vocaro/EPUBLib/issues/428)). Before filing or fixing what a
+  simulator reads in the moves after an `activate=` step, run those steps on a device, or
+  make the move without an activation (`-SampleStepAfter`).
 - His approval of a run on his device covers installing and launching there. It is not an
   offer to operate it.
 - Record what automation cannot reach as not verified, and leave it to him.

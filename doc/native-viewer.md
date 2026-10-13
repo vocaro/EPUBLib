@@ -1110,13 +1110,40 @@ as they did.
   A line keeps its element while it is listed or under the cursor. Listing scrolls nothing
   and selects nothing, and lays out no more than the lines it lists
   ([#339](https://github.com/vocaro/EPUBLib/issues/339)).
-  VoiceOver keeps what it was given, which leaves two things as they are. After a menu, a
-  move back past the line it came in at, made before it has used the fifty, goes to the
-  control before the text and not to the line above. A reader that is moved while VoiceOver
-  holds lines it has not reached, by a scroll step with the cursor on a control, leaves it
-  holding lines that are no longer listed: it says the first of them and returns to the
-  control ([VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current
-  results").
+  VoiceOver keeps what it was given, and nothing tells it when the view moves under its
+  cursor. A move the reader makes itself is a scroll step, a position shown (from the
+  contents, a search, a link or a bookmark) or text built again. On a device VoiceOver
+  asks again by itself once it has activated an item, so after its own double tap on Scroll
+  Forward, or on a link, an iPad read on from the right place. A move it did not make, by
+  a key on a keyboard or the host's own command, left it with what it held. With its cursor
+  on a line it stayed on that line, said nothing, and at its next move read the line after
+  it, where UIKit brought the reader back: the step was undone. With its cursor on a
+  control after a menu, holding fifty items, it went through the controls into the lines of
+  the screen before the step. A simulator's VoiceOver does both after its own double tap as
+  well, which reaches the reader there as a plain touch: it said a line no longer on screen
+  and returned to the control, and after a link it stayed on the link.
+  So after a move of its own the canvas posts a layout change, at which VoiceOver drops
+  everything it holds and asks again: 0.8 s after it is told, by its own log in a
+  simulator, and not at all if it has moved in that time. With the cursor outside the text
+  the change names no element. The cursor stays where it is, nothing is said, and the next
+  move into the text meets the first line on screen. With the cursor on a line it names the
+  line that holds the position shown: the cursor goes there and VoiceOver reads it, as it
+  goes to the page shown in paging ("A page turned under VoiceOver's cursor" under
+  [Input and accessibility](#input-and-accessibility)). Given no element then, a
+  simulator's VoiceOver went to whichever line was drawn where its cursor had stood, the
+  line after a link's target in the session that tried it. Nothing is posted while
+  VoiceOver's Headings rotor moves the reader, because VoiceOver takes its cursor to the
+  item the rotor gives it, nor for scrolling the reader does not do: a finger's, and
+  UIKit's for VoiceOver's cursor and its three-finger scroll. The Mac posts a layout change
+  after the same moves, for its own reason (above)
+  ([#428](https://github.com/vocaro/EPUBLib/issues/428)).
+  One thing is left as it is, where VoiceOver has asked for fifty. After a menu, a move back
+  past the line it came in at, made before it has used the fifty, goes to the control before
+  the text and not to the line above. An iPad does so after a chapter chosen from the
+  contents, with the layout change as without it. A simulator's VoiceOver no longer does
+  there: the layout change for the chapter shown fills what it holds, two items each side,
+  before its first move, so it does not ask for fifty and goes on above that line
+  ([VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current results").
   UIKit has no place among the lines for the scroll view's own scroll bar, and where it put
   the bar depended on how it came to it. Going through the scroll view it gave the bar after
   the last line listed: that is where VoiceOver met it, after the book's last line, and

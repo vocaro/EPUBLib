@@ -464,6 +464,22 @@ TEST_RUNNER_VOICEOVER_STEPS='activate=Scroll Forward,activate=Scroll Forward,wai
     [#342](https://github.com/vocaro/EPUBLib/issues/342): VoiceOver had taken the list to
     start there. A line of text read at the flick itself is the harness's: on a busy Mac the
     swipe was taken for a touch and moved the cursor to the line under it.
+11. Have the reader move by something VoiceOver did not do
+    (`-SampleStepAfter`, under "Physical iPhone and iPad"). With the cursor
+    on a line, `touch=p001w01,listen=30,forward=3,backward=4` and the step at 30 seconds:
+    `listen` records the first line of the new screen, which VoiceOver reads by itself, and
+    the moves go on from that line and back past it. A `listen` that records nothing, with
+    the moves reading the lines after `p001w01 …`, is the failure of
+    [#428](https://github.com/vocaro/EPUBLib/issues/428): VoiceOver stayed on its line and
+    the reader went back to it. With the cursor on a control and fifty items held,
+    `activate=Contents,activate=Chapter one,wait=1,forward=5,forward=3,touch=Scroll Forward,listen=40,forward=9,forward=4`
+    and the step at 55 seconds: the ninth move from Scroll Forward gives the first line of
+    the new screen. "Chapter one" there is the failure. The moves before the touch are
+    needed: VoiceOver asks for fifty at its first move after the menu, and a touch straight
+    after the menu has it ask for two. In place of the timed step a simulator can use
+    `activate=Scroll Forward`, and `activate=Verification link` in the first book for the
+    cursor on a line, because its double tap is a plain touch that VoiceOver knows nothing
+    of ("Simulators"). On a device those two read right with the change and without it.
 
 Drive at least one session with `flick=right*20` and `flick=left*30` in place of `forward`
 and `backward`: those are VoiceOver's own gestures for the next and previous item, where the
@@ -1016,7 +1032,11 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 opens the book in continuous scroll, `TEST_RUNNER_VOICEOVER_HREF` opens a section other than
 the first (`OPS/labels.xhtml`), `TEST_RUNNER_VOICEOVER_BOOK=paragraphs` opens the book of
 ordinary paragraphs and `TEST_RUNNER_VOICEOVER_LAUNCH` gives the reader further launch
-arguments, with spaces between. `TEST_RUNNER_VOICEOVER_OFF=1`
+arguments, with spaces between. `TEST_RUNNER_VOICEOVER_LAUNCH='-SampleStepAfter 30'` has the
+reader make one scroll step or page turn by itself, 30 seconds after the book opens: a move
+VoiceOver did not make, as a key on a keyboard or a host's own command is. Count the steps
+before it into the delay (a touch costs about five and a half seconds) and put a `listen=`
+across the moment. `TEST_RUNNER_VOICEOVER_OFF=1`
 leaves VoiceOver off, so the same steps are plain touches: use it to tell a VoiceOver failure
 from one of the reader's own. The probe stops when the reader is no longer in the foreground.
 Another session's tests on the same device bring their own app forward or switch VoiceOver
@@ -1108,6 +1128,14 @@ and the double tap on the heading, the touch arrived on the heading and the page
   it, to the book's next heading.
 - XCTest's Control-Option-Space reaches VoiceOver, whose log names it Activate, and nothing
   reaches the reader. Control-Option with an arrow does move the cursor, in 0.4 seconds.
+- VoiceOver does not know that anything was activated, so it does nothing of what it does
+  after a double tap of its own. On an iPad, after its double tap on Scroll Forward it asked
+  again for the items round its cursor, and after one on a link it went to the link's
+  target, the reader having told it nothing. In a simulator it went on with the items it
+  held and stayed on the link. An item from before a move, met after `activate=` in a
+  simulator, is not evidence of one on a device
+  ([#428](https://github.com/vocaro/EPUBLib/issues/428), under "Harness pitfalls and
+  current results").
 
 With VoiceOver off the same touches turn the page in both orientations, and on physical
 devices VoiceOver performs every one of these
@@ -1143,6 +1171,14 @@ xcrun simctl spawn DEVICE log stream --level debug --style compact --predicate '
 - A `<null>` in the cache is an end of the list as VoiceOver has it: it asked for one more
   item there and was given none. A move to that side then ends in `Found element: (null)`
   and `BoundaryEncountered`, and the transcript has the same phrase again.
+- VoiceOver asks for fifty items each way (`fetch count: 50`) at a move it makes while it
+  holds nothing, which is how a screen change leaves it, a menu's closing among them. A
+  touch has it ask for two each side of the item touched, so a touch straight after a menu
+  leaves it holding four items, and a move straight after it sixty-one.
+- A layout change is acted on 0.8 s after it arrives, and only if VoiceOver has stayed where
+  it was: `Forced update, so removing all from cache`, then `fetch count: 2` each way from
+  its cursor, and one item at each move after that. Five layout changes that arrived while
+  it moved on every half second were followed by no forced update.
 
 The stop after the scroll bar is adjusted was found this way
 ([#342](https://github.com/vocaro/EPUBLib/issues/342), under "Harness pitfalls and current
@@ -1191,6 +1227,19 @@ button does not. A change to what VoiceOver reads needs no device session, and n
 filed to ask for one. A change to what an activation or an action does needs one, for that
 step. The simulators run iOS 27.0 and are other models than the physical devices, so where a
 simulator and a device differ, the device's result stands and the difference is recorded.
+
+One such difference follows from the first of the three. Once it has activated something
+itself, VoiceOver on an iPad asks again for the items round its cursor, and goes to what is
+shown when its own item has left the screen. A simulator's VoiceOver does not know that
+anything was activated and goes on with the items it held. After `activate=Scroll Forward`
+in continuous scroll it read a line from before the step, and after `activate=` on a link
+it stayed on the link, where the iPad read on from the right place both times
+([#428](https://github.com/vocaro/EPUBLib/issues/428), under "Harness pitfalls and current
+results"). So what VoiceOver reads in the moves after an `activate=` step, until it has
+next asked for items, is the simulator's own where it holds items from before the step:
+run a fault first seen there on a device, or make the same move without an activation
+(`-SampleStepAfter`), before it is filed or fixed. In continuous scroll the reader now
+tells VoiceOver of every move of its own, and the two agree after one.
 
 Sessions that show a change by what VoiceOver said before and after it are recorded on the
 same main. Merge main into the branch first, and take as "before" a commit that holds main
@@ -1680,9 +1729,10 @@ The Mac runner's transcript is plain text and needs no export.
   (iOS 27.0) did the same after any menu closed, even when the chapter chosen was the one on
   screen, and read on, as the devices did, when VoiceOver came into the text after a step of
   the reader's own or without a menu having closed. Posting a layout change, with no element
-  or with the line under the cursor, did not change that in the simulator; a page-scrolled
-  notification made VoiceOver skip lines; giving it new elements for the same lines once its
-  cursor had moved on made it lose its place
+  or with the line under the cursor, did not change that in the simulator (the entry on
+  [#428](https://github.com/vocaro/EPUBLib/issues/428) below has what a replay showed); a
+  page-scrolled notification made VoiceOver skip lines; giving it new elements for the same
+  lines once its cursor had moved on made it lose its place
   ([#339](https://github.com/vocaro/EPUBLib/issues/339)).
 - What VoiceOver asks for, from a build that logged UIKit's answers to it (not committed; it
   replaced `_accessibilityElementsInDirectionWithCount:options:` to log the count and what
@@ -1965,6 +2015,106 @@ The Mac runner's transcript is plain text and needs no export.
     bar at "16 pages 25%" and "15%" for the swipe up; then `p015w36 … p015w40` and two
     lines above it, and five forward in order. The session's first phrase, before any
     step, was not the book's or the sample's and was withheld unread.
+- A move of the reader's own in continuous scroll, with VoiceOver holding items from before
+  it ([#428](https://github.com/vocaro/EPUBLib/issues/428)), on 2026-10-13. iPhone 17 Pro
+  simulators of the session's own (iOS 27.0, 17 points) and the physical iPad Air 13-inch
+  (M3) (iPadOS 27.2, upright at 23 points), through XCTest's VoiceOver service, VoiceOver
+  switched on for each session and read back as off after it; nobody listened. The book of
+  ordinary paragraphs unless the first book is named. "Before" is main at `0a0dce0` with the
+  sample's `-SampleStepAfter` added, and "after" is `812335c`. VoiceOver's own log is the
+  simulator's ([Simulators](#simulators)), from builds that also logged what the reader
+  posted (not committed).
+
+  The issue's first case is the simulator's own. Its steps are
+  `activate=Contents,activate=Chapter one,wait=2,forward=5,forward=18,activate=Scroll Forward,listen=2,forward=9,forward=6`.
+  - Simulator, before: after the step the eight controls from "Search in book" to
+    "Bookmark", then "Chapter one Heading", then "Scroll Forward" and the controls again.
+    VoiceOver's log has `fetch count: 50` at its first move after the menu and sixty-one
+    items held from then on, the touch on Scroll Forward landing on one of them; at the
+    ninth move `Found element: Chapter one (14, 61)`, at the tenth `currentValid=0`, the
+    cursor set back on Scroll Forward and `fetch count: 2`. Nothing reached it as the step
+    was made.
+  - Simulator, after: the eight controls, then `p003w36 p003w37 p003w38 p003w39`, the first
+    line on screen, and six lines in order, with VoiceOver's own flicks as with the
+    service's moves (`flick=right*12`). The log has `Received note: Layout Changed` with no
+    element as the step is made, `Forced update, so removing all from cache` 0.8 s later
+    and `fetch count: 2` each way from Scroll Forward, where the cursor stayed; nothing was
+    said. After Scroll Backward
+    (`activate=Contents,activate=Chapter two,wait=2,forward=5,forward=3,activate=Scroll Backward,listen=2,forward=10,forward=4`)
+    the tenth move gave `p039w24 …`, the first line on screen, where before it gave
+    "Chapter two Heading", the line VoiceOver held, which the step had taken most of the
+    way down the screen.
+  - iPad, before and after alike: the eight controls, then `p005w15 … p005w21`, the first
+    line on screen, and six lines in order; after Scroll Backward, `p036w15 …`. There the
+    double tap is VoiceOver's own, and it had asked again by itself. A simulator's double
+    tap is a plain touch that VoiceOver knows nothing of, so the stale line after it is
+    not a device's.
+  - A link followed from its line, in the first book
+    (`touch=Verification link,activate=Verification link,listen=3,forward=3,backward=5`).
+    Simulator, before: nothing said, then ". Image:", "Blue verification square" and ".",
+    the lines after the link, with the reader back at the top of the book. After: "Link
+    target reached Heading" by itself, then "This is the end of the numbered paragraph."
+    and on, and back through the heading to `word1198 word1199 word1200`; the log has the
+    layout change with an element, `Will set element: Link target reached` 0.9 s later and
+    the forced update. iPad, before and after alike: "Link target reached Heading" by
+    itself and the same lines.
+
+  A move VoiceOver did not make shows the fault on the iPad too. The sample makes one
+  scroll step by itself (`-SampleStepAfter`).
+  - The cursor on a line (`touch=p001w01,listen=30,forward=3,backward=4`, the step at 30
+    seconds). iPad, before: nothing heard at the step, then `p001w08 …`, `p001w15 …` and
+    `p001w22 …`, the lines after the one the cursor was on, and back to "Chapter one
+    Heading": the reader had gone back with the cursor, and the step was undone. After:
+    `p005w15 … p005w21` heard at the step, the first line of the new screen, then three
+    lines on and four back in order, past that line to `p005w08 …`. The simulator the same
+    with its own lines: before, `p001w06 …` and on; after, `p002w24 …` heard, and its log
+    has the layout change naming that line, `Will set element` 0.8 s later and
+    `fetch count: 2` each way from it.
+  - The cursor on a control with fifty items held
+    (`activate=Contents,activate=Chapter one,wait=1,forward=5,forward=3,touch=Scroll Forward,listen=40,forward=9,forward=4`,
+    the step at 55 seconds). iPad, before: the eight controls, then "Chapter one Heading",
+    `p001w01 …`, `p001w08 …` and on, the screen from before the step. After: the eight
+    controls, then `p005w15 …`, the first line on screen, and four lines in order.
+    Simulator, before: "Chapter one Heading" and back to Scroll Forward, as in the issue;
+    after: `p002w24 …` and on. Without the eight moves before the touch VoiceOver held four
+    items and came in at the first line on screen either way.
+
+  What a layout change does, from the same logs.
+  - With no element, and the cursor's line no longer on screen (a build that posted so
+    after the link): `Will set element: This is the end of the numbered paragraph.` 1.4 s
+    later, the line then drawn where the link had been, not the link's target. So a line
+    is named whenever the cursor is in the text.
+  - During a move by the Headings rotor
+    (`touch=p001w06,rotor=Headings,flick=down,listen=3,forward=3,backward=5`): "Chapter two
+    Heading" and the lines each side in order, with a layout change posted and with none.
+    VoiceOver set its cursor on the rotor's item 30 ms after the notification and made its
+    forced update from there. Nothing is posted for a rotor's move.
+  - After a chapter chosen from the contents the simulator's VoiceOver no longer asks for
+    fifty: the layout change for the chapter arrives while the menu closes, the forced
+    update leaves two items each side of Contents, and the first move finds something
+    held. So the issue's second case
+    (`activate=Contents,activate=Chapter two,wait=2,forward=5,forward=8,backward=12`) went
+    on above the heading there, `p040w39 p040w40` and three lines more, where before it
+    gave "Bookmark". On the iPad it gave "Bookmark" before and after: that case stands.
+  - [#339](https://github.com/vocaro/EPUBLib/issues/339)'s trial again, the lines listed as
+    they were then (the screen alone from a control, two each side with the cursor on a
+    line) and a layout change posted at every change of the list
+    (`activate=Contents,activate=Chapter two,wait=2,forward=5,forward=30`). Without the
+    layout change: the lines to `p042w29 …`, "Vertical scroll bar" and the footer, as
+    recorded. With it, naming nothing or the cursor's line: on past the screen to
+    `p044w14 …` in order. It was not the changes posted as the cursor moved that did it.
+    Five of them arrived while VoiceOver moved on every half second, and no forced update
+    followed any. It was the one posted as the chapter was shown, with the cursor at rest
+    on Contents, which kept VoiceOver from asking for fifty. A chapter chosen that is the
+    one already shown changes no list, and a trial on such a choice would have seen no
+    effect; what the trials of the day did is not on record.
+  - A search (`activate=Search in book,type=p020w01\n,listen=3,forward=12`, with a `type`
+    step that is not committed) and the contents
+    (`activate=Scroll Forward,wait=1,activate=Contents,activate=Chapter two,listen=2,forward=6,backward=3`)
+    read the same before and after in the simulator: into the text at `p020w01 …`, the
+    line of the hit, and at "Chapter two Heading".
+  - On the iPad one session's first phrase, before any step, was not the book's or the
+    sample's and was withheld unread.
 - The two lines that used to be listed each side were one short when VoiceOver moved back up
   the screen, menu or no menu. With its cursor on a line it asks for the item before the
   line two above, so three lines above the cursor must be listed, and two were unless more
