@@ -1523,6 +1523,26 @@ The Mac runner's transcript is plain text and needs no export.
   Image", and the row its three. `5e6834c` is the change on the table branch's own merge
   with `main`; a session in pages at `918ec8b`, the same change on an earlier merge, read
   the same on both simulators.
+  The physical iPad Air 13-inch (M3) of the sessions above (1024 × 1366, upright, 17
+  points) read the section in pages at `331c326`, which has the table's rows and the other
+  branch's change merged in. "Plain words above." offered "Next Page", "Previous Page" and
+  "Activate Default"; "Square with words" those two, "Inspect Image: Square with words" and
+  "Activate Default"; and the row began "Next Page", "Previous Page", "Select Table Text:
+  Left cell". With Next Page chosen on "Plain words above." a double tap changed the screen,
+  and the screenshot shows the page that begins "Below line 18.", where the one before ended
+  at "Below line 17.": VoiceOver performed the line's own page turn. VoiceOver was off
+  afterward.
+  That turn was made with text selected: before it, Select Table Text: Left cell had been
+  chosen on the row and performed by a double tap. A second session ran the same two steps
+  on a build whose line still turned the page as it used to (`18323fd`, the same revision
+  with that one call put back, not in the branch), and there the double tap on Next Page
+  changed nothing: "nothing on screen changed in 2.0 s", the first page still in the
+  screenshot, and "Words before" for the next move forward. So VoiceOver performs Select
+  Table Text on a device, the selection held back a line's page turn as it was, and it does
+  not now. The selection itself is not to be seen in either screenshot.
+  One thing was seen and not looked into: after the turn VoiceOver's cursor was still drawn
+  where the line had stood, and a move forward from it went to the book's title under the
+  page.
   Most sessions started that evening did not run. At load averages of 600 to 1,000
   `devicectl` gave no answer in the runner's twenty seconds when a simulator's volume was
   set, and later failed with "Timed out waiting for CoreDeviceService to fully initialize";
