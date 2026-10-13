@@ -573,9 +573,12 @@ enum SVGContent {
     /// mask's content is drawn once here, not once per element that references the mask (#220); a
     /// gradient inherited from above a mask onto the mask's content is not charged.
     ///
-    /// The check's own work is held to `stepBudget`, and an SVG that spends it is refused: the
-    /// gradients looked up, the elements walked, and the CSS read, by the byte, so that none of
-    /// the three can be made to cost more than the budget allows whatever the SVG holds.
+    /// The check's own work is charged to `stepBudget`, and an SVG that spends it is refused: the
+    /// gradients looked up, the elements walked, and the CSS read, by the byte. The budget does
+    /// not bound all of that work. A visit to an element goes over every child the element has,
+    /// drawn or not, for its one step. What bounds that is the expansion limit, which counts 32
+    /// bytes or more for each child of each element the walk visits, as often as it visits it,
+    /// and which `isWithinRenderingLimits` applies before it calls this.
     static func copyVerdict(_ svg: ContentNode, nodes: [ContentNode], ids: [String: [ContentNode]],
                             stepBudget: Int = markerStepBudget) -> CopyVerdict {
         var steps = 0

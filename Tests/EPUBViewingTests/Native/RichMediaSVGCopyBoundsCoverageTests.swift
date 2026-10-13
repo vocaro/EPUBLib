@@ -443,9 +443,23 @@ final class RichMediaSVGCopyBoundsCoverageTests: XCTestCase {
     /// gradient to every gradient that had the id it named, and from each of those to every gradient
     /// with the next id: the work doubled with each link of a chain whose ids two gradients share,
     /// so screening a file of 1.6 KB took ten seconds and one of 3 KB did not finish. Each gradient is
-    /// now read once, for one step. The steps are asserted, under a budget that such a lookup would
-    /// spend at once: were it to come back, these would fail and not hang.
+    /// now read once, for one step, and the steps are asserted.
+    ///
+    /// What would stop such a lookup here, were it to come back, is the first assertion of this
+    /// test, where the test ends (`continueAfterFailure`): ten ids, two gradients to each, under a
+    /// budget of 1,000 steps. A lookup that takes a step for each gradient it reads, and reads them
+    /// over again, is stopped there by the budget: it spends the 1,000 at once and the drawing is
+    /// refused. The lookup that was removed took no step, and no budget stops that one. What does
+    /// is that this chain is short: it reads it in some four thousand calls, and counts 2 steps
+    /// where there are 22. Either fails in milliseconds, and the longer chains are then not
+    /// screened, as they must not be. From a chain of forty ids the lookup that takes no step
+    /// would not return, and the one that takes them would go on to the whole screen
+    /// (`isWithinLimits`), whose budget is the real one, a million steps, which took it nearly
+    /// three minutes in one of these tests. The two tests after this one screen shared ids too,
+    /// and begin the same way.
     func testGradientsThatShareIdsAreEachReadOnce() throws {
+        continueAfterFailure = false
+        XCTAssertEqual(verdict(chain(10, shared: 2), stepBudget: 1_000).steps, 22, "each gradient read once, for one step")
         for (levels, shared) in [(20, 2), (12, 3), (40, 2), (64, 4)] {
             let drawing = chain(levels, shared: shared)
             let result = verdict(drawing, stepBudget: 1_000)
@@ -464,6 +478,11 @@ final class RichMediaSVGCopyBoundsCoverageTests: XCTestCase {
     /// screen (#229) refuses the drawing first, but the lookup ends on its own: an id that several
     /// gradients share is not followed. One gradient that names itself is a loop of one.
     func testGradientsThatNameTheIdTheyShareEndTheLookup() throws {
+        // A lookup that followed every gradient with a shared id fails this first, in milliseconds,
+        // and the test ends there, as `testGradientsThatShareIdsAreEachReadOnce` says: one that took
+        // no step would not return from the two gradients below.
+        continueAfterFailure = false
+        XCTAssertEqual(verdict(chain(10, shared: 2), stepBudget: 1_000).steps, 22, "each gradient read once, for one step")
         let rect = "<rect width='1' height='1' fill='url(#a)'/>"
         var result = verdict(svg(String(repeating: "<linearGradient id='a' href='#a'/>", count: 2), rect), stepBudget: 1_000)
         XCTAssertTrue(result.withinLimits)
@@ -476,10 +495,17 @@ final class RichMediaSVGCopyBoundsCoverageTests: XCTestCase {
         XCTAssertEqual(result.steps, 1 + 2, "a gradient that names itself is read once")
     }
 
-    /// Where a chain meets an id that several gradients share, the renderer goes on from the last of
-    /// them. Which is last is not worked out, so the gradient is charged the most stops any gradient
-    /// in the SVG has, which is never less: a chain of shared ids cannot hide the stops it ends in.
+    /// Where a chain meets an id that several gradients share, the renderer takes the last element
+    /// that has the id: it goes on from that one when it is a gradient, and finds no stops and paints
+    /// nothing when it is not. Which is last is not worked out, so the gradient is charged the most
+    /// stops any gradient in the SVG has, which is never less: a chain of shared ids cannot hide the
+    /// stops it ends in.
     func testAnHrefToASharedIdIsChargedTheLargestGradient() throws {
+        // A lookup that followed every gradient with a shared id fails this first, in milliseconds,
+        // and the test ends there, as `testGradientsThatShareIdsAreEachReadOnce` says: one that took
+        // no step would not return from the chain of forty ids below.
+        continueAfterFailure = false
+        XCTAssertEqual(verdict(chain(10, shared: 2), stepBudget: 1_000).steps, 22, "each gradient read once, for one step")
         // Forty ids, two gradients to each, and where the chain ends a gradient of 2,048 stops: the
         // renderer paints every rect with those.
         func drawing(_ rects: Int) -> String { chain(40, shared: 2, tail: gradient("g40", stops: 2_048), rects: rects) }
@@ -581,10 +607,18 @@ final class RichMediaSVGCopyBoundsCoverageTests: XCTestCase {
     /// A `style` attribute's longest declaration bounds every dash array the attribute declares.
     /// It was once found again for each declaration whose name ends in `dasharray`, so the screen
     /// read the attribute once for each: 4,000 of them, 40 KB, took it five seconds, and 20,000
-    /// two minutes. It is now found once. The steps are asserted, under a budget that a reading
-    /// for each declaration would spend many times over (2,000 readings of 20,000 bytes are
-    /// 625,000 steps): were that to come back, these would be refused at the budget and fail, and
-    /// not run on.
+    /// two minutes. It is now found once, in a reading that is charged, and the charge is what the
+    /// steps asserted here pin: four readings of the attribute, whatever it declares.
+    ///
+    /// The scan as it was, made for each declaration and charged for none, fails on that count,
+    /// three readings where four are asserted. It takes no step, so no budget stops it: it fails
+    /// when it has run, in seconds here. A reading for each declaration that is charged fails
+    /// under the budget of 4,000 given here, which it spends many times over (2,000 readings of
+    /// 20,000 bytes are 625,000 steps), so that the drawing is refused; the whole screen
+    /// (`isWithinLimits`) has the real budget, a million steps, under which most of those
+    /// readings are still made, in seconds too. A second reading that is not charged, added
+    /// beside the charged one, is not caught: the steps are the same with it, and this test
+    /// passes, only more slowly. No time is asserted here (#62).
     func testAStyleAttributeIsReadOnceForItsDashArrays() throws {
         for (declaration, longest) in [("dasharray:", nil), ("stroke-dasharray:1 2;", 20)] as [(String, Int?)] {
             for count in [500, 1_000, 2_000] {
@@ -660,11 +694,35 @@ final class RichMediaSVGCopyBoundsCoverageTests: XCTestCase {
         XCTAssertEqual(stopped.steps, 13_000 / 64, "at the first reading")
     }
 
-    /// What an element is to the walk is told from its name, which is read once for each element
-    /// and not once for each time a `<use>` draws it: nothing charges a name's bytes, so a name of
-    /// any length must cost a step of the walk no more than a short one. Only the counts can be
-    /// asserted here; they are the same for a long name as for a short.
-    func testAnElementIsToldFromItsNameOnce() throws {
+    /// What an element's attributes and `style` declare is read once and kept, however often a
+    /// `<use>` draws the element. The readings of a `style` are charged, so the steps show it: a
+    /// styled group drawn 64 times takes the steps of four readings of its `style`, where a
+    /// screen that kept nothing would make the four at each of the 64 visits, 5,376 steps for
+    /// them, and be refused under the budget given here.
+    func testAStyledGroupDrawnThroughUseIsReadOnce() throws {
+        // 1,344 bytes of `style`, 21 steps a reading: for a decoration, for the paints and whether
+        // a dash array is declared, for the longest declaration, and for the values.
+        let style = String(repeating: "stroke-dasharray:1 2;", count: 64)
+        let drawing = svg("<g id='u' style='\(style)'><rect width='1' height='1'/></g>",
+                          String(repeating: "<use xlink:href='#u'/>", count: 64))
+        let result = verdict(drawing, stepBudget: 1_000)
+        XCTAssertTrue(result.withinLimits)
+        XCTAssertEqual(result.copies, 64 * 20, "each rect drawn is charged the group's longest declaration, `stroke-dasharray:1 2`")
+        XCTAssertEqual(result.steps, 1 + 64 * 4 + 4 * 1_344 / 64,
+                       "the root; for each use the use, the reference it follows, the group and the rect; and the four readings, made once")
+    }
+
+    /// The walk of a `<use>` tree takes a step for each element it visits and each reference it
+    /// follows, 510 here, and nothing charges a name's bytes: an element whose name is 20,000
+    /// bytes long adds no step and no copy to what one named `a` takes. That is all this pins.
+    ///
+    /// The screen also keeps what each element is to the walk (a shape, a text, a `<use>`, or
+    /// not drawn), so that a name is read once for its element and not once for each time a
+    /// `<use>` draws it. No count shows that. Reading a name is not charged, so a screen that
+    /// read it at every visit would take the same steps and count the same copies, and would
+    /// pass this test and every other here: only a time tells the two apart, and none is
+    /// asserted (#62).
+    func testALongElementNameAddsNoStepToTheWalkOfAUseTree() throws {
         func tree(_ name: String) -> String {
             var definitions = "<g id='t0' fill='red'><\(name)/><rect width='1' height='1'/></g>"
             for level in 1...6 {

@@ -964,14 +964,21 @@ Go: the native viewer is the bundled engine.
   the other limits allow); each shape is charged the most that it or any ancestor, through every
   `<use>` that draws it, could ask for, so the count never falls below what the renderer does. A
   stylesheet's declarations are the exception: they are charged only in part, as their entry below
-  says, and what they cost the renderer is not bounded.
+  says, and what they cost the renderer is not bounded. The screen's own work is counted too, in
+  steps for the gradients it looks up, the elements it walks and the CSS it reads, and a drawing
+  that spends its budget of steps shows its fallback text with the same disclosure: that bounds the
+  screen and not the renderer, and the one kind of drawing within the other limits known to spend
+  it is built to, a `<style>` inside other `<style>` elements, whose CSS is read again for each of
+  them, at least three deep with megabytes of CSS or some sixty deep with a few hundred kilobytes.
   - A gradient's stops are copied into a fresh paint server for every shape it paints by `fill` or
     `stroke`, directly or inherited, in an attribute or a `style` declaration, through a gradient
     `href` chain, and through each `<use>`; each shape is charged the stops its fill names and those
     its stroke names. A gradient with no stops of its own is charged those its `href` chain leads to,
     however long the chain. Where the chain meets an `id` that several gradients share, the renderer
-    goes on from the last of them, and the gradient is charged the most stops any gradient in the
-    drawing has. A stylesheet that paints with a gradient is taken to reach every shape.
+    takes the last element that has the `id`: it goes on from that one when it is a gradient, and
+    paints nothing when it is not. Which is last is not worked out, and the gradient is charged the
+    most stops any gradient in the drawing has. A stylesheet that paints with a gradient is taken to
+    reach every shape.
   - A stroke's dash array is stored for every stroked shape that has or inherits one; each shape is
     charged its dash-array bytes, an upper bound on its entries.
   - Each inherited presentation value the renderer re-parses for every shape — the `fill` and
