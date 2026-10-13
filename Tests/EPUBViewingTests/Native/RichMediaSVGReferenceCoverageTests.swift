@@ -1,18 +1,11 @@
 import XCTest
 @testable import EPUBViewing
 
-/// References between an SVG's elements that the bundled renderer cannot follow: a loop of
-/// masks or clip paths it does not unlink, a gradient `href` walk that never ends, and a chain
-/// of nesting and references deeper than the nesting limit. With them, a linear gradient that
-/// repeats or reflects, which the renderer panics on where the gradient has no length. Each is
-/// refused before the renderer parses it and shows its fallback text with the `svg` disclosure.
-///
-/// The renderer spends its stack, never returns or panics on most drawings here, and any of
-/// the three would end the test run. So the screen is asked for its verdict, which is plain
-/// Swift over the parsed drawing and never reaches the renderer. Only two kinds of drawing are
-/// handed on: those the renderer was shown to draw safely, one child process a drawing, on the
-/// 512 KiB stack a section is built on; and those the rendering limits have just refused,
-/// which stop before it.
+/// Reference loops and unbounded chains remain screened before they reach the renderer.
+/// Repeating gradients are accepted by the screen: when their resolved geometry panics,
+/// the Rust boundary contains it and the ordinary section path substitutes fallback text.
+/// Inputs that spend the stack or never return are given only to the screen; contained
+/// panic inputs and known-safe neighbours also exercise the real renderer.
 final class RichMediaSVGReferenceCoverageTests: XCTestCase {
     private static let ns = "xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'"
     /// A shape's size and paint: white, so that it shows through a mask.
@@ -417,8 +410,6 @@ final class RichMediaSVGReferenceCoverageTests: XCTestCase {
             ("three clip paths in a ring, by a stylesheet", linked("clipPath", count: 3, .sheet)),
             ("a gradient walk into a loop", gradients(ring: 2, tail: 1)),
             ("a chain of 128 masks", linked("mask", count: 128, ring: false)),
-            ("a gradient of no length that repeats", gradient("spreadMethod='repeat'")),
-            ("a gradient that reflects through another", gradient("href='#b'", after: "<radialGradient id='b' spreadMethod='reflect'/>")),
         ]
         for (name, body) in refused {
             // Inline: the drawing's own title stands in for it.
@@ -432,6 +423,24 @@ final class RichMediaSVGReferenceCoverageTests: XCTestCase {
                 XCTAssertTrue(text.richMediaImages.isEmpty, "\(name): no image")
                 XCTAssertEqual(text.richMediaPlain, name, "\(name): the alt text is shown")
                 XCTAssertEqual(text.report.unsupportedElements["svg"], 1, "\(name): disclosed")
+            }
+        }
+    }
+
+    func testAScreenAcceptedGradientPanicShowsInlineAndArchiveFallbackWithDisclosure() throws {
+        for (name, body) in [
+            ("a gradient of no length that repeats", gradient("spreadMethod='repeat'")),
+            ("a gradient that reflects through another", gradient("href='#b'", after: "<radialGradient id='b' spreadMethod='reflect'/>")),
+        ] {
+            let (screen, limits) = try verdicts(body)
+            XCTAssertTrue(screen, name)
+            XCTAssertTrue(limits, name)
+            let inline = try RichMediaBook(body: "<p>\(drawing("<title>\(name)</title>" + body))</p>").build()
+            let archive = try RichMediaBook(body: "<p><img src='d.svg' alt='\(name)'/></p>", files: ["d.svg": Data(drawing(body).utf8)]).build()
+            for text in [inline, archive] {
+                XCTAssertTrue(text.richMediaImages.isEmpty, name)
+                XCTAssertEqual(text.richMediaPlain, name)
+                XCTAssertEqual(text.report.unsupportedElements["svg"], 1, name)
             }
         }
     }

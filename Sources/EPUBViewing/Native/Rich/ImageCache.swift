@@ -8,7 +8,8 @@ import AppKit
 #endif
 
 /// An image resource as the section build found it: the bytes (shared with the publication,
-/// never copied) and the header's pixel size. Nothing is decoded until the image is drawn.
+/// never copied) and the header's pixel size. Bitmaps decode when drawn; SVG parses and
+/// checks a small raster when built, then rasterizes requested sizes when drawn.
 final class ReaderImageSource: @unchecked Sendable {
     enum Format: Sendable { case bitmap, svg }
 
