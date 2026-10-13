@@ -92,15 +92,15 @@ files = {'mimetype': 'application/epub+zip',
                        'passed over.</p><p>Titled picture <img src="titled.svg"/> stands '
                        'here.</p><p>Last words about pictures.</p></body></html>',
  # What stands between two scenes: a rule, which HTML makes a change of subject and not a
- # picture; one the book says is only ornament; and one alone on its page, where it is all
- # VoiceOver has to stand on. No word here is one a screen reader uses for a rule, so those in
- # a transcript are VoiceOver's or the reader's own.
+ # picture; one the book gives the presentation role, as ornament; and one alone on its page,
+ # where it is all VoiceOver has to stand on. No word here is one a screen reader uses for a
+ # rule, so those in a transcript are VoiceOver's or the reader's own.
  'OPS/scenes.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
                      'xmlns="http://www.w3.org/1999/xhtml"><head><title>Scenes set '
                      'apart</title><style>.alone, .after { break-before: page; '
                      '}</style></head><body><h1>Scenes set apart</h1><p>First scene '
                      'ends.</p><hr/><p>Second scene starts.</p><hr '
-                     'role="presentation"/><p>Ornament passed over.</p><div '
+                     'role="presentation"/><p>Words after an ornament.</p><div '
                      'class="alone"><hr/></div><p class="after">Last words of the '
                      'scenes.</p></body></html>'}
 files["OPS/body.xhtml"] = files["OPS/body.xhtml"].replace(
