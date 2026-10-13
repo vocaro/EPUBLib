@@ -1989,6 +1989,11 @@ The Mac runner's transcript is plain text and needs no export.
   Before the heading's element said whether it has the focus, at `4338642` (run
   38383603629), VoiceOver said the heading on the later page and the page stayed, with
   cursor tracking on: it had not focused the element.
+  With main merged in at `a41e642`, where the scroll view tells of its insertion point a
+  second time after a move of the reader's own
+  ([#473](https://github.com/vocaro/EPUBLib/pull/473)), five sessions gave the same phrases
+  in pages and in continuous scroll, "word1200" and the heading among them, with `describe`
+  still naming the heading (run 38415339848).
   Four runs before those, on a throwaway branch that logged every request to the text view
   and answered VoiceOver's search for elements in variants chosen by launch arguments
   (`claude/probe-heading-search-454`, a pause of 3 seconds), are why the reader offers no
