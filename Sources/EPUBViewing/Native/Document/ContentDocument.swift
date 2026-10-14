@@ -236,11 +236,13 @@ final class ContentDocument: @unchecked Sendable {
     /// stray `<` in them. A document in another encoding is decoded first, and its named
     /// references are rewritten in what was decoded, not in its own bytes. libxml2 would discard
     /// the text after a `<` that opens no markup and end the document at a NUL. What it is
-    /// given stays within the byte limit decoded, and again with those signs and NULs replaced.
+    /// given stays within the byte limit decoded, after XML declaration/CDATA recovery, and
+    /// again with those signs and NULs replaced.
     static func htmlSource(_ data: Data, rewritten: Data, path: String, limits: ContentLimits) throws -> (data: Data, placeholder: Unicode.Scalar?) {
         let limit = min(limits.bytes, Int(Int32.max))
         let text = try HTMLSourceEncoding.utf8(data, path: path, limit: limit).map { HTMLEntities.numericReferences(in: $0) } ?? rewritten
-        guard let signs = HTMLStraySigns.replaced(in: text, limit: limit),
+        let recoveredText = try HTMLRecoveryText.prepared(text, path: path, limit: limit)
+        guard let signs = HTMLStraySigns.replaced(in: recoveredText, limit: limit),
               let source = HTMLNullCharacters.replaced(in: signs.data, limit: limit) else {
             throw ContentDocumentError.limitExceeded("bytes")
         }
