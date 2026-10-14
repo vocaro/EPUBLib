@@ -343,8 +343,11 @@ final class PositionSearchCoverageTests: XCTestCase {
     /// sensitivity `Intl.Collator('ja')` equates らあめん with ラーメン and こころ with こゝろ, and
     /// so does the comparison here. Contextual marks must bypass per-character keys.
     func testJapaneseLengthAndIterationMarksAreNotLostToThePrefilter() throws {
+        // The system JavaScriptCore Intl.Collator oracle distinguishes halfwidth prolonged
+        // sound marks from their vowel expansions in ja. Keep those as same-form/parity cases.
         let document = try document("<p>ラーメン らあめん ﾗｰﾒﾝ コーヒー ｺｰﾋｰ こゝろ かゞみ</p>", lang: "ja")
-        for (query, expected) in [("らあめん", ["ラーメン", "らあめん", "ﾗｰﾒﾝ"]), ("こおひい", ["コーヒー", "ｺｰﾋｰ"]), ("こころ", ["こゝろ"]), ("かがみ", ["かゞみ"])] {
+        for (query, expected) in [("らあめん", ["ラーメン", "らあめん"]), ("こおひい", ["コーヒー"]), ("こころ", ["こゝろ"]), ("かがみ", ["かゞみ"]),
+                                  ("ﾗｰﾒﾝ", ["ﾗｰﾒﾝ"]), ("ｺｰﾋｰ", ["ｺｰﾋｰ"])] {
             let complete = TextSearch.matches(of: query, in: document, locale: "ja", usePrefilter: false).map { TextSearch.text(of: $0, in: document) }
             XCTAssertEqual(complete, expected, "\(query): the full comparison")
             let filtered = TextSearch.matches(of: query, in: document, locale: "ja").map { TextSearch.text(of: $0, in: document) }
