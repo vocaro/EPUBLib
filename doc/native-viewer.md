@@ -174,7 +174,11 @@ continues to describe the authored spine resource.
   ([#187](https://github.com/vocaro/EPUBLib/issues/187)). Archive raster references are resolved
   and bounded before rendering; scripts,
   animation, foreign content and external resources are omitted with a disclosure. Manifest
-  image fallbacks apply inside SVG as well. SVG
+  image fallbacks apply inside SVG as well. Recursive preparation shares one memo and work
+  budget per drawing: 128 request/candidate misses, 16 MiB each of loaded source and serialized
+  SVG, 64 Mi raster pixels, 8 MiB of cached PNGs, and eight ancestor paths. Cache entries retain
+  their ancestor and font context, cancellation stops preparation, and exhausted budgets omit
+  images with a disclosure. SVG
   filter effects are omitted with a disclosure while preserving the drawing's shapes and labels.
   The sanitizer omits filter definitions, presentation attributes and CSS declarations, and
   `SectionReport` retains its `svg:filter` disclosure. CSS omission preserves neighboring fill,
@@ -2547,9 +2551,11 @@ foreign elements, literal attribute tabs/line endings, and HTML numeric-referenc
 are outside this subset. These cases require source correction or a host's explicit quote
 search for migration; changing an engine/format tag alone cannot repair their positions.
 For selected fallback XHTML or SVG, local-root CFI assertions carry
-`vnd.epublib.resource=<encoded effective href>`. Resolution verifies the resource before
+`vnd.epublib.resource=<SHA-256 digest of effective href>`. Resolution verifies the resource before
 using offsets; an unmarked original-source CFI or a contradictory resource assertion cannot
-silently address the fallback DOM. Package itemref paths and ordinary original-document CFIs
+silently address the fallback DOM. Qualified CFIs allow at most two fixed-size resource assertions within a 4,272-character wire
+limit, retaining the ordinary 4,096-character underlying CFI budget. Package itemref paths and
+ordinary original-document CFIs
 remain unchanged ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
 
 `.disclosure` text summarises the books' `SectionReport`s and is re-emitted when it changes. `.notice` reports
