@@ -40,3 +40,32 @@ PAGE_TEXT_SECTIONS=500 PAGE_TEXT_REVIEW_SECTIONS=500 PAGE_TEXT_SEED=12 \
 ```
 
 The generated tests default to 24 sections for the ordinary gate. The historical diagnostic reports are evidence, not an alternative runtime oracle; production preserves the established eligibility decisions and tests its actual native output.
+
+## Minimum fallback clip and degenerate viewports
+
+The integration gate exposed two older pagination contracts. A 600-point source glyph now
+fits its 500-point page through the #303 typography fallback; its original page boundaries
+remain unchanged. The old assertion that its page must be taller than the clip contradicted
+that repair. Its test now checks every native glyph rectangle, source partition and page lookup.
+
+The zero- and one-point viewport failures were a real regression. A native probe found no
+three-point font floor: a fitted 0.84909-point font produces a one-point TextKit line and glyph
+box. A zero-point clip cannot show it; a one-point heading retains half a point of top spacing,
+leaving only half a point for that glyph. The earlier half-point tolerance accepted this loss.
+Fallback now requires its measured one-point minimum drawing box plus the existing one-point
+safety inset after top spacing. Below that budget pagination preserves the original fonts and
+one-source-line progress, without claiming visible glyphs. A failed fitted retry also preserves
+the original page. No font or page-range alteration is committed for an impossible clip.
+
+Permanent tests check the two-point effective-clip threshold and just below it, both with and
+without retained top spacing. At viable 12/24-point page heights and 500-point oversized-glyph
+pages, every nonwhitespace source character's native segment rectangle must fit the effective
+clip within 0.01 points; complete source partitions and boundary/interior/end page lookups
+remain checked. The temporary probe was removed after recording these findings here.
+
+The bounded follow-up ran `ViewCoveragePaginationTests|PageTextPreservationTests|PageTextGeometryTests`
+with one build worker, then repeated without rebuilding after fetching unchanged main24400.
+Both final runs passed all37 tests (23 pagination,11 geometry,3 preservation). The normal-sized
+500-section and frozen displayed-rectangle qualification above remains unchanged; this guard
+only declines an infeasible fallback drawing budget. Full integration and iOS qualification
+remain the integration gate's responsibility.

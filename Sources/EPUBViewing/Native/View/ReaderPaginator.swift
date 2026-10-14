@@ -68,6 +68,16 @@ struct ReaderTableFragment: Equatable {
     /// The longest paragraph (UTF-16 units, with its terminator) CoreText justifies as a whole.
     static let wholeParagraphJustification = 8_192
 
+    // TextKit rounds a fitted line/glyph box up to one point. Keep the existing one-point
+    // drawing inset as well; a smaller clip cannot display fallback typography safely.
+    private static let minimumFallbackLineHeight: CGFloat = 1
+    private static let fallbackClipInset: CGFloat = 1
+
+    private func fallbackHeight(for page: ReaderPage) -> CGFloat? {
+        let height = size.height - page.topSpacing - Self.fallbackClipInset
+        return height >= Self.minimumFallbackLineHeight ? height : nil
+    }
+
     /// Identity of the section attributes supplied by the data source, for pagination caching.
     let sourceText: NSAttributedString
     let text: NSAttributedString
@@ -219,13 +229,12 @@ struct ReaderTableFragment: Equatable {
             // must not be replanned through leftover scoped-flow metadata on each page.
             slice.removeAttribute(.readerParagraphFlow, range: NSRange(location: 0, length: slice.length))
         }
-        if page.usesFlowFallback {
+        if page.usesFlowFallback, let height = fallbackHeight(for: page) {
             let full = NSRange(location: 0, length: slice.length)
             slice.removeAttribute(.readerBoxPage, range: full)
             // Resolved indents/fonts and all source/semantic attributes remain. Relative-flow
             // metadata must not cause the view to reconstruct the rejected box plan.
             slice.removeAttribute(.readerParagraphFlow, range: full)
-            let height = max(1, size.height - page.topSpacing - 1)
             slice.enumerateAttributes(in: full) { attributes, run, _ in
                 var natural: CGFloat = 0
                 // A baseline shift must not leave fitted fallback glyphs offscreen.
@@ -464,11 +473,19 @@ struct ReaderTableFragment: Equatable {
             return true
         }
         if needsFlowFallback, !page.usesFlowFallback {
+            // An impossibly small viewport still advances one original source line. Do not
+            // change its font or partition while claiming that a fitted glyph is visible.
+            guard fallbackHeight(for: page) != nil else { return page }
             var fallback = page
             fallback.usesFlowFallback = true
-            return measuredDisplayPage(fallback)
+            let measured = measuredDisplayPage(fallback)
+            return measured.usesFlowFallback ? measured : page
         }
-        guard visibleEnd > 0 else { return page }
+        guard visibleEnd > 0 else {
+            var unfit = page
+            unfit.usesFlowFallback = false
+            return unfit
+        }
         // A tail's changed line count must not strand a heading or cut a visual box group
         // that the section paginator already kept together.
         var boundary = page.range.location + visibleEnd

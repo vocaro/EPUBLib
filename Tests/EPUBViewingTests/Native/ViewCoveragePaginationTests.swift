@@ -150,23 +150,98 @@ import UIKit
     func testALineTallerThanAPageGetsAPageOfItsOwn() throws {
         let giant = CanvasText.body("T\n", style: CanvasText.bodyStyle(spacing: 0), size: 600)
         let text = ViewCoverage.joined([ViewCoverage.rows("Line", 3), giant, ViewCoverage.rows("After", 3)])
-        let pages = ReaderPaginator(text: text, size: size).allPages
+        let paginator = ReaderPaginator(text: text, size: size)
+        let pages = paginator.allPages
         ViewCoverage.assertPartition(pages, of: text)
         XCTAssertEqual(pages.map(\.range), [NSRange(location: 0, length: 21), NSRange(location: 21, length: 2), NSRange(location: 23, length: 24)])
-        XCTAssertGreaterThan(pages[1].height, size.height)
+        XCTAssertTrue(pages[1].usesFlowFallback)
+        assertVisibleGlyphsAndPageIndices(paginator)
     }
 
-    func testPagesShorterThanALineHoldOneLineEach() {
+    func testUnusablePageClipsPreserveOriginalLineProgressAndFonts() {
         let text = CanvasText.section(0, chapters: 2, paragraphs: 2)
         for width in [46.5, 320] as [CGFloat] {
             let lines = ViewCoverage.lines(of: text, width: width)
-            for height in [0, 1, ViewCoverage.bodyLineHeight / 2, ViewCoverage.bodyLineHeight] as [CGFloat] {
+            for height in [0, 1] as [CGFloat] {
                 let paginator = ReaderPaginator(text: text, size: CGSize(width: width, height: height))
                 let pages = paginator.allPages
-                XCTAssertEqual(pages.map(\.range), lines.map(\.range), "\(width) × \(height): a page for each line")
-                XCTAssertEqual(paginator.pageIndex(containing: text.length), lines.count - 1)
+                ViewCoverage.assertPartition(pages, of: text)
+                XCTAssertEqual(pages.map(\.range), lines.map(\.range), "\(width) × \(height): original source-line progress")
+                for (index, page) in pages.enumerated() {
+                    XCTAssertFalse(page.usesFlowFallback)
+                    XCTAssertEqual(paginator.pageIndex(containing: page.range.location), index)
+                    XCTAssertEqual(paginator.pageIndex(containing: page.range.upperBound - 1), index)
+                    let displayed = paginator.text(for: page)
+                    displayed.enumerateAttribute(.font, in: NSRange(location: 0, length: page.range.length)) { font, run, _ in
+                        let sourceFont = text.attribute(.font, at: page.range.location + run.location, effectiveRange: nil) as? PlatformFont
+                        XCTAssertEqual((font as? PlatformFont)?.pointSize, sourceFont?.pointSize)
+                    }
+                }
+                XCTAssertEqual(paginator.pageIndex(containing: text.length), pages.count - 1)
+                // No visibility claim: even TextKit's minimum one-point glyph plus the
+                // fallback drawing inset cannot fit these clips.
             }
         }
+    }
+
+    func testViableShortPageClipsFitEveryGlyphAndCoverTheSource() {
+        let text = CanvasText.section(0, chapters: 2, paragraphs: 2)
+        for width in [46.5, 320] as [CGFloat] {
+            for height in [ViewCoverage.bodyLineHeight / 2, ViewCoverage.bodyLineHeight] {
+                let paginator = ReaderPaginator(text: text, size: CGSize(width: width, height: height))
+                ViewCoverage.assertPartition(paginator.allPages, of: text)
+                assertVisibleGlyphsAndPageIndices(paginator)
+            }
+        }
+    }
+
+    func testFallbackStartsAtTheNativeMinimumBudgetAfterTopSpacing() {
+        for spacing: CGFloat in [0, 2] {
+            let style = CanvasText.bodyStyle(spacing: 0).mutableCopy() as! NSMutableParagraphStyle
+            style.paragraphSpacingBefore = spacing
+            let text = CanvasText.body("F\n", style: style, size: 600)
+            let minimumHeight: CGFloat = spacing == 0 ? 2 : 4
+            let insufficient = ReaderPaginator(text: text, size: CGSize(width: 320, height: minimumHeight - 0.02))
+            let original = insufficient.allPages[0]
+            XCTAssertFalse(original.usesFlowFallback)
+            XCTAssertEqual((insufficient.text(for: original).attribute(.font, at: 0, effectiveRange: nil) as? PlatformFont)?.pointSize, 600)
+            let viable = ReaderPaginator(text: text, size: CGSize(width: 320, height: minimumHeight))
+            let fitted = viable.allPages[0]
+            XCTAssertEqual(minimumHeight - fitted.topSpacing, 2)
+            XCTAssertTrue(fitted.usesFlowFallback)
+            ViewCoverage.assertPartition(viable.allPages, of: text)
+            assertVisibleGlyphsAndPageIndices(viable)
+        }
+    }
+
+    private func assertVisibleGlyphsAndPageIndices(_ paginator: ReaderPaginator,
+                                                  file: StaticString = #filePath, line: UInt = #line) {
+        let pages = paginator.allPages
+        for (index, page) in pages.enumerated() {
+            XCTAssertEqual(paginator.pageIndex(containing: page.range.location), index, file: file, line: line)
+            XCTAssertEqual(paginator.pageIndex(containing: page.range.upperBound - 1), index, file: file, line: line)
+            let view = BoxLayoutHarness.pageView(paginator, page: page)
+            let displayed = paginator.text(for: page).string as NSString
+            let clipHeight = min(paginator.size.height - page.topSpacing, page.height)
+            var covered = IndexSet()
+            for nativeLine in PageTextGeometryTests.rawLines(in: view, intersecting: view.shownCharacters) {
+                let range = NSIntersectionRange(nativeLine.range, view.shownCharacters)
+                covered.insert(integersIn: range.location..<range.upperBound)
+            }
+            XCTAssertEqual(covered, IndexSet(integersIn: 0..<page.range.length), file: file, line: line)
+            for character in 0..<page.range.length {
+                if CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(displayed.character(at: character))!) { continue }
+                let frames = view.segmentFrames(for: NSRange(location: character, length: 1))
+                XCTAssertFalse(frames.isEmpty, file: file, line: line)
+                for frame in frames {
+                    XCTAssertGreaterThanOrEqual(frame.minY, -0.01, file: file, line: line)
+                    XCTAssertLessThanOrEqual(frame.maxY, clipHeight + 0.01, "page \(index), character \(character)", file: file, line: line)
+                    XCTAssertGreaterThanOrEqual(frame.minX, -0.01, file: file, line: line)
+                    XCTAssertLessThanOrEqual(frame.maxX, paginator.size.width + 0.01, file: file, line: line)
+                }
+            }
+        }
+        XCTAssertEqual(paginator.pageIndex(containing: paginator.text.length), pages.count - 1, file: file, line: line)
     }
 
     func testAParagraphOf100000CharactersPagesLineByLine() {
