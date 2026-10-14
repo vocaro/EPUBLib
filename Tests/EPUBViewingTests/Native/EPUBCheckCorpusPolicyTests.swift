@@ -77,6 +77,19 @@ import XCTest
         XCTAssertNil(result.syntheticRasterDocuments)
     }
 
+    func testSyntheticRasterClassificationUsesTheImageDeclarationWhenFallbackIDsShareAPath() throws {
+        let image = Book.image(width: 20, height: 20)
+        var book = Book()
+        book.add(href: "shared.bin", id: "source", mediaType: "application/x-foreign", image, item: "fallback='image'")
+        book.resource("shared.bin", id: "image", mediaType: "image/png", image)
+        let built = try Build(book)
+        XCTAssertEqual(built[0].document.origin, .syntheticRaster)
+        let result = outcome(built)
+        XCTAssertEqual(result.cfiUnavailable, ["EPUB/shared.bin"])
+        XCTAssertEqual(result.syntheticRasterDocuments, ["EPUB/shared.bin"])
+        XCTAssertTrue(result.unexpectedCFIUnavailable.isEmpty)
+    }
+
     func testUnaffectedOutcomeJSONDoesNotAcquireEmptyClassificationFields() throws {
         let result = Outcome(fixture: "authored", verdict: .valid, ids: [])
         let encoded = String(decoding: try JSONEncoder().encode(result), as: UTF8.self)

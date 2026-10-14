@@ -217,8 +217,8 @@ import XCTest
         if section.report.recoveredAsHTML { outcome.recoveredAsHTML.append(resource.path) }
         if section.report.cfiUnavailable { outcome.cfiUnavailable.append(resource.path) }
         if !section.report.withheld, !section.report.recoveredAsHTML, section.document.origin == .syntheticRaster,
-           let selected = chain.first(where: { $0.path == section.document.path }), NativeFallbacks.isImage(selected),
-           selected.mediaType.lowercased() != "image/svg+xml", !ResourceReference.isRemote(selected.path),
+           let selected = chain.first(where: { $0.path == section.document.path && NativeFallbacks.isImage($0)
+               && $0.mediaType.lowercased() != "image/svg+xml" && !ResourceReference.isRemote($0.path) }),
            let bytes = try? publication.data(for: selected), ReaderImageSource.bitmap(bytes, path: selected.path, key: selected.path) != nil {
             if outcome.syntheticRasterDocuments == nil { outcome.syntheticRasterDocuments = [] }
             outcome.syntheticRasterDocuments?.append(resource.path)
