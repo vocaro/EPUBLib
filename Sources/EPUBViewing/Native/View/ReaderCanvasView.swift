@@ -932,6 +932,14 @@ import AppKit
         if !isHoldingScrollPlace { refreshScrollTables() }
         guard !byReader, !isScrollingProgrammatically, !scrollViewStandsWhereRead else { return }
         anchorFollowsScroll = true
+        #if os(macOS)
+        // Record the new first line before an accessibility query can replace estimated
+        // geometry above it. Waiting for the throttled report leaves a 150 ms gap (#266).
+        withProgrammaticScroll {
+            scrollTextView?.readerLayoutManager.textViewportLayoutController.layoutViewport()
+            _ = scrollVisibleCharacters()
+        }
+        #endif
         guard !scrollReportPending else { return }
         scrollReportPending = true
         Task { [weak self] in
@@ -1052,9 +1060,28 @@ import AppKit
         guard forward ? isScrolledToEnd : isScrolledToStart else {
             let visible = scrollVisibleContainerRect
             let start = textView.lineBoundary(atContainerY: visible.minY, lineEnd: false)
-            let line = textView.lineFrame(containing: start)?.height ?? 20
+            let firstLine = textView.lineFrame(containing: start)
+            let line = firstLine?.height ?? 20
             let step = max(line, visible.height - line)
-            withProgrammaticScroll { scrollToContainerY(visible.minY + (forward ? step : -step)) }
+            let below = (firstLine?.minY ?? visible.minY) - visible.minY
+            withProgrammaticScroll {
+                scrollToContainerY(visible.minY + (forward ? step : -step))
+                if !forward {
+                    // Figures above a jumped-to position may still be estimated. Refine the
+                    // newly visible text through the old first line, then move that line
+                    // one step down the screen, retaining any partial line at the top.
+                    // A fixed container Y alone can skip screens of text (#161).
+                    for _ in 0..<32 {
+                        let top = textView.lineBoundary(atContainerY: scrollVisibleContainerRect.minY, lineEnd: false)
+                        textView.ensureLayout(from: min(top, start), through: max(top, start))
+                        guard let previous = textView.lineFrame(containing: start) else { break }
+                        let target = previous.minY - step - below
+                        scrollToContainerY(target)
+                        guard let refined = textView.lineFrame(containing: start) else { break }
+                        if abs(refined.minY - scrollVisibleContainerRect.minY - step - below) <= 1 || isScrolledToStart { break }
+                    }
+                }
+            }
             anchor = scrollVisibleRange()?.start ?? anchor
             anchorFollowsScroll = false
             updateVisibleRange(force: true)

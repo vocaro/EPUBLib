@@ -51,6 +51,9 @@ enum TableContent {
             output.append(NSAttributedString(string: "\n", attributes: ending))
             output.append(text)
         }
+        if output.length > 0 {
+            output.addAttribute(.readerTableModel, value: model, range: NSRange(location: 0, length: output.length))
+        }
         return output
     }
 
@@ -102,12 +105,15 @@ enum TableContent {
         case anonymous([ContentNode])
     }
     /// A cell waiting for its slot.
-    private struct Cell {
+    private final class Cell {
         /// nil for an anonymous cell.
         let element: ContentNode?
         let style: ComputedStyle
         /// Rendered ahead of its placing where only content that shows makes a cell or a row.
         var content: NSAttributedString?
+        init(element: ContentNode?, style: ComputedStyle, content: NSAttributedString?) {
+            self.element = element; self.style = style; self.content = content
+        }
     }
     private struct Placed {
         let cell: Cell
@@ -117,11 +123,22 @@ enum TableContent {
         /// table's last column instead.
         var reaches = false
     }
-    private struct Group {
+    private final class Group {
         let element: ContentNode?
         let style: ComputedStyle
         var rows: [Part]
         let isHeader: Bool
+        init(element: ContentNode?, style: ComputedStyle, rows: [Part], isHeader: Bool) {
+            self.element = element; self.style = style; self.rows = rows; self.isHeader = isHeader
+        }
+    }
+    private final class Row {
+        let element: ContentNode?
+        let style: ComputedStyle
+        let cells: [Cell]?
+        init(_ element: ContentNode?, _ style: ComputedStyle, _ cells: [Cell]?) {
+            self.element = element; self.style = style; self.cells = cells
+        }
     }
     private struct Arrangement {
         var placed: [Placed] = []
@@ -182,52 +199,75 @@ enum TableContent {
     }
 
     static func build(_ table: ContentNode, style: ComputedStyle, context: RichContentContext) -> Built? {
-        let isDark = context.typography.isDark
+        Builder(table: table, style: style, context: context).build()
+    }
+
+    /// Keep construction state on the heap. In particular `ComputedStyle` is a large value:
+    /// a monolithic builder and its captured local functions reserved their temporary copies
+    /// for the whole recursive cell render, overflowing a detached task's 512 KB stack.
+    private final class Builder {
+        let table: ContentNode
+        let style: ComputedStyle
+        let context: RichContentContext
+        var isDark: Bool { context.typography.isDark }
         var captions: [ContentNode] = []
         var columns: [ComputedStyle.Length] = []
         var head: Group?, bodies: [Group] = [], feet: [Group] = []
         var implicit: Group?
+        var groups: [Group] = []
+        var arrangement = Arrangement()
+        var columnCount = 0
+        var overflow: [NSAttributedString] = []
+        var rendered: [NSAttributedString] = []
+
+        init(table: ContentNode, style: ComputedStyle, context: RichContentContext) {
+            self.table = table; self.style = style; self.context = context
+        }
+
         func visible(_ element: ContentNode, _ parent: ComputedStyle) -> ComputedStyle? {
             let computed = context.style(element, parent)
             return computed.display == .none ? nil : computed
         }
-        func closeImplicit() { if let group = implicit { bodies.append(group); implicit = nil } }
-        for part in parts(table.children, tableParts) {
-            // A row, or content outside every row, belongs to the body it is written in.
-            guard case .element(let child) = part, child.name != "tr" else {
-                if implicit == nil { implicit = Group(element: nil, style: style, rows: [], isHeader: false) }
-                implicit?.rows.append(part)
-                continue
-            }
-            switch child.name {
-            case "caption":
-                if visible(child, style) != nil { captions.append(child) }
-            case "colgroup", "col":
-                guard let groupStyle = visible(child, style) else { continue }
-                let items = child.name == "col" ? [child] : child.elementChildren.filter { $0.isHTML("col") }
-                if items.isEmpty {
-                    let span = min(1000, max(1, Int(child.attribute("span") ?? "") ?? 1))
-                    columns += Array(repeating: length(groupStyle.width, hint: child.attribute("width"), style: groupStyle), count: span)
+        private func collectGroups() {
+            func closeImplicit() { if let group = implicit { bodies.append(group); implicit = nil } }
+            for part in TableContent.parts(table.children, TableContent.tableParts) {
+                // A row, or content outside every row, belongs to the body it is written in.
+                guard case .element(let child) = part, child.name != "tr" else {
+                    if implicit == nil { implicit = Group(element: nil, style: style, rows: [], isHeader: false) }
+                    implicit?.rows.append(part)
+                    continue
                 }
-                for col in items {
-                    let colStyle = context.style(col, groupStyle)
-                    let span = min(1000, max(1, Int(col.attribute("span") ?? "") ?? 1))
-                    var width = length(colStyle.width, hint: col.attribute("width"), style: colStyle)
-                    if width == .auto { width = length(groupStyle.width, hint: child.attribute("width"), style: groupStyle) }
-                    columns += Array(repeating: width, count: span)
+                switch child.name {
+                case "caption":
+                    if visible(child, style) != nil { captions.append(child) }
+                case "colgroup", "col":
+                    guard let groupStyle = visible(child, style) else { continue }
+                    let items = child.name == "col" ? [child] : child.elementChildren.filter { $0.isHTML("col") }
+                    if items.isEmpty {
+                        let span = min(1000, max(1, Int(child.attribute("span") ?? "") ?? 1))
+                        columns += Array(repeating: TableContent.length(groupStyle.width, hint: child.attribute("width"), style: groupStyle), count: span)
+                    }
+                    for col in items {
+                        let colStyle = context.style(col, groupStyle)
+                        let span = min(1000, max(1, Int(col.attribute("span") ?? "") ?? 1))
+                        var width = TableContent.length(colStyle.width, hint: col.attribute("width"), style: colStyle)
+                        if width == .auto { width = TableContent.length(groupStyle.width, hint: child.attribute("width"), style: groupStyle) }
+                        columns += Array(repeating: width, count: span)
+                    }
+                case "thead", "tbody", "tfoot":
+                    closeImplicit()
+                    guard let groupStyle = visible(child, style) else { continue }
+                    let rows = TableContent.parts(child.children, TableContent.rowParts)
+                    if child.name == "thead", head == nil { head = Group(element: child, style: groupStyle, rows: rows, isHeader: true) }
+                    else if child.name == "tfoot" { feet.append(Group(element: child, style: groupStyle, rows: rows, isHeader: false)) }
+                    else { bodies.append(Group(element: child, style: groupStyle, rows: rows, isHeader: false)) }
+                default: break
                 }
-            case "thead", "tbody", "tfoot":
-                closeImplicit()
-                guard let groupStyle = visible(child, style) else { continue }
-                let rows = parts(child.children, rowParts)
-                if child.name == "thead", head == nil { head = Group(element: child, style: groupStyle, rows: rows, isHeader: true) }
-                else if child.name == "tfoot" { feet.append(Group(element: child, style: groupStyle, rows: rows, isHeader: false)) }
-                else { bodies.append(Group(element: child, style: groupStyle, rows: rows, isHeader: false)) }
-            default: break
             }
+            closeImplicit()
+            groups = (head.map { [$0] } ?? []) + bodies + feet
+
         }
-        closeImplicit()
-        let groups = (head.map { [$0] } ?? []) + bodies + feet
 
         /// A row's cells: those written, and with `anonymous` one around each run of other
         /// content that shows. `rendered` renders the written ones too.
@@ -236,50 +276,73 @@ enum TableContent {
             for part in parts {
                 switch part {
                 case .element(let cell):
-                    guard let cellStyle = visible(cell, parent) else { continue }
-                    cells.append(Cell(element: cell, style: cellStyle, content: rendered ? context.renderContent(cell, cellStyle) : nil))
+                    guard let entry = writtenCell(cell, parent: parent) else { continue }
+                    if rendered { entry.content = render(entry) }
+                    cells.append(entry)
                 case .anonymous(let nodes):
                     guard anonymous else { skipped = true; continue }
-                    let boxStyle = Self.anonymous(in: parent)
-                    let content = context.renderNodes(nodes, boxStyle)
-                    if content.length > 0 { cells.append(Cell(element: nil, style: boxStyle, content: content)) }
+                    let entry = Cell(element: nil, style: TableContent.anonymous(in: parent), content: nil)
+                    entry.content = renderNodes(nodes, cell: entry)
+                    if (entry.content?.length ?? 0) > 0 { cells.append(entry) }
                 }
             }
             return cells
         }
 
+        private func writtenCell(_ element: ContentNode, parent: ComputedStyle) -> Cell? {
+            guard let style = visible(element, parent) else { return nil }
+            return Cell(element: element, style: style, content: nil)
+        }
+
+        private func renderNodes(_ nodes: [ContentNode], cell: Cell) -> NSAttributedString {
+            context.renderNodes(nodes, cell.style)
+        }
+
         /// The slot grid: each cell takes the first free column of its row. Without `anonymous`
         /// it holds the rows and cells as written, and nothing is rendered.
+        private func collectRows(_ group: Group, anonymous: Bool, skipped: inout Bool) -> [Row] {
+            // The rows that are shown; an anonymous one brings its cells.
+            var groupRows: [Row] = []
+            for part in group.rows {
+                switch part {
+                case .element(let row):
+                    guard let rowStyle = visible(row, group.style) else { continue }
+                    let rowCells = cells(TableContent.parts(row.children, TableContent.cellParts), in: rowStyle,
+                                         anonymous: anonymous, rendered: false, skipped: &skipped)
+                    groupRows.append(Row(row, rowStyle, rowCells))
+                case .anonymous(let nodes):
+                    guard anonymous else { skipped = true; continue }
+                    // An anonymous row exists for the content that shows in it.
+                    let rowCells = cells(TableContent.parts(nodes, TableContent.cellParts), in: group.style, anonymous: true, rendered: true,
+                                         skipped: &skipped)
+                    if rowCells.contains(where: { ($0.content?.length ?? 0) > 0 }) { groupRows.append(Row(nil, group.style, rowCells)) }
+                }
+            }
+            return groupRows
+        }
+
         func arrange(anonymous: Bool) -> Arrangement {
+            var skipped = false
+            let prepared = groups.map { ($0, collectRows($0, anonymous: anonymous, skipped: &skipped)) }
+            var result = place(prepared)
+            result.skippedAnonymous = skipped
+            return result
+        }
+
+        private func place(_ prepared: [(Group, [Row])]) -> Arrangement {
             var result = Arrangement()
             // Past the cell bound no further row is laid out.
             var isFull = false
-            for group in groups {
+            for (group, groupRows) in prepared {
                 let first = result.rows.count
-                // The rows that are shown; an anonymous one brings its cells.
-                var groupRows: [(element: ContentNode?, style: ComputedStyle, cells: [Cell]?)] = []
-                for part in group.rows {
-                    switch part {
-                    case .element(let row):
-                        guard let rowStyle = visible(row, group.style) else { continue }
-                        groupRows.append((row, rowStyle, nil))
-                    case .anonymous(let nodes):
-                        guard anonymous else { result.skippedAnonymous = true; continue }
-                        // An anonymous row exists for the content that shows in it.
-                        let rowCells = cells(parts(nodes, cellParts), in: group.style, anonymous: true, rendered: true,
-                                             skipped: &result.skippedAnonymous)
-                        if rowCells.contains(where: { ($0.content?.length ?? 0) > 0 }) { groupRows.append((nil, group.style, rowCells)) }
-                    }
-                }
                 for (offset, row) in groupRows.enumerated() {
-                    let rowCells = row.cells ?? cells(parts(row.element?.children ?? [], cellParts), in: row.style, anonymous: anonymous,
-                                                      rendered: false, skipped: &result.skippedAnonymous)
+                    let rowCells = row.cells ?? []
                     guard !isFull else { result.leftOut += rowCells; continue }
                     let index = first + offset
                     while result.occupied.count <= index { result.occupied.append([]) }
                     result.rowElements.append((row.element, group.element))
-                    let background = row.element.flatMap { row.style.backgroundColor ?? color($0.attribute("bgcolor")) }
-                    let height = row.element.flatMap { length(row.style.height, hint: $0.attribute("height"), style: row.style).points }
+                    let background = row.element.flatMap { row.style.backgroundColor ?? TableContent.color($0.attribute("bgcolor")) }
+                    let height = row.element.flatMap { TableContent.length(row.style.height, hint: $0.attribute("height"), style: row.style).points }
                     result.rows.append(TableModel.Row(background: isDark ? nil : background?.cgColor, height: height ?? 0,
                                                       isHeader: group.isHeader))
                     var column = 0
@@ -326,34 +389,6 @@ enum TableContent {
             return result
         }
 
-        // A table is a grid when the cells written in its rows take more than one column. Whatever
-        // else it holds joins a grid and never makes one: the content of a table that flows as
-        // text flows with it.
-        var arrangement = arrange(anonymous: false)
-        guard arrangement.writtenColumns > 1 else { return nil }
-        if arrangement.skippedAnonymous { arrangement = arrange(anonymous: true) }
-        let columnCount = arrangement.placed.map { $0.column + $0.columnSpan }.max() ?? 0
-        for index in arrangement.placed.indices where arrangement.placed[index].reaches {
-            let cell = arrangement.placed[index], taken = arrangement.occupied[cell.row]
-            var end = cell.column + 1
-            while end < columnCount, end >= taken.count || !taken[end] { end += 1 }
-            arrangement.placed[index].columnSpan = end - cell.column
-        }
-        let placed = arrangement.placed, rows = arrangement.rows, rowElements = arrangement.rowElements
-        // The grid gives up on these cells; their content follows it.
-        var overflow: [NSAttributedString] = []
-        if !arrangement.leftOut.isEmpty {
-            context.report.report.unsupportedElements["table", default: 0] += 1
-            for cell in arrangement.leftOut {
-                let content = cell.content ?? cell.element.map { context.renderContent($0, cell.style) }
-                if let content, content.length > 0 { overflow.append(content) }
-            }
-        }
-
-        // Presentational hints: `border`, `cellspacing`, `cellpadding`, `align`, `bgcolor`.
-        let borderAttribute = table.attribute("border").map { Int($0.trimmingCharacters(in: .whitespaces)) ?? 1 }
-        let cellPadding = table.attribute("cellpadding").flatMap { ImageSizing.length($0, fontSize: style.fontSize)?.points }
-        let defaultColor = isDark ? ReaderPalette.rule(dark: true) : (style.color?.platformColor ?? ReaderPalette.text(dark: false))
         func stroke(_ border: ComputedStyle.Border, color element: ComputedStyle.Color?) -> TableModel.Stroke? {
             guard border.isVisible else { return nil }
             let color = isDark ? ReaderPalette.rule(dark: true)
@@ -364,26 +399,19 @@ enum TableContent {
             TableModel.Borders(top: stroke(style.border.top, color: style.color), right: stroke(style.border.right, color: style.color),
                                bottom: stroke(style.border.bottom, color: style.color), left: stroke(style.border.left, color: style.color))
         }
-        var tableBorders = strokes(style)
-        let hinted = borderAttribute.map { $0 > 0 } ?? false
-        if hinted, tableBorders.widths == TableModel.Insets() {
-            let line = TableModel.Stroke(width: CGFloat(min(borderAttribute ?? 1, 16)), style: .solid,
-                                         color: (isDark ? ReaderPalette.rule(dark: true) : PlatformColor(white: 0.5, alpha: 1)).cgColor)
-            tableBorders = TableModel.Borders(top: line, right: line, bottom: line, left: line)
+        private func render(_ cell: Cell) -> NSAttributedString {
+            if let content = cell.content { return content }
+            guard let element = cell.element else { return NSAttributedString() }
+            return context.renderContent(element, cell.style)
         }
-        var spacing = style.borderSpacing
-        if spacing == CGSize(width: 2, height: 2), let value = table.attribute("cellspacing").flatMap({ ImageSizing.length($0, fontSize: style.fontSize)?.points }) {
-            spacing = CGSize(width: value, height: value)
-        }
-        let collapse = style.borderCollapse
 
-        var cells: [TableModel.Cell] = []
-        cells.reserveCapacity(placed.count)
-        for item in placed {
+        private func makeCell(_ item: Placed, rows: [TableModel.Row], rowElements: [(row: ContentNode?, group: ContentNode?)],
+                              columnCount: Int, tableBorders: TableModel.Borders, collapse: Bool,
+                              cellPadding: CGFloat?, hinted: Bool, defaultColor: PlatformColor, content: NSAttributedString) -> TableModel.Cell {
             // The table's `cellpadding` and `border` are hints for its `td` and `th` elements: an
             // anonymous cell has neither padding nor borders.
             let cellStyle = item.cell.style, element = item.cell.element
-            var padding = insets(cellStyle.padding)
+            var padding = TableContent.insets(cellStyle.padding)
             if element != nil, let cellPadding, max(padding.top, padding.right, padding.bottom, padding.left) <= 1 {
                 padding = TableModel.Insets(top: cellPadding, right: cellPadding, bottom: cellPadding, left: cellPadding)
             }
@@ -406,40 +434,95 @@ enum TableContent {
                 chrome.top += own.top; chrome.bottom += own.bottom; chrome.left += own.left; chrome.right += own.right
             }
             let rowContext = rowElements[item.row]
-            let content = item.cell.content ?? element.map { context.renderContent($0, cellStyle) } ?? NSAttributedString()
             let noWrap = !cellStyle.whiteSpace.wraps || element?.attribute("nowrap") != nil
             let maxContent = TableMeasure.maximumWidth(content)
             let minContent = noWrap ? maxContent : min(maxContent, TableMeasure.minimumWidth(content))
             let valign = element?.attribute("valign") ?? rowContext.row?.attribute("valign") ?? rowContext.group?.attribute("valign")
-            cells.append(TableModel.Cell(
+            return TableModel.Cell(
                 row: item.row, column: item.column, rowSpan: item.rowSpan, columnSpan: item.columnSpan,
                 content: content, text: TableMeasure.spokenText(content), isHeader: element?.isHTML("th") ?? false,
-                scope: scope(element),
+                scope: TableContent.scope(element),
                 padding: padding, borders: borders, chrome: chrome,
-                background: isDark ? nil : (cellStyle.backgroundColor ?? color(element?.attribute("bgcolor")))?.cgColor,
-                placement: placement(cellStyle.verticalAlign, hint: valign),
-                width: length(cellStyle.width, hint: element?.attribute("width"), style: cellStyle),
-                height: length(cellStyle.height, hint: element?.attribute("height"), style: cellStyle).points ?? 0,
-                minContent: minContent, maxContent: maxContent))
+                background: isDark ? nil : (cellStyle.backgroundColor ?? TableContent.color(element?.attribute("bgcolor")))?.cgColor,
+                placement: TableContent.placement(cellStyle.verticalAlign, hint: valign),
+                width: TableContent.length(cellStyle.width, hint: element?.attribute("width"), style: cellStyle),
+                height: TableContent.length(cellStyle.height, hint: element?.attribute("height"), style: cellStyle).points ?? 0,
+                minContent: minContent, maxContent: maxContent)
         }
-        let alignment: TableModel.Alignment
-        switch (style.margin.left, style.margin.right, table.attribute("align")?.lowercased()) {
-        case (_, _, "center"?), (.auto, .auto, _): alignment = .center
-        case (_, _, "right"?): alignment = style.direction == .rtl ? .start : .end
-        case (_, _, "left"?): alignment = style.direction == .rtl ? .end : .start
-        case (.auto, _, _): alignment = .end
-        default: alignment = .start
+        func build() -> Built? {
+            collectGroups()
+            // A table is a grid when the cells written in its rows take more than one column. Whatever
+            // else it holds joins a grid and never makes one: the content of a table that flows as
+            // text flows with it.
+            arrangement = arrange(anonymous: false)
+            guard arrangement.writtenColumns > 1 else { return nil }
+            if arrangement.skippedAnonymous { arrangement = arrange(anonymous: true) }
+            columnCount = arrangement.placed.map { $0.column + $0.columnSpan }.max() ?? 0
+            for index in arrangement.placed.indices where arrangement.placed[index].reaches {
+                let cell = arrangement.placed[index], taken = arrangement.occupied[cell.row]
+                var end = cell.column + 1
+                while end < columnCount, end >= taken.count || !taken[end] { end += 1 }
+                arrangement.placed[index].columnSpan = end - cell.column
+            }
+            renderCells()
+            return assemble()
         }
-        let model = TableModel(
-            cells: cells, rows: rows, columnCount: columnCount, columns: columns,
-            width: length(style.width, hint: table.attribute("width"), style: style), collapse: collapse,
-            spacing: spacing, borders: tableBorders,
-            background: isDark ? nil : (style.backgroundColor ?? color(table.attribute("bgcolor")))?.cgColor,
-            alignment: alignment, isRightToLeft: style.direction == .rtl,
-            isData: isData(table, hasHeaderOrFooter: head != nil || !feet.isEmpty, rows: rowElements.map(\.row),
-                           cells: zip(placed, cells).map { ($0.cell.element, $0.row, $0.column, $1.borders) }))
-        model.sourceOrder = table.order
-        return Built(model: model, captions: captions, overflow: overflow)
+
+        /// The recursive phase holds no border/style measurement temporaries on the stack.
+        private func renderCells() {
+            if !arrangement.leftOut.isEmpty {
+                context.report.report.unsupportedElements["table", default: 0] += 1
+                for cell in arrangement.leftOut {
+                    let content = render(cell)
+                    if content.length > 0 { overflow.append(content) }
+                }
+            }
+            rendered = arrangement.placed.map { render($0.cell) }
+        }
+
+        private func assemble() -> Built {
+            let placed = arrangement.placed, rows = arrangement.rows, rowElements = arrangement.rowElements
+            // Presentational hints: `border`, `cellspacing`, `cellpadding`, `align`, `bgcolor`.
+            let borderAttribute = table.attribute("border").map { Int($0.trimmingCharacters(in: .whitespaces)) ?? 1 }
+            let cellPadding = table.attribute("cellpadding").flatMap { ImageSizing.length($0, fontSize: style.fontSize)?.points }
+            let defaultColor = isDark ? ReaderPalette.rule(dark: true) : (style.color?.platformColor ?? ReaderPalette.text(dark: false))
+            var tableBorders = strokes(style)
+            let hinted = borderAttribute.map { $0 > 0 } ?? false
+            if hinted, tableBorders.widths == TableModel.Insets() {
+                let line = TableModel.Stroke(width: CGFloat(min(borderAttribute ?? 1, 16)), style: .solid,
+                                             color: (isDark ? ReaderPalette.rule(dark: true) : PlatformColor(white: 0.5, alpha: 1)).cgColor)
+                tableBorders = TableModel.Borders(top: line, right: line, bottom: line, left: line)
+            }
+            var spacing = style.borderSpacing
+            if spacing == CGSize(width: 2, height: 2), let value = table.attribute("cellspacing").flatMap({ ImageSizing.length($0, fontSize: style.fontSize)?.points }) {
+                spacing = CGSize(width: value, height: value)
+            }
+            let collapse = style.borderCollapse
+
+            let cells = zip(placed, rendered).map { item, content in
+                makeCell(item, rows: rows, rowElements: rowElements, columnCount: columnCount,
+                         tableBorders: tableBorders, collapse: collapse, cellPadding: cellPadding,
+                         hinted: hinted, defaultColor: defaultColor, content: content)
+            }
+            let alignment: TableModel.Alignment
+            switch (style.margin.left, style.margin.right, table.attribute("align")?.lowercased()) {
+            case (_, _, "center"?), (.auto, .auto, _): alignment = .center
+            case (_, _, "right"?): alignment = style.direction == .rtl ? .start : .end
+            case (_, _, "left"?): alignment = style.direction == .rtl ? .end : .start
+            case (.auto, _, _): alignment = .end
+            default: alignment = .start
+            }
+            let model = TableModel(
+                cells: cells, rows: rows, columnCount: columnCount, columns: columns,
+                width: TableContent.length(style.width, hint: table.attribute("width"), style: style), collapse: collapse,
+                spacing: spacing, borders: tableBorders,
+                background: isDark ? nil : (style.backgroundColor ?? TableContent.color(table.attribute("bgcolor")))?.cgColor,
+                alignment: alignment, isRightToLeft: style.direction == .rtl,
+                isData: TableContent.isData(table, hasHeaderOrFooter: head != nil || !feet.isEmpty, rows: rowElements.map(\.row),
+                               cells: zip(placed, cells).map { ($0.cell.element, $0.row, $0.column, $1.borders) }))
+            model.sourceOrder = table.order
+            return Built(model: model, captions: captions, overflow: overflow)
+        }
     }
 
     private static func scope(_ cell: ContentNode?) -> TableModel.Scope {

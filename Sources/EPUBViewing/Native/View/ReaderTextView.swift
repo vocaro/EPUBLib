@@ -206,7 +206,7 @@ extension ReaderTextView {
     /// Native TextKit insertion offset nearest a point, without invoking TextKit 1.
     func characterOffset(at point: CGPoint) -> Int {
         let local = CGPoint(x: point.x - containerOrigin.x, y: point.y - containerOrigin.y)
-        guard let fragment = readerLayoutManager.textLayoutFragment(for: local) else {
+        guard let fragment = drawnFragment(at: local) else {
             return local.y <= 0 ? 0 : textLength
         }
         let start = offset(of: fragment.rangeInElement.location)
@@ -224,7 +224,7 @@ extension ReaderTextView {
     func link(at point: CGPoint) -> URL? {
         let origin = containerOrigin
         let location = CGPoint(x: point.x - origin.x, y: point.y - origin.y)
-        guard let fragment = readerLayoutManager.textLayoutFragment(for: location),
+        guard let fragment = drawnFragment(at: location),
               let storage = contentStorage.textStorage else { return nil }
         let frame = fragment.layoutFragmentFrame
         let local = CGPoint(x: location.x - frame.minX, y: location.y - frame.origin.y)
@@ -295,7 +295,7 @@ extension ReaderTextView {
             guard let line = line(containing: offset) else { return false }
             return line.frame.minY <= y && y < line.frame.maxY
         }
-        guard let fragment = readerLayoutManager.textLayoutFragment(for: CGPoint(x: 0, y: y)) else { return false }
+        guard let fragment = drawnFragment(at: CGPoint(x: 0, y: y)) else { return false }
         let target = max(0, min(offset, textLength - 1))
         let range = fragment.rangeInElement
         return self.offset(of: range.location) <= target && target < self.offset(of: range.endLocation)
@@ -384,6 +384,15 @@ extension ReaderTextView {
         return found
     }
 
+    /// Hit tests use the same fragments as the visible-range read. A completed offscreen
+    /// layout can overlap a viewport fragment without replacing the text drawn there.
+    func drawnFragment(at point: CGPoint) -> NSTextLayoutFragment? {
+        if !readerContainer.hasNonlinearGeometry, let fragment = viewportFragment(atContainerY: point.y) {
+            return fragment
+        }
+        return readerLayoutManager.textLayoutFragment(for: point)
+    }
+
     /// The first character of the first line mostly below `y` (`lineEnd` false), or the end of
     /// the last line mostly above it (`lineEnd` true), in text container coordinates, among the
     /// lines already laid out: the viewport's own where it has any at `y`.
@@ -391,9 +400,7 @@ extension ReaderTextView {
         if readerContainer.hasNonlinearGeometry {
             return ReaderVisualLine.boundary(at: y, lineEnd: lineEnd, in: visualLines(), length: textLength)
         }
-        let layoutManager = readerLayoutManager
-        guard let fragment = viewportFragment(atContainerY: max(0, y))
-                ?? layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: max(0, y))) else {
+        guard let fragment = drawnFragment(at: CGPoint(x: 0, y: max(0, y))) else {
             return y <= 0 ? 0 : textLength
         }
         let start = offset(of: fragment.rangeInElement.location)

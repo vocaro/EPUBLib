@@ -67,7 +67,7 @@ struct SectionReport: Equatable, Sendable {
     /// Flex or grid containers shown as blocks in reading order: side-by-side, wrapped,
     /// reversed, reordered or explicitly placed items, or nesting past the supported depth.
     var flexGridSimplified = false
-    /// CSS rules or declarations dropped by the parser's bounds.
+    /// CSS rules, declarations or selectors dropped by parser or sibling-search bounds.
     var stylesTruncated = false
 
     mutating func formUnion(_ other: SectionReport) {

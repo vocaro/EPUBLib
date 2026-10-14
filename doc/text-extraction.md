@@ -65,7 +65,15 @@ replacement point to that replacement; IDs in structural notation point to their
 Generated delimiters and escapes count toward the existing output budget and subsequent offsets.
 
 `EPUBTextExtractionLimits` bounds input bytes (default 4 MiB), UTF-8 bytes per output field (8 MiB), nesting
-(64 elements) and element count (100,000) per section. Callers processing a whole book enforce
+(64 elements) and element count (100,000) per section. A fixed additional safety bound allows
+at most 1,024 attribute occurrences on one element, including namespace declarations, duplicate
+names and HTML boolean attributes. A linear preflight checks this before strict XML or HTML
+parsing; extraction reports `limitExceeded("attributesPerElement")`, and native content parsing
+reports the same limit name. Publication metadata/navigation XML exceeding it is `invalidXML`.
+On the strict path, attribute values, comments and CDATA do not count as attributes. The HTML
+preflight conservatively treats a script/style end marker as markup even inside an apparent
+quoted value, comment or another raw-text element, since malformed raw-text endings can leave libxml2 in another context. It follows
+its own comment, processing-instruction, end-tag and script/style contexts after source rewriting. Callers processing a whole book enforce
 their own cumulative text budget while iterating. `CancellationError` propagates during parsing.
 `EPUBTextExtractionError` distinguishes invalid spine indices, unsupported media types, malformed
 XHTML and exceeded limits. XHTML 1.x named character references such as `&nbsp;` and `&mdash;`
@@ -126,3 +134,66 @@ with no following text marks the document end. Script/style/template subtrees co
 text nor anchors. Text and positions are emitted by the same bounded walk, so consumers never
 need to replicate normalization to locate sections. Hosts decide which navigation entries or
 headings form meaningful study sections.
+
+
+## Attribute parser cost qualification
+
+For [#196](https://github.com/vocaro/EPUBLib/issues/196), an owned C probe on macOS 27.0
+(26A428), using the SDK's libxml2 and its ordinary XML/HTML options, generated a single `p`
+with distinct attributes `a0='v'`, `a1='v'`, and so on, inside `html/body`. On 2026-10-13,
+40,000 attributes (428,927 bytes) used 1.938, 1.987 and 2.029 CPU seconds for HTML parsing;
+80,000 (868,927 bytes) used 8.122, 8.065 and 8.000. Strict XML parsing of those same inputs
+used 1.244 and 5.278 CPU seconds. These measurements isolate parser work from the extraction
+walk. They are qualification evidence, not test deadlines.
+
+Static disassembly with `dyld_info -disassemble /usr/lib/libxml2.2.dylib` confirms that
+`htmlParseStartTag` compares each new name with all prior names via `xmlStrEqual` in a nested
+loop. The [upstream HTML parser](https://github.com/GNOME/libxml2/blob/v2.9.13/HTMLparser.c)
+and [XML parser](https://github.com/GNOME/libxml2/blob/v2.9.13/parser.c) also implement linear
+search over prior attributes for uniqueness. Both parsers therefore share the quadratic cost;
+the strict extraction pull reader, extraction's HTML recovery and the native reader's XML and
+HTML parsers all need the preflight. No debugger was launched or attached. Sampling the owned
+probe was unavailable without administrator access, so the causal evidence is the direct CPU
+profile plus the system library's disassembly.
+
+Reproduce the input and parser-only profile with the following standalone probe. It uses no
+repository code; the inspected main baseline was `5d66c37b81566b269ddd60a4d0aca0e67a85a5da`.
+Compile with `xcrun clang attribute-cost.c -I"$(xcrun --show-sdk-path)/usr/include/libxml2"
+-lxml2 -o /tmp/attribute-cost`, then run `/tmp/attribute-cost 40000` and `80000`.
+
+```c
+#include <libxml/parser.h>
+#include <libxml/HTMLparser.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+int main(int argc, char **argv) {
+    if (argc != 2) return 2;
+    int n = atoi(argv[1]);
+    if (n < 1 || n > 100000) return 2;
+    char *s = malloc(n * 30 + 100);
+    if (!s) return 2;
+    int length = sprintf(s, "<html><body><p");
+    for (int i = 0; i < n; i++) length += sprintf(s + length, " a%d='v'", i);
+    length += sprintf(s + length, ">text</p></body></html>");
+    for (int k = 0; k < 3; k++) {
+        clock_t start = clock();
+        xmlDocPtr doc = htmlReadMemory(s, length, NULL, "UTF-8",
+            HTML_PARSE_NONET | HTML_PARSE_NOERROR | HTML_PARSE_NOWARNING | HTML_PARSE_RECOVER);
+        printf("HTML attrs=%d bytes=%d CPU=%.6f\n", n, length,
+            (double)(clock() - start) / CLOCKS_PER_SEC);
+        if (doc) xmlFreeDoc(doc);
+    }
+    clock_t start = clock();
+    xmlDocPtr doc = xmlReadMemory(s, length, NULL, "UTF-8",
+        XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING);
+    printf("XML attrs=%d bytes=%d CPU=%.6f\n", n, length,
+        (double)(clock() - start) / CLOCKS_PER_SEC);
+    if (doc) xmlFreeDoc(doc);
+    free(s);
+}
+```
+
+`ParserPreflightSafetyTests` and `NativeParserPreflightSafetyTests` assert the accepted boundary
+and typed refusal, including duplicate/boolean attributes, wide encodings and HTML contexts
+that differ from XML. Their acceptance assertions do not measure time.

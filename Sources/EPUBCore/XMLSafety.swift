@@ -3,13 +3,41 @@ import Foundation
 /// Reject actual entity declarations and internal DTD subsets before either XML parser runs.
 /// Comments, CDATA, processing instructions and quoted identifiers are not declarations.
 package enum XMLSafety {
-    package static func hasSafeDeclarations(_ data: Data) -> Bool {
-        guard let bytes = scanBytes(data) else { return false }
+    /// A fixed per-tag bound also caps the parsers' quadratic attribute uniqueness checks.
+    package static let attributesPerElement = 1024
+    package enum Assessment: Equatable { case safe, unsafe, attributeLimitExceeded }
+
+    package static func hasSafeDeclarations(_ data: Data) -> Bool { assess(data) == .safe }
+
+    package static func assess(_ data: Data) -> Assessment {
+        guard let sources = scanBytes(data) else { return .unsafe }
+        for source in sources {
+            let result = assessUTF8(source)
+            if result != .safe { return result }
+        }
+        return .safe
+    }
+
+    package static func assessUTF8(_ data: Data) -> Assessment {
+        let bytes = Array(data)
+        guard hasBoundedAttributes(bytes) else { return .attributeLimitExceeded }
         var scanner = DeclarationScanner(bytes: bytes)
+        return scanner.scan() ? .safe : .unsafe
+    }
+
+    /// Also screen the exact UTF-8 supplied to HTML recovery, whose lexical contexts can differ
+    /// from those of malformed XML. This counts duplicate and boolean attributes as well.
+    package static func hasBoundedAttributes(_ data: Data, asHTML: Bool = false) -> Bool {
+        var scanner = AttributeScanner(bytes: Array(data), limit: attributesPerElement, html: asHTML)
         return scanner.scan()
     }
 
-    private static func scanBytes(_ data: Data) -> [UInt8]? {
+    private static func hasBoundedAttributes(_ bytes: [UInt8]) -> Bool {
+        var scanner = AttributeScanner(bytes: bytes, limit: attributesPerElement)
+        return scanner.scan()
+    }
+
+    private static func scanBytes(_ data: Data) -> [Data]? {
         let prefix = Array(data.prefix(4))
         let encoding: String.Encoding?
         // Decode wide encodings rather than deleting NULs: deletion can turn an unrelated
@@ -27,11 +55,24 @@ package enum XMLSafety {
             encoding = nil
         }
         if let encoding {
-            return String(data: data, encoding: encoding).map { Array($0.utf8) }
+            guard let text = String(data: data, encoding: encoding) else { return nil }
+            let decoded = Data(text.utf8)
+            if let named = XMLMarkupEncoding.declaredEncoding(Data(decoded.dropFirst(decoded.starts(with: [0xEF, 0xBB, 0xBF]) ? 3 : 0))) {
+                let name = named.lowercased().replacingOccurrences(of: "-", with: "")
+                let compatible: [String]
+                switch encoding {
+                case .utf16BigEndian: compatible = ["utf16", "utf16be", "utf8"]
+                case .utf16LittleEndian: compatible = ["utf16", "utf16le", "utf8"]
+                case .utf32BigEndian: compatible = ["utf32", "utf32be", "utf8"]
+                default: compatible = ["utf32", "utf32le", "utf8"]
+                }
+                // A parser can switch away from the initially detected wide encoding after its
+                // declaration. Refuse that ambiguous mixed source rather than scan the wrong text.
+                guard compatible.contains(name) else { return nil }
+            }
+            return [decoded]
         }
-        // UTF-8 and ASCII-compatible XML encodings share the markup bytes. Leave non-ASCII
-        // bytes intact; the actual parser validates the declared encoding and XML grammar.
-        return Array(data)
+        return XMLMarkupEncoding.decoded(data)
     }
 }
 

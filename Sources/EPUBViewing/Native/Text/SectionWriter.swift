@@ -250,23 +250,37 @@ final class SectionWriter {
         }
     }
 
+    /// Style/eligibility work ends before table cells recurse, so its temporary value copies
+    /// do not occupy the stack at every nesting level.
+    private final class Prepared {
+        let style: ComputedStyle
+        let context: InlineContext
+        init(style: ComputedStyle, context: InlineContext) { self.style = style; self.context = context }
+    }
+
     private func enter(_ node: ContentNode, parent: Entry) {
+        guard let prepared = prepare(node, parent: parent) else { return }
+        if node.isHTML("table"), enterTable(node, style: prepared.style, context: prepared.context) { return }
+        enterContent(node, parent: parent, style: prepared.style, context: prepared.context)
+    }
+
+    private func prepare(_ node: ContentNode, parent: Entry) -> Prepared? {
         switch parent.role {
         case .ruby where node.isHTML("rt") || node.isHTML("rtc"):
-            annotateRuby(node, parentStyle: parent.style); return
+            annotateRuby(node, parentStyle: parent.style); return nil
         case .ruby where node.isHTML("rp"):
-            skip(node); return
+            skip(node); return nil
         case .media where node.isHTML("source") || node.isHTML("track"):
-            skip(node); return
+            skip(node); return nil
         case .switchBranches(let chosen) where node !== chosen:
-            skip(node); return
+            skip(node); return nil
         default: break
         }
-        if node.isHTML, ContentSemantics.neverRendered.contains(node.name) { skip(node); return }
+        if node.isHTML, ContentSemantics.neverRendered.contains(node.name) { skip(node); return nil }
         // A formula shown as its own text never shows its encodings (TeX, content MathML).
         if node.name == "annotation" || node.name == "annotation-xml",
-           node.namespace == ContentNamespace.mathML || node.namespace.isEmpty { skip(node); return }
-        if node.namespace == ContentNamespace.ops, node.name == "trigger" { skip(node); return }
+           node.namespace == ContentNamespace.mathML || node.namespace.isEmpty { skip(node); return nil }
+        if node.namespace == ContentNamespace.ops, node.name == "trigger" { skip(node); return nil }
 
         let parentStyle = parent.style
         var style = state.style(node, parentStyle)
@@ -280,22 +294,22 @@ final class SectionWriter {
                 // A note's content leaves out the notes nested in it that are captured on their
                 // own, below the depth it goes to. One that no id names is captured nowhere
                 // else: it is part of this note.
-                if state.isNamedNote(node), state.noteDepth(of: node) > depth { leftOutNote = true; return }
+                if state.isNamedNote(node), state.noteDepth(of: node) > depth { leftOutNote = true; return nil }
             } else if state.isHiddenFootnote(node), !state.isCapturingNote || state.isNamedNote(node) {
                 // A footnote is shown only in place of its reference. In a cell of a note's
                 // table, one that no id names is part of that note, as it is outside the table.
-                skip(node, registered: true); return
+                skip(node, registered: true); return nil
             }
         }
         guard style.display != .none, style.display != .tableColumn, style.display != .tableColumnGroup else {
-            skip(node, registered: true); return
+            skip(node, registered: true); return nil
         }
         // Common visually hidden labels must not become visible duplicate text when their
         // positioned geometry is replaced by normal flow. Actual callouts remain selectable.
         if style.isOutOfFlow, !state.isFixedLayout, style.isVisuallyHiddenPositionedBox {
             skip(node, registered: true)
             speak(node, style: style, context: parent.context)
-            return
+            return nil
         }
         if style.requiresFlowBox, !node.isHTML("html"), !node.isHTML("body") {
             state.report.report.flowBoxesReflowed = true
@@ -307,6 +321,17 @@ final class SectionWriter {
         var context = parent.context
         if let language = node.language { context.language.declare(language) }
 
+        return Prepared(style: style, context: context)
+    }
+
+    private func enterTable(_ node: ContentNode, style: ComputedStyle, context: InlineContext) -> Bool {
+        guard let result = state.request.rich.table(node, style: style, context: state.richContext) else { return false }
+        insert(result, for: node, style: style, context: context)
+        return true
+    }
+
+    private func enterContent(_ node: ContentNode, parent: Entry, style: ComputedStyle, context: InlineContext) {
+        let parentStyle = parent.style
         if node.namespace == ContentNamespace.ops, node.name == "switch" {
             enterSwitch(node, style: style, context: context); return
         }
@@ -339,10 +364,6 @@ final class SectionWriter {
                    for: node, style: style, context: context)
             return
         case "table":
-            if let result = state.request.rich.table(node, style: style, context: state.richContext) {
-                insert(result, for: node, style: style, context: context)
-                return
-            }
             // A one-column table (a callout box) flows as ordinary blocks; wider ones as tabbed rows.
             role = Self.maximumCellsPerRow(node) > 1 ? .tableRows : .normal
         case "object", "embed":

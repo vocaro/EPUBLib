@@ -153,7 +153,7 @@ extension ReaderTextView {
 
     func image(at point: CGPoint) -> ReaderImageAttachment? {
         let target = CGPoint(x: point.x - containerOrigin.x, y: point.y - containerOrigin.y)
-        guard let fragment = readerLayoutManager.textLayoutFragment(for: target),
+        guard let fragment = drawnFragment(at: target),
               let storage = contentStorage.textStorage else { return nil }
         let lower = offset(of: fragment.rangeInElement.location)
         let upper = min(placement.visibleLength, offset(of: fragment.rangeInElement.endLocation))

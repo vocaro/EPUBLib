@@ -358,7 +358,6 @@ final class TableCoverageTextMappingTests: XCTestCase {
     /// the table is: four times the rows and matches is about four times the work, not sixteen.
     /// Timed as a ratio of best-of-several runs, with slack, so a busy machine does not decide it.
     func testMappingEveryMatchInALongTableGrowsInStepWithItsRows() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/137", options: .nonStrict())
         func seconds(rows: Int, runs: Int) throws -> TimeInterval {
             let markup = (0..<rows).map { "<tr><td>Row \($0)</td><td>Value \($0)</td></tr>" }.joined()
             let (_, section, _) = try fixture("<table>\(markup)</table>")

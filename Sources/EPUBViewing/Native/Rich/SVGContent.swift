@@ -52,9 +52,8 @@ enum SVGContent {
     /// its bytes in steps at most, where elements of as many bytes would take a sixteenth to
     /// walk: were all that `maximumExpandedBytes` allows CSS, and all of it read eight times, that
     /// would be `markerStepBudget` and no more. An SVG within the expansion limit so cannot
-    /// spend the budget by its CSS, as it cannot by its elements. The exception is a `<style>`
-    /// inside a `<style>`: its text is the text of both and is read for both, so a sheet that
-    /// stands in many is read many times over, and can.
+    /// spend the budget by its CSS, as it cannot by its elements. A `<style>` inside another
+    /// would duplicate those readings; `SVGStyleScreen` refuses it before CSS is read.
     static let cssBytesPerStep = 64
     /// Shapes whose vertices can carry a marker, and whose geometry the renderer builds.
     private static let markerableShapes: Set<String> = ["path", "line", "polyline", "polygon", "rect", "circle", "ellipse"]
@@ -199,6 +198,7 @@ enum SVGContent {
     }
 
     static func unsupportedConstructs(_ svg: ContentNode) -> Set<String> {
+        guard SVGStyleScreen.verdict(svg).withinLimits else { return [] }
         var result = Set<String>()
         func visit(_ node: ContentNode) {
             if dropped.contains(node.name) { result.insert("svg:" + node.name); return }
@@ -221,6 +221,7 @@ enum SVGContent {
         // that were not XML here were recovered as HTML, under an `html` root: a tree in which
         // names keep their prefixes, and which is not the one the renderer would draw.
         guard svg.name == "svg" else { return false }
+        guard SVGStyleScreen.verdict(svg).withinLimits else { return false }
         var nodes: [ContentNode] = []
         var valid = true
         func collect(_ node: ContentNode, depth: Int) {
@@ -256,6 +257,8 @@ enum SVGContent {
         // reference graph or walking per-shape copies. The resource map is shared by those counts.
         let original = SVGRenderingCostScreen.verdict(svg, nodes: nodes, ids: ids)
         guard original.withinLimits, SVGReferenceScreen.accepts(nodes, ids: ids) else { return false }
+        guard SVGGeometryCostScreen.accepts(svg, nodes: nodes, ids: ids) else { return false }
+        guard SVGRasterCostScreen.accepts(svg, nodes: nodes) else { return false }
         let markers = markerVerdict(svg, nodes: nodes, ids: ids)
         guard markers.withinLimits else { return false }
         let rendering = SVGRenderingCostScreen.chargingMarkers(original, instances: markers.instances)
@@ -1418,7 +1421,7 @@ enum SVGContent {
         func count(_ node: ContentNode) -> Int {
             let key = ObjectIdentifier(node)
             if let cached = cache[key] { return cached }
-            let isolates = styledLayers || ["clipPath", "mask", "pattern"].contains(node.name) ||
+            let isolates = styledLayers || ((node.name == "svg" && node !== svg) || node.name == "symbol") || ["clipPath", "mask", "pattern"].contains(node.name) ||
                 ["opacity", "clip-path", "mask", "mix-blend-mode", "isolation"].contains(where: { node.attribute($0) != nil }) ||
                 node.attribute("style")?.range(of: "(?i)(opacity|clip-path|mask|mix-blend-mode|isolation)\\s*:", options: .regularExpression) != nil
             var result = isolates ? 1 : 0
@@ -1431,6 +1434,7 @@ enum SVGContent {
     }
 
     static func fontFamilies(_ svg: ContentNode) -> Set<String> {
+        guard SVGStyleScreen.verdict(svg).withinLimits else { return [] }
         var result = Set<String>()
         let expression = try! NSRegularExpression(pattern: "(?i)font-family\\s*:\\s*([^;}]+)")
         func add(_ value: String) {

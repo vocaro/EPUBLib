@@ -483,6 +483,7 @@ enum SVGReferenceScreen {
             var queriedAttributes: [[String: Int]]
             var declarationBytes: Int
             var copiedBytes: Int
+            var declarations: [(name: String, value: String)] = []
         }
 
         private let text: [UInt8]
@@ -524,13 +525,13 @@ enum SVGReferenceScreen {
         }
 
         /// The declarations of a `style` attribute, up to the first that cannot be read.
-        static func declarations(of style: String) -> [(name: String, value: String)] {
+        static func declarations(of style: String, referencesOnly: Bool = true) -> [(name: String, value: String)] {
             var reader = CSSReader(style)
             var found: [(name: String, value: String)] = []
             while true {
                 _ = reader.skipSpacesAndComments()
                 guard reader.current != nil, let declaration = reader.declaration() else { return found }
-                if reader.mayReference(declaration.name) { found.append((reader.string(declaration.name), reader.string(declaration.value))) }
+                if !referencesOnly || reader.mayReference(declaration.name) { found.append((reader.string(declaration.name), reader.string(declaration.value))) }
             }
         }
 
@@ -580,12 +581,14 @@ enum SVGReferenceScreen {
             var references = References()
             var declarationBytes = 0
             var copiedBytes = 0
+            var declarations: [(name: String, value: String)] = []
             while current != nil, !at("}") {
                 guard let declaration = declaration() else {
                     skipBlock()
                     break
                 }
                 let name = string(declaration.name)
+                declarations.append((name, string(declaration.value)))
                 let bytes = 64 + declaration.value.count
                 declarationBytes += bytes + declaration.name.count
                 if SVGContent.copiedStyleProperties.contains(name), name != "filter" {
@@ -596,7 +599,7 @@ enum SVGReferenceScreen {
                 if declarationBytes * subjects.count > copyLimit { break }
             }
             if at("}") { position += 1 }
-            return Rule(subjects: subjects, references: references, descendants: descendants, selectorBytes: selectorBytes, queriedAttributes: queriedAttributes, declarationBytes: declarationBytes, copiedBytes: copiedBytes)
+            return Rule(subjects: subjects, references: references, descendants: descendants, selectorBytes: selectorBytes, queriedAttributes: queriedAttributes, declarationBytes: declarationBytes, copiedBytes: copiedBytes, declarations: declarations)
         }
 
         /// To the end of a block, counting brackets wherever they stand, and past its `}`.

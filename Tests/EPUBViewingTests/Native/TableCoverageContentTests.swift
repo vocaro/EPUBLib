@@ -455,7 +455,6 @@ final class TableCoverageContentTests: XCTestCase {
     /// own preferred width (`ReaderAttachment.contentWidths().max`), and a horizontal rule asks
     /// for none, so prose beside either gets the room they do not need.
     func testACellHoldingATableOrARuleAsksForItsContentsWidthNotTheWholeLine() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/138")
         let prose = "The quick brown fox jumps over the lazy dog while seven wizards quietly hex an amber jukebox near the old mill."
         let table = try TableCoverage.table("<table><tr><td>\(prose)</td><td><table><tr><td>a</td><td>b</td></tr></table></td></tr></table>")
         let inner = try XCTUnwrap(TableCoverage.tables(in: table.cells[1].content).first)
@@ -474,12 +473,9 @@ final class TableCoverageContentTests: XCTestCase {
 
     // MARK: Measuring a cell that holds a table
 
-    /// A cell's widths are measured when its table is built, by string drawing, which sizes every
-    /// attachment in the cell. A row of a table in the cell is as wide as its line whatever the
-    /// table holds, so it is measured without laying that table out, and the cell asks for
-    /// exactly what it does with the rows themselves on the line: beside other content, under an
-    /// indent, at two indents, in either direction and several tables deep.
-    func testACellHoldingATableAsksForWhatItDoesWithTheTableLaidOut() throws {
+    /// An embedded table contributes its own max-content width, including when its row is
+    /// indented, surrounded by prose, or itself holds another table.
+    func testACellHoldingATableAsksForItsIntrinsicWidth() throws {
         let inner = "<table><tr><td>alpha</td><td>beta gamma</td></tr><tr><td>c</td><td>d</td></tr></table>"
         for content in [
             inner, "lead in \(inner) and out", "<p>A paragraph first.</p>\(inner)<p>And one after.</p>", "<blockquote>\(inner)</blockquote>",
@@ -490,9 +486,11 @@ final class TableCoverageContentTests: XCTestCase {
             let table = try TableCoverage.table("<table><tr><td>\(content)</td><td>x</td></tr></table>")
             let cell = table.cells[0].content
             XCTAssertFalse(TableCoverage.tables(in: cell).isEmpty, content)
-            let laidOut = cell.boundingRect(with: CGSize(width: 100_000, height: 100_000), options: [.usesLineFragmentOrigin], context: nil)
-            XCTAssertEqual(table.cells[0].maxContent, ceil(laidOut.width), content)
-            XCTAssertEqual(TableMeasure.maximumWidth(cell), ceil(laidOut.width), content)
+            let nested = TableCoverage.tables(in: cell)
+            let preferred = nested.map { $0.constraints.maximumTableWidth }.max() ?? 0
+            XCTAssertGreaterThanOrEqual(table.cells[0].maxContent, ceil(preferred), content)
+            XCTAssertLessThan(table.cells[0].maxContent, 1_000, "A nested row contributes its preferred width, not the 100,000-point measuring line: \(content)")
+            XCTAssertEqual(TableMeasure.maximumWidth(cell), table.cells[0].maxContent, content)
         }
     }
 

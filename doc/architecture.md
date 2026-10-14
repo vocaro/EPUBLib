@@ -169,7 +169,11 @@ conversion. The package does not promise cross-engine page, search or selection 
 
 Books are untrusted and nothing in them executes: the viewer has no JavaScript engine and no web
 view. Content documents parse with libxml2 after `XMLSafety` refuses entity declarations and
-internal DTD subsets; named HTML entities become numeric references, DTDs and the network are
+internal DTD subsets. The screen decodes declared legacy encodings with libxml2's own
+converters, including UTF-7, SCSU and EBCDIC, before inspecting markup; ambiguous switches from
+an initially detected wide encoding are refused. Attribute occurrences are capped at 1,024 per
+element before strict or recovery parsing, including duplicates and namespace declarations;
+named HTML entities become numeric references, DTDs and the network are
 never loaded, and depth and node counts are bounded. Markup that is not well-formed is read with
 libxml2's forgiving HTML parser rather than refused. CSS, fonts, MathML and images are parsed with
 their own bounds. Every reference resolves inside the archive snapshot; remote images, stylesheets,

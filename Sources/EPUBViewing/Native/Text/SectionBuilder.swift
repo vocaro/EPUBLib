@@ -171,28 +171,32 @@ final class SectionBuildState {
     /// their words, without those of the elements the flow leaves out (`flowStyle`).
     func renderNodes(_ nodes: [ContentNode], style: ComputedStyle) -> NSAttributedString {
         guard let first = nodes.first, let last = nodes.last else { return NSAttributedString() }
-        guard nesting < Self.maximumNesting else {
-            var words: [Substring] = []
-            // The styles of the elements the walk is inside, each with the last node it holds.
-            var open: [(end: Int, style: ComputedStyle)] = []
-            var order = first.order
-            while order <= last.subtreeEnd {
-                let node = document.nodes[order]
-                while let innermost = open.last, innermost.end < order { open.removeLast() }
-                if node.isElement {
-                    guard let computed = flowStyle(of: node, in: open.last?.style ?? style) else { order = node.subtreeEnd + 1; continue }
-                    open.append((node.subtreeEnd, computed))
-                } else if node.isText { words += node.text.split(whereSeparator: \.isWhitespace) }
-                order += 1
-            }
-            return NSAttributedString(string: words.joined(separator: " "), attributes: [
-                .font: request.fonts.font(for: style),
-                .foregroundColor: ReaderPalette.text(dark: request.typography.isDark),
-            ])
-        }
+        guard nesting < Self.maximumNesting else { return flattenedNodes(first: first, last: last, style: style) }
         nesting += 1
         defer { nesting -= 1 }
         return SectionWriter(state: self, mode: .detached).renderContent(of: nodes, style: style)
+    }
+
+    /// The bounded-depth fallback is its own phase: its large computed-style traversal
+    /// temporaries must not stay on the stack while anonymous table cells recurse.
+    private func flattenedNodes(first: ContentNode, last: ContentNode, style: ComputedStyle) -> NSAttributedString {
+        var words: [Substring] = []
+        // The styles of the elements the walk is inside, each with the last node it holds.
+        var open: [(end: Int, style: ComputedStyle)] = []
+        var order = first.order
+        while order <= last.subtreeEnd {
+            let node = document.nodes[order]
+            while let innermost = open.last, innermost.end < order { open.removeLast() }
+            if node.isElement {
+                guard let computed = flowStyle(of: node, in: open.last?.style ?? style) else { order = node.subtreeEnd + 1; continue }
+                open.append((node.subtreeEnd, computed))
+            } else if node.isText { words += node.text.split(whereSeparator: \.isWhitespace) }
+            order += 1
+        }
+        return NSAttributedString(string: words.joined(separator: " "), attributes: [
+            .font: request.fonts.font(for: style),
+            .foregroundColor: ReaderPalette.text(dark: request.typography.isDark),
+        ])
     }
 
     /// An element's computed style, or nil where the writer leaves the element out of the flow

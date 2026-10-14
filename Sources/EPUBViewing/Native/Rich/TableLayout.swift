@@ -149,22 +149,25 @@ struct TableLayout {
     func height(ofRow row: Int) -> CGFloat { (rowTops[row + 1] - rowTops[row]) * scale }
     var tallestRow: CGFloat { (0..<(rowTops.count - 1)).map(height(ofRow:)).max() ?? 0 }
 
-    static func make(_ table: TableModel, available: CGFloat, viewportHeight: CGFloat) -> TableLayout {
+    static func make(_ table: TableModel, available: CGFloat, viewportHeight: CGFloat, nested: Bool = false) -> TableLayout {
         let constraints = table.constraints
-        var scale = constraints.minimumTableWidth > available
+        var scale: CGFloat = !nested && constraints.minimumTableWidth > available
             ? max(TableModel.minimumScale, available / constraints.minimumTableWidth) : 1
         var layout = make(table, constraints: constraints, width: available / scale, scale: scale, viewportHeight: viewportHeight / scale)
-        // Try a modest scale reduction before continuing tall rows across pages.
+        let original = layout
+        // Only the outer table fits a page. Keep a reduction only when it fits; otherwise
+        // continue at the initial readable size instead of shrinking for no benefit.
         var attempts = 0
-        while layout.tallestRow > viewportHeight, scale > TableModel.minimumScale + 0.001, attempts < 6 {
+        while !nested, layout.tallestRow > viewportHeight, scale > TableModel.minimumScale + 0.001, attempts < 6 {
             scale = max(TableModel.minimumScale, scale * 0.85)
             layout = make(table, constraints: constraints, width: available / scale, scale: scale, viewportHeight: viewportHeight / scale)
             attempts += 1
         }
-        return layout
+        return layout.tallestRow <= viewportHeight ? layout : original
     }
 
     private static func make(_ table: TableModel, constraints: Constraints, width: CGFloat, scale: CGFloat, viewportHeight: CGFloat) -> TableLayout {
+        table.recordLayoutPass()
         let columns = constraints.widths(available: width, tableWidth: table.width)
         let gap = table.spacing
         let edges = table.borders.widths

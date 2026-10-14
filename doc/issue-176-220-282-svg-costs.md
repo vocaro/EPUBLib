@@ -121,3 +121,66 @@ corpus tests skipped), including all sixteen new cost-screen tests, and two read
 zero failures. The Mac was heavily loaded during this run; all new acceptance checks are counts,
 verdicts and fallback assertions. No corpus from another project was accessed. The pinned public
 corpus and integrated Mac/iOS gate remain the central qualification lanes for the combined fixes.
+
+
+# Additional parse and raster work bounds
+
+The preflight for [#230](https://github.com/vocaro/EPUBLib/issues/230),
+[#251](https://github.com/vocaro/EPUBLib/issues/251), and
+[#375](https://github.com/vocaro/EPUBLib/issues/375) checks hostile text without
+handing it to resvg. The checked Rust boundary still handles renderer panics;
+these bounds stop inputs whose expensive work would not panic.
+
+`SVGGeometryCostScreen` reads path numbers with SVG's scientific notation,
+compact signs, and adjacent arc flags. It accumulates relative coordinates and
+bounds endpoints and control points to 10 million units. An elliptical arc also
+pays its corrected radius: even a small authored radius can become enormous
+when the renderer enlarges it to connect its endpoints. The screen overestimates
+the correction using the chord length and the smaller radius, bounds the result
+to 10 million units, and sums the ellipse subdivision estimate over the path
+against 10,000 units. The reported huge stroked arc and far-off text path are
+refused before parse. The same rule applies to paths in definitions.
+
+An embedded image's transformed span may reach eight root canvas dimensions.
+The screen includes percentages, physical units, image font-relative lengths,
+ancestor transforms, nested viewport and symbol scaling, and `<use>` viewport
+overrides. The larger viewport scale is charged on both axes, covering `slice`.
+Competing transforms are enclosed separately rather than multiplied, so an
+overridden downscale cannot hide an upscale. Linked text paths additionally pay
+their transformed coordinate bounds; links to other shape types are refused.
+Stylesheet transforms, relative stylesheet font sizes and font shorthands are
+refused for SVGs with images or text paths: their cascade is not reproduced. Absolute font size candidates
+raise the size bound. Header dimensions stand in for omitted image dimensions.
+This is separate from the decoded-image pixel and byte limits.
+
+A nested `<svg>` or `<symbol>` counts as an isolated raster layer, including
+copies reached through `<use>`. [#541](https://github.com/vocaro/EPUBLib/issues/541)
+records the independently found symbol accounting gap: the pinned renderer's
+[`use_node` conversion](https://raw.githubusercontent.com/linebender/resvg/v0.48.1/crates/usvg/src/parser/use_node.rs)
+creates a clipped group for each symbol use, while the previous Swift count
+charged none for a plain symbol. The regression asserts the preflight layer
+count; it makes no decode-time claim and never renders the oversized content. Marker content is kept near its viewport,
+measured relative to that viewport even when its origin is far from zero. Marker
+viewports are also bounded after potential host transformations and strokeWidth
+scaling. The largest projected marker content area, including orientation and
+strokes, multiplied by the weighted marker-instance count may reach at most 256
+root canvas areas. Ordinary arrowheads retain their existing resolution. The
+dedicated raster screen checks geometry, transformation alternatives, inherited
+strokes and candidate stylesheet values before rendering.
+
+Nested `<style>` elements are refused by `SVGStyleScreen` before any stylesheet
+text is read, including the font-discovery and disclosure paths before
+serialization. The walk charges one visit per node and stops as soon as it
+finds a style inside another style. It shares the existing node and depth
+ceilings. The renderer semantics were measured before this fix: after
+serialization, nested levels' text is concatenated in document order and the
+renderer applies that concatenation. [The recorded experiment and minimal
+reproducers](https://github.com/vocaro/EPUBLib/issues/375#issuecomment-6141053142)
+settle that behavior; refusal avoids reading the same descendant stylesheet for
+every level.
+
+The new tests assert verdicts, structural visit counts, geometric boundaries,
+and ordinary rendering. Hostile inputs are used only by preflight tests, so a
+regression cannot turn a failing assertion into a stalled renderer call. The
+existing Inkscape, Mermaid, D3 and OmniGraffle rendering tests qualify ordinary
+arrowheads and their raster resolution.
