@@ -47,6 +47,33 @@ final class ContentDocumentRecoveryTextTests: XCTestCase {
         XCTAssertEqual(literal.nodes.first { $0.isHTML("p") }?.attribute("title"), "</body></html>")
     }
 
+    func testTrailingTreeRepairPreservesMalformedDoctypeAttributesAndRawText() throws {
+        let start = "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd>\n"
+            + "<html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"en>\n"
+        let doctype = start + "<head><meta charset=\"utf-8\"/><title>T</title></head>"
+            + "<body><p id='one'>x</p><img id='image' src=\"a.png\" alt=\"A\"/><p id='last'>z</p></body></html>"
+        let attributes = "<html><head><title>T</title></head><body " + String(repeating: "a", count: 100)
+            + "1=\"x><p id='one'>x</p><script src=\"k.js\"/><p id='last'>y</p></body></html>tail"
+        let raw = page("<p id='one'>a</p><script>var x='</body></html>';</script><p id='last'>b<br></p>") + "tail"
+        for input in [doctype, attributes, raw] {
+            XCTAssertEqual(try HTMLRecoveryText.prepared(Data(input.utf8), path: "x", limit: .max), Data(input.utf8),
+                           "trailing repair must not rewrite declarations, quotes, attributes, or raw text")
+            let document = try parse(input)
+            XCTAssertEqual(document.head?.textContent, "T")
+            XCTAssertNotNil(document.element(id: "one"))
+            XCTAssertNotNil(document.element(id: "last"))
+            let section = BuilderHarness.build(document: document)
+            XCTAssertNotNil(section.anchors["one"])
+            XCTAssertNotNil(section.anchors["last"])
+            SectionContentSupport.assertTextMapContracts(section)
+        }
+        let document = try parse(doctype)
+        XCTAssertEqual(document.element(id: "image")?.attribute("alt"), "A")
+        XCTAssertEqual(document.element(id: "last")?.textContent, "z")
+        XCTAssertEqual(try parse(attributes).body?.textContent, "xytail")
+        XCTAssertEqual(try SectionContentSupport.raw(raw).string.string, "a\nb\ntail")
+    }
+
     func testRecoveredCDATACharactersAreShownWithTheirSearchAndAnchorOffsets() throws {
         let input = page("<p id='p'>s<![CDATA[t & u]]> v<br></p>")
         XCTAssertEqual(try parse(input).body?.textContent, "st & u v")

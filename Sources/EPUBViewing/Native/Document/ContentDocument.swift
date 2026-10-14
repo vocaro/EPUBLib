@@ -225,6 +225,7 @@ final class ContentDocument: @unchecked Sendable {
         }
         guard let doc else { throw ContentDocumentError.malformed(path) }
         defer { xmlFreeDoc(doc) }
+        retainHTMLTrailingContent(doc)
         guard let document = try convert(doc, path: path, limits: limits, recovered: true, html: true,
                                          signPlaceholder: source.placeholder) else {
             throw ContentDocumentError.malformed(path)
@@ -232,11 +233,44 @@ final class ContentDocument: @unchecked Sendable {
         return document
     }
 
+    /// libxml2 pops body/html at their end tags and can put later content beside either one.
+    /// HTML keeps that content in the body. Move the parser's actual trailing nodes, rather
+    /// than rewriting source tags whose apparent boundaries can lie in a quoted value or
+    /// raw text to libxml2. Conversion afterwards establishes every order, parent and offset
+    /// and applies the normal node/depth bounds to the complete body. Comments and PIs stay
+    /// outside it because they contribute neither characters nor CFI nodes.
+    private static func retainHTMLTrailingContent(_ doc: xmlDocPtr) {
+        guard let root = xmlDocGetRootElement(doc) else { return }
+        var child = root.pointee.children
+        var body: xmlNodePtr?
+        while let node = child {
+            if node.pointee.type == XML_ELEMENT_NODE, String(cString: node.pointee.name) == "body" {
+                body = node; break
+            }
+            child = node.pointee.next
+        }
+        guard let body else { return }
+        func append(_ first: xmlNodePtr?) {
+            var current = first
+            while let node = current {
+                current = node.pointee.next
+                switch node.pointee.type {
+                case XML_ELEMENT_NODE, XML_TEXT_NODE, XML_CDATA_SECTION_NODE:
+                    xmlUnlinkNode(node)
+                    _ = xmlAddChild(body, node)
+                default: break
+                }
+            }
+        }
+        append(body.pointee.next)
+        append(root.pointee.next)
+    }
+
     /// The UTF-8 bytes the HTML parser reads for `data`, and the placeholder that stands for a
     /// stray `<` in them. A document in another encoding is decoded first, and its named
     /// references are rewritten in what was decoded, not in its own bytes. libxml2 would discard
     /// the text after a `<` that opens no markup and end the document at a NUL. What it is
-    /// given stays within the byte limit decoded, after XML declaration/CDATA recovery, and
+    /// given stays within the byte limit decoded, after CDATA recovery, and
     /// again with those signs and NULs replaced.
     static func htmlSource(_ data: Data, rewritten: Data, path: String, limits: ContentLimits) throws -> (data: Data, placeholder: Unicode.Scalar?) {
         let limit = min(limits.bytes, Int(Int32.max))
