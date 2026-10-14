@@ -19,6 +19,8 @@ enum CSSProperty: Int, CaseIterable, Sendable {
     case direction, writingMode, listStyleType, listStylePosition, hyphens, visibility
     case borderCollapse, borderSpacing, captionSide
     case filter
+    // Generated content (`GeneratedContentStyle.swift`).
+    case content, quotes, counterReset, counterIncrement, counterSet
     // Flex, grid and box alignment (`BoxAlignmentStyle.swift`).
     case boxSizing, flexDirection, flexWrap, justifyContent, alignContent, alignItems, justifyItems
     case alignSelf, justifySelf, order, flexGrow, rowGap, gridColumns, gridAreas, gridAutoFlow, gridPlacement
@@ -30,7 +32,7 @@ enum CSSProperty: Int, CaseIterable, Sendable {
         case .fontSize, .fontFamily, .fontWeight, .fontStyle, .fontVariantCaps, .lineHeight, .color,
              .textAlign, .textIndent, .whiteSpace, .textTransform, .letterSpacing, .wordSpacing,
              .direction, .writingMode, .listStyleType, .listStylePosition, .hyphens, .visibility,
-             .borderCollapse, .borderSpacing, .captionSide:
+             .borderCollapse, .borderSpacing, .captionSide, .quotes:
             true
         default: false
         }
@@ -160,6 +162,11 @@ enum CSSValue: Equatable, Sendable {
     case integer(Int)
     /// `flex-grow`.
     case number(Double)
+    /// `content`; nil for `normal` and `none`.
+    case content([ComputedStyle.ContentItem]?)
+    case quotes(ComputedStyle.Quotes)
+    /// `counter-reset`, `counter-increment` and `counter-set`; empty for `none`.
+    case counterChanges([ComputedStyle.CounterChange])
 
     var isGlobal: Bool {
         switch self {
@@ -182,7 +189,9 @@ enum CSSPropertyParser {
 
     static func parse(name: String, value: [CSSComponent], important: Bool) -> [CSSDeclaration]? {
         let components = value.significant
-        guard !components.isEmpty, !containsVariable(components) else { return nil }
+        // `attr()` is part of `content`'s own grammar (CSS 2 §12.2); anywhere else it is a
+        // substitution the cascade does not make, as `var()` is.
+        guard !components.isEmpty, !containsVariable(components, allowingAttr: name == "content") else { return nil }
         func all(_ properties: [CSSProperty], _ value: CSSValue) -> [CSSDeclaration] {
             properties.map { CSSDeclaration(property: $0, value: value, important: important) }
         }
@@ -200,11 +209,13 @@ enum CSSPropertyParser {
         return parse(name: name, value: CSSParser.components(text, truncated: &truncated), important: false)
     }
 
-    private static func containsVariable(_ components: [CSSComponent]) -> Bool {
+    private static func containsVariable(_ components: [CSSComponent], allowingAttr: Bool = false) -> Bool {
         components.contains { component in
             switch component {
-            case .function(let name, let arguments): name == "var" || name == "env" || name == "attr" || containsVariable(arguments)
-            case .block(_, let contents): containsVariable(contents)
+            case .function("attr", _) where allowingAttr: false
+            case .function(let name, let arguments):
+                name == "var" || name == "env" || name == "attr" || containsVariable(arguments, allowingAttr: allowingAttr)
+            case .block(_, let contents): containsVariable(contents, allowingAttr: allowingAttr)
             default: false
             }
         }
@@ -334,6 +345,11 @@ enum CSSPropertyParser {
         case "border-spacing": .borderSpacing
         case "caption-side": .captionSide
         case "filter", "-webkit-filter": .filter
+        case "content": .content
+        case "quotes": .quotes
+        case "counter-reset": .counterReset
+        case "counter-increment": .counterIncrement
+        case "counter-set": .counterSet
         default: alignmentLonghand(name)
         }
     }
@@ -597,6 +613,10 @@ enum CSSPropertyParser {
             }
             guard values.count == c.count else { return nil }
             return .spacing(values[0], values[values.count - 1])
+        case .content: return content(c)
+        case .quotes: return quotes(c)
+        case .counterReset, .counterSet: return counterChanges(c, value: 0)
+        case .counterIncrement: return counterChanges(c, value: 1)
         case .boxSizing, .flexDirection, .flexWrap, .justifyContent, .alignContent, .alignItems, .justifyItems,
              .alignSelf, .justifySelf, .order, .flexGrow, .rowGap, .gridColumns, .gridAreas, .gridAutoFlow, .gridPlacement:
             return alignmentValue(property, c)
@@ -1007,7 +1027,7 @@ enum CSSPropertyParser {
         return [(.listStyleType, .listStyleType(type ?? .disc)), (.listStylePosition, .listStylePosition(position ?? .outside))]
     }
 
-    private static func listStyleType(_ component: CSSComponent) -> ComputedStyle.ListStyleType? {
+    static func listStyleType(_ component: CSSComponent) -> ComputedStyle.ListStyleType? {
         if case .token(.string(let value)) = component { return .string(value) }
         guard let keyword = component.ident else { return nil }
         switch keyword {

@@ -529,7 +529,6 @@ final class SectionContentElementCoverageTests: XCTestCase {
     }
 
     func testGeneratedContentFromBeforeAndAfterIsRendered() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/131")
         // CSS 2 section 12.1: `::before` and `::after` with `content` insert text. EPUB Reading Systems 3.3
         // section 6.3: a reading system with a viewport "MUST support the official definition of CSS as
         // described in the CSS Snapshot".

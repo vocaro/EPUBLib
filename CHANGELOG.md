@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Render `::before` and `::after` content with quotes and counters, and disclose what of it is not shown ([#131](https://github.com/vocaro/EPUBLib/issues/131)).
 - Follow manifest fallbacks for unsupported or scripted content and images while preserving resource identity ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
 - Keep floated and positioned inline text in its authored passage ([#127](https://github.com/vocaro/EPUBLib/issues/127)).
 - Copy authored case and line feeds through typography substitutions and native selections ([#128](https://github.com/vocaro/EPUBLib/issues/128)).

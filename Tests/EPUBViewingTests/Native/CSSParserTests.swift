@@ -48,9 +48,10 @@ final class CSSParserTests: XCTestCase {
             undeclared|p { color: red }
             p:nth-child(2n+1 of .x) {}
             """, path: "a.css")
-        XCTAssertEqual(sheet.rules.count, 2)
-        XCTAssertEqual(sheet.rules[0].selectors.count, 1, "A pseudo-element selector never matches")
-        guard case .pseudo(.matchesAny(let list)) = sheet.rules[1].selectors[0].compounds[0].simple[0] else { return XCTFail() }
+        XCTAssertEqual(sheet.rules.count, 3)
+        XCTAssertEqual(sheet.rules[0].selectors.map(\.pseudoElement), [.before, .after], "`::before` and `::after` generate content")
+        XCTAssertEqual(sheet.rules[1].selectors.count, 1, "Another pseudo-element's selector never matches")
+        guard case .pseudo(.matchesAny(let list)) = sheet.rules[2].selectors[0].compounds[0].simple[0] else { return XCTFail() }
         XCTAssertEqual(list.count, 1, ":is() forgives an invalid argument")
     }
 

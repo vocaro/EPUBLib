@@ -68,6 +68,8 @@ enum UserAgentStyleSheet {
     s, strike, del { text-decoration: line-through; }
     mark { background-color: yellow; color: black; }
     nobr { white-space: nowrap; }
+    q::before { content: open-quote; }
+    q::after { content: close-quote; }
     :link { text-decoration: underline; }
     ruby { display: ruby; }
     rt { display: ruby-text; }
