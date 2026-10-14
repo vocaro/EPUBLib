@@ -281,7 +281,9 @@ enum TableMeasure {
             for (range, attachment) in replacements { measured.addAttribute(.attachment, value: attachment, range: range) }
             var paragraphs: [(NSRange, NSParagraphStyle)] = []
             measured.enumerateAttribute(.paragraphStyle, in: paragraphRange) { value, styleRange, _ in
-                guard let style = value as? NSParagraphStyle, style.alignment == .justified else { return }
+                guard let style = value as? NSParagraphStyle, style.alignment != .left else { return }
+                // Max-content measures advances, not the empty space alignment leaves in
+                // the measuring column. A centered/right caption must not widen its float.
                 let neutral = style.mutableCopy() as! NSMutableParagraphStyle
                 neutral.alignment = .left
                 paragraphs.append((styleRange, neutral))

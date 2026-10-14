@@ -417,21 +417,26 @@ import UIKit
     /// CSS 2.2 10.3.5: an auto-width float is shrink-to-fit, its widest content. The reader's
     /// centred `figcaption` contributes its text width rather than the measuring column's width.
     func testAnAutoWidthFloatedFigureWithACaptionShrinksToItsContent() throws {
-        let (section, view) = try layout("<figure><img src='picture.png' alt='Pic'/><figcaption>Caption text.</figcaption></figure><p>\(H.prose)</p>",
+        let (section, view) = try layout("<figure><img id='image' src='picture.png' alt='Pic'/><figcaption>Caption text.</figcaption></figure><p>\(H.prose)</p>",
                                          css: "figure { float:left } img { width:120px; height:80px }",
                                          files: ["picture.png": RichFixture.image(width: 240, height: 160)])
         let region = try XCTUnwrap(H.region("Caption text.", in: section, view: view))
         XCTAssertLessThan(H.frame("Caption text.", in: section, view: view).width, 119, "the image is the widest content")
         XCTAssertEqual(region.frame.width, 120, accuracy: 2, "the figure is as wide as its 120-point image")
+        let imageOffset = try XCTUnwrap(section.anchors["image"])
+        let image = try XCTUnwrap(view.segmentFrames(for: NSRange(location: imageOffset, length: 1)).first)
+        XCTAssertEqual(image.width, 120, accuracy: 1)
+        XCTAssertEqual(image.height, 80, accuracy: 1)
+        XCTAssertGreaterThanOrEqual(image.minX, region.frame.minX - 0.5)
+        XCTAssertLessThanOrEqual(image.maxX, region.frame.maxX + 0.5)
         let lines = proseLines(H.prose, around: region, in: section, view: view)
         XCTAssertFalse(lines.beside.isEmpty, "prose wraps beside the figure")
         XCTAssertTrue(lines.beside.allSatisfy { $0.minX >= 119 }, "\(lines.beside)")
     }
 
     /// CSS 2.2 10.2: a percentage width refers to the containing block, here the float's 160-point
-    /// content box. The image is sized against the whole column instead and leaves the float.
+    /// content box, including the preliminary attachment proposal before its line is clipped.
     func testAPercentageWidthImageInsideASizedFloatIsSizedByTheFloat() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/148")
         let column = CGSize(width: 400, height: 600)
         for declaration in ["width:100%", "max-width:100%"] {
             let (section, view) = try layout("<figure><img id='image' src='picture.png' alt='Pic'/><figcaption>Caption text.</figcaption></figure><p>\(H.prose)</p>",
@@ -445,6 +450,65 @@ import UIKit
             let region = try XCTUnwrap(H.region("Caption text.", in: section, view: view), declaration)
             XCTAssertEqual(region.frame.minX, 240, accuracy: 1, declaration)
             XCTAssertLessThanOrEqual(region.frame.maxX, 400.5, declaration)
+        }
+    }
+
+    func testPreliminaryAttachmentProposalUsesContentWidthAndRetainsViewportUnits() {
+        let viewport = CGSize(width: 400, height: 600)
+        let container = ReaderTextContainer(size: viewport)
+        container.viewportSize = viewport
+        container.boxOverride = CGRect(x: 240, y: 0, width: 160, height: 200)
+        let line = ReaderAttachment.Line(container: container, fragment: CGRect(origin: .zero, size: viewport),
+                                         position: .zero, font: nil, characterIndex: 0)
+        XCTAssertEqual(line.width, 160)
+        XCTAssertEqual(line.viewport, viewport)
+        var sizing = ImageSizing(intrinsic: CGSize(width: 600, height: 400))
+        sizing.width = .percent(100)
+        XCTAssertEqual(sizing.size(lineWidth: line.available, viewport: line.viewport, heightLimit: line.viewport.height).width, 160)
+        sizing.width = .viewportWidth(10)
+        XCTAssertEqual(sizing.size(lineWidth: line.available, viewport: line.viewport, heightLimit: line.viewport.height).width, 40,
+                       "viewport units retain the 400-point page, rather than the 160-point figure")
+    }
+
+    func testPercentageImagesResolveInsidePositionedAndInlineBlockFigures() throws {
+        let column = CGSize(width: 400, height: 600)
+        for box in ["position:absolute; left:30px; top:0; width:40%", "display:inline-block; width:40%"] {
+            for declaration in ["width:100%", "max-width:100%", "width:50%", "max-width:50%"] {
+                let expected: CGFloat = declaration.contains("50%") ? 80 : 160
+                let (section, view) = try layout("<figure><img id='image' src='picture.png' alt='Pic'/><figcaption>Caption.</figcaption></figure><p>\(H.prose)</p>",
+                    css: "figure { \(box) } img { \(declaration) }", size: column,
+                    files: ["picture.png": RichFixture.image(width: 600, height: 400)])
+                let offset = try XCTUnwrap(section.anchors["image"])
+                let image = try XCTUnwrap(view.segmentFrames(for: NSRange(location: offset, length: 1)).first)
+                let region = try XCTUnwrap(H.region("Caption.", in: section, view: view))
+                XCTAssertEqual(image.width, expected, accuracy: 1.5, "\(box); \(declaration)")
+                XCTAssertEqual(image.height, expected * 2 / 3, accuracy: 2)
+                XCTAssertGreaterThanOrEqual(image.minX, region.frame.minX - 1)
+                XCTAssertLessThanOrEqual(image.maxX, region.frame.maxX + 1)
+                XCTAssertEqual(region.contentFrame?.width ?? region.frame.width, 160, accuracy: 1.5)
+            }
+        }
+    }
+
+    func testAutoWidthFiguresUseNaturalImagesAndAlignedCaptionAdvances() throws {
+        for alignment in ["left", "center", "right"] {
+            for declaration in ["", "width:100%", "max-width:100%"] {
+                let (section, view) = try layout("<figure><img id='image' src='picture.png' alt='Pic'/><figcaption>Cap.</figcaption></figure><p>\(H.prose)</p>",
+                    css: "figure { float:left } figcaption { text-align:\(alignment) } img { \(declaration) }",
+                    files: ["picture.png": RichFixture.image(width: 120, height: 80)])
+                let region = try XCTUnwrap(H.region("Cap.", in: section, view: view))
+                let offset = try XCTUnwrap(section.anchors["image"])
+                let image = try XCTUnwrap(view.segmentFrames(for: NSRange(location: offset, length: 1)).first)
+                XCTAssertEqual(region.frame.width, 120, accuracy: 2, "\(alignment); \(declaration)")
+                XCTAssertEqual(image.width, 120, accuracy: 1.5)
+                XCTAssertEqual(image.height, 80, accuracy: 1.5)
+                let caption = H.frame("Cap.", in: section, view: view)
+                XCTAssertGreaterThanOrEqual(caption.minX, region.frame.minX - 1)
+                XCTAssertLessThanOrEqual(caption.maxX, region.frame.maxX + 1)
+                let lines = proseLines(H.prose, around: region, in: section, view: view)
+                XCTAssertFalse(lines.beside.isEmpty)
+                XCTAssertTrue(lines.beside.allSatisfy { $0.minX >= 119 })
+            }
         }
     }
 
