@@ -21,6 +21,9 @@ public struct EPUBPublication: Sendable {
     /// The manifest's items whose files the archive holds. A remote item is never fetched and is
     /// left out, as is a font obfuscated with a key the package does not give.
     public let resources: [EPUBResource]
+    /// Entries the archive's directory lists that could not be read, which the book was opened
+    /// without; nil when every entry it lists was read.
+    public let lostEntries: EPUBLostEntries?
     public let spine: [EPUBSpineItem]
     /// The navigation document's `toc` or, without that document, the NCX's `navMap`. An entry
     /// whose href does not resolve inside the archive keeps its title and children, without an href.
@@ -109,7 +112,7 @@ public struct EPUBPublication: Sendable {
         }
         catch { throw EPUBPublicationError.invalidArchive(String(describing: error)) }
         // The bytes this archive reads, whatever it was made from.
-        let describedSizes = try ArchiveBounds.check(archive.data ?? data, archive: archive)
+        let directory = try ArchiveBounds.check(archive.data ?? data, archive: archive, names: limits.entryCount)
         var contents: [String: Data] = [:]
         var paths = Set<String>()
         var total = 0
@@ -132,7 +135,7 @@ public struct EPUBPublication: Sendable {
             // limits below, by what it inflates to, and one in any other method is not read.
             // A data descriptor's size is read by the form of the descriptor's own bytes, not the
             // one ZIPFoundation takes from the entry's version and ZIP64 field (`DataDescriptor`).
-            let declared = describedSizes[index] ?? entry.uncompressedSize
+            let declared = directory.describedSizes[index] ?? entry.uncompressedSize
             guard entry.isCompressed || (declared <= UInt64(limits.resourceBytes)
                                          && declared <= UInt64(limits.expandedBytes - total)) else {
                 throw EPUBPublicationError.limitExceeded(path)
@@ -384,7 +387,7 @@ public struct EPUBPublication: Sendable {
         return Self(id: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
             metadata: EPUBMetadata(title: values("title").first ?? "", authors: values("creator"),
                                    languages: values("language"), identifiers: values("identifier")),
-            resources: resources, spine: spine, tableOfContents: toc, landmarks: landmarks,
+            resources: resources, lostEntries: directory.lostEntries, spine: spine, tableOfContents: toc, landmarks: landmarks,
             pageList: pages.isEmpty ? nil : pages,
             cover: resources.first { $0.properties.contains("cover-image") } ?? coverID.flatMap { byID[$0] },
             pageProgression: EPUBPageProgression(rawValue: spineNode.attribute("page-progression-direction") ?? "") ?? .default,

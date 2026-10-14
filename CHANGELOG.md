@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Open a book whose archive directory loses entries without them, and report them in `EPUBPublication.lostEntries` ([#261](https://github.com/vocaro/EPUBLib/issues/261)).
 - Read a ZIP data descriptor's sizes by the form of its own bytes, so stored entries marked version 4.5 over 16-byte descriptors open ([#261](https://github.com/vocaro/EPUBLib/issues/261)).
 - Follow manifest fallbacks for unsupported or scripted content and images while preserving resource identity ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
 - Keep floated and positioned inline text in its authored passage ([#127](https://github.com/vocaro/EPUBLib/issues/127)).
