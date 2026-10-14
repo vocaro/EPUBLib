@@ -49,14 +49,16 @@ import XCTest
         }
     }
 
-    func testPublicEPUBCheckJXLImageRemainsDrawableInlineInSVGAndInTheSpine() throws {
+    func testPublicEPUBCheckImageDeclaredAsJXLRemainsDrawableInlineInSVGAndInTheSpine() throws {
         guard let corpus = EPUBCheckCorpus.root() else { throw XCTSkip("Set EPUBLIB_EPUBCHECK_FIXTURES to the pinned public EPUBCheck corpus") }
         let path = corpus.appending(path: "epub3/03-resources/files/resources-cmt-image-jxl-valid/EPUB/image.jxl")
         let data = try Data(contentsOf: path)
         guard ReaderImageSource.bitmap(data, path: "image.jxl", key: "jxl-capability") != nil else {
-            throw XCTSkip("This OS's ImageIO does not support the public JXL fixture")
+            throw XCTSkip("This OS's ImageIO does not support the public image fixture")
         }
-        XCTAssertNil(ImageType.mediaType(of: data), "the public image exercises decoder admission beyond the small signature list")
+        // The pinned fixture declares JPEG XL but carries RIFF/WebP bytes. Admission must
+        // preserve its existing rendering based on bounded decoder support, not a MIME list.
+        XCTAssertEqual(ImageType.mediaType(of: data), "image/webp")
         try assertDecoderSupportedImage(data, mediaType: "image/jxl", name: "image.jxl")
     }
 
