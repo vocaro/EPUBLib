@@ -24,6 +24,10 @@ enum SVGContent {
     /// descendants). Text layout is super-linear in the length of one run, so the document
     /// byte limit alone lets a single run cost minutes; a real label is far shorter.
     static let maximumTextRunCharacters = 20_000
+    /// Every em/ex length reparses every ancestor's font-size (usvg `units.rs`), including
+    /// each dash and text-position entry. Bound the value itself, not just one reparse per shape.
+    /// CSS values are trimmed by simplecss; XML presentation attributes retain their padding.
+    static let maximumFontSizeValueBytes = 64
     /// What the renderer may build for markers, which neither the node nor the expansion limit
     /// counts: the renderer converts a marker's content again at every vertex it is drawn at.
     /// The unit is one element of a marker's content, so a marker of ten elements drawn 10,000
@@ -621,6 +625,26 @@ enum SVGContent {
             return steps <= stepBudget
         }
 
+        // Check all stored font sizes, including definitions, markers, and tspan descendants:
+        // a relative-length consumer need not itself be a shape visited by the copy walk.
+        for node in nodes {
+            for attribute in node.attributes {
+                if attribute.name == "font-size", attribute.value.utf8.count > maximumFontSizeValueBytes {
+                    return (false, 0, steps)
+                }
+                if attribute.name == "style" {
+                    let bytes = Array(attribute.value.utf8)
+                    guard read(bytes.count) else { return (false, 0, steps) }
+                    var scan = DeclarationScan()
+                    var bounded = true
+                    forEachDeclaration(bytes, bytes.indices, &scan, valueBody: { name, range in
+                        if !fontSizeDeclarationIsBounded(name, bytes, range) { bounded = false }
+                    }) { _, _ in }
+                    guard bounded, read(scan.bytesRead) else { return (false, 0, steps) }
+                }
+            }
+        }
+
         // Rule 1's stops, for each gradient. The renderer paints with those of the first gradient
         // that has a `<stop>`: the gradient itself, or else the one its `href` names, and so on
         // from one to the next for as long as the chain is (usvg `paint_server.rs`,
@@ -1056,10 +1080,13 @@ enum SVGContent {
             let bodyStart = index + 1
             index = skipBlock(bytes, index)
             let body = bodyStart..<max(bodyStart, index - 1)
-            forEachDeclaration(bytes, body, &scan) { property, valueBytes in
+            var bounded = true
+            forEachDeclaration(bytes, body, &scan, valueBody: { name, range in
+                if !fontSizeDeclarationIsBounded(name, bytes, range) { bounded = false }
+            }) { property, valueBytes in
                 if copiedStyleProperties.contains(property) { longest = max(longest, valueBytes) }
             }
-            guard read(body.count + scan.bytesRead) else { return nil }
+            guard bounded, read(body.count + scan.bytesRead) else { return nil }
             scan.bytesRead = 0
         }
         return longest
@@ -1150,6 +1177,7 @@ enum SVGContent {
     /// A comment or a string still open at the end of `range` is read to its own end, past it, and
     /// the value is counted that far; `scan` keeps the ends found, for the next range of the text.
     private static func forEachDeclaration(_ bytes: [UInt8], _ range: Range<Int>, _ scan: inout DeclarationScan,
+                                           valueBody: ((String, Range<Int>) -> Void)? = nil,
                                            _ body: (String, Int) -> Void) {
         var index = range.lowerBound
         let end = range.upperBound
@@ -1179,8 +1207,49 @@ enum SVGContent {
             while low < high, bytes[low] <= 0x20 { low += 1 }
             if low < high, high == bytes.count { high = scan.endOfValue(bytes, from: low) }
             else { while high > low, bytes[high - 1] <= 0x20 { high -= 1 } }
-            if !name.isEmpty { body(name, high - low) }
+            if !name.isEmpty {
+                body(name, high - low)
+                valueBody?(name, low..<high)
+            }
         }
+    }
+
+    /// Bound the value usvg stores as font-size, including the size token of the CSS font
+    /// shorthand. svgtypes 0.16.1 consumes at most four optional style/variant/weight/stretch
+    /// identifiers, then a length or a size keyword; the family and optional line height follow
+    /// that size. They are not repeatedly parsed as font-size and retain their existing limits.
+    private static func fontSizeDeclarationIsBounded(_ name: String, _ bytes: [UInt8], _ range: Range<Int>) -> Bool {
+        guard name == "font-size" || name == "font" else { return true }
+        var end = range.upperBound
+        // simplecss strips the trailing priority before storing a declaration value.
+        if end - range.lowerBound >= 9, holds("important", bytes, at: end - 9) {
+            var priority = end - 9
+            while priority > range.lowerBound, bytes[priority - 1] <= 0x20 { priority -= 1 }
+            if priority > range.lowerBound, bytes[priority - 1] == UInt8(ascii: "!") {
+                end = priority - 1
+                while end > range.lowerBound, bytes[end - 1] <= 0x20 { end -= 1 }
+            }
+        }
+        if name == "font-size" { return end - range.lowerBound <= maximumFontSizeValueBytes }
+        let optional: Set<String> = ["normal", "small-caps", "italic", "oblique", "bold", "bolder", "lighter",
+            "100", "200", "300", "400", "500", "600", "700", "800", "900", "ultra-condensed",
+            "extra-condensed", "condensed", "semi-condensed", "semi-expanded", "expanded", "extra-expanded", "ultra-expanded"]
+        var index = range.lowerBound
+        for _ in 0..<4 {
+            let start = index
+            while index < end, index - start <= maximumFontSizeValueBytes,
+                (bytes[index] >= 0x61 && bytes[index] <= 0x7A)
+                || (bytes[index] >= 0x41 && bytes[index] <= 0x5A)
+                || (bytes[index] >= 0x30 && bytes[index] <= 0x39) || bytes[index] == 0x2D { index += 1 }
+            if !optional.contains(String(decoding: bytes[start..<index], as: UTF8.self)) { index = start; break }
+            while index < end, bytes[index] <= 0x20 { index += 1 }
+        }
+        let start = index
+        // No valid font-size token crosses whitespace or '/'. Counting the whole token also
+        // bounds a malformed suffix that the renderer may treat as the start of a family.
+        while index < end, index - start <= maximumFontSizeValueBytes,
+              bytes[index] > 0x20, bytes[index] != UInt8(ascii: "/") { index += 1 }
+        return index - start <= maximumFontSizeValueBytes
     }
 
     /// The index just past the `/* … */` comment whose `/*` is at `index`.
