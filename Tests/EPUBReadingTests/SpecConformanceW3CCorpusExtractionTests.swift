@@ -20,6 +20,7 @@ final class SpecConformanceW3CCorpusExtractionTests: XCTestCase {
         var extracted = 0, refused = 0
         for (id, url) in directories {
             let expectation = Corpus.expectation(for: id)
+            let expectedMalformed = expectation.extractionMalformed ?? expectation.withheld.union(expectation.recovered)
             let publication: EPUBPublication
             do { publication = try EPUBPublication.open(data: Corpus.archive(ofExpandedEPUBAt: url)) }
             catch {
@@ -34,7 +35,7 @@ final class SpecConformanceW3CCorpusExtractionTests: XCTestCase {
                     extracted += 1
                     XCTAssertEqual(section.resource, resource, id)
                     XCTAssertEqual(section.isLinear, publication.spine[index].isLinear, id)
-                    XCTAssertFalse(expectation.withheld.contains(index) || expectation.recovered.contains(index),
+                    XCTAssertFalse(expectedMalformed.contains(index),
                                    "\(id) section \(index) was expected to be refused")
                     for case .rendered(index, let phrase) in expectation.checks where resource.mediaType == "application/xhtml+xml" {
                         // A manifest fallback stands in for a scripted document only in a renderer.
@@ -51,7 +52,7 @@ final class SpecConformanceW3CCorpusExtractionTests: XCTestCase {
                     case .malformedContent(let path):
                         // Entity declarations and markup that is not well-formed fail by default.
                         XCTAssertEqual(path, resource.path, id)
-                        XCTAssertTrue(expectation.withheld.contains(index) || expectation.recovered.contains(index),
+                        XCTAssertTrue(expectedMalformed.contains(index),
                                       "\(id) section \(index) is refused as malformed: \(resource.path)")
                     default: XCTFail("\(id) section \(index): \(error)")
                     }

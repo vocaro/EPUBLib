@@ -19,7 +19,8 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
 
 1. **Document** (`ContentDocument`). libxml2 parses each spine item into an element/text tree
    that matches what an EPUB CFI sees: comments and processing instructions dropped, adjacent
-   text and CDATA merged. Named HTML entities become numeric references before an XML parse;
+   text and CDATA merged. The full HTML named-reference set, including MathML names and
+   two-scalar references, becomes numeric references before an XML parse, also in UTF-16;
    markup that is not well-formed falls back to libxml2's HTML parser and is reported.
    A qualified subset of XML-shaped HTML uses Foliate's HTML whitespace and namespace rules.
    Unqualified HTML repairs remain readable but cannot issue or resolve CFIs: the reader
@@ -2229,8 +2230,13 @@ text-extraction recovery.
 Strict namespaced XHTML retains its XML DOM and existing CFIs. For documents Foliate would
 retry as HTML, compatibility requires UTF-8 XML-shaped markup with explicit head/body,
 ordinary flow/inline elements and lists, and valid HTML nesting. Pre-head whitespace is
-dropped, between-head/body whitespace retained, and trailing root whitespace merged into the
-body. Self-closing nonvoids, closing void tags, table tree construction, CDATA, raw-text or
+dropped, between-head/body whitespace retained, and whitespace after the body and root
+merged into the body. Namespace errors fall back to HTML with CFIs disabled. Unknown namespace
+URI warnings keep the XML tree: a 2026-10-13 parser-context probe found that libxml2 reports
+`XML_WAR_NS_URI` (99) as an error and clears `nsWellFormed` for EPUBCheck's valid declaration
+`xmlns:epub="http://http://www.idpf.org/2007/ops"`. URI-warning codes 99 and 100 are allowed;
+actual namespace errors are collected per parse, so a later URI warning cannot hide an earlier
+undeclared prefix or invalid QName. Self-closing nonvoids, closing void tags, table tree construction, CDATA, raw-text or
 foreign elements, literal attribute tabs/line endings, and HTML numeric-reference remapping
 are outside this subset. These cases require source correction or a host's explicit quote
 search for migration; changing an engine/format tag alone cannot repair their positions.

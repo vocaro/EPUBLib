@@ -13,7 +13,11 @@ enum HTMLCFICompatibility {
     private static let lists: Set<String> = ["ul", "ol", "dl"]
 
     static func hasXHTMLDTD(_ data: Data) -> Bool {
-        guard let source = String(data: data, encoding: .utf8), let tags = tokens(source) else { return false }
+        let source: String?
+        if let (encoding, mark) = HTMLSourceEncoding.wide(data) {
+            source = String(data: data.dropFirst(mark), encoding: encoding)
+        } else { source = String(data: data, encoding: .utf8) }
+        guard let source, let tags = tokens(source) else { return false }
         let identifiers = ["-//W3C//DTD XHTML 1.0 Strict//EN", "-//W3C//DTD XHTML 1.0 Transitional//EN",
                            "-//W3C//DTD XHTML 1.0 Frameset//EN", "-//W3C//DTD XHTML 1.1//EN"]
         return tags.contains { tag in
@@ -106,6 +110,30 @@ enum HTMLCFICompatibility {
             return node.children.allSatisfy { qualifies($0, insideAnchor: insideAnchor || name == "a") }
         }
         return qualifies(document.root)
+    }
+
+    /// XML discards whitespace outside its root. Qualified HTML moves the whitespace
+    /// after that root into the body, ignoring comments that remain document children.
+    /// Walk the suffix only; a closing tag written inside a comment is never a boundary.
+    static func trailingWhitespace(_ data: Data) -> String {
+        let bytes = Array(data)
+        var end = bytes.count, reversed: [UInt8] = []
+        while end > 0 {
+            if [UInt8(9), 10, 13, 32].contains(bytes[end - 1]) {
+                // Normalize only adjacent CR/LF bytes. Ignoring a comment must not
+                // turn the separate runs on its sides into a single CRLF sequence.
+                let byte = bytes[end - 1]
+                reversed.append(byte == 13 ? 10 : byte)
+                if byte == 10, end >= 2, bytes[end - 2] == 13 { end -= 2 }
+                else { end -= 1 }
+            } else if end >= 3, bytes[(end - 3)..<end].elementsEqual("-->".utf8) {
+                var start = end - 3
+                while start >= 4, !bytes[(start - 4)..<start].elementsEqual("<!--".utf8) { start -= 1 }
+                guard start >= 4 else { break }
+                end = start - 4
+            } else { break }
+        }
+        return String(decoding: reversed.reversed(), as: UTF8.self)
     }
 
     private static func asciiWhitespace(_ string: String) -> Bool {

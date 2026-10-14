@@ -79,18 +79,30 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     /// references section": every HTML name, not only HTML 4's. WebKit resolves them so, and
     /// foliate's CFI offsets counted the characters they produce.
     func testHTML5NamedReferencesResolveUnderAnXHTMLDoctype() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/100")
         let document = try parse("\(Self.xhtml11)<html \(Self.xhtml)>\(Self.head)<body><p>Dvo&rcaron;&aacute;k &check; done</p></body></html>")
         XCTAssertEqual(bodyText(document), "Dvořák ✓ done", "the characters of the references are missing from the text")
         let text = try XCTUnwrap(document.body?.children.first?.children.first)
         XCTAssertEqual(text.utf16Length, 13, "CFI offsets after a dropped reference name another character")
     }
 
+    func testMultiScalarAndAstralNamedReferencesKeepTheirCFIOffsets() throws {
+        let document = try page("<p title=\"&NotEqualTilde;&Afr;&lang;&rang;\">&NotEqualTilde;&Afr;&lang;&rang; end</p>", prolog: Self.xhtml11)
+        XCTAssertFalse(document.recoveredAsHTML)
+        XCTAssertTrue(document.canResolveCFIs)
+        let paragraph = try first("p", in: document)
+        let expected = "\u{2242}\u{338}\u{1D504}⟨⟩ end"
+        XCTAssertEqual(paragraph.textContent, expected)
+        XCTAssertEqual(paragraph.attribute("title"), "\u{2242}\u{338}\u{1D504}⟨⟩")
+        let text = try XCTUnwrap(paragraph.children.first)
+        XCTAssertEqual(text.utf16Length, 10)
+        let range = try XCTUnwrap(EPUBCFI.resolve(localPath: "/4/2,/1:7,/1:10", in: document))
+        XCTAssertEqual((text.text as NSString).substring(with: NSRange(location: range.start.offset, length: range.end.offset - range.start.offset)), "end")
+    }
+
     /// An entity the DTD cannot declare is an error in WebKit, which foliate answered by reading
     /// the file as HTML, where the reference stays as the text the author wrote. Dropping it
     /// leaves no trace that anything was there.
     func testAnUndeclaredEntityUnderADoctypeIsNotSilentlyDropped() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/100")
         let document = try parse("\(Self.xhtml11)<html \(Self.xhtml)>\(Self.head)<body><p title=\"a&bogus;b\">10&bogus;20</p></body></html>")
         XCTAssertEqual(bodyText(document), "10&bogus;20", "the reference vanished from the text")
         XCTAssertEqual(try first("p", in: document).attribute("title"), "a&bogus;b", "the reference vanished from the attribute")
@@ -100,7 +112,6 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     /// EPUB 3.3, section 3.9 (XML conformance): an XML-based resource "MUST be encoded in UTF-8
     /// or UTF-16". A UTF-16 XHTML 1.1 document may use the DTD's entities like any other.
     func testNamedEntitiesSurviveInUTF16Documents() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/100")
         let markup = "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\(Self.xhtml11)<html \(Self.xhtml)>\(Self.head)"
             + "<body><p>caf&eacute;&nbsp;cr&egrave;me</p></body></html>"
         for (label, bom, encoding) in [("little endian", [UInt8](arrayLiteral: 0xFF, 0xFE), String.Encoding.utf16LittleEndian),
@@ -108,6 +119,8 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
             let data = Data(bom) + (try XCTUnwrap(markup.data(using: encoding)))
             let document = try ContentDocument.parse(data, path: "wide.xhtml")
             XCTAssertEqual(bodyText(document), "café\u{A0}crème", "\(label): the referenced characters are missing")
+            XCTAssertFalse(document.recoveredAsHTML, label)
+            XCTAssertTrue(document.canResolveCFIs, label)
         }
     }
 
@@ -748,13 +761,50 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     /// type on section is not defined" and foliate then read the file as HTML, whose tree (here
     /// with a `tbody`) is the one its CFIs count. Keeping the XML tree resolves them elsewhere.
     func testAnUndeclaredNamespacePrefixIsReadAsFoliateReadIt() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/102")
         let document = try page("<section epub:type=\"chapter\"><table><tr><td>Cell</td></tr></table></section>")
         XCTAssertEqual(try first("section", in: document).epubTypes, ["chapter"], "the attribute is still read")
         XCTAssertTrue(document.recoveredAsHTML, "WebKit rejects this as XML; foliate re-read it as HTML")
+        XCTAssertFalse(document.canResolveCFIs, "namespace repair uses an unqualified HTML tree")
         // foliate's CFI for "ell": section, table, the tbody HTML adds, tr, td.
         if let range = EPUBCFI.resolve(localPath: "/4/2/2/2/2/2,/1:1,/1:4", in: document) {
             XCTAssertEqual([range.start.offset, range.end.offset], [1, 4], "a saved range resolves, but to another place in the cell")
+        }
+    }
+
+    func testOtherNamespaceErrorsRefuseCFIsWhileKeepingReadableContent() throws {
+        for body in [
+            "<m:math>visible</m:math>",
+            "<section xmlns:epub=\"\" epub:type=\"chapter\">visible</section>",
+            "<p xmlns:a=\"urn:test\" xmlns:b=\"urn:test\" a:title=\"one\" b:title=\"two\">visible</p>",
+            "<a:b:c>visible</a:b:c>",
+        ] {
+            let document = try page(body)
+            XCTAssertTrue(document.recoveredAsHTML, body)
+            XCTAssertFalse(document.canResolveCFIs, body)
+            XCTAssertTrue(bodyText(document).contains("visible"), body)
+            XCTAssertNil(EPUBCFI.resolve(localPath: "/4/2/1:0", in: document), body)
+        }
+    }
+
+    func testUnusedUnknownNamespaceURIsKeepTheXMLTree() throws {
+        // EPUBCheck's valid ns-epub-unknown-info.xhtml declares the first URI.
+        for uri in ["http://http://www.idpf.org/2007/ops", "relative"] {
+            let document = try page("<p>visible</p>", prolog: "<!DOCTYPE html>", root: " xmlns:epub=\"\(uri)\"")
+            XCTAssertFalse(document.recoveredAsHTML, uri)
+            XCTAssertTrue(document.canResolveCFIs, uri)
+            XCTAssertEqual(bodyText(document), "visible", uri)
+        }
+    }
+
+    func testNamespaceErrorsCannotBeHiddenByLaterURIWarnings() throws {
+        let invalid = "<section epub:type=\"chapter\">visible</section>"
+        let warning = "<p xmlns:other=\"http://http://www.idpf.org/2007/ops\">after</p>"
+        for body in [invalid + warning, warning + invalid] {
+            let document = try page(body)
+            XCTAssertTrue(document.recoveredAsHTML)
+            XCTAssertFalse(document.canResolveCFIs)
+            XCTAssertTrue(bodyText(document).contains("visible"))
+            XCTAssertNil(EPUBCFI.resolve(localPath: "/4/2/1:0", in: document))
         }
     }
 
@@ -886,7 +936,6 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     /// insertion mode", so it too lands at the end of the body. Almost every file ends with a
     /// newline, and WebKit's tree (hence foliate's CFIs) has it.
     func testWhiteSpaceAfterTheRootElementBelongsToTheBodyInQualifiedHTML() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/104")
         let document = try parse("<html><head><title>Book</title></head><body><p>One.</p><p>Two.</p></body></html>\n")
         XCTAssertTrue(document.canResolveCFIs)
         XCTAssertEqual(document.body?.children.map { $0.isElement ? "<\($0.name)>" : $0.text }, ["<p>", "<p>", "\n"],
@@ -895,6 +944,32 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
         let range = try XCTUnwrap(EPUBCFI.resolve(localPath: "/4,/4/1:0,/5:0", in: document))
         XCTAssertEqual(range.start.node.text, "Two.")
         XCTAssertTrue(range.start < range.end, "a selection of the last paragraph resolves to an empty range")
+    }
+
+    func testQualifiedHTMLMergesTrailingWhitespaceAroundDocumentComments() throws {
+        let document = try parse("<html><head><title>T</title></head><body><p>one</p> </body>\t</html>\r\n<!-- </html> ignored -->\r<!-- last --> ")
+        XCTAssertTrue(document.canResolveCFIs)
+        XCTAssertEqual(document.body?.children.map { $0.isElement ? "<\($0.name)>" : $0.text }, ["<p>", " \t\n\n "])
+    }
+
+    func testQualifiedHTMLKeepsLineEndingsOnBothSidesOfDocumentComments() throws {
+        let document = try parse("<html><head><title>T</title></head><body><p>one</p></body></html>\r<!-- ignored -->\n")
+        XCTAssertTrue(document.canResolveCFIs)
+        XCTAssertEqual(document.body?.children.last?.text, "\n\n")
+        let range = try XCTUnwrap(EPUBCFI.resolve(localPath: "/4,/2/1:0,/3:2", in: document))
+        XCTAssertEqual(range.start.node.text, "one")
+        XCTAssertEqual(range.end.node.text, "\n\n")
+        XCTAssertEqual(range.end.offset, 2)
+    }
+
+    func testQualifiedHTMLTailWhitespaceHonorsTheNodeLimit() throws {
+        let markup = "<html><head><title>T</title></head><body><p>one</p></body></html>\n"
+        var limits = ContentLimits(); limits.nodes = 7
+        XCTAssertThrowsError(try parse(markup, limits: limits)) { error in
+            XCTAssertEqual(error as? ContentDocumentError, .limitExceeded("nodes"))
+        }
+        limits.nodes = 8
+        XCTAssertEqual(try parse(markup, limits: limits).body?.children.last?.text, "\n")
     }
 
     // MARK: - Robustness
