@@ -4,9 +4,15 @@ import UIKit
 import XCTest
 @testable import EPUBViewing
 
-/// Independent controls for UIKit presentation in the package XCTest host. Neither routes a
-/// link nor depends on a section build, so failure here identifies the presentation lane.
+/// Independent controls for the app-hosted UIKit presentation lane. Package XCTest's generic
+/// modal transitions never attach even a plain controller, so those runs skip these controls.
 @MainActor final class NoteUIKitPresentationControlTests: XCTestCase {
+    override func setUpWithError() throws {
+        guard ProcessInfo.processInfo.environment["EPUBLIB_NOTE_APP_HOSTED"] == "YES" else {
+            throw XCTSkip("Set EPUBLIB_NOTE_APP_HOSTED=YES in an app-hosted XCTest bundle to verify UIKit modal attachment")
+        }
+    }
+
     func testPlainViewControllerPopoverAttachesAndCompletes() async throws {
         let content = UIViewController()
         content.view = UIView(frame: CGRect(x: 0, y: 0, width: 358, height: 56))
@@ -70,9 +76,7 @@ import XCTest
                 + "scene=\(String(describing: window.windowScene?.activationState.rawValue)), key=\(window.isKeyWindow)"
         }
         print("NoteUIKit control before presentation: \(state())")
-        // The package host's animated transition may never advance. This control explicitly
-        // chooses a nonanimated transition, rather than changing UIView's global animation flag.
-        presenter.present(content, animated: false) {
+        presenter.present(content, animated: true) {
             completed = true
             print("NoteUIKit control presentation completion: \(state())")
         }

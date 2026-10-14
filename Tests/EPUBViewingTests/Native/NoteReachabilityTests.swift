@@ -114,6 +114,13 @@ final class NoteReachabilityTests: XCTestCase {
         #if os(macOS)
         closeNote(canvas)
         #else
+        // Package XCTest can route and construct the note, but its generic UIKit modal
+        // transition never attaches even a plain controller. Actual presentation is verified
+        // by the app-hosted lane; this lane cancels the pending transition without awaiting it.
+        guard ProcessInfo.processInfo.environment["EPUBLIB_NOTE_APP_HOSTED"] == "YES" else {
+            closeNote(canvas)
+            return
+        }
         if let controller = canvas.presentedNote as? ReaderNoteViewController {
             @MainActor func state() -> String {
                 "presenting=\(controller.isBeingPresented), dismissing=\(controller.isBeingDismissed), "
