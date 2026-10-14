@@ -6,7 +6,7 @@ import XCTest
 /// A link in a Mac text view as an assistive client is given it (doc/native-viewer.md "Links
 /// for VoiceOver on the Mac"): an element of the reader's own in the text's accessibility
 /// string and among the text's children, named by its words, with a place and a press. API
-/// level only: what VoiceOver says of it is recorded in doc/voiceover-testing.md.
+/// level only: what VoiceOver says of it is recorded in doc/testing.md#voiceover-testing.
 @MainActor final class LinkAccessibilityTests: XCTestCase {
     private var hosts: [CanvasHost] = []
 

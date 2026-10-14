@@ -14,7 +14,7 @@ import XCTest
 /// No assistive technology is driven here. The tests read the elements through the protocols
 /// VoiceOver uses (`UIAccessibilityContainerDataTable` and the container protocol), and for
 /// continuous scroll stand in for a move of its cursor as `ScrolledAccessibilityLinesTests`
-/// does. What VoiceOver says of these elements is in doc/voiceover-testing.md.
+/// does. What VoiceOver says of these elements is in doc/testing.md#voiceover-testing.
 @MainActor final class TableDataAccessibilityTests: XCTestCase {
     private typealias Subject = (reader: SessionCoverageReader, canvas: ReaderCanvasView, view: ReaderTextView)
     private typealias Table = UIAccessibilityElement & UIAccessibilityContainerDataTable

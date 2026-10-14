@@ -5,7 +5,7 @@ import SwiftUI
 
 /// A minimal host for operating the supplied reader controls live: one bundled synthetic book,
 /// opened at launch, in an ordinary `NavigationStack`. Launch arguments choose the book, the
-/// arrangement and the toolbar placement; see doc/issue-49-51-controls-qualification.md.
+/// arrangement and the toolbar placement; see "Reader controls probe" in doc/testing.md.
 @main struct ControlsQualificationApp: App {
     #if os(iOS)
     /// `-QualificationTouchTrace YES` records every touch and what took it; see `TouchTrace`.

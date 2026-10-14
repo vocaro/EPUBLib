@@ -308,7 +308,7 @@ final class CSSCascadeHintCoverageTests: XCTestCase {
         XCTAssertEqual(result.style("dl").margin.top, .points(20))
         XCTAssertEqual(result.style("dd").margin.left, .points(40))
         XCTAssertEqual(result.style("figure").margin, .init(top: .points(20), right: .points(40), bottom: .points(20), left: .points(40)))
-        // doc/issue-21-css-sizing.md: "Centered figcaption text at 0.9em is an intentional user-agent reader default."
+        // doc/native-viewer.md, "Paragraph sizing": "Centered figcaption text at 0.9em is an intentional user-agent reader default."
         XCTAssertEqual(result.style("figcaption").textAlign, .center)
         XCTAssertEqual(result.style("figcaption").fontSize, 18, accuracy: 0.0001)
         let rule = result.style("hr")

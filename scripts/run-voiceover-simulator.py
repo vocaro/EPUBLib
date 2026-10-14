@@ -3,7 +3,7 @@
 
 Generates the fixture and project if needed and builds the probe for the simulator once. Then
 it creates one simulator per --device, boots each without Simulator.app, mutes it and runs the
-probe on all of them at the same time, each under a deadline; see doc/voiceover-testing.md.
+probe on all of them at the same time, each under a deadline; see doc/testing.md#voiceover-testing.
 Every simulator gets one transcript: the probe's steps and what VoiceOver said after each.
 The simulators are deleted afterwards whatever happened. This script never boots, changes or
 deletes a simulator it did not create, and never opens Simulator.app. It exits 0 only when

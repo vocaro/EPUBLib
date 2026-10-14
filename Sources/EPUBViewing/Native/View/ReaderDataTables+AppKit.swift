@@ -67,7 +67,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 /// A table of data where one of its rows stands in the text: `NSAccessibility`'s table, with
 /// the rows the view shows of it, its columns, its cells, and a header for each column and row.
 ///
-/// What VoiceOver does with it was heard, not read (doc/voiceover-testing.md). As it reads the
+/// What VoiceOver does with it was heard, not read (doc/testing.md). As it reads the
 /// text it says the label and "table", and after them the whole table's contents unless the
 /// table says which of its rows are selected. It comes into a table at its selected row, and
 /// otherwise at the first row on screen. With selected cells among its attributes as well, it
@@ -228,7 +228,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     // row, as it does in AppKit's own tables. Asked of the cell instead, it quit: its
     // `-[SCRCell columnHeaderDescription]` appends the first header's description to a
     // string without looking, and that description came back nil now and then, whatever
-    // the header element was (macOS 27.0.1; doc/voiceover-testing.md has the reports).
+    // the header element was (macOS 27.0.1; doc/testing.md#voiceover-testing has the reports).
 
     /// The header of each column, in column order. None where no column has a header cell.
     private var columnHeaders: [NSAccessibilityElement] {
@@ -528,7 +528,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// Such a cell holds a link, and the link its text areas, as a web view's cell does. That
     /// is what makes VoiceOver say that the cell is a link as it comes to it: it says what a
     /// cell holds, "Reopened 1978 hyperlink", and nothing of what the cell says it is
-    /// (doc/voiceover-testing.md has what it did with a subrole, a role description, a link
+    /// (doc/testing.md#voiceover-testing has what it did with a subrole, a role description, a link
     /// in place of the text areas and one beside them). A header cell that is one link holds
     /// one too, and the link's title is how VoiceOver still reads that header before each
     /// cell it heads (`linkTitle`).
@@ -543,7 +543,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// a link without a title. The title is for a header cell: before each cell it heads
     /// VoiceOver said nothing of a header cell whose link had none, "1912" where it says
     /// "Dogwood 1912", and the column's and the row's numbers at Control-Option-C and
-    /// Control-Option-R (doc/voiceover-testing.md).
+    /// Control-Option-R (doc/testing.md#voiceover-testing).
     var linkTitle: String? { text.isEmpty ? nil : text }
 
     /// The cell shows pictures and nothing else, or nothing at all, and is no link. It holds
@@ -554,7 +554,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// character, for a described picture as for any other. With the image it says "Sign
     /// Blue badge image", and "image cell" for a picture nobody describes. A cell of
     /// decoration alone holds nothing and is "empty cell", like a cell with nothing in it
-    /// (doc/voiceover-testing.md has what was heard, and the other ways that were tried).
+    /// (doc/testing.md#voiceover-testing has what was heard, and the other ways that were tried).
     var holdsPictures: Bool {
         guard let table, table.view != nil else { return false }
         let model = table.table.cells[cell]

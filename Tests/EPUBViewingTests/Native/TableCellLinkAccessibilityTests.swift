@@ -7,7 +7,7 @@ import XCTest
 /// "Links for VoiceOver on Mac"). A cell is a text view of its own, and its links are the
 /// reader's elements, as those of the text around the table are: named by what they say, with
 /// a place and a press. API level only: what VoiceOver says of them is recorded in
-/// doc/voiceover-testing.md.
+/// doc/testing.md#voiceover-testing.
 @MainActor final class TableCellLinkAccessibilityTests: XCTestCase {
     private var hosts: [CanvasHost] = []
 
@@ -376,7 +376,7 @@ import XCTest
     private func screen(of view: ReaderTextView) -> NSRect { NSAccessibility.screenRect(fromView: view, rect: view.visibleRect) }
 
     /// VoiceOver's Find Next Link to a link in a table row some screens below, in a reader
-    /// opened at a section (doc/voiceover-testing.md, "Tables on Mac"). The reader shows the
+    /// opened at a section (doc/testing.md, "Tables on Mac"). The reader shows the
     /// row where TextKit 2 estimates it stands: a row taller than a screen lies between, and
     /// until it is laid out its height is a guess. VoiceOver then asks the text which line
     /// its insertion point is on, and AppKit counts the lines from the first: all the text

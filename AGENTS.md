@@ -46,14 +46,14 @@ what happened. Tests are run by automation.
   said to need a finger usually needs a timing or an input that a UI test can make. Whether a
   swipe scrolls the control strip was put to a finger and answered by a synthetic touch that
   moves at once, with the host recording each touch
-  ([reader controls](doc/issue-49-51-controls-qualification.md#evidence-and-repeating-it)).
+  ([reader controls probe](doc/testing.md#reader-controls-probe)).
 - For VoiceOver on an iPhone and iPad, a device shows three things a simulator does not:
   VoiceOver activating the item under its cursor, an action performed from the rotor, and a
   page turned in landscape. What VoiceOver reads, in what order, and where its cursor and
   rotor move is settled in the simulator lane. The owner decided on 2026-10-13 that such a
   session is acceptance evidence, so do not ask for a device to hear it again, and do not
   file an issue for a device session that would
-  ([VoiceOver testing](doc/voiceover-testing.md#acceptance-and-evidence)).
+  ([VoiceOver testing](doc/testing.md#acceptance-and-evidence)).
 - The first of those three reaches further than the double tap. On an iPad VoiceOver asks
   again for the items round its cursor once it has activated something, and a simulator's
   does not know that anything was. On 2026-10-12 a line VoiceOver held from before a scroll
@@ -110,7 +110,7 @@ other session.
 
 - Start a run with `python3 scripts/hosted-run.py voiceover-mac.yml`, not with
   `gh workflow run`, and fetch its transcripts with `gh run download`;
-  [VoiceOver testing](doc/voiceover-testing.md#hosted-mac-sessions) has the inputs. A run
+  [VoiceOver testing](doc/testing.md#hosted-mac-sessions) has the inputs. A run
   takes about five minutes once it has a runner, and at a fixed pause its transcripts are
   acceptance evidence for the Mac.
 - Share the runner. Its five jobs at a time are for every session's runs together
@@ -162,11 +162,35 @@ Every session's worktree shares one `.git`, and `main` gains commits several tim
   recorded on the issue before changing the test or your own code.
 - Evidence is not kept on a branch. The owner said so on 2026-10-13, when four branches were
   the only place that held the probe code and a spike which three open issues and
-  [VoiceOver testing](doc/voiceover-testing.md) pointed at. What a probe or a spike found goes
-  in the issue or the document it bears on. Code worth having again goes in the issue as a
+  [VoiceOver testing](doc/testing.md#voiceover-testing) pointed at. What a probe or a spike
+  found goes in the issue or the document it bears on
+  ([below](#where-a-write-up-goes)). Code worth having again goes in the issue as a
   patch, with the commit of `main` it applies to
   ([#454](https://github.com/vocaro/EPUBLib/issues/454#issuecomment-6155463999) has one). Do
   not write that a branch "is still on the remote" as the way to find something.
+
+## Where a write-up goes
+
+On 2026-10-13 `doc/` held twelve files named for issues and seven named for releases, and
+seven of those issues were closed with no comment on them. The owner had the files moved to
+the issues and the release notes, and the same day had the VoiceOver document folded into
+[testing](doc/testing.md) and the changelog cut to a sentence an entry.
+
+- Do not add a `doc/issue-N-*.md` or a `doc/verification-X.Y.Z.md`. `doc/` has a document for
+  each subject, not one for each issue or release.
+- What the library does, why, and where its limits are goes in the document for its subject:
+  [architecture](doc/architecture.md), [native viewer](doc/native-viewer.md),
+  [reader controls](doc/reader-controls.md) and the others beside them.
+- How to run or repeat something goes in [testing](doc/testing.md), VoiceOver sessions
+  included. A probe's script and inputs go under
+  [Probes and recorded inputs](doc/testing.md#probes-and-recorded-inputs).
+- What was run goes on the issue, in a comment: the commit, the machine, the counts, the
+  measurements and what was left unverified. A document links to that comment and does not
+  repeat it.
+- A release's verification goes in its GitHub release notes.
+- A changelog entry is one sentence and a link to its issue, at the top of "Unreleased" in
+  [CHANGELOG.md](CHANGELOG.md). Where there is no issue, link the pull request. What changed
+  in detail is on the issue.
 
 ## Test corpora
 

@@ -18,7 +18,7 @@ simctl has no fold command, and `simctl io screenConfig` crash-loops the iPhone 
 SpringBoard: never send it there.
 
 Build first, with the Xcode whose simulator runtime the device uses; see
-doc/issue-49-51-controls-qualification.md. The device is never created, booted or deleted here.
+"Reader controls probe" in doc/testing.md. The device is never created, booted or deleted here.
 
 Every xcodebuild and xcrun call here uses /Applications/Xcode.app, as scripts/test-ios.sh does,
 whatever `xcode-select` names; set DEVELOPER_DIR for another Xcode, for the build as well. A

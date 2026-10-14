@@ -2,7 +2,7 @@
 """Run the speech sessions of one hosted job, each with a fresh verification reader or Safari.
 
 .github/workflows/voiceover-mac.yml runs this on a GitHub runner it has prepared; see "Hosted
-Mac sessions" in doc/voiceover-testing.md. The workflow's inputs arrive in the environment,
+Mac sessions" in doc/testing.md#voiceover-testing. The workflow's inputs arrive in the environment,
 and an empty one takes the value in brackets:
 
 VOICEOVER_STEPS          the steps of scripts/run-voiceover-mac.py, quoted as on a command line,
