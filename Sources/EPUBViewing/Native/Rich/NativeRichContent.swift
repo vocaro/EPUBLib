@@ -70,7 +70,9 @@ struct NativeRichContent: RichContentFactory {
         let sizing = ImageSizing(intrinsic: intrinsic, style: style, widthHint: element.attribute("width"),
                                  heightHint: element.attribute("height"))
         return attachment(ReaderImageAttachment(source: source, sizing: sizing, alternative: alternative, style: style,
-                                                isDark: context.typography.isDark, cache: images),
+                                                isDark: context.typography.isDark,
+                                                isHiddenFromAssistiveTechnology: ContentSemantics.isHiddenFromAssistiveTechnology(element),
+                                                cache: images),
                           style: style, context: context)
     }
 
@@ -98,8 +100,13 @@ struct NativeRichContent: RichContentFactory {
             let sizing = ImageSizing(intrinsic: intrinsic, style: style, widthHint: widthHint, heightHint: heightHint)
             let placement = SVGContent.placement(of: image, in: element, source: source, fontSize: style.fontSize)
             let alternative = title.isEmpty ? ImageAlternative(alt: image.attribute("alt")) : .text(title)
+            // The drawing is kept from assistive technology, or the image it shows where that
+            // gives its words, its `alt`.
+            let hidden = ContentSemantics.isHiddenFromAssistiveTechnology(element)
+                || (title.isEmpty && ContentSemantics.isHiddenFromAssistiveTechnology(image))
             return attachment(ReaderImageAttachment(source: source, sizing: sizing, alternative: alternative, style: style,
-                                                    contentRect: placement, isDark: context.typography.isDark, cache: images),
+                                                    contentRect: placement, isDark: context.typography.isDark,
+                                                    isHiddenFromAssistiveTechnology: hidden, cache: images),
                               style: style, context: context)
         }
         let key = context.publication.id + "\u{0}" + context.document.path + "\u{0}\(element.order)"
@@ -114,7 +121,9 @@ struct NativeRichContent: RichContentFactory {
         let intrinsic = SVGContent.intrinsicSize(element, fontSize: style.fontSize, fallback: source.pixelSize)
         let sizing = ImageSizing(intrinsic: intrinsic, style: style, widthHint: widthHint, heightHint: heightHint)
         return attachment(ReaderImageAttachment(source: source, sizing: sizing, alternative: ImageAlternative(name: title), style: style,
-                                                isDark: context.typography.isDark, cache: images),
+                                                isDark: context.typography.isDark,
+                                                isHiddenFromAssistiveTechnology: ContentSemantics.isHiddenFromAssistiveTechnology(element),
+                                                cache: images),
                           style: style, context: context)
     }
 
@@ -127,7 +136,9 @@ struct NativeRichContent: RichContentFactory {
     }
 
     func horizontalRule(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString {
-        attachment(ReaderRuleAttachment(style: style, isDark: context.typography.isDark), style: style, context: context)
+        attachment(ReaderRuleAttachment(style: style, isDark: context.typography.isDark,
+                                        isHiddenFromAssistiveTechnology: ContentSemantics.isHiddenFromAssistiveTechnology(element)),
+                   style: style, context: context)
     }
 
     // MARK: Helpers

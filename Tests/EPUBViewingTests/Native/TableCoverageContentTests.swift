@@ -95,6 +95,27 @@ final class TableCoverageContentTests: XCTestCase {
                      "text is not an image")
     }
 
+    /// A picture without words or a rule that the book keeps from assistive technology says no
+    /// more in a cell than decoration does: a row of such cells has nothing to say, and such a
+    /// picture is none a cell offers to inspect.
+    func testWhatTheBookKeepsFromAssistiveTechnologyGivesACellNothingToSay() throws {
+        let section = try TableCoverage.section("""
+        <table><tr><td><img src="w30.png" role="none"/></td><td><img src="w30.png" alt=""/></td></tr>\
+        <tr><td><img src="w30.png" aria-hidden="true"/></td><td><hr role="presentation"/></td></tr>\
+        <tr><td><img src="w30.png"/></td><td><hr/></td></tr></table>
+        """, css: TableCoverage.bare, files: TableCoverage.images([30]))
+        let table = try XCTUnwrap(TableCoverage.tables(in: section.string).first)
+        let rows = (0..<3).map { TableRowAttachment(table: table, row: $0) }
+        XCTAssertEqual(rows.map(\.saysNothing), [true, true, false], "a picture nobody describes and a rule say something")
+        let cells = rows.map { row in
+            row.spokenCells(size: CGSize(width: 400, height: row.height(width: 400, viewportHeight: 600)), viewportHeight: 600)
+        }
+        XCTAssertEqual(cells.map { $0.map(\.isBlank) }.first, [true, true])
+        XCTAssertEqual(cells.map { $0.map(\.isBlank) }[1][0], true)
+        XCTAssertEqual(cells.map { $0.map(\.isBlank) }[2][0], false, "a picture nobody describes is something to say")
+        XCTAssertEqual(cells.map { $0.map(\.images.count) }, [[0, 0], [0, 0], [1, 0]])
+    }
+
     func testAnImageInAShrunkTableIsHitWhereItIsDrawnAtThatScale() throws {
         let table = try TableCoverage.table("<table><tr>\(TableCoverage.box(300))\(TableCoverage.box(100))</tr></table>",
                                             css: TableCoverage.bare, files: TableCoverage.images([300, 100]))

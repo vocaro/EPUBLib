@@ -147,20 +147,21 @@ extension ReaderLinkHost {
         element.setAccessibilityTitle(title.isEmpty ? nil : title)
         // A picture in a link is followed, not enlarged, by a press: inspection stays an action.
         element.setAccessibilityCustomActions(announcedImages(in: range).map { image, _ in
-            NSAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") { [weak self] in
+            NSAccessibilityCustomAction(name: image.spokenAlt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.spokenAlt)") { [weak self] in
                 self?.inspectLinkedImage(image) ?? false
             }
         })
     }
 
     /// What a link, or an attachment in one, is called: its words, with the text of each
-    /// attachment in its place and decoration left out. One that holds pictures and nothing
+    /// attachment in its place and decoration left out, as are the words of an image the book
+    /// keeps from assistive technology. One that holds pictures and nothing
     /// else is said to be a picture, in the system's own word for one, after any words the
     /// pictures have: an element that is a link cannot be an image as well.
     func linkTitle(_ range: NSRange) -> String {
         guard let text = linkText else { return "" }
         let range = NSIntersectionRange(range, NSRange(location: 0, length: text.length))
-        let words = text.readerPlainText(in: range).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let words = text.readerPlainText(in: range, spoken: true).split(whereSeparator: \.isWhitespace).joined(separator: " ")
         guard !announcedImages(in: range).isEmpty else { return words }
         var picturesOnly = true
         text.enumerateAttribute(.attachment, in: range) { value, run, stop in

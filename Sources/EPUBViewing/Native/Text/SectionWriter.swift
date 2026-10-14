@@ -1332,16 +1332,19 @@ final class SectionWriter {
     private static let maximumSpokenDepth = 24
 
     /// The text of an element that stands for text or for nothing, nil for one read by its content.
+    /// A picture with a presentational role stands for nothing, whatever its `alt` or title says.
     private static func spokenEquivalent(of element: ContentNode) -> String? {
         if element.isHTML {
             switch element.name {
-            case "img", "input": return element.attribute("alt") ?? ""
+            case "img": return ContentSemantics.hasPresentationalRole(element) ? "" : element.attribute("alt") ?? ""
+            case "input": return element.attribute("alt") ?? ""
             case "br": return " "
             case "hr", "audio", "video", "object", "embed", "iframe", "canvas", "select", "textarea": return ""
             default: return nil
             }
         }
         if element.name == "svg", element.namespace == ContentNamespace.svg || element.namespace.isEmpty {
+            guard !ContentSemantics.hasPresentationalRole(element) else { return "" }
             return element.attribute("aria-label") ?? element.children.first { $0.name == "title" }?.textContent ?? ""
         }
         if element.name == "math", element.namespace == ContentNamespace.mathML || element.namespace.isEmpty {

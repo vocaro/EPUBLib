@@ -242,6 +242,112 @@ final class RichMediaImageCoverageTests: XCTestCase {
                        "aGonebcd")
     }
 
+    /// WAI-ARIA 1.2 and HTML-AAM: `aria-hidden="true"` on an image or round it, or the role
+    /// `presentation` or `none`, keeps the image from assistive technology and from nothing
+    /// else. ARIA ignores a presentational role on an element that can take focus or that has
+    /// a global ARIA attribute, and `aria-hidden="false"` hides nothing.
+    func testAnImageTheBookKeepsFromAssistiveTechnologyIsPassedOverAndKeepsItsWords() throws {
+        let png = RichMediaImages.solid(width: 10, height: 10)
+        let titled = Data("<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><title>Its own title</title><rect width='10' height='10'/></svg>".utf8)
+        let files = ["pic.png": png, "titled.svg": titled]
+        let ns = "xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'"
+        func image(_ markup: String) throws -> ReaderImageAttachment {
+            try XCTUnwrap(firstImage("<p>\(markup)</p>", files: files).0, markup)
+        }
+        for markup in [
+            "<img src='pic.png' alt='Words' role='presentation'/>",
+            "<img src='pic.png' alt='Words' role='none'/>",
+            "<img src='pic.png' alt='Words' aria-hidden='true'/>",
+            "<img src='pic.png' role='presentation'/>",
+            "<img src='pic.png' role='none'/>",
+            "<img src='pic.png' aria-hidden='true'/>",
+            "<img src='pic.png' alt='' role='presentation'/>",
+            "<img src='pic.png' alt='Words' role=' NONE '/>",
+            "<img src='pic.png' alt='Words' aria-hidden=' True '/>",
+            // The first token that names a role is the role; one that names none is passed for the next.
+            "<img src='pic.png' alt='Words' role='presentation img'/>",
+            "<img src='pic.png' alt='Words' role='ornament none'/>",
+            // `aria-hidden` hides what is inside, a presentational role only its own element.
+            "<span aria-hidden='true'><img src='pic.png' alt='Words'/></span>",
+            "<a href='two.xhtml' aria-hidden='true'><img src='pic.png' alt='Words'/></a>",
+            // Neither a `tabindex` that is no number nor a global attribute with no value cancels the role.
+            "<img src='pic.png' alt='Words' role='presentation' tabindex='first'/>",
+            "<img src='pic.png' alt='Words' role='presentation' aria-label=' '/>",
+            // Every kind of picture the reader draws.
+            "<img src='titled.svg' role='none'/>",
+            "<object data='pic.png' type='image/png' title='A chart' role='presentation'>Chart</object>",
+            "<embed src='pic.png' aria-hidden='true'/>",
+            "<svg \(ns) width='10' height='10' aria-hidden='true'><title>Drawn</title><rect width='10' height='10'/></svg>",
+            "<svg \(ns) width='10' height='10' role='presentation'><title>Drawn</title><rect width='10' height='10'/></svg>",
+            "<svg \(ns) viewBox='0 0 10 10' role='none'><title>Cover</title><image width='10' height='10' xlink:href='pic.png'/></svg>",
+            "<svg \(ns) viewBox='0 0 10 10'><image width='10' height='10' xlink:href='pic.png' alt='Cover' aria-hidden='true'/></svg>",
+        ] {
+            let hidden = try image(markup)
+            XCTAssertTrue(hidden.isHiddenFromAssistiveTechnology, markup)
+            XCTAssertTrue(hidden.isPassedOverByAssistiveTechnology, markup)
+            XCTAssertEqual(hidden.spokenAlt, "", markup)
+            XCTAssertEqual(hidden.spokenEquivalent, "", markup)
+        }
+        for markup in [
+            "<img src='pic.png' alt='Words'/>",
+            "<img src='pic.png' alt='Words' aria-hidden='false'/>",
+            "<img src='pic.png' alt='Words' aria-hidden=''/>",
+            "<img src='pic.png' alt='Words' role='img'/>",
+            "<img src='pic.png' alt='Words' role='img presentation'/>",
+            "<img src='pic.png' alt='Words' role='doc-cover none'/>",
+            "<span aria-hidden='false'><img src='pic.png' alt='Words'/></span>",
+            "<span role='presentation'><img src='pic.png' alt='Words'/></span>",
+            // A presentational role is ignored where the image can take focus or has a global ARIA attribute.
+            "<img src='pic.png' alt='Words' role='presentation' tabindex='-1'/>",
+            "<img src='pic.png' alt='Words' role='none' tabindex=' +2'/>",
+            "<img src='pic.png' alt='Words' role='none' aria-label='Named'/>",
+            "<img src='pic.png' alt='Words' role='presentation' aria-describedby='note'/>",
+            "<img src='pic.png' alt='Words' role='presentation' aria-hidden='false'/>",
+            // A drawing that names itself is not hidden by the image it wraps.
+            "<svg \(ns) viewBox='0 0 10 10'><title>Cover</title><image width='10' height='10' xlink:href='pic.png' aria-hidden='true'/></svg>",
+        ] {
+            let shown = try image(markup)
+            XCTAssertFalse(shown.isHiddenFromAssistiveTechnology, markup)
+            XCTAssertFalse(shown.isPassedOverByAssistiveTechnology, markup)
+            XCTAssertEqual(shown.spokenAlt, shown.alt, markup)
+        }
+
+        // Its words are its own still: what it stands for in a selection, a copy and a search,
+        // and what is shown where it cannot be drawn. Only assistive technology goes without them.
+        let kept = try image("<img src='pic.png' alt='Kept words' aria-hidden='true'/>")
+        XCTAssertEqual(kept.alternative, .text("Kept words"))
+        XCTAssertEqual(kept.alt, "Kept words")
+        XCTAssertEqual(kept.textEquivalent, "Kept words")
+        let decoration = try image("<img src='pic.png' alt=''/>")
+        XCTAssertFalse(decoration.isHiddenFromAssistiveTechnology, "decoration is passed over for having no words")
+        XCTAssertTrue(decoration.isPassedOverByAssistiveTechnology)
+        XCTAssertEqual(try image("<img src='pic.png' role='none'/>").alternative, .missing)
+        let text = try firstImage("<p>a<img src='pic.png' alt='B' aria-hidden='true'/>c<img src='pic.png' alt='D' role='presentation'/>e"
+                                  + "<img src='pic.png' alt='F'/>g</p>", files: files).1
+        XCTAssertEqual(text.string.readerPlainText(), "aBcDeFg", "what a selection, a copy and a search take")
+        XCTAssertEqual(text.string.readerPlainText(spoken: true), "aceFg", "what VoiceOver is given")
+        XCTAssertEqual(try firstImage("<p>a<img src='gone.png' alt='Gone' aria-hidden='true'/>b</p>").1.richMediaPlain, "aGoneb",
+                       "an image that cannot be shown still shows its words")
+    }
+
+    /// A rule the book keeps from assistive technology, as ornament and not a break, by the
+    /// same attributes and with the same exceptions.
+    func testARuleTheBookKeepsFromAssistiveTechnologyIsMarkedSo() throws {
+        func rule(_ markup: String) throws -> ReaderRuleAttachment {
+            let text = try RichMediaBook(body: "<p>Above.</p>\(markup)<p>Below.</p>").build()
+            return try XCTUnwrap(text.richMediaAttachments.compactMap { $0.attachment as? ReaderRuleAttachment }.first, markup)
+        }
+        for markup in ["<hr role='presentation'/>", "<hr role='none'/>", "<hr aria-hidden='true'/>", "<hr role='bar none'/>",
+                       "<div aria-hidden='true'><hr/></div>"] {
+            XCTAssertTrue(try rule(markup).isHiddenFromAssistiveTechnology, markup)
+        }
+        for markup in ["<hr/>", "<hr role='separator'/>", "<hr role='separator presentation'/>", "<hr aria-hidden='false'/>",
+                       "<hr role='presentation' tabindex='0'/>", "<hr role='none' aria-label='Scene break'/>",
+                       "<hr role='presentation' aria-roledescription='scene break'/>"] {
+            XCTAssertFalse(try rule(markup).isHiddenFromAssistiveTechnology, markup)
+        }
+    }
+
     func testObjectEmbedAndPictureImageSelection() throws {
         let png = RichMediaImages.solid(width: 40, height: 20)
         XCTAssertNotNil(try firstImage("<p><object data='chart.png' type='image/png'>Chart</object></p>", files: ["chart.png": png]).0)
