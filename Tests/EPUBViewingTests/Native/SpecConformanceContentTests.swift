@@ -280,7 +280,8 @@ import UIKit
 
     /// RS 5.4: "If a reading system does not support any resource in the fallback chain, it
     /// MUST alert the user that it could not display the content": the section is withheld and
-    /// disclosed, and the rest of the book reads (W3C test pub-foreign_bad-fallback).
+    /// disclosed, and the rest of the book reads. This covers the conditional unsupported case
+    /// in W3C pub-foreign_bad-fallback; its actual PSD fallback can be drawn by ImageIO.
     func testAnUnsupportedSpineItemWithNoUsableFallbackIsWithheldAndDisclosed() throws {
         var book = Book()
         book.add("before", body: "<p>Before.</p>")

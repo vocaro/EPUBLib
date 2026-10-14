@@ -62,6 +62,19 @@ import XCTest
         try assertDecoderSupportedImage(data, mediaType: "image/jxl", name: "image.jxl")
     }
 
+    func testPublicW3CPSDFallbackRemainsDrawableInlineInSVGAndInTheSpine() throws {
+        guard let root = ProcessInfo.processInfo.environment[SpecConformanceCorpus.environmentKey] else {
+            throw XCTSkip("Set EPUBLIB_W3C_EPUB_TESTS to the pinned public W3C corpus")
+        }
+        let path = URL(fileURLWithPath: root).appending(path: "pub-foreign_bad-fallback/EPUB/bar.psd")
+        let data = try Data(contentsOf: path)
+        guard SpecConformanceW3CCorpusTests.independentlyDecodesBitmap(data) else {
+            throw XCTSkip("This OS's independent ImageIO decoder cannot draw the public PSD fixture")
+        }
+        XCTAssertNil(ImageType.mediaType(of: data), "the PSD exercises decoder support beyond the small signature list")
+        try assertDecoderSupportedImage(data, mediaType: "image/psd", name: "bar.psd")
+    }
+
     func testMultiHopFallbackSkipsUnavailableForeignAndRemoteHopsWithoutChangingOccurrence() throws {
         var book = Book()
         book.add(href: "source.json", id: "source", mediaType: "application/json", Data("{}".utf8),

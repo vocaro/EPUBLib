@@ -3,6 +3,7 @@ import EPUBCore
 import EPUBReading
 import EPUBTestSupport
 import Foundation
+import ImageIO
 import XCTest
 @testable import EPUBViewing
 #if os(macOS)
@@ -42,7 +43,9 @@ import UIKit
         var lines = ["id | requirement | scope | result | sections (withheld, repaired) | disclosed | detail"]
         var failed = 0, sections = 0
         for (id, url) in directories {
-            let expectation = Corpus.expectation(for: id)
+            let supportsPSD = id == "pub-foreign_bad-fallback"
+                ? Self.independentlyDecodesBitmap(try Data(contentsOf: url.appending(path: "EPUB/bar.psd"))) : false
+            let expectation = Corpus.expectation(for: id, supportsPSDFallback: supportsPSD)
             let outcome = await run(id, at: url, expecting: expectation)
             for failure in outcome.failures { XCTFail("\(id) [\(expectation.requirement)]: \(failure)") }
             if !outcome.failures.isEmpty { failed += 1 }
@@ -116,6 +119,17 @@ import UIKit
     }
 
     // MARK: Checks
+
+    /// A bounded independent ImageIO decode, never a result from the production image loader.
+    nonisolated static func independentlyDecodesBitmap(_ data: Data) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceShouldCacheImmediately: true,
+                  kCGImageSourceThumbnailMaxPixelSize: 128,
+              ] as CFDictionary) else { return false }
+        return image.width > 0 && image.height > 0
+    }
 
     private static func discloses(_ disclosure: Corpus.Disclosure, _ report: SectionReport) -> Bool {
         switch disclosure {
