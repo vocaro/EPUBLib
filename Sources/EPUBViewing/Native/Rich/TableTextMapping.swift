@@ -35,7 +35,12 @@ extension TableRowAttachment {
     /// cell block/br separators to spaces; authored preformatted LF survives.
     var copyTextEquivalent: String {
         table.rowCells[row].map { table.cells[$0] }.filter { $0.row == row }.sorted { $0.column < $1.column }.map { cell in
-            cell.textMap.map { $0.map.mappedText(in: 0..<cell.content.length, from: cell.content, generatedBreaks: " ") } ?? cell.text
+            if let mapping = cell.textMap {
+                return mapping.map.mappedText(in: 0..<cell.content.length, from: cell.content, generatedBreaks: " ")
+            }
+            // A custom cell without a DOM map still copies its attachment alternatives,
+            // which may differ from the words VoiceOver is given in `cell.text`.
+            return cell.content.readerCopyPlainText().split(whereSeparator: \.isWhitespace).joined(separator: " ")
         }.joined(separator: "\t")
     }
 }
@@ -107,7 +112,7 @@ extension SectionText {
         func cellText(_ cell: TableModel.Cell, lower: Int, upper: Int) -> String {
             let lower = max(0, min(lower, cell.content.length)), upper = max(lower, min(upper, cell.content.length))
             guard let mapping = cell.textMap else {
-                return cell.content.readerPlainText(in: NSRange(location: lower, length: upper - lower))
+                return cell.content.readerCopyPlainText(in: NSRange(location: lower, length: upper - lower))
             }
             return mapping.map.mappedText(in: lower..<upper, from: cell.content)
         }
