@@ -2429,7 +2429,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   picture's words name no language ([#548](https://github.com/vocaro/EPUBLib/issues/548)),
   and the reader's word for a rule, which is none of the book's, names none. A note's
   popover keeps UIKit's own elements. That VoiceOver's voice follows these languages on a
-  device is not verified ([#65](COMMENT_LINK)).
+  device is not verified ([#65](https://github.com/vocaro/EPUBLib/issues/65#issuecomment-6164353724)).
 - Selection: native selection UI with the host's `EPUBSelectionAction` in the edit or context
   menu, no length cap. Dragging can extend a selection across a two-column spread in either
   reading direction. A located passage is selected in every visible column and remains
