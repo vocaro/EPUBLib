@@ -41,6 +41,8 @@ enum EPUBCFI {
             var spatial: [Double]?
             var text: [String]?
             var side: String?
+            /// Native fallback document qualification; other vendor parameters stay ignored.
+            var resource: String? = nil
         }
         /// `paths[0]` is the package path, `paths[1]` the content-document path.
         typealias Path = [[Step]]
@@ -193,14 +195,19 @@ enum EPUBCFI {
                 previousIsSlash = true
                 continue
             }
-            if case .parameter(let name, _) = token, name != "s" { previousIsSlash = false; continue }
+            if case .parameter(let name, _) = token, name != "s", name != "vnd.epublib.resource" { previousIsSlash = false; continue }
             guard !parts.isEmpty else { throw EPUBReaderError.incompatibleLocation }
             let last = parts.count - 1
             switch token {
             case .colon(let offset): parts[last].offset = offset
             case .tilde(let temporal): parts[last].temporal = temporal
             case .at(let spatial): parts[last].spatial = (parts[last].spatial ?? []) + [spatial]
-            case .parameter(_, let side): parts[last].side = side
+            case .parameter(let name, let value):
+                if name == "vnd.epublib.resource" {
+                    guard parts[last].resource == nil else { throw EPUBReaderError.incompatibleLocation }
+                    parts[last].resource = value
+                }
+                else { parts[last].side = value }
             case .bracket(let value):
                 if previousIsSlash, !value.isEmpty { parts[last].id = value }
                 else {
@@ -264,14 +271,15 @@ enum EPUBCFI {
     /// the ID assertion when there is one, and the side bias itself unescaped.
     private static func stepString(_ step: Expression.Step) -> String {
         let side = step.side ?? ""
-        let parameter = side.isEmpty ? "" : ";s=\(side)"
+        let parameter = (side.isEmpty ? "" : ";s=\(side)")
+            + (step.resource.map { ";vnd.epublib.resource=\(escape($0))" } ?? "")
         let id = step.id ?? ""
         var string = "/\(step.index)"
         if !id.isEmpty { string += "[\(escape(id))\(parameter)]" }
         if let offset = step.offset, step.index % 2 != 0 { string += ":\(offset)" }
         if let temporal = step.temporal, temporal != 0, !temporal.isNaN { string += "~\(jsNumber(temporal))" }
         if let spatial = step.spatial { string += "@" + spatial.map(jsNumber).joined(separator: ":") }
-        if step.text != nil || (id.isEmpty && !side.isEmpty) {
+        if step.text != nil || (id.isEmpty && (!side.isEmpty || step.resource != nil)) {
             string += "[" + (step.text?.map(escape).joined(separator: ",") ?? "") + parameter + "]"
         }
         return string
@@ -466,10 +474,12 @@ enum EPUBCFI {
                           indices: ChildIndexCache? = nil) -> String {
         guard document.canResolveCFIs else { return "" }
         let (start, end) = end < start ? (end, start) : (start, end)
-        let startSteps = steps(for: start, indices: indices)
+        var startSteps = steps(for: start, indices: indices)
+        var endSteps = steps(for: end, indices: indices)
+        if !startSteps.isEmpty { startSteps[0].resource = document.cfiResource }
+        if !endSteps.isEmpty { endSteps[0].resource = document.cfiResource }
         if start == end { return pathString([startSteps]) }
-        return innerString(buildRange(from: Expression(path: [startSteps]),
-                                      to: Expression(path: [steps(for: end, indices: indices)])))
+        return innerString(buildRange(from: Expression(path: [startSteps]), to: Expression(path: [endSteps])))
     }
 
     /// foliate `toRange` for a local path. nil when it names nothing in `document`.
@@ -482,6 +492,9 @@ enum EPUBCFI {
     static func resolve(_ expression: Expression, in document: ContentDocument) -> (start: DOMPosition, end: DOMPosition)? {
         guard document.canResolveCFIs,
               let startPath = collapse(expression).first, let endPath = collapse(expression, toEnd: true).first,
+              startPath.first?.resource == document.cfiResource, endPath.first?.resource == document.cfiResource,
+              !startPath.dropFirst().contains(where: { $0.resource != nil }),
+              !endPath.dropFirst().contains(where: { $0.resource != nil }),
               let start = position(startPath, in: document), let end = position(endPath, in: document)
         else { return nil }
         return end < start ? (end, end) : (start, end)

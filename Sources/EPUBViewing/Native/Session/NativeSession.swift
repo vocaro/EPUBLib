@@ -238,7 +238,7 @@ import SwiftUI
               components.scheme == nil, components.host == nil, components.query == nil else {
             throw EPUBReaderError.invalidCommand("Unknown publication href")
         }
-        guard let section = publication.spine.firstIndex(where: { $0.resource.path == path }) else {
+        guard let section = NativeFallbacks.spineIndex(for: path, in: publication) else {
             throw EPUBReaderError.invalidCommand("Not a section of this publication")
         }
         return (section, parts.count == 2 ? String(parts[1]).removingPercentEncoding : nil)

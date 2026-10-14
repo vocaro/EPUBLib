@@ -162,8 +162,7 @@ import AppKit
         let publication = publication
         return await Task.detached(priority: .userInitiated) {
             let resource = publication.spine[index].resource
-            guard let data = try? publication.data(for: resource) else { return nil }
-            return try? ContentDocument.parse(data, path: resource.path)
+            return try? NativeFallbacks.document(for: resource, in: publication)
         }.value
     }
 

@@ -124,15 +124,30 @@ final class ContentDocument: @unchecked Sendable {
     let nodes: [ContentNode]
     let recoveredAsHTML: Bool
     let canResolveCFIs: Bool
+    /// A fallback XHTML DOM requires a resource assertion so its positions cannot be confused
+    /// with positions in the original document under the same package spine itemref.
+    let cfiResource: String?
     private let ids: [String: ContentNode]
 
     private init(path: String, root: ContentNode, nodes: [ContentNode], recovered: Bool,
-                 canResolveCFIs: Bool = true) {
+                 canResolveCFIs: Bool = true, cfiResource: String? = nil) {
         self.path = path; self.root = root; self.nodes = nodes; recoveredAsHTML = recovered
         self.canResolveCFIs = canResolveCFIs
+        self.cfiResource = cfiResource
         var ids: [String: ContentNode] = [:]
         for node in nodes where node.isElement { if let id = node.id, ids[id] == nil { ids[id] = node } }
         self.ids = ids
+    }
+
+    /// A substituted/synthesized document can keep its own text map without accepting CFIs
+    /// issued against the original spine resource's DOM.
+    func withoutCFIs() -> ContentDocument {
+        ContentDocument(path: path, root: root, nodes: nodes, recovered: recoveredAsHTML, canResolveCFIs: false)
+    }
+
+    func withCFIResource(_ resource: String) -> ContentDocument {
+        ContentDocument(path: path, root: root, nodes: nodes, recovered: recoveredAsHTML,
+                        canResolveCFIs: canResolveCFIs, cfiResource: resource)
     }
 
     /// First element with this `id` in document order (`getElementById`).

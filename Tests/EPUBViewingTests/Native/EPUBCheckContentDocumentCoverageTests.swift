@@ -173,7 +173,6 @@ import XCTest
     // MARK: Fallbacks
 
     func testASpineItemInAnUnsupportedTypeShowsItsXHTMLFallback() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/78")
         // EPUB Reading Systems 3.3, 5.4: "A reading system that does not support the MIME media
         // type of a given publication resource MUST traverse the manifest fallback chain until it
         // identifies a supported publication resource to use in place of the unsupported resource."

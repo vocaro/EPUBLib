@@ -262,7 +262,6 @@ import UIKit
     /// its fallback, never its own bytes read as markup (W3C tests pub-foreign_json-spine,
     /// lay-pp-images-in-spine).
     func testASpineItemOfAForeignTypeShowsItsManifestFallback() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/78")
         var book = Book()
         book.add(href: "data.json", id: "data", mediaType: "application/json", Data(#"{ "chapter": [ { "text": "Raw data, not for reading." } ] }"#.utf8),
                  item: "fallback=\"data-fallback\"")
@@ -298,7 +297,6 @@ import UIKit
     /// RS 5.4 and EPUB 3.3 section 3.5.2.2: an `img` may reference a foreign resource when the
     /// manifest gives it a fallback, which a reader that cannot show the resource uses.
     func testAnImageOfAForeignTypeShowsItsManifestFallback() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/78")
         let book = try build("<p><img src=\"chart.xcf\" alt=\"A chart\"/></p>") { book in
             book.resource("chart.xcf", id: "chart", mediaType: "image/x-xcf", Data("gimp xcf file, which nothing here decodes".utf8),
                           item: "fallback=\"chart-png\"")
@@ -314,7 +312,6 @@ import UIKit
     /// scripted spine item whose manifest item names a fallback shows the fallback (W3C test
     /// scr-support-fallback).
     func testAScriptedDocumentWithAManifestFallbackShowsTheFallback() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/78")
         var book = Book()
         book.add("interactive", item: "properties=\"scripted\" fallback=\"static\"", body: """
             <p id="output">Nothing has been computed, because no script ran.</p>

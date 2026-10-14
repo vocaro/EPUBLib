@@ -1654,7 +1654,8 @@ enum SVGContent {
     /// The SVG subtree as a standalone, sanitized document. `resolve` maps a reference to an
     /// archive path; nil for anything that cannot be used.
     static func serialize(_ svg: ContentNode, resolve: (String) -> String?, publication: EPUBPublication,
-                          fontAliases: [String: String] = [:], report: SectionReportBox? = nil) -> Data? {
+                          fontAliases: [String: String] = [:], report: SectionReportBox? = nil,
+                          visitedImagePaths: Set<String> = []) -> Data? {
         // Filters remain refused by the direct renderer. The archive path can preserve the
         // drawing by omitting effects before handing it to that same strict entry point.
         // Count the original tree first, so omitted definitions cannot evade input bounds.
@@ -1726,8 +1727,8 @@ enum SVGContent {
                     let reference = value.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !reference.hasPrefix("#") {
                         guard node.name == "image", let path = resolve(reference),
-                              let original = try? publication.data(at: path),
-                              let (data, pixels) = boundedArchiveImage(original),
+                              let (data, pixels) = boundedArchiveImage(at: path, publication: publication,
+                                  fontAliases: fontAliases, report: report, visited: visitedImagePaths),
                               inlined + data.count <= maximumInlinedImageBytes,
                               pixels <= maximumTotalImagePixels - imagePixels else {
                             report?.report.unsupportedElements["svg:image", default: 0] += 1
@@ -1755,6 +1756,45 @@ enum SVGContent {
         }
         emit(svg, isRoot: true)
         return overflow ? nil : Data(output.utf8)
+    }
+
+    /// The first bounded drawable image in a manifest chain. Nested SVG is sanitized against
+    /// its own archive path, and visited paths prevent image-reference cycles from recursing.
+    private static func boundedArchiveImage(at path: String, publication: EPUBPublication,
+                                            fontAliases: [String: String], report: SectionReportBox?,
+                                            visited: Set<String>) -> (Data, Int)? {
+        guard visited.count < 8 else { return nil }
+        let paths: [String]
+        if let resource = publication.manifestResource(at: path) {
+            paths = NativeFallbacks.resources(for: resource, in: publication).filter(NativeFallbacks.isImage).map(\.path)
+        } else { paths = [path] }
+        for candidate in paths where !visited.contains(candidate) && !ResourceReference.isRemote(candidate) {
+            guard let bytes = try? publication.data(at: candidate), bytes.count <= maximumInlinedImageBytes else { continue }
+            if let image = boundedArchiveImage(bytes) { return image }
+            guard ImageType.isSVG(bytes, path: candidate, mediaType: publication.manifestResource(at: candidate)?.mediaType),
+                  let document = try? ContentDocument.parse(bytes, path: candidate, asContent: false),
+                  document.root.name == "svg", isSVG(document.root, root: document.root) else { continue }
+            let resolve: (String) -> String? = { reference in
+                guard let resolved = try? ResourceReference.resolve(reference, relativeTo: candidate) else { return nil }
+                return String(resolved.split(separator: "#", maxSplits: 1)[0]).removingPercentEncoding
+            }
+            let before = report?.report
+            guard let serialized = serialize(document.root, resolve: resolve, publication: publication,
+                                             fontAliases: fontAliases, report: report,
+                                             visitedImagePaths: visited.union([candidate])),
+                  let source = ReaderImageSource.svg(serialized, path: candidate, key: "svg-inline-" + candidate),
+                  let image = source.decode(maxPixelSize: 2048), image.height > 0,
+                  image.width <= maximumImagePixels / image.height else {
+                if let before { report?.report = before }
+                continue
+            }
+            let output = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(output, UTType.png.identifier as CFString, 1, nil) else { continue }
+            CGImageDestinationAddImage(destination, image, nil)
+            guard CGImageDestinationFinalize(destination), output.length <= maximumInlinedImageBytes else { continue }
+            return (output as Data, image.width * image.height)
+        }
+        return nil
     }
 
     private static func boundedArchiveImage(_ data: Data) -> (Data, Int)? {

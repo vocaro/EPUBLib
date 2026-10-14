@@ -33,8 +33,7 @@ enum SectionBuilder {
         let item = request.publication.spine[request.spineIndex]
         let document: ContentDocument
         do {
-            let data = try request.publication.data(for: item.resource)
-            document = try ContentDocument.parse(data, path: item.resource.path)
+            document = try NativeFallbacks.document(for: item.resource, in: request.publication)
         } catch {
             return withheld(request, reason: error)
         }
