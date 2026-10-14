@@ -280,7 +280,7 @@ files["OPS/squares.xhtml"] = (
     '<img src="square.svg" alt="Blue star"/></td></tr></table>'
     "<p>Words after the crests.</p>"
     + "".join(f"<p>Line {i:02d} after the crests.</p>" for i in range(1, 61)) + "</body></html>")
-# Rows that have nothing to say, the book's last section: a row of two cells that hold nothing,
+# Rows that have nothing to say: a row of two cells that hold nothing,
 # a row of two that hold decoration alone, and a row of one cell that holds nothing, each
 # between two rows of words, as the rows that space out a table used for layout stand. A table
 # marked as layout has them, and so has a table of data, which begins a page of its own under
@@ -301,6 +301,27 @@ files["OPS/gaps.xhtml"] = (
     + gapped([("Oak", "Nine"), ("Elm", "Four"), ("Ash", "Six"), ("Yew", "Two")])
     + "</table><p>Words after the tally.</p>"
     + "".join(f"<p>Line {i:02d} after the tally.</p>" for i in range(1, 61)) + "</body></html>")
+# Words a book hides in the flow, the book's last section: `visibility: hidden` keeps their
+# room on the page and hides them from the eye and from assistive technology alike, as
+# `visibility: collapse` does outside a table. Words inside a hidden paragraph that set
+# `visibility: visible` again are shown and read. Sixty numbered lines follow, so that the
+# section's first line can be shown at the top in continuous scroll. It has no heading and no
+# link, so the book's last heading and its last link are still those of the parts below a
+# jump, and no word here is one VoiceOver uses; no shown word holds a hidden one.
+files["OPS/veiled.xhtml"] = (
+    '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Words hidden '
+    'in the flow</title><style>.veiled { visibility: hidden; } .revealed { visibility: visible; } '
+    '.collapsed { visibility: collapse; }</style></head><body><p>Words before the hidden ones.</p>'
+    '<p>Shown words before <span class="veiled">concealed words in the line</span> shown words after.</p>'
+    '<p class="veiled">Concealed paragraph words. <span class="revealed">Revealed words inside.</span> '
+    'Concealed again.</p><p>Shown words around <span class="collapsed">collapsed concealment</span> the last gap.</p>'
+    "<p>Words after the hidden ones.</p>"
+    + "".join(f"<p>Line {i:02d} after the hidden words.</p>" for i in range(1, 61)) + "</body></html>")
+files["OPS/package.opf"] = files["OPS/package.opf"].replace(
+    '<item id="image" ', '<item id="veiled" href="veiled.xhtml" media-type="application/xhtml+xml"/><item id="image" ').replace(
+    '<itemref idref="gaps"/></spine>', '<itemref idref="gaps"/><itemref idref="veiled"/></spine>')
+files["OPS/nav.xhtml"] = files["OPS/nav.xhtml"].replace(
+    "</ol></nav>", '<li><a href="veiled.xhtml">Words hidden in the flow</a></li></ol></nav>')
 
 files["OPS/body.xhtml"] = files["OPS/body.xhtml"].replace(
     "NUMBERED_WORDS", " ".join(f"word{i:04d}" for i in range(1, 1201)))
@@ -327,7 +348,7 @@ chapters = {"one": range(1, 41), "two": range(41, 81), "three": range(81, 87)}
 paragraphs = dict(files)
 for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "scenes.xhtml", "offers.xhtml",
              "entries.xhtml", "cells.xhtml", "grids.xhtml", "ledger.xhtml", "tallrow.xhtml", "edges.xhtml", "parts.xhtml",
-             "squares.xhtml", "gaps.xhtml", "square.svg", "titled.svg"]:
+             "squares.xhtml", "gaps.xhtml", "veiled.xhtml", "square.svg", "titled.svg"]:
     del paragraphs["OPS/" + name]
 paragraphs["OPS/package.opf"] = (
     '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
