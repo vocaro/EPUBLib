@@ -239,6 +239,16 @@ final class ReaderTextView: NSTextView {
         contentStorage.textStorage?.readerBlankingHidden(characters, from: location) ?? characters
     }
 
+    /// Whether every character of `range` but its breaks is one that `visibility: hidden` hides.
+    private func holdsHiddenTextAlone(_ range: NSRange) -> Bool {
+        guard let storage = contentStorage.textStorage, range.length > 0 else { return false }
+        let hidden = storage.readerHiddenCharacters(in: range).reduce(0) { $0 + $1.length }
+        guard hidden > 0 else { return false }
+        let text = storage.string as NSString
+        let breaks = (range.location..<NSMaxRange(range)).filter { NSAttributedString.isReaderBreak(text.character(at: $0)) }.count
+        return hidden + breaks >= range.length
+    }
+
     // MARK: Table rows that have nothing to say
 
     /// Where the table rows that have nothing to say stand in the view's text, in order
@@ -411,7 +421,7 @@ final class ReaderTextView: NSTextView {
         }
         for (heading, run) in headings where heading.level > 0 {
             let local = NSRange(location: run.location - range.location, length: run.length)
-            guard NSMaxRange(local) <= result.length, !plainText(in: run).allSatisfy(\.isWhitespace) else { continue }
+            guard NSMaxRange(local) <= result.length, !holdsHiddenTextAlone(run) else { continue }
             result.addAttribute(.accessibilityHeadingLevel, value: heading.level, range: local)
         }
         for (attachment, text, run) in attachments {

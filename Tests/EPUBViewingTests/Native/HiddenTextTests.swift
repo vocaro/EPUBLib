@@ -204,7 +204,7 @@ import UIKit
         let elements = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
         let labels = elements.map { $0.accessibilityLabel ?? "" }
         assertNoHiddenWord(labels.joined(separator: "|"), "what VoiceOver reads")
-        XCTAssertEqual(labels.joined().split(whereSeparator: \.isWhitespace), Self.read.split(whereSeparator: \.isWhitespace),
+        XCTAssertEqual(labels.joined(separator: " ").split(whereSeparator: \.isWhitespace), Self.read.split(whereSeparator: \.isWhitespace),
                        "every shown word, once: \(labels)")
         XCTAssertFalse(labels.contains { $0.allSatisfy(\.isWhitespace) }, "no element for a line of hidden words alone: \(labels)")
         XCTAssertEqual(view.accessibilityValue, Self.read)
@@ -245,6 +245,16 @@ import UIKit
         let (_, view) = try host(hidden)
         #if os(macOS)
         assertNoHiddenWord(view.accessibilityValue(), "the page's value")
+        let rich = try XCTUnwrap(view.accessibilityAttributedString(for: NSRange(location: 0, length: hidden.string.length)))
+        var levels = 0
+        rich.enumerateAttribute(.accessibilityHeadingLevel, in: NSRange(location: 0, length: rich.length)) { value, _, _ in
+            if value != nil { levels += 1 }
+        }
+        XCTAssertEqual(levels, 0, "no heading level on the spaces given for the hidden heading")
+        let shown = try H.build("<h2>Shown heading</h2><p>Shown words.</p>", css: H.reset)
+        let (_, shownView) = try host(shown)
+        let shownRich = try XCTUnwrap(shownView.accessibilityAttributedString(for: NSRange(location: 0, length: shown.string.length)))
+        XCTAssertEqual(shownRich.attribute(.accessibilityHeadingLevel, at: 0, effectiveRange: nil) as? Int, 2, "a shown heading keeps its level")
         #else
         let elements = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
         XCTAssertEqual(elements.map { $0.accessibilityLabel ?? "" }, ["Shown words."])
