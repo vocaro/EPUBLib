@@ -119,7 +119,12 @@ warnings, so this list is where they are disclosed:
   and held to its checksum: an uncompressed size its directory misstates is not believed, nor is a
   compressed size that runs past the end of the archive, and the limits count what the entry
   inflates to. The book is still refused when that compressed size is 2^63 bytes or more, or when a
-  data descriptor follows the entry and the misstated size places it past the end.
+  data descriptor follows the entry and the misstated size places it past the end. A data
+  descriptor's sizes are four bytes or eight as its own bytes show: the form whose sizes are its
+  directory record's, or else the one that ends where the next local header or the directory
+  begins, whatever version the entry is marked with. Where neither tells, the record's sizes are
+  taken. A stored entry's limits are checked by that size before it is read
+  ([#261](https://github.com/vocaro/EPUBLib/issues/261)).
   Directory entries have no extracted payload: misstated directory sizes do not refuse the
   book or count toward expanded-byte limits. ZIPFoundation's own entry classification decides
   that exemption after structural header and descriptor bounds have been checked; file sizes

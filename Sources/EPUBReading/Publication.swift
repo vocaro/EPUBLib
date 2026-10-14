@@ -109,12 +109,12 @@ public struct EPUBPublication: Sendable {
         }
         catch { throw EPUBPublicationError.invalidArchive(String(describing: error)) }
         // The bytes this archive reads, whatever it was made from.
-        try ArchiveBounds.check(archive.data ?? data, archive: archive)
+        let describedSizes = try ArchiveBounds.check(archive.data ?? data, archive: archive)
         var contents: [String: Data] = [:]
         var paths = Set<String>()
         var total = 0
         var inputWork = ArchiveInputWork(archiveBytes: (archive.data ?? data).count)
-        for entry in archive {
+        for (index, entry) in archive.enumerated() {
             try Task.checkCancellation()
             let path = EntryName.path(of: entry)
             guard ResourceReference.isReadablePath(path, directory: entry.type == .directory), entry.type != .symlink else {
@@ -130,8 +130,11 @@ public struct EPUBPublication: Sendable {
             // unless it is compressed. A compressed entry is not read by its declared size,
             // which may be wrong either way with its data whole: a deflated one is held to the
             // limits below, by what it inflates to, and one in any other method is not read.
-            guard entry.isCompressed || (entry.uncompressedSize <= UInt64(limits.resourceBytes)
-                                         && entry.uncompressedSize <= UInt64(limits.expandedBytes - total)) else {
+            // A data descriptor's size is read by the form of the descriptor's own bytes, not the
+            // one ZIPFoundation takes from the entry's version and ZIP64 field (`DataDescriptor`).
+            let declared = describedSizes[index] ?? entry.uncompressedSize
+            guard entry.isCompressed || (declared <= UInt64(limits.resourceBytes)
+                                         && declared <= UInt64(limits.expandedBytes - total)) else {
                 throw EPUBPublicationError.limitExceeded(path)
             }
             var bytes = Data()

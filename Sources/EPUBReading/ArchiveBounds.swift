@@ -20,10 +20,14 @@ import ZIPFoundation
 /// short, or with another signature) is left to it.
 enum ArchiveBounds {
     /// `data` is what ZIPFoundation reads: the bytes its `Archive` was made from.
-    static func check(_ data: Data, archive: Archive) throws {
-        let oversized = try data.withUnsafeBytes { try check($0) }
+    ///
+    /// Returns, by its place in the directory, the uncompressed size each entry with a data
+    /// descriptor gives there, read by the descriptor's own form (`DataDescriptor`).
+    static func check(_ data: Data, archive: Archive) throws -> [Int: UInt64] {
+        var described: [Int: UInt64] = [:]
+        let oversized = try data.withUnsafeBytes { try check($0, described: &described) }
         var pending = oversized.makeIterator()
-        guard var next = pending.next() else { return }
+        guard var next = pending.next() else { return described }
         // The structural scan above makes this iterator safe. Use the library's own type,
         // rather than a second interpretation of the name and platform-specific attributes.
         // Checking all suspect entries here keeps genuine files refused before any extraction.
@@ -31,12 +35,13 @@ enum ArchiveBounds {
             guard entry.type == .directory else {
                 throw EPUBPublicationError.invalidArchive("Entry data past the end of the archive")
             }
-            guard let following = pending.next() else { return }
+            guard let following = pending.next() else { return described }
             next = following
         }
+        return described
     }
 
-    private static func check(_ bytes: UnsafeRawBufferPointer) throws -> [UInt64] {
+    private static func check(_ bytes: UnsafeRawBufferPointer, described: inout [Int: UInt64]) throws -> [UInt64] {
         var oversized: [UInt64] = []
         let count = bytes.count
         func u16(_ offset: Int) -> Int { Int(UInt16(littleEndian: bytes.loadUnaligned(fromByteOffset: offset, as: UInt16.self))) }
@@ -105,6 +110,8 @@ enum ArchiveBounds {
                 // The descriptor follows the data, whose size the directory's method chooses.
                 let (descriptor, overflow) = UInt64(dataStart).addingReportingOverflow(u16(record + 10) == 0 ? uncompressed : compressed)
                 guard !overflow, descriptor <= UInt64(count) else { throw pastTheEnd("Data descriptor") }
+                described[Int(index)] = DataDescriptor.uncompressedSize(in: bytes, at: Int(descriptor),
+                                                                        compressed: compressed, uncompressed: uncompressed)
             }
             // ZIPFoundation's iterator ends at an encrypted entry.
             guard flags & 0x0001 == 0 else { return oversized }
