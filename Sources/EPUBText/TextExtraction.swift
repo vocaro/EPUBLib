@@ -105,11 +105,11 @@ private struct NormalizedText {
     var anchors: [String: EPUBTextMark] = [:]
     struct OpenHeading { var mark: EPUBTextMark?; var end = 0 }
     var headings: [OpenHeading] = []
-    private var pendingIDs: [String] = []
+    private var pendingIDs: Set<String> = []
     private var pendingHeadings: [Int] = []
 
     mutating func mark(id: String) {
-        if !id.isEmpty, anchors[id] == nil, !pendingIDs.contains(id) { pendingIDs.append(id) }
+        if !id.isEmpty, anchors[id] == nil { pendingIDs.insert(id) }
     }
     mutating func openHeading() -> Int {
         headings.append(OpenHeading())
