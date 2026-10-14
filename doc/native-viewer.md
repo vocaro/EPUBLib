@@ -1878,9 +1878,12 @@ hides, and one with no words, is left out altogether, for assistive technology t
 Text in the flow that `visibility: hidden` or `visibility: collapse` hides keeps its
 characters, and so the room it takes: it is drawn in a clear colour, without its link, its
 decorations or its background, and its lines, pages and positions are those of the same text
-shown. A browser keeps that room and reads none of the text, and neither does the reader
+shown. CSS keeps that room and gives the text to nobody, and so does the reader
 ([#357](https://github.com/vocaro/EPUBLib/issues/357)). Every character of it carries
-`.readerHidden`, which changes no character and no span of the text map.
+`.readerHidden`, which changes no character and no span of the text map. Safari is not
+quite that: its VoiceOver read hidden words inside a shown paragraph, and passed over a
+`visibility: visible` child of a hidden paragraph
+([the sessions](https://github.com/vocaro/EPUBLib/issues/357#issuecomment-6164199959)).
 
 - **What is read.** `readerPlainText`, which VoiceOver's elements on iPhone and iPad, Copy,
   the selection a host is told of, a table cell's words and a search result's context read,
@@ -1892,8 +1895,9 @@ shown. A browser keeps that room and reads none of the text, and neither does th
   for, a line's and a frame's included. Each hidden character but a break is given to an
   assistive client as a space, in the value, the strings, the rich text and the selected text
   of a page, of continuous scroll, of a note and of a table cell's text, so that every range
-  still matches the text and VoiceOver has no hidden word to say. A line of hidden words alone
-  is a line of spaces.
+  still matches the text and VoiceOver has no hidden word to say: by word and by line it
+  passed over them without a stop. A line of hidden words alone is a line of spaces, which
+  no session has moved onto.
 - **Search.** An occurrence that takes in a hidden character is no result and is not drawn,
   and `.locate` goes to such a passage without selecting it, as it goes to one in a hidden
   footnote.
