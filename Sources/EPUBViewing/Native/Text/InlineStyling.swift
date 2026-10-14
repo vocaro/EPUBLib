@@ -28,6 +28,14 @@ struct InlineLanguage: Hashable {
     }
 }
 
+extension NSAttributedString.Key {
+    /// `true` on every character of text in the flow that `visibility: hidden` or `collapse`
+    /// hides, generated text and the break that ends a hidden paragraph included. The text
+    /// keeps its characters and so its room, drawn in a clear colour; what is read of it
+    /// leaves them out (`NSAttributedString.readerPlainText(in:)`, `readerBlankingHidden`).
+    static let readerHidden = NSAttributedString.Key("org.epublib.hidden")
+}
+
 /// What an inline box contributes to its text beyond its own computed style.
 struct InlineContext {
     var link: ReaderLink?
@@ -105,7 +113,9 @@ final class InlineStyling {
         switch key.color {
         case .text: attributes[.foregroundColor] = ReaderPalette.text(dark: isDark)
         case .link: attributes[.foregroundColor] = ReaderPalette.link(dark: isDark)
-        case .clear: attributes[.foregroundColor] = PlatformColor.clear
+        case .clear:
+            attributes[.foregroundColor] = PlatformColor.clear
+            attributes[.readerHidden] = true
         case .book(let value): attributes[.foregroundColor] = platformColor(value)
         }
         if let background = key.background { attributes[.backgroundColor] = platformColor(background) }

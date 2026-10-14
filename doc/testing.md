@@ -1069,8 +1069,8 @@ the target `crests`, and "Words after the crests." stand round it, and sixty mor
 lines follow. The section
 has no heading and no link, so the book's last heading and its last link are still those
 of the section before it, and none of its words is one VoiceOver uses for a table, a
-picture or a group. A fifteenth, **Gaps inside grids** (`OPS/gaps.xhtml`), the book's
-last, holds rows that have nothing to say, as the rows that space out a table used for
+picture or a group. A fifteenth, **Gaps inside grids** (`OPS/gaps.xhtml`),
+holds rows that have nothing to say, as the rows that space out a table used for
 layout have: a row of two cells that hold nothing, a row of two that hold decoration alone
 (a picture with an empty `alt`), and a row of one cell that holds nothing and spans both
 columns. Its first table is given `role="presentation"` and has one of each, in that
@@ -1081,7 +1081,19 @@ rows between "Oak", "Nine"; "Elm", "Four"; "Ash", "Six"; and "Yew", "Two". "Word
 the gaps." and "Words after the gaps." stand round the first table, "Words before the
 tally." and "Words after the tally." round the second, and sixty numbered lines follow.
 It has no heading and no link either, and none of its words is one VoiceOver uses for a
-table, a picture or a group, or for a place with nothing in it. A second bundled book, opened with
+table, a picture or a group, or for a place with nothing in it. A sixteenth, **Words hidden
+in the flow** (`OPS/veiled.xhtml`), the book's last, holds words that `visibility: hidden`
+hides in the flow, which keep their room on the page and are read by nobody
+([Hidden text](native-viewer.md#hidden-text)): "Shown words before" and "shown words after."
+round "concealed words in the line" in one paragraph; a hidden paragraph, "Concealed
+paragraph words." and "Concealed again.", round "Revealed words inside.", which sets
+`visibility: visible` again; and "Shown words around" and "the last gap." round "collapsed
+concealment", which `visibility: collapse` hides. "Words before the hidden ones." and "Words
+after the hidden ones." stand round them, and sixty numbered lines follow. It has no heading
+and no link, no word of it is one VoiceOver uses, and no shown word holds a hidden one, so
+"concealed", "Concealed" or "collapsed" in a transcript is a hidden word read. Open it with
+`--href OPS/veiled.xhtml` on a simulator and `"launch=-SampleHref OPS/veiled.xhtml"` in a
+hosted session. A second bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
@@ -1093,7 +1105,8 @@ after the numbered paragraph, the two parked ones (level 1), each opening its se
 section, and "Second part opens" (level 3) and "Third part opens" (level 4) inside the
 section of parts below a jump; the sections of entries and of jumps inside a grid, between
 "What each line offers" and "Tables of data", have none, and neither has the section of
-jumps at a grid's edges nor the last two, of squares and of gaps inside grids. The second book's are "Chapter one", "Chapter two"
+jumps at a grid's edges nor the last three, of squares and of gaps inside grids and of words
+hidden in the flow. The second book's are "Chapter one", "Chapter two"
 and "Chapter three", screens apart.
 Do not import private books for this check.
 

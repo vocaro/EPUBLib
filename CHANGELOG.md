@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Keep text that `visibility: hidden` hides in the flow out of what VoiceOver, Copy and search read, while it keeps its room ([#357](https://github.com/vocaro/EPUBLib/issues/357)).
 - Pack table continuations and following content using the displayed page bounds ([#546](https://github.com/vocaro/EPUBLib/issues/546)).
 - Refuse entity declarations in supported legacy encodings before parsing ([#86](https://github.com/vocaro/EPUBLib/issues/86)).
 - Resolve empty text anchors once when their next text or document end is known ([#92](https://github.com/vocaro/EPUBLib/issues/92)).

@@ -276,6 +276,28 @@ extension NSAttributedString.Key {
 }
 
 extension SectionText {
+    /// Whether a rendered range takes in text that `visibility: hidden` hides in the flow
+    /// (`.readerHidden`): in the section's string, or in the table cells its ends are in.
+    func holdsHiddenText(_ range: ReaderTextRange) -> Bool {
+        func hidden(_ text: NSAttributedString, _ lower: Int, _ upper: Int) -> Bool {
+            let lower = max(0, lower), upper = min(text.length, upper)
+            guard upper > lower else { return false }
+            var found = false
+            text.enumerateAttribute(.readerHidden, in: NSRange(location: lower, length: upper - lower)) { value, _, stop in
+                if value != nil { found = true; stop.pointee = true }
+            }
+            return found
+        }
+        let first = range.start.tableCell.flatMap { endpoint in tableCell(range.start).map { (endpoint, $0) } }
+        let last = range.end.tableCell.flatMap { endpoint in tableCell(range.end).map { (endpoint, $0) } }
+        if let first, let last, first.0.table == last.0.table, first.0.cell == last.0.cell {
+            return hidden(first.1.content, first.0.offset, last.0.offset)
+        }
+        if let first, hidden(first.1.content, first.0.offset, first.1.content.length) { return true }
+        if let last, hidden(last.1.content, 0, last.0.offset) { return true }
+        return hidden(string, range.start.offset, range.end.offset)
+    }
+
     /// The text of a rendered range from the book's own characters: mapped text (attachments as
     /// their text equivalents) and the line breaks between blocks, but no other generated text.
     func mappedText(in range: Range<Int>) -> String {
