@@ -8,7 +8,6 @@ import XCTest
 import AppKit
 #else
 import UIKit
-import QuartzCore
 #endif
 
 final class NoteReachabilityTests: XCTestCase {
@@ -92,18 +91,6 @@ final class NoteReachabilityTests: XCTestCase {
 @MainActor final class NoteLinkSessionTests: XCTestCase {
     private enum NewerAction: Equatable { case link, note, command }
 
-    /// Package tests can have a standalone window without an active application scene to
-    /// advance UIKit animations. Keep note presentation real, but synchronous for this fixture.
-    private func suspendAnimations() -> @MainActor () -> Void {
-        #if os(iOS)
-        let enabled = UIView.areAnimationsEnabled
-        UIView.setAnimationsEnabled(false)
-        return { UIView.setAnimationsEnabled(enabled) }
-        #else
-        return {}
-        #endif
-    }
-
     private func shownNoteText(_ canvas: ReaderCanvasView) -> String? {
         #if os(macOS)
         let controller = (canvas.presentedNote as? NSPopover)?.contentViewController as? ReaderNoteViewController
@@ -136,22 +123,12 @@ final class NoteReachabilityTests: XCTestCase {
                     + "keyWindow=\(canvas.window?.isKeyWindow == true), scene=\(String(describing: canvas.window?.windowScene?.activationState.rawValue)), "
                     + "app=\(UIApplication.shared.applicationState), animations=\(UIView.areAnimationsEnabled)"
             }
-            @MainActor func pumpPresentation() {
-                canvas.window?.layoutIfNeeded()
-                controller.presentingViewController?.viewIfLoaded?.layoutIfNeeded()
-                CATransaction.flush()
-                // UIKit commits presentation hierarchy changes on the application run loop,
-                // which a package XCTest's Swift concurrency executor need not advance.
-                _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
-            }
             // presentNote starts an animated presentation. Its text exists before UIKit has
             // attached the controller, and dismissing at that instant can lose the completion
             // callback. Wait for actual transition state, with a bound on both phases.
             @MainActor func waitForTransition(_ phase: String, until settled: @MainActor () -> Bool) async -> Bool {
                 let deadline = Date().addingTimeInterval(5)
                 while !settled() {
-                    pumpPresentation()
-                    if settled() { return true }
                     guard Date() < deadline else {
                         XCTFail("Note cleanup timed out during \(phase): \(state())")
                         return false
@@ -199,8 +176,6 @@ final class NoteReachabilityTests: XCTestCase {
     /// The rich factory holds the slow target's build until the newer action has finished.
     /// Task handles prove both activations have completed, without a timing delay or a poll.
     private func overlappingActivation(slowFragment: String, newer: NewerAction) async throws {
-        let restoreAnimations = suspendAnimations()
-        defer { restoreAnimations() }
         let started = expectation(description: "the slow section is held in its build")
         let opened = expectation(description: "the source is ready and located")
         let navigated = newer == .note ? nil : expectation(description: "the newer target was shown")
@@ -220,7 +195,7 @@ final class NoteReachabilityTests: XCTestCase {
                 if location.href == "OPS/fast.xhtml", !didNavigate { didNavigate = true; navigated?.fulfill() }
             }
         }
-        let window = ReaderTestWindow(session: session)
+        let window = NoteSessionHost(session: session)
         defer { closeNote(session.canvas); session.close(); window.close() }
         await waitFor([opened])
         let canvas = try XCTUnwrap(session.canvas)
@@ -254,8 +229,6 @@ final class NoteReachabilityTests: XCTestCase {
     }
 
     func testPlainCrossDocumentLinksPresentCapturedNotesWithoutNavigating() async throws {
-        let restoreAnimations = suspendAnimations()
-        defer { restoreAnimations() }
         let reader = try SessionCoverageReader(SessionCoverageBook.epub([
             .init("one", """
                 <p><a href='notes.xhtml#fn1'>id note</a> <a href='notes.xhtml#fn%C3%A9'>legacy note</a> \
@@ -267,8 +240,9 @@ final class NoteReachabilityTests: XCTestCase {
                 <p>Notes opening.</p><aside epub:type='footnote' id='fn1'><p>The id note.</p></aside>\
                 <aside epub:type='footnote'><p><a name='fné'/>The legacy note.</p></aside><p id='ordinary'>Ordinary target.</p>
                 """, linear: false),
-        ]))
-        defer { closeNote(reader.session.canvas); reader.close() }
+        ]), mounted: false)
+        let host = NoteSessionHost(session: reader.session)
+        defer { closeNote(reader.session.canvas); reader.close(); host.close() }
         try await reader.settle()
         let canvas = try XCTUnwrap(reader.session.canvas)
         let source = try XCTUnwrap(reader.session.book.section(0))
@@ -301,6 +275,49 @@ final class NoteReachabilityTests: XCTestCase {
         try await reader.wait("return to source") { reader.section == 0 }
         try activate("missing note")
         try await reader.wait("missing fragment navigation") { reader.section == 1 }
+    }
+}
+
+/// A real session and canvas, with a plain UIKit presenter. SwiftUI hosting is exercised by
+/// other session tests; this fixture keeps its presentation transitions out of note routing.
+@MainActor private final class NoteSessionHost {
+    #if os(macOS)
+    private let window: ReaderTestWindow
+    #else
+    private let window: UIWindow
+    private let controller = UIViewController()
+    private let canvas = ReaderCanvasView(frame: .zero)
+    #endif
+
+    init(session: NativeSession) {
+        #if os(macOS)
+        window = ReaderTestWindow(session: session)
+        #else
+        let size = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        if let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first {
+            window = UIWindow(windowScene: scene)
+            window.frame = size
+        } else {
+            window = UIWindow(frame: size)
+        }
+        window.keepLightAppearance()
+        controller.view = canvas
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        window.layoutIfNeeded()
+        canvas.layoutIfNeeded()
+        session.attach(canvas)
+        #endif
+    }
+
+    func close() {
+        #if os(macOS)
+        window.close()
+        #else
+        window.isHidden = true
+        window.rootViewController = nil
+        #endif
     }
 }
 
