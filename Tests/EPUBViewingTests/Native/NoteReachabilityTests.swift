@@ -4,6 +4,11 @@ import EPUBReading
 import Foundation
 import XCTest
 @testable import EPUBViewing
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 final class NoteReachabilityTests: XCTestCase {
     func testALegacyNamedAnchorAnywhereInAHiddenNoteNamesTheWholeNote() throws {
@@ -86,6 +91,38 @@ final class NoteReachabilityTests: XCTestCase {
 @MainActor final class NoteLinkSessionTests: XCTestCase {
     private enum NewerAction: Equatable { case link, note, command }
 
+    private func shownNoteText(_ canvas: ReaderCanvasView) -> String? {
+        #if os(macOS)
+        let controller = (canvas.presentedNote as? NSPopover)?.contentViewController as? ReaderNoteViewController
+        #else
+        let controller = canvas.presentedNote as? ReaderNoteViewController
+        #endif
+        return controller?.textView.contentStorage.textStorage?.string
+    }
+
+    /// Close the presentation before its reader window is torn down, including on a failed test.
+    private func closeNote(_ canvas: ReaderCanvasView?) {
+        #if os(macOS)
+        (canvas?.presentedNote as? NSPopover)?.close()
+        #else
+        (canvas?.presentedNote as? ReaderNoteViewController)?.dismiss(animated: false)
+        #endif
+        canvas?.presentedNote = nil
+    }
+
+    private func dismissNote(_ canvas: ReaderCanvasView) async {
+        #if os(macOS)
+        closeNote(canvas)
+        #else
+        if let controller = canvas.presentedNote as? ReaderNoteViewController {
+            await withCheckedContinuation { continuation in
+                controller.dismiss(animated: false) { continuation.resume() }
+            }
+        }
+        canvas.presentedNote = nil
+        #endif
+    }
+
     private func waitFor(_ expectations: [XCTestExpectation], file: StaticString = #filePath, line: UInt = #line) async {
         let result = await XCTWaiter.fulfillment(of: expectations, timeout: 20)
         XCTAssertEqual(result, .completed, file: file, line: line)
@@ -112,7 +149,7 @@ final class NoteReachabilityTests: XCTestCase {
     private func overlappingActivation(slowFragment: String, newer: NewerAction) async throws {
         let started = expectation(description: "the slow section is held in its build")
         let opened = expectation(description: "the source is ready and located")
-        let navigated = expectation(description: "the newer target was shown")
+        let navigated = newer == .note ? nil : expectation(description: "the newer target was shown")
         let gate = NoteTargetBuildGate(started: started)
         defer { gate.release() }
         let publication = try EPUBPublication.open(data: SessionCoverageBook.epub([
@@ -126,11 +163,11 @@ final class NoteReachabilityTests: XCTestCase {
             events.append(event)
             if case .relocated(let location) = event {
                 if location.href == "OPS/one.xhtml", !didOpen { didOpen = true; opened.fulfill() }
-                if location.href == "OPS/fast.xhtml", !didNavigate { didNavigate = true; navigated.fulfill() }
+                if location.href == "OPS/fast.xhtml", !didNavigate { didNavigate = true; navigated?.fulfill() }
             }
         }
         let window = ReaderTestWindow(session: session)
-        defer { session.close(); window.close() }
+        defer { closeNote(session.canvas); session.close(); window.close() }
         await waitFor([opened])
         let canvas = try XCTUnwrap(session.canvas)
         let rect = CGRect(x: 10, y: 10, width: 40, height: 20)
@@ -143,22 +180,23 @@ final class NoteReachabilityTests: XCTestCase {
         case .note:
             let current = try XCTUnwrap(session.activateLink(.note(href: "OPS/fast.xhtml#fast-note"), from: rect))
             await current.value
-            XCTAssertEqual(canvas.presentedNote?.string, "The new note.")
+            XCTAssertEqual(shownNoteText(canvas), "The new note.")
         case .command:
             try await session.send(.navigate(href: "OPS/fast.xhtml#target"))
         }
-        if newer != .note { await waitFor([navigated]) }
+        if let navigated { await waitFor([navigated]) }
         let place = session.visibleRange
-        let note = canvas.presentedNote?.string
+        let note = shownNoteText(canvas)
         let eventCount = events.count
         gate.release()
         await old.value
         XCTAssertEqual(session.visibleRange, place, "The older lookup cannot navigate after the newer action")
-        XCTAssertEqual(canvas.presentedNote?.string, note, "The older lookup cannot replace the newer note")
+        XCTAssertEqual(shownNoteText(canvas), note, "The older lookup cannot replace the newer note")
         XCTAssertFalse(events.dropFirst(eventCount).contains { if case .relocated = $0 { true } else { false } })
         XCTAssertEqual(events.filter { $0 == .ready }.count, 1)
         XCTAssertTrue(session.isReady)
         XCTAssertEqual(session.readerState?.status.lifecycle, .ready)
+        await dismissNote(canvas)
     }
 
     func testPlainCrossDocumentLinksPresentCapturedNotesWithoutNavigating() async throws {
@@ -174,7 +212,7 @@ final class NoteReachabilityTests: XCTestCase {
                 <aside epub:type='footnote'><p><a name='fné'/>The legacy note.</p></aside><p id='ordinary'>Ordinary target.</p>
                 """, linear: false),
         ]))
-        defer { reader.close() }
+        defer { closeNote(reader.session.canvas); reader.close() }
         try await reader.settle()
         let canvas = try XCTUnwrap(reader.session.canvas)
         let source = try XCTUnwrap(reader.session.book.section(0))
@@ -187,8 +225,9 @@ final class NoteReachabilityTests: XCTestCase {
         let count = reader.events.count
         for (label, expected) in [("id note", "The id note."), ("legacy note", "The legacy note."), ("typed note", "The id note.")] {
             try activate(label)
-            try await reader.wait(label) { canvas.presentedNote?.string == expected }
+            try await reader.wait(label) { self.shownNoteText(canvas) == expected }
             XCTAssertEqual(reader.session.visibleRange, place)
+            await dismissNote(canvas)
         }
         XCTAssertTrue(reader.locations(since: count).isEmpty)
 
