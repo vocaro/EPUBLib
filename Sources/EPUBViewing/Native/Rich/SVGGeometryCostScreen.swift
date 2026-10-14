@@ -226,8 +226,13 @@ enum SVGGeometryCostScreen {
                 for attribute in node.attributes where attribute.name == "d" {
                     guard let box = pathBounds(attribute.value) else { return false }
                     let x = max(abs(box.minX), abs(box.maxX)), y = max(abs(box.minY), abs(box.maxY))
-                    guard total.a * x + total.c * y + abs(total.tx) <= maximumPathCoordinate,
-                          total.b * x + total.d * y + abs(total.ty) <= maximumPathCoordinate else { return false }
+                    // usvg's textPath conversion applies the linked node's own transform,
+                    // independently of its XML ancestors. Check both contexts: an ancestor
+                    // downscale must not conceal an enormous local path measurement.
+                    for measured in [local, total] {
+                        guard measured.a * x + measured.c * y + abs(measured.tx) <= maximumPathCoordinate,
+                              measured.b * x + measured.d * y + abs(measured.ty) <= maximumPathCoordinate else { return false }
+                    }
                 }
             }
             var here = viewport

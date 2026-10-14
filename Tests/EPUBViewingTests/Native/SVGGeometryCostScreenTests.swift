@@ -14,6 +14,7 @@ final class SVGGeometryCostScreenTests: XCTestCase {
         XCTAssertFalse(SVGContent.isWithinRenderingLimits(try root("<path d='M-2e13 0 A9.4e16 3.9 0 1 0 0 8.9e16 Q0 -8.9e16 0 1.5e16Z' stroke='black'/>")))
         XCTAssertFalse(SVGContent.isWithinRenderingLimits(try root("<defs><path id='p' d='M1e20 1e20 L2e20 1e20'/></defs><text><textPath href='#p'>Label</textPath></text>")))
         XCTAssertFalse(SVGContent.isWithinRenderingLimits(try root("<defs><path id='p' d='M1 1 L2 1' transform='scale(1e20)'/></defs><text><textPath href='#p'>Label</textPath></text>")))
+        XCTAssertFalse(SVGContent.isWithinRenderingLimits(try root("<defs><g transform='scale(1e-20)'><path id='p' d='M1 1 L2 1' transform='scale(1e20)'/></g></defs><text><textPath href='#p'>Label</textPath></text>")))
         XCTAssertFalse(SVGContent.isWithinRenderingLimits(try root("<defs><rect id='p' width='1e20' height='1'/></defs><text><textPath href='#p'>Label</textPath></text>")))
         XCTAssertTrue(SVGContent.isWithinRenderingLimits(try root("<defs><path id='p' d='M1 1 L80 1' transform='translate(1 1)'/></defs><text><textPath href='#p'>Label</textPath></text>")))
         XCTAssertNil(SVGGeometryCostScreen.pathBounds("M0 0 A1 .000000000001 0 0 1 100 100"), "Endpoint correction can enlarge a small authored radius")

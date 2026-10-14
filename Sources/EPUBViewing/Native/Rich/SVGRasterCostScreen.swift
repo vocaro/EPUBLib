@@ -12,6 +12,14 @@ enum SVGRasterCostScreen {
 
     static func accepts(_ svg: ContentNode, nodes: [ContentNode]) -> Bool {
         guard nodes.contains(where: { $0.name == "marker" }) else { return true }
+        // The renderer can accept attributes by local name from several namespaces.
+        // A tiny alternative viewBox or large alternative viewport must not hide behind
+        // the ordinary attribute that the screen's helpers resolve.
+        for node in nodes where ["svg", "symbol", "marker"].contains(node.name) {
+            for name in ["width", "height", "viewBox", "markerWidth", "markerHeight", "markerUnits"] {
+                if Set(node.attributes.filter { $0.name == name }.map(\.value)).count > 1 { return false }
+            }
+        }
         typealias Subject = SVGReferenceScreen.Subject
         var styled: [Subject: [String: [String]]] = [:]
         for sheet in nodes where sheet.name == "style" && SVGContent.serializeKeepsSheet(sheet.textContent) {

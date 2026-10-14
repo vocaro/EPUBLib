@@ -155,6 +155,9 @@ final class ContentDocument: @unchecked Sendable {
         guard safety == .safe else { throw ContentDocumentError.unsafeMarkup(path) }
         let source = HTMLEntities.numericReferences(in: data)
         guard source.count <= limits.bytes, source.count <= Int(Int32.max) else { throw ContentDocumentError.limitExceeded("bytes") }
+        let rewrittenSafety = source == data ? safety : XMLSafety.assess(source)
+        guard rewrittenSafety != .attributeLimitExceeded else { throw ContentDocumentError.limitExceeded("attributesPerElement") }
+        guard rewrittenSafety == .safe else { throw ContentDocumentError.unsafeMarkup(path) }
         if let document = try parseXML(source, path: path, limits: limits) {
             // Foliate's loadDocument retries a namespace-free content root as HTML. WebKit
             // also rejects named references without an XHTML 1.x public DOCTYPE. OPF and

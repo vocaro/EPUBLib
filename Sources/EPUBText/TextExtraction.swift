@@ -79,7 +79,11 @@ extension EPUBPublication {
         guard safety != .attributeLimitExceeded else { throw EPUBTextExtractionError.limitExceeded("attributesPerElement") }
         if safety == .safe {
             do {
-                reader = try XHTMLTextReader.read(NamedCharacterReferences.numeric(in: data), path: item.resource.path, limits: limits)
+                let source = NamedCharacterReferences.numeric(in: data)
+                let rewrittenSafety = source == data ? safety : XMLSafety.assess(source)
+                guard rewrittenSafety != .attributeLimitExceeded else { throw EPUBTextExtractionError.limitExceeded("attributesPerElement") }
+                guard rewrittenSafety == .safe else { throw EPUBTextExtractionError.malformedContent(item.resource.path) }
+                reader = try XHTMLTextReader.read(source, path: item.resource.path, limits: limits)
             } catch XHTMLTextReader.ParseFailure.notWellFormed {
                 // Only a parser verdict is recoverable; limits, cancellation and a well-formed
                 // but non-XHTML structure still propagate.

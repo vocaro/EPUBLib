@@ -114,6 +114,22 @@ final class RichMediaSVGRasterCostCoverageTests: XCTestCase {
         }
     }
 
+    func testNamespaceViewportAlternativesCannotHideMarkerRasterCost() throws {
+        func namespace(_ drawing: String) -> String {
+            drawing.replacingOccurrences(of: "xmlns='http://www.w3.org/2000/svg'", with: "xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'")
+        }
+        for attributes in ["viewBox='0 0 10 10' xlink:viewBox='0 0 .000001 .000001'",
+                           "markerWidth='3' xlink:markerWidth='100000'",
+                           "markerUnits='userSpaceOnUse' xlink:markerUnits='strokeWidth'"] {
+            XCTAssertFalse(try accepts(namespace(marker("<rect width='1' height='1'/>", attributes: attributes))))
+        }
+        let markerDefinition = "<marker id='m'><rect width='1' height='1'/></marker>"
+        let line = "<path d='M0 0h1' marker-end='url(#m)'/>"
+        XCTAssertFalse(try accepts(namespace(svg("<defs>\(markerDefinition)</defs><svg width='10' xlink:width='100000' height='10'>\(line)</svg>"))))
+        XCTAssertTrue(try accepts(namespace(marker("<rect width='1' height='1'/>", attributes: "viewBox='0 0 10 10' xlink:viewBox='0 0 10 10'"))),
+                      "Identical alternatives do not conceal another viewport")
+    }
+
     func testRefusedMarkerShowsFallbackAndSVGDisclosure() throws {
         // Small enough to be harmless even if the screen regresses.
         let drawing = marker("<rect width='100' height='100'/>", vertices: 3)
