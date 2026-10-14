@@ -1,5 +1,6 @@
 import CoreText
 import EPUBCore
+import EPUBReading
 import Foundation
 import XCTest
 @testable import EPUBViewing
@@ -83,6 +84,83 @@ final class NoteReachabilityTests: XCTestCase {
 }
 
 @MainActor final class NoteLinkSessionTests: XCTestCase {
+    private enum NewerAction: Equatable { case link, note, command }
+
+    private func waitFor(_ expectations: [XCTestExpectation], file: StaticString = #filePath, line: UInt = #line) async {
+        let result = await XCTWaiter.fulfillment(of: expectations, timeout: 20)
+        XCTAssertEqual(result, .completed, file: file, line: line)
+    }
+
+    func testDelayedPlainNoteActivationCannotReplaceANewerLink() async throws {
+        try await overlappingActivation(slowFragment: "slow-note", newer: .link)
+    }
+
+    func testDelayedPlainNoteActivationCannotReplaceANewerNote() async throws {
+        try await overlappingActivation(slowFragment: "slow-note", newer: .note)
+    }
+
+    func testDelayedPlainNoteActivationCannotReplaceANewerNavigateCommand() async throws {
+        try await overlappingActivation(slowFragment: "slow-note", newer: .command)
+    }
+
+    func testDelayedMissingNoteActivationCannotNavigateOverANewerCommand() async throws {
+        try await overlappingActivation(slowFragment: "missing", newer: .command)
+    }
+
+    /// The rich factory holds the slow target's build until the newer action has finished.
+    /// Task handles prove both activations have completed, without a timing delay or a poll.
+    private func overlappingActivation(slowFragment: String, newer: NewerAction) async throws {
+        let started = expectation(description: "the slow section is held in its build")
+        let opened = expectation(description: "the source is ready and located")
+        let navigated = expectation(description: "the newer target was shown")
+        let gate = NoteTargetBuildGate(started: started)
+        defer { gate.release() }
+        let publication = try EPUBPublication.open(data: SessionCoverageBook.epub([
+            .init("one", "<p>The source.</p>"),
+            .init("slow", "<hr/><p>Slow target.</p><aside epub:type='footnote' id='slow-note'>The old note.</aside>", linear: false),
+            .init("fast", "<p id='target'>The new target.</p><aside epub:type='footnote' id='fast-note'>The new note.</aside>"),
+        ]))
+        var events: [EPUBReaderEvent] = []
+        var didOpen = false, didNavigate = false
+        let session = try NativeSession(publication: publication, action: nil, rich: gate) { event in
+            events.append(event)
+            if case .relocated(let location) = event {
+                if location.href == "OPS/one.xhtml", !didOpen { didOpen = true; opened.fulfill() }
+                if location.href == "OPS/fast.xhtml", !didNavigate { didNavigate = true; navigated.fulfill() }
+            }
+        }
+        let window = ReaderTestWindow(session: session)
+        defer { session.close(); window.close() }
+        await waitFor([opened])
+        let canvas = try XCTUnwrap(session.canvas)
+        let rect = CGRect(x: 10, y: 10, width: 40, height: 20)
+        let old = try XCTUnwrap(session.activateLink(.internal(href: "OPS/slow.xhtml#" + slowFragment), from: rect))
+        await waitFor([started])
+        switch newer {
+        case .link:
+            let current = try XCTUnwrap(session.activateLink(.internal(href: "OPS/fast.xhtml#target"), from: rect))
+            await current.value
+        case .note:
+            let current = try XCTUnwrap(session.activateLink(.note(href: "OPS/fast.xhtml#fast-note"), from: rect))
+            await current.value
+            XCTAssertEqual(canvas.presentedNote?.string, "The new note.")
+        case .command:
+            try await session.send(.navigate(href: "OPS/fast.xhtml#target"))
+        }
+        if newer != .note { await waitFor([navigated]) }
+        let place = session.visibleRange
+        let note = canvas.presentedNote?.string
+        let eventCount = events.count
+        gate.release()
+        await old.value
+        XCTAssertEqual(session.visibleRange, place, "The older lookup cannot navigate after the newer action")
+        XCTAssertEqual(canvas.presentedNote?.string, note, "The older lookup cannot replace the newer note")
+        XCTAssertFalse(events.dropFirst(eventCount).contains { if case .relocated = $0 { true } else { false } })
+        XCTAssertEqual(events.filter { $0 == .ready }.count, 1)
+        XCTAssertTrue(session.isReady)
+        XCTAssertEqual(session.readerState?.status.lifecycle, .ready)
+    }
+
     func testPlainCrossDocumentLinksPresentCapturedNotesWithoutNavigating() async throws {
         let reader = try SessionCoverageReader(SessionCoverageBook.epub([
             .init("one", """
@@ -128,5 +206,47 @@ final class NoteReachabilityTests: XCTestCase {
         try await reader.wait("return to source") { reader.section == 0 }
         try activate("missing note")
         try await reader.wait("missing fragment navigation") { reader.section == 1 }
+    }
+}
+
+/// Blocks only rich-content construction in the slow document. Both a background build and an
+/// on-demand build may reach the gate; one release lets all of them finish.
+private final class NoteTargetBuildGate: RichContentFactory, @unchecked Sendable {
+    private let condition = NSCondition()
+    private let started: XCTestExpectation
+    private var announced = false
+    private var released = false
+    private let content = NativeRichContent()
+
+    init(started: XCTestExpectation) { self.started = started }
+
+    func release() {
+        condition.lock()
+        released = true
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    func horizontalRule(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString {
+        if context.document.path == "OPS/slow.xhtml" {
+            condition.lock()
+            if !announced { announced = true; started.fulfill() }
+            while !released { condition.wait() }
+            condition.unlock()
+        }
+        return content.horizontalRule(element, style: style, context: context)
+    }
+
+    func image(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
+        content.image(element, style: style, context: context)
+    }
+    func svg(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
+        content.svg(element, style: style, context: context)
+    }
+    func table(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
+        content.table(element, style: style, context: context)
+    }
+    func math(_ element: ContentNode, style: ComputedStyle, context: RichContentContext) -> NSAttributedString? {
+        content.math(element, style: style, context: context)
     }
 }
