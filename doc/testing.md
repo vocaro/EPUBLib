@@ -20,15 +20,17 @@ None of this runs on a hosted runner, and nothing starts by itself for a pull re
 only ([notes for agents](../AGENTS.md#the-hosted-runner)).
 
 Run one gate at a time on this shared Mac, with its Mac and iOS suites one after the other.
-Several worktrees may edit and build, but should coordinate full test runs rather than start
-simulator suites together. Synchronous performance assertions use thread CPU time, excluding
-scheduling delay while retaining their work bounds; asynchronous readiness waits still have
-wall-clock deadlines, and simulator startup and UI event delivery can stall under saturation.
-For acceptance runs, use a quiet machine: three samples a minute apart with at least 70% CPU
-idle and a one-minute load below 20. Read idle CPU from the last `CPU usage` line of
-`top -l 2 -n 0 -s 2`, and load from `sysctl -n vm.loadavg`. Idle CPU is the primary check:
-load can stay high after work ends and has wrapped at 1,024 on this Mac. Bound a wait for quiet
-and report when the machine never becomes quiet; do not call a busy rerun acceptance evidence.
+Coordinate full test runs between worktrees and keep build and test worker counts bounded.
+Synchronous performance assertions use thread CPU time, excluding scheduling delay while
+retaining their work bounds; asynchronous readiness waits still have wall-clock deadlines,
+and simulator startup and UI event delivery can stall under saturation.
+Record host activity alongside the test results: idle CPU from the last `CPU usage` line of
+`top -l 2 -n 0 -s 2`, and load from `sysctl -n vm.loadavg`. These readings provide context
+for failures, not pass/fail thresholds. Investigate reproducible load-related failures and
+rerun the affected tests when contention subsides, rather than waiting for a fixed idle share
+before starting a run. The idle-CPU recipe [reported in #62](https://github.com/vocaro/EPUBLib/issues/62#issuecomment-6155249383)
+is a heuristic from one session, not a gate requirement or an acceptance cutoff. Host activity
+alone does not invalidate a passing run.
 
 `scripts/test-ios.sh` reports `Passed` or `Failed` for each device, continues to the second
 after a creation, boot or test failure, and exits nonzero if either failed. Each first boot has
