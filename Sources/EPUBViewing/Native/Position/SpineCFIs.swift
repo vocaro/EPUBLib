@@ -102,6 +102,7 @@ struct SpineCFIs: Sendable {
         var paths = expression.parent ?? expression.path ?? []
         guard !paths.isEmpty else { return nil }
         let top = paths.removeFirst()
+        guard top.allSatisfy({ $0.resource == nil }) else { return nil }
         let index: Int
         if let package {
             guard let element = EPUBCFI.element(at: top, in: package.document),

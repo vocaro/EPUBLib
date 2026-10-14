@@ -37,8 +37,11 @@ public struct EPUBResource: Equatable, Sendable, Identifiable {
     public var href: String { ResourceReference.encoded(path: path) }
     public let mediaType: String
     public let properties: Set<String>
-    public init(id: String, path: String, mediaType: String, properties: Set<String> = []) {
+    /// The manifest ID of the next resource in this item's fallback chain, when designated.
+    public let fallbackID: String?
+    public init(id: String, path: String, mediaType: String, properties: Set<String> = [], fallbackID: String? = nil) {
         self.id = id; self.path = path; self.mediaType = mediaType; self.properties = properties
+        self.fallbackID = fallbackID
     }
 }
 

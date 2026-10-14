@@ -1,3 +1,4 @@
+import EPUBCore
 import Foundation
 
 /// Reads U+0000 as HTML reads it, before libxml2's HTML parser comes to one.
@@ -76,16 +77,11 @@ enum HTMLNullCharacters {
         return output.count <= limit ? Data(output) : nil
     }
 
-    private static let commentOpen = Array("<!--".utf8), commentClose = Array("-->".utf8)
+    private static let commentOpen = Array("<!--".utf8)
 
-    /// The index after the `-->` that ends the comment opened at `start`, or the end of the input.
+    /// The index after the `-->` or `--!>` that ends the comment opened at `start`.
     static func comment(in bytes: [UInt8], at start: Int) -> Int {
-        var index = start + commentOpen.count
-        while let dash = bytes[index...].firstIndex(of: 0x2D) {
-            if bytes[dash...].starts(with: commentClose) { return dash + commentClose.count }
-            index = dash + 1
-        }
-        return bytes.count
+        HTMLRecoveryComments.end(in: bytes, from: start + commentOpen.count)
     }
 
     /// The index after the `>` that ends the start tag at `start`, or the end of the input, and

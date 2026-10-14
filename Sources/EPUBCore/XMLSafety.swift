@@ -91,7 +91,11 @@ private struct DeclarationScanner {
             // not a tag whose quotes and `>` would be sought through the text after it.
             guard opensMarkup else { index += 1; continue }
             if consume("<!--") {
-                guard skip(until: "-->") else { return false }
+                // --!> is not a valid XML comment ending, so XML will refuse it. HTML recovery
+                // does end the comment there: screen what follows rather than hiding markup
+                // until a later -->, or rejecting an otherwise recoverable complete comment.
+                guard let end = HTMLRecoveryComments.closedEnd(in: bytes, from: index) else { return false }
+                index = end
             } else if consume("<![CDATA[") {
                 guard skip(until: "]]>") else { return false }
             } else if consume("<?") {

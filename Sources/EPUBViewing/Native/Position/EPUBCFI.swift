@@ -41,6 +41,8 @@ enum EPUBCFI {
             var spatial: [Double]?
             var text: [String]?
             var side: String?
+            /// Native fallback document qualification; other vendor parameters stay ignored.
+            var resource: String? = nil
         }
         /// `paths[0]` is the package path, `paths[1]` the content-document path.
         typealias Path = [[Step]]
@@ -51,9 +53,12 @@ enum EPUBCFI {
         var isRange: Bool { parent != nil }
     }
 
-    /// The longest CFI `isWellFormed` accepts, in characters. Range CFIs locating long
+    /// The underlying CFI character budget. Range CFIs locating long
     /// highlights outgrow the WebKit bridge's old 1,024-character cap.
     static let maximumLength = 4_096
+    /// A point or range has at most two fixed-width resource assertions, each adding at most
+    /// 88 characters. The underlying CFI keeps the existing maximumLength budget.
+    static let maximumQualifiedLength = maximumLength + 2 * 88
     /// Input longer than this many UTF-16 units is refused by `parse`, which bounds all CFI work.
     static let maximumParseLength = 65_536
 
@@ -79,10 +84,12 @@ enum EPUBCFI {
     }
 
     /// The WebKit bridge's character rules (`ReaderEPUBCFI.isWellFormed`): wrapped once with
-    /// balanced unescaped parentheses, no C0 or C1 control or line or paragraph separator, at most
-    /// `maximumLength` characters. A shape check for stored locators, not a parse.
+    /// balanced unescaped parentheses and no C0/C1 control or line/paragraph separator. The
+    /// ordinary shape check keeps `maximumLength`; longer wire forms require parsed fixed-width
+    /// fallback qualifications within `maximumQualifiedLength` and the same underlying budget.
     static func isWellFormed(_ cfi: String) -> Bool {
-        guard cfi.count <= maximumLength, cfi.hasPrefix("epubcfi("), cfi.hasSuffix(")"),
+        let length = cfi.count
+        guard length <= maximumQualifiedLength, cfi.hasPrefix("epubcfi("), cfi.hasSuffix(")"),
               cfi.count > "epubcfi()".count
         else { return false }
         var depth = 0
@@ -108,7 +115,22 @@ enum EPUBCFI {
             default: break
             }
         }
-        return isClosed
+        guard isClosed else { return false }
+        if length <= maximumLength { return true }
+        // Additional wire space is reserved only for parsed fixed-format qualifications, not
+        // for arbitrary vendor parameters or longer ordinary ID/text assertions.
+        guard let expression = try? parse(cfi) else { return false }
+        let paths = [expression.path, expression.parent, expression.start, expression.end].compactMap { $0 }
+        let qualified = paths.flatMap { $0 }.flatMap { $0 }.filter { $0.resource != nil }
+        guard !qualified.isEmpty, qualified.count <= 2 else { return false }
+        var overhead = 0
+        for step in qualified {
+            guard let resource = step.resource, resource.utf8.count == 64,
+                  resource.utf8.allSatisfy({ (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }) else { return false }
+            overhead += 86
+            if step.id == nil, step.side == nil, step.text == [""] { overhead += 2 }
+        }
+        return length - overhead <= maximumLength
     }
 
     // MARK: - Parsing
@@ -193,14 +215,19 @@ enum EPUBCFI {
                 previousIsSlash = true
                 continue
             }
-            if case .parameter(let name, _) = token, name != "s" { previousIsSlash = false; continue }
+            if case .parameter(let name, _) = token, name != "s", name != "vnd.epublib.resource" { previousIsSlash = false; continue }
             guard !parts.isEmpty else { throw EPUBReaderError.incompatibleLocation }
             let last = parts.count - 1
             switch token {
             case .colon(let offset): parts[last].offset = offset
             case .tilde(let temporal): parts[last].temporal = temporal
             case .at(let spatial): parts[last].spatial = (parts[last].spatial ?? []) + [spatial]
-            case .parameter(_, let side): parts[last].side = side
+            case .parameter(let name, let value):
+                if name == "vnd.epublib.resource" {
+                    guard parts[last].resource == nil else { throw EPUBReaderError.incompatibleLocation }
+                    parts[last].resource = value
+                }
+                else { parts[last].side = value }
             case .bracket(let value):
                 if previousIsSlash, !value.isEmpty { parts[last].id = value }
                 else {
@@ -264,14 +291,15 @@ enum EPUBCFI {
     /// the ID assertion when there is one, and the side bias itself unescaped.
     private static func stepString(_ step: Expression.Step) -> String {
         let side = step.side ?? ""
-        let parameter = side.isEmpty ? "" : ";s=\(side)"
+        let parameter = (side.isEmpty ? "" : ";s=\(side)")
+            + (step.resource.map { ";vnd.epublib.resource=\(escape($0))" } ?? "")
         let id = step.id ?? ""
         var string = "/\(step.index)"
         if !id.isEmpty { string += "[\(escape(id))\(parameter)]" }
         if let offset = step.offset, step.index % 2 != 0 { string += ":\(offset)" }
         if let temporal = step.temporal, temporal != 0, !temporal.isNaN { string += "~\(jsNumber(temporal))" }
         if let spatial = step.spatial { string += "@" + spatial.map(jsNumber).joined(separator: ":") }
-        if step.text != nil || (id.isEmpty && !side.isEmpty) {
+        if step.text != nil || (id.isEmpty && (!side.isEmpty || step.resource != nil)) {
             string += "[" + (step.text?.map(escape).joined(separator: ",") ?? "") + parameter + "]"
         }
         return string
@@ -466,10 +494,12 @@ enum EPUBCFI {
                           indices: ChildIndexCache? = nil) -> String {
         guard document.canResolveCFIs else { return "" }
         let (start, end) = end < start ? (end, start) : (start, end)
-        let startSteps = steps(for: start, indices: indices)
+        var startSteps = steps(for: start, indices: indices)
+        if !startSteps.isEmpty { startSteps[0].resource = document.cfiResource }
         if start == end { return pathString([startSteps]) }
-        return innerString(buildRange(from: Expression(path: [startSteps]),
-                                      to: Expression(path: [steps(for: end, indices: indices)])))
+        var endSteps = steps(for: end, indices: indices)
+        if !endSteps.isEmpty { endSteps[0].resource = document.cfiResource }
+        return innerString(buildRange(from: Expression(path: [startSteps]), to: Expression(path: [endSteps])))
     }
 
     /// foliate `toRange` for a local path. nil when it names nothing in `document`.
@@ -482,6 +512,9 @@ enum EPUBCFI {
     static func resolve(_ expression: Expression, in document: ContentDocument) -> (start: DOMPosition, end: DOMPosition)? {
         guard document.canResolveCFIs,
               let startPath = collapse(expression).first, let endPath = collapse(expression, toEnd: true).first,
+              startPath.first?.resource == document.cfiResource, endPath.first?.resource == document.cfiResource,
+              !startPath.dropFirst().contains(where: { $0.resource != nil }),
+              !endPath.dropFirst().contains(where: { $0.resource != nil }),
               let start = position(startPath, in: document), let end = position(endPath, in: document)
         else { return nil }
         return end < start ? (end, end) : (start, end)

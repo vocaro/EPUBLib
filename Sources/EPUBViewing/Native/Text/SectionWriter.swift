@@ -96,6 +96,10 @@ final class SectionWriter {
     private var flattenDepth = 0
 
     // Line state.
+    /// Only a real block boundary is a break in a copied passage. Inline flow boxes split
+    /// TextKit paragraphs for layout while retaining the source line and its collapsed space.
+    private var pendingPassageBoundary = false
+    private var pendingPassageSpace: (segmentBreak: Bool, before: UInt32)?
     private var paragraphOpen = false
     private var lineStart = true
     private var pendingSpace: PendingSpace?
@@ -564,7 +568,7 @@ final class SectionWriter {
         // A plain link to a note or its child is a note link; so is one to anything inside a
         // footnote hidden from the flow (`isInsideHiddenFootnote`), where there is nothing to
         // navigate to.
-        if path == document.path, let fragment, let target = document.element(id: fragment),
+        if path == document.path, let fragment, let target = state.fragmentTarget(fragment),
            state.noteKind(target) != nil || target.parent.flatMap(state.noteKind) != nil
             || (!fragment.isEmpty && state.isInsideHiddenFootnote(target)) {
             return .note(href: resolved)
@@ -575,6 +579,7 @@ final class SectionWriter {
     // MARK: Blocks
 
     private func enterBlock(_ node: ContentNode, style: ComputedStyle, language: InlineLanguage) {
+        pendingPassageBoundary = pendingPassageBoundary || style.display.isBlockLevel
         if style.display == .listItem, pendingMarker != nil { openParagraph() } // An outer item's marker gets its own line.
         let inline = inlineBox(style) // Read from the line the box is on, which closing the paragraph ends.
         closeParagraph()
@@ -623,6 +628,7 @@ final class SectionWriter {
     }
 
     private func exitBlock() {
+        pendingPassageBoundary = pendingPassageBoundary || (frames.last?.style.display.isBlockLevel ?? false)
         if let marker = pendingMarker, marker.frame == frames.count - 1 { openParagraph() } // An empty item still shows its marker.
         closeParagraph()
         guard frames.count > 1 else { return }
@@ -731,7 +737,7 @@ final class SectionWriter {
 
     // MARK: Paragraphs
 
-    private func openParagraph() {
+    private func openParagraph(next: UInt32? = nil) {
         guard !paragraphOpen else { return }
         let frame = frames[frames.count - 1]
         let gapValue = min(gap.value, Self.maximumGap)
@@ -743,6 +749,13 @@ final class SectionWriter {
                                   separatorAttributes: frameAttributes())
         paragraph.alignmentItem = frame.format.itemAlignment.paragraphItem()
         if let previous = paragraphs.indices.last {
+            if !pendingPassageBoundary {
+                let space = pendingPassageSpace
+                let removesBreak = space.map { space in
+                    space.segmentBreak && next.map { Self.removesSegmentBreak(between: space.before, and: $0) } == true
+                } ?? false
+                if recordsMap { map.layoutSeparator(at: buffer.count, copyText: space != nil && !removesBreak ? " " : "") }
+            }
             buffer.append(CollectionOfOne(0x0A), attributes: paragraphs[previous].separatorAttributes)
             paragraph.start = buffer.count
             if previous == 0, paragraphs[0].isSpoken {
@@ -763,6 +776,8 @@ final class SectionWriter {
             paragraph.sizingBefore = dynamicGap
         }
         pendingPageBreak = false
+        pendingPassageBoundary = false
+        pendingPassageSpace = nil
         if isSection {
             paragraph.keepsOwnNext = frames.contains { $0.keepWithNext }
             paragraph.keptTogetherBy = frames.firstIndex { $0.keepTogether }
@@ -777,6 +792,9 @@ final class SectionWriter {
     }
 
     private func closeParagraph() {
+        if !pendingPassageBoundary, let space = pendingSpace {
+            pendingPassageSpace = (space.segmentBreak, lastScalar)
+        }
         pendingSpace = nil
         guard paragraphOpen else { return }
         if pendingBreaks.count > 1 {
@@ -1063,9 +1081,11 @@ final class SectionWriter {
         prepareForContent(next: Self.scalar(units, at: range.lowerBound))
         let location = buffer.count
         if collectingRubyBase, rubyBaseStart == nil { rubyBaseStart = location }
+        let startsWord = Self.startsWord(after: lastScalar)
+        let synthetic = style.isSmallCaps && state.request.fonts.needsSyntheticSmallCaps(for: style)
         let transformed = style.textTransform == .none ? nil : transform(units[range], style.textTransform, language: context.language.declared)
         let characters = transformed.map { $0[...] } ?? units[range]
-        if style.isSmallCaps, state.request.fonts.needsSyntheticSmallCaps(for: style) {
+        if synthetic {
             emitSyntheticSmallCaps(characters, style: style, context: context, attributes: attributes,
                                    spaceAttributes: spaceAttributes)
         } else if spaceAttributes == attributes {
@@ -1082,13 +1102,14 @@ final class SectionWriter {
         }
         buffer.replaceParagraphSeparators(from: location)
         let length = buffer.count - location
-        mapSpan(location: location, length: length, node: node, offset: range.lowerBound,
-                sourceLength: range.count, exact: length == range.count)
+        mapAuthoredRun(units, range: range, node: node, location: location, length: length,
+                       transform: style.textTransform, synthetic: synthetic, language: context.language.declared,
+                       startsWord: startsWord)
         didEmitContent()
     }
 
     /// Small caps for a font without them, as browsers fake them: lower-case letters as capitals
-    /// in a smaller size. The characters change, so the run maps as a whole when its length does.
+    /// in a smaller size. The source map keeps their authored spelling separately.
     private func emitSyntheticSmallCaps(_ characters: ArraySlice<UInt16>, style: ComputedStyle, context: InlineContext,
                                         attributes: Int, spaceAttributes: Int) {
         var small = style
@@ -1105,6 +1126,54 @@ final class SectionWriter {
         }
     }
 
+    /// Case transformations preserve order. Map equal-length portions exactly and only a
+    /// length-changing grapheme (ß → SS, a ligature, a dotted i) as a unit, retaining the source
+    /// spelling for Copy. Whole-string rendering still supplies contextual mappings such as
+    /// Greek final sigma; isolated mappings here establish lengths, never replace those glyphs.
+    private func mapAuthoredRun(_ units: [UInt16], range: Range<Int>, node: ContentNode, location: Int, length: Int,
+                               transform: ComputedStyle.TextTransform, synthetic: Bool, language: String?, startsWord: Bool) {
+        guard recordsMap else { return }
+        func record(_ source: Range<Int>, rendered: Range<Int>, exact: Bool? = nil) {
+            let original = units[source], shown = buffer.units[rendered]
+            let authored = original.elementsEqual(shown) ? nil : String(decoding: original, as: UTF16.self)
+            mapSpan(location: rendered.lowerBound, length: rendered.count, node: node, offset: source.lowerBound,
+                    sourceLength: source.count, exact: exact ?? (rendered.count == source.count), authoredText: authored)
+        }
+        if (transform == .none && !synthetic) || (length == range.count && units[range].allSatisfy({ $0 < 0x80 })) {
+            record(range, rendered: location..<location + length); return
+        }
+        let locale = Locale(identifier: language ?? "en")
+        var pieces: [(source: Int, shown: Int)] = [], atWordStart = startsWord
+        for character in String(decoding: units[range], as: UTF16.self) {
+            let source = String(character)
+            let transformed: String
+            switch transform {
+            case .none: transformed = source
+            case .uppercase: transformed = source.uppercased(with: locale)
+            case .lowercase: transformed = source.lowercased(with: locale)
+            case .capitalize: transformed = atWordStart && character.isLetter ? source.uppercased(with: locale) : source
+            }
+            let shown = synthetic ? transformed.map { $0.isLowercase ? String($0).uppercased(with: locale) : String($0) }.joined() : transformed
+            pieces.append((source.utf16.count, shown.utf16.count))
+            atWordStart = character.unicodeScalars.last.map { Self.startsWord(after: $0.value) } ?? true
+        }
+        guard pieces.reduce(0, { $0 + $1.shown }) == length else {
+            // A contextual mapping with a different expansion keeps a conservative whole-run
+            // source range; its copied spelling is still authored rather than inferred.
+            record(range, rendered: location..<location + length, exact: false); return
+        }
+        var source = range.lowerBound, shown = location, exactSource = source, exactShown = shown
+        for piece in pieces {
+            if piece.source != piece.shown {
+                if source > exactSource { record(exactSource..<source, rendered: exactShown..<shown) }
+                record(source..<source + piece.source, rendered: shown..<shown + piece.shown)
+                exactSource = source + piece.source; exactShown = shown + piece.shown
+            }
+            source += piece.source; shown += piece.shown
+        }
+        if source > exactSource { record(exactSource..<source, rendered: exactShown..<shown) }
+    }
+
     /// Generated text that reads as content (`<q>` marks, inline markers): it ends a line start.
     private func emitGenerated(_ units: [UInt16], attributes: Int) {
         guard !units.isEmpty else { return }
@@ -1113,14 +1182,14 @@ final class SectionWriter {
         didEmitContent()
     }
 
-    private func mapSpan(location: Int, length: Int, node: ContentNode, offset: Int, sourceLength: Int, exact: Bool) {
+    private func mapSpan(location: Int, length: Int, node: ContentNode, offset: Int, sourceLength: Int, exact: Bool, authoredText: String? = nil) {
         guard recordsMap else { return }
         map.append(TextMap.Span(location: location, length: length, node: node.order, offset: offset,
-                                sourceLength: sourceLength, isExact: exact))
+                                sourceLength: sourceLength, isExact: exact, authoredText: authoredText))
     }
 
     private func prepareForContent(next: UInt32) {
-        openParagraph()
+        openParagraph(next: next)
         flushBreaks()
         flushSpace(next: next)
         flushSpokenInline()
@@ -1145,6 +1214,9 @@ final class SectionWriter {
     /// on the line. A single U+0020 maps exactly, so a paragraph's words share one span.
     private func collapsibleSpace(node: ContentNode?, offset: Int, length: Int, exact: Bool, segmentBreak: Bool,
                                   attributes: Int) {
+        if !paragraphOpen, !pendingPassageBoundary {
+            pendingPassageSpace = (segmentBreak || (pendingPassageSpace?.segmentBreak ?? false), pendingPassageSpace?.before ?? lastScalar)
+        }
         // After a sized inline box the space opens no paragraph; the box keeps it for what follows.
         if !paragraphOpen, let last = lastInlineBox, last.depth == frames.count, last.paragraphs == paragraphs.count {
             last.box.trailingSpace = spaceAdvance(frames[frames.count - 1])
@@ -1202,7 +1274,7 @@ final class SectionWriter {
             buffer.append(CollectionOfOne(0x2028), attributes: pending.attributes)
             if recordsMap, let node = pending.node {
                 map.append(TextMap.Span(location: location, length: 1, node: node, offset: pending.offset,
-                                        sourceLength: pending.length, isExact: pending.length == 1))
+                                        sourceLength: pending.length, isExact: pending.length == 1, authoredText: "\n"))
             }
         }
         pendingBreaks.removeAll()

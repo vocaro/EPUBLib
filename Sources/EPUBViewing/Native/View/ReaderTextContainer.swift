@@ -237,6 +237,19 @@ final class ReaderTextContainer: NSTextContainer {
     /// indents itself wherever it has box geometry (`lineFragmentRect`).
     func deliverIndents(for storage: NSTextContentStorage) { storage.delegate = self }
 
+    /// The attachment's containing content column, even when TextKit's preliminary proposal
+    /// still spans the viewport. Measurement uses boxOverride; actual page layout uses the
+    /// region containing this source character, retaining the original viewport for vw/vh.
+    func attachmentColumn(at index: Int?) -> CGRect? {
+        if let boxOverride { return boxOverride }
+        guard let index, index >= 0 else { return boxColumn }
+        let sourceIndex = index + boxSourceOffset
+        if let region = boxPage?.geometry.regions.first(where: { !$0.reserved && NSLocationInRange(sourceIndex, $0.range) }) {
+            return region.contentFrame ?? region.frame
+        }
+        return boxColumn ?? boxPage?.geometry.paragraph(at: sourceIndex)?.column
+    }
+
     /// The size an attachment may use: the proposed line width, and the viewport height (or a
     /// generous default before layout knows it).
     static func available(in container: NSTextContainer?, lineWidth: CGFloat) -> CGSize {

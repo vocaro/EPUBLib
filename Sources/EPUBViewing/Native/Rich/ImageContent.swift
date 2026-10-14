@@ -212,7 +212,14 @@ final class ReaderImageAttachment: ReaderAttachment {
     }
 
     override func contentWidths() -> (min: CGFloat, max: CGFloat) {
-        let natural = sizing.size(lineWidth: 100_000, viewport: CGSize(width: 1024, height: 100_000), heightLimit: 100_000).width
+        // A percentage needs a definite containing width, which intrinsic/shrink-to-fit
+        // measurement is choosing. Treat those constraints as auto here instead of resolving
+        // against the artificial 100,000-point measuring line; final layout resolves them.
+        var intrinsicSizing = sizing
+        if case .percent = intrinsicSizing.width { intrinsicSizing.width = .auto }
+        if case .percent = intrinsicSizing.minWidth { intrinsicSizing.minWidth = .auto }
+        if case .percent = intrinsicSizing.maxWidth { intrinsicSizing.maxWidth = .auto }
+        let natural = intrinsicSizing.size(lineWidth: 100_000, viewport: CGSize(width: 1024, height: 100_000), heightLimit: 100_000).width
         // Percentage sizes make an image compressible: it shrinks with its table column.
         let compressible = [sizing.width, sizing.maxWidth].contains { if case .percent = $0 { true } else { false } }
         return (compressible ? min(natural, 16) : natural, natural)

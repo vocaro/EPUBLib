@@ -42,6 +42,27 @@ public struct EPUBPublication: Sendable {
     /// Original EPUB bytes, for engines with their own container implementation.
     public let archiveData: Data
     private let contents: [String: Data]
+    /// All declared IDs, including missing and remote hops. They are never fetched.
+    private let manifestByID: [String: EPUBResource]
+
+    /// The designated manifest chain, starting with `resource`, stopping at a missing ID or
+    /// before repeating an ID. Missing/remote files remain in the chain so a host can continue
+    /// to a later available fallback; the host chooses which media types it supports.
+    public func fallbackChain(for resource: EPUBResource) -> [EPUBResource] {
+        var chain: [EPUBResource] = [], seen: Set<String> = []
+        var next: EPUBResource? = manifestByID[resource.id] ?? resource
+        while let item = next, seen.insert(item.id).inserted {
+            chain.append(item)
+            next = item.fallbackID.flatMap { manifestByID[$0] }
+        }
+        return chain
+    }
+
+    /// A declared local or remote resource, including one whose bytes the archive lacks.
+    /// Lookup uses the resolved archive path; this does not load or fetch anything.
+    public func manifestResource(at path: String) -> EPUBResource? {
+        resources.first { $0.path == path } ?? manifestByID.values.filter { $0.path == path }.min { $0.id < $1.id }
+    }
 
     public func data(for resource: EPUBResource) throws -> Data {
         try data(at: resource.path)
@@ -238,7 +259,8 @@ public struct EPUBPublication: Sendable {
                 }
             }
             let resource = EPUBResource(id: id, path: path, mediaType: type,
-                properties: Set((item.attribute("properties") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)))
+                properties: Set((item.attribute("properties") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)),
+                fallbackID: item.attribute("fallback").flatMap { $0.isEmpty ? nil : $0 })
             // Some converters write an item more than once; a verbatim repeat adds nothing, but one
             // id naming two different resources is ambiguous.
             if let earlier = declared[id] {
@@ -363,7 +385,7 @@ public struct EPUBPublication: Sendable {
             pageList: pages.isEmpty ? nil : pages,
             cover: resources.first { $0.properties.contains("cover-image") } ?? coverID.flatMap { byID[$0] },
             pageProgression: EPUBPageProgression(rawValue: spineNode.attribute("page-progression-direction") ?? "") ?? .default,
-            archiveData: data, contents: contents)
+            archiveData: data, contents: contents, manifestByID: declared)
     }
 
     /// Whether the `mimetype` entry names an EPUB. White space around the media type and a

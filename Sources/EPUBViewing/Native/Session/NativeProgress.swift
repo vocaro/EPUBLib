@@ -29,6 +29,11 @@ struct NativeProgress {
         for (index, item) in publication.spine.enumerated() where sectionByPath[item.resource.path] == nil {
             sectionByPath[item.resource.path] = index
         }
+        for (index, item) in publication.spine.enumerated() {
+            for fallback in publication.fallbackChain(for: item.resource).dropFirst() where sectionByPath[fallback.path] == nil {
+                sectionByPath[fallback.path] = index
+            }
+        }
         func target(_ href: String) -> (section: Int, fragment: String?)? {
             let parts = href.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
             let path = String(parts[0]).removingPercentEncoding ?? String(parts[0])

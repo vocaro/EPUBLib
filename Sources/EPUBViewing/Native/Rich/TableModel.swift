@@ -281,7 +281,9 @@ enum TableMeasure {
             for (range, attachment) in replacements { measured.addAttribute(.attachment, value: attachment, range: range) }
             var paragraphs: [(NSRange, NSParagraphStyle)] = []
             measured.enumerateAttribute(.paragraphStyle, in: paragraphRange) { value, styleRange, _ in
-                guard let style = value as? NSParagraphStyle, style.alignment == .justified else { return }
+                guard let style = value as? NSParagraphStyle, style.alignment != .left else { return }
+                // Max-content measures advances, not the empty space alignment leaves in
+                // the measuring column. A centered/right caption must not widen its float.
                 let neutral = style.mutableCopy() as! NSMutableParagraphStyle
                 neutral.alignment = .left
                 paragraphs.append((styleRange, neutral))
@@ -358,8 +360,8 @@ enum TableMeasure {
         return maximumWidth(NSAttributedString(attachment: attachment, attributes: attributes))
     }
 
-    /// The text VoiceOver reads (and copies get) for cell content: attachments by their text
-    /// equivalent, whitespace collapsed, and nothing of what `visibility: hidden` hides
+    /// The text VoiceOver reads for cell content: attachments by their spoken equivalent,
+    /// whitespace collapsed, and nothing of what `visibility: hidden` hides
     /// (`NSAttributedString.readerHiddenText(_:)`), which parts the words around it.
     static func spokenText(_ text: NSAttributedString) -> String {
         var spoken = ""
@@ -367,7 +369,7 @@ enum TableMeasure {
         text.enumerateAttribute(.readerHidden, in: NSRange(location: 0, length: text.length)) { hidden, part, _ in
             if hidden != nil { spoken += " "; return }
             text.enumerateAttribute(.attachment, in: part) { value, range, _ in
-                if let attachment = value as? ReaderTextualAttachment { spoken += " \(attachment.textEquivalent) " }
+                if let attachment = value as? ReaderTextualAttachment { spoken += " \(attachment.spokenEquivalent) " }
                 else if value != nil { spoken += " " }
                 else { spoken += string.substring(with: range) }
             }

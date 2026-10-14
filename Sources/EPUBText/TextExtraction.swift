@@ -247,7 +247,9 @@ private final class XHTMLTextReader {
     /// `HTMLRecoverySource` refuses declaration syntax anywhere in the bytes it parses.
     /// Input must be UTF-8 or a detectable UTF-16/32, as EPUB requires.
     static func recover(_ data: Data, path: String, limits: EPUBTextExtractionLimits) throws -> XHTMLTextReader {
-        guard let utf8 = SourceEncoding.utf8(data), let source = HTMLRecoverySource.prepare(utf8) else {
+        guard let utf8 = SourceEncoding.utf8(data),
+              let ampersands = HTMLLiteralAmpersands.prepared(utf8, limit: Int(Int32.max)),
+              let source = HTMLRecoverySource.prepare(ampersands.data) else {
             throw EPUBTextExtractionError.malformedContent(path)
         }
         guard source.count <= Int(Int32.max) else { throw EPUBTextExtractionError.limitExceeded("inputBytes") }
@@ -270,7 +272,9 @@ private final class XHTMLTextReader {
         }
         let result = XHTMLTextReader(limits: limits)
         result.recovered = true
-        func string(_ value: UnsafePointer<xmlChar>?) -> String { value.map { String(cString: $0) } ?? "" }
+        func string(_ value: UnsafePointer<xmlChar>?) -> String {
+            HTMLLiteralAmpersands.restored(value.map { String(cString: $0) } ?? "", placeholder: ampersands.placeholder)
+        }
         func qualified(_ name: UnsafePointer<xmlChar>?, _ namespace: xmlNsPtr?) -> String {
             guard let prefix = namespace?.pointee.prefix else { return string(name) }
             return string(prefix) + ":" + string(name)
@@ -288,7 +292,7 @@ private final class XHTMLTextReader {
                     var value = ""
                     var part = property.pointee.children
                     while let text = part {
-                        if let content = text.pointee.content { value += String(cString: content) }
+                        if let content = text.pointee.content { value += string(content) }
                         part = text.pointee.next
                     }
                     attributes[qualified(property.pointee.name, property.pointee.ns)] = value
@@ -298,7 +302,7 @@ private final class XHTMLTextReader {
                 descends = node.pointee.children != nil
                 if !descends { try result.end() }
             case XML_TEXT_NODE, XML_CDATA_SECTION_NODE:
-                if let content = node.pointee.content { try result.characters(String(cString: content)) }
+                if let content = node.pointee.content { try result.characters(string(content)) }
             default: break // Comments, processing instructions and the DOCTYPE.
             }
             if descends { current = node.pointee.children; continue }
@@ -359,7 +363,11 @@ private final class XHTMLTextReader {
         if stack.isEmpty { hasHTMLRoot = html && local == "html" }
         let startsBody = html && local == "body" && stack.count == 1 && stack.last?.name == "html"
         if startsBody { bodyCount += 1 }
-        let inBody = startsBody || stack.last?.body == true
+        // Well-formed XML may put content after </body>, still inside the root. The native
+        // writer walks those authored siblings too; retain their characters/marks without
+        // rewriting the strict XML document or changing its source positions.
+        let afterBody = bodyCount == 1 && stack.count == 1 && stack.last?.name == "html"
+        let inBody = startsBody || stack.last?.body == true || afterBody
         let suppressed = stack.last?.suppressed == true || ["script", "style", "template"].contains(local)
         let startsTitle = html && local == "title" && stack.count == 2 && stack.last?.name == "head" && !capturedTitle
         if startsTitle { capturedTitle = true }
@@ -405,7 +413,9 @@ private final class XHTMLTextReader {
             math.children.append(.text(string))
             return
         }
-        if frame.body { try body.append(string, limit: limits.outputBytes) }
+        if frame.body || (stack.count == 1 && frame.name == "html" && bodyCount == 1) {
+            try body.append(string, limit: limits.outputBytes)
+        }
         if frame.title { try title.append(string, limit: limits.outputBytes) }
     }
 
@@ -499,7 +509,7 @@ private enum HTMLRecoverySource {
     private static func scan(_ bytes: [UInt8], closingAbruptComments: Bool) -> (output: [UInt8]?, closedComment: Bool) {
         var output = [UInt8](); output.reserveCapacity(bytes.count)
         let cdataOpen = Array("<![CDATA[".utf8), cdataClose = Array("]]>".utf8)
-        let commentOpen = Array("<!--".utf8), commentClose = Array("-->".utf8)
+        let commentOpen = Array("<!--".utf8)
         let replacement: [UInt8] = [0xEF, 0xBF, 0xBD] // U+FFFD
         var closedComment = false
         // From a `<` copied as is (`<!`, `</`, `<?`) to the next `>`, libxml2 may be in a
@@ -521,10 +531,8 @@ private enum HTMLRecoverySource {
                 inMarkup = false; exposed = false; closedComment = true
                 output.append(contentsOf: emptyComment); index += abrupt.count
             } else if bytes[index] == 0x3C, starts(bytes, commentOpen, at: index) {
-                guard let end = find(bytes, commentClose, from: index + commentOpen.count) else {
-                    copyMarkup(index..<bytes.count); break
-                }
-                copyMarkup(index..<end + commentClose.count); index = end + commentClose.count
+                let end = HTMLRecoveryComments.end(in: bytes, from: index + commentOpen.count)
+                copyMarkup(index..<end); index = end
             } else if bytes[index] == 0x3C, let tag = tag(bytes, at: index) {
                 guard let end = tag.end else { return (nil, closedComment) }
                 if tag.endsBody {

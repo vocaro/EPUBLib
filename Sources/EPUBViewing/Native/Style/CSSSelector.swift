@@ -78,6 +78,24 @@ struct CSSComplexSelector: Hashable, Sendable {
         }
     }
 
+    /// Distinct filtered sibling lists, independent of An+B, direction and the outer subject.
+    /// Namespace constraints, combinators and nested predicates remain part of each list's value.
+    var selectorPositionFilters: Set<[CSSComplexSelector]> {
+        var filters = Set<[CSSComplexSelector]>()
+        for compound in compounds {
+            for case .pseudo(let pseudo) in compound.simple {
+                switch pseudo {
+                case .nthChild(_, _, let list?), .nthLastChild(_, _, let list?):
+                    filters.insert(list)
+                case .not(let list), .matchesAny(let list):
+                    for selector in list { filters.formUnion(selector.selectorPositionFilters) }
+                default: break
+                }
+            }
+        }
+        return filters
+    }
+
     /// Compounds from the subject (rightmost) leftwards.
     var compounds: [CSSCompoundSelector]
     /// `combinators[i]` joins `compounds[i]` to `compounds[i + 1]`, its left neighbour.

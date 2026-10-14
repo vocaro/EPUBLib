@@ -52,6 +52,16 @@ extension NSAttributedString {
     /// Text that `visibility: hidden` hides in the flow is left out (`readerHiddenText(_:)`).
     /// `spoken` gives what VoiceOver is told instead, each attachment's `spokenEquivalent`.
     func readerPlainText(in range: NSRange? = nil, spoken: Bool = false) -> String {
+        attachmentPlainText(in: range, authored: false, spoken: spoken)
+    }
+
+    /// Copy uses authored text from detached table-cell maps; spoken text keeps its existing
+    /// equivalents and typography. Ordinary characters are supplied by the enclosing map.
+    func readerCopyPlainText(in range: NSRange? = nil) -> String {
+        attachmentPlainText(in: range, authored: true, spoken: false)
+    }
+
+    private func attachmentPlainText(in range: NSRange?, authored: Bool, spoken: Bool) -> String {
         let range = range ?? NSRange(location: 0, length: length)
         guard range.length > 0 else { return "" }
         var text = ""
@@ -68,7 +78,9 @@ extension NSAttributedString {
             enumerateAttribute(.attachment, in: part) { value, run, _ in
                 if let value {
                     let attachment = value as? ReaderTextualAttachment
-                    append((spoken ? attachment?.spokenEquivalent : attachment?.textEquivalent) ?? "", isLabel: value is SpokenLabelAttachment)
+                    let words = authored ? (value as? TableRowAttachment)?.copyTextEquivalent : nil
+                    append(words ?? (spoken ? attachment?.spokenEquivalent : attachment?.textEquivalent) ?? "",
+                           isLabel: value is SpokenLabelAttachment)
                 } else {
                     append((string as NSString).substring(with: run), isLabel: false)
                 }

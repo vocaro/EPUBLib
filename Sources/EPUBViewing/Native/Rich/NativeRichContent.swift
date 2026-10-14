@@ -41,30 +41,19 @@ struct NativeRichContent: RichContentFactory {
         let fallback = { isObject ? nil : Self.altText(alt, style: style, context: context) }
         guard let reference = reference?.trimmingCharacters(in: .whitespacesAndNewlines), !reference.isEmpty,
               let path = context.resolve(reference) else { return fallback() }
-        guard let data = try? context.publication.data(at: path) else {
-            context.report.report.unreadableResources += 1
+        guard let resolved = resolvedImage(at: path, style: style, context: context) else {
+            if let data = try? context.publication.data(at: path), Self.isSVG(data, path: path, context: context) {
+                context.report.report.unsupportedElements["svg", default: 0] += 1
+                if alt.isEmpty, let document = try? ContentDocument.parse(data, path: path, asContent: false) {
+                    alt = SVGContent.fallbackText(document.root)
+                }
+            } else { context.report.report.unreadableResources += 1 }
             return fallback()
         }
-        let key = context.publication.id + "\u{0}" + path
-        let source: ReaderImageSource
-        var intrinsic: CGSize
-        if Self.isSVG(data, path: path, context: context) {
-            guard let (svg, root) = svgDocument(data, path: path, key: key, context: context) else {
-                context.report.report.unsupportedElements["svg", default: 0] += 1
-                if alt.isEmpty, let document = try? ContentDocument.parse(data, path: path, asContent: false) { alt = SVGContent.fallbackText(document.root) }
-                return fallback()
-            }
-            // A drawing's own title names it only where the book gave no `alt` at all.
-            if alternative == .missing { alternative = ImageAlternative(name: SVGContent.accessibleLabel(root)) }
-            source = svg
-            intrinsic = SVGContent.intrinsicSize(root, fontSize: style.fontSize, fallback: svg.pixelSize)
-        } else {
-            guard let bitmap = ReaderImageSource.bitmap(data, path: path, key: key) else {
-                context.report.report.unreadableResources += 1
-                return fallback()
-            }
-            source = bitmap
-            intrinsic = bitmap.pixelSize
+        let source = resolved.source
+        var intrinsic = resolved.intrinsic
+        if let root = resolved.svg, alternative == .missing {
+            alternative = ImageAlternative(name: SVGContent.accessibleLabel(root))
         }
         if intrinsic.width <= 0 || intrinsic.height <= 0 { intrinsic = source.pixelSize }
         let sizing = ImageSizing(intrinsic: intrinsic, style: style, widthHint: element.attribute("width"),
@@ -84,18 +73,11 @@ struct NativeRichContent: RichContentFactory {
         let widthHint = element.attribute("width"), heightHint = element.attribute("height")
         if let image = SVGContent.wrappedImage(element), let reference = SVGContent.href(image), !reference.hasPrefix("#") {
             guard let path = context.resolve(reference) else { return nothing() }
-            let key = context.publication.id + "\u{0}" + path
-            guard let data = try? context.publication.data(at: path) else {
+            guard let resolved = resolvedImage(at: path, style: style, context: context) else {
                 context.report.report.unreadableResources += 1
                 return nothing()
             }
-            let source = Self.isSVG(data, path: path, context: context)
-                ? svgDocument(data, path: path, key: key, context: context)?.0
-                : ReaderImageSource.bitmap(data, path: path, key: key)
-            guard let source else {
-                context.report.report.unreadableResources += 1
-                return nothing()
-            }
+            let source = resolved.source
             let intrinsic = SVGContent.intrinsicSize(element, fontSize: style.fontSize, fallback: source.pixelSize)
             let sizing = ImageSizing(intrinsic: intrinsic, style: style, widthHint: widthHint, heightHint: heightHint)
             let placement = SVGContent.placement(of: image, in: element, source: source, fontSize: style.fontSize)
@@ -145,6 +127,34 @@ struct NativeRichContent: RichContentFactory {
 
     private func attachment(_ attachment: NSTextAttachment, style: ComputedStyle, context: RichContentContext) -> NSAttributedString {
         NSAttributedString(attachment: attachment, attributes: [.font: context.fonts.font(for: style)])
+    }
+
+    /// Decode the first usable supported image in the designated manifest chain. A missing,
+    /// remote, foreign, or corrupt hop does not prevent trying a later one. Failed attempts
+    /// produce no image-loss disclosure when another resource supplies the image.
+    private func resolvedImage(at path: String, style: ComputedStyle, context: RichContentContext)
+        -> (source: ReaderImageSource, intrinsic: CGSize, svg: ContentNode?)? {
+        let candidates: [String]
+        if let original = context.publication.manifestResource(at: path) {
+            candidates = NativeFallbacks.resources(for: original, in: context.publication)
+                .filter(NativeFallbacks.isImage).map(\.path)
+        } else { candidates = [path] }
+        for candidate in candidates {
+            guard !ResourceReference.isRemote(candidate), let data = try? context.publication.data(at: candidate) else { continue }
+            let key = context.publication.id + "\u{0}" + candidate
+            if Self.isSVG(data, path: candidate, context: context) {
+                let before = context.report.report
+                guard let (source, root) = svgDocument(data, path: candidate, key: key, context: context) else {
+                    context.report.report = before
+                    continue
+                }
+                return (source, SVGContent.intrinsicSize(root, fontSize: style.fontSize, fallback: source.pixelSize), root)
+            }
+            if let source = ReaderImageSource.bitmap(data, path: candidate, key: key) {
+                return (source, source.pixelSize, nil)
+            }
+        }
+        return nil
     }
 
     /// An SVG resource as a sanitized document the static renderer can draw, and its root.

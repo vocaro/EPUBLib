@@ -50,6 +50,23 @@ public enum EPUBPackageWriter {
                 throw EPUBWritingError.invalidPublication("duplicate or invalid resource: \(resource.path)")
             }
         }
+        for resource in resources {
+            if let fallback = resource.fallbackID, !ids.contains(fallback) {
+                throw EPUBWritingError.invalidPublication("fallback references an undeclared resource: \(fallback)")
+            }
+        }
+        let byID = Dictionary(uniqueKeysWithValues: resources.map { ($0.id, $0) })
+        var checked: Set<String> = []
+        for resource in resources {
+            var next: EPUBResource? = resource, current: Set<String> = []
+            while let item = next, !checked.contains(item.id) {
+                guard current.insert(item.id).inserted else {
+                    throw EPUBWritingError.invalidPublication("cyclic manifest fallback: \(item.id)")
+                }
+                next = item.fallbackID.flatMap { byID[$0] }
+            }
+            checked.formUnion(current)
+        }
         guard spine.allSatisfy({ resources.contains($0.resource) }) else {
             throw EPUBWritingError.invalidPublication("spine references an undeclared resource")
         }
@@ -108,6 +125,7 @@ public enum EPUBPackageWriter {
         } ?? ""
         let manifest = resources.map { resource in
             "<item id=\"\(xml(resource.id))\" href=\"\(xml(String(resource.href.dropFirst(5))))\" media-type=\"\(xml(resource.mediaType))\""
+                + (resource.fallbackID.map { " fallback=\"\(xml($0))\"" } ?? "")
                 + (resource.properties.isEmpty ? "/>" : " properties=\"\(xml(resource.properties.sorted().joined(separator: " ")))\"/>")
         }.joined()
         let spineMarkup = spine.map {

@@ -135,6 +135,50 @@ import UIKit
         XCTAssertEqual(rows[1].saysNothing, false)
     }
 
+    func testAuthoredCopyAndSearchContextsExcludeHiddenCaseSubstitutionsAcrossMapSpans() throws {
+        let text = try H.build("<p>un<span class='v up'>se<b>cr</b>et ß</span>able <span class='v sc'>straße</span>end <span class='up'>Straße</span></p>",
+                               css: H.reset + Self.hiding + ".up { text-transform: uppercase } .sc { font-family: Georgia; font-variant: small-caps }")
+        XCTAssertTrue(text.string.string.contains("SECRET SS"), "the hidden transform keeps its rendered characters")
+        XCTAssertEqual(text.mappedText(in: 0..<text.string.length), "un able end Straße")
+        let secret = (text.string.string as NSString).range(of: "SECRET SS")
+        XCTAssertEqual(text.mappedText(in: secret.location..<NSMaxRange(secret)), " ", "a hidden run is considered across all its source spans")
+        let expanded = (text.string.string as NSString).range(of: "SS")
+        XCTAssertEqual(text.mappedText(in: expanded.location..<NSMaxRange(expanded)), "", "a partial hidden run copies no authored ß")
+        let results = try batch("able", in: text)
+        XCTAssertEqual(results.results.count, 1)
+        let context = try XCTUnwrap(results.results.first)
+        XCTAssertFalse((context.contextBefore + context.contextAfter).contains("secret"))
+        XCTAssertFalse((context.contextBefore + context.contextAfter).contains("straße"), "the hidden small-cap source is excluded")
+        let source = try XCTUnwrap(text.document.nodes.first { $0.isText && $0.text == "et ß" })
+        let lower = text.map.location(of: DOMPosition(source, 3)), upper = text.map.location(of: DOMPosition(source, 4), isEnd: true)
+        XCTAssertEqual(upper - lower, 2)
+        XCTAssertEqual(text.map.position(at: lower, in: text.document), DOMPosition(source, 3))
+        XCTAssertEqual(text.map.endPosition(at: upper, in: text.document), DOMPosition(source, 4))
+    }
+
+    func testAuthoredTableCopyExcludesHiddenTransformsButKeepsVisibleSourceCase() throws {
+        let text = try H.build("<table><tr><td>un<span class='v up'>secret ß</span>able <span class='up'>Straße</span></td>"
+                               + "<td class='v up'>masked <span class='u'>Revealed ß</span> again</td></tr></table>",
+                               css: H.reset + Self.hiding + ".up { text-transform: uppercase }")
+        let row = try XCTUnwrap(text.tables().first)
+        XCTAssertEqual(text.mappedText(in: row.offset..<(row.offset + 1)), "un able Straße\tRevealed ß")
+        let cell = row.row.table.cells[0]
+        let start = ReaderTextPosition(section: 0, offset: row.offset,
+            tableCell: ReaderTablePosition(table: row.row.table.sourceOrder, cell: 0, offset: 0))
+        let end = ReaderTextPosition(section: 0, offset: row.offset,
+            tableCell: ReaderTablePosition(table: row.row.table.sourceOrder, cell: 0, offset: cell.content.length))
+        XCTAssertEqual(text.tablePassage(ReaderTextRange(start: start, end: end)), "un able Straße")
+        let hidden = (cell.content.string as NSString).range(of: "SECRET SS")
+        var hiddenStart = start, hiddenEnd = end
+        hiddenStart.tableCell?.offset = hidden.location
+        hiddenEnd.tableCell?.offset = NSMaxRange(hidden)
+        let hiddenRange = ReaderTextRange(start: hiddenStart, end: hiddenEnd)
+        XCTAssertTrue(text.holdsHiddenText(hiddenRange))
+        XCTAssertEqual(text.tablePassage(hiddenRange), " ")
+        XCTAssertEqual(try batch("secret", in: text).results.count, 0)
+        XCTAssertEqual(try batch("Revealed", in: text).results.count, 1)
+    }
+
     // MARK: VoiceOver, Copy and a selection
 
     #if os(macOS)

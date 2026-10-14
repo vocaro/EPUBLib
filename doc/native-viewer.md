@@ -17,6 +17,15 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
             NativeSession (Session/) ──▶ ReaderCanvas (View/: UITextView / NSTextView, TextKit 2)
 ```
 
+Before parsing, the native loader follows designated manifest fallbacks for unsupported or
+scripted spine content and images. It selects an available static XHTML, SVG or raster resource,
+keeps the authored spine occurrence and layout, and resolves dependencies relative to the selected
+resource. Unsupported or unusable foreign chains are withheld with a disclosure; cycles stop.
+Without a designated fallback, scripted XHTML retains its existing static/noscript handling.
+Selected authored XML content can issue resource-qualified CFIs; synthetic raster wrappers cannot
+([#78](https://github.com/vocaro/EPUBLib/issues/78)). The explicit XHTML-only text-extraction API
+continues to describe the authored spine resource.
+
 1. **Document** (`ContentDocument`). libxml2 parses each spine item into an element/text tree
    that matches what an EPUB CFI sees: comments and processing instructions dropped, adjacent
    text and CDATA merged. The full HTML named-reference set, including MathML names and
@@ -42,6 +51,13 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
    nodes into its body before bounded tree conversion. This keeps text after `</html>` and CDATA characters in recovered
    sections without making those sections eligible for CFIs
    ([#237](https://github.com/vocaro/EPUBLib/issues/237)).
+   A malformed numeric-reference prefix with no first digit (`&#`, `&#x`, `&#;`) remains
+   literal in text and attributes; recovery and safety scans agree that a comment can end at
+   `--!>`. Parsed-string restoration cannot create active markup
+   ([#197](https://github.com/vocaro/EPUBLib/issues/197), [#244](https://github.com/vocaro/EPUBLib/issues/244)).
+   Recovered inline SVG subtrees regain the HTML Standard's SVG namespaces and mixed-case
+   names before sizing, screening and serialization; strict XML names stay as authored
+   ([#317](https://github.com/vocaro/EPUBLib/issues/317)).
    U+0000 does not end the section: it is left out of text and is U+FFFD in tags, comments
    and the raw text of `script` and `style`, as HTML reads it.
    A section whose file is cut off inside markup stays withheld, with its disclosure: the
@@ -55,6 +71,12 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
    a `TextMap` back to DOM positions, element anchors, note content and a `SectionReport`.
    Rich content (images, SVG, tables, MathML, rules) comes from a `RichContentFactory` as text
    attachments. A section's characters depend only on its document, never on typography.
+   Passage and Copy text use authored substitutions in the text map: preserved line breaks
+   return as LF and synthesized small capitals or text transforms retain source spelling.
+   Layout-only separators around floated, positioned and sized inline boxes add no false DOM
+   block break. Native selections, Copy and host actions use that same passage mapping,
+   including precise table selections ([#127](https://github.com/vocaro/EPUBLib/issues/127),
+   [#128](https://github.com/vocaro/EPUBLib/issues/128)).
 4. **Positions** (`EPUBCFI`, `SpineCFIs`, `TextSearch`). Swift ports of foliate-js
    `epubcfi.js`, `search.js` and `text-walker.js` (MIT) over `ContentDocument`, producing and
    resolving the same CFIs foliate-js produced, and locating quotes with its matcher.
@@ -151,7 +173,12 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   Other aspect fits, transforms and nested viewports use the SVG renderer
   ([#187](https://github.com/vocaro/EPUBLib/issues/187)). Archive raster references are resolved
   and bounded before rendering; scripts,
-  animation, foreign content and external resources are omitted with a disclosure. SVG
+  animation, foreign content and external resources are omitted with a disclosure. Manifest
+  image fallbacks apply inside SVG as well. Recursive preparation shares one memo and work
+  budget per drawing: 128 request/candidate misses, 16 MiB each of loaded source and serialized
+  SVG, 64 Mi raster pixels, 8 MiB of cached PNGs, and eight ancestor paths. Cache entries retain
+  their ancestor and font context, cancellation stops preparation, and exhausted budgets omit
+  images with a disclosure. SVG
   filter effects are omitted with a disclosure while preserving the drawing's shapes and labels.
   The sanitizer omits filter definitions, presentation attributes and CSS declarations, and
   `SectionReport` retains its `svg:filter` disclosure. CSS omission preserves neighboring fill,
@@ -1225,7 +1252,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     in continuous scroll). The unit tests perform the cell's actions in both flows.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
-  in place and also show in popovers.
+  in place and also show in popovers. Plain links into another document inspect captured notes
+  before navigating, and a later activation or navigation command supersedes an earlier lookup
+  ([#257](https://github.com/vocaro/EPUBLib/issues/257)).
   - A footnote hidden from the flow has nowhere else to be read, so a link may name it or
     any element inside it (its first paragraph, a later one, the text after its number) and
     the popover shows the whole note either way. A note inside such a footnote is hidden with
@@ -1258,10 +1287,18 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     names, and navigates where the id names none (a later child of a note that stays in the
     flow). Deeper into a note that is in the flow it is an ordinary link and navigates.
     Inside a popover, a link to the note being shown is plain text.
-  - A footnote `aside` with no id anywhere in it cannot be referred to and is not shown.
+  - An eligible legacy `<a name>` can name a note by the same rules as its fragment target:
+    ids take precedence, an anchor with an id uses that id, and the first eligible name wins.
+    Table cells and captions inside a note inherit its backlink and nested-note rules.
+  - A footnote `aside` with neither an id nor an eligible name anywhere in it cannot be
+    referred to and is not shown.
 - **Paragraph sizing.** The native section builder retains authored paragraph dimensions until
   layout. Percentage margins, padding and text indents resolve against the live containing
-  content width, including constrained float and inline-block ancestors. Vertical percentage
+  content width, including constrained float and inline-block ancestors. Image percentage
+  widths and min/max widths use the enclosing content box in floats, positioned boxes and
+  sized inline blocks, while `vw`/`vh` retain the viewport. Intrinsic measurement defers
+  percentages until that containing width is known ([#148](https://github.com/vocaro/EPUBLib/issues/148)).
+  Vertical percentage
   margins and padding also use that width; adjoining margins collapse before paragraph spacing
   is installed. Insets remain bounded to preserve a readable column. Paginated layout resolves
   dimensions before measuring and removes resize metadata from page slices so continuation
@@ -2550,6 +2587,14 @@ undeclared prefix or invalid QName. Self-closing nonvoids, closing void tags, ta
 foreign elements, literal attribute tabs/line endings, and HTML numeric-reference remapping
 are outside this subset. These cases require source correction or a host's explicit quote
 search for migration; changing an engine/format tag alone cannot repair their positions.
+For selected fallback XHTML or SVG, local-root CFI assertions carry
+`vnd.epublib.resource=<SHA-256 digest of effective href>`. Resolution verifies the resource before
+using offsets; an unmarked original-source CFI or a contradictory resource assertion cannot
+silently address the fallback DOM. Qualified CFIs allow at most two fixed-size resource assertions within a 4,272-character wire
+limit, retaining the ordinary 4,096-character underlying CFI budget. Package itemref paths and
+ordinary original-document CFIs
+remain unchanged ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
+
 `.disclosure` text summarises the books' `SectionReport`s and is re-emitted when it changes. `.notice` reports
 refused external links, unresolved CFIs and quotes, and highlights that could not be drawn.
 
@@ -2575,6 +2620,13 @@ order of admitted selectors are unchanged. `SiblingSearchAdmissionTests` counts 
 for 70,000 repeated searches over 60, 120 and 240 siblings and for 70,000 genuinely distinct
 suffixes across two parents ([#341](https://github.com/vocaro/EPUBLib/issues/341)).
 
+
+Filtered `:nth-child(An+B of S)` and `:nth-last-child(An+B of S)` share one sibling-rank
+table per exact filter and parent, across patterns and directions, without a 1,000-sibling
+cutoff. Rule admission reserves at most 1,048,576 Int32 rank cells (4 MiB), omitting a whole
+selector and setting `stylesTruncated` when its tables would exceed that bound. Short parents
+with at most nine element children are counted directly; retained tables are never evicted
+([#262](https://github.com/vocaro/EPUBLib/issues/262)).
 
 ## Qualification
 
