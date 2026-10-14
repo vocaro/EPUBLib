@@ -490,4 +490,22 @@ final class PositionSearchCoverageTests: XCTestCase {
         XCTAssertEqual(TextSearch.matches(of: "a", in: document, locale: "en", limit: 3), Array(matches.prefix(3)))
         XCTAssertEqual(TextSearch.matches(of: "missing", in: document, locale: "en"), [])
     }
+
+    func testCanonicalLatinSpellingsRetainMatchesRegardlessOfQueryAndCorpusOrder() throws {
+        let composed = "café", decomposed = composed.decomposedStringWithCanonicalMapping
+        for spellings in [[composed, decomposed], [decomposed, composed]] {
+            let document = try document("<p>" + spellings.joined(separator: " ") + "</p>")
+            for queries in [[composed, decomposed], [decomposed, composed]] {
+                for query in queries {
+                    let found = matches(query, in: document)
+                    XCTAssertEqual(found.count, 2)
+                    XCTAssertEqual(found.map { TextSearch.text(of: $0, in: document).unicodeScalars.map(\.value) },
+                                   spellings.map { $0.unicodeScalars.map(\.value) })
+                    XCTAssertEqual(found.map { [$0.start.offset, $0.end.offset] },
+                                   [[0, spellings[0].utf16.count],
+                                    [spellings[0].utf16.count + 1, spellings[0].utf16.count + 1 + spellings[1].utf16.count]])
+                }
+            }
+        }
+    }
 }

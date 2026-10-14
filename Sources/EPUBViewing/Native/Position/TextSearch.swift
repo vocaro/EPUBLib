@@ -400,7 +400,9 @@ enum TextSearch {
         /// not proof of a primary collation weight (Arabic presentation marks are an example).
         mutating func supports(_ grapheme: Character) -> Bool {
             if let supported = supportedCache[grapheme] { return supported }
-            let supported = grapheme.unicodeScalars.allSatisfy { scalar in
+            // Character hashing uses canonical equivalence, so make eligibility use the
+            // same canonical spelling instead of whichever source form populated the cache.
+            let supported = String(grapheme).precomposedStringWithCanonicalMapping.unicodeScalars.allSatisfy { scalar in
                 // Kana repetition/prolongation depends on its predecessor, even across text
                 // nodes. Tatweel is primary-ignorable in Arabic although it is a letter.
                 if [UInt32(0x309D), 0x309E, 0x30FC, 0x30FD, 0x30FE, 0xFF70, 0x640].contains(scalar.value) { return false }
