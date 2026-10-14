@@ -475,10 +475,10 @@ enum EPUBCFI {
         guard document.canResolveCFIs else { return "" }
         let (start, end) = end < start ? (end, start) : (start, end)
         var startSteps = steps(for: start, indices: indices)
-        var endSteps = steps(for: end, indices: indices)
         if !startSteps.isEmpty { startSteps[0].resource = document.cfiResource }
-        if !endSteps.isEmpty { endSteps[0].resource = document.cfiResource }
         if start == end { return pathString([startSteps]) }
+        var endSteps = steps(for: end, indices: indices)
+        if !endSteps.isEmpty { endSteps[0].resource = document.cfiResource }
         return innerString(buildRange(from: Expression(path: [startSteps]), to: Expression(path: [endSteps])))
     }
 

@@ -33,6 +33,21 @@ final class FallbackCFIQualificationTests: XCTestCase {
         XCTAssertEqual(EPUBCFI.localPath(from: DOMPosition(text, 1), to: DOMPosition(text, 6), in: original), unqualified)
     }
 
+    func testQualifiedHTMLRootsKeepTheirExistingIDAssertionsAndOriginalPaths() throws {
+        let original = try ContentDocument.parse(Data("<html id='root'><head><title>T</title></head><body id='body'><p id='p'>First second</p></body></html>".utf8), path: "old.html")
+        XCTAssertTrue(original.recoveredAsHTML)
+        XCTAssertTrue(original.canResolveCFIs)
+        let text = try XCTUnwrap(original.element(id: "p")?.children.first)
+        let before = EPUBCFI.localPath(from: DOMPosition(text, 1), to: DOMPosition(text, 6), in: original)
+        let qualified = original.withCFIResource("EPUB/fallback.xhtml")
+        let path = EPUBCFI.localPath(from: DOMPosition(text, 1), to: DOMPosition(text, 6), in: qualified)
+        XCTAssertTrue(path.contains("/4[body;vnd.epublib.resource="))
+        XCTAssertTrue(path.contains("/2[p]"))
+        XCTAssertEqual(try XCTUnwrap(EPUBCFI.resolve(localPath: path, in: qualified)).start, DOMPosition(text, 1))
+        XCTAssertEqual(EPUBCFI.localPath(from: DOMPosition(text, 1), to: DOMPosition(text, 6), in: original), before)
+        XCTAssertNil(EPUBCFI.resolve(localPath: before, in: qualified))
+    }
+
     func testDuplicateAndMisplacedResourceAssertionsAreRefused() throws {
         let fallback = try document().withCFIResource("a.xhtml")
         for path in ["/4[body;vnd.epublib.resource=a.xhtml;vnd.epublib.resource=a.xhtml]/2[p]/1:1",

@@ -23,7 +23,7 @@ enum NativeFallbacks {
     static func document(for original: EPUBResource, in publication: EPUBPublication) throws -> ContentDocument {
         for resource in resources(for: original, in: publication) {
             guard !ResourceReference.isRemote(resource.path), let data = try? publication.data(for: resource) else { continue }
-            if resource.mediaType == "application/xhtml+xml" {
+            if resource.mediaType.lowercased() == "application/xhtml+xml" {
                 guard let document = try? ContentDocument.parse(data, path: resource.path) else { continue }
                 return resource.id == original.id ? document : document.withCFIResource(resource.href)
             }
