@@ -298,39 +298,55 @@ final class SectionContentRobustnessCoverageTests: XCTestCase {
         }
     }
 
-    func testElementsNamedOnlyWithColonsBuildAsUnknownInlineElementsInBothParsers() throws {
-        // XML 1.0's Name admits a name made only of colons, and libxml2's XML and HTML parsers both
-        // hand it on. The document keeps the parser's name whole, so nothing splits it at the colon.
-        // To HTML `<:` is text, not a tag: there the name is what libxml2 leaves of `a::` once it
-        // has taken `a` for a prefix.
+    func testNamespaceInvalidColonNamesKeepReadableHTMLTextAndMapInvariants() throws {
+        // XML 1.0's Name admits colons, but these names are not namespace-valid QNames.
+        // #102 therefore reads them as HTML and refuses CFIs. HTML keeps a `<:` start as
+        // literal text, while libxml2's recovery can leave `:` as the local name of `a::`.
         let css = #"* { color: red } \: { font-style: italic } p > :first-child { font-weight: bold } [\:] { color: green }"#
-        let prose: [(body: String, text: String, recovered: Bool)] = [
-            ("<p>a<: id='q' class='k' style='color: blue' :='v'>b</:>c<:/>d<::>e</::></p>", "abcde", false),
-            ("<p>a</p><:>b</:><p>c</p>", "a\nb\nc", false),
-            ("<p>a</b><a:: id='q'>b</a::>c<a:::>d</a:::></p>", "abcd", true),
+        let prose: [(body: String, text: String, colonNodes: Int)] = [
+            ("<p>a<: id='q' class='k' style='color: blue' :='v'>b</:>c<:/>d<::>e</::></p>",
+             "a<: id='q' class='k' style='color: blue' :='v'>bc<:/>d<::>e", 0),
+            ("<p>a</p><:>b</:><p>c</p>", "a\n<:>b\nc", 0),
+            ("<p>a</b><a:: id='q'>b</a::>c<a:::>d</a:::></p>", "abcd", 1),
         ]
-        for (body, expected, recovered) in prose {
-            let text = try S.styled(body, css: css)
+        for (body, expected, colonNodes) in prose {
+            let text = try S.styled(body, head: "<link rel='stylesheet' href='colon.css'/>", files: ["colon.css": Data(css.utf8)])
             XCTAssertEqual(text.string.string, expected, body)
-            XCTAssertEqual(text.document.recoveredAsHTML, recovered, body)
-            XCTAssertTrue(text.document.nodes.contains { $0.isElement && $0.name == ":" }, body)
-            // The escaped type selector names the element. (HTML recovery reads the helper's
-            // CDATA-wrapped style sheet as one malformed rule, so nothing is styled there.)
-            XCTAssertEqual(S.traits("b", in: text).contains(.traitItalic), !recovered, body)
+            XCTAssertTrue(text.document.recoveredAsHTML, body)
+            XCTAssertTrue(text.report.recoveredAsHTML, body)
+            XCTAssertFalse(text.document.canResolveCFIs, body)
+            XCTAssertTrue(text.report.cfiUnavailable, body)
+            XCTAssertFalse(text.report.withheld, body)
+            XCTAssertEqual(text.document.nodes.filter { $0.isElement && $0.name == ":" }.count, colonNodes, body)
+            // An external sheet remains a stylesheet after HTML recovery. The escaped
+            // type selector styles only the real `:` element left from `a::`, never the
+            // literal `<:` markup in the other cases.
+            XCTAssertEqual(S.traits("b", in: text).contains(.traitItalic), colonNodes > 0, body)
             XCTAssertFalse(S.traits("a", in: text).contains(.traitItalic), body)
             XCTAssertEqual(S.mapViolations(text) + S.rangeViolations(text) + S.locationViolations(text) + S.stringViolations(text), [], body)
+            let match = try XCTUnwrap(TextSearch.matches(of: "b", in: text.document, locale: nil).first, body)
+            XCTAssertEqual(EPUBCFI.localPath(from: match.start, to: match.end, in: text.document), "", body)
+            XCTAssertNil(EPUBCFI.resolve(localPath: "/4/2/1:0", in: text.document), body)
         }
-        // The native tables, formulas and drawings meet the same name among their own elements.
-        let rich = [
-            "<table><:><tr><td>a</td></tr></:><tr><:>b</:></tr></table><ul><:>a</:><li>b</li></ul>",
-            "<p>a<math xmlns='http://www.w3.org/1998/Math/MathML'><mrow><:/><: id='m'><mi>x</mi></:></mrow></math>b</p>",
-            "<p>a<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><: id='s'><rect width='5' height='5'/></:><text>t</text></svg>b</p>",
-            "<p>a</b><math><a::>x</a::></math>c</p>",
+        // Tables, formulas and drawings receive the same literal signs in their DOM; their
+        // rendered text and attachments must retain the map, range and location contracts.
+        let rich: [(body: String, documentText: String, colonNodes: Int)] = [
+            ("<table><:><tr><td>a</td></tr></:><tr><:>b</:></tr></table><ul><:>a</:><li>b</li></ul>", "<:>a<:>b<:>ab", 0),
+            ("<p>a<math xmlns='http://www.w3.org/1998/Math/MathML'><mrow><:/><: id='m'><mi>x</mi></:></mrow></math>b</p>", "a<:/><: id='m'>xb", 0),
+            ("<p>a<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><: id='s'><rect width='5' height='5'/></:><text>t</text></svg>b</p>", "a<: id='s'>tb", 0),
+            ("<p>a</b><math><a::>x</a::></math>c</p>", "axc", 1),
         ]
-        for body in rich {
-            let text = try S.styled(body, css: css)
-            XCTAssertTrue(text.document.nodes.contains { $0.isElement && $0.name == ":" }, body)
-            XCTAssertEqual(S.mapViolations(text) + S.stringViolations(text), [], body)
+        for (body, documentText, colonNodes) in rich {
+            let text = try S.styled(body, head: "<link rel='stylesheet' href='colon.css'/>", files: ["colon.css": Data(css.utf8)])
+            XCTAssertEqual(text.document.body?.textContent, documentText, body)
+            XCTAssertTrue(text.document.recoveredAsHTML, body)
+            XCTAssertTrue(text.report.recoveredAsHTML, body)
+            XCTAssertFalse(text.document.canResolveCFIs, body)
+            XCTAssertTrue(text.report.cfiUnavailable, body)
+            XCTAssertFalse(text.report.withheld, body)
+            XCTAssertEqual(text.document.nodes.filter { $0.isElement && $0.name == ":" }.count, colonNodes, body)
+            XCTAssertEqual(S.mapViolations(text) + S.rangeViolations(text) + S.locationViolations(text) + S.stringViolations(text), [], body)
+            XCTAssertNil(EPUBCFI.resolve(localPath: "/4/2/1:0", in: text.document), body)
         }
     }
 
