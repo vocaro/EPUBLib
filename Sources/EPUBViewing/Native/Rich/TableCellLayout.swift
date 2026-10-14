@@ -18,7 +18,7 @@ final class TableCellLayout: @unchecked Sendable {
     let lines: [Line]
     let height: CGFloat
     let interactionText: NSAttributedString
-    private let spokenTokens: [(range: NSRange, text: String)]
+    private let spokenTokens: [(range: NSRange, text: String, attachmentText: NSAttributedString?)]
     private let storage: NSTextStorage
     private let manager: NSLayoutManager
     private let lock = NSLock()
@@ -29,13 +29,18 @@ final class TableCellLayout: @unchecked Sendable {
         interactionText = text
         let source = text.string as NSString
         let whitespace = CharacterSet.whitespacesAndNewlines
-        var tokens: [(NSRange, String)] = [], start = 0
+        var tokens: [(NSRange, String, NSAttributedString?)] = [], start = 0
         for offset in 0...source.length {
             let isSpace = offset == source.length || UnicodeScalar(source.character(at: offset)).map { whitespace.contains($0) } == true
             if isSpace {
                 if offset > start {
                     let range = NSRange(location: start, length: offset - start)
-                    tokens.append((range, TableMeasure.spokenText(text.attributedSubstring(from: range))))
+                    let token = text.attributedSubstring(from: range)
+                    var holdsAttachment = false
+                    token.enumerateAttribute(.attachment, in: NSRange(location: 0, length: token.length)) { value, _, stop in
+                        if value is ReaderTextualAttachment { holdsAttachment = true; stop.pointee = true }
+                    }
+                    tokens.append((range, TableMeasure.spokenText(token), holdsAttachment ? token : nil))
                 }
                 start = offset + 1
             }
@@ -60,7 +65,7 @@ final class TableCellLayout: @unchecked Sendable {
 
     /// Only the slice containing a word's first character speaks it. Complete words are
     /// cached once, so narrow character wrapping and huge unbroken words cost linear work.
-    func spokenText(in range: NSRange) -> String {
+    func spokenText(in range: NSRange, refreshingAttachments: Bool = false) -> String {
         func firstToken(at offset: Int) -> Int {
             var low = 0, high = spokenTokens.count
             while low < high {
@@ -70,7 +75,10 @@ final class TableCellLayout: @unchecked Sendable {
             return low
         }
         return spokenTokens[firstToken(at: range.location)..<firstToken(at: range.upperBound)]
-            .map(\.text).filter { !$0.isEmpty }.joined(separator: " ")
+            .map { token in
+                if refreshingAttachments, let text = token.attachmentText { return TableMeasure.spokenText(text) }
+                return token.text
+            }.filter { !$0.isEmpty }.joined(separator: " ")
     }
 
     /// Image hit regions use the same glyph layout and complete-line ownership as drawing.

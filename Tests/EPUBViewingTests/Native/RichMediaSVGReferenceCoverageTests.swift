@@ -1,18 +1,11 @@
 import XCTest
 @testable import EPUBViewing
 
-/// References between an SVG's elements that the bundled renderer cannot follow: a loop of
-/// masks or clip paths it does not unlink, a gradient `href` walk that never ends, and a chain
-/// of nesting and references deeper than the nesting limit. With them, a linear gradient that
-/// repeats or reflects, which the renderer panics on where the gradient has no length. Each is
-/// refused before the renderer parses it and shows its fallback text with the `svg` disclosure.
-///
-/// The renderer spends its stack, never returns or panics on most drawings here, and any of
-/// the three would end the test run. So the screen is asked for its verdict, which is plain
-/// Swift over the parsed drawing and never reaches the renderer. Only two kinds of drawing are
-/// handed on: those the renderer was shown to draw safely, one child process a drawing, on the
-/// 512 KiB stack a section is built on; and those the rendering limits have just refused,
-/// which stop before it.
+/// Reference loops and unbounded chains remain screened before they reach the renderer.
+/// Repeating gradients are accepted by the screen: when their resolved geometry panics,
+/// the Rust boundary contains it and the ordinary section path substitutes fallback text.
+/// Inputs that spend the stack or never return are given only to the screen; contained
+/// panic inputs and known-safe neighbours also exercise the real renderer.
 final class RichMediaSVGReferenceCoverageTests: XCTestCase {
     private static let ns = "xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'"
     /// A shape's size and paint: white, so that it shows through a mask.
@@ -205,7 +198,7 @@ final class RichMediaSVGReferenceCoverageTests: XCTestCase {
 
     // MARK: Gradients that repeat
 
-    func testALinearGradientThatRepeatsOrReflectsIsRefused() throws {
+    func testPanickingRepeatingGradientsAreContainedAndOrdinaryRepeatingGradientsDraw() throws {
         // The renderer was shown to end the process on each of these.
         let fatal: [(String, String)] = [
             ("repeat", gradient("spreadMethod='repeat'")),
@@ -228,11 +221,13 @@ final class RichMediaSVGReferenceCoverageTests: XCTestCase {
             ("by xml:id", gradient("href='#b'", after: "<linearGradient xml:id='b' spreadMethod='repeat'/>")),
             ("by href where xlink:href names another", gradient("xlink:href='#p' href='#b'", after: "<linearGradient id='b' spreadMethod='repeat'/><linearGradient id='p' spreadMethod='pad'/>")),
         ]
-        for (name, body) in fatal { XCTAssertFalse(try passes(body), name) }
+        for (name, body) in fatal {
+            XCTAssertTrue(try passes(body), "Panic prediction has been removed: \(name)")
+            XCTAssertNil(source(body), "The renderer contains its panic: \(name)")
+        }
 
-        // The renderer draws these. Telling them from the ones above is its work: a gradient's
-        // length, which of the gradients on a walk it takes the spread from, which of two
-        // elements an id means. So they are refused with them.
+        // The renderer resolves length and inherited spread itself. These formerly refused
+        // drawings now render; no Swift model of that arithmetic is needed.
         let drawn: [(String, String)] = [
             ("a gradient with a length", "<linearGradient id='g' x2='1' spreadMethod='repeat'><stop offset='0' stop-color='red'/><stop offset='1' stop-color='blue'/></linearGradient><rect width='5' height='5' fill='url(#g)'/>"),
             ("stripes in the units of the drawing", "<linearGradient id='g' gradientUnits='userSpaceOnUse' x1='0' x2='2' spreadMethod='reflect'><stop offset='0' stop-color='red'/><stop offset='1' stop-color='blue'/></linearGradient><rect width='5' height='5' fill='url(#g)'/>"),
@@ -246,7 +241,10 @@ final class RichMediaSVGReferenceCoverageTests: XCTestCase {
             ("a radial gradient that takes repeat from a linear one", "<linearGradient id='b' x2='1' spreadMethod='repeat'/><radialGradient id='g' href='#b'>\(Self.stops)</radialGradient><rect width='5' height='5' fill='url(#g)'/>"),
             ("a linear gradient in another namespace", "<q:linearGradient xmlns:q='urn:q' id='g' \(Self.noLength) spreadMethod='repeat'>\(Self.stops)</q:linearGradient><rect width='5' height='5' fill='url(#g)'/>"),
         ]
-        for (name, body) in drawn { XCTAssertFalse(try passes(body), name) }
+        for (name, body) in drawn {
+            XCTAssertTrue(try passes(body), name)
+            XCTAssertNotNil(source(body), name)
+        }
     }
 
     func testGradientsTheRendererPadsAndRadialGradientsStillDraw() throws {
@@ -412,8 +410,6 @@ final class RichMediaSVGReferenceCoverageTests: XCTestCase {
             ("three clip paths in a ring, by a stylesheet", linked("clipPath", count: 3, .sheet)),
             ("a gradient walk into a loop", gradients(ring: 2, tail: 1)),
             ("a chain of 128 masks", linked("mask", count: 128, ring: false)),
-            ("a gradient of no length that repeats", gradient("spreadMethod='repeat'")),
-            ("a gradient that reflects through another", gradient("href='#b'", after: "<radialGradient id='b' spreadMethod='reflect'/>")),
         ]
         for (name, body) in refused {
             // Inline: the drawing's own title stands in for it.
@@ -427,6 +423,24 @@ final class RichMediaSVGReferenceCoverageTests: XCTestCase {
                 XCTAssertTrue(text.richMediaImages.isEmpty, "\(name): no image")
                 XCTAssertEqual(text.richMediaPlain, name, "\(name): the alt text is shown")
                 XCTAssertEqual(text.report.unsupportedElements["svg"], 1, "\(name): disclosed")
+            }
+        }
+    }
+
+    func testAScreenAcceptedGradientPanicShowsInlineAndArchiveFallbackWithDisclosure() throws {
+        for (name, body) in [
+            ("a gradient of no length that repeats", gradient("spreadMethod='repeat'")),
+            ("a gradient that reflects through another", gradient("href='#b'", after: "<radialGradient id='b' spreadMethod='reflect'/>")),
+        ] {
+            let (screen, limits) = try verdicts(body)
+            XCTAssertTrue(screen, name)
+            XCTAssertTrue(limits, name)
+            let inline = try RichMediaBook(body: "<p>\(drawing("<title>\(name)</title>" + body))</p>").build()
+            let archive = try RichMediaBook(body: "<p><img src='d.svg' alt='\(name)'/></p>", files: ["d.svg": Data(drawing(body).utf8)]).build()
+            for text in [inline, archive] {
+                XCTAssertTrue(text.richMediaImages.isEmpty, name)
+                XCTAssertEqual(text.richMediaPlain, name)
+                XCTAssertEqual(text.report.unsupportedElements["svg"], 1, name)
             }
         }
     }
@@ -465,8 +479,8 @@ final class RichMediaSVGReferenceCoverageTests: XCTestCase {
         XCTAssertNotNil(source(gradients(ring: 9_900, tail: 0)), "9,900 gradients in a loop of their own draw")
         // A spread is looked for along every walk at once: each gradient here leads to the one that repeats.
         let chain = (0..<4_900).map { "<linearGradient id='g\($0)' href='#g\($0 + 1)'/>" }.joined() + "<radialGradient id='g4900' spreadMethod='repeat'/>"
-        XCTAssertFalse(try passes(chain + "<rect width='5' height='5' fill='url(#g0)'/>"), "4,900 gradients that lead to one that repeats")
+        XCTAssertTrue(try passes(chain + "<rect width='5' height='5' fill='url(#g0)'/>"), "Repeating gradients are resolved by the renderer")
         let loop = (0..<4_900).map { "<linearGradient id='r\($0)' href='#r\(($0 + 1) % 4_900)'\($0 == 2_450 ? " spreadMethod='reflect'" : "")/>" }.joined()
-        XCTAssertFalse(try passes(loop + "<rect width='5' height='5' fill='url(#r0)'/>"), "a loop of 4,900 gradients, one of which reflects")
+        XCTAssertTrue(try passes(loop + "<rect width='5' height='5' fill='url(#r0)'/>"), "A self-contained loop still ends when it repeats or reflects")
     }
 }

@@ -29,17 +29,6 @@ import Foundation
 /// screens again as it is given them: that is what removes the difference. A path that handed
 /// the renderer a book's bytes as written could not rely on this screen alone.
 ///
-/// The same `href` walk gives a gradient the `spreadMethod` it does not state, and a linear
-/// gradient that may take `reflect` or `repeat` is refused as well. This one is a panic. Where
-/// such a gradient has no length the renderer paints the average of its stops (tiny-skia
-/// 0.12.0, `shaders/linear_gradient.rs`), and ends the process when rounding carries a
-/// component of that average past one. Whether a gradient has no length rests on its
-/// coordinates in every unit, on those it takes through `href`, and on a tolerance in floats:
-/// the renderer's own resolution of lengths, which is not repeated here. So the spread alone
-/// decides, and a linear gradient that repeats or reflects is refused at any length, painted
-/// or not. One that pads paints its last stop there, and a radial gradient never averages:
-/// both are drawn.
-///
 /// A marker that draws a marker, or whose content names anything, is `SVGContent.markerVerdict`'s
 /// to refuse, and it does. Markers are followed here for what that leaves: content that takes
 /// the marker's own `mask` or `clip-path` by saying `inherit`, and so leads on from it.
@@ -54,13 +43,13 @@ enum SVGReferenceScreen {
     /// Whether the renderer can follow every reference in a drawing, given as its nodes in
     /// document order from its root and the elements each `id` can mean
     /// (`SVGContent.elementsByID`): no loop it would not end, no `href` walk without an end,
-    /// no linear gradient that repeats or reflects, and no chain of nesting and references
+    /// and no chain of nesting and references
     /// deeper than nesting alone may be.
     static func accepts(_ nodes: [ContentNode], ids: [String: [ContentNode]]) -> Bool {
         let elements = nodes.filter(\.isElement)
         guard !elements.isEmpty else { return true }
         let graph = Graph(elements, ids: ids)
-        return graph.gradientWalksEnd && graph.linearGradientsPad && graph.chainsAreBounded
+        return graph.gradientWalksEnd && graph.chainsAreBounded
     }
 
     /// What an element is told to reference, by its attributes or by a rule.
@@ -119,17 +108,6 @@ enum SVGReferenceScreen {
     private static let gradients: Set<String> = ["linearGradient", "radialGradient", "pattern", "filter"]
     /// The renderer takes a presentation attribute from any of these namespaces.
     private static let attributeNamespaces: Set<String> = ["", ContentNamespace.svg, ContentNamespace.xlink, ContentNamespace.xml]
-
-    /// Whether an attribute is a `spreadMethod` the renderer reads as `reflect` or `repeat`. It
-    /// takes one from an attribute alone, in any of the namespaces above, and compares the whole
-    /// value as written (`FromValue for SpreadMethod` in `parser/svgtree/mod.rs`): any other
-    /// case, space around the word, `inherit` or a word it does not know is `pad` to it. It is
-    /// not a presentation attribute, so a declaration in a `style` attribute or a stylesheet is
-    /// dropped (`is_presentation`, same file).
-    private static func repeats(_ attribute: ContentAttribute) -> Bool {
-        attribute.name == "spreadMethod" && attributeNamespaces.contains(attribute.namespace)
-            && (attribute.value == "reflect" || attribute.value == "repeat")
-    }
 
     /// The `id` in `url(#id)` at the start of a value, as svgtypes 0.16.1 reads a `<FuncIRI>`:
     /// optional quotes, and an unquoted name that ends at a space or the bracket. What follows
@@ -190,8 +168,7 @@ enum SVGReferenceScreen {
         private var names: [String?]
         /// Nodes standing for a referenced name, which lead to the elements that have it.
         private var isName: [Bool]
-        /// The elements with a `spreadMethod` of `reflect` or `repeat`, by their nodes.
-        private var repeating: Set<Int> = []
+
 
         init(_ elements: [ContentNode], ids: [String: [ContentNode]]) {
             edges = Array(repeating: [], count: 3 * elements.count)
@@ -201,7 +178,6 @@ enum SVGReferenceScreen {
             for (i, element) in elements.enumerated() {
                 index[ObjectIdentifier(element)] = i
                 names[3 * i] = element.name
-                if element.attributes.contains(where: SVGReferenceScreen.repeats) { repeating.insert(3 * i) }
             }
             func triple() -> Int {
                 edges += [[], [], []]
@@ -319,28 +295,6 @@ enum SVGReferenceScreen {
             // A loop that is one ring has an edge for each node. With more, where an `id` is
             // shared, a walk from one ring may enter another.
             return groups.indices.allSatisfy { !loops[$0] || inside[$0] == groups[$0].count }
-        }
-
-        /// Whether no linear gradient repeats or reflects: neither by its own `spreadMethod` nor
-        /// by that of any element its `href` walk can reach. The renderer takes the first on the
-        /// walk that has the attribute, whatever it says, and only while the walk is among
-        /// gradients (`resolve_lg_attr` in `paint_server.rs`). Every one the walk can reach
-        /// counts here, so a gradient that states `pad` for itself and leads to one that
-        /// repeats is refused, though the renderer would pad it.
-        var linearGradientsPad: Bool {
-            guard !repeating.isEmpty else { return true }
-            let follows: (Int, Edge) -> Bool = { node, edge in edge.link == .href || (isName[node] && edge.link == .level) }
-            let (groups, group) = components(from: edges.indices, following: follows)
-            /// Whether a walk from each group can reach an element that repeats or reflects.
-            var reaches = Array(repeating: false, count: groups.count)
-            for (index, members) in groups.enumerated() {
-                // Every group a member leads to comes before this one.
-                reaches[index] = members.contains { member in
-                    repeating.contains(member) || edges[member].contains { follows(member, $0) && reaches[group[$0.target]] }
-                }
-                if reaches[index], members.contains(where: { names[$0] == "linearGradient" }) { return false }
-            }
-            return true
         }
 
         /// Whether every loop of masks, clip paths and markers is one the renderer ends, and

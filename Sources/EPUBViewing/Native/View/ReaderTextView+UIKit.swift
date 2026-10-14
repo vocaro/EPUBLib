@@ -793,6 +793,7 @@ final class ReaderTextView: UITextView {
                     listed.accessibilityTraits.remove(.image)
                 }
                 listed.images += spoken.images
+                listed.cellRows.append((row, rowFrame.size, readerContainer.viewportSize.height))
                 listed.continuations.append(range.location)
                 continue
             }
@@ -807,6 +808,7 @@ final class ReaderTextView: UITextView {
             element.position = canvas?.position(at: range.location, in: self)
             element.continuations = []
             element.images = spoken.images
+            element.cellRows = [(row, rowFrame.size, readerContainer.viewportSize.height)]
             // A cell of pictures without words is an image and no more, as a picture in a line is.
             var traits: UIAccessibilityTraits = .staticText
             if spoken.text.isEmpty, !spoken.images.isEmpty { traits.insert(.image) }
@@ -933,6 +935,27 @@ private struct ReaderAccessibilityList {
     var position: ReaderTextPosition?
     /// The image the element stands for, when it is one.
     var image: ReaderImageAttachment?
+    // Page and scroll lists retain their elements. A raster failure discovered after
+    // listing must expose the retained drawing's fallback on that same element.
+    override var accessibilityLabel: String? {
+        get {
+            if let image, image.source.hasFailedSVGRendering {
+                return image.alt.isEmpty ? nil : image.alt
+            }
+            if isCell, images.contains(where: { $0.source.hasFailedSVGRendering }) {
+                // Re-read the exact fragments listed for this cell. Their token-start
+                // ownership preserves complete words across a page break, and the
+                // retained fragments still answer after native cell views are removed.
+                let words = cellRows.compactMap { entry in
+                    entry.row.spokenCells(size: entry.size, viewportHeight: entry.viewportHeight,
+                                          refreshingAttachments: true).first { $0.cell == cell }?.text
+                }.filter { !$0.isEmpty }.joined(separator: " ")
+                return words.isEmpty ? nil : words
+            }
+            return super.accessibilityLabel
+        }
+        set { super.accessibilityLabel = newValue }
+    }
     /// The data table the element is a cell of, and the cell's index among the table's cells.
     /// A line has no table. A cell is an element inside its table's, where its row stands
     /// among the lines.
@@ -940,6 +963,8 @@ private struct ReaderAccessibilityList {
     private(set) var cell = 0
     /// The pictures a cell shows here that say something.
     var images: [ReaderImageAttachment] = []
+    /// The row fragments and layout dimensions that supplied this cell's listed words.
+    var cellRows: [(row: TableRowAttachment, size: CGSize, viewportHeight: CGFloat)] = []
     /// The rows after a cell's own, on this page, that hold more of the cell's lines.
     var continuations: [Int] = []
 
@@ -987,6 +1012,7 @@ private struct ReaderAccessibilityList {
         table = line.table
         cell = line.cell
         images = line.images
+        cellRows = line.cellRows
         continuations = line.continuations
         // A heading's level is in its attributed label, which is set after the label, as for
         // a new element, and is not left on an element that was a heading.

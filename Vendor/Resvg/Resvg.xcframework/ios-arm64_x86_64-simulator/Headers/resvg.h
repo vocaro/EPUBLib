@@ -488,6 +488,13 @@ void resvg_render(const resvg_render_tree *tree,
                   uint32_t height,
                   char *pixmap);
 
+/* EPUBLib: false means the drawing panicked; the tree is invalidated. */
+bool resvg_render_checked(const resvg_render_tree *tree,
+                  resvg_transform transform,
+                  uint32_t width,
+                  uint32_t height,
+                  char *pixmap);
+
 /**
  * @brief Renders a Node by ID onto the image.
  *
