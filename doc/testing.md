@@ -2676,7 +2676,10 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    stops on a link that is an image without a name, as after "Bare jump:". It reads "Jump
    with an ornament" as a link and nothing more, and "Square shown to all" and "Square with
    a note" as images between their lines' words. On a Mac Find Next Link names the first of
-   those links "image" and the second "Jump with an ornament".
+   those links "image" and the second "Jump with an ornament". The first sessions are on
+   [#408](https://github.com/vocaro/EPUBLib/issues/408#issuecomment-6164176609) (Mac) and
+   [#408](https://github.com/vocaro/EPUBLib/issues/408#issuecomment-6165265644) (iPhone and
+   iPad), with their steps.
 8. On the section of scenes, on an iPhone and iPad, in pages and in continuous scroll.
    VoiceOver stops between "First scene ends." and "Second scene starts." and says
    "Separator", and never "Image". From "Second scene starts." it goes to "Words after an
