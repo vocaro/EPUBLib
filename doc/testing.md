@@ -2405,8 +2405,10 @@ predicate, `process == "vot" OR process == "MauiAUSP"`, and each phrase has `Pro
 markup for voice locale: fr_FR`, and the first phrase in a voice `Setting voice:
 com.apple.voice.super-compact.fr-FR.Thomas`. A move stops what is left of the phrase
 before it, so where the voice of each part of a phrase matters, let VoiceOver finish it
-(`listen=`) before the next move. The voices the reader's languages were given were read
-this way ([#65](https://github.com/vocaro/EPUBLib/issues/65#issuecomment-6164353724)).
+(`listen=`) before the next move: a line of English with French in it was three
+syntheses, `en_US`, `fr_FR` and `en_US`, and a move half a second after the line had begun
+left the first alone. The voices the reader's languages are given were read this way
+([#65](https://github.com/vocaro/EPUBLib/issues/65#issuecomment-6164353724)).
 
 A move costs half a second and a touch about five and a half, most of it XCTest waiting for
 an event that VoiceOver keeps from the reader. The end of a `read` costs 3.3 seconds and an

@@ -2428,10 +2428,11 @@ The following are the defaults. Host commands and accessibility actions stay ena
   cell VoiceOver says before it: a part of a cell in another language is not set apart. A
   picture's words name no language ([#548](https://github.com/vocaro/EPUBLib/issues/548)),
   and the reader's word for a rule, which is none of the book's, names none. A note's
-  popover keeps UIKit's own elements. In a simulator VoiceOver spoke a line of French, one of
-  German and one of Spanish each in a voice for its language. That it speaks the part of a
-  line in another language in that language's voice, and anything on a device, is not
-  verified ([#65](https://github.com/vocaro/EPUBLib/issues/65#issuecomment-6164353724)).
+  popover keeps UIKit's own elements. In the simulator lane VoiceOver speaks a line of
+  French, one of German and one of Spanish each in a voice for its language, and "He said
+  bonjour mes amis and left." in three parts, the middle one in its French voice; without
+  the languages it spoke all of them in its English voice
+  ([#65](https://github.com/vocaro/EPUBLib/issues/65#issuecomment-6164353724)).
 - Selection: native selection UI with the host's `EPUBSelectionAction` in the edit or context
   menu, no length cap. Dragging can extend a selection across a two-column spread in either
   reading direction. A located passage is selected in every visible column and remains
