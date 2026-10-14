@@ -41,8 +41,8 @@ enum SVGContent {
     /// limit: at this ceiling the renderer spends on the order of 110 MB or 0.35 s on the worst
     /// passing document (a 2,048-stop gradient on 4,096 shapes costs it about 110 MB and 0.3 s),
     /// the same order the other limits allow. `copyVerdict` holds what an SVG can reach. That is
-    /// so for the values named here. A stylesheet's declarations are charged only in part
-    /// (`styleSheetCopyBytes`), and what they cost the renderer is not held to this ceiling (#282).
+    /// so for the values named here. `SVGRenderingCostScreen` separately bounds every stylesheet
+    /// declaration and passes the resource map so these copies count per mask/clip reference too.
     static let maximumSharedCopies = 8 * 1024 * 1024
     /// Bytes of CSS that `copyVerdict` reads for one step of its budget. It reads a stylesheet and
     /// a `style` attribute several times, once for each thing it looks for, and charges every
@@ -66,7 +66,7 @@ enum SVGContent {
     /// a declaration only when its name is a presentation property, or the `marker`/`font` shorthands).
     /// A declaration of any other name is dropped and never reaches an element, so it is not charged.
     /// `filter` is left out: `serialize` strips filter declarations before the renderer parses them.
-    private static let copiedStyleProperties: Set<String> = [
+    static let copiedStyleProperties: Set<String> = [
         "alignment-baseline", "baseline-shift", "background-color", "clip-path", "clip-rule", "color",
         "color-interpolation", "color-interpolation-filters", "color-rendering", "direction", "display",
         "dominant-baseline", "fill", "fill-opacity", "fill-rule", "flood-color", "flood-opacity",
@@ -233,8 +233,6 @@ enum SVGContent {
         guard valid, unsupportedConstructs(svg).isDisjoint(with: refused) else { return false }
         guard textRunsAreBounded(nodes) else { return false }
         let ids = elementsByID(nodes)
-        // Loops and chains of references the renderer would follow until its stack is spent, or for ever.
-        guard SVGReferenceScreen.accepts(nodes, ids: ids) else { return false }
         var costs: [ObjectIdentifier: Int] = [:]
         var active = Set<ObjectIdentifier>()
         func cost(_ node: ContentNode, depth: Int) -> Int? {
@@ -253,11 +251,17 @@ enum SVGContent {
             costs[key] = total
             return total
         }
-        // Markers and per-shape copies are counted once the byte cost passes: `<use>` expansion is
-        // then bounded, every element it draws having cost 32 bytes or more, and that bounds the
-        // walks that count them.
-        return cost(svg, depth: 0) != nil && markerVerdict(svg, nodes: nodes, ids: ids).withinLimits
-            && copyVerdict(svg, nodes: nodes, ids: ids).withinLimits
+        guard cost(svg, depth: 0) != nil else { return false }
+        // Bound stylesheet materialization and reference multiplication before constructing the
+        // reference graph or walking per-shape copies. The resource map is shared by those counts.
+        let original = SVGRenderingCostScreen.verdict(svg, nodes: nodes, ids: ids)
+        guard original.withinLimits, SVGReferenceScreen.accepts(nodes, ids: ids) else { return false }
+        let markers = markerVerdict(svg, nodes: nodes, ids: ids)
+        guard markers.withinLimits else { return false }
+        let rendering = SVGRenderingCostScreen.chargingMarkers(original, instances: markers.instances)
+        guard rendering.withinLimits else { return false }
+        return copyVerdict(svg, nodes: nodes, ids: ids, resourceReferences: rendering.resources,
+                           markerResourceReferences: rendering.markerResourceReferences, markerInstances: markers.instances).withinLimits
     }
 
     /// Whether every `<text>` element's run is within the per-run character bound. A run is the
@@ -559,8 +563,7 @@ enum SVGContent {
     ///     stylesheet paints with, since the selectors are not evaluated. The declaration charge is
     ///     a partial bound: one value, the longest, per painted shape and per character of a text
     ///     run. It does not bound what many declarations cost, or what a rule costs on the groups
-    ///     and `<use>` elements it matches; `styleSheetCopyBytes` says why, and #282 is where that
-    ///     is to be bounded.
+    ///     and `<use>` elements it matches; `SVGRenderingCostScreen` bounds those separately.
     ///  5. `<text>` clones its resolved style for every span (at most one span per character): the
     ///     gradient stops its fill and stroke name, into the span and each of three text decorations
     ///     (four pairs); the dash array, into the span's stroke and, when the run is decorated, each
@@ -570,8 +573,9 @@ enum SVGContent {
     ///     not charged per character.
     ///
     /// A `<switch>` draws one alternative but the walk charges every one, a sound over-charge. A
-    /// mask's content is drawn once here, not once per element that references the mask (#220); a
-    /// gradient inherited from above a mask onto the mask's content is not charged.
+    /// resource map from `SVGRenderingCostScreen` charges a mask/clip's content per reference,
+    /// including copies of paints and inherited values; without that map the standalone verdict
+    /// retains its original once-per-mask charge for the individual shared-value regression tests.
     ///
     /// The check's own work is charged to `stepBudget`, and an SVG that spends it is refused: the
     /// gradients looked up, the elements walked, and the CSS read, by the byte. The budget does
@@ -580,7 +584,10 @@ enum SVGContent {
     /// bytes or more for each child of each element the walk visits, as often as it visits it,
     /// and which `isWithinRenderingLimits` applies before it calls this.
     static func copyVerdict(_ svg: ContentNode, nodes: [ContentNode], ids: [String: [ContentNode]],
-                            stepBudget: Int = markerStepBudget) -> CopyVerdict {
+                            stepBudget: Int = markerStepBudget,
+                            resourceReferences: [ObjectIdentifier: [ContentNode]]? = nil,
+                            markerResourceReferences: [(source: ContentNode, target: ContentNode)] = [],
+                            markerInstances: Int = 0) -> CopyVerdict {
         var steps = 0
         func step() -> Bool {
             steps += 1
@@ -829,13 +836,33 @@ enum SVGContent {
             }
             return copies <= maximumSharedCopies
         }
+        var activeCopies = Set<ObjectIdentifier>()
+        func inheritedAbove(_ node: ContentNode) -> Copied {
+            var inherited = Copied()
+            var ancestor = node.parent
+            while let parent = ancestor {
+                inherited.raise(to: element(parent).copied)
+                if parent === svg { break }
+                ancestor = parent.parent
+            }
+            return inherited
+        }
         func walk(_ node: ContentNode, above: Copied, depth: Int) -> Bool {
-            guard step(), depth <= maximumDepth else { return false }
+            let identity = ObjectIdentifier(node)
+            if activeCopies.contains(identity) { return true } // Short resource loops are unlinked.
+            guard step(), depth <= (resourceReferences == nil ? maximumDepth : 2 * maximumDepth) else { return false }
+            activeCopies.insert(identity)
+            defer { activeCopies.remove(identity) }
             let element = element(node)
             var here = above
             here.raise(to: element.copied)
             // Reading the element's `style` is charged too, and may have spent the budget.
             guard steps <= stepBudget, charge(element, here) else { return false }
+            for resource in resourceReferences?[identity] ?? [] {
+                var inherited = here
+                inherited.raise(to: inheritedAbove(resource))
+                guard walk(resource, above: inherited, depth: depth + 1) else { return false }
+            }
             if element.kind == .text { return true } // Its spans are charged; its children draw nothing.
             for target in element.targets {
                 guard step(), walk(target, above: here, depth: depth + 1) else { return false }
@@ -846,8 +873,18 @@ enum SVGContent {
             return true
         }
         guard walk(svg, above: Copied(), depth: 0) else { return (false, copies, steps) }
-        // A mask's content is drawn where the mask is used; charge it once, from no inherited paint.
-        for mask in nodes where mask.name == "mask" {
+        // A marker's content can take its root's mask/clip by `inherit`. Its external resources
+        // convert again at each vertex, including their gradient, dash and text-span copies.
+        for reference in markerResourceReferences {
+            var inherited = inheritedAbove(reference.source)
+            inherited.raise(to: element(reference.source).copied)
+            inherited.raise(to: inheritedAbove(reference.target))
+            for _ in 0..<markerInstances {
+                guard walk(reference.target, above: inherited, depth: 1) else { return (false, copies, steps) }
+            }
+        }
+        // The standalone shared-value verdict retains its once-per-mask charge.
+        for mask in nodes where resourceReferences == nil && mask.name == "mask" {
             for child in mask.children where child.isElement && kind(child) != .undrawn {
                 guard walk(child, above: Copied(), depth: 1) else { return (false, copies, steps) }
             }
@@ -928,7 +965,7 @@ enum SVGContent {
     /// the renderer then never sees those bytes, so this check — the same condition, by a single byte
     /// scan so a maximal stylesheet is screened cheaply — keeps the screen on this tree in step with
     /// the screen on the serialized bytes, from which such a stylesheet is gone.
-    private static func serializeKeepsSheet(_ css: String) -> Bool {
+    static func serializeKeepsSheet(_ css: String) -> Bool {
         let bytes = Array(css.utf8)
         let n = bytes.count
         var index = 0
@@ -967,7 +1004,8 @@ enum SVGContent {
     /// 250,000 rects drawn through `<use>` passes with a charge of 254,080 and costs the renderer
     /// about 750 MB; one of as many empty groups, matched by its rule, is charged nothing and costs
     /// it hundreds of megabytes too. Both pass without this charge as well. Bounding that means
-    /// deciding which rules can match which elements, and is left to #282.
+    /// deciding which rules can match which elements, and `SVGRenderingCostScreen` bounds it
+    /// separately with the shared reference screen's last-compound-selector reader.
     ///
     /// The sheet is read twice here: once for its rules, and each rule's body once more for its
     /// declarations. A declaration can open a comment or a string that the first reading took
