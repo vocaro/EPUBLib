@@ -23,7 +23,7 @@ import UIKit
             XCTAssertGreaterThan(raw.count, 1, declarations)
             let range = try XCTUnwrap(view.textRange(for: NSRange(location: bottom.location, length: 1)))
             let fragment = try XCTUnwrap(view.readerLayoutManager.textLayoutFragment(for: range.location))
-            XCTAssertLessThan(fragment.layoutFragmentFrame.height, 0, "the fixture exercises a signed final fragment: \(declarations)")
+            XCTAssertLessThan(fragment.layoutFragmentFrame.size.height, 0, "the fixture exercises a signed final fragment: \(declarations)")
             let harness = H.lines(in: view, intersecting: bottom)
             XCTAssertEqual(harness.map(\.range), raw.map(\.range))
             for (line, reported) in zip(raw, harness) {
