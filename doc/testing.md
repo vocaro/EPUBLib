@@ -539,7 +539,7 @@ presentations, even for a plain view controller. Its note tests still verify rou
 The app-hosted lane verifies the actual animated presentation, attachment, and dismissal.
 
 The portable reproduction patch and its applicable commit are recorded on
-[issue #257](https://github.com/vocaro/EPUBLib/issues/257). Save that patch as
+[issue #257](https://github.com/vocaro/EPUBLib/issues/257#issuecomment-6174234834). Save that patch as
 `note-apphost-reproduction.patch` and apply it from the repository root. The generated
 project and all run output stay under the ignored `.build/verification/note-apphost/`.
 
