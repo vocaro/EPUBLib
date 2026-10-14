@@ -5,8 +5,10 @@ import Foundation
 /// A leading XML declaration makes libxml2 leave text after `</html>` outside the root. Once
 /// the source has been decoded, that declaration has done its job and is omitted from the
 /// HTML input. CDATA in content becomes escaped text, so HTML does not discard it as a
-/// bogus comment. Comments, attribute values, declarations and script/style raw text keep
-/// their bytes; a literal CDATA opener in any of them must not become visible prose.
+/// bogus comment. End tags for body/html are renamed without changing their length, keeping
+/// later text in the body as HTML does. Comments, attribute values, declarations and
+/// script/style raw text keep their bytes; a literal CDATA opener in any of them must not
+/// become visible prose.
 /// This runs before stray signs and NULs are handled, so CDATA's characters follow the same
 /// rules and DOM offsets as ordinary text. The strict XML path never calls this preparation.
 enum HTMLRecoveryText {
@@ -76,7 +78,21 @@ enum HTMLRecoveryText {
                         else if byte == 0x3E { break }
                     }
                     copy(to: end)
-                } else if next == 0x2F { copy(to: close(from: index + 2)) }
+                } else if next == 0x2F {
+                    let name = HTMLNullCharacters.name(in: bytes, at: index + 2)
+                    let end = close(from: index + 2)
+                    if name == Array("body".utf8) || name == Array("html".utf8) {
+                        // libxml2 pops body/html at these tags, whereas HTML appends later
+                        // content to body. A `_` cannot begin an authored HTML start tag:
+                        // HTMLStraySigns makes its `<` text before parsing, even where
+                        // libxml2 would otherwise accept that non-HTML name. Keep every
+                        // other byte, including the tag's own `>` and quoted junk.
+                        output.append(contentsOf: bytes[index..<index + 2])
+                        output.append(0x5F)
+                        output.append(contentsOf: bytes[(index + 3)..<end])
+                        index = end
+                    } else { copy(to: end) }
+                }
                 else { copy(to: index + 1) }
             } else { copy(to: index + 1) }
             guard output.count <= limit else { throw ContentDocumentError.limitExceeded("bytes") }

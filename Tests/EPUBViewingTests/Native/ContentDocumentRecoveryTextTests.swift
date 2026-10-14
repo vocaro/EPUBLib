@@ -31,6 +31,22 @@ final class ContentDocumentRecoveryTextTests: XCTestCase {
         }
     }
 
+    func testEarlyBodyAndHTMLEndTagsKeepFollowingTextElementsAndAnchors() throws {
+        for end in ["</body>", "</BODY >", "</body></HTML\n>", "</body class='x'>", "</body\"x>", "</html>"] {
+            let input = declaration + "<html xmlns='http://www.w3.org/1999/xhtml'><head><title>T</title></head>"
+                + "<body><p>one<br>two</p>\(end)<p id='after'>after</p>tail</html>"
+            let document = try parse(input)
+            XCTAssertEqual(document.body?.textContent, "onetwoaftertail", end)
+            let section = try SectionContentSupport.raw(input)
+            XCTAssertEqual(section.string.string, "one\u{2028}two\nafter\ntail", end)
+            XCTAssertEqual(section.anchors["after"], 8, end)
+            SectionContentSupport.assertTextMapContracts(section)
+        }
+        let literal = try parse(page("<p title='</body></html>'>a<![CDATA[</body></html>]]>b<br></p>") + "tail")
+        XCTAssertEqual(literal.body?.textContent, "a</body></html>btail")
+        XCTAssertEqual(literal.nodes.first { $0.isHTML("p") }?.attribute("title"), "</body></html>")
+    }
+
     func testRecoveredCDATACharactersAreShownWithTheirSearchAndAnchorOffsets() throws {
         let input = page("<p id='p'>s<![CDATA[t & u]]> v<br></p>")
         XCTAssertEqual(try parse(input).body?.textContent, "st & u v")
