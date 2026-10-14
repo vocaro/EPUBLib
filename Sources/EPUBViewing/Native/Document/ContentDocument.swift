@@ -227,7 +227,7 @@ final class ContentDocument: @unchecked Sendable {
         defer { xmlFreeDoc(doc) }
         retainHTMLTrailingContent(doc)
         guard let document = try convert(doc, path: path, limits: limits, recovered: true, html: true,
-                                         signPlaceholder: source.placeholder) else {
+                                         signPlaceholder: source.placeholder, ampPlaceholder: source.ampPlaceholder) else {
             throw ContentDocumentError.malformed(path)
         }
         return document
@@ -272,24 +272,29 @@ final class ContentDocument: @unchecked Sendable {
     /// the text after a `<` that opens no markup and end the document at a NUL. What it is
     /// given stays within the byte limit decoded, after CDATA recovery, and
     /// again with those signs and NULs replaced.
-    static func htmlSource(_ data: Data, rewritten: Data, path: String, limits: ContentLimits) throws -> (data: Data, placeholder: Unicode.Scalar?) {
+    static func htmlSource(_ data: Data, rewritten: Data, path: String, limits: ContentLimits) throws -> (data: Data, placeholder: Unicode.Scalar?, ampPlaceholder: String?) {
         let limit = min(limits.bytes, Int(Int32.max))
         let text = try HTMLSourceEncoding.utf8(data, path: path, limit: limit).map { HTMLEntities.numericReferences(in: $0) } ?? rewritten
-        let recoveredText = try HTMLRecoveryText.prepared(text, path: path, limit: limit)
+        guard let ampersands = HTMLLiteralAmpersands.prepared(text, limit: limit) else { throw ContentDocumentError.limitExceeded("bytes") }
+        let recoveredText = try HTMLRecoveryText.prepared(ampersands.data, path: path, limit: limit)
         guard let signs = HTMLStraySigns.replaced(in: recoveredText, limit: limit),
               let source = HTMLNullCharacters.replaced(in: signs.data, limit: limit) else {
             throw ContentDocumentError.limitExceeded("bytes")
         }
-        return (source, signs.placeholder)
+        return (source, signs.placeholder, ampersands.placeholder)
     }
 
     /// `signPlaceholder` is what `HTMLStraySigns` gave the parser in place of a stray `<`.
     private static func convert(_ doc: xmlDocPtr, path: String, limits: ContentLimits,
-                                recovered: Bool, html: Bool, signPlaceholder: Unicode.Scalar? = nil) throws -> ContentDocument? {
+                                recovered: Bool, html: Bool, signPlaceholder: Unicode.Scalar? = nil,
+                                ampPlaceholder: String? = nil) throws -> ContentDocument? {
         guard let rootElement = xmlDocGetRootElement(doc) else { return nil }
         var nodes: [ContentNode] = []
         func string(_ value: UnsafePointer<xmlChar>?) -> String { value.map { String(cString: $0) } ?? "" }
-        func restored(_ text: String) -> String { signPlaceholder.map { HTMLStraySigns.restored(text, from: $0) } ?? text }
+        func restored(_ text: String) -> String {
+            let signs = signPlaceholder.map { HTMLStraySigns.restored(text, from: $0) } ?? text
+            return HTMLLiteralAmpersands.restored(signs, placeholder: ampPlaceholder)
+        }
         func build(_ xml: xmlNodePtr, depth: Int, insideSVG: Bool = false) throws -> ContentNode {
             guard depth < limits.depth else { throw ContentDocumentError.limitExceeded("depth") }
             let rawName = string(xml.pointee.name)

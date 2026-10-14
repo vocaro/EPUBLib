@@ -26,7 +26,7 @@ struct AttributeScanner {
             }
             guard bytes[index] == 0x3C else { index += 1; continue }
             if html {
-                if consume("<!--") { skip("-->", exposingRawEnds: true); continue }
+                if consume("<!--") { skipHTMLComment(); continue }
                 if consume("<?") || consume("<!") { skip(">", exposingRawEnds: true); continue }
                 if consume("</") { skip(">", exposingRawEnds: true); continue }
             } else {
@@ -105,6 +105,14 @@ struct AttributeScanner {
         while index < bytes.count {
             if exposingRawEnds && rawClose { return }
             if consume(token) { return }
+            index += 1
+        }
+    }
+
+    private mutating func skipHTMLComment() {
+        let end = HTMLRecoveryComments.end(in: bytes, from: index)
+        while index < end {
+            if rawClose { return }
             index += 1
         }
     }
