@@ -109,23 +109,32 @@ struct TextMap: Equatable, Sendable {
         /// UTF-16 length of source covered; 0 for an element.
         var sourceLength: Int
         var isExact: Bool
+        /// Authored copy text when typography substitutes characters. Exact spans slice this
+        /// by their rendered UTF-16 offsets; a length-changing grapheme is copied as one unit.
+        var authoredText: String?
         /// An element rendered as a whole (an image, table, formula or SVG).
         var isUnit: Bool { !isExact && sourceLength == 0 }
-        init(location: Int, length: Int, node: Int, offset: Int, sourceLength: Int, isExact: Bool) {
+        init(location: Int, length: Int, node: Int, offset: Int, sourceLength: Int, isExact: Bool, authoredText: String? = nil) {
             self.location = location; self.length = length; self.node = node
             self.offset = offset; self.sourceLength = sourceLength; self.isExact = isExact
+            self.authoredText = authoredText
         }
     }
     private(set) var spans: [Span] = []
     /// The rendered string's length.
     var length = 0
+    /// Paragraph separators introduced only to lay out inline flow boxes. Copy replaces them
+    /// with the collapsed authored space, if any, rather than inventing a block break.
+    private(set) var layoutSeparators: [Int: String] = [:]
 
     init(spans: [Span] = [], length: Int = 0) { self.spans = spans; self.length = length }
+
+    mutating func layoutSeparator(at location: Int, copyText: String) { layoutSeparators[location] = copyText }
 
     /// Appends a span, merging it into the previous one when both are exact and contiguous.
     mutating func append(_ span: Span) {
         guard span.length > 0 else { return }
-        if var last = spans.last, last.isExact, span.isExact, last.node == span.node,
+        if var last = spans.last, last.isExact, span.isExact, last.authoredText == nil, span.authoredText == nil, last.node == span.node,
            last.location + last.length == span.location, last.offset + last.sourceLength == span.offset {
             last.length += span.length; last.sourceLength += span.sourceLength
             spans[spans.count - 1] = last
@@ -277,17 +286,28 @@ extension NSAttributedString.Key {
 
 extension SectionText {
     /// The text of a rendered range from the book's own characters: mapped text (attachments as
-    /// their text equivalents) and the line breaks between blocks, but no other generated text.
-    func mappedText(in range: Range<Int>) -> String {
+    /// their text equivalents) and authored line/block breaks, but no layout-only separators.
+    func mappedText(in range: Range<Int>) -> String { map.mappedText(in: range, from: string) }
+}
+
+extension TextMap {
+    /// Also used for a detached table cell's passage: its map retains the same authored
+    /// substitutions and layout separators as the section map.
+    func mappedText(in range: Range<Int>, from string: NSAttributedString) -> String {
         let characters = string.string as NSString
-        let range = max(0, range.lowerBound)..<min(string.length, max(range.lowerBound, range.upperBound))
+        let lower = max(0, min(string.length, range.lowerBound))
+        let upper = max(lower, min(string.length, range.upperBound))
+        let range = lower..<upper
         var text = ""
         func generated(_ gap: Range<Int>) {
             guard !gap.isEmpty else { return }
-            for scalar in characters.substring(with: NSRange(location: gap.lowerBound, length: gap.count)).unicodeScalars
-            where scalar == "\n" || scalar == "\u{2028}" || scalar == "\u{2029}" { text += "\n" }
+            var location = gap.lowerBound
+            for scalar in characters.substring(with: NSRange(location: gap.lowerBound, length: gap.count)).unicodeScalars {
+                if let replacement = layoutSeparators[location] { text += replacement }
+                else if scalar == "\n" || scalar == "\u{2028}" || scalar == "\u{2029}" { text += "\n" }
+                location += scalar.utf16.count
+            }
         }
-        let spans = map.spans
         var low = 0, high = spans.count
         while low < high { // first span ending after the range's start
             let mid = (low + high) / 2
@@ -299,7 +319,11 @@ extension SectionText {
             if span.location > cursor { generated(cursor..<span.location); cursor = span.location }
             let end = min(range.upperBound, span.location + span.length)
             if end > cursor {
-                text += string.readerPlainText(in: NSRange(location: cursor, length: end - cursor))
+                if let authored = span.authoredText {
+                    if span.isExact {
+                        text += (authored as NSString).substring(with: NSRange(location: cursor - span.location, length: end - cursor))
+                    } else { text += authored }
+                } else { text += string.readerCopyPlainText(in: NSRange(location: cursor, length: end - cursor)) }
                 cursor = end
             }
             low += 1
@@ -308,4 +332,3 @@ extension SectionText {
         return text
     }
 }
-

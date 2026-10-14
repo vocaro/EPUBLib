@@ -29,6 +29,16 @@ extension TableModel.Cell {
     }
 }
 
+extension TableRowAttachment {
+    /// The row's authored cell text for a body selection containing its attachment. Detached
+    /// maps carry the same substitutions and separator rules as the body map.
+    var copyTextEquivalent: String {
+        table.rowCells[row].map { table.cells[$0] }.filter { $0.row == row }.sorted { $0.column < $1.column }.map { cell in
+            cell.textMap.map { $0.map.mappedText(in: 0..<cell.content.length, from: cell.content) } ?? cell.text
+        }.joined(separator: "\t")
+    }
+}
+
 extension SectionText {
     func tables() -> [(offset: Int, row: TableRowAttachment)] {
         var result: [(Int, TableRowAttachment)] = []
@@ -98,17 +108,7 @@ extension SectionText {
             guard let mapping = cell.textMap else {
                 return cell.content.readerPlainText(in: NSRange(location: lower, length: upper - lower))
             }
-            var result = "", cursor = lower
-            for span in mapping.map.spans where span.location < upper && span.location + span.length > lower {
-                let start = max(cursor, span.location), end = min(upper, span.location + span.length)
-                if start > cursor {
-                    result += (cell.content.string as NSString).substring(with: NSRange(location: cursor, length: start - cursor))
-                        .filter { $0 == "\n" || $0 == "\u{2028}" }
-                }
-                if end > start { result += cell.content.readerPlainText(in: NSRange(location: start, length: end - start)) }
-                cursor = max(cursor, end)
-            }
-            return result
+            return mapping.map.mappedText(in: lower..<upper, from: cell.content)
         }
         if let first = range.start.tableCell, let last = range.end.tableCell,
            first.table == last.table, let model = table(for: range.start) {

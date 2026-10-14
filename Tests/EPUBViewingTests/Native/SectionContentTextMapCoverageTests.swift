@@ -171,7 +171,6 @@ final class SectionContentTextMapCoverageTests: XCTestCase {
     }
 
     func testPreformattedLineBreaksComeBackAsLineFeedsInThePassageText() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/128")
         // Copy and `EPUBSelection.text` are the passage text, "the book's own characters". A listing's line
         // breaks are U+000A in the book (and in any browser's copy), not the U+2028 the reader lays them out with.
         let text = try H.build("<pre>let a = 1\n  b()\n</pre>")
@@ -180,11 +179,11 @@ final class SectionContentTextMapCoverageTests: XCTestCase {
     }
 
     func testAFloatedDropCapStaysInItsWordInThePassageText() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/127")
         // The passage text is what a selection reports and what a host later asks the reader to locate.
         // WebKit, like foliate before, puts no break around a float: the word is "Drop".
         let text = try S.styled("<p><span class='cap'>D</span>rop caps open the chapter.</p><p>Next paragraph.</p>",
                                 css: ".cap { float: left; font-size: 3em; line-height: 1 }")
+        XCTAssertTrue(text.string.string.hasPrefix("D\nrop"), "the float retains its layout paragraph")
         let passage = text.mappedText(in: 0..<(H.location(of: "Next", in: text) - 1))
         XCTAssertEqual(passage, "Drop caps open the chapter.")
         XCTAssertEqual(TextSearch.matches(of: TextSearch.normalizeQuote(passage), in: text.document, locale: "en").count, 1,
@@ -234,5 +233,61 @@ final class SectionContentTextMapCoverageTests: XCTestCase {
         XCTAssertNil(text.map.position(at: 3, in: text.document))
         XCTAssertEqual(text.mappedText(in: 0..<7), "\n")
         XCTAssertEqual(text.map.location(of: DOMPosition(text.document.root, 0)), 7)
+    }
+
+    func testInlineFlowBoxParagraphsKeepAuthoredSpacesButRealBlocksKeepBreaks() throws {
+        for css in [".box { float: left }", ".box { position: absolute; top: 1px }",
+                    ".box { display: inline-block; width: 40px }"] {
+            for (body, expected) in [("<p>Before<span class='box'>callout</span>after.</p>", "Beforecalloutafter."),
+                                     ("<p>Before <span class='box'>callout</span> after.</p>", "Before callout after."),
+                                     ("<p><span class='box'>First</span> word.</p><p>Next.</p>", "First word.\nNext.")] {
+                let text = try S.styled(body, css: css)
+                XCTAssertTrue(text.string.string.contains("\n"), "flow boxes keep their layout paragraphs")
+                XCTAssertEqual(text.mappedText(in: 0..<text.string.length), expected, css + body)
+                let quote = TextSearch.normalizeQuote(expected.components(separatedBy: "\n")[0])
+                XCTAssertEqual(TextSearch.matches(of: quote, in: text.document, locale: "en").count, 1, css + body)
+                S.assertTextMapContracts(text)
+            }
+            let block = try S.styled("<p>Before</p><div class='box'>block</div><p>After</p>", css: css)
+            XCTAssertEqual(block.mappedText(in: 0..<block.string.length), "Before\nblock\nAfter", css)
+        }
+    }
+
+    func testLayoutOnlySeparatorsAndAuthoredPreBreaksHavePrecisePartialCopyText() throws {
+        let text = try S.styled("<p>A<span class='box'>B</span>C</p><pre>one\n  two</pre><p>End</p>",
+                                css: ".box { display: inline-block; width: 20px }")
+        let b = H.location(of: "B", in: text)
+        XCTAssertEqual(text.mappedText(in: (b - 1)..<b), "")
+        XCTAssertEqual(text.mappedText(in: b..<(b + 1)), "B")
+        XCTAssertEqual(text.mappedText(in: (b + 1)..<(b + 2)), "")
+        XCTAssertEqual(text.mappedText(in: 0..<(H.location(of: "one", in: text) - 1)), "ABC")
+        let separator = H.location(of: "one", in: text) - 1
+        XCTAssertEqual(text.mappedText(in: separator..<(separator + 1)), "\n")
+        let line = H.location(of: "one", in: text) + 3
+        XCTAssertEqual(text.mappedText(in: line..<(line + 1)), "\n")
+        XCTAssertEqual(text.mappedText(in: (line - 1)..<(line + 3)), "e\n  ")
+        XCTAssertEqual(text.mappedText(in: (text.string.length + 5)..<(text.string.length + 9)), "")
+        let start = try XCTUnwrap(text.map.position(at: 0, in: text.document))
+        let end = try XCTUnwrap(text.map.endPosition(at: H.location(of: "C", in: text) + 1, in: text.document))
+        let cfi = EPUBCFI.localPath(from: start, to: end, in: text.document)
+        let resolved = try XCTUnwrap(EPUBCFI.resolve(localPath: cfi, in: text.document))
+        XCTAssertEqual(resolved.start, start); XCTAssertEqual(resolved.end, end)
+        XCTAssertEqual(text.mappedText(in: text.map.location(of: resolved.start)..<text.map.location(of: resolved.end, isEnd: true)), "ABC")
+    }
+
+    func testDetachedTableCopyUsesAuthoredCaseAndLineBreaks() throws {
+        let text = try S.styled("<table><tr><td><pre>code\n  next</pre></td><td style='text-transform: uppercase'>straße</td></tr></table>")
+        let row = try XCTUnwrap(text.tables().first)
+        let cell = row.row.table.cells[1]
+        XCTAssertEqual(cell.content.string, "STRASSE")
+        XCTAssertEqual(text.mappedText(in: row.offset..<(row.offset + 1)), "code\n  next\tstraße")
+        let start = ReaderTextPosition(section: 0, offset: row.offset,
+            tableCell: ReaderTablePosition(table: row.row.table.sourceOrder, cell: 1, offset: 4))
+        let end = ReaderTextPosition(section: 0, offset: row.offset,
+            tableCell: ReaderTablePosition(table: row.row.table.sourceOrder, cell: 1, offset: 6))
+        XCTAssertEqual(text.tablePassage(ReaderTextRange(start: start, end: end)), "ß")
+        let position = try XCTUnwrap(text.domPosition(start))
+        let endPosition = try XCTUnwrap(text.domPosition(end, isEnd: true))
+        XCTAssertEqual([position.offset, endPosition.offset], [4, 5])
     }
 }

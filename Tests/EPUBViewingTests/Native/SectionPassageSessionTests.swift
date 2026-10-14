@@ -1,0 +1,91 @@
+import EPUBCore
+import EPUBReading
+import EPUBTestSupport
+import EPUBViewingTestSupport
+import XCTest
+@testable import EPUBViewing
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
+/// Public selection, saved quotes, native Copy and location restoration must use authored
+/// characters while the native renderer retains its flow boxes and substituted glyphs.
+@MainActor final class SectionPassageSessionTests: XCTestCase {
+    private func wait(_ label: String, until condition: () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(20)
+        while !condition() {
+            guard Date() < deadline else { return XCTFail("Timed out waiting for \(label)") }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    func testAuthoredPassagesSurviveSelectionNativeCopyLocateAndSavedCFIsInBothFlows() async throws {
+        let chapter = """
+            <html xmlns="http://www.w3.org/1999/xhtml"><head><title>Passages</title><style>
+            .cap { float: left; font-size: 3em; line-height: 1 }
+            .box { display: inline-block; width: 60px }
+            .sc { font-family: Georgia; font-variant: small-caps }
+            .up { text-transform: uppercase }
+            </style></head><body><p><span class="cap">D</span>rop caps open the chapter.</p>
+            <p>Before <span class="box">callout</span> after.</p>
+            <pre>let a = 1\n  b()\n</pre><p><span class="sc">It was Straße.</span></p>
+            <p>A <span class="up">straße</span> end.</p></body></html>
+            """
+        let publication = try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/one.xhtml": chapter]))
+        var events: [EPUBReaderEvent] = [], used: EPUBSelection?
+        let action = EPUBSelectionAction(title: "Use passage") { used = $0 }
+        let session = try XCTUnwrap(try NativeEngine().makeSession(publication: publication, selectionAction: action) {
+            events.append($0)
+        } as? NativeSession)
+        let window = ReaderTestWindow(session: session)
+        defer { session.close(); window.close() }
+        try await wait("ready and built") { session.isReady && session.book.isComplete }
+        for flow in [EPUBReadingFlow.paginated, .scrolled] {
+            try await session.send(.style(.init(fontSize: 20, flow: flow)))
+            try await wait("rebuilt") { session.book.isComplete }
+            for expected in ["Drop caps open the chapter.", "Before callout after.", "let a = 1\n  b()", "It was Straße.", "A straße end."] {
+                try await session.send(.locate(text: expected, highlight: true))
+                try await wait("authored selection") { session.selection?.text == expected && session.canvas?.currentSelection?.text == expected }
+                let selection = try XCTUnwrap(events.compactMap { event -> EPUBSelection? in
+                    if case .selectionChanged(let value) = event { return value }; return nil
+                }.last)
+                XCTAssertEqual(selection.text, expected)
+                XCTAssertEqual(selection.location.quote, expected)
+                let canvas = try XCTUnwrap(session.canvas)
+                session.canvasDidRequestSelectionAction(canvas)
+                XCTAssertEqual(used, selection)
+                let range = try XCTUnwrap(session.selection?.range)
+                let views = canvas.textViews.filter { canvas.localRange(of: range, in: $0) != nil }
+                XCTAssertFalse(views.isEmpty)
+                for view in views {
+                    XCTAssertEqual(canvas.selectionText(for: view), expected)
+                    #if os(macOS)
+                    let pasteboard = NSPasteboard.withUniqueName()
+                    XCTAssertTrue(view.writeSelection(to: pasteboard, type: .string))
+                    XCTAssertEqual(pasteboard.string(forType: .string), expected)
+                    pasteboard.releaseGlobally()
+                    #else
+                    view.pasteboard = UIPasteboard.withUniqueName()
+                    view.copy(nil)
+                    XCTAssertEqual(view.pasteboard.string, expected)
+                    #endif
+                }
+                let saved = selection.location
+                try await session.send(.setHighlights([EPUBHighlight(id: "authored", location: saved)]))
+                let highlight = try XCTUnwrap(session.drawnHighlights.first { $0.id == "authored" })
+                XCTAssertEqual(highlight.range, range)
+                let text = try XCTUnwrap(session.book.section(0))
+                XCTAssertEqual(text.mappedText(in: highlight.range.start.offset..<highlight.range.end.offset), expected)
+                try await session.send(.navigate(href: "OPS/two.xhtml"))
+                try await session.send(.restore(saved))
+                XCTAssertEqual(session.visibleRange?.start.section, 0)
+                // A saved authored quote remains a valid .locate input after its CFI restoration.
+                try await session.send(.locate(text: try XCTUnwrap(saved.quote), highlight: true))
+                try await wait("relocated authored passage") { session.selection?.text == expected }
+            }
+        }
+        XCTAssertFalse(events.contains { if case .failed = $0 { return true }; return false })
+    }
+}
