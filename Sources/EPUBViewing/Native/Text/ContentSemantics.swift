@@ -134,7 +134,7 @@ enum ContentSemantics {
         for token in roles(element) {
             let role = token.lowercased()
             if role == "presentation" || role == "none" { return true }
-            if ariaRoles.contains(role) || role.hasPrefix("doc-") || role.hasPrefix("graphics-") { return false }
+            if ariaRoles.contains(role) || digitalPublishingRoles.contains(role) || graphicsRoles.contains(role) { return false }
         }
         return false
     }
@@ -178,6 +178,22 @@ enum ContentSemantics {
         "spinbutton", "status", "strong", "subscript", "superscript", "switch", "tab", "table", "tablist", "tabpanel", "term",
         "textbox", "time", "timer", "toolbar", "tooltip", "tree", "treegrid", "treeitem",
     ]
+
+    /// DPUB-ARIA 1.1's roles, including deprecated ones for existing books. Unknown `doc-`
+    /// tokens must not keep a later fallback role from taking effect.
+    /// https://www.w3.org/TR/dpub-aria-1.1/#roles
+    private static let digitalPublishingRoles: Set<String> = [
+        "doc-abstract", "doc-acknowledgments", "doc-afterword", "doc-appendix", "doc-backlink", "doc-biblioentry",
+        "doc-bibliography", "doc-biblioref", "doc-chapter", "doc-colophon", "doc-conclusion", "doc-cover", "doc-credit",
+        "doc-credits", "doc-dedication", "doc-endnote", "doc-endnotes", "doc-epigraph", "doc-epilogue", "doc-errata",
+        "doc-example", "doc-footnote", "doc-foreword", "doc-glossary", "doc-glossref", "doc-index", "doc-introduction",
+        "doc-noteref", "doc-notice", "doc-pagebreak", "doc-pagefooter", "doc-pageheader", "doc-pagelist", "doc-part",
+        "doc-preface", "doc-prologue", "doc-pullquote", "doc-qna", "doc-subtitle", "doc-tip", "doc-toc",
+    ]
+
+    /// The Graphics module 1.0's complete role vocabulary, rather than any `graphics-` token.
+    /// https://www.w3.org/TR/graphics-aria-1.0/#roles
+    private static let graphicsRoles: Set<String> = ["graphics-document", "graphics-object", "graphics-symbol"]
 
     static let rowGroups: Set<String> = ["thead", "tbody", "tfoot"]
 

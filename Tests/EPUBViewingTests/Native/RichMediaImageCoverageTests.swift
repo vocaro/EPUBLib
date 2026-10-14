@@ -330,6 +330,32 @@ final class RichMediaImageCoverageTests: XCTestCase {
                        "an image that cannot be shown still shows its words")
     }
 
+    func testUnknownModuleRolesFallBackToPresentationForImagesAndRules() throws {
+        let files = ["pic.png": RichMediaImages.solid(width: 10, height: 10)]
+        for role in ["doc-ornament none", "graphics-ornament none", "doc-cover-extra presentation",
+                     "graphics-symbolic presentation", "unknown graphics-ornament doc-ornament none"] {
+            let section = try RichMediaBook(body: "<p>Before <img src='pic.png' alt='Unspoken' role='\(role)'/> after.</p>"
+                                           + "<hr role='\(role)'/>", files: files).build()
+            let image = try XCTUnwrap(section.richMediaImages.first)
+            let rule = try XCTUnwrap(section.richMediaAttachments.compactMap { $0.attachment as? ReaderRuleAttachment }.first)
+            XCTAssertTrue(image.isHiddenFromAssistiveTechnology, role)
+            XCTAssertTrue(rule.isHiddenFromAssistiveTechnology, role)
+            XCTAssertEqual(section.string.readerPlainText(spoken: true), "Before  after.\n", role)
+            XCTAssertEqual(section.string.readerPlainText(), "Before Unspoken after.\n", "Copy and search keep the words: \(role)")
+        }
+    }
+
+    func testRecognizedModuleRolesTakePrecedenceOverPresentationalFallbacks() throws {
+        let files = ["pic.png": RichMediaImages.solid(width: 10, height: 10)]
+        // Current and deprecated DPUB roles, and all three Graphics roles, remain recognized.
+        for role in ["doc-cover", "doc-endnote", "doc-pageheader", "doc-pagefooter",
+                     "graphics-document", "graphics-object", "graphics-symbol"] {
+            let image = try XCTUnwrap(firstImage("<img src='pic.png' alt='Spoken' role='unknown \(role) none'/>", files: files).0)
+            XCTAssertFalse(image.isHiddenFromAssistiveTechnology, role)
+            XCTAssertEqual(image.spokenEquivalent, "Spoken", role)
+        }
+    }
+
     /// A rule the book keeps from assistive technology, as ornament and not a break, by the
     /// same attributes and with the same exceptions.
     func testARuleTheBookKeepsFromAssistiveTechnologyIsMarkedSo() throws {
