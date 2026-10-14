@@ -4,6 +4,9 @@ import Foundation
 /// Publication facts supplied by a producer. No PDF reconstruction or reader UI policy.
 public struct EPUBPackageMetadata: Sendable {
     public var metadata: EPUBMetadata
+    /// The package's unique identifier. The first byte-identical entry in `metadata.identifiers`
+    /// carries its XML ID; if absent, this value is prepended. Other entries retain their order
+    /// and duplicates, so writing metadata read from a publication does not add another copy.
     public var identifier: String
     public var modificationDate: Date
     public var summary: String?
@@ -50,7 +53,8 @@ public enum EPUBPackageWriter {
         guard spine.allSatisfy({ resources.contains($0.resource) }) else {
             throw EPUBWritingError.invalidPublication("spine references an undeclared resource")
         }
-        let language = xml(facts.metadata.languages.first ?? "und")
+        let languages = facts.metadata.languages.isEmpty ? ["und"] : facts.metadata.languages
+        let language = xml(languages[0])
         func href(_ value: String) throws -> String {
             let resolved = try ResourceReference.resolve(value, relativeTo: "root.opf", strict: true)
             let path = String(resolved.split(separator: "#", maxSplits: 1)[0]).removingPercentEncoding ?? ""
@@ -83,7 +87,18 @@ public enum EPUBPackageWriter {
         <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="\(language)" lang="\(language)">
         <head><title>Contents</title>\(style)</head><body>\(nav)</body></html>
         """
-        let identifier = xml(facts.identifier)
+        var identifierValues = facts.metadata.identifiers
+        let uniqueIndex: Int
+        if let index = identifierValues.firstIndex(where: { $0.utf8.elementsEqual(facts.identifier.utf8) }) {
+            uniqueIndex = index
+        } else {
+            identifierValues.insert(facts.identifier, at: 0)
+            uniqueIndex = 0
+        }
+        let identifiers = identifierValues.enumerated().map { index, value in
+            "<dc:identifier" + (index == uniqueIndex ? " id=\"book-id\"" : "") + ">\(xml(value))</dc:identifier>"
+        }.joined()
+        let languageMarkup = languages.map { "<dc:language>\(xml($0))</dc:language>" }.joined()
         let modified = ISO8601DateFormatter().string(from: facts.modificationDate)
         let authors = facts.metadata.authors.map { "<dc:creator>\(xml($0))</dc:creator>" }.joined()
         let summary = facts.summary.map { "<dc:description>\(xml($0))</dc:description>" } ?? ""
@@ -103,7 +118,7 @@ public enum EPUBPackageWriter {
         let package = """
         <?xml version="1.0" encoding="UTF-8"?>
         <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id" prefix="rendition: http://www.idpf.org/vocab/rendition/#">
-        <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">\(identifier)</dc:identifier><dc:title>\(xml(facts.metadata.title))</dc:title><dc:language>\(language)</dc:language>\(authors)\(summary)\(subjects)\(created)<meta property="dcterms:modified">\(modified)</meta><meta property="rendition:layout">reflowable</meta></metadata>
+        <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\(identifiers)<dc:title>\(xml(facts.metadata.title))</dc:title>\(languageMarkup)\(authors)\(summary)\(subjects)\(created)<meta property="dcterms:modified">\(modified)</meta><meta property="rendition:layout">reflowable</meta></metadata>
         <manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>\(manifest)</manifest><spine\(direction)>\(spineMarkup)</spine></package>
         """
         let container = """

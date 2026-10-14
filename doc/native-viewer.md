@@ -20,8 +20,10 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
 1. **Document** (`ContentDocument`). libxml2 parses each spine item into an element/text tree
    that matches what an EPUB CFI sees: comments and processing instructions dropped, adjacent
    text and CDATA merged. The full HTML named-reference set, including MathML names and
-   two-scalar references, becomes numeric references before an XML parse, also in UTF-16;
-   markup that is not well-formed falls back to libxml2's HTML parser and is reported.
+   two-scalar references, becomes numeric references before an XML parse, also in UTF-16.
+   All eleven XHTML-family public identifiers accepted by WebKit retain that XML tree and
+   its CFIs ([#101](https://github.com/vocaro/EPUBLib/issues/101)).
+   Markup that is not well-formed falls back to libxml2's HTML parser and is reported.
    A qualified subset of XML-shaped HTML uses Foliate's HTML whitespace and namespace rules.
    Unqualified HTML repairs remain readable but cannot issue or resolve CFIs: the reader
    discloses that saved positions and highlights are unavailable for those sections.
@@ -36,6 +38,10 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
    as UTF-16 or UTF-32, and that hold no markup once decoded, are not a document and are
    withheld. What was decoded by a declared encoding is screened again, and what the parser
    is given is held to the byte limit.
+   HTML recovery escapes content CDATA as literal text and moves the parser's actual trailing
+   nodes into its body before bounded tree conversion. This keeps text after `</html>` and CDATA characters in recovered
+   sections without making those sections eligible for CFIs
+   ([#237](https://github.com/vocaro/EPUBLib/issues/237)).
    U+0000 does not end the section: it is left out of text and is U+FFFD in tags, comments
    and the raw text of `script` and `style`, as HTML reads it.
    A section whose file is cut off inside markup stays withheld, with its disclosure: the
@@ -138,8 +144,13 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   VoiceOver says the reading and then its own word for an image: "y cubed image".
 - **SVG.** Inline and archive SVG illustrations render through the bundled resvg static
   renderer, including paths, text, gradients, transforms, clipping, local definitions and
-  `viewBox`/`preserveAspectRatio`. A plain single-image wrapper retains the raster-image fast
-  path. Archive raster references are resolved and bounded before rendering; scripts,
+  `viewBox`/`preserveAspectRatio`. SVG dimension attributes retain their CSS units
+  ([#117](https://github.com/vocaro/EPUBLib/issues/117)). A plain single-image wrapper retains
+  the raster-image fast path for the default centred meet fit: image percentages resolve in
+  viewBox coordinates, and one omitted dimension follows the image's intrinsic ratio.
+  Other aspect fits, transforms and nested viewports use the SVG renderer
+  ([#187](https://github.com/vocaro/EPUBLib/issues/187)). Archive raster references are resolved
+  and bounded before rendering; scripts,
   animation, foreign content and external resources are omitted with a disclosure. SVG
   filter effects are omitted with a disclosure while preserving the drawing's shapes and labels.
   The sanitizer omits filter definitions, presentation attributes and CSS declarations, and
@@ -1308,7 +1319,10 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   decompositions or locale contractions. Both suffixes are chosen absent from the original
   strings; if a corpus window contains the initially selected pair, that window uses a fresh
   pair. This also prevents a proper primary prefix from straddling the suffix weights.
-  Comparison uses the unmodified strings: explicit case or width folding would change
+  Comparison uses NFC-normalized copies of the original strings before adding the suffixes,
+  so canonically equivalent Hangul and voiced kana compare alike at a window's end while DOM
+  text and UTF-16 endpoints keep their authored spelling
+  ([#107](https://github.com/vocaro/EPUBLib/issues/107)). Explicit case or width folding would change
   collation inputs and break expansion cases such as `ßs` versus `sß`, or Swedish fullwidth
   `Ａ` followed by a combining ring. Case and width distinctions disappear at the primary
   level itself. The production implementation uses public Foundation APIs and has no ICU
@@ -1321,6 +1335,12 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   produce the same keys. Canonical combining-class blocking matters: `u + diaeresis + macron`
   belongs with Swedish `y`, while `u + macron + diaeresis` stays with `u`. The prefilter runs
   for standard English, Swedish, Turkish, Spanish, Danish, German and Japanese collations.
+  Windows containing contextual kana marks, Arabic tatweel or characters outside the recorded
+  classes go directly to the collator. Those candidates merge with key hits in reading order,
+  without duplicates, so the prefilter cannot discard them
+  ([#106](https://github.com/vocaro/EPUBLib/issues/106)). Non-ASCII source nodes keep an indexed
+  UTF-16 copy for those comparisons, preserving source offsets without repeatedly scanning
+  a long paragraph's prefix.
   Other languages or explicit collation variants compare every grapheme window, preserving
   correctness when a key table has not been qualified for that collation. Consequently, they
   can be substantially slower. A one-megabyte French section's unique 24-grapheme query took
@@ -2722,6 +2742,13 @@ Go: the native viewer is the bundled engine.
     reach every shape.
   - A stroke's dash array is stored for every stroked shape that has or inherits one; each shape is
     charged its dash-array bytes, an upper bound on its entries.
+  - Every `em` or `ex` length reparses ancestor font sizes, including each dash-array and text
+    positioning entry. Font-size values are capped at 64 bytes in presentation attributes,
+    inline styles, stylesheets and the size token of a `font` shorthand; ordinary long font
+    families retain their existing copy budget. CSS padding is trimmed as the renderer trims
+    it, while presentation-attribute padding counts toward this cap. This bounds the repeated
+    value-length factor for stroke widths/offsets, spacing and text positioning as well as
+    dash arrays ([#443](https://github.com/vocaro/EPUBLib/issues/443)).
   - Each inherited presentation value the renderer re-parses for every shape — the `fill` and
     `stroke` paint, the numbers (`stroke-width`, the opacities, `stroke-miterlimit`, offsets) and the
     keyword enumerations alike — is charged its bytes over 64, summed down the inheritance chain. A
