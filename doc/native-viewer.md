@@ -2426,6 +2426,30 @@ The following are the defaults. Host commands and accessibility actions stay ena
   in the book (`index(ofAccessibilityElement:)`). It was matched by its characters as the
   view counts them, and a page column counts from its page's first: a line of the page
   before then stood for whichever line of the page shown had the same ones.
+- VoiceOver reading on by itself in pages, on iPhone and iPad: two fingers swiped down, or
+  Read All. The last item VoiceOver reads on a page, its last line or, where a table of
+  data ends the page, the last cell listed, has `UIAccessibilityTraits.causesPageTurn`, and in a
+  spread the last item of the right-hand page (the left-hand one in a book read right to
+  left; `ReaderCanvasView.accessibilityPageTurnColumn`). VoiceOver, reading on, scrolls
+  `.next` from an item that has it once it has read it, and turns the page after every
+  such item: with the trait on every line it would turn the page after the first, and on
+  the left-hand page of a spread before the right-hand one was read. The item keeps all it
+  says and offers besides. No item has it on the book's last page in its reading order,
+  nor while text is selected, when VoiceOver's scroll turns nothing: where `.next` fails
+  VoiceOver scrolls a page to the right as well, which in a book read left to right is the
+  page before. So reading stops at the book's last line, and VoiceOver went on to the
+  book's title under the reader and ended. The trait is asked of the reader each time it
+  is read, never kept on the item, since the item under the cursor goes on as the next
+  page's first line. The turn is VoiceOver's scroll, announced "Page N" as a three-finger
+  one is: UIKit asks for that notification after every scroll that succeeds, and VoiceOver
+  goes on reading from its handling of it. Reading on, it played its page sound and did
+  not say the words. What it read after the turn is its own and the host's
+  ([#554](https://github.com/vocaro/EPUBLib/issues/554)): in the sample, whose controls
+  stand above the reader, it read on from the top of the screen, the controls and then the
+  new page from its first line, every line once and in order through each turn, and with
+  no controls there it stopped after the turn. That is a simulator's VoiceOver, started by
+  its Read All key; no device has run it
+  ([sessions](https://github.com/vocaro/EPUBLib/issues/468)).
 - VoiceOver on Mac: each text area offers the page turn as actions of its own
   (`NSAccessibilityCustomAction`), Next Page and Previous Page in pages and Scroll Forward
   and Scroll Backward in continuous scroll. Those are the names `EPUBReaderControls` gives

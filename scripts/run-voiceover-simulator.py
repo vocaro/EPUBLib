@@ -174,6 +174,8 @@ def report(session):
     path.write_text("\n".join(transcript) + "\n")
     print(f"{session.kind}: " + "; ".join(lines + session.unmuted))
     print(f"  Transcript: {path}\n  Log: {session.log}\n  Result bundle: {session.bundle}")
+    if session.stream is not None:
+        print(f"  VoiceOver's log: {session.vot}")
     return status
 
 
@@ -189,7 +191,11 @@ def main():
     parser.add_argument("--href", help="the section the reader opens at, as OPS/labels.xhtml (default: the book's first)")
     parser.add_argument("--launch", help="further launch arguments of the reader, as '-SampleSelectionLine YES'")
     parser.add_argument("--voiceover-off", action="store_true", help="leave VoiceOver off: the same steps as plain touches")
+    parser.add_argument("--vot-log", action="store_true",
+                        help="stream each simulator's VoiceOver log (process vot) beside its transcript")
     parser.add_argument("--timeout", type=int, default=300, help="seconds each simulator's probe may take (default: %(default)s)")
+    parser.add_argument("--start-limit", type=int,
+                        help="seconds the probe waits for VoiceOver's first phrase (default: the probe's 180)")
     parser.add_argument("--exit-grace", type=int, default=30,
                         help="seconds xcodebuild may take to end once the probe has (default: %(default)s)")
     parser.add_argument("--build-timeout", type=int, default=1200, help="seconds the build may take (default: %(default)s)")
@@ -220,9 +226,10 @@ def main():
             name = f"EPUBLib-voiceover-{kind}-{os.getpid()}"
             udid = run("xcrun", "simctl", "create", name, DEVICE_TYPE + kind, args.runtime).strip()
             sessions.append(SimpleNamespace(
-                kind=kind, name=name, udid=udid, process=None, started=None, ended=None, finished=None,
+                kind=kind, name=name, udid=udid, process=None, stream=None, started=None, ended=None, finished=None,
                 note=None, late=False, recovered=[], unmuted=[], unread=[],
                 log=args.results / f"simulator-{kind}-{stamp}.log", bundle=args.results / f"simulator-{kind}-{stamp}.xcresult",
+                vot=args.results / f"simulator-{kind}-{stamp}.vot.log",
                 transcript=[f"{now()} SIMULATOR {kind}, {args.runtime}, {udid}", f"{now()} BUILD {revision}, {xcode}"]))
         for session in sessions:
             run("xcrun", "simctl", "boot", session.udid, timeout=120)
@@ -232,6 +239,13 @@ def main():
             if state(session.udid, "audio", "--volume", "0")["volume"] != 0:
                 raise RuntimeError(f"{session.name} could not be muted; nothing was run")
         print(f"Simulators booted and muted in {time.monotonic() - built:.0f} s: {', '.join(session.name for session in sessions)}.")
+        if args.vot_log:
+            for session in sessions:
+                # What VoiceOver did, where the transcript has what it read (doc/testing.md#simulators).
+                session.stream = subprocess.Popen([
+                    "xcrun", "simctl", "spawn", session.udid, "log", "stream", "--level", "debug", "--style", "compact",
+                    "--predicate", 'process == "vot"'], stdout=session.vot.open("w"), stderr=subprocess.STDOUT,
+                    start_new_session=True)
         environment = dict(os.environ, TEST_RUNNER_VOICEOVER_STEPS=args.steps)
         if args.font_size:
             environment["TEST_RUNNER_VOICEOVER_FONT_SIZE"] = args.font_size
@@ -243,6 +257,8 @@ def main():
             environment["TEST_RUNNER_VOICEOVER_LAUNCH"] = args.launch
         if args.voiceover_off:
             environment["TEST_RUNNER_VOICEOVER_OFF"] = "1"
+        if args.start_limit:
+            environment["TEST_RUNNER_VOICEOVER_START_LIMIT"] = str(args.start_limit)
         deadline = time.monotonic() + args.timeout
         for session in sessions:
             session.transcript.append(f"{now()} STEPS {args.steps}")
@@ -287,8 +303,9 @@ def main():
     finally:
         try:
             for session in sessions:
-                if session.process is not None:
-                    stop(session.process)
+                for process in (session.process, session.stream):
+                    if process is not None:
+                        stop(process)
         finally:
             for session in sessions:
                 try:
