@@ -1266,10 +1266,10 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   - Typesetting and speech still take the package's first `dc:language` as a hint, because
     some language has to be chosen anyway: the CoreText language attribute, which steers
     glyph choice and line breaking (every run of an unlabelled document in a Japanese book is
-    tagged `ja`, so its Han characters take their Japanese forms), and the language a formula
-    is spoken in (see Spoken math); body text on UIKit is to follow
-    ([#65](https://github.com/vocaro/EPUBLib/issues/65)). So typesetting is not independent of
-    the package, which is the sense in which the reading is narrow.
+    tagged `ja`, so its Han characters take their Japanese forms), the language a formula
+    is spoken in (see Spoken math), and the language each item VoiceOver is given on iPhone
+    and iPad names for its words ("Language" under Input and accessibility). So typesetting
+    is not independent of the package, which is the sense in which the reading is narrow.
 
   Content that declares a language overrides the package for both, and `lang=""` (the language
   is unknown) leaves text without a language or the hint. `:lang()` selectors and the search
@@ -2390,6 +2390,26 @@ The following are the defaults. Host commands and accessibility actions stay ena
   past the last heading begins again.
   Not marked for VoiceOver: a heading inside a table, whose cells are read as cells, and on
   iPhone and iPad a heading inside a note's popover, which keeps UIKit's own elements.
+- Language: VoiceOver chooses a voice for the language it is given. On iPhone and iPad each
+  item of a page or of continuous scroll names the language of its words
+  (`accessibilityLanguage`): the language its characters carry for typesetting, which is
+  the nearest `xml:lang` or `lang` and else the package's first `dc:language` ("Content
+  language" under Decisions), and none for an empty tag and for `und`, `mis`, `mul` and
+  `zxx`, which name no voice (`InlineLanguage.spoken`). It is the language a formula looks
+  up for its `alttext` ("Spoken math"), and a formula's item keeps its reading's language.
+  An item whose words are in several languages, a line of English with a French phrase in
+  it, a heading, or a row of a table read whole whose cells differ, names the language most
+  of its characters are in, and each part of its label carries its own
+  (`accessibilitySpeechLanguage` in its attributed label): "He said bonjour and left."
+  names English, and "bonjour" in it French. White space is in the language of the words
+  before it. The label's words, the item's traits and its actions are those of words in one
+  language, and a heading keeps its level over the whole label. A cell of a table of data
+  is read as one text, in the language most of it is in, and so is the name of a header
+  cell VoiceOver says before it: a part of a cell in another language is not set apart. A
+  picture's words name no language ([#548](https://github.com/vocaro/EPUBLib/issues/548)),
+  and the reader's word for a rule, which is none of the book's, names none. A note's
+  popover keeps UIKit's own elements. That VoiceOver's voice follows these languages on a
+  device is not verified ([#65](COMMENT_LINK)).
 - Selection: native selection UI with the host's `EPUBSelectionAction` in the edit or context
   menu, no length cap. Dragging can extend a selection across a two-column spread in either
   reading direction. A located passage is selected in every visible column and remains
@@ -2563,9 +2583,10 @@ Go: the native viewer is the bundled engine.
     whatever their `location`; `charalign`, `charspacing` and `mslinethickness` are not read;
     `longdivstyle` is `lefttop`, `left/\right`, `left)(right` or `:right=right`, and the other
     six styles are drawn as `lefttop`.
-  - Generated readings are English, tagged as English. Body text and `alttext` rely on the
-    platform to choose a voice for their language: AppKit reports each run's language, while the
-    UIKit page elements name one only for formulas.
+  - Generated readings are English, tagged as English. Body text and `alttext` are given
+    their content's language, for VoiceOver to choose a voice by: AppKit reports each run's
+    language, and on iPhone and iPad each item names the language of its words ("Language"
+    under Input and accessibility).
   - One engine defect shows in these fixtures: an operator whose row has only `mtext` operands
     (`future value = principal`) is drawn without its spaces.
 

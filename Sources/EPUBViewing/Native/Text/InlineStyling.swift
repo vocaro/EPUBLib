@@ -26,6 +26,15 @@ struct InlineLanguage: Hashable {
         declared = language.isEmpty ? nil : language
         hint = nil
     }
+
+    /// The language an assistive technology is to choose a voice for from `tag`, which is
+    /// `typesetting` or a language found the same way: nil for an empty tag, and for the tags
+    /// for undetermined, uncoded, multiple and no linguistic content, which name no voice.
+    static func spoken(_ tag: String) -> String? {
+        let tag = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        let primary = tag.split(separator: "-").first.map { $0.lowercased() } ?? ""
+        return primary.isEmpty || ["und", "mis", "mul", "zxx"].contains(primary) ? nil : tag
+    }
 }
 
 /// What an inline box contributes to its text beyond its own computed style.

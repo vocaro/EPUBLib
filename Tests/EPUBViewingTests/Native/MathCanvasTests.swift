@@ -245,7 +245,8 @@ import UIKit
         let images = elements.filter { $0.accessibilityTraits.contains(.image) }
         XCTAssertEqual(images.map(\.accessibilityLabel), [F.frenchAlttext, F.englishReading])
         XCTAssertEqual(images.map(\.accessibilityLanguage), ["fr", "en"])
-        XCTAssertTrue(elements.filter { !$0.accessibilityTraits.contains(.image) }.allSatisfy { $0.accessibilityLanguage == nil })
+        // The words around them are in the text's own language (#65), whatever the generated reading's.
+        XCTAssertEqual(Set(elements.filter { !$0.accessibilityTraits.contains(.image) }.map(\.accessibilityLanguage)), ["fr"])
         #endif
     }
 }

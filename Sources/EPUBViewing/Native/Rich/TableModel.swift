@@ -67,6 +67,10 @@ final class TableModel: @unchecked Sendable {
             return links == 1 && linked == words && words > 0
         }
 
+        /// The language most of the cell's words are in, for an assistive technology to read
+        /// them in (`ReaderSpokenLanguages`). A cell is read as one text, so it has one.
+        var spokenLanguage: String? { content.readerSpokenLanguages(in: NSRange(location: 0, length: content.length)).main }
+
         /// The cell shows no words and nothing that is read as words: pictures and nothing
         /// else, or nothing at all. A formula, a rule, a hidden label and a table inside the
         /// cell are read, so a cell that holds one of them is not such a cell.
