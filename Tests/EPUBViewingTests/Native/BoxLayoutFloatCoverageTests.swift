@@ -414,11 +414,9 @@ import UIKit
         XCTAssertLessThanOrEqual(widest, 201)
     }
 
-    /// CSS 2.2 10.3.5: an auto-width float is shrink-to-fit, its widest content. The reader's own
-    /// default centres a `figcaption`, and a float holding paragraphs of different alignment is
-    /// measured as wide as the column.
+    /// CSS 2.2 10.3.5: an auto-width float is shrink-to-fit, its widest content. The reader's
+    /// centred `figcaption` contributes its text width rather than the measuring column's width.
     func testAnAutoWidthFloatedFigureWithACaptionShrinksToItsContent() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/148")
         let (section, view) = try layout("<figure><img src='picture.png' alt='Pic'/><figcaption>Caption text.</figcaption></figure><p>\(H.prose)</p>",
                                          css: "figure { float:left } img { width:120px; height:80px }",
                                          files: ["picture.png": RichFixture.image(width: 240, height: 160)])

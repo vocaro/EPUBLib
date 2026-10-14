@@ -175,8 +175,10 @@ final class RichMediaSVGRenderingCostCoverageTests: XCTestCase {
         let longClass = svg("<title>Costly diagram</title><style>\(classes)</style><rect class='" + String(repeating: "x", count: 100_000) + "'/>")
         XCTAssertGreaterThan(try verdict(longClass).stylesheetWork, SVGRenderingCostScreen.maximumStylesheetWork)
         try fallback(longClass)
-        let attrs = (0..<10_000).map { "a\($0)='x'" }.joined(separator: " ")
-        let missingAttribute = svg("<title>Costly diagram</title><style>" + String(repeating: "[z]{fill:red}", count: 1_000) + "</style><rect \(attrs)/>")
+        // The XML preflight permits 1,024 attributes per tag. Increase queries instead of exceeding that
+        // bound, so this still reaches the SVG lookup-work screen before selector matching.
+        let attrs = (0..<XMLSafety.attributesPerElement).map { "a\($0)='x'" }.joined(separator: " ")
+        let missingAttribute = svg("<title>Costly diagram</title><style>" + String(repeating: "[z]{fill:red}", count: 10_000) + "</style><rect \(attrs)/>")
         XCTAssertGreaterThan(try verdict(missingAttribute).stylesheetWork, SVGRenderingCostScreen.maximumStylesheetWork)
         try fallback(missingAttribute)
         // Equal-length attribute names can compare a long common prefix on every lookup.
