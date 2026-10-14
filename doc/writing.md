@@ -21,6 +21,13 @@ space of any kind, a lone no-break space included: it is written, and read back 
 caller chooses a stable identifier and modification date for reproducible output; package
 generation does not invent document facts.
 
+Every metadata language and identifier is written in its supplied order, including duplicates.
+The navigation document uses the first language; an empty language list writes `und`.
+`EPUBPackageMetadata.identifier` selects the package's unique identifier: its first byte-identical
+entry in the metadata list receives `id="book-id"`, or it is prepended when absent. This keeps
+additional identifiers and avoids adding another copy when a publication's metadata is written
+again ([#95](https://github.com/vocaro/EPUBLib/issues/95)).
+
 Write prepared documents and content into staging, then call `EPUBArchiveWriter.write` with
 ordered file-backed entries, placing `mimetype` first. It stores the exact mimetype uncompressed,
 deflates other entries, checks cancellation between entries and archive chunks, enforces the

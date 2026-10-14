@@ -24,6 +24,10 @@ enum SVGContent {
     /// descendants). Text layout is super-linear in the length of one run, so the document
     /// byte limit alone lets a single run cost minutes; a real label is far shorter.
     static let maximumTextRunCharacters = 20_000
+    /// Every em/ex length reparses every ancestor's font-size (usvg `units.rs`), including
+    /// each dash and text-position entry. Bound the value itself, not just one reparse per shape.
+    /// CSS values are trimmed by simplecss; XML presentation attributes retain their padding.
+    static let maximumFontSizeValueBytes = 64
     /// What the renderer may build for markers, which neither the node nor the expansion limit
     /// counts: the renderer converts a marker's content again at every vertex it is drawn at.
     /// The unit is one element of a marker's content, so a marker of ten elements drawn 10,000
@@ -116,6 +120,19 @@ enum SVGContent {
         var found: [ContentNode] = []
         var requiresRenderer = false
         func visit(_ node: ContentNode) {
+            // The bitmap attachment implements the default centred meet fit only. Other
+            // fits need clipping/stretching, and a nested SVG establishes another viewport.
+            if (node.name == "svg" && node !== svg) ||
+                node.attribute("preserveAspectRatio").map({
+                    let value = $0.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+                    return value != "xMidYMid" && value != "xMidYMid meet"
+                }) == true {
+                requiresRenderer = true
+            }
+            if node.name == "image", ["width", "height"].contains(where: {
+                let value = ImageSizing.length(node.attribute($0), fontSize: 16)
+                return value == .points(0) || value == .percent(0)
+            }) { requiresRenderer = true }
             if node.attribute("transform") != nil || node.attribute("clip-path") != nil || node.attribute("mask") != nil ||
                 node.attribute("opacity") != nil || node.attribute("filter") != nil || node.attribute("style") != nil {
                 requiresRenderer = true
@@ -608,6 +625,26 @@ enum SVGContent {
             return steps <= stepBudget
         }
 
+        // Check all stored font sizes, including definitions, markers, and tspan descendants:
+        // a relative-length consumer need not itself be a shape visited by the copy walk.
+        for node in nodes {
+            for attribute in node.attributes {
+                if attribute.name == "font-size", attribute.value.utf8.count > maximumFontSizeValueBytes {
+                    return (false, 0, steps)
+                }
+                if attribute.name == "style" {
+                    let bytes = Array(attribute.value.utf8)
+                    guard read(bytes.count) else { return (false, 0, steps) }
+                    var scan = DeclarationScan()
+                    var bounded = true
+                    forEachDeclaration(bytes, bytes.indices, &scan, valueBody: { name, range in
+                        if !fontSizeDeclarationIsBounded(name, bytes, range) { bounded = false }
+                    }) { _, _ in }
+                    guard bounded, read(scan.bytesRead) else { return (false, 0, steps) }
+                }
+            }
+        }
+
         // Rule 1's stops, for each gradient. The renderer paints with those of the first gradient
         // that has a `<stop>`: the gradient itself, or else the one its `href` names, and so on
         // from one to the next for as long as the chain is (usvg `paint_server.rs`,
@@ -1043,10 +1080,13 @@ enum SVGContent {
             let bodyStart = index + 1
             index = skipBlock(bytes, index)
             let body = bodyStart..<max(bodyStart, index - 1)
-            forEachDeclaration(bytes, body, &scan) { property, valueBytes in
+            var bounded = true
+            forEachDeclaration(bytes, body, &scan, valueBody: { name, range in
+                if !fontSizeDeclarationIsBounded(name, bytes, range) { bounded = false }
+            }) { property, valueBytes in
                 if copiedStyleProperties.contains(property) { longest = max(longest, valueBytes) }
             }
-            guard read(body.count + scan.bytesRead) else { return nil }
+            guard bounded, read(body.count + scan.bytesRead) else { return nil }
             scan.bytesRead = 0
         }
         return longest
@@ -1137,6 +1177,7 @@ enum SVGContent {
     /// A comment or a string still open at the end of `range` is read to its own end, past it, and
     /// the value is counted that far; `scan` keeps the ends found, for the next range of the text.
     private static func forEachDeclaration(_ bytes: [UInt8], _ range: Range<Int>, _ scan: inout DeclarationScan,
+                                           valueBody: ((String, Range<Int>) -> Void)? = nil,
                                            _ body: (String, Int) -> Void) {
         var index = range.lowerBound
         let end = range.upperBound
@@ -1145,12 +1186,55 @@ enum SVGContent {
             if index < end, bytes[index] == UInt8(ascii: "/"), index + 1 < end, bytes[index + 1] == UInt8(ascii: "*") {
                 index = scan.endOfComment(bytes, index); continue
             }
+            // simplecss strips one leading '*' (the IE7 property hack), consumes an identifier,
+            // then skips whitespace/comments before ':'. In particular a colon inside that
+            // comment cannot terminate the property name. Keep the historical malformed-name
+            // recovery of this conservative scanner, but canonicalize every name it charges.
             let nameStart = index
+            var firstComment: Int?
+            var canonicalizesComment: Bool?
+            var validNameTail = true
             while index < end, bytes[index] != UInt8(ascii: ":"), bytes[index] != UInt8(ascii: ";"),
-                  bytes[index] != UInt8(ascii: "{"), bytes[index] != UInt8(ascii: "}") { index += 1 }
+                  bytes[index] != UInt8(ascii: "{"), bytes[index] != UInt8(ascii: "}") {
+                if bytes[index] == UInt8(ascii: "/"), index + 1 < end, bytes[index + 1] == UInt8(ascii: "*") {
+                    if canonicalizesComment == nil {
+                        var prefix = String(decoding: bytes[nameStart..<index], as: UTF8.self)
+                            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                        if prefix.first == "*" { prefix.removeFirst() }
+                        canonicalizesComment = copiedStyleProperties.contains(prefix)
+                    }
+                    // Only names this scanner charges need renderer canonicalization. Keep its
+                    // existing conservative recovery for malformed unknown names (including
+                    // comments a rule's string scan interpreted differently).
+                    if canonicalizesComment == true {
+                        if firstComment == nil { firstComment = index }
+                        index = scan.endOfComment(bytes, index)
+                    } else { index += 1 }
+                } else {
+                    if firstComment != nil, bytes[index] > 0x20 { validNameTail = false }
+                    index += 1
+                }
+            }
             guard index < end, bytes[index] == UInt8(ascii: ":") else { if index < end { index += 1 }; continue }
-            let name = String(decoding: bytes[nameStart..<index], as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            var start = nameStart
+            if bytes[start] == UInt8(ascii: "*") { start += 1 }
+            var stop = firstComment ?? index
+            while stop > start, bytes[stop - 1] <= 0x20 { stop -= 1 }
+            // A comment inside the identifier is not an identifier continuation. Between its
+            // first comment and the colon only whitespace and more comments are allowed.
+            var name = String(decoding: bytes[start..<stop], as: UTF8.self).lowercased()
+            if !validNameTail { name = "" }
             index += 1
+            // simplecss also drops whitespace and comments before the first value term. A
+            // shorthand's leading comment must not hide its actual size token from the cap.
+            if name == "font" || name == "font-size" {
+                while index < end {
+                    if bytes[index] <= 0x20 { index += 1 }
+                    else if bytes[index] == UInt8(ascii: "/"), index + 1 < end,
+                            bytes[index + 1] == UInt8(ascii: "*") { index = scan.endOfComment(bytes, index) }
+                    else { break }
+                }
+            }
             var depth = 0
             let valueStart = index
             while index < end {
@@ -1166,8 +1250,49 @@ enum SVGContent {
             while low < high, bytes[low] <= 0x20 { low += 1 }
             if low < high, high == bytes.count { high = scan.endOfValue(bytes, from: low) }
             else { while high > low, bytes[high - 1] <= 0x20 { high -= 1 } }
-            if !name.isEmpty { body(name, high - low) }
+            if !name.isEmpty {
+                body(name, high - low)
+                valueBody?(name, low..<high)
+            }
         }
+    }
+
+    /// Bound the value usvg stores as font-size, including the size token of the CSS font
+    /// shorthand. svgtypes 0.16.1 consumes at most four optional style/variant/weight/stretch
+    /// identifiers, then a length or a size keyword; the family and optional line height follow
+    /// that size. They are not repeatedly parsed as font-size and retain their existing limits.
+    private static func fontSizeDeclarationIsBounded(_ name: String, _ bytes: [UInt8], _ range: Range<Int>) -> Bool {
+        guard name == "font-size" || name == "font" else { return true }
+        var end = range.upperBound
+        // simplecss strips the trailing priority before storing a declaration value.
+        if end - range.lowerBound >= 9, holds("important", bytes, at: end - 9) {
+            var priority = end - 9
+            while priority > range.lowerBound, bytes[priority - 1] <= 0x20 { priority -= 1 }
+            if priority > range.lowerBound, bytes[priority - 1] == UInt8(ascii: "!") {
+                end = priority - 1
+                while end > range.lowerBound, bytes[end - 1] <= 0x20 { end -= 1 }
+            }
+        }
+        if name == "font-size" { return end - range.lowerBound <= maximumFontSizeValueBytes }
+        let optional: Set<String> = ["normal", "small-caps", "italic", "oblique", "bold", "bolder", "lighter",
+            "100", "200", "300", "400", "500", "600", "700", "800", "900", "ultra-condensed",
+            "extra-condensed", "condensed", "semi-condensed", "semi-expanded", "expanded", "extra-expanded", "ultra-expanded"]
+        var index = range.lowerBound
+        for _ in 0..<4 {
+            let start = index
+            while index < end, index - start <= maximumFontSizeValueBytes,
+                (bytes[index] >= 0x61 && bytes[index] <= 0x7A)
+                || (bytes[index] >= 0x41 && bytes[index] <= 0x5A)
+                || (bytes[index] >= 0x30 && bytes[index] <= 0x39) || bytes[index] == 0x2D { index += 1 }
+            if !optional.contains(String(decoding: bytes[start..<index], as: UTF8.self)) { index = start; break }
+            while index < end, bytes[index] <= 0x20 { index += 1 }
+        }
+        let start = index
+        // No valid font-size token crosses whitespace or '/'. Counting the whole token also
+        // bounds a malformed suffix that the renderer may treat as the start of a family.
+        while index < end, index - start <= maximumFontSizeValueBytes,
+              bytes[index] > 0x20, bytes[index] != UInt8(ascii: "/") { index += 1 }
+        return index - start <= maximumFontSizeValueBytes
     }
 
     /// The index just past the `/* … */` comment whose `/*` is at `index`.
@@ -1483,15 +1608,39 @@ enum SVGContent {
     /// box and lies within `maximumPlacement` of it: nil otherwise too, and the image fills
     /// the box.
     static func placement(of image: ContentNode, in svg: ContentNode, source: ReaderImageSource, fontSize: CGFloat) -> CGRect? {
-        func number(_ name: String) -> CGFloat? {
-            if case .points(let value)? = ImageSizing.length(image.attribute(name), fontSize: fontSize) { value } else { nil }
-        }
         let imageSize = source.pixelSize
-        let box = viewBox(svg) ?? CGRect(origin: .zero, size: intrinsicSize(svg, fontSize: fontSize, fallback: imageSize))
-        let width = number("width").flatMap { $0 > 0 ? $0 : nil } ?? (viewBox(svg) == nil ? box.width : imageSize.width)
-        let height = number("height").flatMap { $0 > 0 ? $0 : nil } ?? (viewBox(svg) == nil ? box.height : imageSize.height)
-        let rect = CGRect(x: ((number("x") ?? 0) - box.minX) / box.width, y: ((number("y") ?? 0) - box.minY) / box.height,
-                          width: width / box.width, height: height / box.height)
+        let viewport = intrinsicSize(svg, fontSize: fontSize, fallback: imageSize)
+        let box = viewBox(svg) ?? CGRect(origin: .zero, size: viewport)
+        func length(_ name: String, reference: CGFloat) -> CGFloat? {
+            ImageSizing.length(image.attribute(name), fontSize: fontSize)?.resolve(reference: reference, viewport: box.size)
+        }
+        func coordinate(_ name: String, reference: CGFloat) -> CGFloat {
+            let value = image.attribute(name)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            // Positions, unlike sizes, may be negative.
+            let negative = value.hasPrefix("-")
+            let magnitude = negative ? String(value.dropFirst()) : value
+            return (ImageSizing.length(magnitude, fontSize: fontSize)?.resolve(reference: reference, viewport: box.size) ?? 0)
+                * (negative ? -1 : 1)
+        }
+        let width = length("width", reference: box.width).flatMap { $0 > 0 ? $0 : nil }
+        let height = length("height", reference: box.height).flatMap { $0 > 0 ? $0 : nil }
+        // SVG 2 image sizing: one auto dimension follows the intrinsic ratio; with both
+        // auto, use the image's own dimensions. A percentage is of the SVG viewport in
+        // user coordinates, so under a viewBox 100% means its width/height, not bitmap pixels.
+        let size: CGSize = switch (width, height) {
+        case let (width?, height?): CGSize(width: width, height: height)
+        case let (width?, nil): CGSize(width: width, height: width * imageSize.height / imageSize.width)
+        case let (nil, height?): CGSize(width: height * imageSize.width / imageSize.height, height: height)
+        case (nil, nil): imageSize
+        }
+        // The root's default meet transform may letterbox its viewBox inside a differently
+        // proportioned authored viewport. Map the image viewport through that transform
+        // before the attachment applies the image's own centred meet fit.
+        let scale = min(viewport.width / box.width, viewport.height / box.height)
+        let offset = CGPoint(x: (viewport.width - box.width * scale) / 2, y: (viewport.height - box.height * scale) / 2)
+        let rect = CGRect(x: (offset.x + (coordinate("x", reference: box.width) - box.minX) * scale) / viewport.width,
+                          y: (offset.y + (coordinate("y", reference: box.height) - box.minY) * scale) / viewport.height,
+                          width: size.width * scale / viewport.width, height: size.height * scale / viewport.height)
         let filled = abs(rect.minX) < 0.001 && abs(rect.minY) < 0.001 && abs(rect.width - 1) < 0.001 && abs(rect.height - 1) < 0.001
         // The most pixels a decode has across the image: its own, or those an SVG is rasterized at.
         let ceiling = CGFloat(ReaderImageSource.maximumSVGDimension)

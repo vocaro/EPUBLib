@@ -4,6 +4,16 @@
 
 - Pass over an image or a rule that a book marks `aria-hidden` or with the role `presentation` or `none` for VoiceOver, and keep
   the image's words for Copy and search ([#408](https://github.com/vocaro/EPUBLib/issues/408)).
+- Keep combining marks following whitespace in extracted text and alternatives ([#89](https://github.com/vocaro/EPUBLib/issues/89)).
+- Preserve every metadata language and identifier when writing a publication ([#95](https://github.com/vocaro/EPUBLib/issues/95)).
+- Keep compatible XHTML public identifiers on the XML path with working CFIs ([#101](https://github.com/vocaro/EPUBLib/issues/101)).
+- Preserve contextual collation matches and canonically equivalent Korean and Japanese search text ([#106](https://github.com/vocaro/EPUBLib/issues/106), [#107](https://github.com/vocaro/EPUBLib/issues/107)).
+- Honour CSS units in SVG dimension attributes ([#117](https://github.com/vocaro/EPUBLib/issues/117)).
+- Resolve wrapped SVG image percentages in viewBox coordinates and preserve the whole image ([#187](https://github.com/vocaro/EPUBLib/issues/187)).
+- Keep trailing text and CDATA characters when a section is recovered as HTML ([#237](https://github.com/vocaro/EPUBLib/issues/237)).
+- Read past harmless size declarations on archive directory entries ([#260](https://github.com/vocaro/EPUBLib/issues/260)).
+- Bound SVG font-size values repeatedly resolved by relative lengths ([#443](https://github.com/vocaro/EPUBLib/issues/443)).
+
 - Pack table continuations and following content using the displayed page bounds ([#546](https://github.com/vocaro/EPUBLib/issues/546)).
 - Refuse entity declarations in supported legacy encodings before parsing ([#86](https://github.com/vocaro/EPUBLib/issues/86)).
 - Resolve empty text anchors once when their next text or document end is known ([#92](https://github.com/vocaro/EPUBLib/issues/92)).

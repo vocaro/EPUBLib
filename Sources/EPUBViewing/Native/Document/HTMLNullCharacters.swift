@@ -79,7 +79,7 @@ enum HTMLNullCharacters {
     private static let commentOpen = Array("<!--".utf8), commentClose = Array("-->".utf8)
 
     /// The index after the `-->` that ends the comment opened at `start`, or the end of the input.
-    private static func comment(in bytes: [UInt8], at start: Int) -> Int {
+    static func comment(in bytes: [UInt8], at start: Int) -> Int {
         var index = start + commentOpen.count
         while let dash = bytes[index...].firstIndex(of: 0x2D) {
             if bytes[dash...].starts(with: commentClose) { return dash + commentClose.count }
@@ -91,7 +91,7 @@ enum HTMLNullCharacters {
     /// The index after the `>` that ends the start tag at `start`, or the end of the input, and
     /// the tag's name when raw text follows it. A quote opens an attribute's value only after
     /// `=`, and `/>` ends a tag that nothing follows.
-    private static func startTag(in bytes: [UInt8], at start: Int) -> (end: Int, rawText: [UInt8]?) {
+    static func startTag(in bytes: [UInt8], at start: Int) -> (end: Int, rawText: [UInt8]?) {
         let name = name(in: bytes, at: start + 1)
         let rawText = name == Array("script".utf8) || name == Array("style".utf8) ? name : nil
         var index = start + 1 + name.count
@@ -120,12 +120,12 @@ enum HTMLNullCharacters {
 
     /// The tag name libxml2 reads at `start`, in lowercase: ASCII letters and digits, `:`, `-`,
     /// `_` and `.`.
-    private static func name(in bytes: [UInt8], at start: Int) -> [UInt8] {
+    static func name(in bytes: [UInt8], at start: Int) -> [UInt8] {
         guard start < bytes.count else { return [] }
         return bytes[start...].prefix { isLetter($0) || ($0 >= 0x30 && $0 <= 0x39) || $0 == 0x3A || $0 == 0x2D || $0 == 0x5F || $0 == 0x2E }
             .map { isLetter($0) ? $0 | 0x20 : $0 }
     }
 
-    private static func isLetter(_ byte: UInt8) -> Bool { byte | 0x20 >= 0x61 && byte | 0x20 <= 0x7A }
+    static func isLetter(_ byte: UInt8) -> Bool { byte | 0x20 >= 0x61 && byte | 0x20 <= 0x7A }
     private static func isSpace(_ byte: UInt8) -> Bool { byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D }
 }
