@@ -1,5 +1,6 @@
 import CoreGraphics
 import EPUBReading
+import EPUBTestSupport
 import Foundation
 import XCTest
 @testable import EPUBViewing
@@ -35,6 +36,54 @@ final class TableWidthStackTests: XCTestCase {
             XCTAssertEqual(TableMeasure.maximumWidth(text), 37)
             XCTAssertEqual(attachment.measurements, count)
             XCTAssertEqual(attachment.layouts, 0, "Intrinsic measurement never renders the source attachment")
+        }
+    }
+
+    /// The deterministic spy above proves one width callback per source attachment. These
+    /// real pipeline strings also qualify string drawing's work for rules, paragraph images
+    /// and the row attachments of a nested table. Setup is outside the CPU measurements.
+    func testActualRulesImagesAndNestedRowsHaveLinearWidthMeasurementCost() throws {
+        enum Kind: String, CaseIterable { case rules, images, nestedRows }
+        func content(_ kind: Kind, count: Int) throws -> NSAttributedString {
+            let markup: String
+            switch kind {
+            case .rules: markup = String(repeating: "<hr/>", count: count)
+            case .images: markup = String(repeating: "<p><img src='w37.png' alt=''/></p>", count: count)
+            case .nestedRows:
+                markup = "<table>" + String(repeating: "<tr><td>a</td><td>b</td></tr>", count: count) + "</table>"
+            }
+            let table = try TableCoverage.table("<table><tr><td>\(markup)</td><td>x</td></tr></table>",
+                css: TableCoverage.bare, files: TableCoverage.images([37]))
+            let text = table.cells[0].content
+            var attachments = 0
+            text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+                switch kind {
+                case .rules: if value is ReaderRuleAttachment { attachments += 1 }
+                case .images: if value is ReaderImageAttachment { attachments += 1 }
+                case .nestedRows: if value is TableRowAttachment { attachments += 1 }
+                }
+            }
+            XCTAssertEqual(attachments, count, "The real pipeline produced every \(kind.rawValue) attachment")
+            return text
+        }
+        func seconds(_ text: NSAttributedString) -> TimeInterval {
+            var best = TimeInterval.infinity
+            for _ in 0..<3 {
+                let start = TestCPUClock.seconds()
+                let width = TableMeasure.maximumWidth(text)
+                best = min(best, TestCPUClock.seconds() - start)
+                XCTAssertTrue(width.isFinite)
+            }
+            for model in TableCoverage.tables(in: text) {
+                XCTAssertEqual(model.layoutPassCount, 0, "Intrinsic width must not render nested rows")
+            }
+            return best
+        }
+        for kind in Kind.allCases {
+            let small = try content(kind, count: 128), large = try content(kind, count: 512)
+            let smallCPU = seconds(small), largeCPU = seconds(large)
+            XCTAssertLessThan(largeCPU, smallCPU * 8 + 0.01,
+                "Four times the actual \(kind.rawValue) attachments must remain below quadratic growth: \(smallCPU) to \(largeCPU) CPU seconds")
         }
     }
 
