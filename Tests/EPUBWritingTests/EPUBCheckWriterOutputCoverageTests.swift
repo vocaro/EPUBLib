@@ -122,7 +122,6 @@ final class EPUBCheckWriterOutputCoverageTests: XCTestCase {
     // MARK: Facts given and facts written
 
     func testEveryLanguageGivenIsWritten() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/95")
         var book = paged
         book.metadata.metadata = .init(title: "A Written Book", languages: ["en", "fr", "ja"])
         let metadata = try XCTUnwrap(try package(book).children.first { $0.name == "metadata" })
@@ -130,16 +129,13 @@ final class EPUBCheckWriterOutputCoverageTests: XCTestCase {
     }
 
     func testEveryIdentifierGivenIsWritten() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/95")
         var book = paged
         book.metadata.metadata = .init(title: "A Written Book", languages: ["en"], identifiers: ["urn:isbn:9780000000002", "doi:10.0000/example"])
         let package = try package(book)
         let identifiers = try XCTUnwrap(package.children.first { $0.name == "metadata" }).children.filter { $0.name == "dc:identifier" }
         XCTAssertEqual(identifiers.first { $0.attributes["id"] == package.attributes["unique-identifier"] }?.content, book.metadata.identifier,
                        "the unique identifier")
-        for identifier in book.metadata.metadata.identifiers {
-            XCTAssertTrue(identifiers.contains { $0.content == identifier }, "\(identifier) is not written")
-        }
+        XCTAssertEqual(identifiers.map(\.content), [book.metadata.identifier] + book.metadata.metadata.identifiers)
     }
 
     // MARK: Structure EPUBCheck accepts, kept

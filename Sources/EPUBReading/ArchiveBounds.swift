@@ -1,5 +1,6 @@
 import EPUBCore
 import Foundation
+import ZIPFoundation
 
 /// Refuses an archive whose own records would send ZIPFoundation past its end, or claim a stored
 /// entry larger than the archive could hold.
@@ -11,17 +12,32 @@ import Foundation
 /// becomes an `Int64`, and a stored entry is read in chunks until the whole size has been asked
 /// for, so opening takes as long as that size says however few bytes the archive has. A book is
 /// untrusted input, so `check` walks the directory first, as ZIPFoundation's iterator will and
-/// with the values it will use, and throws where that would trap or where a stored entry's size
-/// is more than the archive has bytes for. A deflated entry's sizes cost nothing when they are
-/// wrong: it is read as far as its stream goes, and no further than the archive does. A record
-/// ZIPFoundation merely stops at (one cut short, or with another signature) is left to it.
+/// with the values it will use, and throws where that would trap. Entries whose extraction
+/// would overrun their bounds are then classified by ZIPFoundation itself, before any entry
+/// is read: directory data is never extracted, so its declared sizes need no extraction bound.
+/// A deflated entry's sizes cost nothing when they are wrong: it is read as far as its stream
+/// goes, and no further than the archive does. A record ZIPFoundation merely stops at (one cut
+/// short, or with another signature) is left to it.
 enum ArchiveBounds {
     /// `data` is what ZIPFoundation reads: the bytes its `Archive` was made from.
-    static func check(_ data: Data) throws {
-        try data.withUnsafeBytes { try check($0) }
+    static func check(_ data: Data, archive: Archive) throws {
+        let oversized = try data.withUnsafeBytes { try check($0) }
+        var pending = oversized.makeIterator()
+        guard var next = pending.next() else { return }
+        // The structural scan above makes this iterator safe. Use the library's own type,
+        // rather than a second interpretation of the name and platform-specific attributes.
+        // Checking all suspect entries here keeps genuine files refused before any extraction.
+        for (index, entry) in archive.enumerated() where UInt64(index) == next {
+            guard entry.type == .directory else {
+                throw EPUBPublicationError.invalidArchive("Entry data past the end of the archive")
+            }
+            guard let following = pending.next() else { return }
+            next = following
+        }
     }
 
-    private static func check(_ bytes: UnsafeRawBufferPointer) throws {
+    private static func check(_ bytes: UnsafeRawBufferPointer) throws -> [UInt64] {
+        var oversized: [UInt64] = []
         let count = bytes.count
         func u16(_ offset: Int) -> Int { Int(UInt16(littleEndian: bytes.loadUnaligned(fromByteOffset: offset, as: UInt16.self))) }
         func u32(_ offset: Int) -> UInt64 { UInt64(UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: offset, as: UInt32.self))) }
@@ -30,7 +46,7 @@ enum ArchiveBounds {
 
         // The end record: the last one in the archive, with the whole of its comment.
         guard count >= 22, let end = stride(from: count - 22, through: 0, by: -1).first(where: { u32($0) == 0x0605_4b50 }),
-              count - end - 22 >= u16(end + 20) else { return }
+              count - end - 22 >= u16(end + 20) else { return oversized }
         var entries = UInt64(u16(end + 10)), position = u32(end + 16)
         // A ZIP64 end record and its locator directly before the end record replace its values.
         if end > 76, u32(end - 20) == 0x0706_4b50, u32(end - 76) == 0x0606_4b50, u16(end - 76 + 14) >= 45 {
@@ -43,10 +59,10 @@ enum ArchiveBounds {
         while index < entries {
             guard position <= UInt64(count) else { throw pastTheEnd("Central directory") }
             let record = Int(position)
-            guard count - record >= 46, u32(record) == 0x0201_4b50 else { return }
+            guard count - record >= 46, u32(record) == 0x0201_4b50 else { return oversized }
             let nameLength = u16(record + 28), extraLength = u16(record + 30)
             let length = 46 + nameLength + extraLength + u16(record + 32)
-            guard count - record >= length else { return }
+            guard count - record >= length else { return oversized }
             let flags = u16(record + 8)
             var compressed = u32(record + 20), uncompressed = u32(record + 24), header = u32(record + 42)
 
@@ -75,9 +91,9 @@ enum ArchiveBounds {
 
             guard header <= UInt64(count) else { throw pastTheEnd("Entry header") }
             let local = Int(header)
-            guard count - local >= 30, u32(local) == 0x0403_4b50 else { return }
+            guard count - local >= 30, u32(local) == 0x0403_4b50 else { return oversized }
             let dataStart = local + 30 + u16(local + 26) + u16(local + 28)
-            guard dataStart <= count else { return }
+            guard dataStart <= count else { return oversized }
             // The iterator copies and scans each local header's name and extra field anew.
             // Overlapping/reused headers must not multiply that work beyond the input's size.
             let headerBytes = dataStart - local
@@ -91,19 +107,20 @@ enum ArchiveBounds {
                 guard !overflow, descriptor <= UInt64(count) else { throw pastTheEnd("Data descriptor") }
             }
             // ZIPFoundation's iterator ends at an encrypted entry.
-            guard flags & 0x0001 == 0 else { return }
+            guard flags & 0x0001 == 0 else { return oversized }
             // The size an entry is read by, which the local header's method chooses. A stored
             // entry is read a chunk at a time until that many bytes have been asked for, whether
             // or not the archive has any left to give. A deflated one is read no further than
             // its stream goes or the archive does, so its compressed size need only be one
             // ZIPFoundation can hold, and its uncompressed size is not read by at all.
             let method = u16(local + 8)
-            guard (method == 0 ? uncompressed : compressed) <= (method == 8 ? UInt64(Int64.max) : UInt64(count - dataStart)) else {
-                throw pastTheEnd("Entry data")
+            if (method == 0 ? uncompressed : compressed) > (method == 8 ? UInt64(Int64.max) : UInt64(count - dataStart)) {
+                oversized.append(index)
             }
 
             position = UInt64(record + length)
             index += 1
         }
+        return oversized
     }
 }

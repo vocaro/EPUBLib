@@ -10,7 +10,14 @@ enum PresentationalHints {
         if element.namespace == ContentNamespace.svg, element.name == "svg" {
             var result: [CSSDeclaration] = []
             for name in ["width", "height"] {
-                if let value = element.attribute(name).flatMap(dimension) { add(&result, name, value) }
+                if let value = element.attribute(name) {
+                    // SVG dimensions are CSS lengths, not HTML dimension attributes. A bare
+                    // SVG number is in user units (px here); keep a unit for the CSS parser.
+                    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let number = Double(trimmed)
+                    if let number, number.isFinite, number >= 0 { add(&result, name, "\(number)px") }
+                    else { add(&result, name, trimmed) }
+                }
             }
             return result
         }

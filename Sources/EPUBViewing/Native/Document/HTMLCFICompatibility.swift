@@ -18,8 +18,16 @@ enum HTMLCFICompatibility {
             source = String(data: data.dropFirst(mark), encoding: encoding)
         } else { source = String(data: data, encoding: .utf8) }
         guard let source, let tags = tokens(source) else { return false }
-        let identifiers = ["-//W3C//DTD XHTML 1.0 Strict//EN", "-//W3C//DTD XHTML 1.0 Transitional//EN",
-                           "-//W3C//DTD XHTML 1.0 Frameset//EN", "-//W3C//DTD XHTML 1.1//EN"]
+        // HTML Standard §14.2: these exact public identifiers provide the HTML named
+        // references to an XML document. Similar DTD names (Basic 1.1, RDFa, HTML 4) do not.
+        let identifiers = [
+            "-//W3C//DTD XHTML 1.0 Strict//EN", "-//W3C//DTD XHTML 1.0 Transitional//EN",
+            "-//W3C//DTD XHTML 1.0 Frameset//EN", "-//W3C//DTD XHTML 1.1//EN",
+            "-//W3C//DTD XHTML Basic 1.0//EN", "-//W3C//DTD XHTML 1.1 plus MathML 2.0//EN",
+            "-//W3C//DTD XHTML 1.1 plus MathML 2.0 plus SVG 1.1//EN", "-//W3C//DTD MathML 2.0//EN",
+            "-//WAPFORUM//DTD XHTML Mobile 1.0//EN", "-//WAPFORUM//DTD XHTML Mobile 1.1//EN",
+            "-//WAPFORUM//DTD XHTML Mobile 1.2//EN",
+        ]
         return tags.contains { tag in
             guard let header = tag.range(of: #"^<!DOCTYPE\s+html\s+PUBLIC\s+"#, options: .regularExpression) else { return false }
             let tail = tag[header.upperBound...].drop(while: \.isWhitespace)

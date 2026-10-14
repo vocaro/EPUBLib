@@ -134,18 +134,20 @@ private struct NormalizedText {
         return headings.map { heading in
             let mark = heading.mark ?? EPUBTextMark(offset: bytes, separator: 0)
             let value = heading.end > mark.offset ? String(decoding: utf8[mark.offset..<heading.end], as: UTF8.self) : ""
-            return EPUBTextHeading(mark: mark, text: value.split(whereSeparator: \.isWhitespace).joined(separator: " "))
+            return EPUBTextHeading(mark: mark, text: value.unicodeScalars.split(whereSeparator: { $0.properties.isWhitespace }).map(String.init).joined(separator: " "))
         }
     }
 
     mutating func lineBreak() { if !text.isEmpty { separator = "\n" } }
 
     mutating func append(_ value: String, limit: Int) throws {
-        for character in value {
-            if character.isWhitespace {
+        // Whitespace belongs to individual scalars. A space followed by a combining mark
+        // forms one Character whose isWhitespace is true; discarding it would lose the mark.
+        for scalar in value.unicodeScalars {
+            if scalar.properties.isWhitespace {
                 if !text.isEmpty && separator.isEmpty { separator = " " }
             } else {
-                let addition = separator + String(character)
+                let addition = separator + String(scalar)
                 guard addition.utf8.count <= limit - bytes else {
                     throw EPUBTextExtractionError.limitExceeded("outputBytes")
                 }
@@ -371,7 +373,7 @@ private final class XHTMLTextReader {
                 let parts = key.split(separator: ":", maxSplits: 1)
                 if parts.count == 2, parts[1] == "type",
                    namespaces[String(parts[0])] == "http://www.idpf.org/2007/ops" {
-                    semanticTypes.formUnion(value.split(whereSeparator: \.isWhitespace).map(String.init))
+                    semanticTypes.formUnion(value.unicodeScalars.split(whereSeparator: { $0.properties.isWhitespace }).map(String.init))
                 }
             }
         }
@@ -392,7 +394,7 @@ private final class XHTMLTextReader {
         // anchors all refer to the returned text. Decorative whitespace-only alternatives must
         // not introduce a separator between surrounding characters.
         if html, local == "img", inBody, !suppressed, !capturesMath, let alternative = attributes["alt"],
-           alternative.contains(where: { !$0.isWhitespace }) {
+           alternative.unicodeScalars.contains(where: { !$0.properties.isWhitespace }) {
             try body.append(alternative, limit: limits.outputBytes)
         }
     }
@@ -755,7 +757,7 @@ private final class MathTextNode {
     }
     private var significantChildren: [Child] {
         children.filter {
-            if case .text(let text) = $0 { return text.contains(where: { !$0.isWhitespace }) }
+            if case .text(let text) = $0 { return text.unicodeScalars.contains(where: { !$0.properties.isWhitespace }) }
             return true
         }
     }
@@ -763,7 +765,7 @@ private final class MathTextNode {
         namespace == Self.namespace && (name == "annotation" || name == "annotation-xml")
     }
     private var authoredAlternative: String? {
-        if namespace == Self.namespace, let value = attributes["alttext"], value.contains(where: { !$0.isWhitespace }) { return value }
+        if namespace == Self.namespace, let value = attributes["alttext"], value.unicodeScalars.contains(where: { !$0.properties.isWhitespace }) { return value }
         if namespace == Self.namespace, name == "math", significantChildren.count == 1,
            let semantics = children.compactMap({ if case .element(let node) = $0 { return node }; return nil }).first(where: { $0.namespace == Self.namespace && $0.name == "semantics" }),
            let alternative = semantics.authoredAlternative { return alternative }
@@ -773,7 +775,7 @@ private final class MathTextNode {
                       ["text/plain", "application/x-tex", "application/x-latex", "application/x-asciimath"].contains(node.attributes["encoding"]?.lowercased() ?? ""),
                       node.children.allSatisfy({ if case .text = $0 { return true }; return false }) else { continue }
                 let text = node.children.compactMap { if case .text(let text) = $0 { return text }; return nil }.joined()
-                if text.contains(where: { !$0.isWhitespace }) { return text }
+                if text.unicodeScalars.contains(where: { !$0.properties.isWhitespace }) { return text }
             }
         }
         return nil
@@ -873,7 +875,7 @@ private final class MathTextNode {
         var hasText = false
         for scalar in value.unicodeScalars {
             try Task.checkCancellation()
-            if CharacterSet.whitespacesAndNewlines.contains(scalar) {
+            if scalar.properties.isWhitespace {
                 if hasText { pendingSpace = true }
                 continue
             }

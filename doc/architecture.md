@@ -116,6 +116,10 @@ warnings, so this list is where they are disclosed:
   compressed size that runs past the end of the archive, and the limits count what the entry
   inflates to. The book is still refused when that compressed size is 2^63 bytes or more, or when a
   data descriptor follows the entry and the misstated size places it past the end.
+  Directory entries have no extracted payload: misstated directory sizes do not refuse the
+  book or count toward expanded-byte limits. ZIPFoundation's own entry classification decides
+  that exemption after structural header and descriptor bounds have been checked; file sizes
+  remain guarded before any extraction ([#260](https://github.com/vocaro/EPUBLib/issues/260)).
   Opening also bounds repeated input work: local headers may account for at most the archive's
   byte count, and extraction processing steps are charged one 32 KiB chunk each against the
   archive's bytes, actual expanded bytes, and one partial chunk per entry. A reused or overlapping

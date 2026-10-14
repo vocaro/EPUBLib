@@ -64,6 +64,23 @@ final class MathTextExtractionTests: XCTestCase {
         }
     }
 
+    func testCombiningMarksMakeMathAlternativesNonemptyAndRemainLiteral() throws {
+        XCTAssertEqual(try extract("<mi>Ignored</mi>", attributes: "alttext='&#xA0;&#x301;'"), "\u{301}")
+        XCTAssertEqual(try extract("<semantics><mi>Ignored</mi><annotation encoding='text/plain'> \u{093E}</annotation></semantics>"),
+            "\u{093E}")
+        XCTAssertEqual(try extract("<mi alttext=' \u{301}'>Ignored</mi><mi>x</mi>"), "math(\"\u{301}\", \"x\")")
+        XCTAssertEqual(try extract("<mi>Ignored</mi>", attributes: "alttext='Signs: \u{093E} \u{093F}'"), "Signs: \u{093E} \u{093F}")
+    }
+
+    func testCombiningMarksAreSignificantMathChildrenAndSurviveTokenQuoting() throws {
+        XCTAssertEqual(try extract(" \u{301}<mi>x</mi>"), "math(\"\u{301}\", \"x\")")
+        XCTAssertEqual(try extract("<mi>x&#xA0;&#x301;.</mi><mtext> \u{093E}</mtext>"), "math(\"x \u{301}.\", \"\u{093E}\")")
+        // The bare mark is a second presentation child, so the math wrapper must not replace
+        // the whole formula with its sibling semantics alternative and discard that mark.
+        XCTAssertEqual(try extract(" \u{301}<semantics><mi>y</mi><annotation encoding='text/plain'>Y</annotation></semantics>"),
+            "math(\"\u{301}\", \"Y\")")
+    }
+
     func testSiblingFormulaAndMalformedSemanticsDoNotLosePresentationContent() throws {
         XCTAssertEqual(try extract("<mi>x</mi><semantics><mi>y</mi><annotation encoding='text/plain'>Y, z)</annotation></semantics>"),
             #"math("x", "Y, z)")"#)
