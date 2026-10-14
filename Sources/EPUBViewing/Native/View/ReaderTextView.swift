@@ -211,7 +211,7 @@ extension ReaderTextView {
         }
         let start = offset(of: fragment.rangeInElement.location)
         let frame = fragment.layoutFragmentFrame
-        let relative = CGPoint(x: local.x - frame.minX, y: local.y - frame.minY)
+        let relative = CGPoint(x: local.x - frame.minX, y: local.y - frame.origin.y)
         guard let line = fragment.textLineFragments.min(by: {
             abs($0.typographicBounds.midY - relative.y) < abs($1.typographicBounds.midY - relative.y)
         }) else { return start }
@@ -227,7 +227,7 @@ extension ReaderTextView {
         guard let fragment = readerLayoutManager.textLayoutFragment(for: location),
               let storage = contentStorage.textStorage else { return nil }
         let frame = fragment.layoutFragmentFrame
-        let local = CGPoint(x: location.x - frame.minX, y: location.y - frame.minY)
+        let local = CGPoint(x: location.x - frame.minX, y: location.y - frame.origin.y)
         guard let line = fragment.textLineFragments.first(where: { $0.typographicBounds.contains(local) }) else { return nil }
         let bounds = line.typographicBounds
         let index = offset(of: fragment.rangeInElement.location)
@@ -272,8 +272,8 @@ extension ReaderTextView {
         }
         let bounds = line.typographicBounds
         let lineFrame = readerContainer.hasNonlinearGeometry
-            ? bounds.offsetBy(dx: frame.minX, dy: frame.minY)
-            : CGRect(x: frame.minX, y: frame.minY + bounds.minY, width: frame.width, height: bounds.height)
+            ? bounds.offsetBy(dx: frame.minX, dy: frame.origin.y)
+            : CGRect(x: frame.minX, y: frame.origin.y + bounds.minY, width: frame.width, height: bounds.height)
         return (lineFrame, NSRange(location: start + line.characterRange.location, length: line.characterRange.length))
     }
 
@@ -310,7 +310,7 @@ extension ReaderTextView {
             let start = offset(of: fragment.rangeInElement.location)
             let frame = fragment.layoutFragmentFrame
             for line in fragment.textLineFragments where line.characterRange.length > 0 {
-                lines.append(ReaderVisualLine(frame: line.typographicBounds.offsetBy(dx: frame.minX, dy: frame.minY),
+                lines.append(ReaderVisualLine(frame: line.typographicBounds.offsetBy(dx: frame.minX, dy: frame.origin.y),
                     range: NSRange(location: start + line.characterRange.location, length: line.characterRange.length)))
             }
             return true
@@ -400,12 +400,12 @@ extension ReaderTextView {
         let frame = fragment.layoutFragmentFrame
         let lines = fragment.textLineFragments.filter { $0.characterRange.length > 0 }
         if lineEnd {
-            if let line = lines.last(where: { frame.minY + $0.typographicBounds.midY <= y }) {
+            if let line = lines.last(where: { frame.origin.y + $0.typographicBounds.midY <= y }) {
                 return start + line.characterRange.upperBound
             }
             return start
         }
-        if let line = lines.first(where: { frame.minY + $0.typographicBounds.midY >= y }) {
+        if let line = lines.first(where: { frame.origin.y + $0.typographicBounds.midY >= y }) {
             return start + line.characterRange.location
         }
         return offset(of: fragment.rangeInElement.endLocation)

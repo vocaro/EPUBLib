@@ -188,7 +188,7 @@ enum ReaderBoxLayout {
     }
 
     private static func resolve(_ source: NSAttributedString, viewport: CGSize, disabled: Set<UUID>, pass: Int,
-                                anticipated: [ReaderBoxGeometry.Region]) -> Result {
+                                anticipated: [ReaderBoxGeometry.Region], restoresForcedMargins: Bool = false) -> Result {
         guard source.length > 0 else { return Result(text: source, geometry: nil) }
         var hasBoxes = false
         source.enumerateAttribute(.readerFlowBox, in: NSRange(location: 0, length: source.length)) { value, _, stop in
@@ -211,6 +211,7 @@ enum ReaderBoxLayout {
             ranges.append(range); offset = range.upperBound
         }
         var cursor: CGFloat = 0
+        var hasRetainedForcedMargin = false
         var scopeOrigins: [UUID: CGFloat] = [:]
         var sectionOrigins: [UUID: CGFloat] = [:]
         // The earlier pass's boxes this pass has yet to place: told of every region the plan gains.
@@ -508,27 +509,34 @@ enum ReaderBoxLayout {
             var measurementRange = ordinaryTail && range.length > 8_194
                 ? NSRange(location: range.location, length: 8_194) : range
             let predicted = pending.unplaced(wrappingTextIn: flow?.scope.id)
+            // A forced-break paragraph measured alone loses its retained spacing before
+            // as the first paragraph of a document. Restore only that authored page margin.
+            let authoredSpacingBefore = range.location > 0
+                && text.attribute(.readerPageBreakBefore, at: range.location, effectiveRange: nil) as? Bool == true
+                ? max(0, (text.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacingBefore ?? 0) : 0
+            hasRetainedForcedMargin = hasRetainedForcedMargin || authoredSpacingBefore > 0
+            let measurementOrigin = start + (restoresForcedMargins ? authoredSpacingBefore : 0)
             var measured = measure(text.attributedSubstring(from: measurementRange), viewport: viewport,
-                                   regions: plan.regions + predicted, origin: start, sourceOffset: range.location,
+                                   regions: plan.regions + predicted, origin: measurementOrigin, sourceOffset: range.location,
                                    column: scoped ? column : nil, scope: flow?.scope.id)
             // Extremely wide columns can fit the initial prefix into too few rows. Extend
             // until it clears the last exclusion before leaving the remaining source lazy.
-            while measurementRange.length < range.length, start + measured.height < lastBoxBottom {
+            while measurementRange.length < range.length, measurementOrigin + measured.height < lastBoxBottom {
                 measurementRange.length = min(range.length, measurementRange.length * 2)
                 measured = measure(text.attributedSubstring(from: measurementRange), viewport: viewport,
-                    regions: plan.regions + predicted, origin: start, sourceOffset: range.location,
+                    regions: plan.regions + predicted, origin: measurementOrigin, sourceOffset: range.location,
                     column: scoped ? column : nil, scope: flow?.scope.id)
             }
             let entry = measured.paragraphs.first
             let lines = entry?.lines.map { (NSRange(location: range.location + $0.range.location, length: $0.range.length),
-                                           $0.frame.offsetBy(dx: 0, dy: start)) } ?? []
+                                           $0.frame.offsetBy(dx: 0, dy: measurementOrigin)) } ?? []
             // Text that goes on from a box on the line above the flow starts up there. TextKit
             // then draws its lines from that far above the fragment's frame, but the frame is as
             // tall as from its topmost line to its last: whatever is above the flow is taken
             // back, so that the next paragraph starts under the last line.
             let above = min(0, (lines.map(\.1.minY).min() ?? start) - beforeScope)
             plan.paragraphs.append(.init(range: range, topAdjustment: start - beforeScope, bottomAdjustment: above,
-                                        flowStart: beforeScope, flowEnd: start + measured.height, lines: lines,
+                                        flowStart: beforeScope, flowEnd: measurementOrigin + measured.height, lines: lines,
                                         column: scoped ? column : nil, scope: flow?.scope.id))
             // Its lines up there are above its own fragment, as a box's are: a point on them
             // finds the fragment by this region, as it finds a box's.
@@ -536,7 +544,7 @@ enum ReaderBoxLayout {
                 let raised = lines.filter { $0.1.minY < beforeScope }.reduce(CGRect.null) { $0.union($1.1) }
                 if !raised.isNull { plan.regions.append(.init(range: range, frame: raised, side: .none, reserved: true)) }
             }
-            cursor = start + measured.height
+            cursor = measurementOrigin + measured.height
             if measurementRange.length < range.length { break }
             index += 1
         }
@@ -557,14 +565,14 @@ enum ReaderBoxLayout {
                 guard let box = (value as? ReaderFlowBoxParagraph)?.constraints.first else { return }
                 if pass >= 3 || oversized.contains(where: { NSIntersectionRange($0, range).length > 0 }) { suppressed.insert(box.id) }
             }
-            if suppressed != disabled { return resolve(source, viewport: viewport, disabled: suppressed, pass: pass + 1, anticipated: []) }
+            if suppressed != disabled { return resolve(source, viewport: viewport, disabled: suppressed, pass: pass + 1, anticipated: [], restoresForcedMargins: restoresForcedMargins) }
         }
         let positioned = plan.regions.filter(\.wrapsEarlierText)
         let changed = positioned.count != anticipated.count
             || zip(positioned, anticipated).contains { $0.frame != $1.frame || $0.range != $1.range }
         if !positioned.isEmpty, changed {
             if pass < 3 {
-                return resolve(source, viewport: viewport, disabled: disabled, pass: pass + 1, anticipated: positioned)
+                return resolve(source, viewport: viewport, disabled: disabled, pass: pass + 1, anticipated: positioned, restoresForcedMargins: restoresForcedMargins)
             }
             // Cyclic author geometry must not publish exclusions measured against stale frames.
             // Keep its characters pageable in reading order if the bounded positioning passes
@@ -575,8 +583,18 @@ enum ReaderBoxLayout {
                 if positioned.contains(where: { NSIntersectionRange($0.range, range).length > 0 }) { suppressed.insert(box.id) }
             }
             if suppressed != disabled {
-                return resolve(source, viewport: viewport, disabled: suppressed, pass: pass + 1, anticipated: [])
+                return resolve(source, viewport: viewport, disabled: suppressed, pass: pass + 1, anticipated: [], restoresForcedMargins: restoresForcedMargins)
             }
+        }
+        // Establish box eligibility with the existing bounded preflight first. Correcting
+        // an ordinary forced margin can save a wrapped line and make a previously rejected
+        // visual group fit; re-enabling it would change already-readable in-flow pages and
+        // could absorb their authored page boundaries. Preserve those rejected box IDs.
+        // Only an active rich plan needs the second, still bounded, cursor correction.
+        if !restoresForcedMargins, hasRetainedForcedMargin,
+           plan.regions.contains(where: { !$0.reserved }) {
+            return resolve(source, viewport: viewport, disabled: disabled, pass: 0,
+                           anticipated: [], restoresForcedMargins: true)
         }
         if plan.regions.isEmpty && !plan.paragraphs.contains(where: { $0.column != nil || $0.topAdjustment != 0 }) {
             return Result(text: text, geometry: nil)
