@@ -101,7 +101,43 @@ final class RichMediaSVGCoverageTests: XCTestCase {
 
     private func draw(_ image: ReaderImageAttachment, size: CGSize) throws -> CGImage {
         let platform = try XCTUnwrap(image.image(forBounds: CGRect(origin: .zero, size: size), textContainer: nil, characterIndex: 0))
+        return try draw(platform, size: size)
+    }
+
+    private func draw(_ platform: PlatformImage, size: CGSize) throws -> CGImage {
+        #if os(iOS)
+        // UIImage.draw expects UIKit's top-left coordinate system. Pushing a raw,
+        // unflipped CGContext reverses the result vertically; the attachment itself
+        // returns an upright UIImage and uses this UIKit renderer for placed images.
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let drawn = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            platform.draw(in: CGRect(origin: .zero, size: size))
+        }
+        return try XCTUnwrap(drawn.cgImage)
+        #else
         return try XCTUnwrap(RichImageTests.draw(platform, size: size, scale: 1))
+        #endif
+    }
+
+    func testWrapperRasterHelperKeepsAnIndependentImageUpright() throws {
+        // This image is made directly in Core Graphics, without SVG or an attachment:
+        // its top-left quarter is red and all three other quarters are blue.
+        let bitmap = RichMediaImages.cornerMarked(width: 40, height: 80)
+        let size = CGSize(width: 40, height: 80)
+        #if os(iOS)
+        let platform = UIImage(cgImage: bitmap)
+        #else
+        let platform = NSImage(cgImage: bitmap, size: size)
+        #endif
+        let drawn = try draw(platform, size: size)
+        let samples: [(Int, Int, [UInt8])] = [(5, 10, [255, 0, 0, 255]), (35, 10, [0, 0, 255, 255]),
+                                             (5, 70, [0, 0, 255, 255]), (35, 70, [0, 0, 255, 255])]
+        for (x, y, expected) in samples {
+            XCTAssertEqual(RichMediaImages.rgba(bitmap, x: x, y: y), expected, "control image at (\(x), \(y))")
+            XCTAssertEqual(RichMediaImages.rgba(drawn, x: x, y: y), expected, "platform drawing at (\(x), \(y))")
+        }
     }
 
     func testPercentageWrapperShowsTheWholePictureInItsViewBox() throws {
