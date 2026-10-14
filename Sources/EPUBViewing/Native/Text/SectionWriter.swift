@@ -628,7 +628,7 @@ final class SectionWriter {
     }
 
     private func exitBlock() {
-        pendingPassageBoundary = pendingPassageBoundary || frames.last?.style.display.isBlockLevel == true
+        pendingPassageBoundary = pendingPassageBoundary || (frames.last?.style.display.isBlockLevel ?? false)
         if let marker = pendingMarker, marker.frame == frames.count - 1 { openParagraph() } // An empty item still shows its marker.
         closeParagraph()
         guard frames.count > 1 else { return }
@@ -1215,7 +1215,7 @@ final class SectionWriter {
     private func collapsibleSpace(node: ContentNode?, offset: Int, length: Int, exact: Bool, segmentBreak: Bool,
                                   attributes: Int) {
         if !paragraphOpen, !pendingPassageBoundary {
-            pendingPassageSpace = (segmentBreak, pendingPassageSpace?.before ?? lastScalar)
+            pendingPassageSpace = (segmentBreak || (pendingPassageSpace?.segmentBreak ?? false), pendingPassageSpace?.before ?? lastScalar)
         }
         // After a sized inline box the space opens no paragraph; the box keeps it for what follows.
         if !paragraphOpen, let last = lastInlineBox, last.depth == frames.count, last.paragraphs == paragraphs.count {

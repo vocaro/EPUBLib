@@ -275,6 +275,12 @@ final class SectionContentTextMapCoverageTests: XCTestCase {
         XCTAssertEqual(text.mappedText(in: text.map.location(of: resolved.start)..<text.map.location(of: resolved.end, isEnd: true)), "ABC")
     }
 
+    func testAuthoredSegmentBreaksAcrossInlineFlowBoxesKeepTheCSSWhitespaceRule() throws {
+        let text = try S.styled("<p>漢<span class='box'>字</span>\n<span> </span>語</p>",
+                                css: ".box { display: inline-block; width: 20px }")
+        XCTAssertEqual(text.mappedText(in: 0..<text.string.length), "漢字語")
+    }
+
     func testDetachedTableCopyUsesAuthoredCaseAndLineBreaks() throws {
         let text = try S.styled("<table><tr><td><pre>code\n  next</pre></td><td style='text-transform: uppercase'>straße</td></tr></table>")
         let row = try XCTUnwrap(text.tables().first)
