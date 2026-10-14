@@ -6,9 +6,11 @@ session, mounts a view, or takes over `onEvent`. Controls may be attached after 
 Keep one model per session, even when reopening the same publication. Call
 `controls.cancelPendingCommands()` when discarding it and `session.close()` when leaving the book.
 
-The controls were operated live on iPhone, iPad and iPhone Duo simulators and in a Mac window;
-[issue-49-51-controls-qualification.md](issue-49-51-controls-qualification.md) records what was
-seen, what was fixed and what is still unverified.
+The controls were operated live on iPhone, iPad and iPhone Duo simulators and in a Mac window.
+What was seen, what was fixed and what is still unverified is on
+[#51](https://github.com/vocaro/EPUBLib/issues/51#issuecomment-6159295619) ([second part](https://github.com/vocaro/EPUBLib/issues/51#issuecomment-6159295950)); the names VoiceOver is given are
+[below](#names-values-and-states), and [testing](testing.md#reader-controls-probe) has the probe
+that operated them.
 
 Add the toolbar inside the host's `NavigationStack` on iPhone/iPad or window on Mac. The sample
 contains this compiled integration example:
@@ -354,3 +356,30 @@ Assign `nil` to restore the defaults. Custom host buttons can reuse
 `controls.pageButtonLabel(for:)` and `controls.pageButtonHelp(for:pageControls:)`, passing
 the same input settings as their reading surface. This help API describes the bundled native
 engine; hosts integrating third-party input behavior should customize its text accordingly.
+
+## Names, values and states
+
+What the accessibility tree holds for each supplied control, read from it on iOS while the
+controls were operated; the Mac's tree agrees where noted.
+
+| Control | Name | Value or state |
+| --- | --- | --- |
+| Page buttons | Previous Page, Next Page; Scroll Backward, Scroll Forward in continuous scroll | Disabled at either end of the book |
+| Reading mode | Continuous Scroll, Paging | The current one selected. On the Mac a radio group named Reading Mode with two radio buttons of those names, the current one's value 1. |
+| Search, Contents, Appearance | The same | Contents and Appearance are menu buttons on the Mac |
+| Contents entries | The entry's title | The current ones selected; the unlinked entry disabled; a parent "Collapsed" to VoiceOver |
+| Appearance entries | Smaller Text, Larger Text, System, Light, Dark | The chosen appearance selected. On the Mac the three appearances are in a submenu named Appearance. |
+| Search field | Search in book | The query |
+| Pane buttons | Search, Close Search, Clear Search; Search Results and Close Search Results in the strip's browser | |
+| Count | Search matches | "Match 2 of 14, Low tide"; "Match 1 of 14, first match, Before the road"; "Match 14 of 14, last match, Afterword"; "Match 1 of 1, only match, The market"; "Match 1 of at least 10,000, first match, Stage 1" |
+| Previous Match, Next Match | The same | The count's value |
+| Result row | "Match 9 of 14, The cairn, page 11: lantern on the cairn. Preceded by: when the evening is quiet. Somebody has left a" | "Current match" and selected on the current row |
+| Section in the list | Its title | A heading |
+
+In the right-to-left book the tree lists Previous Page before Next Page, as in a left-to-right
+one, though Next Page is drawn on the left.
+
+Two things the tree shows that the source does not intend: the contents entries' "Current
+section" value is not exposed on iOS (the system menu shows a checkmark, which VoiceOver calls
+"selected"), and every result row holds a hidden checkmark image named "Selected", which
+VoiceOver did not stop on.

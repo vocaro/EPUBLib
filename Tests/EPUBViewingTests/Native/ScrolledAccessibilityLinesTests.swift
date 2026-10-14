@@ -1284,7 +1284,7 @@ import XCTest
     /// reader's for its pictures and tables, and the canvas had the two the reader's SwiftUI
     /// surface named. This holds the lines and the text view to their own. SwiftUI gives a
     /// view no action in a test host, where no assistive technology runs, so what the surface
-    /// names is not seen here: VoiceOver sessions hold that (doc/voiceover-testing.md).
+    /// names is not seen here: VoiceOver sessions hold that (doc/testing.md#voiceover-testing).
     func testALineIsOfferedWhatIsInItAndNothingOfWhatHoldsIt() async throws {
         let picture = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"60\" height=\"60\"><rect width=\"60\" height=\"60\" fill=\"#246\"/></svg>"
         let prose = (1...30).map { "<p>p\($0) " + CanvasText.sentence(50, seed: $0) + "</p>" }.joined()

@@ -5,7 +5,7 @@ import XCTest
 
 /// The lines of a table cell on the Mac as an assistive client is given them. A cell is a text
 /// view of its own (`TableCellTextView`), which VoiceOver reads by line through the line of its
-/// insertion point. API level only: what VoiceOver says is recorded in doc/voiceover-testing.md.
+/// insertion point. API level only: what VoiceOver says is recorded in doc/testing.md.
 @MainActor final class TableCellLineAccessibilityTests: XCTestCase {
     private var hosts: [CanvasHost] = []
 

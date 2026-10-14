@@ -10,7 +10,7 @@ import UIKit
 #endif
 
 /// Width, margin, padding, indent and line-height resolution against CSS 2.2 sections 8, 10 and
-/// 16.1, CSS Values 3 and `doc/issue-21-css-sizing.md`. Points throughout.
+/// 16.1, CSS Values 3 and `doc/native-viewer.md` ("Paragraph sizing"). Points throughout.
 @MainActor final class BoxLayoutSizingCoverageTests: XCTestCase {
     private typealias H = BoxLayoutHarness
     private let widths: [CGFloat] = [300, 600, 900]
@@ -49,7 +49,7 @@ import UIKit
         BuilderHarness.assertMapRoundTrips(section)
     }
 
-    /// `doc/issue-21-css-sizing.md`: "Insets remain bounded to preserve a readable column." The
+    /// `doc/native-viewer.md`: "Insets remain bounded to preserve a readable column." The
     /// bound is a third of the column for both sides together.
     func testCentredAndIndentedBlocksKeepAtLeastTwoThirdsOfTheColumn() throws {
         let long = "A paragraph long enough to wrap onto more lines than one inside its box."

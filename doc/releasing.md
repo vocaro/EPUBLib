@@ -12,5 +12,6 @@ available on demand in [testing](testing.md); they are not implied by a package 
 
 The engine identifier `org.epublib.reader` and the `epublib-cfi-v1` bookmark format are persisted
 contracts: a viewer change keeps both and must keep resolving the CFIs recorded in
-`CFIGoldenVectors.swift`. Historical version verification
-documents record their own producing revision and are not rewritten by a module move.
+`CFIGoldenVectors.swift`. A release's verification record is in its
+[GitHub release notes](https://github.com/vocaro/EPUBLib/releases), for the revision its tag
+names, and is not rewritten by a module move.

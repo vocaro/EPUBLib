@@ -128,7 +128,7 @@ fixtures include fixed layout, RTL, vertical writing, escaped filenames and a la
 book. Live Mac tests need a graphical login. See [testing](doc/testing.md) for prerequisites,
 coverage boundaries and internal adapter-contract tests.
 
-See [release and API compatibility policy](doc/releasing.md) and [release notes](doc/changelog.md).
+See [release and API compatibility policy](doc/releasing.md) and [release notes](CHANGELOG.md).
 
 ## Licenses
 

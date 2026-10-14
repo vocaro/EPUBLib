@@ -93,7 +93,7 @@ import XCUIAutomation
         } while Date() < deadline && !FileManager.default.fileExists(atPath: environment["VOICEOVER_STOP"] ?? "")
         #else
         // `TEST_RUNNER_VOICEOVER_STEPS` replaces the default forward reading from the first item;
-        // see doc/voiceover-testing.md.
+        // see doc/testing.md#voiceover-testing.
         func heard(_ command: String) {
             note(command, (try? voiceOver.currentSpeech().utterance) ?? "no speech")
         }

@@ -14,7 +14,7 @@ import UIKit
 /// What the text views give an assistive technology of a book's headings ("Accessibility" in
 /// `doc/native-viewer.md`): on UIKit one element for a heading, with the header trait and its
 /// level; on AppKit the level on the heading's characters and a Headings rotor over them. API
-/// level only: no assistive technology is driven (`doc/voiceover-testing.md` has what
+/// level only: no assistive technology is driven (`doc/testing.md#voiceover-testing` has what
 /// VoiceOver said).
 @MainActor final class HeadingAccessibilityTests: XCTestCase {
     private typealias H = BoxLayoutHarness

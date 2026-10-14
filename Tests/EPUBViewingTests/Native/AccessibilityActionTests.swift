@@ -19,7 +19,7 @@ import XCTest
 /// passing none on gives it one first, through the setter. The reader is mounted as an app
 /// mounts it, in the public SwiftUI view, and the tests read the actions of every view above
 /// a line; what SwiftUI's own accessibility elements offer is known only from
-/// [speech sessions](doc/voiceover-testing.md).
+/// [speech sessions](doc/testing.md#voiceover-testing).
 @MainActor final class AccessibilityActionTests: XCTestCase {
     private typealias Subject = (reader: SessionCoverageReader, canvas: ReaderCanvasView, view: ReaderTextView)
     private var readers: [SessionCoverageReader] = []
