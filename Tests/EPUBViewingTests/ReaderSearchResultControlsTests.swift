@@ -456,6 +456,65 @@ import UIKit
         #endif
     }
 
+    #if os(iOS)
+    /// Without a keyboard the strip left no book at the largest text size in landscape (368).
+    /// Use the safe-area stack's actual sizes, including the qualification host's status line,
+    /// and read a rendered word from the native reader, rather than only its allocated height.
+    func testCompactHeightControlStripLeavesBookTextOnScreenAtAccessibilitySizes() async throws {
+        let rooms = [CGSize(width: 750, height: 381), CGSize(width: 667, height: 375)]
+        for room in rooms {
+            for textSize in [DynamicTypeSize.accessibility1, .accessibility5] {
+                for padded in [true, false] {
+                    let name = "\(textSize) in \(Int(room.width)) by \(Int(room.height)) points, padded \(padded)"
+                    let publication = try EPUBPublication.open(data: Fixture.epub())
+                    let session = try XCTUnwrap(try NativeEngine().makeSession(publication: publication, selectionAction: nil) { _ in } as? NativeSession)
+                    let model = EPUBReaderControls(publication: publication, session: session)
+                    let strip = EPUBReaderControlStrip(controls: model).background(FrameMarker())
+                    let stack = VStack(spacing: 0) {
+                        if padded { strip.padding(.horizontal).layoutPriority(1) } else { strip }
+                        EPUBReaderView(session: session)
+                        Color.clear.frame(height: Self.hostLine)
+                    }
+                    let host = MountedView(stack.environment(\.verticalSizeClass, .compact).dynamicTypeSize(textSize), size: room)
+                    defer { session.close(); host.close() }
+                    let deadline = Date().addingTimeInterval(20)
+                    while !(session.isReady && session.book.isComplete && session.visibleRange != nil), Date() < deadline {
+                        try await Task.sleep(for: .milliseconds(20))
+                    }
+                    XCTAssertTrue(session.isReady && session.book.isComplete, name)
+                    let canvas = try XCTUnwrap(session.canvas, name)
+                    let readerFrame = host.frame(of: canvas)
+                    let text = try XCTUnwrap(canvas.textViews.first, name)
+                    let end = try XCTUnwrap(text.position(from: text.beginningOfDocument, offset: 1), name)
+                    let range = try XCTUnwrap(text.textRange(from: text.beginningOfDocument, to: end), name)
+                    let wordFrame = text.convert(text.firstRect(for: range), to: canvas)
+                    XCTAssertGreaterThan(wordFrame.width, 0, name)
+                    XCTAssertGreaterThan(wordFrame.height, 0, name)
+                    XCTAssertTrue(canvas.bounds.contains(wordFrame), "\(name): book text \(wordFrame) lies outside reader \(canvas.bounds)")
+                    XCTAssertLessThanOrEqual(readerFrame.maxY, room.height - Self.hostLine + 0.5, name)
+                    let marker = try XCTUnwrap(host.views(FrameMarker.Marker.self).first, name)
+                    let stripFrame = host.frame(of: marker)
+                    XCTAssertEqual(stripFrame.minY, 0, accuracy: 0.5, name)
+                    XCTAssertLessThan(stripFrame.height, 200, "\(name): the compact strip has become a full column")
+                    let scroller = try XCTUnwrap(host.paneScroller(), name)
+                    XCTAssertLessThan(host.heightOutOfSight(in: scroller), 1, "\(name): a control is out of sight")
+                    let field = try XCTUnwrap(host.views(UITextField.self).first, name)
+                    XCTAssertTrue(stripFrame.contains(host.frame(of: field)), "\(name): search field is cut off")
+                    let picker = try XCTUnwrap(host.views(UISegmentedControl.self).first, name)
+                    // UIKit's segmented picker draws slightly past its measured SwiftUI edge.
+                    // With all groups in view the strip allows that, as it did before wrapping.
+                    let pickerFrame = host.frame(of: picker)
+                    XCTAssertFalse(host.clips(scroller), "\(name): a control drawing past its edge is clipped")
+                    XCTAssertTrue(CGRect(origin: .zero, size: room).contains(pickerFrame),
+                                  "\(name): reading modes \(pickerFrame) are off screen")
+                    XCTAssertLessThanOrEqual(pickerFrame.maxY, readerFrame.minY + ReaderCanvasGeometry.verticalMargin,
+                                             "\(name): reading modes cover the book's first line")
+                }
+            }
+        }
+    }
+    #endif
+
     /// A strip without its search field has nothing in it that takes the width it is offered: it
     /// is as wide as its groups, and a host places it. A scroll view takes the width it is
     /// offered. The strip must still be as wide as its groups, scrolling or not.
@@ -537,7 +596,13 @@ import UIKit
             Color.clear
             Color.clear.frame(height: Self.hostLine)
         }
+        #if os(iOS)
+        // This comparison holds the established titled arrangement. Compact-height adaptation
+        // has its own reader-on-screen regression above.
+        let host = MountedView(stack.environment(\.verticalSizeClass, .regular).dynamicTypeSize(textSize), size: room)
+        #else
         let host = MountedView(stack.dynamicTypeSize(textSize), size: room)
+        #endif
         defer { host.close() }
         try await Task.sleep(for: .milliseconds(60))
         let marker = try XCTUnwrap(host.views(FrameMarker.Marker.self).first)
