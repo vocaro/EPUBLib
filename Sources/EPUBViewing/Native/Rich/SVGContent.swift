@@ -116,6 +116,19 @@ enum SVGContent {
         var found: [ContentNode] = []
         var requiresRenderer = false
         func visit(_ node: ContentNode) {
+            // The bitmap attachment implements the default centred meet fit only. Other
+            // fits need clipping/stretching, and a nested SVG establishes another viewport.
+            if (node.name == "svg" && node !== svg) ||
+                node.attribute("preserveAspectRatio").map({
+                    let value = $0.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+                    return value != "xMidYMid" && value != "xMidYMid meet"
+                }) == true {
+                requiresRenderer = true
+            }
+            if node.name == "image", ["width", "height"].contains(where: {
+                let value = ImageSizing.length(node.attribute($0), fontSize: 16)
+                return value == .points(0) || value == .percent(0)
+            }) { requiresRenderer = true }
             if node.attribute("transform") != nil || node.attribute("clip-path") != nil || node.attribute("mask") != nil ||
                 node.attribute("opacity") != nil || node.attribute("filter") != nil || node.attribute("style") != nil {
                 requiresRenderer = true
@@ -1483,15 +1496,39 @@ enum SVGContent {
     /// box and lies within `maximumPlacement` of it: nil otherwise too, and the image fills
     /// the box.
     static func placement(of image: ContentNode, in svg: ContentNode, source: ReaderImageSource, fontSize: CGFloat) -> CGRect? {
-        func number(_ name: String) -> CGFloat? {
-            if case .points(let value)? = ImageSizing.length(image.attribute(name), fontSize: fontSize) { value } else { nil }
-        }
         let imageSize = source.pixelSize
-        let box = viewBox(svg) ?? CGRect(origin: .zero, size: intrinsicSize(svg, fontSize: fontSize, fallback: imageSize))
-        let width = number("width").flatMap { $0 > 0 ? $0 : nil } ?? (viewBox(svg) == nil ? box.width : imageSize.width)
-        let height = number("height").flatMap { $0 > 0 ? $0 : nil } ?? (viewBox(svg) == nil ? box.height : imageSize.height)
-        let rect = CGRect(x: ((number("x") ?? 0) - box.minX) / box.width, y: ((number("y") ?? 0) - box.minY) / box.height,
-                          width: width / box.width, height: height / box.height)
+        let viewport = intrinsicSize(svg, fontSize: fontSize, fallback: imageSize)
+        let box = viewBox(svg) ?? CGRect(origin: .zero, size: viewport)
+        func length(_ name: String, reference: CGFloat) -> CGFloat? {
+            ImageSizing.length(image.attribute(name), fontSize: fontSize)?.resolve(reference: reference, viewport: box.size)
+        }
+        func coordinate(_ name: String, reference: CGFloat) -> CGFloat {
+            let value = image.attribute(name)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            // Positions, unlike sizes, may be negative.
+            let negative = value.hasPrefix("-")
+            let magnitude = negative ? String(value.dropFirst()) : value
+            return (ImageSizing.length(magnitude, fontSize: fontSize)?.resolve(reference: reference, viewport: box.size) ?? 0)
+                * (negative ? -1 : 1)
+        }
+        let width = length("width", reference: box.width).flatMap { $0 > 0 ? $0 : nil }
+        let height = length("height", reference: box.height).flatMap { $0 > 0 ? $0 : nil }
+        // SVG 2 image sizing: one auto dimension follows the intrinsic ratio; with both
+        // auto, use the image's own dimensions. A percentage is of the SVG viewport in
+        // user coordinates, so under a viewBox 100% means its width/height, not bitmap pixels.
+        let size: CGSize = switch (width, height) {
+        case let (width?, height?): CGSize(width: width, height: height)
+        case let (width?, nil): CGSize(width: width, height: width * imageSize.height / imageSize.width)
+        case let (nil, height?): CGSize(width: height * imageSize.width / imageSize.height, height: height)
+        case (nil, nil): imageSize
+        }
+        // The root's default meet transform may letterbox its viewBox inside a differently
+        // proportioned authored viewport. Map the image viewport through that transform
+        // before the attachment applies the image's own centred meet fit.
+        let scale = min(viewport.width / box.width, viewport.height / box.height)
+        let offset = CGPoint(x: (viewport.width - box.width * scale) / 2, y: (viewport.height - box.height * scale) / 2)
+        let rect = CGRect(x: (offset.x + (coordinate("x", reference: box.width) - box.minX) * scale) / viewport.width,
+                          y: (offset.y + (coordinate("y", reference: box.height) - box.minY) * scale) / viewport.height,
+                          width: size.width * scale / viewport.width, height: size.height * scale / viewport.height)
         let filled = abs(rect.minX) < 0.001 && abs(rect.minY) < 0.001 && abs(rect.width - 1) < 0.001 && abs(rect.height - 1) < 0.001
         // The most pixels a decode has across the image: its own, or those an SVG is rasterized at.
         let ceiling = CGFloat(ReaderImageSource.maximumSVGDimension)

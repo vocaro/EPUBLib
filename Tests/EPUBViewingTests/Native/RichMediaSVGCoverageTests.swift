@@ -95,6 +95,104 @@ final class RichMediaSVGCoverageTests: XCTestCase {
         XCTAssertEqual(text.report.unreadableResources, 1)
     }
 
+    private func markedCover() throws -> Data {
+        try XCTUnwrap(RichMediaImages.encode([RichMediaImages.cornerMarked(width: 600, height: 800)], as: .png))
+    }
+
+    private func draw(_ image: ReaderImageAttachment, size: CGSize) throws -> CGImage {
+        let platform = try XCTUnwrap(image.image(forBounds: CGRect(origin: .zero, size: size), textContainer: nil, characterIndex: 0))
+        return try XCTUnwrap(RichImageTests.draw(platform, size: size, scale: 1))
+    }
+
+    func testPercentageWrapperShowsTheWholePictureInItsViewBox() throws {
+        let cover = try markedCover()
+        let wrapper = try XCTUnwrap(try image("<p><svg \(Self.ns) viewBox='0 0 300 400'><image width='100%' height='100%' href='cover.png'/></svg></p>", files: ["cover.png": cover]).0)
+        XCTAssertEqual(wrapper.source.format, .bitmap)
+        XCTAssertEqual(wrapper.sizing.intrinsic, CGSize(width: 300, height: 400))
+        XCTAssertNil(wrapper.contentRect, "100% fills the viewBox even when the bitmap is twice its size")
+        let size = CGSize(width: 300, height: 400)
+        XCTAssertEqual(wrapper.imageRect(in: size), CGRect(origin: .zero, size: size))
+        let bitmap = try draw(wrapper, size: size)
+        XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 30, y: 40), [255, 0, 0, 255])
+        for (x, y) in [(270, 40), (30, 360), (270, 360)] {
+            XCTAssertEqual(RichMediaImages.rgba(bitmap, x: x, y: y), [0, 0, 255, 255], "the other three quarters remain visible")
+        }
+    }
+
+    func testWrapperPercentagesResolveEachAxisAndAutoKeepsTheImageRatio() throws {
+        let cover = try markedCover(), size = CGSize(width: 300, height: 400)
+        let cases: [(String, CGRect)] = [
+            ("width='50%' height='50%'", CGRect(x: 0, y: 0, width: 150, height: 200)),
+            ("width='50%' height='200'", CGRect(x: 0, y: 0, width: 150, height: 200)),
+            ("width='150' height='50%'", CGRect(x: 0, y: 0, width: 150, height: 200)),
+            ("width='50%'", CGRect(x: 0, y: 0, width: 150, height: 200)),
+            ("height='25%'", CGRect(x: 0, y: 0, width: 75, height: 100)),
+            ("width='200%' height='200%'", CGRect(x: 0, y: 0, width: 600, height: 800)),
+            ("x='50%' y='25%' width='50%' height='50%'", CGRect(x: 150, y: 100, width: 150, height: 200)),
+            ("x='-25%' width='50%' height='50%'", CGRect(x: -75, y: 0, width: 150, height: 200))
+        ]
+        for (attributes, expected) in cases {
+            let wrapper = try XCTUnwrap(try image("<p><svg \(Self.ns) viewBox='0 0 300 400'><image \(attributes) href='cover.png'/></svg></p>", files: ["cover.png": cover]).0)
+            XCTAssertEqual(wrapper.source.format, .bitmap, attributes)
+            XCTAssertEqual(wrapper.imageRect(in: size), expected, attributes)
+        }
+        let offset = try XCTUnwrap(try image("<p><svg \(Self.ns) viewBox='30 40 300 400'><image x='10%' y='10%' width='100%' height='100%' href='cover.png'/></svg></p>", files: ["cover.png": cover]).0)
+        XCTAssertNil(offset.contentRect, "percentages use viewBox size, then its origin is subtracted")
+        let half = try XCTUnwrap(try image("<p><svg \(Self.ns) viewBox='0 0 300 400'><image width='50%' height='50%' href='cover.png'/></svg></p>", files: ["cover.png": cover]).0)
+        let bitmap = try draw(half, size: size)
+        XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 15, y: 20), [255, 0, 0, 255])
+        XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 135, y: 180), [0, 0, 255, 255])
+        XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 200, y: 300)[3], 0)
+    }
+
+    func testPercentageWrapperMapsThroughTheOuterMeetViewport() throws {
+        let wrapper = try XCTUnwrap(try image("<p><svg \(Self.ns) width='200' height='100' viewBox='0 0 100 100'><image width='100%' height='100%' href='cover.png'/></svg></p>", files: ["cover.png": try markedCover()]).0)
+        let size = CGSize(width: 200, height: 100)
+        XCTAssertEqual(wrapper.contentRect, CGRect(x: 0.25, y: 0, width: 0.5, height: 1))
+        XCTAssertEqual(wrapper.imageRect(in: size), CGRect(x: 62.5, y: 0, width: 75, height: 100))
+        let bitmap = try draw(wrapper, size: size)
+        XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 20, y: 50)[3], 0)
+        XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 70, y: 10), [255, 0, 0, 255])
+        XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 130, y: 90), [0, 0, 255, 255])
+    }
+
+    func testPercentageWrappersRetainTransformsAndNonDefaultAspectFits() throws {
+        let cover = try markedCover()
+        let cases: [(String, String, [(Int, Int, [UInt8])])] = [
+            ("", "transform='translate(150 200)' width='50%' height='50%'", [(15, 20, [0, 0, 0, 0]), (165, 220, [255, 0, 0, 255]), (285, 380, [0, 0, 255, 255])]),
+            ("", "width='100%' height='50%' preserveAspectRatio='none'", [(30, 20, [255, 0, 0, 255]), (270, 180, [0, 0, 255, 255]), (30, 300, [0, 0, 0, 0])]),
+            ("", "width='100%' height='50%' preserveAspectRatio='xMidYMin slice'", [(30, 180, [255, 0, 0, 255]), (270, 180, [0, 0, 255, 255]), (30, 300, [0, 0, 0, 0])]),
+            ("preserveAspectRatio='none'", "width='100%' height='100%'", [(30, 40, [255, 0, 0, 255]), (270, 360, [0, 0, 255, 255])])
+        ]
+        for (outer, inner, samples) in cases {
+            let wrapper = try XCTUnwrap(try image("<p><svg \(Self.ns) \(outer) viewBox='0 0 300 400'><image \(inner) href='cover.png'/></svg></p>", files: ["cover.png": cover]).0)
+            XCTAssertEqual(wrapper.source.format, .svg, inner)
+            let bitmap = try draw(wrapper, size: CGSize(width: 300, height: 400))
+            for (x, y, expected) in samples { XCTAssertEqual(RichMediaImages.rgba(bitmap, x: x, y: y), expected, "\(outer) \(inner): (\(x), \(y))") }
+        }
+        let nested = try XCTUnwrap(try image("<p><svg \(Self.ns) viewBox='0 0 300 400'><svg x='150' y='200' width='150' height='200' viewBox='0 0 300 400'><image width='100%' height='100%' href='cover.png'/></svg></svg></p>", files: ["cover.png": cover]).0)
+        XCTAssertEqual(nested.source.format, .svg, "a nested SVG establishes its own percentage viewport")
+        let bitmap = try draw(nested, size: CGSize(width: 300, height: 400))
+        XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 30, y: 40)[3], 0)
+        XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 165, y: 220), [255, 0, 0, 255])
+        XCTAssertEqual(RichMediaImages.rgba(bitmap, x: 285, y: 380), [0, 0, 255, 255])
+    }
+
+    func testOuterAspectRatioModesKeepPercentageImageGeometry() throws {
+        let cover = try markedCover(), size = CGSize(width: 600, height: 400)
+        let cases: [(String, [(Int, Int, [UInt8])])] = [
+            ("none", [(60, 40, [255, 0, 0, 255]), (540, 360, [0, 0, 255, 255])]),
+            ("xMidYMin slice", [(60, 360, [255, 0, 0, 255]), (540, 360, [0, 0, 255, 255])]),
+            ("xMinYMid meet", [(30, 40, [255, 0, 0, 255]), (270, 360, [0, 0, 255, 255]), (540, 360, [0, 0, 0, 0])])
+        ]
+        for (fit, samples) in cases {
+            let wrapper = try XCTUnwrap(try image("<p><svg \(Self.ns) width='600' height='400' viewBox='0 0 300 400' preserveAspectRatio='\(fit)'><image width='100%' height='100%' href='cover.png'/></svg></p>", files: ["cover.png": cover]).0)
+            XCTAssertEqual(wrapper.source.format, .svg, fit)
+            let bitmap = try draw(wrapper, size: size)
+            for (x, y, expected) in samples { XCTAssertEqual(RichMediaImages.rgba(bitmap, x: x, y: y), expected, "\(fit): (\(x), \(y))") }
+        }
+    }
+
     // MARK: Drawing and labels
 
     func testInlineSVGDrawsPathsTextAndTransforms() throws {
