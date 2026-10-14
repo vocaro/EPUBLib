@@ -70,7 +70,9 @@ import XCTest
                 + "scene=\(String(describing: window.windowScene?.activationState.rawValue)), key=\(window.isKeyWindow)"
         }
         print("NoteUIKit control before presentation: \(state())")
-        presenter.present(content, animated: true) {
+        // The package host's animated transition may never advance. This control explicitly
+        // chooses a nonanimated transition, rather than changing UIView's global animation flag.
+        presenter.present(content, animated: false) {
             completed = true
             print("NoteUIKit control presentation completion: \(state())")
         }
