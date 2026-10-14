@@ -8,6 +8,7 @@ import XCTest
 import AppKit
 #else
 import UIKit
+import QuartzCore
 #endif
 
 final class NoteReachabilityTests: XCTestCase {
@@ -130,8 +131,18 @@ final class NoteReachabilityTests: XCTestCase {
             @MainActor func state() -> String {
                 "presenting=\(controller.isBeingPresented), dismissing=\(controller.isBeingDismissed), "
                     + "presenter=\(controller.presentingViewController != nil), attached=\(controller.viewIfLoaded?.window != nil)"
-                    + ", keyWindow=\(canvas.window?.isKeyWindow == true), scene=\(String(describing: canvas.window?.windowScene?.activationState)), "
+                    + ", presenterAttached=\(controller.presentingViewController?.viewIfLoaded?.window != nil), "
+                    + "presenterBounds=\(String(describing: controller.presentingViewController?.viewIfLoaded?.bounds)), "
+                    + "keyWindow=\(canvas.window?.isKeyWindow == true), scene=\(String(describing: canvas.window?.windowScene?.activationState.rawValue)), "
                     + "app=\(UIApplication.shared.applicationState), animations=\(UIView.areAnimationsEnabled)"
+            }
+            @MainActor func pumpPresentation() {
+                canvas.window?.layoutIfNeeded()
+                controller.presentingViewController?.viewIfLoaded?.layoutIfNeeded()
+                CATransaction.flush()
+                // UIKit commits presentation hierarchy changes on the application run loop,
+                // which a package XCTest's Swift concurrency executor need not advance.
+                _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
             }
             // presentNote starts an animated presentation. Its text exists before UIKit has
             // attached the controller, and dismissing at that instant can lose the completion
@@ -139,6 +150,8 @@ final class NoteReachabilityTests: XCTestCase {
             @MainActor func waitForTransition(_ phase: String, until settled: @MainActor () -> Bool) async -> Bool {
                 let deadline = Date().addingTimeInterval(5)
                 while !settled() {
+                    pumpPresentation()
+                    if settled() { return true }
                     guard Date() < deadline else {
                         XCTFail("Note cleanup timed out during \(phase): \(state())")
                         return false
