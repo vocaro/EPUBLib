@@ -532,6 +532,41 @@ be used to test it.
 What a measurement or a comparison found is on its issue. These are the scripts, variables
 and inputs that repeat one.
 
+### UIKit note presentation in an app-hosted test bundle
+
+On Xcode 27, the package XCTest host used here does not complete generic UIKit modal
+presentations, even for a plain view controller. Its note tests still verify routing, content, and activation order.
+The app-hosted lane verifies the actual animated presentation, attachment, and dismissal.
+
+The portable reproduction patch and its applicable commit are recorded on
+[issue #257](https://github.com/vocaro/EPUBLib/issues/257). Save that patch as
+`note-apphost-reproduction.patch` and apply it from the repository root. The generated
+project and all run output stay under the ignored `.build/verification/note-apphost/`.
+
+```sh
+git fetch origin
+git show origin/main:AGENTS.md
+git apply --check note-apphost-reproduction.patch
+git apply note-apphost-reproduction.patch
+bash .build/verification/note-apphost/run-note-apphosted.sh
+```
+
+This needs Xcode 27 with the iOS 27 simulator runtime, XcodeGen, Python 3, and Perl. The
+runner creates and deletes its own iPhone 17 Pro and iPad Air 13-inch M4 simulators, always
+addresses their UUIDs, and stops only children it started when interrupted. It disables
+the debugger and code signing. `DEVELOPER_DIR`, `EPUB_SIM_RUNTIME`, and
+`EPUB_SIM_BOOT_TIMEOUT` override the Xcode location, runtime, and boot timeout;
+`NOTE_SIM_KIND=iPhone-17-Pro` selects just that device type when a narrower rerun is needed.
+
+The scheme sets `EPUBLIB_NOTE_APP_HOSTED=YES`. Both devices must execute five
+`NoteLinkSessionTests` and two `NoteUIKitPresentationControlTests`: seven passes, no failures
+or skips. The runner holds filters in an array and checks the actual test-case pass counts
+and `Executed 7 tests` summary, rather than accepting an empty filtered success. Optional
+arguments select either of those two classes; the required counts remain five and two.
+
+Each run prints its unique output directory. It records the tested commit, device-creation
+output, boot logs, and test transcripts there.
+
 ### Search collation vectors
 
 `SearchCollationVectorGenerator` runs the unchanged historical `search.js` and
