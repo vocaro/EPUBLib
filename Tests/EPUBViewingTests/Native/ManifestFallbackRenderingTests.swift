@@ -11,7 +11,8 @@ import XCTest
 
     func testForeignTextBytesAreWithheldByTypeAndLeaveOtherSectionsReadable() throws {
         for (type, bytes) in [("application/json", "{\"chapter\":\"not a page\"}"),
-                              ("application/pdf", "%PDF-1.4 1 0 obj"), ("application/x-foreign+xml", "<html><body>not a page</body></html>")] {
+                              ("application/pdf", "%PDF-1.4 1 0 obj"), ("application/x-foreign+xml", "<html><body>not a page</body></html>"),
+                              ("image/x-unknown", "<html><body>not an image</body></html>")] {
             var book = Book(); book.add("before", body: "<p>Before</p>")
             book.add(href: "foreign.bin", id: "foreign", mediaType: type, Data(bytes.utf8))
             book.add("after", body: "<p>After</p>")
@@ -19,6 +20,44 @@ import XCTest
             XCTAssertEqual(built.sections.map(\.specText), ["Before", "This section could not be shown.", "After"], type)
             XCTAssertEqual(built.sections.map(\.report.withheld), [false, true, false], type)
         }
+    }
+
+    private func assertDecoderSupportedImage(_ data: Data, mediaType: String, name: String,
+                                             file: StaticString = #filePath, line: UInt = #line) throws {
+        var book = Book()
+        book.add("page", body: "<p><img src='\(name)' alt='Image'/></p><p><img src='foreign.xcf' alt='Fallback'/></p><svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><rect width='20' height='20' fill='white'/><image href='foreign.xcf' width='20' height='20'/></svg>")
+        book.resource("foreign.xcf", id: "foreign", mediaType: "image/x-xcf", Data("not drawable".utf8), item: "fallback='image'")
+        book.add(href: name, id: "image", mediaType: mediaType, data)
+        let built = try Build(book)
+        XCTAssertEqual(built[0].specImages.count, 3, file: file, line: line)
+        XCTAssertEqual(built[0].specImages.prefix(2).map(\.path), ["EPUB/" + name, "EPUB/" + name], file: file, line: line)
+        XCTAssertEqual(built[0].report.unreadableResources, 0, file: file, line: line)
+        XCTAssertEqual(built[0].report.unsupportedElements["svg:image"] ?? 0, 0, file: file, line: line)
+        XCTAssertEqual(built[1].specImages.map(\.path), ["EPUB/" + name], file: file, line: line)
+        XCTAssertFalse(built[1].report.withheld, file: file, line: line)
+        XCTAssertTrue(built[1].report.cfiUnavailable, file: file, line: line)
+        let svg = try XCTUnwrap(built[0].document.nodes.first { $0.name == "svg" }, file: file, line: line)
+        let report = SectionReportBox()
+        let serialized = try XCTUnwrap(SVGContent.serialize(svg, resolve: { "EPUB/" + $0 }, publication: built.publication, report: report), file: file, line: line)
+        XCTAssertTrue(String(decoding: serialized, as: UTF8.self).contains("data:image/png;base64,"), file: file, line: line)
+        XCTAssertEqual(report.report.unsupportedElements["svg:image"] ?? 0, 0, file: file, line: line)
+    }
+
+    func testDecoderSupportedImageBytesAreAdmittedForUncommonImageMediaTypes() throws {
+        for type in ["image/jxl", "image/vnd.adobe.photoshop", "image/x-unknown", "IMAGE/X-UNKNOWN"] {
+            try assertDecoderSupportedImage(Book.image(width: 20, height: 20), mediaType: type, name: "image.bin")
+        }
+    }
+
+    func testPublicEPUBCheckJXLImageRemainsDrawableInlineInSVGAndInTheSpine() throws {
+        guard let corpus = EPUBCheckCorpus.root() else { throw XCTSkip("Set EPUBLIB_EPUBCHECK_FIXTURES to the pinned public EPUBCheck corpus") }
+        let path = corpus.appending(path: "epub3/03-resources/files/resources-cmt-image-jxl-valid/EPUB/image.jxl")
+        let data = try Data(contentsOf: path)
+        guard ReaderImageSource.bitmap(data, path: "image.jxl", key: "jxl-capability") != nil else {
+            throw XCTSkip("This OS's ImageIO does not support the public JXL fixture")
+        }
+        XCTAssertNil(ImageType.mediaType(of: data), "the public image exercises decoder admission beyond the small signature list")
+        try assertDecoderSupportedImage(data, mediaType: "image/jxl", name: "image.jxl")
     }
 
     func testMultiHopFallbackSkipsUnavailableForeignAndRemoteHopsWithoutChangingOccurrence() throws {

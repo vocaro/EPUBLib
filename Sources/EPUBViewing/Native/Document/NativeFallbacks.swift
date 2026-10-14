@@ -7,8 +7,9 @@ import Foundation
 /// against the selected document's path, and every search uses this same selection.
 enum NativeFallbacks {
     static func isImage(_ resource: EPUBResource) -> Bool {
-        ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/heic",
-         "image/heif", "image/tiff", "image/bmp", "image/svg+xml"].contains(resource.mediaType.lowercased())
+        // ImageIO's supported formats vary by OS. The media family admits candidates; the
+        // bounded bitmap decoder or SVG sanitizer decides whether their bytes are usable.
+        resource.mediaType.lowercased().hasPrefix("image/")
     }
 
     static func resources(for original: EPUBResource, in publication: EPUBPublication) -> [EPUBResource] {
