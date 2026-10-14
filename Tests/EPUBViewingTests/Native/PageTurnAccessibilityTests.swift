@@ -37,8 +37,9 @@ import XCTest
         return text
     }
 
-    private func host(_ sections: [NSAttributedString], size: CGSize = CGSize(width: 420, height: 350)) -> CanvasHost {
-        let host = CanvasHost(FakeCanvasSource(sections), size: size)
+    private func host(_ sections: [NSAttributedString], size: CGSize = CGSize(width: 420, height: 350),
+                      linear: [Bool]? = nil) -> CanvasHost {
+        let host = CanvasHost(FakeCanvasSource(sections, linear: linear), size: size)
         hosts.append(host)
         host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
         host.layOut()
@@ -345,6 +346,122 @@ import XCTest
         XCTAssertTrue(posts.isEmpty)
     }
 
+    // MARK: VoiceOver reading on by itself
+
+    /// Whether VoiceOver, reading on by itself, turns the page once it has read `element`.
+    private func turnsThePage(_ element: UIAccessibilityElement) -> Bool {
+        element.accessibilityTraits.contains(.causesPageTurn)
+    }
+
+    /// VoiceOver reading on by itself (two fingers swiped down, Read All) turns the page after
+    /// every item that has `causesPageTurn`, by scrolling `.next` from it once it has read it
+    /// (`ReaderCanvasView.accessibilityPageTurnColumn`). So the page's last line alone has it,
+    /// and says and offers all it did besides.
+    func testThePagesLastLineAloneTurnsThePageForVoiceOverReadingOn() throws {
+        let plain = try elements(of: try XCTUnwrap(host([Self.lines(90)]).canvas.textViews.first))
+        let count = plain.count
+        XCTAssertGreaterThan(count, 4)
+        XCTAssertEqual(plain.map(turnsThePage), Array(repeating: false, count: count - 1) + [true])
+        // The same lines with a heading for that last line: a heading still, read and offered as before.
+        let canvas = host([Self.lines(90, heading: count)]).canvas
+        let view = try XCTUnwrap(canvas.textViews.first)
+        let listed = try elements(of: view)
+        XCTAssertEqual(listed.count, count)
+        let last = try XCTUnwrap(listed.last)
+        XCTAssertEqual(number(last), count)
+        XCTAssertEqual(last.accessibilityTraits, [.staticText, .header, .causesPageTurn])
+        XCTAssertEqual(answers(last).headingLevel, 2)
+        XCTAssertEqual((last.accessibilityCustomActions ?? []).map(\.name), ["Next Page", "Previous Page"])
+        for element in listed.dropLast() { XCTAssertEqual(element.accessibilityTraits, .staticText, "line \(number(element) ?? 0)") }
+        // VoiceOver's cursor is on the line it is reading, and once it has read it VoiceOver
+        // scrolls from it: the page turns and is announced, and the cursor's item is the next
+        // page's first line, from which VoiceOver reads on.
+        focus(last, from: listed[count - 2])
+        XCTAssertTrue(last.accessibilityScroll(.next))
+        XCTAssertEqual(posts.map(\.notification), [.pageScrolled, .layoutChanged])
+        XCTAssertEqual(posts.first?.argument as? String, "Page 2")
+        XCTAssertTrue(posts.last?.argument as? UIAccessibilityElement === last)
+        posts.removeAll()
+        let next = try elements(of: view)
+        XCTAssertTrue(next[0] === last, "the next page's first line, the item under the cursor")
+        XCTAssertEqual(number(last), count + 1)
+        XCTAssertEqual(last.accessibilityTraits, .staticText, "a line of words that turns nothing")
+        XCTAssertEqual(next.map(turnsThePage), Array(repeating: false, count: next.count - 1) + [true])
+        XCTAssertEqual(number(next.last), count + next.count)
+    }
+
+    /// The scroll VoiceOver makes from that item fails on the book's last page, and where it
+    /// fails VoiceOver scrolls a page to the right as well, which is the page before: no item
+    /// of the last page turns the page, so VoiceOver stops at its last line. A chapter the book
+    /// leaves out of its reading order is not turned to, and a page whose text is selected is
+    /// not turned by VoiceOver's scroll.
+    func testNoItemOfTheBooksLastPageOrOfAPageWithSelectedTextTurnsThePage() throws {
+        let canvas = host([Self.lines(40), Self.lines(5)], linear: [true, false]).canvas
+        let view = try XCTUnwrap(canvas.textViews.first)
+        XCTAssertTrue(try XCTUnwrap(try elements(of: view).last).accessibilityTraits.contains(.causesPageTurn))
+        // Selected text holds the page, and VoiceOver's scroll with it.
+        view.selectedRange = NSRange(location: 0, length: 4)
+        XCTAssertTrue(canvas.hasSelection)
+        XCTAssertFalse(try elements(of: view).contains(where: turnsThePage))
+        XCTAssertFalse(canvas.accessibilityScroll(.next))
+        canvas.clearSelection()
+        XCTAssertTrue(try XCTUnwrap(try elements(of: view).last).accessibilityTraits.contains(.causesPageTurn))
+        // The book's last page in its reading order: the chapter's last.
+        while canvas.canTurnPage(forward: true) == true { XCTAssertEqual(canvas.turnPage(forward: true), .turned) }
+        XCTAssertEqual(canvas.visibleRange?.start.section, 0)
+        let listed = try elements(of: view)
+        XCTAssertEqual(number(listed.last), 40)
+        XCTAssertFalse(listed.contains(where: turnsThePage))
+        let last = try XCTUnwrap(listed.last)
+        focus(last)
+        posts.removeAll()
+        XCTAssertFalse(last.accessibilityScroll(.next))
+        XCTAssertTrue(posts.isEmpty)
+        XCTAssertEqual(number(try elements(of: view).last), 40)
+        XCTAssertTrue(try elements(of: view).last === last)
+    }
+
+    /// Read on as VoiceOver does it, item after item with its cursor on each, and from an item
+    /// that turns the page a scroll `.next` once it has read it: every line of the book once
+    /// and in order, through each chapter's end, and no turn after the last. In one column and
+    /// in a spread, where the left-hand page is read through before the spread turns.
+    func testReadingOnByItselfReadsEveryLineOnceThroughPagesAndSpreadsAndStopsAtTheEnd() throws {
+        for size in [CGSize(width: 420, height: 350), CGSize(width: 1100, height: 420)] {
+            let canvas = host([Self.lines(100), Self.lines(30)], size: size).canvas
+            let spread = canvas.textViews.count == 2
+            XCTAssertEqual(spread, size.width > 1000)
+            var read: [String] = [], cursor: UIAccessibilityElement?, turns = 0
+            while turns < 80 {
+                let section = try XCTUnwrap(canvas.visibleRange?.start.section)
+                let columns = try canvas.textViews.map { try elements(of: $0) }
+                let items = columns.flatMap { $0 }
+                if let cursor { XCTAssertTrue(items.first === cursor, "\(size) turn \(turns): read on from the page's first line") }
+                for item in items {
+                    if item !== cursor { focus(item, from: cursor) }
+                    cursor = item
+                    read.append("\(section):\(number(item) ?? 0)")
+                }
+                XCTAssertFalse(columns.dropLast().joined().contains(where: turnsThePage), "\(size) turn \(turns): no turn from the left-hand page")
+                let turning = items.filter(turnsThePage)
+                guard let last = items.last, canvas.canTurnPage(forward: true) == true else {
+                    XCTAssertTrue(turning.isEmpty, "\(size): the book's last page turns nothing")
+                    posts.removeAll()
+                    XCTAssertFalse(items.last?.accessibilityScroll(.next) ?? true)
+                    XCTAssertTrue(posts.isEmpty)
+                    break
+                }
+                XCTAssertTrue(turning.count == 1 && turning[0] === last, "\(size) turn \(turns): the last item of the last column alone")
+                XCTAssertTrue(last.accessibilityScroll(.next), "\(size) turn \(turns)")
+                XCTAssertEqual(posts.map(\.notification), [.pageScrolled, .layoutChanged], "\(size) turn \(turns)")
+                XCTAssertTrue(posts.last?.argument as? UIAccessibilityElement === last, "\(size) turn \(turns)")
+                posts.removeAll()
+                turns += 1
+            }
+            XCTAssertEqual(read, (1...100).map { "0:\($0)" } + (1...30).map { "1:\($0)" }, "\(size)")
+            XCTAssertGreaterThan(turns, spread ? 2 : 5, "\(size)")
+        }
+    }
+
     func testAPositionShownSendsTheCursorToTheLineThatHoldsIt() throws {
         let canvas = host([Self.lines(120)]).canvas
         let view = try XCTUnwrap(canvas.textViews.first)
@@ -520,8 +637,11 @@ import XCTest
         XCTAssertEqual(fresh.map { $0[0].actions }, [
             turns, turns + ["Select Table Text: Left cell", "Select Table Text: Right cell jump", "Follow Table Link: Right cell jump"],
             turns + ["Inspect Image: Square with words"], turns, turns, turns, turns, turns])
+        // The closing page's one line is its last too, and turns the page to the notes for
+        // VoiceOver reading on by itself.
         XCTAssertEqual(fresh.map { $0[0].traits }, [
-            .staticText, .staticText, [.staticText, .image], .link, [.staticText, .header], [.staticText, .image], [], .staticText])
+            .staticText, .staticText, [.staticText, .image], .link, [.staticText, .header], [.staticText, .image], [],
+            [.staticText, .causesPageTurn]])
         XCTAssertEqual(fresh.map { $0[0].headingLevel }, [nil, nil, nil, nil, 2, nil, nil, nil])
         XCTAssertNotNil(fresh[5][0].language, "a formula's reading has a language of its own")
         XCTAssertEqual(fresh.map { $0[0].language == nil }, [true, true, true, true, true, false, true, true])
@@ -656,6 +776,12 @@ import XCTest
         let ledger = sections.indices.filter { sections[$0] == 4 }
         XCTAssertGreaterThan(ledger.count, 2, "the long table must take three pages for a turn from cell to cell inside it")
         XCTAssertEqual(sections.filter { $0 != 4 }, [0, 1, 2, 3, 5], "every other section is one page")
+        // Each page's last item turns the page for VoiceOver reading on by itself, and no other
+        // item: a cell of the long table where the table goes on over the page's end.
+        for (place, page) in fresh.enumerated() {
+            XCTAssertEqual(page.map { $0.traits.contains(.causesPageTurn) }, page.indices.map { $0 == page.count - 1 }, "page \(place)")
+        }
+        XCTAssertTrue(ledger.dropLast().allSatisfy { fresh[$0].last?.rows != nil }, "a page inside the long table ends with a cell")
         // What each page opens with: lines, then a cell of each kind, the long table's pages, lines.
         let opens = fresh.map { $0[0] }
         XCTAssertEqual(opens.map { $0.rows != nil }, [false, true, true, true] + ledger.map { _ in true } + [false])

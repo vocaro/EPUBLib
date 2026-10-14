@@ -367,6 +367,12 @@ final class ReaderTextView: UITextView {
     /// Every line and every table cell listed, in reading order.
     private var lineAccessibilityElements: [ReaderPageAccessibilityElement] { accessibilityList.elements }
 
+    /// The item VoiceOver reads last in a page column: its last line, or the last cell of a
+    /// data table that ends the page.
+    fileprivate var lastAccessibilityItem: ReaderPageAccessibilityElement? {
+        isPageColumn ? pageAccessibilityElements.elements.last : nil
+    }
+
     /// What the view lists: its lines, a table's cells inside an element for the table, and
     /// after them a stand-in for each of the scroll view's own bars.
     private var listedAccessibilityElements: [NSObject] { accessibilityList.listed + (scrollBarListed as [NSObject]) }
@@ -1101,9 +1107,24 @@ private struct ReaderAccessibilityList {
     }
 
     // VoiceOver says "Selected" of such an item whenever it comes to it, in its own language.
+    // The page's last item turns the page when VoiceOver reads on past it by itself
+    // (`ReaderCanvasView.accessibilityPageTurnColumn`). Both are asked of the reader each time,
+    // never kept: the item under VoiceOver's cursor goes on as another line when the page turns
+    // (`stand(for:)`).
     override var accessibilityTraits: UIAccessibilityTraits {
-        get { holdsSelection ? super.accessibilityTraits.union(.selected) : super.accessibilityTraits }
-        set { super.accessibilityTraits = newValue.subtracting(.selected) }
+        get {
+            var traits = super.accessibilityTraits
+            if holdsSelection { traits.insert(.selected) }
+            if turnsThePage { traits.insert(.causesPageTurn) }
+            return traits
+        }
+        set { super.accessibilityTraits = newValue.subtracting([.selected, .causesPageTurn]) }
+    }
+
+    /// Whether this is the last item of the column that turns the page for VoiceOver reading on.
+    private var turnsThePage: Bool {
+        guard let view, view.isPageColumn, view.lastAccessibilityItem === self, let canvas = view.canvas else { return false }
+        return canvas.accessibilityPageTurnColumn === view
     }
 
     /// An action of a table's cell as VoiceOver is given it. VoiceOver keeps what an item says

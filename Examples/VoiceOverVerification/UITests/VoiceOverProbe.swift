@@ -130,12 +130,14 @@ import XCUIAutomation
         // took 40 to 50 seconds on a busy Mac, by its log waiting for the voice database, while
         // `enable()` returned in a few. Until VoiceOver speaks, touches reach the reader as
         // plain touches and every move fails. `currentSpeech()` waits a second itself.
+        // `VOICEOVER_START_LIMIT` waits longer than three minutes, on a Mac other sessions keep busy.
         var silence: TimeInterval = 0
+        let startLimit = environment["VOICEOVER_START_LIMIT"].flatMap(TimeInterval.init) ?? 180
         if !wasEnabled, voiceOver.isEnabled {
             let opened = Date()
             while (try? voiceOver.currentSpeech()) == nil {
                 silence = Date().timeIntervalSince(opened)
-                guard silence < 180 else {
+                guard silence < startLimit else {
                     note("voiceOver", "STOPPED: on but silent for \(Int(silence)) s")
                     XCTFail("VoiceOver is on but says nothing")
                     return
@@ -332,6 +334,13 @@ import XCUIAutomation
                 }
                 unchosen = !found
                 if !found { note(step, "MISSING") }
+            case "readall":
+                // VoiceOver reading on by itself, as two fingers swiped down start it: its
+                // Read All key, Control-Option-A, from the item under its cursor. `readall=top`
+                // is Control-Option-B, from the top of the screen. XCTest has no two-finger
+                // swipe; a simulator's VoiceOver takes its keys. Nothing is recorded here:
+                // `listen=` after it records what VoiceOver reads, and a touch or a move stops it.
+                app.typeKey(parts.last == "top" ? "b" : "a", modifierFlags: [.control, .option])
             case "listen":
                 // Every phrase VoiceOver speaks in that many seconds, where a step records one:
                 // what it says by itself after a change, in the order it says it.

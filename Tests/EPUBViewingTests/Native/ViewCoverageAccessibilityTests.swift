@@ -425,7 +425,8 @@ import UIKit
                        "one stop for each rule, where it stands, and none for the break after it")
         XCTAssertEqual(ReaderRuleAttachment.spokenName, "Separator")
         XCTAssertFalse(elements.contains { $0.accessibilityTraits.contains(.image) }, "a rule is not a picture")
-        XCTAssertEqual(elements.map(\.accessibilityTraits), [.staticText, [], .staticText, .link, .staticText],
+        // The page's last line turns the page to the next section for VoiceOver reading on.
+        XCTAssertEqual(elements.map(\.accessibilityTraits), [.staticText, [], .staticText, .link, [.staticText, .causesPageTurn]],
                        "nor words of the book; inside a link it is the link")
         for element in elements {
             let frame = element.accessibilityFrameInContainerSpace

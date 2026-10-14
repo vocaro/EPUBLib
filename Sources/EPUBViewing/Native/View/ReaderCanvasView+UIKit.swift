@@ -292,8 +292,17 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// right to left), and the page is announced. The cursor is sent to the new page after
     /// the announcement: VoiceOver then says the page's number and the line, where for the
     /// two posted the other way round it said the line alone (iOS 27.0 simulator).
+    ///
+    /// VoiceOver reading on by itself (Read All) scrolls `.next` from the item that turns the
+    /// page (`accessibilityPageTurnColumn`) once it has read it. The same announcement is
+    /// posted then. UIKit asks for a page-scrolled notification after every scroll that
+    /// succeeds, VoiceOver goes on reading from its handling of that notification
+    /// (`-[VOTElementManager _handleScrollByPageNotification:]`), and it takes one whose words
+    /// are those of the scroll before, or one with no words, for an end it has come to.
+    /// Reading on, it plays its page sound for it and does not say the words, and it ignores
+    /// the layout change (iOS 27.0 simulator).
     override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
-        guard imageInspector == nil, configuration.flow == .paginated, !hasSelection, !isDraggingSelection else { return false }
+        guard canScrollForAccessibility else { return false }
         let forward: Bool
         switch direction {
         case .left: forward = !configuration.isRightToLeft
@@ -309,6 +318,35 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         if let shownPage { postAccessibilityNotification(.pageScrolled, "Page \(shownPage.page + 1)") }
         accessibilityCursorFollowsThePage(to: visibleRange?.start)
         return true
+    }
+
+    /// Whether VoiceOver's scroll turns the page now: in pages, with no image inspected and
+    /// no text selected or being selected.
+    private var canScrollForAccessibility: Bool {
+        imageInspector == nil && configuration.flow == .paginated && !hasSelection && !isDraggingSelection
+    }
+
+    /// The column whose last item turns the page for VoiceOver when it reads on by itself, two
+    /// fingers swiped down or Read All: the last column shown, which is the page's last in
+    /// one column and the right-hand page of a spread (the left-hand one in a book read right
+    /// to left, `accessibilityElements`), so that a spread is read through before it turns.
+    /// None where VoiceOver's scroll would turn nothing: on the book's last page, where reading
+    /// stops at its last line, and while a selection holds the page.
+    ///
+    /// The item says so by `UIAccessibilityTraits.causesPageTurn`. VoiceOver, reading on, turns
+    /// the page after every item that has it, so no other item has it: with it on every line it
+    /// would turn the page after the first. And it scrolls `.next` from that item once it has
+    /// read it, and where that fails a page to the right as well
+    /// (`-[VOTElementManager _handleBookPageFlipAndContinue]`, iOS 27.0 simulator), which in a
+    /// book read left to right is the page before: the last page has no such item.
+    ///
+    /// What VoiceOver reads after the turn is its own and the host's: in the sample, whose
+    /// controls stand above the reader, it read on from the top of the screen, the controls
+    /// and then the page from its first line, and with no controls there it stopped after the
+    /// turn (iOS 27.0 simulator, `doc/native-viewer.md`, "Input and accessibility").
+    var accessibilityPageTurnColumn: ReaderTextView? {
+        guard canScrollForAccessibility, canTurnPage(forward: true) == true else { return nil }
+        return columns.last { !$0.isHidden }
     }
 
     /// Keeps an assistive technology's cursor in the text when the line it was on is no longer
