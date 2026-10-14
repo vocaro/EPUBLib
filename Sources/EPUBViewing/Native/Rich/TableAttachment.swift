@@ -74,9 +74,10 @@ final class TableRowAttachment: ReaderAttachment {
     }
 
     /// The row has nothing to say where it stands: its cells hold no words there, and nothing
-    /// but decoration besides, as a row that spaces out a table used for layout does. A link is
-    /// something to follow whatever it holds, and a rule or a formula something to say, so a
-    /// row that holds one is not such a row.
+    /// but decoration besides, as a row that spaces out a table used for layout does, or images
+    /// and rules the book keeps from assistive technology. A link is something to follow
+    /// whatever it holds, and any other rule or a formula something to say, so a row that
+    /// holds one is not such a row.
     var saysNothing: Bool {
         guard cellWords.allSatisfy({ $0.allSatisfy(\.isWhitespace) }) else { return false }
         if let fragment, let layout = fragmentLayout {
@@ -94,7 +95,8 @@ final class TableRowAttachment: ReaderAttachment {
         var silent = true
         content.enumerateAttributes(in: range) { attributes, _, stop in
             if attributes[.link] != nil { silent = false }
-            else if let image = attributes[.attachment] as? ReaderImageAttachment { silent = image.alternative == .decorative }
+            else if let image = attributes[.attachment] as? ReaderImageAttachment { silent = image.isPassedOverByAssistiveTechnology }
+            else if let rule = attributes[.attachment] as? ReaderRuleAttachment { silent = rule.isHiddenFromAssistiveTechnology }
             else if let row = attributes[.attachment] as? TableRowAttachment { silent = row.saysNothing }
             else if attributes[.attachment] != nil { silent = false }
             if !silent { stop.pointee = true }
@@ -108,7 +110,8 @@ final class TableRowAttachment: ReaderAttachment {
         /// The words the cell shows here and has not said in a row above: all of them where
         /// it starts in a whole row, a continuation's own in pages.
         var text: String
-        /// The pictures among them that say something: not the ones the book marks as decoration.
+        /// The pictures among them that say something: not the ones the book marks as decoration
+        /// or keeps from assistive technology.
         var images: [ReaderImageAttachment]
         /// Where each of those pictures is drawn, in the row's coordinates.
         var imageFrames: [CGRect]
@@ -116,7 +119,8 @@ final class TableRowAttachment: ReaderAttachment {
         var frame: CGRect
         /// The cell begins here: in this row, at its top.
         var starts: Bool
-        /// The cell has nothing to say anywhere: no words, and no picture but decoration.
+        /// The cell has nothing to say anywhere: no words, and no picture but decoration or ones
+        /// the book keeps from assistive technology.
         var isBlank: Bool
     }
 
@@ -147,8 +151,8 @@ final class TableRowAttachment: ReaderAttachment {
                 lines = own
             }
             let isBlank = table.cells[index].text.isEmpty
-                && text.images(in: 0..<text.lines.count).allSatisfy { $0.image.alternative == .decorative }
-            let images = text.images(in: lines).filter { $0.image.alternative != .decorative }
+                && text.images(in: 0..<text.lines.count).allSatisfy { $0.image.isPassedOverByAssistiveTechnology }
+            let images = text.images(in: lines).filter { !$0.image.isPassedOverByAssistiveTechnology }
             let content = layout.contentFrames[index].origin
             return SpokenCell(cell: index, text: words, images: images.map(\.image),
                               imageFrames: images.map {

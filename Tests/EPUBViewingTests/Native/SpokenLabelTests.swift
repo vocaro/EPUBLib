@@ -105,6 +105,11 @@ import UIKit
             ("<p class='sr' style='display:none'>Not there</p><p>Shown.</p>", []),
             // A box with no words says nothing.
             ("<p class='sr'> \n </p><p class='sr'><img alt='' src='map.png'/></p><p>Shown.</p>", []),
+            // A picture with a presentational role stands for nothing, unless ARIA ignores the
+            // role, as it does for one with a global ARIA attribute.
+            ("<p class='sr'>Figure <img alt='Unsaid' role='presentation' src='map.png'/><img alt='Unheard' role='none' src='map.png'/> said "
+                + "<img alt='Named' role='presentation' aria-describedby='note' src='map.png'/><svg xmlns='http://www.w3.org/2000/svg' "
+                + "role='none'><title>Undrawn</title></svg>.</p>", ["Figure said Named ."]),
         ] {
             XCTAssertEqual(try labels(body, files: image).map(\.text), expected, body)
         }

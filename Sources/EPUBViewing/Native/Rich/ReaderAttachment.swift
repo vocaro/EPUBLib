@@ -75,6 +75,9 @@ class ReaderAttachment: NSTextAttachment, ReaderTextualAttachment {
     /// VoiceOver is given for it. Nothing by default: a rule has no words, and what VoiceOver
     /// says at one is the reader's own (`ReaderRuleAttachment.spokenName`).
     var textEquivalent: String { "" }
+    /// What VoiceOver is given in place of the attachment character: `textEquivalent`, unless
+    /// the book keeps the attachment from assistive technology.
+    var spokenEquivalent: String { textEquivalent }
     /// The language `textEquivalent` is spoken in, when it is known to differ from the text around it.
     var textLanguage: String? { nil }
 
@@ -124,6 +127,11 @@ final class ReaderRuleAttachment: ReaderAttachment {
     let alignment: Alignment
     let color: PlatformColor
     let fontSize: CGFloat
+    /// The book keeps the rule from assistive technology, with `aria-hidden` or a
+    /// presentational role (`ContentSemantics.isHiddenFromAssistiveTechnology`), as ornament
+    /// and not a break. It is drawn all the same. Assistive technology passes over it where
+    /// nothing else keeps it (a link it is all of, `NSAttributedString.passesOver`).
+    let isHiddenFromAssistiveTechnology: Bool
 
     enum Alignment: Sendable { case leading, center, trailing }
 
@@ -148,7 +156,8 @@ final class ReaderRuleAttachment: ReaderAttachment {
     }
     #endif
 
-    init(style: ComputedStyle, isDark: Bool) {
+    init(style: ComputedStyle, isDark: Bool, isHiddenFromAssistiveTechnology: Bool = false) {
+        self.isHiddenFromAssistiveTechnology = isHiddenFromAssistiveTechnology
         width = style.width
         let border = style.border.top
         thickness = border.isVisible ? min(max(border.width, 1), 8) : 1

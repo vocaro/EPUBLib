@@ -272,7 +272,7 @@ extension ReaderCanvasView: NSTextViewDelegate {
         while let found = bookHeading(from: from, forward: forward) {
             from = found.position
             guard let text = dataSource?.text(forSection: found.section),
-                  let label = ReaderTextView.headingLabel(text.readerPlainText(in: found.range), level: found.heading.level),
+                  let label = ReaderTextView.headingLabel(text.readerPlainText(in: found.range, spoken: true), level: found.heading.level),
                   filter.isEmpty || label.localizedCaseInsensitiveContains(filter) else { continue }
             let shown = shownHeading(found)
             let result = shown.map { NSAccessibilityCustomRotor.ItemResult(targetElement: $0.view) }
@@ -358,7 +358,7 @@ extension ReaderCanvasView: NSTextViewDelegate {
         while let found = bookHeading(from: from, forward: true) {
             from = found.position
             guard let text = dataSource?.text(forSection: found.section) else { return nil }
-            let words = text.readerPlainText(in: found.range).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            let words = text.readerPlainText(in: found.range, spoken: true).split(whereSeparator: \.isWhitespace).joined(separator: " ")
             if !words.isEmpty { return (found, words) }
         }
         return nil

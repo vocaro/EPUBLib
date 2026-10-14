@@ -1262,6 +1262,38 @@ import XCTest
         XCTAssertEqual(listed.filter { $0.accessibilityLabel == "Separator" }.count, 1)
     }
 
+    /// A rule and a picture the book keeps from assistive technology, on screen in continuous
+    /// scroll: no stop at the rule, and the picture's line without its words, from either side.
+    func testARuleAndAPictureKeptFromAssistiveTechnologyAreNoStopsOnScreen() async throws {
+        let picture = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\"><rect width=\"20\" height=\"20\" fill=\"#246\"/></svg>"
+        let prose = (1...40).map { "<p>p\($0) " + CanvasText.sentence(50, seed: $0) + "</p>" }.joined()
+        let reader = try SessionCoverageReader(try SessionCoverageBook.epub([
+            SessionCoverageBook.Section("scenes", "<p>First scene ends.</p><hr role=\"presentation\"/><p>Second scene starts.</p>"
+                                        + "<p>Kept <img alt=\"Kept words\" aria-hidden=\"true\" src=\"square.svg\"/> passed.</p>" + prose,
+                                        title: "Scenes")],
+            manifest: "<item id=\"square\" href=\"square.svg\" media-type=\"image/svg+xml\"/>", files: ["OPS/square.svg": picture]))
+        readers.append(reader)
+        reader.window?.resize(to: CGSize(width: 402, height: 874))
+        try await reader.settle()
+        try await reader.session.send(.style(EPUBReaderStyle(flow: .scrolled)))
+        try await reader.wait("the whole book in the scroll view") { reader.session.canvas?.scrollBook != nil }
+        try await reader.settle()
+        let canvas = try XCTUnwrap(reader.session.canvas), view = try XCTUnwrap(canvas.scrollTextView)
+
+        let listed = try elements(of: view)
+        XCTAssertEqual(listed.prefix(3).map { $0.accessibilityLabel ?? "" }, ["First scene ends.\n", "Second scene starts.\n", "Kept  passed.\n"])
+        XCTAssertTrue(listed.count > 3 && (listed[3].accessibilityLabel ?? "").hasPrefix("p1 "), "then the prose: \(listed.count) listed")
+        XCTAssertFalse(listed.contains { $0.accessibilityLabel == "Separator" || $0.accessibilityTraits.contains(.image) })
+        focus(listed[0], from: nil, in: view)
+        let next = try XCTUnwrap(try move(from: listed[0], forward: true, in: view))
+        XCTAssertEqual(next.accessibilityLabel, "Second scene starts.\n")
+        let kept = try XCTUnwrap(try move(from: next, forward: true, in: view))
+        XCTAssertEqual(kept.accessibilityLabel, "Kept  passed.\n")
+        XCTAssertTrue(try XCTUnwrap(try move(from: kept, forward: false, in: view)) === next)
+        XCTAssertTrue(try XCTUnwrap(try move(from: next, forward: false, in: view)) === listed[0], "moving back passes over the rule too")
+        XCTAssertTrue(view.plainText(in: NSRange(location: 0, length: 80)).contains("Kept Kept words passed."), "what Copy takes")
+    }
+
     /// What VoiceOver is given for a line. UIKit hands it the line's own actions and then those
     /// of everything that holds the line, up to the window: its text view, the canvas and the
     /// views above them.
