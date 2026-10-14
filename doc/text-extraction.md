@@ -35,7 +35,10 @@ trusted classifications nor instructions, and are not inferred from filenames or
 Text includes body character data in document order, joins inline markup without inserting spaces
 inside words, and separates common block elements and line breaks. Script, style and template
 subtrees are excluded. XML entities and CDATA are decoded. Whitespace is normalized to single spaces
-within lines and single newlines at block boundaries. This is structural text extraction, not a
+within lines and single newlines at block boundaries. Whitespace normalization operates on
+Unicode scalars, so combining marks following a space or
+no-break space remain in body text, headings, image alternatives and MathML text
+([#89](https://github.com/vocaro/EPUBLib/issues/89)). This is structural text extraction, not a
 browser's computed visible-text representation: CSS layout, generated content, image OCR and
 external resources are not evaluated. No page numbers or engine-specific bookmarks are invented.
 
