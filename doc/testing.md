@@ -1374,6 +1374,10 @@ selection and the numbered-word span of its value:
   `in` then starts on that line and `right` reads the word.
 - `follow=WORDS`: press the link that names the words or holds them, in a column or in a
   cell, by its own action and without VoiceOver.
+- `focused`: print what holds the keyboard focus, which VoiceOver follows while its cursor
+  tracking is on: `FOCUSED AXTextArea COLUMN` for a column, `FOCUSED AXTextArea CELL` for a
+  table cell's text area, a control, or `FOCUSED AXWindow` where the window itself holds it.
+  VoiceOver gives the focus to each text area it moves to, a cell's among them.
 - `wait=SECONDS`: only observe. Without steps the observer only observes; a single step of
   `-` reads steps from standard input.
 

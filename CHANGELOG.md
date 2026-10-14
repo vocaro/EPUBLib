@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Keep VoiceOver in the text on Mac when a page turns with its cursor on a table row's element ([#485](https://github.com/vocaro/EPUBLib/issues/485)).
 - Keep combining marks following whitespace in extracted text and alternatives ([#89](https://github.com/vocaro/EPUBLib/issues/89)).
 - Preserve every metadata language and identifier when writing a publication ([#95](https://github.com/vocaro/EPUBLib/issues/95)).
 - Keep compatible XHTML public identifiers on the XML path with working CFIs ([#101](https://github.com/vocaro/EPUBLib/issues/101)).
