@@ -164,6 +164,13 @@ extension ReaderTextView {
         return storage.readerPlainText(in: NSIntersectionRange(range, NSRange(location: 0, length: storage.length)))
     }
 
+    /// What VoiceOver is given of `range` (clamped): `plainText(in:)`, without the words of an
+    /// image the book keeps from assistive technology (`ReaderTextualAttachment.spokenEquivalent`).
+    func spokenText(in range: NSRange) -> String {
+        guard let storage = contentStorage.textStorage else { return "" }
+        return storage.readerPlainText(in: NSIntersectionRange(range, NSRange(location: 0, length: storage.length)), spoken: true)
+    }
+
     /// The characters the reader sees: a page column's own page, without its clipped context.
     var shownCharacters: NSRange { NSRange(location: 0, length: min(placement.visibleLength, textLength)) }
 

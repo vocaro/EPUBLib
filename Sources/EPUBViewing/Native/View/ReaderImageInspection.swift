@@ -62,7 +62,7 @@ extension ReaderCanvasView {
         #else
         let responder = window.flatMap { Self.firstResponder(in: $0) }
         #endif
-        let inspector = ReaderImageInspector(bitmap: bitmap, label: attachment.alt, dark: configuration.isDark)
+        let inspector = ReaderImageInspector(bitmap: bitmap, label: attachment.spokenAlt, dark: configuration.isDark)
         inspector.onClose = { [weak self, weak inspector, weak responder, weak hostWindow] in
             inspector?.removeFromSuperview()
             self?.imageInspector = nil
@@ -93,12 +93,13 @@ extension ReaderCanvasView {
 }
 
 extension NSAttributedString {
-    /// Whether assistive technology passes over `image`, which stands at `range` of this text,
-    /// a section's or a table cell's: one the book marks as decoration with an empty `alt`.
-    /// Decoration that is all its link holds is the link and stays, because a link has to be
-    /// reachable whatever its image's `alt` says.
-    func passesOver(_ image: ReaderImageAttachment, at range: NSRange) -> Bool {
-        guard image.alternative == .decorative else { return false }
+    /// Whether assistive technology passes over `attachment`, which stands at `range` of this
+    /// text, a section's or a table cell's: an image the book marks as decoration with an
+    /// empty `alt`, and an image or a rule it keeps from assistive technology with
+    /// `aria-hidden` or a presentational role. One that is all its link holds is the link and
+    /// stays, because a link has to be reachable whatever its image or rule says.
+    func passesOver(_ attachment: NSTextAttachment, at range: NSRange) -> Bool {
+        guard Self.isPassedOverAlone(attachment) else { return false }
         guard range.location < length else { return true }
         var link = NSRange()
         guard attribute(.link, at: range.location, longestEffectiveRange: &link,
@@ -106,12 +107,18 @@ extension NSAttributedString {
         // Anything else in the link that can be read carries it.
         var carried = false
         enumerateAttribute(.attachment, in: link) { value, run, stop in
-            if let other = value as? ReaderImageAttachment { carried = other.alternative != .decorative }
-            else if let value { carried = (value as? ReaderTextualAttachment)?.textEquivalent.isEmpty == false }
+            if let other = value as? ReaderImageAttachment { carried = !other.isPassedOverByAssistiveTechnology }
+            else if let value { carried = (value as? ReaderTextualAttachment)?.spokenEquivalent.isEmpty == false }
             else { carried = !(string as NSString).substring(with: run).allSatisfy(\.isWhitespace) }
             stop.pointee = ObjCBool(carried)
         }
         return carried
+    }
+
+    /// Whether assistive technology passes over `attachment` where no link keeps it.
+    static func isPassedOverAlone(_ attachment: NSTextAttachment) -> Bool {
+        if let image = attachment as? ReaderImageAttachment { return image.isPassedOverByAssistiveTechnology }
+        return (attachment as? ReaderRuleAttachment)?.isHiddenFromAssistiveTechnology == true
     }
 }
 
@@ -133,18 +140,19 @@ extension ReaderTextView {
         return result
     }
 
-    /// Whether assistive technology passes over `image`, which stands at `range`
-    /// (`NSAttributedString.passesOver`).
-    func isPassedOver(_ image: ReaderImageAttachment, at range: NSRange) -> Bool {
-        contentStorage.textStorage?.passesOver(image, at: range) ?? (image.alternative == .decorative)
+    /// Whether assistive technology passes over `attachment`, an image or a rule, which stands
+    /// at `range` (`NSAttributedString.passesOver`).
+    func isPassedOver(_ attachment: NSTextAttachment, at range: NSRange) -> Bool {
+        contentStorage.textStorage?.passesOver(attachment, at: range) ?? NSAttributedString.isPassedOverAlone(attachment)
     }
 
     /// The images of `range` that assistive technology is told of: `imageAttachments(in:)`
-    /// without the decoration it passes over, in the text or in a table's cells.
+    /// without the decoration it passes over, nor the images the book keeps from it, in the
+    /// text or in a table's cells.
     func announcedImages(in range: NSRange? = nil) -> [(image: ReaderImageAttachment, range: NSRange)] {
         let storage = contentStorage.textStorage
         return imageAttachments(in: range).filter { image, run in
-            guard image.alternative == .decorative else { return true }
+            guard image.isPassedOverByAssistiveTechnology else { return true }
             // A table row's images share the row's character and have no link of the text's.
             return storage?.attribute(.attachment, at: run.location, effectiveRange: nil) as? ReaderImageAttachment === image
                 && !isPassedOver(image, at: run)

@@ -220,7 +220,29 @@ continues to describe the authored spine resource.
   says nothing for it by line or in Read All, and moving by word its cursor takes one step
   across it for which no phrase was recorded. An image without words has no help text on
   Mac, where VoiceOver reads the help of an element without a label in the label's place.
-  Not read: `role="presentation"`, `aria-hidden` and `aria-label` on an image. On
+  A book can also keep an image from assistive technology, whatever its `alt` says:
+  with `aria-hidden="true"` on the image or on an element round it, or with the role
+  `presentation` or `none` (`ContentSemantics.isHiddenFromAssistiveTechnology`). The reader
+  maps both as WAI-ARIA 1.2 and HTML-AAM do, to assistive technology alone. The image is
+  drawn, and its words still stand for it in selections, copies and search, as a browser
+  copies them: "passed over" is told apart from "has no words" (`ImageAlternative`), and only
+  VoiceOver goes without them (`spokenEquivalent`). It passes over such an image as it does
+  decoration, with no element, no name and no inspection action, in a line, in a heading
+  and in a link's name, and what keeps decoration listed keeps it listed, as an image
+  without a name: being all its link holds, and being all a page or a screen holds on
+  iPhone and iPad. The book hid the words, so the link that is such a picture alone is an
+  image link without a name. ARIA ignores a presentational role on an element that can take
+  focus (`tabindex`) or that has a global ARIA attribute, such as `aria-label` or
+  `aria-describedby`, and such an image is read as any other; the role is the first token
+  of `role` that names one. `aria-hidden="false"` hides nothing, and a presentational role
+  on an element round the image does not reach it. A hidden label reads nothing for an
+  image or an inline SVG with a presentational role. Where such an image cannot be drawn,
+  its words are shown in its place as text and read as text. In a table cell the words of
+  such an image are still read: on iPhone and iPad in the cell's text, and on Mac in what
+  its row is called. They are the words a copy of the row takes
+  ([#551](https://github.com/vocaro/EPUBLib/issues/551)). Shown text with `aria-hidden` is
+  read as any other ([#552](https://github.com/vocaro/EPUBLib/issues/552)), and an image is
+  not named by `aria-label` ([#167](https://github.com/vocaro/EPUBLib/issues/167)). On
   iPhone and iPad an image in a table cell is read by its words in the cell's text, and one
   without words is not announced there. On Mac a cell is a text area of its own, which
   VoiceOver reaches by interacting with the cell's row (in a table of data, with the row's
@@ -267,8 +289,20 @@ continues to describe the authored spine resource.
   element a hidden label already has. In a link on Mac a rule gives way to the link: one
   that is all its link holds, or that opens a link of words, has the link's element in its
   place, without a name ("Links for VoiceOver on Mac" below), and one elsewhere in a link
-  has its own. No rule in a link was heard. Not read: `role="presentation"` and
-  `aria-hidden` on a rule, which is announced like any other. On Mac a table cell is a
+  has its own. No rule in a link was heard. A rule the book keeps from assistive
+  technology, as ornament and not a break, with `aria-hidden="true"` or the role
+  `presentation` or `none`, under the same exceptions as an image, has no stop on iPhone
+  and iPad and no element on Mac. On Mac, outside a link, it is given as a table row that
+  has nothing to say is: its character and the break after it are spaces, one for one, and
+  its line is part of the line after it, so VoiceOver stops on it neither by line nor by
+  word, where a line of its own would be a stop in silence. One that ends a page has no
+  line after it there and is a line of spaces, where VoiceOver stops once, by line and in
+  Read All, and says nothing, as at such a row
+  ([#529](https://github.com/vocaro/EPUBLib/issues/529)). One that is all its link holds
+  is the link still, and on iPhone and iPad a page that holds such a rule alone lists it as
+  a separator, since VoiceOver has no other place there to turn the page from. Until
+  [#408](https://github.com/vocaro/EPUBLib/issues/408) such a rule was announced as any
+  other. On Mac a table cell is a
   text area of its own, which VoiceOver reaches by interacting with the row and then with
   the cell. A rule in a cell has the same element there, and VoiceOver says "Separator" at
   it by line, by word and reading on, in pages and in continuous scroll, and as it reads
@@ -1763,7 +1797,8 @@ as they did.
   A heading is one such child however many lines it takes, with the header trait and its
   level; on Mac a column's rich text carries each heading's level and the column has a
   Headings rotor for the book (see "Input and accessibility").
-  Decoration in a line is part of that line's element and adds nothing to it
+  Decoration in a line is part of that line's element and adds nothing to it, nor does an
+  image the book keeps from assistive technology, whose words it leaves out
   ("Alternative text" under Decisions).
   The canvas lists its columns to VoiceOver in source order; by their frames alone a column
   lowered by top spacing, or the first column of a right-to-left spread, would be read second.
@@ -2137,9 +2172,11 @@ The following are the defaults. Host commands and accessibility actions stay ena
   first of the lines the scroll view lists (see "Continuous scroll" under Layout). Text that
   a book hides from the page and keeps for assistive technology is read where it stands, as
   text ([hidden labels](#floats-and-positioned-boxes)). An image is read by its `alt`, one
-  with an empty `alt` is passed over, and one with none is announced as an image without a
-  name ("Alternative text" under Decisions). At a rule VoiceOver says "Separator", from a
-  stop of its own on iPhone and iPad and from an element in the text on Mac ("Rules" under
+  with an empty `alt` is passed over, and so is one the book keeps from assistive
+  technology with `aria-hidden` or a presentational role, and one with no `alt` is
+  announced as an image without a name ("Alternative text" under Decisions). At a rule
+  VoiceOver says "Separator", from a stop of its own on iPhone and iPad and from an element
+  in the text on Mac, unless the book keeps it from assistive technology ("Rules" under
   Decisions). On Mac all of this holds inside a table cell too, whose text VoiceOver reads
   once it interacts with the cell's row and then with the cell.
 - A page turned under VoiceOver's cursor, on iPhone and iPad. VoiceOver keeps its cursor on

@@ -1021,11 +1021,22 @@ fourth, **Pictures and their words** (`OPS/pictures.xhtml`), holds what a book c
 picture: nothing, that it is decoration (an empty `alt`), or words. Each stands in a line of
 text; a decorative one is also all that a link holds, and stands beside words in a link; and
 two come from a file that has a title of its own, one with an empty `alt` and one with none.
+After them come pictures the book keeps from assistive technology, each in a line of text:
+"Ornament" with words and `role="presentation"`, "Plain ornament" with no `alt` and
+`role="none"`, "Kept square" with words and `aria-hidden="true"`, "Drawn square" an inline
+SVG with a title and `aria-hidden="true"`, "Quiet jump:" before a link that such a picture
+with words is all of, and "Jump with an ornament", a link whose picture has
+`role="presentation"`. Every word the book gives those pictures begins with "Unspoken", and
+none is to be heard. Two it does not keep from it close the section: "Square shown to all",
+with `aria-hidden="false"`, and "Square with a note", whose `role="presentation"` ARIA
+ignores for its `aria-describedby`.
 None of the section's words is one VoiceOver uses for a picture or a link, so those in a
 transcript are VoiceOver's own. A fifth, **Scenes set apart** (`OPS/scenes.xhtml`), holds
-rules: an `<hr>` between two paragraphs, one the book gives `role="presentation"`, and one
-alone on a page of its own, with a last paragraph on the page after it. None of its words is
-one a screen reader uses for a rule either. A sixth, **What each line offers**
+rules: an `<hr>` between two paragraphs; three the book keeps from assistive technology as
+ornament, before "Words after an ornament." with `role="presentation"`, before "Words after
+a plain ornament." with `role="none"` and before "Words after a kept ornament." with
+`aria-hidden="true"`; and one alone on a page of its own, with a last paragraph on the page
+after it. None of its words is one a screen reader uses for a rule either. A sixth, **What each line offers**
 (`OPS/offers.xhtml`), shows every kind of item at once, on one page and one
 screen, for what VoiceOver's rotor offers on each: its heading, lines of words ("Plain words
 above." and "Plain words below."), a link inside a line (**Lone jump**), a picture with words
@@ -2672,22 +2683,35 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    name, and activating it goes to "Link target reached". It reads "Jump with decoration"
    and "Described jump" as links, the second also as an image, and "Square with a title of
    its own" as an image between "Titled picture" and "stands here.". It never says "Book
-   image", and says "Square with a title of its own" once.
+   image", and says "Square with a title of its own" once. It says no word that begins with
+   "Unspoken", on iPhone, iPad and Mac. It reads "Ornament", "Plain ornament", "Kept square"
+   and "Drawn square" and "passed over." with nothing between them, and after "Quiet jump:"
+   stops on a link that is an image without a name, as after "Bare jump:". It reads "Jump
+   with an ornament" as a link and nothing more, and "Square shown to all" and "Square with
+   a note" as images between their lines' words. On a Mac Find Next Link names the first of
+   those links "image" and the second "Jump with an ornament". The first sessions are on
+   [#408](https://github.com/vocaro/EPUBLib/issues/408#issuecomment-6164176609) (Mac) and
+   [#408](https://github.com/vocaro/EPUBLib/issues/408#issuecomment-6165265644) (iPhone and
+   iPad), with their steps.
 8. On the section of scenes, on an iPhone and iPad, in pages and in continuous scroll.
    VoiceOver stops between "First scene ends." and "Second scene starts." and says
-   "Separator", and never "Image". It says the same before "Words after an ornament.",
-   where the rule has `role="presentation"`, which the reader does not read. On the page
+   "Separator", and never "Image". From "Second scene starts." it goes to "Words after an
+   ornament.", "Words after a plain ornament." and "Words after a kept ornament." with no
+   stop between them: the book keeps those three rules from assistive technology
+   ([#408](https://github.com/vocaro/EPUBLib/issues/408)). On the page
    that holds a rule alone it says "Separator" and nothing else in the text, and Next Page
    from there shows "Last words of the scenes.". On a Mac, in a window 600 points wide at
    17 points, open the reader at the section (`"launch=-SampleHref OPS/scenes.xhtml"`).
    Moving by line VoiceOver says "Separator" between "First scene ends." and "Second scene
-   starts." and again before "Words after an ornament."; moving by word a rule is one stop
-   that says the same; and `readall` from the page's first word says it in both places. On
-   the page that holds a rule alone, one `ax:next` step on, it says "In text Separator" on
-   entering and "end of text" on the next line. In continuous scroll, where thirty
-   `ax:next` steps from the start of the book and `lastword` put VoiceOver on "scenes.", it
-   says "Separator" on each of the three lines between "Last words of the scenes." and
-   "First scene ends.". No transcript has "splitter", "collapsed" or "image" at a rule.
+   starts." and nowhere else on the page, and reads "Words after an ornament." and "Words
+   after a plain ornament." with the spaces that stand for the rule before each; the rule
+   that ends the page, before "Words after a kept ornament." on the next, is a line of
+   spaces where it stops once and says nothing. Moving by word a rule it is told of is one
+   stop that says "Separator"; and `readall` from the page's first word says it once. On the page that holds a rule alone, one `ax:next` step on, it says "In text
+   Separator" on entering and "end of text" on the next line. In continuous scroll it says
+   "Separator" on the line between "First scene ends." and "Second scene starts." and on
+   the line of the rule alone, before "Last words of the scenes.", and on no other. No
+   transcript has "splitter", "collapsed" or "image" at a rule.
 9. Headings. On an iPhone or iPad VoiceOver says "Heading" after a heading's words, shown or
    hidden, and reads a heading that takes several lines as one item. With the rotor on
    Headings (`rotor=Headings`, turned after the touch that places the cursor), `flick=down`
