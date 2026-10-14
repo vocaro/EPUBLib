@@ -579,16 +579,16 @@ final class RichMediaSVGCopyBoundsCoverageTests: XCTestCase {
         XCTAssertEqual(result.copies, 0)
         XCTAssertEqual(result.steps, 1_412 / 64, "a sheet that is stripped whole is read to tell that, and no more; with nothing to charge, nothing is walked")
 
-        // A `style` attribute of 900 bytes: read for a decoration, for its paints and whether it
-        // declares a dash array, and for its values.
+        // A `style` attribute of 900 bytes: read first for bounded font-size values, then for a
+        // decoration, for its paints and whether it declares a dash array, and for its values.
         let style = String(repeating: "fill:red;", count: 100)
         result = verdict(svg("", "<rect width='1' height='1' style='\(style)'/>"))
-        XCTAssertEqual(result.steps, 2 + 3 * 900 / 64)
-        // And a fourth time for its longest declaration where it declares one: 1,900 bytes.
+        XCTAssertEqual(result.steps, 2 + 4 * 900 / 64)
+        // And a fifth time for its longest declaration where it declares one: 1,900 bytes.
         let dashed = String(repeating: "stroke-dasharray:1;", count: 100)
         result = verdict(svg("", "<path d='M0 0h1' style='\(dashed)'/>"))
         XCTAssertEqual(result.copies, 18, "the longest declaration, `stroke-dasharray:1`")
-        XCTAssertEqual(result.steps, 2 + 4 * 1_900 / 64)
+        XCTAssertEqual(result.steps, 2 + 5 * 1_900 / 64)
 
         // The text of a `<style>` inside a `<style>` is the text of both, and is read for both.
         result = verdict(svg("", rect, pre: "<style><style>\(sheet)</style></style>"))
@@ -601,17 +601,17 @@ final class RichMediaSVGCopyBoundsCoverageTests: XCTestCase {
         XCTAssertEqual(result.steps, 1_400 / 64, "at the first reading: no other is made, and nothing is walked")
         result = verdict(svg("", "<rect width='1' height='1' style='\(style)'/>"), stepBudget: 10)
         XCTAssertFalse(result.withinLimits)
-        XCTAssertEqual(result.steps, 2 + 900 / 64, "the root and the rect, and the first reading of its style")
+        XCTAssertEqual(result.steps, 900 / 64, "the font-size reading runs before the copy walk")
     }
 
     /// A `style` attribute's longest declaration bounds every dash array the attribute declares.
     /// It was once found again for each declaration whose name ends in `dasharray`, so the screen
     /// read the attribute once for each: 4,000 of them, 40 KB, took it five seconds, and 20,000
     /// two minutes. It is now found once, in a reading that is charged, and the charge is what the
-    /// steps asserted here pin: four readings of the attribute, whatever it declares.
+    /// steps asserted here pin: five readings of the attribute, whatever it declares.
     ///
     /// The scan as it was, made for each declaration and charged for none, fails on that count,
-    /// three readings where four are asserted. It takes no step, so no budget stops it: it fails
+    /// four readings where five are asserted. It takes no step, so no budget stops it: it fails
     /// when it has run, in seconds here. A reading for each declaration that is charged fails
     /// under the budget of 4,000 given here, which it spends many times over (2,000 readings of
     /// 20,000 bytes are 625,000 steps), so that the drawing is refused; the whole screen
@@ -628,14 +628,14 @@ final class RichMediaSVGCopyBoundsCoverageTests: XCTestCase {
                 let result = verdict(drawing, stepBudget: 4_000)
                 XCTAssertTrue(result.withinLimits, "\(count) of `\(declaration)`")
                 XCTAssertEqual(result.copies, longest ?? bytes, "the path's dash array is bounded by the longest declaration, as it was")
-                XCTAssertEqual(result.steps, 2 + 4 * bytes / 64, "the root and the path, and four readings of the \(bytes) bytes whatever they declare")
+                XCTAssertEqual(result.steps, 2 + 5 * bytes / 64, "the root and the path, and five readings of the \(bytes) bytes whatever they declare")
                 XCTAssertTrue(isWithinLimits(drawing), "the whole screen passes it, as it did before the copies were counted")
             }
         }
         let style = String(repeating: "dasharray:", count: 1_000)
         let stopped = verdict(svg("", "<path d='M0 0h1' style='\(style)'/>"), stepBudget: 100)
         XCTAssertFalse(stopped.withinLimits, "the reading refuses when the budget runs out")
-        XCTAssertEqual(stopped.steps, 2 + style.utf8.count / 64, "at the first reading")
+        XCTAssertEqual(stopped.steps, style.utf8.count / 64, "at the font-size reading before the walk")
     }
 
     /// A declaration can open a comment where the scan for the end of its rule read a string. In
@@ -696,20 +696,21 @@ final class RichMediaSVGCopyBoundsCoverageTests: XCTestCase {
 
     /// What an element's attributes and `style` declare is read once and kept, however often a
     /// `<use>` draws the element. The readings of a `style` are charged, so the steps show it: a
-    /// styled group drawn 64 times takes the steps of four readings of its `style`, where a
-    /// screen that kept nothing would make the four at each of the 64 visits, 5,376 steps for
+    /// styled group drawn 64 times takes the steps of five readings of its `style`, where a
+    /// screen that kept nothing would repeat four at each of the 64 visits, 5,376 steps for
     /// them, and be refused under the budget given here.
     func testAStyledGroupDrawnThroughUseIsReadOnce() throws {
         // 1,344 bytes of `style`, 21 steps a reading: for a decoration, for the paints and whether
-        // a dash array is declared, for the longest declaration, and for the values.
+        // a dash array is declared, for the longest declaration, and for the values; with one
+        // additional font-size reading before the walk.
         let style = String(repeating: "stroke-dasharray:1 2;", count: 64)
         let drawing = svg("<g id='u' style='\(style)'><rect width='1' height='1'/></g>",
                           String(repeating: "<use xlink:href='#u'/>", count: 64))
         let result = verdict(drawing, stepBudget: 1_000)
         XCTAssertTrue(result.withinLimits)
         XCTAssertEqual(result.copies, 64 * 20, "each rect drawn is charged the group's longest declaration, `stroke-dasharray:1 2`")
-        XCTAssertEqual(result.steps, 1 + 64 * 4 + 4 * 1_344 / 64,
-                       "the root; for each use the use, the reference it follows, the group and the rect; and the four readings, made once")
+        XCTAssertEqual(result.steps, 1 + 64 * 4 + 5 * 1_344 / 64,
+                       "the root; for each use the use, the reference it follows, the group and the rect; and the five readings, made once")
     }
 
     /// The walk of a `<use>` tree takes a step for each element it visits and each reference it

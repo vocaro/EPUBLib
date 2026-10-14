@@ -186,7 +186,6 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
     /// document using any of them with a named reference is well-formed XML to WebKit and kept
     /// its XML tree (and its CFIs) in foliate. The same markup read as HTML grows a `tbody`.
     func testEveryXHTMLPublicIdentifierKeepsItsXMLTree() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/101")
         let identifiers = [
             "-//W3C//DTD XHTML 1.0 Transitional//EN", "-//W3C//DTD XHTML 1.1//EN", "-//W3C//DTD XHTML 1.0 Strict//EN",
             "-//W3C//DTD XHTML 1.0 Frameset//EN", "-//W3C//DTD XHTML Basic 1.0//EN", "-//W3C//DTD XHTML 1.1 plus MathML 2.0//EN",
@@ -198,6 +197,25 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
             XCTAssertEqual(bodyText(document), "a\u{A0}b", identifier)
             XCTAssertFalse(document.recoveredAsHTML, "\(identifier): read as HTML, though WebKit parses it as XML")
             XCTAssertTrue(document.canResolveCFIs, "\(identifier): saved positions are refused in a section foliate issued them for")
+            XCTAssertFalse(document.nodes.contains { $0.isHTML("tbody") }, identifier)
+            let text = try XCTUnwrap(try first("td", in: document).children.first)
+            let path = "/4/2/2/2,/1:1,/1:3"
+            let range = try XCTUnwrap(EPUBCFI.resolve(localPath: path, in: document), identifier)
+            XCTAssertEqual(range.start, DOMPosition(text, 1), identifier)
+            XCTAssertEqual(range.end, DOMPosition(text, 3), identifier)
+            XCTAssertEqual(EPUBCFI.localPath(from: range.start, to: range.end, in: document), path, identifier)
+        }
+    }
+
+    func testUnsupportedXHTMLPublicIdentifiersStillRefuseXMLCFIsWithNamedReferences() throws {
+        for identifier in ["-//W3C//DTD XHTML Basic 1.1//EN", "-//W3C//DTD HTML 4.01//EN",
+                           "-//W3C//DTD XHTML+RDFa 1.0//EN", "-//W3C//DTD XHTML 1.1//en"] {
+            let document = try page("<table><tr><td>a&nbsp;b</td></tr></table>",
+                                    prolog: "<!DOCTYPE html PUBLIC \"\(identifier)\" \"http://example.invalid/x.dtd\">")
+            XCTAssertEqual(bodyText(document), "a\u{A0}b", identifier)
+            XCTAssertTrue(document.recoveredAsHTML, identifier)
+            XCTAssertFalse(document.canResolveCFIs, identifier)
+            XCTAssertNil(EPUBCFI.resolve(localPath: "/4/2/2/2/1:1", in: document), identifier)
         }
     }
 
@@ -539,7 +557,7 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
         <p title="a > b < c" class=x<y lang=d< >e < f</p><p>g<!-- h < i > j --> k < l</p><p>m<?n o < p ?> q < r</p>\
         <p>s<![CDATA[t < u]]> v < w</p><p < x>y</p z < 0>1 < 2<p>next</p>
         """)
-        XCTAssertEqual(bodyModel(markup), ["<p>", "e < f", "<p>", "g k < l", "<p>", "m q < r", "<p>", "s v < w", "<p>", "y", "1 < 2", "<p>", "next"])
+        XCTAssertEqual(bodyModel(markup), ["<p>", "e < f", "<p>", "g k < l", "<p>", "m q < r", "<p>", "st < u v < w", "<p>", "y", "1 < 2", "<p>", "next"])
         let paragraph = try first("p", in: markup)
         XCTAssertEqual(paragraph.attributes.map(\.name), ["title", "class", "lang"])
         XCTAssertEqual(paragraph.attributes.map(\.value), ["a > b < c", "x<y", "d<"])

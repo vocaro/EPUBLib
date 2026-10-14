@@ -341,11 +341,13 @@ final class PositionSearchCoverageTests: XCTestCase {
     /// Japanese collation (JIS X 4061, as CLDR tailors it) reads the prolonged sound mark as
     /// the vowel it lengthens and an iteration mark as the kana it repeats: with base
     /// sensitivity `Intl.Collator('ja')` equates らあめん with ラーメン and こころ with こゝろ, and
-    /// so does the comparison here. The prefilter's keys are per character and drop them.
+    /// so does the comparison here. Contextual marks must bypass per-character keys.
     func testJapaneseLengthAndIterationMarksAreNotLostToThePrefilter() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/106")
-        let document = try document("<p>ラーメン らあめん コーヒー こゝろ かゞみ</p>", lang: "ja")
-        for (query, expected) in [("らあめん", ["ラーメン", "らあめん"]), ("こおひい", ["コーヒー"]), ("こころ", ["こゝろ"]), ("かがみ", ["かゞみ"])] {
+        // The system JavaScriptCore Intl.Collator oracle distinguishes halfwidth prolonged
+        // sound marks from their vowel expansions in ja. Keep those as same-form/parity cases.
+        let document = try document("<p>ラーメン らあめん ﾗｰﾒﾝ コーヒー ｺｰﾋｰ こゝろ かゞみ</p>", lang: "ja")
+        for (query, expected) in [("らあめん", ["ラーメン", "らあめん"]), ("こおひい", ["コーヒー"]), ("こころ", ["こゝろ"]), ("かがみ", ["かゞみ"]),
+                                  ("ﾗｰﾒﾝ", ["ﾗｰﾒﾝ"]), ("ｺｰﾋｰ", ["ｺｰﾋｰ"])] {
             let complete = TextSearch.matches(of: query, in: document, locale: "ja", usePrefilter: false).map { TextSearch.text(of: $0, in: document) }
             XCTAssertEqual(complete, expected, "\(query): the full comparison")
             let filtered = TextSearch.matches(of: query, in: document, locale: "ja").map { TextSearch.text(of: $0, in: document) }
@@ -357,7 +359,6 @@ final class PositionSearchCoverageTests: XCTestCase {
     /// every locale does). The Swedish and Danish key path folds case first, which spells the
     /// subscript out as a second letter, so the keys no longer agree.
     func testGreekIotaSubscriptIsNotLostToThePrefilterInSwedishAndDanish() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/106")
         for locale in ["en", "sv", "da"] {
             let document = try document("<p>ἐν τῷ κόσμῳ, τω ᾳ ᾼ</p>", lang: locale)
             for (query, expected) in [("τω", ["τῷ", "τω"]), ("α", ["ᾳ", "ᾼ"]), ("κοσμω", ["κόσμῳ"])] {
@@ -376,13 +377,14 @@ final class PositionSearchCoverageTests: XCTestCase {
     /// converters produce; typed queries are composed) must still be found. The comparison
     /// here fails when the grapheme that differs in form is the last of the window.
     func testCanonicallyEquivalentHangulAndKanaMatchAcrossNormalizationForms() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/107")
         let cases: [(String, String, String, String)] = [
             ("ko", "Hangul", "\u{D55C}\u{AE00}", "\u{1112}\u{1161}\u{11AB}\u{1100}\u{1173}\u{11AF}"),
             ("en", "Hangul in an English book", "\u{D55C}\u{AE00}", "\u{1112}\u{1161}\u{11AB}\u{1100}\u{1173}\u{11AF}"),
             ("ja", "voiced kana", "\u{304B}\u{304E}", "\u{304B}\u{304D}\u{3099}"),
             ("ja", "semi-voiced katakana", "\u{30B3}\u{30D4}", "\u{30B3}\u{30D2}\u{309A}"),
             ("fr", "a Latin letter, for comparison", "caf\u{E9}", "cafe\u{301}"),
+            ("en", "canonical angle brackets", "\u{2329}\u{232A}", "\u{3008}\u{3009}"),
+            ("en", "canonical CJK compatibility ideograph", "\u{FA6C}", "\u{242EE}"),
         ]
         for (locale, label, composed, decomposed) in cases {
             XCTAssertEqual(composed.decomposedStringWithCanonicalMapping.unicodeScalars.map(\.value), decomposed.unicodeScalars.map(\.value), label)
@@ -393,8 +395,15 @@ final class PositionSearchCoverageTests: XCTestCase {
                 let document = try self.document("<p>\(body)</p>", lang: locale)
                 XCTAssertEqual(TextSearch.matches(of: query, in: document, locale: locale, usePrefilter: false).count, 1,
                                "\(label), \(direction): the full comparison")
-                XCTAssertEqual(TextSearch.matches(of: query, in: document, locale: locale).count, 1,
-                               "\(label), \(direction): the search the reader runs")
+                let filtered = TextSearch.matches(of: query, in: document, locale: locale)
+                XCTAssertEqual(filtered.count, 1, "\(label), \(direction): the search the reader runs")
+                let match = try XCTUnwrap(filtered.first)
+                XCTAssertEqual([match.start.offset, match.end.offset], [0, text.utf16.count], label)
+                XCTAssertEqual(TextSearch.text(of: match, in: document).unicodeScalars.map(\.value), text.unicodeScalars.map(\.value),
+                               "normalization must not alter the book's source text")
+                let cfi = EPUBCFI.localPath(from: match.start, to: match.end, in: document)
+                let resolved = try XCTUnwrap(EPUBCFI.resolve(localPath: cfi, in: document))
+                XCTAssertEqual(TextSearch.Match(start: resolved.start, end: resolved.end), match, label)
             }
         }
     }
@@ -403,13 +412,100 @@ final class PositionSearchCoverageTests: XCTestCase {
     /// basic letter (`Intl.Collator('en', { sensitivity: 'base' })` equates a with 🅰 and s with
     /// ꞅ). The prefilter derives keys from decompositions and files them elsewhere.
     func testLettersWithoutDecompositionsAreNotLostToThePrefilter() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/106")
         let document = try document("<p>🅰 a ꞅ s Ꝛ r</p>")
         for (query, expected) in [("a", ["🅰", "a"]), ("s", ["ꞅ", "s"]), ("r", ["Ꝛ", "r"])] {
             let complete = TextSearch.matches(of: query, in: document, locale: "en", usePrefilter: false).map { TextSearch.text(of: $0, in: document) }
             XCTAssertEqual(complete, expected, "\(query): the full comparison")
             let filtered = TextSearch.matches(of: query, in: document, locale: "en").map { TextSearch.text(of: $0, in: document) }
             XCTAssertEqual(filtered, expected, "\(query): the search the reader runs")
+        }
+    }
+
+    func testUnverifiedCharactersAndKeyHitsMergeInOrderWithoutDuplicatesUpToTheLimit() throws {
+        let document = try document("<p>a 🅰 a ꞅ s Ꝛ r 🅰 a</p>")
+        for query in ["a", "🅰", "s", "ꞅ", "r", "Ꝛ", "a a", "a 🅰"] {
+            let complete = TextSearch.matches(of: query, in: document, locale: "en", usePrefilter: false)
+            for limit in [1, 2, 3, 4, 10] {
+                let filtered = TextSearch.matches(of: query, in: document, locale: "en", limit: limit)
+                XCTAssertEqual(filtered, Array(complete.prefix(limit)), "\(query) limit \(limit)")
+            }
+        }
+        XCTAssertEqual(offsets("a", in: document), [[0, 1], [2, 4], [5, 6], [15, 17], [18, 19]])
+        let emptyKeys = try self.document("<p><b>&#x301;</b>ـ<i>&#x300;</i></p>")
+        for limit in [1, 2, 3, 10] {
+            XCTAssertEqual(TextSearch.matches(of: "\u{301}", in: emptyKeys, locale: "en", limit: limit),
+                           TextSearch.matches(of: "\u{301}", in: emptyKeys, locale: "en", limit: limit, usePrefilter: false),
+                           "ignorable windows and fallback windows share the same ordering and limit")
+        }
+    }
+
+    func testContextualAndCanonicallyEquivalentMatchesRetainSourceOffsetsAcrossTextNodes() throws {
+        let japanese = try document("<p>🙂 <b>こ</b><i>ゝろ</i> <b>か</b><i>き&#x3099;</i> こゝろ</p>", lang: "ja")
+        for (query, expected, endOffset) in [("こころ", "こゝろ", 2), ("かぎ", "かき\u{3099}", 2)] {
+            let match = try XCTUnwrap(matches(query, in: japanese, limit: 1).first)
+            XCTAssertEqual(TextSearch.text(of: match, in: japanese).unicodeScalars.map(\.value), expected.unicodeScalars.map(\.value))
+            XCTAssertEqual(match.start.node.parent?.name, "b")
+            XCTAssertEqual(match.end.node.parent?.name, "i")
+            XCTAssertEqual([match.start.offset, match.end.offset], [0, endOffset])
+            let cfi = EPUBCFI.localPath(from: match.start, to: match.end, in: japanese)
+            let resolved = try XCTUnwrap(EPUBCFI.resolve(localPath: cfi, in: japanese))
+            XCTAssertEqual(TextSearch.Match(start: resolved.start, end: resolved.end), match)
+        }
+        let korean = try document("<p>🙂 <b>&#x1112;&#x1161;&#x11AB;</b><i>&#x1100;&#x1173;&#x11AF;</i></p>", lang: "ko")
+        let match = try XCTUnwrap(matches("한글", in: korean).first)
+        XCTAssertEqual([match.start.offset, match.end.offset], [0, 3])
+        XCTAssertEqual(TextSearch.text(of: match, in: korean).unicodeScalars.map(\.value),
+                       "한글".decomposedStringWithCanonicalMapping.unicodeScalars.map(\.value))
+    }
+
+    /// Additional blocks found by the original collation sweep are deliberately outside the
+    /// key table's recorded classes. Neither a plain query nor one containing these characters
+    /// may reject a window just because its context-free keys differ.
+    func testUnrecordedCollationBlocksDoNotLoseMatches() throws {
+        let ranges: [ClosedRange<UInt32>] = [0x1F130...0x1F189, 0xA640...0xA69F, 0xA75A...0xA75B,
+                                            0xA783...0xA786, 0xA79B...0xA79D, 0xFE70...0xFE7F]
+        let characters = ranges.flatMap { $0 }.compactMap(Unicode.Scalar.init)
+        let body = characters.map { "&#x\(String($0.value, radix: 16));" }.joined(separator: " ")
+        let document = try self.document("<p>\(body) a s r и й ا ـ</p>")
+        for query in ["a", "s", "r", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "t", "u", "v", "w", "x", "y", "z", "и", "й", "ا", "ـ"] {
+            XCTAssertEqual(TextSearch.matches(of: query, in: document, locale: "en"),
+                           TextSearch.matches(of: query, in: document, locale: "en", usePrefilter: false), query)
+        }
+        for scalar in characters {
+            let query = String(scalar)
+            XCTAssertEqual(TextSearch.matches(of: query, in: document, locale: "en", limit: 3),
+                           TextSearch.matches(of: query, in: document, locale: "en", limit: 3, usePrefilter: false), query)
+        }
+    }
+
+    func testALongUnicodeParagraphKeepsFallbackWindowsAndFinalOffsetsCorrect() throws {
+        let count = 10_000
+        let document = try document("<p>" + String(repeating: "漢a", count: count) + "🅰</p>")
+        let matches = TextSearch.matches(of: "a", in: document, locale: "en")
+        XCTAssertEqual(matches.count, count + 1)
+        XCTAssertEqual(matches.prefix(3).map(\.start.offset), [1, 3, 5])
+        let last = try XCTUnwrap(matches.last)
+        XCTAssertEqual([last.start.offset, last.end.offset], [2 * count, 2 * count + 2])
+        XCTAssertEqual(TextSearch.text(of: last, in: document), "🅰")
+        XCTAssertEqual(TextSearch.matches(of: "a", in: document, locale: "en", limit: 3), Array(matches.prefix(3)))
+        XCTAssertEqual(TextSearch.matches(of: "missing", in: document, locale: "en"), [])
+    }
+
+    func testCanonicalLatinSpellingsRetainMatchesRegardlessOfQueryAndCorpusOrder() throws {
+        let composed = "café", decomposed = composed.decomposedStringWithCanonicalMapping
+        for spellings in [[composed, decomposed], [decomposed, composed]] {
+            let document = try document("<p>" + spellings.joined(separator: " ") + "</p>")
+            for queries in [[composed, decomposed], [decomposed, composed]] {
+                for query in queries {
+                    let found = matches(query, in: document)
+                    XCTAssertEqual(found.count, 2)
+                    XCTAssertEqual(found.map { TextSearch.text(of: $0, in: document).unicodeScalars.map(\.value) },
+                                   spellings.map { $0.unicodeScalars.map(\.value) })
+                    XCTAssertEqual(found.map { [$0.start.offset, $0.end.offset] },
+                                   [[0, spellings[0].utf16.count],
+                                    [spellings[0].utf16.count + 1, spellings[0].utf16.count + 1 + spellings[1].utf16.count]])
+                }
+            }
         }
     }
 }

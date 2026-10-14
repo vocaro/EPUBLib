@@ -246,7 +246,6 @@ final class CSSCascadeHintCoverageTests: XCTestCase {
     /// maps them to the CSS properties), so `2in` is 192px and `210mm` an A4 page's width, as
     /// `ImageSizing.length` reads them.
     func testSVGSizeAttributesHonourCSSUnits() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/117")
         func svg(_ id: String, _ width: String, _ height: String) -> String {
             "<svg xmlns=\"http://www.w3.org/2000/svg\" id=\"\(id)\" width=\"\(width)\" height=\"\(height)\" viewBox=\"0 0 2 1\"><rect width=\"2\" height=\"1\"/></svg>"
         }
@@ -264,6 +263,23 @@ final class CSSCascadeHintCoverageTests: XCTestCase {
         let shown = attachment.sizing.size(lineWidth: 600, viewport: CGSize(width: 600, height: 800), heightLimit: 800)
         XCTAssertEqual(shown.width, 192, accuracy: 0.01, "A 2in × 1in drawing is shown 192 × 96 points on a 600-point line")
         XCTAssertEqual(shown.height, 96, accuracy: 0.01)
+    }
+
+    func testSVGSizeUnitsUseTheElementFontAndYieldToAuthorCSS() throws {
+        let result = try styled("""
+            <svg xmlns="http://www.w3.org/2000/svg" id="font" width="10em" height="5em" style="font-size:20px"><rect width="1" height="1"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" id="rule" width="2in" height="1in"><rect width="1" height="1"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" id="inline" width="2in" height="1in" style="width:80px;height:40px"><rect width="1" height="1"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" id="bad" width="2in nonsense" height="1in; width:1px"><rect width="1" height="1"/></svg>
+            """, css: "#rule { width: 120px; height: 60px }")
+        XCTAssertEqual(result.style("font").width, .points(200))
+        XCTAssertEqual(result.style("font").height, .points(100))
+        XCTAssertEqual(result.style("rule").width, .points(120))
+        XCTAssertEqual(result.style("rule").height, .points(60))
+        XCTAssertEqual(result.style("inline").width, .points(80))
+        XCTAssertEqual(result.style("inline").height, .points(40))
+        XCTAssertEqual(result.style("bad").width, .auto)
+        XCTAssertEqual(result.style("bad").height, .auto)
     }
 
     func testHiddenAttributeHidesUntilAnAuthorRuleShows() throws {

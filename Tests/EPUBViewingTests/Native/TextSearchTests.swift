@@ -132,7 +132,13 @@ final class TextSearchTests: XCTestCase {
             matches = TextSearch.matches(of: "naive resume", in: document, locale: "en")
         }
         XCTAssertEqual(matches.count, count)
-        print("1 MB search CPU seconds: unique \(unique), common \(common), accented \(accented)")
+        // A reader can type decomposed accents even when a book stores composed letters.
+        // Canonical equivalence must keep the established fast scan as well as its matches.
+        let decomposed = clock.measure {
+            matches = TextSearch.matches(of: "naïve résumé".decomposedStringWithCanonicalMapping, in: document, locale: "en")
+        }
+        XCTAssertEqual(matches.count, count)
+        print("1 MB search CPU seconds: unique \(unique), common \(common), accented \(accented), decomposed query \(decomposed)")
         #if DEBUG
         let bound = 2.0
         #else
@@ -141,6 +147,7 @@ final class TextSearchTests: XCTestCase {
         XCTAssertLessThan(unique, bound)
         XCTAssertLessThan(common, bound)
         XCTAssertLessThan(accented, bound)
+        XCTAssertLessThan(decomposed, bound)
     }
 
     /// Unverified collations use the complete window scan. Record its cost without a fragile

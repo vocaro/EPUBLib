@@ -94,7 +94,6 @@ final class ExtractionStructureCoverageTests: XCTestCase {
     // 7.9 "Combining Marks"), and grammars list dependent vowel signs separated by spaces. Each
     // mark is body character data, not whitespace.
     func testCombiningSignsThatFollowASpaceAreNotDroppedAsWhitespace() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/89")
         let signs = try section("<p>Signs: \u{093E} \u{093F} \u{0940}</p>").text
         for sign in ["\u{093E}", "\u{093F}", "\u{0940}"] as [Unicode.Scalar] {
             XCTAssertTrue(signs.unicodeScalars.contains(sign), String(format: "U+%04X is missing from ", sign.value) + signs.debugDescription)
@@ -102,6 +101,42 @@ final class ExtractionStructureCoverageTests: XCTestCase {
         XCTAssertEqual(signs, "Signs: \u{093E} \u{093F} \u{0940}")
         let acute = try section("<p>acute:&#xA0;&#x301;.</p>").text
         XCTAssertTrue(acute.unicodeScalars.contains("\u{301}"), "U+0301 is missing from \(acute.debugDescription)")
+        XCTAssertEqual(acute, "acute: \u{301}.")
+    }
+
+    func testCombiningSignsInTitlesHeadingsAndImageAlternativesHaveUTF8Marks() throws {
+        let heading = "Signs: \u{093E} \u{093F}"
+        let extracted = try section("<h2 id='h'>Signs: \u{093E}<img id='image' alt='&#xA0;&#x93F;'/></h2><p id='after'>Next</p>",
+            head: "<title>Title:&#xA0;&#x301;</title>")
+        XCTAssertEqual(extracted.title, "Title: \u{301}")
+        XCTAssertEqual(extracted.text, heading + "\nNext")
+        XCTAssertEqual(extracted.headings, [EPUBTextHeading(mark: mark(0, 0), text: heading)])
+        XCTAssertEqual(extracted.anchors, ["h": mark(0, 0), "image": mark("Signs: \u{093E} ".utf8.count, 1),
+            "after": mark((heading + "\n").utf8.count, 1)])
+
+        // A combining mark alone is a nonempty alternative; leading whitespace is still trimmed.
+        let isolated = try section("<h2> <img alt=' \u{301}'/><br/> \u{093E}</h2>")
+        XCTAssertEqual(isolated.text, "\u{301}\n\u{093E}")
+        XCTAssertEqual(isolated.headings.map(\.text), ["\u{301} \u{093E}"])
+    }
+
+    func testCombiningSignsNormalizeAcrossTextNodesAndCountTowardOutputLimits() throws {
+        let body = "<p> \u{093E} a&#xA0;<span id='accent'>&#x301;</span><b id='after'>b</b> </p>"
+        let extracted = try section(body)
+        let expected = "\u{093E} a \u{301}b"
+        XCTAssertEqual(extracted.text, expected)
+        XCTAssertEqual(extracted.anchors, ["accent": mark("\u{093E} a ".utf8.count, 1),
+            "after": mark("\u{093E} a \u{301}".utf8.count, 0)])
+
+        let book = try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/one.xhtml":
+            "<html><head/><body>\(body)</body></html>"]))
+        var limits = EPUBTextExtractionLimits()
+        limits.outputBytes = expected.utf8.count
+        XCTAssertEqual(try book.textSection(at: 0, limits: limits).text, expected)
+        limits.outputBytes -= 1
+        XCTAssertThrowsError(try book.textSection(at: 0, limits: limits)) {
+            XCTAssertEqual($0 as? EPUBTextExtractionError, .limitExceeded("outputBytes"))
+        }
     }
 
     // MARK: Included and excluded content
@@ -140,6 +175,11 @@ final class ExtractionStructureCoverageTests: XCTestCase {
         let extracted = try section("<ol type='1'><li><input type='checkbox'/> <a type='text/html' href='x'>y</a></li></ol>"
             + "<p epub:type='real' type='plain'>x</p>")
         XCTAssertEqual(extracted.semanticTypes, ["real"])
+    }
+
+    func testWhitespaceSplittingDoesNotDropCombiningScalarsFromSemanticTokens() throws {
+        let extracted = try section("<p epub:type='chapter \u{301} custom'>Text</p>")
+        XCTAssertEqual(extracted.semanticTypes, ["chapter", "\u{301}", "custom"])
     }
 
     // MARK: Anchors
