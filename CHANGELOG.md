@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Follow manifest fallbacks for unsupported or scripted content and images while preserving resource identity ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
+- Keep floated and positioned inline text in its authored passage ([#127](https://github.com/vocaro/EPUBLib/issues/127)).
+- Copy authored case and line feeds through typography substitutions and native selections ([#128](https://github.com/vocaro/EPUBLib/issues/128)).
+- Size percentage images against their enclosing figure content box ([#148](https://github.com/vocaro/EPUBLib/issues/148)).
+- Retain strict trailing body content and align recovery comment endings ([#197](https://github.com/vocaro/EPUBLib/issues/197)).
+- Verify box paragraph hits and clearance against drawn lines using signed fragment origins ([#225](https://github.com/vocaro/EPUBLib/issues/225)).
+- Preserve malformed numeric-reference text in extraction and native recovery ([#244](https://github.com/vocaro/EPUBLib/issues/244)).
+- Show cross-document and legacy-anchor notes with consistent table content and navigation ordering ([#257](https://github.com/vocaro/EPUBLib/issues/257)).
+- Memoize filtered sibling positions without silently dropping selectors beyond 1,000 siblings ([#262](https://github.com/vocaro/EPUBLib/issues/262)).
+- Restore SVG foreign names before rendering sections recovered as HTML ([#317](https://github.com/vocaro/EPUBLib/issues/317)).
+
 - Keep combining marks following whitespace in extracted text and alternatives ([#89](https://github.com/vocaro/EPUBLib/issues/89)).
 - Preserve every metadata language and identifier when writing a publication ([#95](https://github.com/vocaro/EPUBLib/issues/95)).
 - Keep compatible XHTML public identifiers on the XML path with working CFIs ([#101](https://github.com/vocaro/EPUBLib/issues/101)).

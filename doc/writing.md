@@ -8,6 +8,9 @@ EPUB 3, reflowable by default, with optional fixed-layout spine overrides. Resou
 navigation hrefs are archive-relative; package documents live under `EPUB/`. IDs and paths must
 be unique, spine resources must be declared and navigation must resolve to a declared resource.
 
+A resource may supply `fallbackID`; the writer emits that manifest relationship and refuses
+undeclared targets or cycles ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
+
 The producer supplies content XHTML, CSS and media. It owns chapter division, content styles,
 source-page decisions and document reconstruction. Metadata and navigation are XML escaped
 once by the writer, scalar by scalar: `&`, `<`, `>` and both quotes are escaped whatever stands

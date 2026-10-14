@@ -99,7 +99,11 @@ warnings, so this list is where they are disclosed:
 - **Manifest.** An item repeated verbatim counts once. An item whose file the archive lacks and a
   remote item, which is never fetched, are left out of `resources`; the spine still needs every
   document it names. An href that matches no entry names the one entry that differs only in case,
-  when there is exactly one.
+  when there is exactly one. `EPUBResource.fallbackID` retains a designated manifest fallback;
+  `fallbackChain(for:)` follows declared IDs in order and stops at a missing or repeated ID.
+  Missing and remote declarations remain available to chain traversal, while resource access
+  still reads archive-local entries only; the authored spine entries remain unchanged
+  ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
 - **Contents.** An entry whose href does not resolve keeps its title and children, without an
   href. A landmark or page that does not resolve is left out.
 - **Archive.** The last end record in the file decides which archive is read, so bytes after a book
