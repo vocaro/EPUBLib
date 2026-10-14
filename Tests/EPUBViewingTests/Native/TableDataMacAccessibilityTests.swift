@@ -1268,12 +1268,21 @@ import XCTest
                         XCTAssertEqual(table.accessibilityColumnCount(), 0, name)
                         XCTAssertEqual(table.accessibilityColumns()?.count, 0, name)
                         XCTAssertEqual(table.accessibilityRows()?.count, 0, name)
+                        // A client is not told of a table's attributes: with them VoiceOver
+                        // said "empty text".
+                        for selector in [#selector(NSAccessibilityElement.accessibilityRows), #selector(NSAccessibilityElement.accessibilityRowCount),
+                                         #selector(NSAccessibilityElement.accessibilityColumnCount), #selector(NSAccessibilityElement.accessibilityColumnHeaderUIElements)] {
+                            XCTAssertFalse(table.isAccessibilitySelectorAllowed(selector), "\(name): \(selector)")
+                        }
                     }
                 }
                 // The new page's own rows are still what its text gives.
                 for element in now {
                     XCTAssertFalse(children.contains { $0 === element }, name)
                     XCTAssertNotEqual(element.accessibilityRole(), .staticText, name)
+                    if let table = element as? ReaderTableElement {
+                        XCTAssertTrue(table.isAccessibilitySelectorAllowed(#selector(NSAccessibilityElement.accessibilityRows)), name)
+                    }
                 }
                 // Those of two pages back are gone.
                 XCTAssertEqual(children.filter { $0 is ReaderTableRowGroupElement || $0 is ReaderTableElement }.count, before.count, name)

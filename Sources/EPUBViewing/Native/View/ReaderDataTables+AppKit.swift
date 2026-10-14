@@ -298,6 +298,21 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// The columns, while the view shows the text the table was given in.
     private var shownColumns: [ReaderTableColumnElement] { view == nil ? [] : columns }
 
+    /// What a table answers and a departed one does not. Answering them as an empty table
+    /// would, a departed table was "empty text" to VoiceOver, and a departed row group "text".
+    private static let tableSelectors: Set<Selector> = [
+        #selector(accessibilityRows), #selector(accessibilityVisibleRows), #selector(accessibilitySelectedRows),
+        #selector(accessibilityColumns), #selector(accessibilityVisibleColumns), #selector(accessibilityVisibleCells),
+        #selector(accessibilityRowCount), #selector(accessibilityColumnCount),
+        #selector(accessibilityColumnHeaderUIElements), #selector(accessibilityRowHeaderUIElements),
+        #selector(accessibilityCell(forColumn:row:)),
+    ]
+
+    override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
+        if Self.tableSelectors.contains(selector), onMain(self, { $0.view == nil }) { return false }
+        return super.isAccessibilitySelectorAllowed(selector)
+    }
+
     /// What the table is called where it stands: the words its row shows there. They are all
     /// VoiceOver says of the row as it reads the text by line or by word.
     private var words: String? {
