@@ -8,7 +8,8 @@ import UIKit
 #endif
 
 /// Actual displayed rectangles captured from immutable main24400a9, without adding a
-/// section origin to page coordinates. These are preservation inputs from issue242's review.
+/// section origin to page coordinates. Platform-specific vectors come from that platform's
+/// frozen main output; an already-clipped UIKit fixture instead verifies its repaired coverage.
 @MainActor final class PageTextPreservationTests: XCTestCase {
     private typealias H = BoxLayoutHarness
     private func assertFrozen(_ paginator: ReaderPaginator, pageIndex: Int, range: NSRange,
@@ -34,6 +35,10 @@ import UIKit
             css: H.reset + ".c1 { float:left; width:25%; height:120.5px; margin-bottom:9.5px; break-before:page } .c2 { float:left; width:50%; height:30px; margin-bottom:9.5px; break-before:page } "
                 + ".c3 { position:fixed; width:62.5%; top:3.1em } .c4 { clear:both; margin-top:30px } .z { float:left; width:60px; height:40px }", fontSize: 14.5)
         let paginator = ReaderPaginator(text: section.string, size: CGSize(width: 250, height: 333.3))
+        #if os(iOS)
+        // Captured from unchanged24400 on iOS27.0, not from the repaired candidate.
+        assertFrozen(paginator, pageIndex: 0, range: NSRange(location: 0, length: 114), lines: [[0,6,0,85.74999999999994,38.02882555127144,20.299999999999997],[6,5,0,106.04999999999994,29.3380728662014,20.299999999999997],[11,9,0,215.74999999999994,57.87859809398651,20.299999999999997],[20,17,0,236.04999999999995,124.33645924925804,20.299999999999997],[37,11,0,256.34999999999997,72.0531495809555,20.299999999999997],[48,12,0,276.65,82.94416791200638,20.299999999999997],[60,19,0,44.95,123.77823588252068,20.299999999999997],[79,35,0,306.45,241.61593878269196,20.299999999999997]])
+        #else
         assertFrozen(paginator, pageIndex: 0, range: NSRange(location: 0, length: 114), lines: [[0,6,0.0,85.39369885433715,38.02882555127144,19.94369885433715],
 [6,5,0.0,105.3373977086743,29.3380728662014,19.94369885433715],
 [11,9,0.0,215.39369885433717,57.87859809398651,19.94369885433715],
@@ -42,6 +47,7 @@ import UIKit
 [48,12,0.0,275.2247954173486,82.94416791200638,19.94369885433715],
 [60,19,0.0,44.95,123.77823588252068,19.94369885433715],
 [79,35,0.0,304.66849427168574,241.61593878269196,19.94369885433715]])
+        #endif
     }
 
     func testOriginalDelayedTablesPreserveTheirActualOpeningPages() throws {
@@ -108,6 +114,12 @@ import UIKit
         let section = try H.build(#"<div class='k3'><figure class='k1'>Float T1.</figure><img class='k2' src='i120x30.png' alt='Picture T2'/></div><aside class='k4'>Placed T3 words.</aside><figure class='k5'>Float T4.</figure><blockquote class='k6'><p>Quoted T5. Short one.</p></blockquote><p class='k7'>T6.</p><figure class='k8'>Float T7 with rather more words in it than fit on a line.</figure><table class='k9'><tr><td>Row 1 T8</td><td>Numbers such as 3.14159 and 2,718 sit among the words; so do (brackets) and “quotation marks”.</td><td>3</td></tr><tr><td>Row 2 T8</td><td>two</td></tr></table><figure class='k10'>Float T9.</figure><p class='k11'>T10. Words of several lengths, unremarkable and plain, fill another row or two of the column. Short one. Words of several lengths, unremarkable and plain, fill another row or two of the column. The harbour was quiet that morning, and nobody on the quay looked up when the ferry came in. Short one. Ordinary prose wraps beside the box and returns to the full column below it. Ordinary prose wraps beside the box and returns to the full column below it.</p><aside class='k12'>Placed T11 words.</aside><aside class='k13'><p>Placed T12 top.</p><p>Placed T12 end words.</p></aside><p class='k14'>T13. The harbour was quiet that morning, and nobody on the quay looked up when the ferry came in. The harbour was quiet that morning, and nobody on the quay looked up when the ferry came in. Words of several lengths, unremarkable and plain, fill another row or two of the column.</p>"#, css: H.reset + #".k1 { float:right; width:6.5em; height:6.571428571428571em; margin:-3.3px 0 11.1px 0; border:1px solid #333;  } .k2 { float:right; width:25%; min-height:41.3px; margin:6px 8px; padding:6.4px; clear:both; font-size:0.8em; break-before:page;  } .k3 { position:relative; width:80%; margin:0 auto;  } .k4 { position:absolute; width:186.0px; right:0;  } .k5 { float:right; max-width:45%; height:120.5px; text-align:center;  } .k6 { margin:11.714285714285714px 22.8px;  } .k7 { margin-bottom:30.0px } .k8 { float:right; width:72%; height:32.9px; margin:7.6px 8.714285714285714px; clear:both;  } .k9 { width:100%;  } .k10 { float:left; width:25%; height:75px; margin:-3.3px 0 11.1px 0; clear:left; font-size:1.37em; break-before:page;  } .k11 { break-before:page;  } .k12 { position:absolute; width:167.0px; right:7.5px; bottom:10.0px; height:84.71428571428571px;  } .k13 { position:fixed; width:62.333333333333336px; right:0; top:150.5px; margin-top:5px;  } .k14 { text-align:justify;  } "#, fontSize: 14.5,
             files: ["i120x30.png": RichFixture.image(width: 120, height: 30)])
         let paginator = ReaderPaginator(text: section.string, size: CGSize(width: 390, height: 700))
+        #if os(iOS)
+        // Frozen UIKit main has two pages and draws its first toY726 in a700pt clip.
+        // It is a clipping repair, whereas the four readable macOS pages are preserved.
+        PageTextGeometryTests.assertVisiblePages(section, size: CGSize(width: 390, height: 700), label: "UIKit g12#275 clip repair")
+        assertEveryPaintedCharacterFits(paginator)
+        #else
         XCTAssertEqual(paginator.allPages.count, 4)
         let ranges = [NSRange(location: 0, length: 10), NSRange(location: 10, length: 117), NSRange(location: 127, length: 10), NSRange(location: 137, length: 787)]
         let frozen: [[[Double]]] = [[[0,10,87.0,0.0,57.54486471414566,19.94369885433715]],
@@ -141,5 +153,29 @@ import UIKit
 [864,56,0.0,344.0428805237316,390.0,19.94369885433715],
 [920,4,0.0,363.98657937806877,35.26878949999809,19.94369885433715]]]
         for index in 0..<4 { assertFrozen(paginator, pageIndex: index, range: ranges[index], lines: frozen[index]) }
+        #endif
     }
+
+    #if os(iOS)
+    private func assertEveryPaintedCharacterFits(_ paginator: ReaderPaginator,
+                                               file: StaticString = #filePath, line: UInt = #line) {
+        for (index, page) in paginator.allPages.enumerated() {
+            let view = H.pageView(paginator, page: page)
+            let characters = paginator.text(for: page).string as NSString
+            let clip = min(page.height, paginator.size.height - page.topSpacing)
+            for offset in 0..<page.range.length {
+                guard let scalar = UnicodeScalar(characters.character(at: offset)),
+                      !CharacterSet.whitespacesAndNewlines.contains(scalar) else { continue }
+                let frames = view.segmentFrames(for: NSRange(location: offset, length: 1))
+                XCTAssertFalse(frames.isEmpty, file: file, line: line)
+                for frame in frames {
+                    XCTAssertGreaterThanOrEqual(frame.minX, -0.01, file: file, line: line)
+                    XCTAssertLessThanOrEqual(frame.maxX, paginator.size.width + 0.01, file: file, line: line)
+                    XCTAssertGreaterThanOrEqual(frame.minY, -0.01, file: file, line: line)
+                    XCTAssertLessThanOrEqual(frame.maxY, clip + 0.01, "page \(index), character \(offset)", file: file, line: line)
+                }
+            }
+        }
+    }
+    #endif
 }

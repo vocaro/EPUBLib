@@ -69,3 +69,52 @@ Both final runs passed all37 tests (23 pagination,11 geometry,3 preservation). T
 500-section and frozen displayed-rectangle qualification above remains unchanged; this guard
 only declines an infeasible fallback drawing budget. Full integration and iOS qualification
 remain the integration gate's responsibility.
+
+## UIKit qualification against frozen main
+
+The first full iPhone and iPad gates found three tests using macOS page boundaries or font
+metrics as UIKit oracles. Production remained unchanged. The portable diagnostic and all
+paired raw ranges, displayed rectangles and visible table words are preserved on
+[#242](https://github.com/vocaro/EPUBLib/issues/242#issuecomment-6158528238), with a patch applying
+to exact main24400, and in [the companion JSON](issue-192-242-uikit-frozen-geometry.json).
+
+All 104 archived production source files matched their git blob IDs at
+`24400a9e0203f9e325ca98f5917e1d2e17955189`. The same probe ran sequentially against that archive
+and candidate `6d74d19d9fde50f4d523c6aebfcac14c135c6895` on one newly created, headless iPhone 17 Pro
+simulator (`20F39029-E990-488E-AF1C-B2005404B78B`, subsequently deleted). Both snapshots actually
+ran four diagnostic tests. Xcode was 27.0 build 27A266a, the SDK iPhoneSimulator 27.0 build
+24A430, and the runtime iOS 27.0 build 24A434. Builds used two jobs and inherited Swift flags
+`-j2 -driver-batch-count 2`.
+
+The corrected portable probe SHA256 is
+`9783001b56928b349b1ad0acd40266f6041a5e516d06fca60c59713890b35444`.
+The sorted SHA256 source-file manifest digests are
+`f1804a37ffe05bb20d90f5de462b8ecffddf482848c9d1ea69cc1117bcf01a23` for main and
+`3aecd4e4cd3f8eab775c19e60cd22158e9a97042b20fd7b0b443d81c1c9c9bae` for the candidate.
+
+The original multi-paragraph fixture preserves all eight actual UIKit line rectangles and
+ranges exactly. Its native lines are 20.3 points, the fixed box remains at Y44.95, and cleared
+prose remains at Y306.45. The three original delayed-table opening pages preserve all ranges,
+rectangles and visible table content, apart from numerical noise below 1.5e-14 points.
+
+The larger delayed-proposal fixture also preserves every displayed rectangle and source
+boundary. UIKit places table rows at source offsets 235, 237 and 239 inside page zero, at
+Y130.8, Y155.8 and Y180.8. It does not exercise the macOS delayed first-fragment trigger.
+The Mac test still requires the semantic second row to open its page at Y603.15 with width
+1024. The UIKit branch pins the independently captured in-page Y155.8 and full width, then
+checks all characters and visible table words. Neither platform silently skips the fixture.
+
+The g275 frozen UIKit output was already invalid: two pages, with the first reaching Y726
+inside a 700-point clip. The candidate repairs that clipping with four readable pages.
+Its UIKit contract therefore checks complete source coverage, visible table words, native
+line bounds and every painted character's horizontal and vertical segment rectangle within
+0.01 points. The four readable macOS pages still retain their exact frozen vectors and
+boundaries. Across the captured fixtures all 211 table-word tokens match by fixture, source
+attachment offset and row, with no omissions or duplicates.
+
+The final test/doc-only update passed all 37 focused tests on Mac and all 37 on an owned
+headless UIKit simulator: 11 geometry, three preservation and 23 pagination tests. Both sets
+include the unchanged generated coverage assertions; the native minimum-clip tests also pass.
+Every device created for the diagnostic and focused runs was deleted. No diagnostic file
+remains in either compiled test target. Full iOS integration and sample builds remain with
+the integration gate; these focused results do not substitute for them.

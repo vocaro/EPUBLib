@@ -321,12 +321,28 @@ import UIKit
         let section = try H.build(#"<aside class='k1'><p>Placed T1 top.</p><p>Placed T1 end words.</p></aside><aside class='k2'>Placed T2 words.</aside><p class='k3'>T3. She counted the steps twice; forty-one each time, which settled nothing at all.</p><p class='k4'>T4. Ordinary prose wraps beside the box and returns to the full column below it.</p><aside class='k5'>Placed T5 words.</aside><table><tr><td>Row 1 T6</td><td>two</td></tr><tr><td>Row 2 T6</td><td>Ordinary prose wraps beside the box and returns to the full column below it.</td><td>3</td></tr><tr><td>Row 3 T6</td><td>two</td><td>3</td></tr></table><aside class='k6'>Placed T7 words.</aside><blockquote class='k7'><p>Quoted T8. The harbour was quiet that morning, and nobody on the quay looked up when the ferry came in. The harbour was quiet that morning, and nobody on the quay looked up when the ferry came in. Numbers such as 3.14159 and 2,718 sit among the words; so do (brackets) and “quotation marks”.</p></blockquote><p class='k8'>T9. Short one. She counted the steps twice; forty-one each time, which settled nothing at all. Words of several lengths, unremarkable and plain, fill another row or two of the column.</p><p class='k9'>T10.</p><figure class='k10'>Float T11.</figure><p class='k11'>T12. She counted the steps twice; forty-one each time, which settled nothing at all. She counted the steps twice; forty-one each time, which settled nothing at all. Numbers such as 3.14159 and 2,718 sit among the words; so do (brackets) and “quotation marks”. Disproportionately, uncharacteristically long words occasionally interrupt otherwise-ordinary sentences. Disproportionately, uncharacteristically long words occasionally interrupt otherwise-ordinary sentences. Ordinary prose wraps beside the box and returns to the full column below it. A line of dialogue, he said, should never run on like this one does, clause after clause, until the reader gives up. Words of several lengths, unremarkable and plain, fill another row or two of the column. Disproportionately, uncharacteristically long words occasionally interrupt otherwise-ordinary sentences. She counted the steps twice; forty-one each time, which settled nothing at all. Words of several lengths, unremarkable and plain, fill another row or two of the column. Disproportionately, uncharacteristically long words occasionally interrupt otherwise-ordinary sentences.</p><p class='k12' dir='rtl'>T13. النص العربي يستمر هنا بكلمات أخرى مختلفة الطول حتى ينتهي السطر ويبدأ سطر جديد. עוד משפט, הפעם עם מספרים 123 ומילים באנגלית like these בתוכו. النص العربي يستمر هنا بكلمات أخرى مختلفة الطول حتى ينتهي السطر ويبدأ سطر جديد. משפט קצר. זהו משפט רגיל בעברית שעוטף ליד התיבה וחוזר לטור המלא מתחתיה. עוד משפט, הפעם עם מספרים 123 ומילים באנגלית like these בתוכו. النص العربي يستمر هنا بكلمات أخرى مختلفة الطول حتى ينتهي السطر ويبدأ سطر جديد. זהו משפט רגיל בעברית שעוטף ליד התיבה וחוזר לטור המלא מתחתיה. هذه جملة عربية عادية تلتف بجانب المربع ثم تعود إلى العمود الكامل تحته. זהו משפט רגיל בעברית שעוטף ליד התיבה וחוזר לטור המלא מתחתיה. זהו משפט רגיל בעברית שעוטף ליד התיבה וחוזר לטור המלא מתחתיה. זהו משפט רגיל בעברית שעוטף ליד התיבה וחוזר לטור המלא מתחתיה. זהו משפט רגיל בעברית שעוטף ליד התיבה וחוזר לטור המלא מתחתיה. משפט קצר. משפט קצר. משפט קצר. עוד משפט, הפעם עם מספרים 123 ומילים באנגלית like these בתוכו. זהו משפט רגיל בעברית שעוטף ליד התיבה וחוזר לטור המלא מתחתיה. עוד משפט, הפעם עם מספרים 123 ומילים באנגלית like these בתוכו. النص العربي يستمر هنا بكلمات أخرى مختلفة الطول حتى ينتهي السطر ويبدأ سطر جديد.</p><figure class='k13'>Float T14.</figure><figure class='k14' dir='rtl'>T15 النص العربي يستمر هنا بكلمات أخرى مختلفة الطول حتى ينتهي السطر ويبدأ سطر جديد.</figure><figure class='k15'><p>Top T16.</p><p>Middle T16 words wrap here.</p><p>Bottom T16.</p></figure><p><span class='k16'>D</span>rop T17. Ordinary prose wraps beside the box and returns to the full column below it. She counted the steps twice; forty-one each time, which settled nothing at all. Disproportionately, uncharacteristically long words occasionally interrupt otherwise-ordinary sentences. She counted the steps twice; forty-one each time, which settled nothing at all.</p><aside class='k17'><h3>Side T18</h3><p>A line of dialogue, he said, should never run on like this one does, clause after clause, until the reader gives up.</p></aside><p class='k18'>T19. Ordinary prose wraps beside the box and returns to the full column below it. Words of several lengths, unremarkable and plain, fill another row or two of the column. Short one. Words of several lengths, unremarkable and plain, fill another row or two of the column. Short one. Numbers such as 3.14159 and 2,718 sit among the words; so do (brackets) and “quotation marks”.</p>"#, css: H.reset + #".k1 { position:absolute; width:30%; right:7.5px; bottom:31.1px; padding:3px;  } .k2 { position:absolute; width:62.5%; padding:3px;  } .k3 { text-indent:-1em; padding-left:1em; text-align:justify;  } .k4 { margin-left:7%;  } .k5 { position:fixed; width:62.5%; right:0; top:40px; height:50px;  } .k6 { position:fixed; width:30%; left:12%; top:9.0px; height:50px;  } .k7 { margin:4.4px 16.5px;  } .k8 { clear:left; text-indent:1.5em;  } .k9 { margin-bottom:63.0px } .k10 { float:left; width:6.5em; height:120.5px; margin:0.7em 0; padding:0.33em 0; text-align:center;  } .k11 { margin-top:-8px;  } .k12 { margin-left:7%;  } .k13 { float:right; min-width:55px; width:10%; height:107.0px; line-height:1.1;  } .k14 { float:right; width:72%; height:6.666666666666667em; margin:12.0px 0.14285714285714285px; border:1px solid #333; text-align:center;  } .k15 { float:left; width:6.5em; height:3.3em; margin:3.0px 1.25px; border:2.5px solid #333; padding:3px;  } .k16 { float:left; font-size:3em;  } .k17 { float:left; width:72%; min-height:41.3px; margin:12.0px 8.714285714285714px; padding:4px; clear:both; break-before:page;  } .k18 { clear:right; margin:1em 0;  } "#, fontSize: 14.5)
         let size = CGSize(width: 1024, height: 700.25)
         let (paginator, pages) = H.pages(section, size: size)
-        let page = try XCTUnwrap(pages.first { $0.range.location == 237 })
+        var secondRow: Int?
+        section.string.enumerateAttribute(.attachment, in: NSRange(location: 0, length: section.string.length)) { value, range, _ in
+            if secondRow == nil, let row = value as? TableRowAttachment, row.row == 1 { secondRow = range.location }
+        }
+        let sourceOffset = try XCTUnwrap(secondRow)
+        let page = try XCTUnwrap(pages.first { NSLocationInRange(sourceOffset, $0.range) })
         let view = H.pageView(paginator, page: page)
-        let first = try XCTUnwrap(Self.rawLines(in: view, intersecting: view.shownCharacters).first)
-        XCTAssertEqual(first.frame.minY, 603.15, accuracy: 0.5)
-        XCTAssertEqual(first.frame.width, 1024, accuracy: 0.5,
-            "A later fixed box at the proposal origin does not narrow the delayed table at its actual height")
+        let local = NSRange(location: sourceOffset - page.range.location, length: 1)
+        let row = try XCTUnwrap(Self.rawLines(in: view, intersecting: local).first)
+        #if os(iOS)
+        // Frozen UIKit main places this row inside the first page. Its different native
+        // metrics do not exercise the delayed first-fragment proposal from macOS.
+        XCTAssertEqual(page.range.location, 0)
+        XCTAssertGreaterThan(local.location, 0)
+        XCTAssertEqual(row.frame.minY, 155.8, accuracy: 0.5)
+        #else
+        XCTAssertEqual(page.range.location, sourceOffset, "The delayed row opens the displayed page")
+        XCTAssertEqual(Self.rawLines(in: view, intersecting: view.shownCharacters).first?.range.location, local.location)
+        XCTAssertEqual(row.frame.minY, 603.15, accuracy: 0.5)
+        #endif
+        XCTAssertEqual(row.frame.width, 1024, accuracy: 0.5,
+            "The table uses the full column at its actual drawn height")
         assertPages(section, size: size, label: "g12#411 full-width table proposal")
     }
 
@@ -408,6 +424,11 @@ import UIKit
 
     private func assertPages(_ section: SectionText, size: CGSize, label: String,
                              file: StaticString = #filePath, line: UInt = #line) {
+        Self.assertVisiblePages(section, size: size, label: label, file: file, line: line)
+    }
+
+    static func assertVisiblePages(_ section: SectionText, size: CGSize, label: String,
+                                   file: StaticString = #filePath, line: UInt = #line) {
         let paginator = ReaderPaginator(text: section.string, size: size)
         let whole = H.view(paginator.text, size: size)
         let expected = Self.rawLines(in: whole, intersecting: NSRange(location: 0, length: section.string.length))
