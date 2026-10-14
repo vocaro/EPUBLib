@@ -8,7 +8,7 @@ import XCTest
 /// Where an assistive technology's cursor goes when the page it is on is turned, on iPhone and
 /// iPad ("Input and accessibility" in `doc/native-viewer.md`). API level only: the cursor is
 /// put on a line as UIKit tells the reader of it, and no assistive technology is driven.
-/// `doc/voiceover-testing.md` has what VoiceOver then did on a device.
+/// `doc/testing.md#voiceover-testing` has what VoiceOver then did on a device.
 @MainActor final class PageTurnAccessibilityTests: XCTestCase {
     private var hosts: [CanvasHost] = []
     private var readers: [SessionCoverageReader] = []
@@ -194,7 +194,7 @@ import XCTest
 
     /// VoiceOver keeps the items it was given each side of its cursor, a page's lines among
     /// them, and goes to one it has been on without asking when a page is shown by something
-    /// it did not do (`doc/voiceover-testing.md`, "Harness pitfalls and current results"). A
+    /// it did not do (`doc/testing.md`, "Harness pitfalls and current results"). A
     /// layout change has it ask again.
     func testAPageShownUnderACursorThatHasNotLeftItTellsOfALayoutChangeWithNoElement() throws {
         let canvas = host([Self.lines(120, heading: 70)]).canvas
@@ -249,7 +249,7 @@ import XCTest
     /// changes the appearance or the text is built again. VoiceOver is told of a layout change
     /// with no element, and takes the item listed where its cursor is: given a new one for the
     /// line it sets its cursor there, and its rotor is back at its default
-    /// (`doc/voiceover-testing.md`, "Harness pitfalls and current results"). So the element
+    /// (`doc/testing.md`, "Harness pitfalls and current results"). So the element
     /// it holds is listed as the item of its line, with all that a new one for the line
     /// answers, and every other line has a new item.
     func testTheElementUnderTheCursorIsTheItemOfItsLineWhenItsPageIsShownAgain() throws {
@@ -771,7 +771,7 @@ import XCTest
     /// the reader dark, every section is built again and the table is a new one. The cell
     /// keeps its element as a line does, and its table's element is kept with it, for the
     /// table as it was built again: with a new element for the table VoiceOver said the kept
-    /// cell's header cells and no longer its row or column (`doc/voiceover-testing.md`,
+    /// cell's header cells and no longer its row or column (`doc/testing.md#voiceover-testing`,
     /// "Harness pitfalls and current results"). VoiceOver's cursor comes to no other item
     /// there, so it says nothing, and what it chose in its rotor stands. Across a turn a cell
     /// that becomes another cell is given that cell's own element, whose row and column

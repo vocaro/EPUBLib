@@ -230,7 +230,7 @@ final class ReaderTextView: NSTextView {
     /// (`TableRowAttachment.saysNothing`): rows of empty cells and of decoration alone, which
     /// space out a table used for layout. VoiceOver is given nothing to stop on there, as
     /// iPhone and iPad list no element for such a row. It takes four things, and what
-    /// VoiceOver does without each was heard (doc/voiceover-testing.md, the entry of
+    /// VoiceOver does without each was heard (doc/testing.md#voiceover-testing, the entry of
     /// 2026-10-13 on rows that have nothing to say):
     ///
     /// - The text gives no element at the row's character. With a group there VoiceOver said

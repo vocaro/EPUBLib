@@ -5,7 +5,7 @@ import ApplicationServices
 // text: VoiceOver Utility's Verbosity, Text, "When encountering a link/attachment". The
 // setting decides whether a transcript can hold a word for a link at all. It opens VoiceOver
 // Utility and changes a setting of the logged-in user, so it runs on a hosted runner only;
-// see "Hosted Mac sessions" in doc/voiceover-testing.md.
+// see "Hosted Mac sessions" in doc/testing.md.
 //
 // Usage: voiceover-link-verbosity [Speak|"Change Pitch"|"Play Tone"|"Do Nothing"] [--tree]
 

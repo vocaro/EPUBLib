@@ -183,7 +183,7 @@ import XCTest
     /// VoiceOver, inside the text and not yet moved in it, keeps its cursor on its line when the
     /// insertion point moves under one notice, and then scrolls the view back to that line: a
     /// scroll step made straight after entering was undone
-    /// (doc/voiceover-testing.md "Continuous scroll"). So after a move the reader makes itself
+    /// (doc/testing.md "Continuous scroll"). So after a move the reader makes itself
     /// the text view tells of the insertion point a second time, before the window's layout
     /// change, whatever made the move. What VoiceOver does with it is heard only in a speech
     /// session.

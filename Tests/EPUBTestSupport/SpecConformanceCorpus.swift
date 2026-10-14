@@ -134,7 +134,7 @@ public enum SpecConformanceCorpus {
 
     /// Tests whose stylesheet (`EPUB/texts/fixed.css`) centres a page's one image with
     /// `figure { height: 100%; display: flex; align-items: center; justify-content: center }`.
-    /// A row with one item is inside the supported subset (doc/issue-20-flex-grid-alignment.md),
+    /// A row with one item is inside the supported subset (doc/native-viewer.md, "Flex and grid alignment"),
     /// so the figure is aligned and nothing is disclosed.
     private static let centredFigures: Set<String> = [
         "lay-pp-embedded-images", "lay-pp-embedded-images-svg", "lay-pp-images-mixed",

@@ -118,8 +118,29 @@ warnings, so this list is where they are disclosed:
   byte count, and extraction processing steps are charged one 32 KiB chunk each against the
   archive's bytes, actual expanded bytes, and one partial chunk per entry. A reused or overlapping
   header or stream is read while that budget holds; declared compressed-range overlap alone is
-  not refused. Exceeding the budget throws `limitExceeded("archive input work")`
-  ([measurements and repeatable inputs](issue-199-input-work.md)).
+  not refused. Exceeding the budget throws `limitExceeded("archive input work")`.
+  The directory pre-scan charges the exact size of each local header (30 fixed bytes plus its
+  name and extra field) against the archive's byte count. Real, separate headers fit that
+  budget; repeated large headers cannot multiply copying and ZIP64 field scans indefinitely.
+  ZIPFoundation 0.9.20's Apple decoder calls the consumer after every
+  `compression_stream_process`, including steps that produce no output. Each call uses at most
+  32 KiB of input and returns at most 32 KiB of output. Extraction therefore charges 32 KiB per
+  consumer call, credits actual expanded bytes, and grants one 32 KiB allowance per entry for a
+  partial final chunk. After admitting E entries and producing O bytes from an archive of A
+  bytes, successful calls are bounded by `floor((A + O) / 32768) + E`. The existing entry-count
+  and output limits still apply. The same consumer is used for stored data, whose full chunks
+  cost no extra input work and whose final partial chunk uses the entry allowance. The SDK's
+  `compression.h` contract says a successful processing call continues until its source is
+  exhausted, destination is full, or stream ends. Full output chunks pay for their call
+  entirely; input-exhausting partial output calls are covered by archive bytes, with the entry
+  allowance covering the final partial input/output chunk. This is a bound on processing
+  steps, not a claim to observe the decoder's exact input offset. It stops repeated empty
+  streams and streams shared through distinct headers while continuing to read early-ended
+  streams and declared sizes beyond the archive. Refusing declared overlap would contradict
+  the read-past decision for misstated Deflate sizes
+  ([#219](https://github.com/vocaro/EPUBLib/issues/219), [#171](https://github.com/vocaro/EPUBLib/issues/171)). The release measurements, without the bound and with it,
+  are on [#199](https://github.com/vocaro/EPUBLib/issues/199#issuecomment-6159294787), and [testing](testing.md#archive-input-work-probe) has the probe
+  that repeats them.
 - **Container.** White space around the mimetype's media type and a byte-order mark before it are
   ignored. A rootfile that is not typed as a package document is passed over for the first that
   is. An entry name may hold a colon, as it may the other characters OCF forbids.

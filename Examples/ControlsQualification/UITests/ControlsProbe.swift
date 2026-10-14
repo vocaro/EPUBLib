@@ -3,7 +3,7 @@ import XCUIAutomation
 
 /// Operates the qualification host one step at a time and records what the accessibility tree
 /// and the screen show after each step. It asserts nothing: a run that completes is not a
-/// result. Read its log and screenshots; see doc/issue-49-51-controls-qualification.md.
+/// result. Read its log and screenshots; see "Reader controls probe" in doc/testing.md.
 ///
 /// `TEST_RUNNER_QUALIFICATION_OUT` names a directory holding `args.txt` (launch arguments, one
 /// per line) and `steps.txt` (one step per line); the log, tree dumps and screenshots go there.
@@ -17,7 +17,7 @@ import XCUIAutomation
     func testOperate() throws {
         continueAfterFailure = true
         guard let path = ProcessInfo.processInfo.environment["QUALIFICATION_OUT"] else {
-            throw XCTSkip("Set TEST_RUNNER_QUALIFICATION_OUT; see doc/issue-49-51-controls-qualification.md")
+            throw XCTSkip("Set TEST_RUNNER_QUALIFICATION_OUT; see \"Reader controls probe\" in doc/testing.md")
         }
         out = URL(fileURLWithPath: path)
         func lines(_ name: String) -> [String] {

@@ -13,7 +13,7 @@ import XCTest
 ///
 /// No assistive technology is driven here. The tests read the elements through AppKit's own
 /// accessibility methods, which are what its bridge to a client calls. What VoiceOver says of
-/// them, and that a client is given every attribute, is in doc/voiceover-testing.md.
+/// them, and that a client is given every attribute, is in doc/testing.md#voiceover-testing.
 @MainActor final class TableDataMacAccessibilityTests: XCTestCase {
     private typealias Subject = (reader: SessionCoverageReader, canvas: ReaderCanvasView, view: ReaderTextView)
     private var readers: [SessionCoverageReader] = []
@@ -257,7 +257,7 @@ import XCTest
     /// their words.
     ///
     /// Such a cell holds a link, and the link its text areas, which is what makes VoiceOver
-    /// say "hyperlink" as it comes to the cell (doc/voiceover-testing.md). The link is called
+    /// say "hyperlink" as it comes to the cell (doc/testing.md). The link is called
     /// by the cell's words as well, which VoiceOver says once. A header cell that is one link
     /// is such a cell (`testAHeaderCellThatIsOneLinkHoldsALinkAndStillHeads`).
     func testACellThatIsOneLinkIsPressedToFollowItAndHoldsThatLink() async throws {
@@ -329,7 +329,7 @@ import XCTest
     /// called, and looks no further in: a text area's value, and a link's title. So the link
     /// is called by the cell's words. Held without a title, it left VoiceOver saying "1912"
     /// where it says "Dogwood 1912", and the column's and the row's numbers for their headers
-    /// (doc/voiceover-testing.md).
+    /// (doc/testing.md#voiceover-testing).
     func testAHeaderCellThatIsOneLinkHoldsALinkAndStillHeads() async throws {
         let book = try book("<p>Words before the routes.</p>" + Self.routes + "<p>Words after the routes.</p>" + SessionCoverageBook.filler(120))
         for scrolled in [false, true] {
@@ -465,7 +465,7 @@ import XCTest
     /// the picture's words, in place of its text area. VoiceOver says what a cell holds, a
     /// text area by its characters, and a picture's is the attachment's character: it said
     /// the column's header and that character at such a cell, for a described picture as for
-    /// any other, where it now says "Blue badge image" (doc/voiceover-testing.md). A picture
+    /// any other, where it now says "Blue badge image" (doc/testing.md). A picture
     /// nobody describes is an image without a name, which VoiceOver says in its own word, and
     /// decoration is no image: a cell of decoration alone holds nothing, as an empty one
     /// does. A cell that shows a picture among words holds its text area, where VoiceOver

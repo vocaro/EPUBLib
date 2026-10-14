@@ -5,7 +5,7 @@
     python3 scripts/hosted-run.py voiceover-mac.yml -f steps='width=600 in line ; in line'
 
 GitHub runs five macOS jobs at a time for the whole account, every session's runs draw on
-them, and its queue has no priorities; see "Sharing the runner" in doc/voiceover-testing.md.
+them, and its queue has no priorities; see "Sharing the runner" in doc/testing.md.
 With no workflow this prints the runs in flight and starts nothing. With one it takes the
 place of `gh workflow run`: it starts the run from the branch checked out, or from --ref, and
 prints the new run. It starts nothing, and exits with status 1, when

@@ -267,7 +267,7 @@ extension PageAccessibilityTests {
     /// VoiceOver comes back to a column it has left at the text offset it had on the page before
     /// unless the spread's layout change is posted by the element that holds the columns, and
     /// not by the window (#337). What VoiceOver does with it is heard only in a speech session
-    /// (doc/voiceover-testing.md); this holds the notification to that shape.
+    /// (doc/testing.md#voiceover-testing); this holds the notification to that shape.
     func testASpreadsLayoutChangeIsPostedByTheElementHoldingItsColumns() throws {
         let text = CanvasText.body((0..<900).map { String(format: "word%04d", $0) }.joined(separator: " "))
         func reader() -> (canvas: ReaderCanvasView, source: FakeCanvasSource, recorder: CanvasRecorder) {

@@ -14,7 +14,7 @@ import XCTest
 /// No assistive technology is driven here. The test performs the actions an element lists,
 /// reads the pixels the canvas draws, and takes what the reader would have VoiceOver say from
 /// the canvas instead of posting it. That VoiceOver performs the action, says the words and
-/// offers the rest on a device is in doc/voiceover-testing.md.
+/// offers the rest on a device is in doc/testing.md#voiceover-testing.
 @MainActor final class TableSelectActionTests: XCTestCase {
     private typealias Cell = UIAccessibilityElement & UIAccessibilityContainerDataTableCell
     private var readers: [SessionCoverageReader] = []

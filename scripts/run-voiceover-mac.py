@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the isolated Mac speech probe with a deadline and restore VoiceOver state.
 
-Build and normally launch the verification reader first; see doc/voiceover-testing.md.
+Build and normally launch the verification reader first; see doc/testing.md#voiceover-testing.
 Steps are VoiceOver commands sent while the probe records speech, or `ax:STEP` for a
 step of scripts/voiceover-ax-observer.swift such as `ax:focus` or `ax:next`.
 `activate=LABEL` presses the item in the VoiceOver cursor only if VoiceOver just named it, and

@@ -142,6 +142,13 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   path. Archive raster references are resolved and bounded before rendering; scripts,
   animation, foreign content and external resources are omitted with a disclosure. SVG
   filter effects are omitted with a disclosure while preserving the drawing's shapes and labels.
+  The sanitizer omits filter definitions, presentation attributes and CSS declarations, and
+  `SectionReport` retains its `svg:filter` disclosure. CSS omission preserves neighboring fill,
+  stroke, clipping and font declarations, including comments and quoted/function values.
+  Stylesheet text is sanitized together so XML text/CDATA boundaries do not split declarations.
+  The renderer's direct entry point continues to refuse filters, including commented and
+  escaped CSS property names; it only receives the prepared drawing. The original node, depth,
+  local-reference expansion and cycle checks run before omission.
   Pattern fills and illustrations exceeding the rendering limits show their title, description or
   drawing text instead. Title and description provide the image's accessible label. No WebKit.
   The renderer ships as an Apple XCFramework; consumers do not need Rust. Its source pins,
@@ -399,7 +406,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   no action gives no list of actions, not an empty one.
   What UIKit gives a text view was heard by itself on 2026-10-12, in a build that named every
   action for the object that gave it
-  ([VoiceOver testing](voiceover-testing.md#harness-pitfalls-and-current-results)): the
+  ([VoiceOver testing](testing.md#harness-pitfalls-and-current-results)): the
   scroll view one action for each run of its text that is a link, named by the link's
   characters, "￼" for a link that holds only a picture or a hidden label, six in the
   verification book and none for a picture that is not a link; and a page column none, on a
@@ -585,7 +592,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     to say is neither, in either kind of table: VoiceOver passes over it (A row that has
     nothing to say, below). Each part of this was
     heard on a hosted runner before it was kept
-    ([VoiceOver testing](voiceover-testing.md), the entries of 2026-10-13 on tables of data
+    ([VoiceOver testing](testing.md#voiceover-testing), the entries of 2026-10-13 on tables of data
     on Mac, on a table that is not data, on rows that show pictures and on rows that have
     nothing to say):
     - **Reading the text.** By line and by word VoiceOver says a row's words and its own
@@ -617,7 +624,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       character there, "Sign ￼", for the described picture as for the other. The
       description was in the row's name, "Blue badge, Open table", and inside the
       cell's text, "In text Blue badge image", and not at the cell. Each of these was
-      heard on a hosted runner ([VoiceOver testing](voiceover-testing.md), the entry of
+      heard on a hosted runner ([VoiceOver testing](testing.md#voiceover-testing), the entry of
       2026-10-13 on a table cell that shows a picture):
       - **What VoiceOver goes by.** At a cell it reads a text area by its characters,
         and a picture's is the attachment's character, U+FFFC. Nothing the text area
@@ -705,7 +712,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       says "You are currently on a hyperlink cell". "Hyperlink" is AppKit's word for a
       link in text, and what VoiceOver says of the reader's other links. Each of these was
       heard on a hosted runner
-      ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-13 on a table cell
+      ([VoiceOver testing](testing.md#voiceover-testing), the entry of 2026-10-13 on a table cell
       that is a link):
       - **What VoiceOver goes by.** Coming to a cell it says what the cell holds, and
         nothing of what the cell says it is. A press alone changed one thing it said: the
@@ -752,7 +759,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
         it comes to the cell, title and text area both being there, and going in says
         "In hyperlink Elm text Elm", the form it had for a link without the title. Five
         other ways were heard and not kept
-        ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-13 on a header
+        ([VoiceOver testing](testing.md#voiceover-testing), the entry of 2026-10-13 on a header
         cell that is a link). The header given by its words, as the static text that
         stands for a header off screen, or as the cell's own text area, read the cells
         it heads and said a header cell's name before the cell itself, "Elm Elm
@@ -921,7 +928,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
       the row of words below, "Upper near, Upper far group" and then "Middle near, Middle
       far group", in pages and in continuous scroll, and it goes into either of them as
       before. It takes all four parts, which was found on a hosted runner one at a time
-      ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-13 on rows that
+      ([VoiceOver testing](testing.md#voiceover-testing), the entry of 2026-10-13 on rows that
       have nothing to say):
       - **As such rows were.** What one was turned on things a listener could not know.
         A row of a table of data gave its table, which has no name there: a bare "table"
@@ -993,7 +1000,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
         ([#529](https://github.com/vocaro/EPUBLib/issues/529)).
     - **Beside Safari.** The same sections were heard as web pages in Safari 27.0.1 on
       the same runner, with the same keys
-      ([VoiceOver testing](voiceover-testing.md), the second entry of 2026-10-13 on tables
+      ([VoiceOver testing](testing.md#voiceover-testing), the second entry of 2026-10-13 on tables
       of data on Mac, which has both sets of phrases). Safari gives a table as one
       `AXTable` with rows, columns, cells that say which rows and columns they cover, and
       header cells for its columns and rows, which is what the reader gives at each row.
@@ -1089,7 +1096,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     of the way back up a column in continuous scroll. A physical iPad did not do it in
     seventy such moves, nor did the simulator in a later session of fifty-four. A cell
     offers its actions only once it is on screen, which may be why
-    ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-12 on tables of data).
+    ([VoiceOver testing](testing.md#voiceover-testing), the entry of 2026-10-12 on tables of data).
     And before fifty lines were listed past the screen
     ([#380](https://github.com/vocaro/EPUBLib/pull/380)), reading back into a table left
     the text on an iPad simulator in two sessions of three, where rows had not in two of
@@ -1148,7 +1155,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     Text was chosen and performed, the cell was read as selected with the tint behind its
     word, Copy and Use passage were offered, Use passage was performed and Deselect Cell
     Text took the selection away, as in pages
-    ([VoiceOver testing](voiceover-testing.md), the entry of 2026-10-13 on a table's cells
+    ([VoiceOver testing](testing.md#voiceover-testing), the entry of 2026-10-13 on a table's cells
     in continuous scroll). The unit tests perform the cell's actions in both flows.
 - **Footnotes.** EPUB 3 `noteref` links show their note in a popover. Footnote `aside`s are
   hidden from the flow, whether or not anything refers to them; endnotes and other notes stay
@@ -1186,6 +1193,24 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     flow). Deeper into a note that is in the flow it is an ordinary link and navigates.
     Inside a popover, a link to the note being shown is plain text.
   - A footnote `aside` with no id anywhere in it cannot be referred to and is not shown.
+- **Paragraph sizing.** The native section builder retains authored paragraph dimensions until
+  layout. Percentage margins, padding and text indents resolve against the live containing
+  content width, including constrained float and inline-block ancestors. Vertical percentage
+  margins and padding also use that width; adjoining margins collapse before paragraph spacing
+  is installed. Insets remain bounded to preserve a readable column. Paginated layout resolves
+  dimensions before measuring and removes resize metadata from page slices so continuation
+  indentation and spacing do not repeat. Continuous-scroll layout starts from immutable source
+  dimensions on each resize, changing attributes while preserving characters, selection ranges
+  and DOM maps.
+
+  `ex` lengths use CoreText's x-height for the face selected by the font registry, including
+  embedded `@font-face` resources. An `ex` font size uses its parent's metrics. Font metric
+  work runs only for actual `ex` units; ordinary lengths keep the existing inexpensive
+  computation. Fonts without a usable metric fall back to half the em size.
+
+  Centered `figcaption` text at `0.9em` is an intentional user-agent reader default. Explicit
+  author alignment overrides it through the existing cascade
+  ([#21](https://github.com/vocaro/EPUBLib/issues/21)).
 - **Flex and grid.** TextKit lays a section out as one column of paragraphs, so the reader
   aligns the flex and grid layouts that keep that column: a column flex container, a one-column
   grid and a row flex container with a single item
@@ -1197,7 +1222,7 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   characters, so CFIs, search, selection and highlights do not depend on it. The subset follows
   a survey of published stylesheets and this repository's fixtures; ten shipped Standard Ebooks
   titles were then rendered beside WebKit
-  ([qualification](issue-20-flex-grid-alignment.md#shipped-books)).
+  ([record](https://github.com/vocaro/EPUBLib/issues/20#issuecomment-6159295296)).
 - **Continuous scroll** is whole-book: one `UITextView`/`NSTextView` over every linear
   section, so nothing resets at a section boundary and the system scroll edge effects apply.
   Until every section is built it shows the current section, then swaps to the whole book in
@@ -1241,7 +1266,52 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   replaced text's layout with the text, so its images go with it, also after a resize.
   `close()` releases the session's sections and paginations and empties its text views at
   once, as does a dismantled view. Neither waits for the platform to free the views
-  ([investigation](issue-54-svg-relayout.md)).
+  ([investigation](https://github.com/vocaro/EPUBLib/issues/54#issuecomment-6159293824)).
+- **Search collation.** The matcher compares primary collation weights in the document's
+  language, matching Foliate's `Intl.Collator(locale, { sensitivity: 'base' })` contract.
+  Turkish `ö` and `o`, Swedish `å` and `a`, Spanish `ñ` and `n`, and Cyrillic `й` and `и`
+  remain distinct. Ordinary accents in untailored languages, case and width still compare
+  equal. Swedish `ü` also matches `y`, including decomposed spelling. `.locate`, `.search` and
+  `.searchHighlight` share `TextSearch.matches`
+  ([#26](https://github.com/vocaro/EPUBLib/issues/26)).
+
+  Foundation's diacritic-insensitive option removes marks before language tailoring can
+  assign them primary significance. Its public comparison API exposes no strength setting.
+  Instead, the matcher compares the original strings with swapped adjacent private-use
+  suffixes. The Unicode collation algorithm compares all primary weights before secondary
+  and tertiary weights. When the original primary sequences are equal, the two unequal
+  suffixes determine the ordering; swapping them reverses that ordering. Unequal primary
+  sequences retain their ordering in both comparisons.
+
+  Private-use characters have independent consecutive implicit primary weights and no
+  decompositions or locale contractions. Both suffixes are chosen absent from the original
+  strings; if a corpus window contains the initially selected pair, that window uses a fresh
+  pair. This also prevents a proper primary prefix from straddling the suffix weights.
+  Comparison uses the unmodified strings: explicit case or width folding would change
+  collation inputs and break expansion cases such as `ßs` versus `sß`, or Swedish fullwidth
+  `Ａ` followed by a combining ring. Case and width distinctions disappear at the primary
+  level itself. The production implementation uses public Foundation APIs and has no ICU
+  private-symbol or JavaScript dependency. The
+  [ICU collation concepts](https://unicode-org.github.io/icu/userguide/collation/concepts.html)
+  describe the primary/secondary/tertiary hierarchy.
+
+  The coarse key prefilter retains root equivalences and adds the cross-class merges in
+  the recorded Swedish and Danish collation classes. Composed and decomposed spellings
+  produce the same keys. Canonical combining-class blocking matters: `u + diaeresis + macron`
+  belongs with Swedish `y`, while `u + macron + diaeresis` stays with `u`. The prefilter runs
+  for standard English, Swedish, Turkish, Spanish, Danish, German and Japanese collations.
+  Other languages or explicit collation variants compare every grapheme window, preserving
+  correctness when a key table has not been qualified for that collation. Consequently, they
+  can be substantially slower. A one-megabyte French section's unique 24-grapheme query took
+  about 10–12.5 seconds in debug builds during parallel build activity on the development
+  Mac; this is an observed cost, not a timing guarantee.
+
+  Language tailoring leaves the rest of the search contract as it was: text-node traversal,
+  script/style exclusion, whitespace collapse, format-character removal, fixed grapheme
+  window length, UTF-16 DOM endpoints, inline boundaries, reading order, match limits and
+  overlapping matches. The comparison is held to results recorded from foliate-js in WebKit
+  ([search collation vectors](testing.md#search-collation-vectors)); those finite vectors are
+  regression evidence, not a claim that every Unicode sequence or locale has been enumerated.
 - **Highlights.** New public `EPUBReaderCommand.setHighlights([EPUBHighlight])` and capability
   `.highlights` draw host highlights from their range CFIs, including every `rangeBookmarks`
   segment of a multi-document annotation (StudyWright #85). Search and
@@ -1359,7 +1429,7 @@ as they did.
   before the viewport is laid out there, and rows looked for in the layout of the place
   before would have their cells taken away and made again, and with them the links
   VoiceOver holds ([#517](https://github.com/vocaro/EPUBLib/issues/517); [VoiceOver
-  testing](voiceover-testing.md#harness-pitfalls-and-current-results) has the sessions).
+  testing](testing.md#harness-pitfalls-and-current-results) has the sessions).
   AppKit's text view also scrolls itself when a live resize of its window ends, after a drag
   of the window's edge and after a resize made with animation or by an assistive client: the
   paragraph under the clip view's top edge goes to that edge, from its first line
@@ -1509,7 +1579,7 @@ as they did.
   contents, with the layout change as without it. A simulator's VoiceOver no longer does
   there: the layout change for the chapter shown fills what it holds, two items each side,
   before its first move, so it does not ask for fifty and goes on above that line
-  ([VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current results").
+  ([VoiceOver testing](testing.md#voiceover-testing), "Harness pitfalls and current results").
   UIKit has no place among the lines for the scroll view's own scroll bar, and where it put
   the bar depended on how it came to it. Going through the scroll view it gave the bar after
   the last line listed: that is where VoiceOver met it, after the book's last line, and
@@ -1563,7 +1633,7 @@ as they did.
   insets, and a touch anywhere on the bar's place finds the bar again
   ([#342](https://github.com/vocaro/EPUBLib/issues/342)).
   Two other ways were tried against a log of UIKit's requests and dropped
-  ([VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current results"): a
+  ([VoiceOver testing](testing.md#voiceover-testing), "Harness pitfalls and current results"): a
   place for the bar from `index(ofAccessibilityElement:)` alone, which UIKit does not ask
   for while the bar is a header, and the bar hidden only while VoiceOver's cursor was on
   it, which rested on the order of VoiceOver's questions and let a finger on the bar find
@@ -1613,6 +1683,37 @@ as they did.
   These exceptional pages use that measurement's complete line boundaries and height, and
   the next page starts at the corrected source boundary. No synthetic tail padding or column
   growth is needed; authored justification, hyphenation, indentation and RTL are retained.
+  A planned page is measured as the same bounded display slice before its source boundary
+  is committed. Lines below its actual clip carry forward. A positioned first line outside
+  the clip, or a line taller than the column, falls back to native in-flow text with bounded
+  typography. That exceptional slice retains its characters, DOM mapping, links and heading
+  roles; it can change positioning, font size, baseline shifts and paragraph spacing to make
+  its content reachable
+  ([#303](https://github.com/vocaro/EPUBLib/issues/303), [#192](https://github.com/vocaro/EPUBLib/issues/192), [#242](https://github.com/vocaro/EPUBLib/issues/242), [#289](https://github.com/vocaro/EPUBLib/issues/289)).
+  A forced-break paragraph's retained leading margin is included in its ordinary flow plan.
+  Existing bounded preflight decides which boxes are eligible first. Only a retained rich
+  plan with such a margin is replanned with corrected flow advances, carrying rejected box
+  IDs forward. Each phase uses the existing bounded positioning/suppression passes. An
+  already-readable in-flow fallback is not converted to a new indivisible group. Ordinary
+  nonforced margins keep their established behavior.
+  The page's first-line exclusion proposal includes its actual top adjustment. A negative
+  fragment end is held at zero, and the following fragment compensates by the preceding
+  fragment's actual held distance. Glyph queries use the signed frame origin; section page
+  anchoring retains the established flow envelope. The existing indivisible-group policy
+  remains, including its handling of authored breaks inside a group.
+  An inset that exhausts a line leaves a visible glyph column. Justified drop caps measure
+  intrinsic glyph width without full-width justification. Other alignment measurement
+  remains unchanged; the centered-caption expected failure of [#148](https://github.com/vocaro/EPUBLib/issues/148) is retained.
+  The typography fallback has a least clip. A native probe found no three-point font floor:
+  a fitted 0.84909-point font produces a one-point TextKit line and glyph box. A zero-point
+  clip cannot show it; a one-point heading retains half a point of top spacing, leaving only
+  half a point for that glyph. Fallback requires its measured one-point minimum drawing box
+  plus the existing one-point safety inset after top spacing. Below that budget pagination
+  preserves the original fonts and one-source-line progress, without claiming visible
+  glyphs. A failed fitted retry also preserves the original page. No font or page-range
+  alteration is committed for an impossible clip. A 600-point source glyph fits its
+  500-point page through the fallback, and its original page boundaries remain unchanged
+  ([record](https://github.com/vocaro/EPUBLib/issues/242#issuecomment-6159295037); [generated pages](testing.md#generated-page-text)).
   Paginations are cached per section and column size; a resize,
   rotation or bar change repaginates once it ends, in steps when far into a section, with the
   old spread on screen until the new one is ready. A finished pagination keeps only its pages.
@@ -1793,6 +1894,75 @@ keep reading order and the container is disclosed. A wrapping column of definite
 one column and is disclosed. A container holding a float or positioned box is not aligned:
 the box keeps the layout described above, and the alignment given up is disclosed.
 
+No attribute marks a box's extent. Each of a box's paragraphs already carries the tag that
+names the containers around it (`.readerAlignment`), so the box around a position is the run
+of consecutive paragraphs tagged with the same container (`ReaderAlignmentLayout.boxes`); it
+never runs past its section. A box's top edge is its first line's top less the space kept
+above it (`.readerAlignmentLead`). The lines are laid out from the box's start and the
+measuring stops at the first line past the visible area's height, so a long box costs a
+screen of layout at most, and a box of more than 60,000 characters is not measured at all.
+
+The subset was drawn before any book was read, from two sources: the flex and grid usage in
+this repository's fixtures and tests, and the published conventions of well-known stylesheets
+as recalled, not re-fetched. Ten shipped Standard Ebooks titles were read and rendered
+afterwards ([record](https://github.com/vocaro/EPUBLib/issues/20#issuecomment-6159295296)), and the Standard Ebooks entry is corrected from them.
+
+- **This repository.** Before [#20](https://github.com/vocaro/EPUBLib/issues/20) no rendering fixture used flexbox or grid. The only
+  uses were a style-resolution test for the blockification of flex and grid items and parser
+  tests for `display: flex` and `@supports (display: flex)`.
+- **Standard Ebooks.** Its Manual of Style gives full-page epigraphs and dedications one
+  shape: inside `@supports(display: flex)`, a `section` with `display: flex`,
+  `flex-direction: column`, `justify-content: center`, `align-items: center`,
+  `box-sizing: border-box`, `min-height: calc(98vh - 3em)` and `padding-top: 3em`, whose
+  children have `margin: 0`, and `* + * { margin-top: 3em }` where a page has several. Outside
+  `@supports` the children carry the older fallback (`display: inline-block; margin: auto;
+  max-width: 80%; text-align: initial`), which still applies its `max-width` and `text-align`
+  to the flex items. A shipped half-title page does not share the shape: it is a centred
+  heading in block flow, and a title page is an image.
+- **Other reflowable books.** The recurring idioms are the same shape or a small variation on
+  it: a title or part page centred by its `body` or a wrapper (`html, body { height: 100% }`
+  with a column container, `min-height: 100vh`), `margin: auto` on a lone item, a one-cell
+  grid with `place-items: center`, a column with `gap`, a footer pushed down with `flex: 1`
+  on the content above it, and the 2009 `-webkit-box` spelling in books made for early Apple
+  reading systems. Row layouts (side-by-side figures, key and value pairs, navigation bars)
+  exist but are what browsers do with flexbox in general, not a page-composition pattern
+  particular to reflowable books.
+
+The line is drawn where the reader's layout model ends. A section is one column of paragraphs;
+vertical space and indents are things a paragraph has, so anything that only moves or spaces
+blocks within that column can be honoured without changing the text. Items side by side need
+separately measured boxes at one height, which the native model has only as float and
+positioned-box geometry: rectangular exclusions that page as indivisible groups and fall back
+when they outgrow a page. Mapping flex item sizing (`flex-basis`, growth, shrinkage, wrapping,
+baselines) or grid track sizing onto that is a layout engine, not the bounded subset the issue
+asks for.
+
+Four of the rules above were made without review. Each was captured on the iPhone and iPad
+simulators and on the Mac with a plain description of what is on screen. On 2026-10-12 the
+owner, shown them, called them minor cosmetic matters he had no strong feelings about and left
+the judgement to the agent that ran the check. All four are kept, for these reasons:
+
+- **The viewport height in continuous scroll is the visible reading area.** A full-page
+  dedication or epigraph then takes one visible screen with its text in the middle, which is
+  what the book asks for: where the engines break lines alike, the block's top and middle are
+  within 0.2 points of WebKit's on the simulators. It is also the viewport images already use.
+  The cost is that a box is resolved again when a host shows or hides a bar: when a 54-point
+  bar hides, the box grows by 53 points and the text of a dedication on screen moves 26. A
+  fixed height would hold the text still but leave the box taller than the screen, and its
+  text off centre, whenever a bar shows.
+- **A position that starts an aligned box rests the box's top edge at the top.** The page is
+  then seen as it was composed, as in paging. Resting the first line there instead would put a
+  centred dedication at the top of the screen with all of its blank space below. The last lines
+  of the section before show in the top margin, as they do above any position. The same is
+  done for a position anywhere inside a box that fits the visible area.
+- **A box is at most one viewport, so `min-height: 150vh` behaves as `100vh`.** In paging the
+  cap keeps a box and its text on one page with no blank page after it. In continuous scroll
+  the box is half a screen shorter than WebKit makes it, all of it blank space. None of the ten
+  titles asks for more than one viewport.
+- **A one-page epigraph leaves the second column of a spread empty.** That is the paging rule
+  for every section (a section starts a spread), not something the alignment added. Changing
+  it would repaginate every book with a short section.
+
 ## Input and accessibility
 
 `View.epubReaderPageControls(_:)` configures direct page input live; see
@@ -1941,7 +2111,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   itself once it has activated an item, as an iPad did after its double tap on Scroll
   Forward ("Continuous scroll" above), so this is for what it did not do itself; no
   device has run it
-  ([VoiceOver testing](voiceover-testing.md), "Harness pitfalls and current results"). And
+  ([VoiceOver testing](testing.md#voiceover-testing), "Harness pitfalls and current results"). And
   a move by heading that turns the page posts
   nothing, since VoiceOver goes to the item the rotor gives it. VoiceOver's scroll, three
   fingers swiped, announces "Page N" as before, and the cursor is sent after the
@@ -1995,7 +2165,7 @@ The following are the defaults. Host commands and accessibility actions stay ena
   moved in it, holds as any other, with the action and with a page key: the reader tells
   of the insertion point twice ("Continuous scroll" under Layout). Told once, VoiceOver
   went back to the line it had entered at and took the view with it.
-  [VoiceOver testing](voiceover-testing.md#harness-pitfalls-and-current-results) has the
+  [VoiceOver testing](testing.md#harness-pitfalls-and-current-results) has the
   sessions.
 - Headings: `h1` to `h6`, and any element with `role="heading"`, are headings to VoiceOver,
   at the element's level or its `aria-level` from 1 to 6. `role="heading"` alone is level 2,
@@ -2272,7 +2442,7 @@ public ones ([corpus runs](testing.md#corpus-runs)).
   are deliberate reader defaults; explicit author alignment wins. Percentage paragraph
   edges, gaps and indents are checked at 300, 600 and 900 points and 16/25-point text,
   including source-preserving scrolled relayout and paginated continuation formatting.
-  See the [sizing qualification](issue-21-css-sizing.md). The original catalog-wide WebKit
+  The focused runs are on [#21](https://github.com/vocaro/EPUBLib/issues/21#issuecomment-6159293120). The original catalog-wide WebKit
   comparison has not been repeated for these changes.
 - **CFI compatibility.** CFIs and search are checked against vectors recorded from foliate-js
   itself in WebKit: about 2,800 range-to-CFI conversions, 3,300 resolutions, spine bases,
@@ -2364,7 +2534,7 @@ Go: the native viewer is the bundled engine.
 - SVG is static: filter effects are omitted with a disclosure, preserving the remaining diagram;
   pattern fills, animation and foreign content are unsupported. The unchanged networking
   publisher corpus renders all 33 SVG resources, including six containing shadow filters
-  ([verification](issue-53-svg-diagrams.md)). Rendering limits
+  ([verification](https://github.com/vocaro/EPUBLib/issues/53#issuecomment-6159293638); [the book](testing.md#networking-svg-book)). Rendering limits
   include 4 MiB of SVG, 10,000 nodes, depth 64 and 8 MiB of expanded local references.
   Amplifications the byte and node limits do not catch are bounded too, and an SVG past
   any shows its fallback text with the `svg` disclosure, as one past the node, depth or
@@ -2497,8 +2667,76 @@ Go: the native viewer is the bundled engine.
     content can inherit a mask/clip from the marker root: its external resource bytes, text and
     stylesheet costs, and resolved gradient/dash/text-span copies, additionally pay the total
     charged marker instances. That is an upper bound on each marker's actual draw count; plain
-    marker content retains its existing instance bound. [Source characterization and measurements](issue-176-220-282-svg-costs.md)
-    describe the units, the cache condition and the reproducible capped experiment.
+    marker content retains its existing instance bound.
+
+  These charges follow the vendored renderer's sources: resvg 0.48.1 at
+  `68b14c4c3bccdb60344c777406486b54c36ec1a4`, with simplecss 0.2.2. The following is from
+  those sources, not a reproduction of system code
+  ([#176](https://github.com/vocaro/EPUBLib/issues/176), [#220](https://github.com/vocaro/EPUBLib/issues/220), [#282](https://github.com/vocaro/EPUBLib/issues/282)):
+  - `usvg/src/parser/text.rs` counts and iterates `str::chars()`; `text/layout.rs` tracks scalar
+    offsets through shaping. Each run has its own shaping/layout, so a bound on one run cannot
+    bound the sum of many runs. The issue's independent measurements found about 82 MB for one
+    maximally positioned 20,000-scalar run, and 757 MB for ten such runs. The screen retains the
+    20,000-per-run bound and adds 50,000 scalars across expanded content: around 2.5 maximal
+    runs, leaving substantial room for diagram labels. It counts `<use>` copies and repeated
+    resource content too. UTF-8 bytes and grapheme clusters are not the units Rust's text code
+    counts.
+  - `simplecss/src/selector.rs`, `Selector::matches_impl`, tries each ancestor at each
+    descendant combinator. An unsuccessful chain tries combinations of ancestors, including
+    partial matches. The screen bounds those choices by `sum(C(depth,j), j=0...descendants)`,
+    with saturation. `usvg/src/parser/svgtree/parse.rs` applies every rule to each element, and
+    then iterates every declaration of a matched rule, even declarations it will drop. The work
+    charge therefore includes selector bytes per element, matched ancestor-choice work, and all
+    matched declarations, including unrecognized properties. Long compound selectors also pay
+    their full byte length. Attribute lookup/value scanning is charged even on failed matches,
+    using the largest source attribute count, query-name width and largest field queried by a
+    selector. This bounds a long class list scanned once per rule and a missing field searched
+    through many XML attributes, including ancestor candidates. Collection stops at 10,000
+    selectors and at the cloned-block storage budget before rule-list materialization or
+    selector/reference multiplication can grow beyond those ceilings.
+  - `write_declaration` / `insert_attribute` in that same usvg source allocates an owned value
+    on every matching element. `marker` expands to three attributes, `font` to as many as
+    eighteen. All presentation declarations are counted on shapes, groups, `<use>` and their
+    copies, with value bytes plus 64 per declaration as an upper estimate of the measured
+    small-value storage. simplecss also clones each declaration block for each selector in a
+    list; the screen charges that product before allocating per-selector reference lists. Every
+    property counts for the block-clone cost, including names usvg later drops. The ceilings are
+    32 Mi work units and 16 MiB estimated stylesheet storage. Original XML counts are checked
+    before reference lists are resolved, and reference lookups have their own bounded byte
+    counter: each ID's bytes for a lookup and 32 bytes for each candidate element examined,
+    even where its type is wrong.
+  - `usvg/src/parser/mask.rs` shares a converted mask only if both `maskUnits` and
+    `maskContentUnits` are `userSpaceOnUse`. The defaults are respectively `objectBoundingBox`
+    and `userSpaceOnUse`. `clippath.rs` shares `userSpaceOnUse` clip paths, the default;
+    `objectBoundingBox` clip paths convert their content again for each referencing element.
+    Both insert into the cache only after successful conversion of nonempty content. An empty
+    resource, a primitive whose positive Double dimension rounds to zero in f32, or failed
+    nested resources can therefore be retried on every reference even in user-space units. Two
+    failed references per level make that retry exponential. The screen charges every mask and
+    clip-path reference in every unit system against the existing 8 MiB expanded-byte ceiling,
+    including nested references, rather than attempt a proof that conversion will succeed. This
+    deliberately overcharges successfully cached content and also bounds the work of drawing it
+    repeatedly.
+  - `paint_server.rs`, `convert_pattern`, converts children when constructing each pattern
+    paint; `filter.rs`, `convert_url`, shares filters only when both filter and primitive units
+    are `userSpaceOnUse`, and only after successful conversion. Pattern fills remain refused
+    and filter effects remain omitted. Supporting them in future requires analogous
+    content/primitive work budgets and render-time raster budgets; the present screen is not
+    acceptance for those features.
+
+  A source node costs 32 bytes plus its text and attribute names/values, as in the existing
+  `<use>` expansion bound. Resource targets, child subtrees and use targets add their saturated
+  costs without constructing expanded XML. Short resource loops already unlinked by usvg do not
+  expand again; the existing reference screen still refuses the longer loops and excessive
+  chains it does not stop.
+
+  Capped parse measurements of the bundled library on 2026-10-13 found mask and clip
+  conversion comparable: 100,000 repeated content shapes cost about 54 MB for uncached units,
+  versus about 7.5 MB for successful sharing. This supports charging content times references,
+  rather than the source's bytes alone. The 8 MiB expanded-byte ceiling admits fewer than
+  190,000 of those repeated rectangles, consistent with roughly 100 MB at the ceiling from
+  those measurements, in the same memory range as the existing SVG limits
+  ([measurements](https://github.com/vocaro/EPUBLib/issues/176#issuecomment-6159294552); [the probe](testing.md#svg-rendering-cost-probe)).
 
   Embedded raster images are capped at 4 megapixels each and 16 megapixels in total.
   Output is capped at 4,096 pixels on its long side and 16 megapixels, reduced further for
@@ -2507,10 +2745,21 @@ Go: the native viewer is the bundled engine.
   share a 64 MiB budget across the process. Each distinct set of fonts an SVG names is one
   database, with its own copy of the fallback faces, shared by every drawing that names
   those fonts. An SVG refused a database shows its fallback text. The networking book
-  needs five databases, 58 MB on macOS 27 ([investigation](issue-54-svg-relayout.md)).
+  needs five databases, 58 MB on macOS 27 ([investigation](https://github.com/vocaro/EPUBLib/issues/54#issuecomment-6159293824)).
+  The budget is shared by everything open in the process, and the renderer copies the font
+  bytes it is given, which is why each database holds its own copy of the twelve fallback
+  faces. That book alone uses 86% of the budget on macOS 27. A book naming more families in
+  more combinations, or a second open book with other fonts, can still be refused databases,
+  and its figures then show their alt text with the existing `svg` disclosure. Which figures
+  lose depends on build order. Database sizes come from the system's fonts and were measured
+  on macOS 27. The book's five databases also fit the budget on the iOS 27.0 simulators;
+  their sizes there were not recorded. A pagination cached for a section's earlier text is
+  replaced when that section is next paginated. In continuous scroll it is not, so up to
+  eight replaced sections stay alive until the reader closes. Their figures share the current
+  databases.
 - Search uses locale-tailored primary collation for passage location and highlights.
   Locales without qualified prefilter coverage compare candidate windows directly, which
-  can cost more on large sections. See the [collation qualification](issue-26-search-collation.md).
+  can cost more on large sections (see "Search collation" under Decisions).
 - A search completes once every section holding a match has been built, because results are
   the occurrences as rendered. On a book still building, completion waits for those sections.
   One search lists at most 10,000 results and reads at most 10,000 matches per section; past
@@ -2520,26 +2769,26 @@ Go: the native viewer is the bundled engine.
   markup. HTML tree repairs outside that subset cannot issue or resolve saved CFIs; migration
   by href or an explicitly requested text search remains a host decision.
 - Paginated accessibility bounds and actions have native API regression coverage. Live
-  verification uses the [VoiceOver testing process](voiceover-testing.md) and isolated reader.
+  verification uses the [VoiceOver testing process](testing.md#voiceover-testing) and isolated reader.
   Mac VoiceOver sessions on 2026-10-11 verified first and last lines, word order, end of
   text at the page boundary, line counts, the heading, link and image labels, and numbered-word
   continuity across page turns in one and two columns at 17 and 23 points, through text-size
   and window-size changes, with a value-change notification for each
-  ([record](issue-55-voiceover-mac.md)). VoiceOver keeps its own text cursor for a column it
+  ([record](https://github.com/vocaro/EPUBLib/issues/55#issuecomment-6159294286)). VoiceOver keeps its own text cursor for a column it
   rests on without interacting: after a page change it re-enters at its previous character
   offset, or on the last line of a shorter page, until Control-Option-Home. Sessions on a
   physical iPad and iPhone the same day verified reading order, the page boundary, link and
   image labels, the link's activation, and continuity across page turns made with the page
   buttons and with VoiceOver's Next Page and Previous Page actions, in portrait and landscape
   at 17 and 23 points, through rotation and a text-size change
-  ([record](issue-28-voiceover-devices.md)). VoiceOver's three-finger scroll has API coverage
+  ([record](https://github.com/vocaro/EPUBLib/issues/28#issuecomment-6159294047)). VoiceOver's three-finger scroll has API coverage
   only: XCTest cannot perform it. Simulator and API checks do not substitute for device
   sessions. Headings were read and moved between on 2026-10-12 on a physical iPad in both
   flows, on the hosted Mac and in the simulator lane; on a physical iPhone the heading was
   read, and no move by heading was made, because XCTest's gesture did not turn VoiceOver's
   rotor there. In paging on Mac the rotor's list and VoiceOver's move to the next heading
   were heard to go through the whole book the same day, on the hosted Mac
-  ([VoiceOver testing](voiceover-testing.md)). With VoiceOver's cursor on a link on Mac, the
+  ([VoiceOver testing](testing.md#voiceover-testing)). With VoiceOver's cursor on a link on Mac, the
   move goes to the book's next heading in continuous scroll and stays on the page in
   paging, where it goes back to the page's first heading when none follows the link; from
   a link after the book's last heading it begins again with the first heading on screen
@@ -2554,4 +2803,18 @@ Go: the native viewer is the bundled engine.
   box taller than one viewport is treated as one viewport tall; and a container holding a float
   or positioned box is left in block flow. `min()`, `max()` and `clamp()` heights choose their
   branch against the nominal viewport, as other lengths do
-  ([qualification](issue-20-flex-grid-alignment.md)).
+  ([record](https://github.com/vocaro/EPUBLib/issues/20#issuecomment-6159295296)). `text-wrap: pretty` and `balance` are not laid out: lines break greedily,
+  where WebKit evens them out. `hanging-punctuation` is not laid out: a quotation mark a
+  browser hangs outside its block is inside it, which makes the block that much wider. Rules
+  that a row draws with empty `::before` and `::after` flex items are not drawn, and that is
+  not disclosed. In continuous scroll a change of the visible height re-resolves the whole
+  text's attributes when it holds an aligned box, as it already does for percentage-sized
+  paragraphs, and the kept position is rested again afterwards. A container aligned only
+  across the line or only by a gap, with no `height` or `min-height`, is not a box for the
+  rule that rests a box's top edge: each of its positions rests its own line. That rule holds
+  for every position the reader shows, the one a resize or a setting change keeps included:
+  where the person has scrolled part of a one-screen box off the top, a resize shows the box
+  whole again, moving its lines down to where the box puts them. On the Mac the reader is not
+  laid out when a toolbar changes the scroll view's insets
+  ([#162](https://github.com/vocaro/EPUBLib/issues/162)), so until something else lays it out its boxes are resolved for the old
+  height.
