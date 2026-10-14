@@ -251,7 +251,13 @@ typealias TableNativeTextView = UITextView
     override func accessibilityParent() -> Any? { tableCellElement ?? super.accessibilityParent() }
     override var isFlipped: Bool { true }
     override var textContainerOrigin: NSPoint { CGPoint(x: -textOffset.x, y: -textOffset.y) }
-    override func accessibilityValue() -> String? { (cellText.string as NSString).substring(with: shownCharacters) }
+    /// The cell's characters one for one with their ranges, each that `visibility: hidden` hides
+    /// a space (`NSAttributedString.readerBlankingHidden`), as in the text around the table.
+    override func accessibilityValue() -> String? { accessibilityCharacters(in: shownCharacters) }
+
+    private func accessibilityCharacters(in range: NSRange) -> String {
+        cellText.readerBlankingHidden((cellText.string as NSString).substring(with: range), from: range.location)
+    }
     override func accessibilityNumberOfCharacters() -> Int { shownCharacters.length }
     override func accessibilityVisibleCharacterRange() -> NSRange { NSRange(location: 0, length: shownCharacters.length) }
 
@@ -270,17 +276,22 @@ typealias TableNativeTextView = UITextView
 
     override func accessibilityString(for range: NSRange) -> String? {
         guard let full = fullAccessibilityRange(range) else { return nil }
-        return (cellText.string as NSString).substring(with: full)
+        return accessibilityCharacters(in: full)
     }
 
     /// An attachment in a cell is to an assistive client what it is in the text around the
     /// table (`ReaderTextView.accessibilityAttributedString(for:)`): its character carries an
     /// element that is an image named by its words, the words of a hidden label as text, or the
-    /// reader's word for a rule, and decoration carries none. The characters stay as they are.
+    /// reader's word for a rule, and decoration carries none. The characters stay as they are,
+    /// but for those `visibility: hidden` hides, which are spaces.
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard let full = fullAccessibilityRange(range) else { return nil }
         let result = NSMutableAttributedString(attributedString:
             super.accessibilityAttributedString(for: full) ?? cellText.attributedSubstring(from: full))
+        for run in cellText.readerHiddenCharacters(in: full) where NSMaxRange(run) - full.location <= result.length {
+            result.replaceCharacters(in: NSRange(location: run.location - full.location, length: run.length),
+                                     with: String(repeating: " ", count: run.length))
+        }
         cellText.enumerateAttribute(.attachment, in: full) { value, characters, _ in
             guard let element = attachmentElement(for: value, at: characters) else { return }
             let relative = NSRange(location: characters.location - full.location, length: characters.length)

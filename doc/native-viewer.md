@@ -1928,6 +1928,45 @@ and, when it is a link, the link. An id on or inside it names the label, and a s
 position inside it is the label. A box that `visibility: hidden` or `aria-hidden="true"`
 hides, and one with no words, is left out altogether, for assistive technology too.
 
+### Hidden text
+
+Text in the flow that `visibility: hidden` or `visibility: collapse` hides keeps its
+characters, and so the room it takes: it is drawn in a clear colour, without its link, its
+decorations or its background, and its lines, pages and positions are those of the same text
+shown. CSS keeps that room and gives the text to nobody, and so does the reader
+([#357](https://github.com/vocaro/EPUBLib/issues/357)). Every character of it carries
+`.readerHidden`, which changes no character and no span of the text map. Safari is not
+quite that: its VoiceOver read hidden words inside a shown paragraph, and passed over a
+`visibility: visible` child of a hidden paragraph
+([the sessions](https://github.com/vocaro/EPUBLib/issues/357#issuecomment-6164199959)).
+
+- **What is read.** `readerPlainText`, which VoiceOver's elements on iPhone and iPad, Copy,
+  the selection a host is told of, a table cell's words and a search result's context read,
+  leaves the hidden characters out. It keeps the breaks that end their lines and paragraphs,
+  so that the lines around them stay apart, and reads one space where hidden words stand
+  between two shown ones, which their room sets apart on the page. A line that holds hidden
+  words alone has no element.
+- **On the Mac.** AppKit reads a text view's characters one for one with every range it asks
+  for, a line's and a frame's included. Each hidden character but a break is given to an
+  assistive client as a space, in the value, the strings, the rich text and the selected text
+  of a page, of continuous scroll, of a note and of a table cell's text, so that every range
+  still matches the text and VoiceOver has no hidden word to say: by word and by line it
+  passed over them without a stop. A line of hidden words alone is a line of spaces, which
+  no session has moved onto.
+- **Search.** An occurrence that takes in a hidden character is no result and is not drawn,
+  and `.locate` goes to such a passage without selecting it, as it goes to one in a hidden
+  footnote.
+- **Shown again.** A descendant that sets `visibility: visible` is shown and read. A heading
+  whose words are all hidden is no heading to VoiceOver.
+- **Positions.** A saved position or a CFI inside hidden text names the characters it named
+  before hiding them, and resolves to them.
+
+An image, a formula, a table or a rule inside such a box is still drawn
+([#132](https://github.com/vocaro/EPUBLib/issues/132)) and still read
+([#549](https://github.com/vocaro/EPUBLib/issues/549)). A note's popover on iPhone and iPad
+gives VoiceOver UIKit's own text accessibility, which these changes do not reach
+([#550](https://github.com/vocaro/EPUBLib/issues/550)).
+
 ### Flex and grid alignment
 
 A flex or grid container renders as a block and its items as blocks in source order. Three

@@ -213,16 +213,41 @@ final class ReaderTextView: NSTextView {
     // VoiceOver reads the page, not the clipped context after it. The characters stay as they
     // are (attachments as U+FFFC) so every accessibility range matches the text. A table row
     // that has nothing to say is a space, and so is the break after it, and the same for a rule
-    // the book keeps from assistive technology (`silentRows`).
+    // the book keeps from assistive technology (`silentRows`) or a character that
+    // `visibility: hidden` hides (`blankingHiddenText`).
     override func accessibilityValue() -> String? {
         guard !isPageColumn else { return plainCharacters(in: shownCharacters) }
-        return super.accessibilityValue().map { passingOverSilentRows($0, from: 0) }
+        return super.accessibilityValue().map { passingOverSilentRows(blankingHiddenText($0, from: 0), from: 0) }
     }
 
     private func plainCharacters(in range: NSRange) -> String {
         guard let storage = contentStorage.textStorage else { return "" }
         let bounded = NSIntersectionRange(range, NSRange(location: 0, length: storage.length))
-        return passingOverSilentRows((storage.string as NSString).substring(with: bounded), from: bounded.location)
+        return passingOverSilentRows(blankingHiddenText((storage.string as NSString).substring(with: bounded), from: bounded.location),
+                                     from: bounded.location)
+    }
+
+    // MARK: Hidden text
+
+    /// `characters`, which begin at `location` of the text, with each character that
+    /// `visibility: hidden` hides in the flow given as a space, but the breaks that end its
+    /// lines (`NSAttributedString.readerBlankingHidden`). A browser keeps the room such text
+    /// takes and gives an assistive client none of it. AppKit reads a text view's characters
+    /// one for one with every range it asks for, the lines' and the frames' included, so they
+    /// stay as many: VoiceOver says nothing for a space, and passes over the room as it does
+    /// over the space between words.
+    private func blankingHiddenText(_ characters: String, from location: Int) -> String {
+        contentStorage.textStorage?.readerBlankingHidden(characters, from: location) ?? characters
+    }
+
+    /// Whether every character of `range` but its breaks is one that `visibility: hidden` hides.
+    private func holdsHiddenTextAlone(_ range: NSRange) -> Bool {
+        guard let storage = contentStorage.textStorage, range.length > 0 else { return false }
+        let hidden = storage.readerHiddenCharacters(in: range).reduce(0) { $0 + $1.length }
+        guard hidden > 0 else { return false }
+        let text = storage.string as NSString
+        let breaks = (range.location..<NSMaxRange(range)).filter { NSAttributedString.isReaderBreak(text.character(at: $0)) }.count
+        return hidden + breaks >= range.length
     }
 
     // MARK: Table rows that have nothing to say
@@ -367,11 +392,14 @@ final class ReaderTextView: NSTextView {
     /// decoration is left with nothing, for VoiceOver to pass over, as is an image or a rule
     /// the book keeps from assistive technology, whatever words it has. A rule has no words,
     /// and its element carries the reader's word for one, for VoiceOver to say that a break is
-    /// there. A heading's characters carry its level, shown or hidden.
+    /// there. A heading's characters carry its level, shown or a hidden label, unless
+    /// `visibility: hidden` hides all of its words: those characters are spaces, as every
+    /// character it hides is (`blankingHiddenText`).
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard !isPageColumn || validPageAccessibilityRange(range),
               let base = super.accessibilityAttributedString(for: range) else { return nil }
         let silent = silentRows(in: range), spaces = silentRowCharacters(in: range)
+        let hidden = contentStorage.textStorage?.readerHiddenCharacters(in: range) ?? []
         let tableRows = dataTableRows(in: range).filter { !silent.contains($0.range.location) }
         // What each is given is its spoken words, which an image the book keeps from
         // assistive technology has none of.
@@ -385,12 +413,16 @@ final class ReaderTextView: NSTextView {
         let headings = contentStorage.textStorage?.readerHeadings(in: range) ?? []
         let links = accessibilityLinks(in: range)
         guard !attachments.isEmpty || !images.isEmpty || !rules.isEmpty || !headings.isEmpty || !links.isEmpty || !tableRows.isEmpty
-                || !spaces.isEmpty else { return base }
+                || !spaces.isEmpty || !hidden.isEmpty else { return base }
         let result = NSMutableAttributedString(attributedString: base)
         for place in spaces where place - range.location < result.length {
             let local = NSRange(location: place - range.location, length: 1)
             result.replaceCharacters(in: local, with: " ")
             result.removeAttribute(.attachment, range: local)
+        }
+        for run in hidden where NSMaxRange(run) - range.location <= result.length {
+            result.replaceCharacters(in: NSRange(location: run.location - range.location, length: run.length),
+                                     with: String(repeating: " ", count: run.length))
         }
         // A row of a table of data is given its table, named by the row's words.
         for (row, run) in tableRows {
@@ -400,7 +432,7 @@ final class ReaderTextView: NSTextView {
         }
         for (heading, run) in headings where heading.level > 0 {
             let local = NSRange(location: run.location - range.location, length: run.length)
-            guard NSMaxRange(local) <= result.length else { continue }
+            guard NSMaxRange(local) <= result.length, !holdsHiddenTextAlone(run) else { continue }
             result.addAttribute(.accessibilityHeadingLevel, value: heading.level, range: local)
         }
         for (attachment, text, run) in attachments {
@@ -564,13 +596,27 @@ final class ReaderTextView: NSTextView {
     }
 
     override func accessibilityString(for range: NSRange) -> String? {
-        guard isPageColumn else { return super.accessibilityString(for: range).map { passingOverSilentRows($0, from: range.location) } }
+        guard isPageColumn else {
+            return super.accessibilityString(for: range).map {
+                passingOverSilentRows(blankingHiddenText($0, from: range.location), from: range.location)
+            }
+        }
         return validPageAccessibilityRange(range) ? plainCharacters(in: range) : nil
     }
 
     override func accessibilityRTF(for range: NSRange) -> Data? {
         guard !isPageColumn || validPageAccessibilityRange(range) else { return nil }
-        return super.accessibilityRTF(for: range)
+        // The rich text of a range that holds hidden characters has spaces in their place.
+        guard let storage = contentStorage.textStorage, !storage.readerHiddenCharacters(in: range).isEmpty else {
+            return super.accessibilityRTF(for: range)
+        }
+        let bounded = NSIntersectionRange(range, NSRange(location: 0, length: storage.length))
+        let text = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: bounded))
+        for run in storage.readerHiddenCharacters(in: bounded) {
+            text.replaceCharacters(in: NSRange(location: run.location - bounded.location, length: run.length),
+                                   with: String(repeating: " ", count: run.length))
+        }
+        return text.rtf(from: NSRange(location: 0, length: text.length), documentAttributes: [:])
     }
 
     override func accessibilityFrame(for range: NSRange) -> NSRect {
@@ -636,7 +682,9 @@ final class ReaderTextView: NSTextView {
     }
 
     override func accessibilitySelectedText() -> String? {
-        isPageColumn ? plainCharacters(in: accessibilitySelectedTextRange()) : super.accessibilitySelectedText()
+        guard !isPageColumn else { return plainCharacters(in: accessibilitySelectedTextRange()) }
+        let range = super.accessibilitySelectedTextRange()
+        return super.accessibilitySelectedText().map { range.location == NSNotFound ? $0 : blankingHiddenText($0, from: range.location) }
     }
 
     override func setAccessibilitySelectedTextRange(_ range: NSRange) {
