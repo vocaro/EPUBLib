@@ -1783,13 +1783,13 @@ enum SVGContent {
                     guard bytes.count <= maximumInlinedImageBytes, preparation.permitsWork() else { return nil }
                     let localReport = SectionReportBox()
                     let source: ReaderImageSource
-                    let isSVG = ImageType.mediaType(of: bytes) == nil && ImageType.isSVG(bytes, path: candidate,
+                    let svgResource = ImageType.mediaType(of: bytes) == nil && ImageType.isSVG(bytes, path: candidate,
                         mediaType: publication.manifestResource(at: candidate)?.mediaType)
-                    if !isSVG, let bitmap = ReaderImageSource.bitmap(bytes, path: candidate, key: "svg-inline-" + candidate) {
+                    if !svgResource, let bitmap = ReaderImageSource.bitmap(bytes, path: candidate, key: "svg-inline-" + candidate) {
                         guard bitmap.pixelSize.width * bitmap.pixelSize.height <= CGFloat(maximumTotalImagePixels) else { return nil }
                         source = bitmap
                     } else {
-                        guard isSVG,
+                        guard svgResource,
                               let document = try? ContentDocument.parse(bytes, path: candidate, asContent: false),
                               document.root.name == "svg", isSVG(document.root, root: document.root) else { return nil }
                         let resolve: (String) -> String? = { reference in
