@@ -364,9 +364,15 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
                 let document = try parse(declaration + text)
                 let asUTF8 = try parse(Data("<?xml version=\"1.0\"?>".utf8) + text)
                 XCTAssertEqual(model(document), model(asUTF8), label)
-                XCTAssertTrue(document.root.textContent.hasSuffix("after"), label)
-                // libxml2 passes over what follows `</html>`, so there ASCII leaves nothing to see.
-                XCTAssertEqual(document.root.textContent.unicodeScalars.contains("\u{FFFD}"), !(place == "last" && good.isEmpty), label)
+                XCTAssertTrue(document.root.textContent.contains("after"), label)
+                XCTAssertTrue(document.root.textContent.unicodeScalars.contains("\u{FFFD}"), label)
+                if place == "last" {
+                    // Recovery retains the undecodable bytes after the root too (#237).
+                    // They use the same UTF-8 replacement characters as anywhere else;
+                    // no declared decoder may consume them or end the section early.
+                    let suffix = String(decoding: bad, as: UTF8.self)
+                    XCTAssertTrue(document.body?.textContent.hasSuffix(suffix) == true, label)
+                } else { XCTAssertTrue(document.body?.textContent.hasSuffix("after") == true, label) }
             }
         }
     }
@@ -732,12 +738,13 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
 
     // MARK: - What has not changed
 
-    /// A section that is UTF-8 and holds no NUL is given to the parser as it was before: the
-    /// bytes the XML parser was given, with their stray signs replaced and nothing else done.
-    /// So is one that declares another encoding and is the same bytes in it.
+    /// A section that is UTF-8 and holds neither NUL nor CDATA is given to the parser as it
+    /// was before: the bytes the XML parser was given, with their stray signs replaced and
+    /// nothing else done. So is one that declares another encoding and is the same bytes in
+    /// it. CDATA's required character-preserving rewrite has exact byte checks below.
     func testUTF8WithoutNULsIsGivenToTheParserAsItWas() throws {
         let tokens = ["<", "<", ">", "\"", "'", "=", "/", " ", " ", "a", "p", "x", "1", "!", "?", "-", ".", "_", "\n", "\u{E9}", "\u{4E2D}", "\u{1F600}", "\u{FFFD}", "\u{FEFF}", "&lt;", "&nbsp;", "&eacute;",
-                      "&bogus;", "&", "&#233;", "<p>", "</p>", "<p ", "<a href=", "title=\"", "<br>", "<br/>", "</", "<?", "<!", "<!--", "-->", "<![CDATA[", "]]>", "<!DOCTYPE html>",
+                      "&bogus;", "&", "&#233;", "<p>", "</p>", "<p ", "<a href=", "title=\"", "<br>", "<br/>", "</", "<?", "<!", "<!--", "-->", "<!DOCTYPE html>",
                       "<meta charset=\"ISO-8859-1\">", "<style>", "</style>", "<script>", "</script>", "<title>", "</title>", "<html>", "<head>", "<body>", "</body>", "<table>", "<td>", "<div>", "</div>"]
         let prologs = ["", "", "", "<?xml version=\"1.0\"?>", "<?xml version=\"1.0\" encoding=\"UTF-8\"?>", "<?xml version='1.0' encoding='utf-8' standalone='no'?>\n", "\u{FEFF}",
                        "\u{FEFF}<?xml version=\"1.0\" encoding=\"UTF-8\"?>", "<?xml version=\"1.0\" encoding=\"x-no-such-encoding\"?>", "<?xml encoding=\"ISO-8859-1\"?>", "<?xml version=\"1.0\" encoding=\"UTF-16\"?>"]
@@ -769,6 +776,39 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
         }
         XCTAssertGreaterThan(recovered, 8_000, "the generator has stopped making documents the fallback reads")
         XCTAssertEqual(declaredLegacy, 4_000)
+    }
+
+    func testOnlyContentCDATAChangesUTF8PreparationBytes() throws {
+        let prefix = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><html><body>"
+        let suffix = "</body></html>tail"
+        let cases: [(String, String)] = [
+            ("<p>a<![CDATA[<b>&nbsp; &amp; 😀]]>c<br></p>", "<p>a&lt;b&gt;&amp;nbsp; &amp;amp; 😀c<br></p>"),
+            ("<p>a<![CDATA[]]>c<br></p>", "<p>ac<br></p>"),
+            ("<p title='<![CDATA[a & b]]>'>c<br></p>", "<p title='<![CDATA[a & b]]>'>c<br></p>"),
+            ("<!-- <![CDATA[hidden & x]]> --><p>c<br></p>", "<!-- <![CDATA[hidden & x]]> --><p>c<br></p>"),
+            ("<script><![CDATA[raw & x]]></script><p>c<br></p>", "<script><![CDATA[raw & x]]></script><p>c<br></p>"),
+            ("<style><![CDATA[raw & x]]></style><p>c<br></p>", "<style><![CDATA[raw & x]]></style><p>c<br></p>"),
+        ]
+        for (body, expected) in cases {
+            let data = Data((prefix + body + suffix).utf8)
+            let source = try ContentDocument.htmlSource(data, rewritten: HTMLEntities.numericReferences(in: data),
+                                                        path: "cdata.xhtml", limits: .init())
+            XCTAssertEqual(source.data, Data((prefix + expected + suffix).utf8), body)
+            XCTAssertNil(source.placeholder, body)
+        }
+    }
+
+    func testUnterminatedCDATAIsStillRefusedBeforeRecovery() throws {
+        for body in ["<p>a<![CDATA[x<br></p>", "<p>a<![CDATA[x]]<br></p>"] {
+            let data = Data(page(body).utf8)
+            XCTAssertEqual(XMLSafety.assess(data), .unsafe)
+            XCTAssertThrowsError(try ContentDocument.parse(data, path: "cdata.xhtml")) {
+                XCTAssertEqual($0 as? ContentDocumentError, .unsafeMarkup("cdata.xhtml"))
+            }
+            XCTAssertThrowsError(try ContentDocument.htmlSource(data, rewritten: data, path: "cdata.xhtml", limits: .init())) {
+                XCTAssertEqual($0 as? ContentDocumentError, .malformed("cdata.xhtml"))
+            }
+        }
     }
 
     /// Well-formed XHTML is read by the XML parser in whatever encoding that parser reads, keeps

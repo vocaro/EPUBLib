@@ -64,6 +64,16 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
             "café — … ’ \u{1F600} é &bogus; ' a b")
     }
 
+    func testRecoveryPreservesCombiningMarksInTextHeadingsAndAlternatives() throws {
+        let section = try recovered(page("<h2 id='h'>Signs: \u{093E}</h2><p>acute:&nbsp;&#x301;</b>.</p>"
+            + "<p><img id='image' alt=' \u{093F}'/></p><math alttext='&#xA0;&#x301;'><mi>Ignored</mi></math>",
+            head: "<title>Title:&#xA0;&#x301;</title>"))
+        XCTAssertEqual(section.title, "Title: \u{301}")
+        XCTAssertEqual(section.text, "Signs: \u{093E}\nacute: \u{301}.\n\u{093F}\n\u{301}")
+        XCTAssertEqual(section.headings, [EPUBTextHeading(mark: EPUBTextMark(offset: 0, separator: 0), text: "Signs: \u{093E}")])
+        XCTAssertEqual(section.anchors["image"], EPUBTextMark(offset: "Signs: \u{093E}\nacute: \u{301}.\n".utf8.count, separator: 1))
+    }
+
     // XHTML's empty-element syntax on non-void elements must not swallow what follows.
     func testRecoveryHonorsXMLEmptyElementSyntaxOnNonVoidElements() throws {
         let section = try recovered(page("<p>a</b><a id='x'/>Text <span id='pg' epub:type='pagebreak'/>more</p><div/>tail"))

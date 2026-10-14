@@ -88,7 +88,7 @@ public struct EPUBPublication: Sendable {
         }
         catch { throw EPUBPublicationError.invalidArchive(String(describing: error)) }
         // The bytes this archive reads, whatever it was made from.
-        try ArchiveBounds.check(archive.data ?? data)
+        try ArchiveBounds.check(archive.data ?? data, archive: archive)
         var contents: [String: Data] = [:]
         var paths = Set<String>()
         var total = 0
@@ -103,6 +103,8 @@ public struct EPUBPublication: Sendable {
                 throw EPUBPublicationError.invalidArchive("Duplicate path: \(path)")
             }
             guard paths.count <= limits.entryCount else { throw EPUBPublicationError.limitExceeded("entry count") }
+            // Directories have no data to extract or count toward expanded-byte limits.
+            if entry.type == .directory { continue }
             // An entry that declares more than a limit allows is refused before it is read,
             // unless it is compressed. A compressed entry is not read by its declared size,
             // which may be wrong either way with its data whole: a deflated one is held to the
@@ -111,7 +113,6 @@ public struct EPUBPublication: Sendable {
                                          && entry.uncompressedSize <= UInt64(limits.expandedBytes - total)) else {
                 throw EPUBPublicationError.limitExceeded(path)
             }
-            if entry.type == .directory { continue }
             var bytes = Data()
             inputWork.beginEntry()
             let crc = try archive.extract(entry, bufferSize: ArchiveInputWork.chunkSize) { chunk in

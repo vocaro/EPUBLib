@@ -13,8 +13,8 @@ import Synchronization
 ///
 /// Comparison uses the primary level of Foundation's localized collation, preserving letters
 /// a language distinguishes even when their spelling contains a combining mark. A coarse
-/// prefilter accelerates locales covered by the recorded reference classes; other collations
-/// compare every window so an unverified prefilter cannot suppress a match.
+/// prefilter accelerates locales and characters covered by the recorded reference classes;
+/// windows involving unverified or contextual keys go directly to the collator.
 enum TextSearch {
     struct Match: Equatable, Sendable {
         let start: DOMPosition
@@ -53,10 +53,14 @@ enum TextSearch {
         let collator = Collator(query: query, locale: locale)
         var keys = KeyTable(locale: collator.locale)
         var queryKey: [UInt8] = []
+        var queryCanUseKeys = true
         for grapheme in queryGraphemes {
             if grapheme.unicodeScalars.allSatisfy({ $0.properties.generalCategory == .format }) { continue }
             if grapheme.unicodeScalars.contains(where: EPUBCFI.isJSWhitespace) { queryKey.append(0x20) }
-            else { keys.append(grapheme, to: &queryKey) }
+            else {
+                queryCanUseKeys = keys.supports(grapheme) && queryCanUseKeys
+                keys.append(grapheme, to: &queryKey)
+            }
         }
         let corpus = Corpus(document: document, collapsesWhitespace: length > 1, keys: &keys)
         guard corpus.count >= length else { return [] }
@@ -65,15 +69,50 @@ enum TextSearch {
             if collator.matches(corpus.window(first, length)) { matches.append(corpus.match(first, length)) }
             return matches.count < limit
         }
-        guard usePrefilter && keys.isVerified else {
+        guard usePrefilter && keys.isVerified && queryCanUseKeys else {
             for first in 0...(corpus.count - length) { guard consider(first) else { break } }
             return matches
+        }
+        // A context-free key is not proof for a contextual collation character or one outside
+        // the recorded classes. Merge those windows with the key hits in reading order rather
+        // than disabling the fast scan for an entire book that contains one unusual character.
+        var fallbackRanges: [ClosedRange<Int>] = []
+        for unit in corpus.unsafeUnits {
+            let lower = max(0, unit - length + 1), upper = min(unit, corpus.count - length)
+            if let last = fallbackRanges.last, lower <= last.upperBound + 1 {
+                fallbackRanges[fallbackRanges.count - 1] = last.lowerBound...max(last.upperBound, upper)
+            } else { fallbackRanges.append(lower...upper) }
+        }
+        var fallbackRange = 0
+        var fallbackFirst = fallbackRanges.first?.lowerBound
+        func advanceFallback() {
+            guard let first = fallbackFirst else { return }
+            if first < fallbackRanges[fallbackRange].upperBound { fallbackFirst = first + 1 }
+            else {
+                fallbackRange += 1
+                fallbackFirst = fallbackRange < fallbackRanges.count ? fallbackRanges[fallbackRange].lowerBound : nil
+            }
+        }
+        func considerCandidate(_ first: Int) -> Bool {
+            while let fallback = fallbackFirst, fallback <= first {
+                advanceFallback()
+                guard consider(fallback) else { return false }
+                if fallback == first { return true } // The same window is considered only once.
+            }
+            return consider(first)
+        }
+        func finishFallback() {
+            while let fallback = fallbackFirst {
+                advanceFallback()
+                guard consider(fallback) else { break }
+            }
         }
         let keyLength = queryKey.count
         if keyLength == 0 {
             for first in 0...(corpus.count - length) where corpus.keyStart[first + length] == corpus.keyStart[first] {
-                guard consider(first) else { break }
+                guard considerCandidate(first) else { return matches }
             }
+            finishFallback()
             return matches
         }
         corpus.keys.withUnsafeBytes { haystack in
@@ -87,12 +126,13 @@ enum TextSearch {
                     // Windows whose keys start exactly here and span exactly the query's key.
                     var first = corpus.firstUnit(atKeyOffset: offset)
                     while first + length <= corpus.count, Int(corpus.keyStart[first]) == offset {
-                        if Int(corpus.keyStart[first + length]) == offset + keyLength, !consider(first) { return }
+                        if Int(corpus.keyStart[first + length]) == offset + keyLength, !considerCandidate(first) { return }
                         first += 1
                     }
                 }
             }
         }
+        if matches.count < limit { finishFallback() }
         return matches
     }
 
@@ -143,12 +183,17 @@ enum TextSearch {
     /// The units foliate's window slides over, with a prefilter key per unit.
     private struct Corpus {
         var texts: [ContentNode] = []
+        // Random UTF-16 offsets into a non-ASCII Swift String can require a scan from its
+        // beginning. Keep an indexed copy so fallback windows in a long paragraph stay linear
+        // in the window's length, while ASCII continues to use its direct String offsets.
+        var utf16Texts: [[UInt16]?] = []
         var unitText: [Int32] = []
         var unitOffset: [Int32] = []
         var unitLength: [Int32] = []
         /// `keys[keyStart[u]..<keyStart[u + 1]]` is unit `u`'s key; one more entry than units.
         var keyStart: [Int32] = [0]
         var keys: [UInt8] = []
+        var unsafeUnits: [Int] = []
         var count: Int { unitText.count }
 
         init(document: ContentDocument, collapsesWhitespace: Bool, keys table: inout KeyTable) {
@@ -160,7 +205,10 @@ enum TextSearch {
                     order = node.subtreeEnd + 1
                     continue
                 }
-                if node.isText, node.utf16Length > 0 { texts.append(node) }
+                if node.isText, node.utf16Length > 0 {
+                    texts.append(node)
+                    utf16Texts.append(node.utf16Length == node.text.utf8.count ? nil : Array(node.text.utf16))
+                }
                 order += 1
             }
             let capacity = texts.reduce(0) { $0 + $1.utf16Length }
@@ -205,6 +253,7 @@ enum TextSearch {
                     let scalars = grapheme.unicodeScalars
                     if scalars.allSatisfy({ $0.properties.generalCategory == .format }) { continue }
                     if scalars.contains(where: EPUBCFI.isJSWhitespace) { space(offset); continue }
+                    if !table.supports(grapheme) { unsafeUnits.append(count) }
                     table.append(grapheme, to: &keys)
                     unit(text, offset, length); keyStart.append(Int32(keys.count))
                     previousIsSpace = false
@@ -232,10 +281,15 @@ enum TextSearch {
             for unit in first..<(first + length) {
                 let keyRange = Int(keyStart[unit])..<Int(keyStart[unit + 1])
                 if keyRange.count == 1, keys[keyRange.lowerBound] == 0x20 { string += " "; continue }
-                let text = texts[Int(unitText[unit])].text.utf16
-                let start = text.index(text.startIndex, offsetBy: Int(unitOffset[unit]))
-                let end = text.index(start, offsetBy: Int(unitLength[unit]))
-                string += String(Substring(text[start..<end]))
+                let index = Int(unitText[unit]), offset = Int(unitOffset[unit]), length = Int(unitLength[unit])
+                if let text = utf16Texts[index] {
+                    string += String(decoding: text[offset..<offset + length], as: UTF16.self)
+                } else {
+                    let text = texts[index].text.utf16
+                    let start = text.index(text.startIndex, offsetBy: offset)
+                    let end = text.index(start, offsetBy: length)
+                    string += String(Substring(text[start..<end]))
+                }
             }
             return string
         }
@@ -260,6 +314,10 @@ enum TextSearch {
         private let upperQuery: String
 
         init(query: String, locale identifier: String?) {
+            // Foundation can order canonically equivalent Hangul/kana differently once a
+            // private-use suffix is appended. Normalize the comparison copies before adding
+            // suffixes; Corpus retains the original text and UTF-16 offsets.
+            let query = query.precomposedStringWithCanonicalMapping
             self.query = query
             locale = identifier.map(Locale.init(identifier:)) ?? .current
             (low, high) = Self.sentinels(excluding: query)
@@ -276,6 +334,7 @@ enum TextSearch {
                     return true
                 }
             }
+            let window = window.precomposedStringWithCanonicalMapping
             if window.contains(low) || window.contains(high) {
                 let (low, high) = Self.sentinels(excluding: query + window)
                 return primaryEqual(query + low, query + high, window, low, high)
@@ -323,6 +382,7 @@ enum TextSearch {
         let language: String
         let isVerified: Bool
         private var tailoredCache: [Character: [UInt8]] = [:]
+        private var supportedCache: [Character: Bool] = [:]
 
         init(locale: Locale) {
             language = locale.language.languageCode?.identifier ?? "en"
@@ -335,13 +395,45 @@ enum TextSearch {
         private static let shared = Mutex<[UInt32: [UInt8]]>([:])
         private var cache: [UInt32: [UInt8]] = [:]
 
+        /// Recorded single-character classes cannot establish context-sensitive equivalence
+        /// or collation weights for unrecorded characters. A Unicode decomposition alone is
+        /// not proof of a primary collation weight (Arabic presentation marks are an example).
+        mutating func supports(_ grapheme: Character) -> Bool {
+            if let supported = supportedCache[grapheme] { return supported }
+            // Character hashing uses canonical equivalence, so make eligibility use the
+            // same canonical spelling instead of whichever source form populated the cache.
+            let supported = String(grapheme).precomposedStringWithCanonicalMapping.unicodeScalars.allSatisfy { scalar in
+                // Kana repetition/prolongation depends on its predecessor, even across text
+                // nodes. Tatweel is primary-ignorable in Arabic although it is a letter.
+                if [UInt32(0x309D), 0x309E, 0x30FC, 0x30FD, 0x30FE, 0xFF70, 0x640].contains(scalar.value) { return false }
+                return Self.recordedRanges.contains { $0.contains(scalar.value) }
+            }
+            supportedCache[grapheme] = supported
+            return supported
+        }
+
+        /// The ranges recorded by CFIFixtures.collationRanges; include ASCII whitespace and
+        /// controls, which the search handles separately. Do not infer support for other
+        /// Unicode blocks from the fact that their letters normally decompose or fold.
+        private static let recordedRanges: [ClosedRange<UInt32>] = [
+            0...0x7F, 0xA1...0x2FF, 0x370...0x4FF, 0x5D0...0x5EA, 0x621...0x64A,
+            0x660...0x669, 0x6F0...0x6F9, 0x905...0x939, 0x966...0x96F, 0x1E00...0x1EFF,
+            0x2010...0x205E, 0x2070...0x209F, 0x20A0...0x20BF, 0x2100...0x218F, 0x2460...0x24FF,
+            0x3041...0x30FF, 0xFB00...0xFB06, 0xFF01...0xFF5E, 0xFF61...0xFF9F,
+        ]
+
         mutating func append(_ grapheme: Character, to keys: inout [UInt8]) {
             // These locales merge letters from different root classes. Keep the prefilter
             // deliberately coarse, but apply those merges to composed and decomposed spelling.
             if language == "sv" || language == "da" {
                 if let key = tailoredCache[grapheme] { keys.append(contentsOf: key); return }
                 var key: [UInt8] = []
-                let parts = Array(String(grapheme).folding(options: [.caseInsensitive, .widthInsensitive], locale: nil)
+                // Remove the primary-ignorable subscript before case folding can turn it
+                // into a non-ignorable Greek iota, including a precomposed capital letter.
+                let scalars = String(grapheme).decomposedStringWithCanonicalMapping.unicodeScalars
+                let decomposed = String(String.UnicodeScalarView(scalars.filter { $0.value != 0x345 }))
+                let parts = Array(decomposed
+                    .folding(options: [.caseInsensitive, .widthInsensitive], locale: nil)
                     .decomposedStringWithCanonicalMapping.unicodeScalars)
                 for (index, scalar) in parts.enumerated() {
                     let marks = parts.dropFirst(index + 1).prefix { Self.isIgnorable($0) }

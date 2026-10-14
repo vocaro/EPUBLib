@@ -328,12 +328,63 @@ struct WriterPackageCoverageTests {
     // specify additional dc:language elements for multilingual Publications". `EPUBMetadata.languages`
     // is a list, every author in the same value is written, and the reader returns every language.
     @Test func everyMetadataLanguageIsWrittenAndReadBack() async throws {
-        try await withKnownIssue("https://github.com/vocaro/EPUBLib/issues/95") {
-            let documents = try generate(WriterCoverage.facts(languages: ["en", "fr", "grc"]))
-            let written = try opf(documents).named("dc:language").map(\.text)
-            #expect(written == ["en", "fr", "grc"])
-            let readBack = try await reopened(documents).metadata.languages
-            #expect(readBack == ["en", "fr", "grc"])
+        let languages = ["en", "fr", "grc", "en"]
+        let documents = try generate(WriterCoverage.facts(languages: languages))
+        #expect(try opf(documents).named("dc:language").map(\.text) == languages)
+        #expect(try await reopened(documents).metadata.languages == languages)
+        let html = try #require(try nav(documents).elements.first)
+        #expect(html.attributes["xml:lang"] == "en" && html.attributes["lang"] == "en")
+    }
+
+    @Test func everyMetadataIdentifierIsWrittenAndReadBackWithItsOrderAndDuplicates() async throws {
+        let primary = "urn:test:primary"
+        for identifiers in [[String](), ["urn:isbn:9780000000002", "doi:10.0000/example"],
+                            [primary, "urn:test:other"], ["urn:test:other", primary, primary, "urn:test:other"]] {
+            let facts = EPUBPackageMetadata(metadata: .init(title: "T", languages: ["en"], identifiers: identifiers),
+                identifier: primary, modificationDate: WriterCoverage.date)
+            let documents = try generate(facts)
+            let package = try opf(documents)
+            let root = try #require(package.elements.first)
+            let written = package.named("dc:identifier")
+            let expected = identifiers.contains(primary) ? identifiers : [primary] + identifiers
+            #expect(written.map(\.text) == expected)
+            let unique = written.filter { $0.attributes["id"] == root.attributes["unique-identifier"] }
+            #expect(unique.map(\.text) == [primary])
+            #expect(written.firstIndex { $0.attributes["id"] == root.attributes["unique-identifier"] } == expected.firstIndex(of: primary))
+            let readBack = try await reopened(documents).metadata
+            #expect(readBack.identifiers == expected)
+            let rewritten = try generate(.init(metadata: readBack, identifier: primary, modificationDate: WriterCoverage.date))
+            #expect(try opf(rewritten).named("dc:identifier").map(\.text) == expected)
+        }
+    }
+
+    @Test func everyMetadataLanguageAndIdentifierIsEscapedExactlyOnce() async throws {
+        // These language strings exercise XML serialization, rather than language-tag validation.
+        let languages = ["en", "x-&\u{338}<\"'>&amp;", "ja"]
+        let primary = "urn:test:&\u{338}<\"'>&amp;"
+        let identifiers = ["doi:10.0000/?a=1&b=<2>", primary, "urn:test:日本語🙂"]
+        let facts = EPUBPackageMetadata(metadata: .init(title: "T", languages: languages, identifiers: identifiers),
+            identifier: primary, modificationDate: WriterCoverage.date)
+        let documents = try generate(facts)
+        let package = try opf(documents)
+        expectScalars(package.named("dc:language").map(\.text), languages, "languages written")
+        expectScalars(package.named("dc:identifier").map(\.text), identifiers, "identifiers written")
+        let readBack = try await reopened(documents).metadata
+        expectScalars(readBack.languages, languages, "languages read back")
+        expectScalars(readBack.identifiers, identifiers, "identifiers read back")
+    }
+
+    @Test func uniqueIdentifierMatchingPreservesCanonicallyEquivalentValuesExactly() async throws {
+        let composed = "urn:test:é", decomposed = "urn:test:e\u{301}"
+        for identifiers in [[composed], [composed, decomposed, decomposed]] {
+            let facts = EPUBPackageMetadata(metadata: .init(title: "T", languages: ["en"], identifiers: identifiers),
+                identifier: decomposed, modificationDate: WriterCoverage.date)
+            let documents = try generate(facts)
+            let written = try opf(documents).named("dc:identifier")
+            let expected = identifiers.count == 1 ? [decomposed, composed] : identifiers
+            expectScalars(written.map(\.text), expected, "identifier scalars written")
+            expectScalars(written.filter { $0.attributes["id"] == "book-id" }.map(\.text), [decomposed], "unique identifier")
+            expectScalars(try await reopened(documents).metadata.identifiers, expected, "identifier scalars read back")
         }
     }
 
