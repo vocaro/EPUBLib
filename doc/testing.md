@@ -2665,9 +2665,11 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    from there shows "Last words of the scenes.". On a Mac, in a window 600 points wide at
    17 points, open the reader at the section (`"launch=-SampleHref OPS/scenes.xhtml"`).
    Moving by line VoiceOver says "Separator" between "First scene ends." and "Second scene
-   starts." and nowhere else on the page, with no step that says nothing; moving by word a
-   rule is one stop that says the same; and `readall` from the page's first word says it
-   once. On the page that holds a rule alone, one `ax:next` step on, it says "In text
+   starts." and nowhere else on the page, and reads "Words after an ornament." and "Words
+   after a plain ornament." with the spaces that stand for the rule before each; the rule
+   that ends the page, before "Words after a kept ornament." on the next, is a line of
+   spaces where it stops once and says nothing. Moving by word a rule it is told of is one
+   stop that says "Separator"; and `readall` from the page's first word says it once. On the page that holds a rule alone, one `ax:next` step on, it says "In text
    Separator" on entering and "end of text" on the next line. In continuous scroll it says
    "Separator" on the line between "First scene ends." and "Second scene starts." and on
    the line of the rule alone, before "Last words of the scenes.", and on no other. No

@@ -257,7 +257,10 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   and iPad and no element on Mac. On Mac, outside a link, it is given as a table row that
   has nothing to say is: its character and the break after it are spaces, one for one, and
   its line is part of the line after it, so VoiceOver stops on it neither by line nor by
-  word, where a line of its own would be a stop in silence. One that is all its link holds
+  word, where a line of its own would be a stop in silence. One that ends a page has no
+  line after it there and is a line of spaces, where VoiceOver stops once, by line and in
+  Read All, and says nothing, as at such a row
+  ([#529](https://github.com/vocaro/EPUBLib/issues/529)). One that is all its link holds
   is the link still, and on iPhone and iPad a page that holds such a rule alone lists it as
   a separator, since VoiceOver has no other place there to turn the page from. Until
   [#408](https://github.com/vocaro/EPUBLib/issues/408) such a rule was announced as any
