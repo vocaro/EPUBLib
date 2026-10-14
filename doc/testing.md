@@ -634,7 +634,8 @@ case.
 For [#196](https://github.com/vocaro/EPUBLib/issues/196), save the standalone probe below as
 `/tmp/attribute-cost.c`. It generates one `p` with distinct `a0='v'`, `a1='v'` attributes
 inside `html/body` and profiles only the SDK's libxml2 XML and HTML parsing. It uses no
-repository code; the parser CPU measurements and disassembly evidence belong on the issue.
+repository code; the parser CPU measurements and system disassembly are recorded in the
+[#196 qualification comment](https://github.com/vocaro/EPUBLib/issues/196#issuecomment-6161992517).
 The safety limit is described in [text extraction](text-extraction.md#contract).
 
 ```sh
