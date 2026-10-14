@@ -1682,6 +1682,23 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
   `out` of a group reached by moving forward, `right` says the next row. Of one reached by
   moving back, the first `right` says that row again and the second the next row, which
   was heard without "group": "Third cell, Fourth cell".
+- A page turned straight after `out`, with VoiceOver's cursor on the row's element, by
+  `ax:next`, `pagedown` or `"ax:action=Next Page"`: VoiceOver says "text", and from a row
+  group the new page's first line after it; `describe` says "text is in the VoiceOver
+  cursor", and `line` and `right` read the new page's first line and that line's first
+  word. That is VoiceOver in the text, on the row's element of the page before
+  ([the native viewer](native-viewer.md), "Data tables", "Pages"). Set it beside the two
+  others: on the text area and not in it `describe` says "text is in the VoiceOver cursor
+  Line 1" and `right` goes to the next item of the window, and on a line of the text
+  "Line 1  word: …", with `right` reading on in the page. A turn from a line reads the
+  new page's first line itself, "text  word: …". Before
+  [#485](https://github.com/vocaro/EPUBLib/issues/485) a row group's turn left the text for
+  the window's first button, "Open EPUB… button is in the VoiceOver cursor", and a table's
+  left VoiceOver on the text area. `ax:focused` before the turn shows where the keyboard
+  focus is: VoiceOver gave it to a row group's cell, `FOCUSED AXTextArea CELL`, and to no
+  cell of a table of data, whose text areas it goes into only from the cell. After the
+  turn it is the column's, `FOCUSED AXTextArea COLUMN`, where it was `FOCUSED AXWindow`.
+  The sessions are on the issue.
 - The probe records a phrase once: a second row that says what the row before said leaves
   no line in a transcript. Every row of a table that is not data did while it was called
   "Table row"; now only two rows of the same words do.

@@ -847,10 +847,30 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
     - **Pages.** A page's table holds the rows that page shows, each with its number in
       the whole table, and its count of rows is the whole table's. The rows of another
       page are not there to move to: at a page's last row VoiceOver stays, and the page is
-      turned as from a line. A page turned with VoiceOver's cursor on a table it has left,
-      and not back in the text, leaves VoiceOver on the text area and not in it; with a
-      row group it left the text for the window's first button, before and after
-      ([#485](https://github.com/vocaro/EPUBLib/issues/485)).
+      turned as from a line. A page turned with VoiceOver's cursor on a row's element,
+      where it is once it has gone into a row and come back out, leaves it in the text, as
+      a turn from a line does: for a table of data and for a row group, by the host's Next
+      Page, a page key or the text area's Next Page action, and in a spread, where it stays
+      in the column it was in. It says "text", and from a row group the new page's first
+      line after it, and its next move by line reads that line and by word the line's
+      first word ([#485](https://github.com/vocaro/EPUBLib/issues/485)). Two things do it.
+      VoiceOver keeps its cursor on an element only while the element is among the
+      children of the text it is in, and a page turn gives the column the elements of
+      other rows. So the row elements of the page before stay among the column's children
+      until its text is replaced again (`ReaderTextView.departedRows`), each a static text
+      with nothing in it and none of a table's attributes, standing at the new page's
+      first line. Without them VoiceOver went to the text area, out of the text, a
+      Control-Option-Shift-Down from the page's first line; as an empty table or group it
+      said "table", "empty group" or "empty text". A layout change naming the column,
+      posted by the element, by the column or by the window, at once or half a second
+      later, and the insertion point told of again, each left VoiceOver where it went.
+      And VoiceOver gives the keyboard focus to each text area it moves to, a row group's
+      cells among them, and leaves it there when it comes back out to the row. The page
+      took that text area away with the focus, the window had it, and VoiceOver, following
+      it, went to the window's first button. The column that showed the cell takes it now
+      (`TableCellTextView.viewWillMove(toSuperview:)`). The cost is the word: VoiceOver
+      says "text" for the element after the turn where a turn from a line says the line,
+      and the elements are among the column's children for the length of a page.
     - **Continuous scroll.** One text area holds the book, and a table holds every row.
       Moving down a column VoiceOver goes on past the screen and the view follows it,
       twenty-eight rows in one session, each once and in order. Leaving the table puts
