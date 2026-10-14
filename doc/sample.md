@@ -45,7 +45,8 @@ was last given ("Selected: nothing. Used: nothing.").
 - `ReaderSampleApp.swift` supplies the app entry point.
 
 `swift build --target ReaderSampleSupport` compiles the same shared sources independently of
-the app. `python3 scripts/check-docs.py` checks marked README/integration examples against them.
+the app. `python3 scripts/check-docs.py` checks the marked examples in the documentation against
+them.
 Run `python3 scripts/check-docs.py --write` after editing an example, and
 `python3 scripts/make-sample.py` to regenerate the bundled book.
 

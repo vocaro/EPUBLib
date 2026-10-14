@@ -4,6 +4,70 @@ Keep the parsed publication and session outside SwiftUI `body`. Use a distinct v
 each session (including when reopening the same book) and close it when the reader leaves the screen. The host owns persistence,
 selection action behavior, navigation intent, disclosures and fallback UI. Optional [reader controls](reader-controls.md) provide reusable toolbar groups.
 
+## Opening a book
+
+`EPUBPublication.open(at:)` reads a book into an immutable snapshot. Call it off the main actor,
+and keep security-scoped file access active until it returns:
+
+<!-- snippet:parsing -->
+```swift
+// Call off the main actor. Keep security-scoped file access active until this returns.
+func readPublication(at bookURL: URL) throws -> EPUBPublication {
+    let publication = try EPUBPublication.open(at: bookURL)
+    print(publication.metadata.title)
+    for chapter in publication.spine {
+        let bytes = try publication.data(for: chapter.resource)
+        print(chapter.resource.path, bytes.count)
+    }
+    return publication
+}
+```
+<!-- /snippet -->
+
+## Showing a book
+
+Create and retain a reading session on the main actor, then mount `EPUBReaderView(session:)`:
+
+<!-- snippet:session -->
+```swift
+@MainActor
+func makeReader(publication: EPUBPublication,
+                onEvent: @escaping @MainActor (EPUBReaderEvent) -> Void) throws -> any EPUBReaderSession {
+    let engine: any EPUBReaderEngine = EPUBReader()
+    return try engine.makeSession(
+        publication: publication,
+        selectionAction: EPUBSelectionAction(title: "Use passage") { selection in
+            print(selection.text)
+        },
+        onEvent: onEvent
+    )
+}
+```
+<!-- /snippet -->
+
+After `.ready`, send commands with `try await session.send(...)`: for example `.nextPage`,
+`.locate(text: "a passage", highlight: true)` or `.style(.init(fontSize: 20, appearance: .dark))`.
+Check `session.capabilities` before offering an optional feature. Navigate with a resource's
+encoded href, safely handling optional entries:
+
+<!-- snippet:navigation -->
+```swift
+/// Call after the session emits `.ready`.
+@MainActor
+func navigateToFirstSection(publication: EPUBPublication, session: any EPUBReaderSession) async throws {
+    guard session.capabilities.contains(.navigateHref),
+          let first = publication.spine.first(where: { $0.isLinear }) else { return }
+    // href is URL-encoded; path is the decoded key used for publication.data(at:).
+    try await session.send(.navigate(href: first.resource.href))
+}
+```
+<!-- /snippet -->
+
+To turn pages with your own controls, or change the built-in gestures and keys, see
+[Configuring page controls](#configuring-page-controls).
+
+## A complete reader
+
 Import `EPUBCore`, `EPUBReading`, `EPUBViewing`, `Foundation` and `Observation`. The following is
 the sample app's compiled lifecycle code:
 
@@ -136,6 +200,8 @@ The sample owns security-scoped access until import finishes and cancels expansi
 book opens. `EPUBPublication.open` also accepts an optional `onProgress` callback with cumulative
 expanded bytes; it runs synchronously on the importing thread and must return promptly.
 
+## Resource paths
+
 Use `EPUBResource.path` for `publication.data(at:)` and `EPUBResource.href` for navigation.
 Navigation items and emitted locations also carry encoded hrefs. Decode neither before sending
 `.navigate`; a literal `#`, `%` or `?` in a filename has different meaning in a URL reference.
@@ -172,6 +238,8 @@ The names themselves are the book's, and the host still decides what to do with 
 A `path` is the manifest's spelling of the name, or the archive entry's own where the two differ
 only in case. It equals the entry's name as a Swift string, which is canonical equivalence, and
 need not match it byte for byte.
+
+## Positions and highlights
 
 To store a position, encode `EPUBLocation` using `JSONEncoder`. On reopen, compare its publication
 ID and send `.restore(location)` only when bookmarks are supported. Compare a stored bookmark with
