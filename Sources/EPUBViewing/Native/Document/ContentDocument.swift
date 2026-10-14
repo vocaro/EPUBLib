@@ -290,11 +290,13 @@ final class ContentDocument: @unchecked Sendable {
         var nodes: [ContentNode] = []
         func string(_ value: UnsafePointer<xmlChar>?) -> String { value.map { String(cString: $0) } ?? "" }
         func restored(_ text: String) -> String { signPlaceholder.map { HTMLStraySigns.restored(text, from: $0) } ?? text }
-        func build(_ xml: xmlNodePtr, depth: Int) throws -> ContentNode {
+        func build(_ xml: xmlNodePtr, depth: Int, insideSVG: Bool = false) throws -> ContentNode {
             guard depth < limits.depth else { throw ContentDocumentError.limitExceeded("depth") }
-            let namespace = html ? "" : string(xml.pointee.ns?.pointee.href)
             let rawName = string(xml.pointee.name)
-            let name = namespace == ContentNamespace.xhtml || html ? rawName.lowercased() : rawName
+            let recoveredSVG = html && (insideSVG || rawName.lowercased() == "svg")
+            let namespace = html ? (recoveredSVG ? ContentNamespace.svg : "") : string(xml.pointee.ns?.pointee.href)
+            let name = recoveredSVG ? HTMLSVGNames.element(rawName.lowercased())
+                : namespace == ContentNamespace.xhtml || html ? rawName.lowercased() : rawName
             var attributes: [ContentAttribute] = []
             var attribute = xml.pointee.properties
             while let current = attribute {
@@ -308,8 +310,9 @@ final class ContentDocument: @unchecked Sendable {
                 }
                 let attributeNamespace = html ? "" : string(current.pointee.ns?.pointee.href)
                 let local = string(current.pointee.name)
-                attributes.append(ContentAttribute(name: html ? local.lowercased() : local,
-                                                   namespace: attributeNamespace, value: restored(value)))
+                attributes.append(recoveredSVG ? HTMLSVGNames.attribute(local.lowercased(), value: restored(value))
+                    : ContentAttribute(name: html ? local.lowercased() : local,
+                                       namespace: attributeNamespace, value: restored(value)))
                 attribute = current.pointee.next
             }
             let node = ContentNode(element: name, namespace: namespace, attributes: attributes)
@@ -331,7 +334,8 @@ final class ContentDocument: @unchecked Sendable {
                 switch current.pointee.type {
                 case XML_ELEMENT_NODE:
                     flushText()
-                    let element = try build(current, depth: depth + 1)
+                    let element = try build(current, depth: depth + 1,
+                                            insideSVG: recoveredSVG && !HTMLSVGNames.integrationPoints.contains(name))
                     element.parent = node; element.indexInParent = node.children.count
                     node.children.append(element)
                 case XML_TEXT_NODE, XML_CDATA_SECTION_NODE:
