@@ -564,7 +564,7 @@ final class SectionWriter {
         // A plain link to a note or its child is a note link; so is one to anything inside a
         // footnote hidden from the flow (`isInsideHiddenFootnote`), where there is nothing to
         // navigate to.
-        if path == document.path, let fragment, let target = document.element(id: fragment),
+        if path == document.path, let fragment, let target = state.fragmentTarget(fragment),
            state.noteKind(target) != nil || target.parent.flatMap(state.noteKind) != nil
             || (!fragment.isEmpty && state.isInsideHiddenFootnote(target)) {
             return .note(href: resolved)

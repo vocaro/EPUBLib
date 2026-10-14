@@ -163,7 +163,7 @@ final class SectionBuildState {
         }
         nesting += 1
         defer { nesting -= 1 }
-        return SectionWriter(state: self, mode: .detached).renderContent(of: element, style: style)
+        return SectionWriter(state: self, mode: noteMode ?? .detached).renderContent(of: element, style: style)
     }
 
     /// Consecutive sibling nodes rendered into a separate string the same way, for the anonymous
@@ -174,7 +174,7 @@ final class SectionBuildState {
         guard nesting < Self.maximumNesting else { return flattenedNodes(first: first, last: last, style: style) }
         nesting += 1
         defer { nesting -= 1 }
-        return SectionWriter(state: self, mode: .detached).renderContent(of: nodes, style: style)
+        return SectionWriter(state: self, mode: noteMode ?? .detached).renderContent(of: nodes, style: style)
     }
 
     /// The bounded-depth fallback is its own phase: its large computed-style traversal
@@ -221,6 +221,26 @@ final class SectionBuildState {
     /// inside it (`noteIDs`), so that what is hidden can be shown, with the one exception
     /// `insideHiddenFootnote` makes: a table part.
     func isHiddenFootnote(_ element: ContentNode) -> Bool { noteKind(element) == .footnote }
+
+    /// Legacy named anchors follow the section's fragment registration: an id takes precedence,
+    /// an anchor with an id uses that id, and the first eligible name in document order wins.
+    private lazy var namedAnchors: [String: ContentNode] = {
+        var names: [String: ContentNode] = [:]
+        for node in document.nodes where node.isHTML("a") && node.id == nil {
+            if let name = node.attribute("name"), !name.isEmpty, document.element(id: name) == nil, names[name] == nil {
+                names[name] = node
+            }
+        }
+        return names
+    }()
+
+    func fragmentTarget(_ name: String) -> ContentNode? { document.element(id: name) ?? namedAnchors[name] }
+
+    private func noteName(of node: ContentNode) -> String? {
+        if let id = node.id { return id }
+        guard let name = node.attribute("name"), namedAnchors[name] === node else { return nil }
+        return name
+    }
 
     /// The nearest note at or around each element, by order (-1 for none), computed in one pass
     /// when first needed.
@@ -272,14 +292,14 @@ final class SectionBuildState {
         for note in document.nodes where note.isElement && enclosing[note.order] == note.order {
             var leading: ContentNode? = note
             while let node = leading, enclosing[node.order] == note.order {
-                if let id = node.id, taken.insert(id).inserted { ids[note.order, default: []].append(id) }
+                if let id = noteName(of: node), taken.insert(id).inserted { ids[note.order, default: []].append(id) }
                 leading = node.children.first(where: \.isElement)
             }
         }
         // Then every other id inside a footnote hidden from the flow, for the nearest note
         // around it. An empty id adds no name here.
         for node in document.nodes where node.isElement && hidden[node.order] {
-            if let id = node.id, !id.isEmpty, taken.insert(id).inserted { ids[enclosing[node.order], default: []].append(id) }
+            if let id = noteName(of: node), !id.isEmpty, taken.insert(id).inserted { ids[enclosing[node.order], default: []].append(id) }
         }
         return ids
     }()
@@ -297,7 +317,8 @@ final class SectionBuildState {
 
     /// Whether a note's content is being rendered: by its own writer, or by one that writer
     /// started for a table cell or caption in the note.
-    private(set) var isCapturingNote = false
+    private(set) var noteMode: SectionWriter.Mode?
+    var isCapturingNote: Bool { noteMode != nil }
 
     /// Whether some id names a note, so that it is captured on its own.
     func isNamedNote(_ element: ContentNode) -> Bool { noteIDs[element.order] != nil }
@@ -344,15 +365,17 @@ final class SectionBuildState {
         let claimed = NSAttributedString()
         for id in ids { notes[id] = claimed }
         nesting += 1
-        isCapturingNote = true
-        defer { nesting -= 1; isCapturingNote = false }
+        let previousMode = noteMode
+        defer { nesting -= 1; noteMode = previousMode }
         let names = Set(ids), depth = namedNoteDepth[element.order], reported = report.report
+        noteMode = .note(ids: names, depth: depth)
         let writer = SectionWriter(state: self, mode: .note(ids: names, depth: depth))
         var content = Self.cut(writer.renderNote(element), to: &noteBudget)
         if writer.leftOutNote, wholeNoteBudget > 0, content.string.allSatisfy(\.isWhitespace) {
             // Whichever rendering is not kept leaves nothing in the report.
             let own = report.report
             report.report = reported
+            noteMode = .note(ids: names, depth: depth + Self.wholeNoteDepth)
             let whole = SectionWriter(state: self, mode: .note(ids: names, depth: depth + Self.wholeNoteDepth)).renderNote(element)
             if whole.string.allSatisfy(\.isWhitespace) { report.report = own }
             else { content = Self.cut(whole, to: &wholeNoteBudget) }

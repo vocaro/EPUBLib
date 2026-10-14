@@ -790,11 +790,13 @@ extension NativeSession: ReaderCanvasDelegate {
         switch link {
         case .external:
             emit(.notice("This reader does not open links outside the book."))
-        case .internal(let href):
-            Task { try? await navigate(href) }
-        case .note(let href):
+        case .internal(let href), .note(let href):
             Task {
-                if let note = await noteContent(href) { self.canvas?.presentNote(note, from: rect) }
+                // A plain link can name a hidden note in another document. Only the target's
+                // build knows that, so inspect its captured notes before navigating.
+                let note = await noteContent(href)
+                guard self.isReady, !self.closed else { return }
+                if let note { self.canvas?.presentNote(note, from: rect) }
                 else { try? await navigate(href) }
             }
         }
