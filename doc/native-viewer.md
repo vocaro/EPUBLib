@@ -254,10 +254,14 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   has its own. No rule in a link was heard. A rule the book keeps from assistive
   technology, as ornament and not a break, with `aria-hidden="true"` or the role
   `presentation` or `none`, under the same exceptions as an image, has no stop on iPhone
-  and iPad and no element on Mac: VoiceOver passes over it as it does decoration. One that
-  is all its link holds is the link still, and on iPhone and iPad a page that holds such a
-  rule alone lists it as a separator, since VoiceOver has no other place there to turn the
-  page from. Until #408 such a rule was announced as any other. On Mac a table cell is a
+  and iPad and no element on Mac. On Mac, outside a link, it is given as a table row that
+  has nothing to say is: its character and the break after it are spaces, one for one, and
+  its line is part of the line after it, so VoiceOver stops on it neither by line nor by
+  word, where a line of its own would be a stop in silence. One that is all its link holds
+  is the link still, and on iPhone and iPad a page that holds such a rule alone lists it as
+  a separator, since VoiceOver has no other place there to turn the page from. Until
+  [#408](https://github.com/vocaro/EPUBLib/issues/408) such a rule was announced as any
+  other. On Mac a table cell is a
   text area of its own, which VoiceOver reaches by interacting with the row and then with
   the cell. A rule in a cell has the same element there, and VoiceOver says "Separator" at
   it by line, by word and reading on, in pages and in continuous scroll, and as it reads
