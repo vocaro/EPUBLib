@@ -272,7 +272,7 @@ import UIKit
     func testWheelAndTrackpadAfterAReadKeepTheTextOnScreen() async throws {
         for precise in [false, true] {
             let subject = try await scrolledAtTheFourthChapter(scrollBar: .legacy, shown: true)
-            let (_, canvas, view) = subject
+            let (reader, canvas, view) = subject
             let opening = try XCTUnwrap(canvas.visibleRange)
             let place = try XCTUnwrap(canvas.scrollPlace)
             // A line-number query can replace the layout above the screen without asking
@@ -291,6 +291,11 @@ import UIKit
             XCTAssertEqual(wheel.hasPreciseScrollingDeltas, precise)
             let scrollView = try XCTUnwrap(canvas.scrollContainer as? NSScrollView)
             scrollView.scrollWheel(with: wheel)
+            // AppKit's scroll animation runs on later turns of this process's run loop.
+            try await reader.wait("the wheel event moved the original first line") {
+                guard let line = view.lineFrame(containing: place.location) else { return false }
+                return line.minY - canvas.scrollVisibleContainerRect.minY < place.lineTop - place.visibleTop - 1
+            }
             let shown = try XCTUnwrap(canvas.scrollVisibleCharacters())
             let originalLine = try XCTUnwrap(view.lineFrame(containing: place.location))
             XCTAssertLessThan(originalLine.minY - canvas.scrollVisibleContainerRect.minY,

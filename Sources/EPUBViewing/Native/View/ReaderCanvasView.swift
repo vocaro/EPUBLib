@@ -1062,8 +1062,13 @@ import AppKit
             let start = textView.lineBoundary(atContainerY: visible.minY, lineEnd: false)
             let firstLine = textView.lineFrame(containing: start)
             let line = firstLine?.height ?? 20
-            let step = max(line, visible.height - line)
             let below = (firstLine?.minY ?? visible.minY) - visible.minY
+            let proposedStep = max(line, visible.height - line)
+            // The first mostly visible line can be a tall picture well below the top.
+            // Keep at least half of that line on screen when going back; a full fixed
+            // step can otherwise put even its top below the new screen (#161).
+            let step = forward ? proposedStep
+                : min(proposedStep, max(1, visible.height - below - min(line, visible.height) / 2))
             withProgrammaticScroll {
                 scrollToContainerY(visible.minY + (forward ? step : -step))
                 if !forward {

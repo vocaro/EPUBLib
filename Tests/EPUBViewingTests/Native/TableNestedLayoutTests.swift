@@ -3,8 +3,9 @@ import XCTest
 @testable import EPUBViewing
 
 final class TableNestedLayoutTests: XCTestCase {
-    private func fixture(depth: Int, paragraphs: Int = 200) throws -> TableModel {
-        var markup = "<table><tr><td>w1</td><td>" + String(repeating: "<p>v1 v2</p>", count: paragraphs) + "</td></tr></table>"
+    private func fixture(depth: Int, paragraphs: Int = 200, minimumHeight: Int? = nil) throws -> TableModel {
+        let height = minimumHeight.map { " style='height:\($0)px'" } ?? ""
+        var markup = "<table><tr\(height)><td>w1</td><td>" + String(repeating: "<p>v1 v2</p>", count: paragraphs) + "</td></tr></table>"
         for _ in 0..<depth { markup = "<table><tr><td>\(markup)</td><td>x</td></tr></table>" }
         return try TableCoverage.table(markup)
     }
@@ -15,13 +16,21 @@ final class TableNestedLayoutTests: XCTestCase {
 
     func testNestedLayoutPassesGrowLinearlyAndCannotCompoundTextReduction() throws {
         for depth in 0...8 {
-            let table = try fixture(depth: depth)
+            // At the final rendering level the builder flattens paragraphs into flowing
+            // text, which could fit after a useful reduction. An authored height keeps this
+            // fixture too tall even then, at every allowed scale.
+            let table = try fixture(depth: depth, minimumHeight: 2000)
             let models = tables(table)
             XCTAssertEqual(models.count, depth + 1)
             XCTAssertEqual(models.reduce(0) { $0 + $1.layoutPassCount }, 0, "building performs no display layout")
+            let minimumHeight = models.last?.rows.map(\.height).max() ?? 0
+            XCTAssertGreaterThan(minimumHeight * TableModel.minimumScale, 600,
+                "the authored row cannot fit even at the minimum allowed scale")
+            let requiredWidthScale = table.constraints.minimumTableWidth > 360
+                ? max(TableModel.minimumScale, 360 / table.constraints.minimumTableWidth) : 1
             let layout = table.layout(available: 360, viewportHeight: 600)
             XCTAssertLessThanOrEqual(models.reduce(0) { $0 + $1.layoutPassCount }, 5 * models.count)
-            XCTAssertEqual(layout.scale, 1, "a row that cannot fit stays at its initial size")
+            XCTAssertEqual(layout.scale, requiredWidthScale, "a row that cannot fit keeps its required width scale")
             for inner in models.dropFirst() {
                 XCTAssertEqual(inner.layout(available: 360, viewportHeight: 600, nested: true).scale, 1,
                     "inner tables inherit the outer scale and wrap instead of shrinking again")

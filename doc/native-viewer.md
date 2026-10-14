@@ -2012,7 +2012,9 @@ The following are the defaults. Host commands and accessibility actions stay ena
   In continuous scroll a page turn scrolls by one viewport less a line. A backward turn
   refines the newly shown text through the line that was first and keeps that line at the
   new screen's bottom, so estimates for tall images above a jumped-to position cannot skip
-  content ([#161](https://github.com/vocaro/EPUBLib/issues/161)).
+  content. When the first mostly visible line is itself a tall image below the top, the
+  backward step is shortened to keep at least half of it on screen
+  ([#161](https://github.com/vocaro/EPUBLib/issues/161)).
   `ViewCoverageScrollTests.testAPageTurnBackAfterAJumpPastFiguresKeepsTheLineThatWasFirstOnScreen`
   covers a jump past figures and successive backward turns.
 - VoiceOver: the text offers the page turn itself, and reads in order from the text views.
