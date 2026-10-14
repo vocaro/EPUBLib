@@ -63,6 +63,31 @@ final class SVGFontSizeCostTests: XCTestCase {
         XCTAssertTrue(try accepts("<g style='font:italic 12px/14px &quot;\(family)&quot;, serif'>\(path)</g>"), "the family has its own copy bound")
     }
 
+    func testRendererPropertyNameSyntaxCannotBypassFontSizeCap() throws {
+        let size = "12." + String(repeating: "0", count: 100_000)
+        let ordinary = "12." + String(repeating: "0", count: 61)
+        for (property, value, neighbour) in [("font-size", size, ordinary),
+                                           ("font", "italic 500 " + size + " serif", "italic 500 " + ordinary + " serif")] {
+            for spelling in [property, property.uppercased(), property.prefix(1).uppercased() + property.dropFirst()] {
+                for name in [spelling, "*" + spelling, spelling + "/**/", "*" + spelling + "/**/",
+                             spelling + " /*:;{}*/ /**/ ", "*" + spelling + " /*:;{}*/ /**/ "] {
+                    for prefix in ["", "/**/", " /*leading*/ /*second*/ "] {
+                        let declaration = name + ":" + prefix + value
+                        XCTAssertFalse(try accepts("<g style='\(declaration)'>\(path)</g>"), declaration.prefix(80).description)
+                        XCTAssertFalse(try accepts("<style>g{\(declaration)}</style><g>\(path)</g>"), declaration.prefix(80).description)
+                        let plain = name + ":" + prefix + neighbour
+                        XCTAssertTrue(try accepts("<g style='\(plain)'>\(path)</g>"), plain)
+                        XCTAssertTrue(try accepts("<style>g{\(plain)}</style><g>\(path)</g>"), plain)
+                    }
+                }
+            }
+        }
+        let comment = "/*" + String(repeating: "x", count: 100_000) + "*/"
+        XCTAssertTrue(try accepts("<g style='font-size\(comment):\(comment)12'>\(path)</g>"),
+                      "comments before the colon and first value term are skipped by simplecss")
+        XCTAssertTrue(try accepts("<style>g{font\(comment):\(comment)12 serif}</style><g>\(path)</g>"))
+    }
+
     func testDefinitionsMarkersAndTextSpansAreScreened() throws {
         let value = String(repeating: " ", count: 100_000) + "12"
         for body in ["<defs><g font-size='\(value)'>\(path)</g></defs>\(path)",

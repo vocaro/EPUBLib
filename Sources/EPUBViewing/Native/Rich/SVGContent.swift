@@ -1186,12 +1186,55 @@ enum SVGContent {
             if index < end, bytes[index] == UInt8(ascii: "/"), index + 1 < end, bytes[index + 1] == UInt8(ascii: "*") {
                 index = scan.endOfComment(bytes, index); continue
             }
+            // simplecss strips one leading '*' (the IE7 property hack), consumes an identifier,
+            // then skips whitespace/comments before ':'. In particular a colon inside that
+            // comment cannot terminate the property name. Keep the historical malformed-name
+            // recovery of this conservative scanner, but canonicalize every name it charges.
             let nameStart = index
+            var firstComment: Int?
+            var canonicalizesComment: Bool?
+            var validNameTail = true
             while index < end, bytes[index] != UInt8(ascii: ":"), bytes[index] != UInt8(ascii: ";"),
-                  bytes[index] != UInt8(ascii: "{"), bytes[index] != UInt8(ascii: "}") { index += 1 }
+                  bytes[index] != UInt8(ascii: "{"), bytes[index] != UInt8(ascii: "}") {
+                if bytes[index] == UInt8(ascii: "/"), index + 1 < end, bytes[index + 1] == UInt8(ascii: "*") {
+                    if canonicalizesComment == nil {
+                        var prefix = String(decoding: bytes[nameStart..<index], as: UTF8.self)
+                            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                        if prefix.first == "*" { prefix.removeFirst() }
+                        canonicalizesComment = copiedStyleProperties.contains(prefix)
+                    }
+                    // Only names this scanner charges need renderer canonicalization. Keep its
+                    // existing conservative recovery for malformed unknown names (including
+                    // comments a rule's string scan interpreted differently).
+                    if canonicalizesComment == true {
+                        if firstComment == nil { firstComment = index }
+                        index = scan.endOfComment(bytes, index)
+                    } else { index += 1 }
+                } else {
+                    if firstComment != nil, bytes[index] > 0x20 { validNameTail = false }
+                    index += 1
+                }
+            }
             guard index < end, bytes[index] == UInt8(ascii: ":") else { if index < end { index += 1 }; continue }
-            let name = String(decoding: bytes[nameStart..<index], as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            var start = nameStart
+            if bytes[start] == UInt8(ascii: "*") { start += 1 }
+            var stop = firstComment ?? index
+            while stop > start, bytes[stop - 1] <= 0x20 { stop -= 1 }
+            // A comment inside the identifier is not an identifier continuation. Between its
+            // first comment and the colon only whitespace and more comments are allowed.
+            var name = String(decoding: bytes[start..<stop], as: UTF8.self).lowercased()
+            if !validNameTail { name = "" }
             index += 1
+            // simplecss also drops whitespace and comments before the first value term. A
+            // shorthand's leading comment must not hide its actual size token from the cap.
+            if name == "font" || name == "font-size" {
+                while index < end {
+                    if bytes[index] <= 0x20 { index += 1 }
+                    else if bytes[index] == UInt8(ascii: "/"), index + 1 < end,
+                            bytes[index + 1] == UInt8(ascii: "*") { index = scan.endOfComment(bytes, index) }
+                    else { break }
+                }
+            }
             var depth = 0
             let valueStart = index
             while index < end {
