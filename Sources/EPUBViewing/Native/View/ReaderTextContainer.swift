@@ -32,11 +32,18 @@ final class ReaderTextContainer: NSTextContainer {
     /// are from this container's at its first line (`lineFragmentRect`).
     private var planned: (paragraph: Int, shift: CGFloat)?
     var hasNonlinearGeometry: Bool { boxPage != nil || !boxRegions.isEmpty }
+    /// The box plan measures its paragraphs in this container (`ReaderBoxLayout.measure`), and
+    /// must measure them as the planned text is laid out: by this container, never on TextKit's
+    /// rectangular path, even before the text's first box. That path applies a paragraph's
+    /// indents itself, and its tabs, list markers and attachments land elsewhere and its lines
+    /// break elsewhere, so a plan measured there is out from the layout below such a paragraph
+    /// by the difference, as far as pushing a page's lines below its foot (#377).
+    var measuresBoxPlan = false
 
     // The default becomes false merely because lineFragmentRect is overridden. Ordinary
     // sections remain rectangular and must retain TextKit's fast viewport/paragraph layout.
     override var isSimpleRectangularTextContainer: Bool {
-        !hasNonlinearGeometry && !needsIndentClamping && boxOverride == nil && boxColumn == nil
+        !hasNonlinearGeometry && !measuresBoxPlan && !needsIndentClamping && boxOverride == nil && boxColumn == nil
             && exclusionPaths.isEmpty && maximumNumberOfLines == 0
     }
 

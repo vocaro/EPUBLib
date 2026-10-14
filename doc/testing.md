@@ -824,6 +824,22 @@ source partitions and boundary/interior/end page lookups remain checked.
 The qualification of 2026-10-13 against a frozen `main`, with its paired UIKit data, is on
 [#242](https://github.com/vocaro/EPUBLib/issues/242#issuecomment-6159295037).
 
+`BoxPlanAgreementTests` holds the box plan to the section's layout: every planned line starts
+where the layout's line at the same character does, within 0.75 points, in generated sections
+whose indented tabs, tabbed table rows, tables with margins, captions, empty paragraphs,
+right-to-left text, drop caps and list markers stand above, between and below floats and
+positioned boxes, and every page of
+those sections passes `PageTextGeometryTests.assertVisiblePages`
+([#377](https://github.com/vocaro/EPUBLib/issues/377)). Sections whose boxes are all left in
+flow have no plan and are skipped. It defaults to 24 sections:
+
+```sh
+BOX_PLAN_SECTIONS=300 BOX_PLAN_SEED=377 swift test --jobs 1 --filter BoxPlanAgreementTests
+```
+
+`BOX_PLAN_ONLY=12,20` checks only those sections, and `BOX_PLAN_DIAGNOSTICS=1` prints each
+section's markup.
+
 ### Reader controls probe
 
 `Examples/ControlsQualification` is the host: `EPUBReaderView` in an ordinary `NavigationStack`

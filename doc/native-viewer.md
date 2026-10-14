@@ -1904,6 +1904,14 @@ float's edge, its margin underneath it
 ([#63](https://github.com/vocaro/EPUBLib/issues/63),
 [#150](https://github.com/vocaro/EPUBLib/issues/150)). TextKit breaks a justified paragraph's
 lines a little differently where the container places them; their edges are the same.
+The plan measures its paragraphs one at a time, and measures each as the text lays it out:
+with the container, those above the text's first box included, since where TextKit applies the
+indents itself a tab, a list marker or a table row in an indented paragraph lands elsewhere and
+the lines break elsewhere; and with the spacing TextKit gives a paragraph only between others,
+before it (a caption set under its table) and after an empty one. A plan that measured a
+paragraph otherwise put every box and page below it as far from the layout as the paragraph
+was taller or shorter, and a page could open below its own foot and show nothing
+([#377](https://github.com/vocaro/EPUBLib/issues/377)).
 
 The boxes' places are planned for the whole of that text, and TextKit lays out only what is
 on screen: far into a book in continuous scroll it estimates the height of everything above,

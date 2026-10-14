@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Plan floats and positioned boxes against the lines the section lays out, so that a page below an indented paragraph with tabs, a caption under its table or an empty paragraph is not pushed off its foot ([#377](https://github.com/vocaro/EPUBLib/issues/377)).
 - Follow manifest fallbacks for unsupported or scripted content and images while preserving resource identity ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
 - Keep floated and positioned inline text in its authored passage ([#127](https://github.com/vocaro/EPUBLib/issues/127)).
 - Copy authored case and line feeds through typography substitutions and native selections ([#128](https://github.com/vocaro/EPUBLib/issues/128)).
