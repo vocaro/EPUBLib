@@ -2,7 +2,8 @@ import Foundation
 
 /// Keeps XML character data when a content document is read by libxml2 as HTML.
 ///
-/// CDATA in content becomes escaped text, so HTML does not discard it as a bogus comment. Comments, attribute values, declarations and script/style raw text keep
+/// CDATA in content becomes escaped text, so HTML does not discard it as a bogus comment.
+/// Comments, attribute values, declarations and script/style raw text keep
 /// their bytes; a literal CDATA opener in any of them must not become visible prose.
 /// This runs before stray signs and NULs are handled, so CDATA's characters follow the same
 /// rules and DOM offsets as ordinary text. The strict XML path never calls this preparation.
