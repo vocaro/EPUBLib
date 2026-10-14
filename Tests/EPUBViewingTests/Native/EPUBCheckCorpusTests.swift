@@ -39,10 +39,23 @@ import XCTest
         var text: [String: String] = [:]
         var recoveredAsHTML: [String] = []
         var cfiUnavailable: [String] = []
+        /// Loader-created raster DOMs have no authored XML text positions. Keep the general
+        /// cfiUnavailable report, while recording this explicit origin separately.
+        var syntheticRasterDocuments: [String]?
+        /// Unsupported foreign media with no admitted XHTML/SVG/image-family candidate in its
+        /// manifest chain is deliberately withheld with the ordinary section-loss notice.
+        var withheldUnsupportedMedia: [String]?
         var mapViolations = 0
         /// Spine items that are not XHTML, as `path (media type)`.
         var foreignSpineItems: [String] = []
         var disclosures: [String: Int] = [:]
+
+        var unexpectedCFIUnavailable: [String] {
+            cfiUnavailable.filter { !(syntheticRasterDocuments ?? []).contains($0) }
+        }
+        var unexpectedWithheld: [String: String] {
+            withheld.filter { !withheldAsDocumented.contains($0.key) && !(withheldUnsupportedMedia ?? []).contains($0.key) }
+        }
     }
 
     /// Seconds one fixture may take before it is recorded as hung, and past which it is listed as slow.
@@ -160,20 +173,7 @@ import XCTest
             outcome.sections += 1
             outcome.characters += section.string.length
             outcome.text[resource.path] = section.string.string
-            if section.report.withheld {
-                var reason = "no parse failure"
-                do { _ = try ContentDocument.parse(publication.data(for: resource), path: resource.path) } catch {
-                    reason = String(describing: error)
-                    // Bytes that are not markup at all fail the same check, so only a document counts.
-                    if case .unsafeMarkup = error as? ContentDocumentError,
-                       ["application/xhtml+xml", "image/svg+xml"].contains(resource.mediaType) {
-                        outcome.withheldAsDocumented.append(resource.path)
-                    }
-                }
-                outcome.withheld[resource.path] = reason
-            }
-            if section.report.recoveredAsHTML { outcome.recoveredAsHTML.append(resource.path) }
-            if section.report.cfiUnavailable { outcome.cfiUnavailable.append(resource.path) }
+            recordDocumentPolicy(section, resource: resource, publication: publication, outcome: &outcome)
             if section.report.flexGridSimplified { flexGridSections += 1 }
             outcome.mapViolations += mapViolations(section)
             report.formUnion(section.report)
@@ -188,6 +188,41 @@ import XCTest
             "flexGridSimplifiedSections": flexGridSections,
         ].filter { $0.value != 0 }
         return outcome
+    }
+
+    /// Classify the document actually selected by the native loader, without changing the raw
+    /// withheld/CFI outcomes. Authored fallbacks and failed supported candidates keep their policy.
+    nonisolated static func recordDocumentPolicy(_ section: SectionText, resource: EPUBResource,
+                                                 publication: EPUBPublication, outcome: inout Outcome) {
+        let chain = NativeFallbacks.resources(for: resource, in: publication)
+        func supportedFamily(_ resource: EPUBResource) -> Bool {
+            resource.mediaType.lowercased() == "application/xhtml+xml" || NativeFallbacks.isImage(resource)
+        }
+        if section.report.withheld {
+            var reason = "no parse failure"
+            do { _ = try ContentDocument.parse(publication.data(for: resource), path: resource.path) } catch {
+                reason = String(describing: error)
+                // Bytes that are not markup at all fail the same check, so only a document counts.
+                if case .unsafeMarkup = error as? ContentDocumentError,
+                   ["application/xhtml+xml", "image/svg+xml"].contains(resource.mediaType) {
+                    outcome.withheldAsDocumented.append(resource.path)
+                }
+            }
+            outcome.withheld[resource.path] = reason
+            if !supportedFamily(resource), !chain.contains(where: supportedFamily) {
+                if outcome.withheldUnsupportedMedia == nil { outcome.withheldUnsupportedMedia = [] }
+                outcome.withheldUnsupportedMedia?.append(resource.path)
+            }
+        }
+        if section.report.recoveredAsHTML { outcome.recoveredAsHTML.append(resource.path) }
+        if section.report.cfiUnavailable { outcome.cfiUnavailable.append(resource.path) }
+        if !section.report.withheld, !section.report.recoveredAsHTML, section.document.origin == .syntheticRaster,
+           let selected = chain.first(where: { $0.path == section.document.path }), NativeFallbacks.isImage(selected),
+           selected.mediaType.lowercased() != "image/svg+xml", !ResourceReference.isRemote(selected.path),
+           let bytes = try? publication.data(for: selected), ReaderImageSource.bitmap(bytes, path: selected.path, key: selected.path) != nil {
+            if outcome.syntheticRasterDocuments == nil { outcome.syntheticRasterDocuments = [] }
+            outcome.syntheticRasterDocuments?.append(resource.path)
+        }
     }
 
     /// Every character of an exact span must map to a DOM position that maps back to it, the
@@ -220,15 +255,17 @@ import XCTest
         check(outcomes.filter { $0.mapViolations > 0 }, "text map does not round-trip") { "\($0.mapViolations) violations" }
         let valid = outcomes.filter { $0.verdict == .valid && !$0.hung }
         check(valid.filter { $0.openError != nil && !$0.documentedRefusal }, "valid for EPUBCheck but refused") { $0.openError ?? "" }
-        check(valid.filter { $0.withheld.count > $0.withheldAsDocumented.count }, "valid for EPUBCheck but a section is withheld") { outcome in
-            "\(outcome.withheld.filter { !outcome.withheldAsDocumented.contains($0.key) })"
+        check(valid.filter { !$0.unexpectedWithheld.isEmpty }, "valid for EPUBCheck but a section is withheld") { outcome in
+            "\(outcome.unexpectedWithheld)"
         }
         check(valid.filter { !$0.recoveredAsHTML.isEmpty }, "valid for EPUBCheck but read as malformed HTML") { "\($0.recoveredAsHTML)" }
-        check(valid.filter { !$0.cfiUnavailable.isEmpty && $0.recoveredAsHTML.isEmpty }, "valid for EPUBCheck but without CFIs") { "\($0.cfiUnavailable)" }
+        check(valid.filter { !$0.unexpectedCFIUnavailable.isEmpty && $0.recoveredAsHTML.isEmpty }, "valid for EPUBCheck but without CFIs") { "\($0.unexpectedCFIUnavailable)" }
         let documented = valid.filter(\.documentedRefusal)
         if !documented.isEmpty { print("EPUBCheck corpus, valid \(kind)s refused as documented, \(list(documented) { $0.openError ?? "" })") }
         let unsafe = valid.filter { !$0.withheldAsDocumented.isEmpty }
         if !unsafe.isEmpty { print("EPUBCheck corpus, valid \(kind)s with a section withheld as documented, \(list(unsafe) { "\($0.withheld)" })") }
+        let unsupported = valid.filter { $0.withheldUnsupportedMedia != nil }
+        if !unsupported.isEmpty { print("EPUBCheck corpus, valid \(kind)s with unsupported media withheld, \(list(unsupported) { "\($0.withheldUnsupportedMedia ?? [])" })") }
         let foreign = valid.filter { !$0.foreignSpineItems.isEmpty }
         if !foreign.isEmpty { print("EPUBCheck corpus, valid \(kind)s with spine items that are not XHTML, \(list(foreign) { "\($0.foreignSpineItems)" })") }
     }

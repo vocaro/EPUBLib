@@ -119,7 +119,10 @@ enum ContentDocumentError: Error, Equatable, Sendable {
 /// whitespace and namespace rules. Other repairs remain readable, but cannot issue or resolve
 /// CFIs: libxml2's HTML 4 tree is not a safe substitute for WebKit's HTML 5 tree.
 final class ContentDocument: @unchecked Sendable {
+    enum Origin: Equatable, Sendable { case authored, syntheticRaster }
     let path: String
+    /// Explicitly distinguishes the raster loader's wrapper from parsed authored markup.
+    let origin: Origin
     let root: ContentNode
     /// Every node in preorder; `nodes[n.order] === n`.
     let nodes: [ContentNode]
@@ -131,8 +134,9 @@ final class ContentDocument: @unchecked Sendable {
     private let ids: [String: ContentNode]
 
     private init(path: String, root: ContentNode, nodes: [ContentNode], recovered: Bool,
-                 canResolveCFIs: Bool = true, cfiResource: String? = nil) {
+                 canResolveCFIs: Bool = true, cfiResource: String? = nil, origin: Origin = .authored) {
         self.path = path; self.root = root; self.nodes = nodes; recoveredAsHTML = recovered
+        self.origin = origin
         self.canResolveCFIs = canResolveCFIs
         self.cfiResource = cfiResource
         var ids: [String: ContentNode] = [:]
@@ -143,13 +147,19 @@ final class ContentDocument: @unchecked Sendable {
     /// A substituted/synthesized document can keep its own text map without accepting CFIs
     /// issued against the original spine resource's DOM.
     func withoutCFIs() -> ContentDocument {
-        ContentDocument(path: path, root: root, nodes: nodes, recovered: recoveredAsHTML, canResolveCFIs: false)
+        ContentDocument(path: path, root: root, nodes: nodes, recovered: recoveredAsHTML,
+                        canResolveCFIs: false, cfiResource: cfiResource, origin: origin)
+    }
+
+    func asSyntheticRaster() -> ContentDocument {
+        ContentDocument(path: path, root: root, nodes: nodes, recovered: recoveredAsHTML,
+                        canResolveCFIs: false, origin: .syntheticRaster)
     }
 
     func withCFIResource(_ resource: String) -> ContentDocument {
         ContentDocument(path: path, root: root, nodes: nodes, recovered: recoveredAsHTML,
                         canResolveCFIs: canResolveCFIs, cfiResource: SHA256.hash(data: Data(resource.utf8))
-                            .map { String(format: "%02x", $0) }.joined())
+                            .map { String(format: "%02x", $0) }.joined(), origin: origin)
     }
 
     /// First element with this `id` in document order (`getElementById`).
@@ -423,7 +433,7 @@ final class ContentDocument: @unchecked Sendable {
         }
         let root = clone(document.root)
         guard nodes.count <= limits.nodes else { throw ContentDocumentError.limitExceeded("nodes") }
-        return ContentDocument(path: document.path, root: root, nodes: nodes, recovered: true)
+        return ContentDocument(path: document.path, root: root, nodes: nodes, recovered: true, origin: document.origin)
     }
 }
 

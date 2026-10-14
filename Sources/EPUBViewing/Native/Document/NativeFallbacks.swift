@@ -41,7 +41,7 @@ enum NativeFallbacks {
             let reference = ("/" + resource.href).replacingOccurrences(of: "&", with: "&amp;")
                 .replacingOccurrences(of: "\"", with: "&quot;").replacingOccurrences(of: "<", with: "&lt;")
             let source = "<html xmlns='http://www.w3.org/1999/xhtml'><body><img src=\"\(reference)\"/></body></html>"
-            return try ContentDocument.parse(Data(source.utf8), path: resource.path).withoutCFIs()
+            return try ContentDocument.parse(Data(source.utf8), path: resource.path).asSyntheticRaster()
         }
         throw ContentDocumentError.malformed(original.path)
     }
