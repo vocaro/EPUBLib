@@ -31,17 +31,21 @@ import UIKit
 
     /// Six chapters of labelled paragraphs ("d07" is the fourth chapter's seventh), the fourth
     /// some twenty screens into the book.
-    private func book() throws -> Data {
+    private func book(hitTargets: Bool = false) throws -> Data {
         let chapters = [("front", 24), ("harbor", 28), ("market", 56), ("pass", 56), ("river", 50), ("summit", 31)]
         return try SessionCoverageBook.epub(chapters.enumerated().map { index, chapter in
             let letter = Character(UnicodeScalar(UInt8(ascii: "a") + UInt8(index)))
             var body = "<h1>Chapter \(chapter.0)</h1>"
             for paragraph in 1...chapter.1 {
                 let label = "\(letter)" + (paragraph < 10 ? "0" : "") + "\(paragraph)"
-                body += "<p>\(label) " + CanvasText.sentence(48 + (paragraph * 5 + index) % 9, seed: paragraph + index) + "</p>"
+                let words = "\(label) " + CanvasText.sentence(48 + (paragraph * 5 + index) % 9, seed: paragraph + index)
+                body += hitTargets
+                    ? "<p><a href='https://example.com/\(label)'>\(words)</a> <img src='target.svg' alt='\(label) image' width='24' height='24'/></p>"
+                    : "<p>\(words)</p>"
             }
             return SessionCoverageBook.Section(chapter.0, body, title: "Chapter \(chapter.0)")
-        })
+        }, manifest: hitTargets ? "<item id='target' href='target.svg' media-type='image/svg+xml'/>" : "",
+           files: hitTargets ? ["OPS/target.svg": "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'><rect width='24' height='24' fill='blue'/></svg>"] : [:])
     }
 
     /// The scroll bar the scroll view has. A Mac prefers one kind by its pointing devices and its
@@ -55,8 +59,9 @@ import UIKit
     /// `shown` is whether the window has drawn the scroll view once, as it has by the time a
     /// person can do anything to it. On a Mac that first display lays the reader out again when
     /// a legacy scroll bar has narrowed the text, and aligns the scroll offset to the pixel grid.
-    private func scrolledAtTheFourthChapter(scrollBar: ScrollBar = .preferred, shown: Bool = false) async throws -> Subject {
-        let reader = try SessionCoverageReader(try book())
+    private func scrolledAtTheFourthChapter(scrollBar: ScrollBar = .preferred, shown: Bool = false,
+                                          hitTargets: Bool = false) async throws -> Subject {
+        let reader = try SessionCoverageReader(try book(hitTargets: hitTargets))
         readers.append(reader)
         reader.window?.resize(to: CGSize(width: 402, height: 874))
         try await reader.settle()
@@ -203,7 +208,107 @@ import UIKit
         try await assertAChangeToPagesAfterAReadShowsTheTextScrolledTo(try await scrolledAtTheFourthChapter())
     }
 
+    /// Look up points from the fragments the viewport draws, rather than asking the point
+    /// query under test which text is there. Every paragraph has its own link and image.
+    func testHitTestsAfterAReadAndScrollAnswerTheDrawnTextLinksAndImages() async throws {
+        let subject = try await scrolledAtTheFourthChapter(shown: true, hitTargets: true)
+        let (reader, canvas, view) = subject
+        // Bypass the range-bounds handler's hold on Mac. This also stands in for an
+        // assistive client's line-number read, which lays out through the requested line.
+        XCTAssertGreaterThan(unlaidParagraphs(of: view), 100)
+        view.readerLayoutManager.ensureLayout(for: view.readerLayoutManager.documentRange)
+        XCTAssertEqual(unlaidParagraphs(of: view), 0)
+        try await reader.session.send(.nextPage)
+        let drawn = try drawnCharacters(of: view)
+        let visible = canvas.scrollVisibleContainerRect
+        let storage = try XCTUnwrap(view.contentStorage.textStorage)
+        let range = try XCTUnwrap(view.readerLayoutManager.textViewportLayoutController.viewportRange)
+        var hits = 0, pictures = 0
+        view.readerLayoutManager.enumerateTextLayoutFragments(from: range.location, options: []) { fragment in
+            let start = view.offset(of: fragment.rangeInElement.location)
+            guard start < drawn.upperBound else { return false }
+            for line in fragment.textLineFragments where line.characterRange.length > 0 {
+                let rect = line.typographicBounds.offsetBy(dx: fragment.layoutFragmentFrame.minX, dy: fragment.layoutFragmentFrame.minY)
+                guard rect.midY >= visible.minY, rect.midY < visible.maxY else { continue }
+                let offset = start + line.characterRange.location
+                let point = CGPoint(x: rect.minX + 1 + view.containerOrigin.x, y: rect.midY + view.containerOrigin.y)
+                let hit = view.characterOffset(at: point)
+                XCTAssertTrue(NSLocationInRange(hit, NSRange(location: offset, length: line.characterRange.length)), "the drawn line owns the hit")
+                XCTAssertTrue(view.fragment(atContainerY: rect.midY, holds: offset), "the drawn fragment owns the line")
+                if let link = storage.attribute(.link, at: offset, effectiveRange: nil) as? URL {
+                    XCTAssertEqual(view.link(at: point), link, "the drawn paragraph owns the link")
+                    hits += 1
+                }
+            }
+            return true
+        }
+        storage.enumerateAttribute(.attachment, in: NSRange(location: drawn.lowerBound, length: drawn.count)) { value, run, _ in
+            guard let image = value as? ReaderImageAttachment else { return }
+            for frame in view.segmentFrames(for: run) where frame.midY >= visible.minY && frame.midY < visible.maxY {
+                let point = CGPoint(x: frame.midX + view.containerOrigin.x, y: frame.midY + view.containerOrigin.y)
+                XCTAssertTrue(view.image(at: point) === image, "the drawn paragraph owns the image")
+                pictures += 1
+            }
+        }
+        XCTAssertGreaterThan(hits, 5, "checked several drawn links")
+        XCTAssertGreaterThan(pictures, 1, "checked several drawn images")
+    }
+
     #if os(macOS)
+    func testAScrollImmediatelyFollowedByAReadKeepsTheNewFirstLine() async throws {
+        for scrollBar in [ScrollBar.legacy, .overlay] {
+            let subject = try await scrolledAtTheFourthChapter(scrollBar: scrollBar, shown: true)
+            let (_, canvas, view) = subject
+            let scrollView = try XCTUnwrap(canvas.scrollContainer as? NSScrollView)
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: scrollView.contentView.bounds.minY + 2_000))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            let kept = try XCTUnwrap(canvas.scrollPlace).location
+            let reading = try XCTUnwrap(canvas.scrollBook).position(at: kept)
+            try readEveryParagraph(of: view) // No wait for the 150 ms report.
+            try await assertPagesShow(reading, subject, "\(scrollBar): ")
+        }
+    }
+
+    func testWheelAndTrackpadAfterAReadKeepTheTextOnScreen() async throws {
+        for precise in [false, true] {
+            let subject = try await scrolledAtTheFourthChapter(scrollBar: .legacy, shown: true)
+            let (reader, canvas, view) = subject
+            let opening = try XCTUnwrap(canvas.visibleRange)
+            let place = try XCTUnwrap(canvas.scrollPlace)
+            // A line-number query can replace the layout above the screen without asking
+            // for any range's bounds, whose public handler now holds the viewport (#517).
+            // Force that stronger layout directly so the wheel preflight has work to do.
+            XCTAssertGreaterThan(unlaidParagraphs(of: view), 100)
+            view.readerLayoutManager.ensureLayout(for: view.readerLayoutManager.documentRange)
+            XCTAssertEqual(unlaidParagraphs(of: view), 0)
+            let replacedLine = try XCTUnwrap(view.lineFrame(containing: place.location))
+            XCTAssertGreaterThan(abs(replacedLine.minY - place.lineTop), 1,
+                                 "the offscreen layout actually moved the first drawn line")
+            let event = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: precise ? .pixel : .line,
+                wheelCount: 1, wheel1: precise ? -30 : -1, wheel2: 0, wheel3: 0))
+            if precise { event.setIntegerValueField(.scrollWheelEventScrollPhase, value: 1) }
+            let wheel = try XCTUnwrap(NSEvent(cgEvent: event))
+            XCTAssertEqual(wheel.hasPreciseScrollingDeltas, precise)
+            let scrollView = try XCTUnwrap(canvas.scrollContainer as? NSScrollView)
+            scrollView.scrollWheel(with: wheel)
+            // AppKit's scroll animation runs on later turns of this process's run loop.
+            try await reader.wait("the wheel event moved the original first line") {
+                guard let line = view.lineFrame(containing: place.location) else { return false }
+                return line.minY - canvas.scrollVisibleContainerRect.minY < place.lineTop - place.visibleTop - 1
+            }
+            let shown = try XCTUnwrap(canvas.scrollVisibleCharacters())
+            let originalLine = try XCTUnwrap(view.lineFrame(containing: place.location))
+            XCTAssertLessThan(originalLine.minY - canvas.scrollVisibleContainerRect.minY,
+                              place.lineTop - place.visibleTop, "the event actually scrolled the text")
+            let book = try XCTUnwrap(canvas.scrollBook)
+            let start = book.position(at: shown.location)
+            XCTAssertEqual(start.section, opening.start.section, "a small wheel move stays in the chapter")
+            XCTAssertGreaterThanOrEqual(start, opening.start)
+            XCTAssertLessThan(start, opening.end, "a small wheel move keeps the previous screen's text")
+            XCTAssertTrue(try drawnCharacters(of: view).contains(shown.location))
+        }
+    }
+
     /// Both hold with either scroll bar, whichever this Mac prefers, whether the read comes before
     /// the scroll view's first display or straight after it. With a legacy scroll bar that display
     /// lays the narrowed text out again, leaving the chapters above estimated, and AppKit then

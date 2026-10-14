@@ -420,8 +420,26 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   `rowspan` honoured (`rowspan="0"` spans one row, as WebKit does); a spanning cell is drawn in
   each row it covers. Oversized rows continue across pages using complete cell glyph lines;
   a line crossing a rowspan boundary is finished in its preceding row and never drawn twice.
+  A continuation sharing a page with following rows or prose uses the displayed page’s exact
+  bounds; overflowing content advances to the next page once, without laying out the whole
+  section again ([#546](https://github.com/vocaro/EPUBLib/issues/546)).
   Continuous scroll retains full row heights. Tables too wide for the line shrink their text
-  to 60%, then wrap by character. A single glyph line taller than a page is fitted as a whole.
+  to 60%, then wrap by character. Only the outer table scales: tables inside cells inherit
+  that scale and wrap at their cell's width, so nesting never multiplies text reductions.
+  A page-fit reduction is retained only when it makes the tallest row fit; otherwise the
+  table continues at its initial scale. Tall nested rows provide complete-line portions to
+  their parent, retaining their source character while their own text continues across pages.
+  One outer layout makes at most five passes per nested table, a linear count in the number
+  of nested tables ([#299](https://github.com/vocaro/EPUBLib/issues/299)). Cell max-content
+  widths measure every explicit line, excluding paragraph separators so leading indents remain.
+  Reader attachments contribute intrinsic widths: rules contribute zero and nested tables
+  their preferred widths. Paragraph measurement visits each attachment once and never lays out
+  a nested table ([#300](https://github.com/vocaro/EPUBLib/issues/300),
+  [#138](https://github.com/vocaro/EPUBLib/issues/138)). Table construction keeps large style,
+  preparation and placement temporaries outside recursive cell rendering to fit the production
+  task-thread stack through both written and anonymous cells
+  ([#329](https://github.com/vocaro/EPUBLib/issues/329)). A single non-table glyph line taller
+  than a page is fitted as a whole.
   One-column tables, which books use as callout boxes, flow as ordinary text: a table is a grid
   when the cells written in its rows take more than one column. Nothing a table holds is
   dropped. XHTML is parsed as XML, which repairs no tree, so content written outside a table's
@@ -477,6 +495,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   Continuations retain original
   source offsets: several pages can report the same row range. Existing bookmarks naming a
   whole table still resolve to that table; new cell ranges identify the selected characters.
+  Search-result mapping binary-searches source-ordered cell intervals and uses the recorded
+  row offset, rather than scanning every row and cell for each match in a long table
+  ([#137](https://github.com/vocaro/EPUBLib/issues/137)).
   Interaction surfaces are mounted only for visible cells. Cell TextKit
   layouts and glyph metadata are retained for drawing in the table's bounded layout cache.
   In continuous scroll which rows are visible is read from TextKit's layout, and the scroll
@@ -1409,6 +1430,24 @@ as they did.
   of where it was last read has not moved and nobody has scrolled it: its first line is still
   held, and the position kept is still the one shown, not the visible start
   ([#302](https://github.com/vocaro/EPUBLib/issues/302)).
+  Point hit tests for a character, a link or an image use those viewport fragments too, so
+  a tap answers for the text drawn there even when the layout holds another paragraph at
+  that point. On Mac the first wheel or trackpad event holds the first line before AppKit
+  scrolls, and each bounds change records the new first line immediately; the location
+  report remains throttled. An accessibility read straight after a person's scroll therefore
+  keeps that new line, without waiting 150 ms for the report
+  ([#266](https://github.com/vocaro/EPUBLib/issues/266)).
+  VoiceOver's insertion-point line query can replace estimates above the viewport with
+  completed layout. The stand-in read of every paragraph is stronger: it does not establish
+  that VoiceOver lays out the remaining text below. The observed requests and speech are
+  recorded with [#517](https://github.com/vocaro/EPUBLib/issues/517) in
+  [testing](testing.md#harness-pitfalls-and-current-results).
+  `ScrolledAccessibilityReadTests.testHitTestsAfterAReadAndScrollAnswerTheDrawnTextLinksAndImages`
+  checks the character, link, image and fragment hit tests against the viewport's own lines
+  on both platforms. Its Mac tests
+  `testAScrollImmediatelyFollowedByAReadKeepsTheNewFirstLine` and
+  `testWheelAndTrackpadAfterAReadKeepTheTextOnScreen` cover a read inside the report delay
+  with both scroll bars and a line wheel or precise trackpad event after the read.
   The reader's own read of the screen is not the only one. The table rows on screen are
   given their cells' text views from the layout, whenever the canvas is laid out or the
   view scrolls, and on Mac an assistive client is told from it what is on screen and where:
@@ -1973,7 +2012,14 @@ The following are the defaults. Host commands and accessibility actions stay ena
   while text is selected), a horizontal swipe (not while text is selected), and on macOS a
   trackpad gesture or wheel tick turns a page. Continuous scroll scrolls natively.
 - Keys (all flows): Left/Page Up previous, Right/Page Down/Space next, Shift-Space previous.
-  In continuous scroll a page turn scrolls by one viewport less a line.
+  In continuous scroll a page turn scrolls by one viewport less a line. A backward turn
+  refines the newly shown text through the line that was first and keeps that line at the
+  new screen's bottom, so estimates for tall images above a jumped-to position cannot skip
+  content. When the first mostly visible line is itself a tall image below the top, the
+  backward step is shortened to keep at least half of it on screen
+  ([#161](https://github.com/vocaro/EPUBLib/issues/161)).
+  `ViewCoverageScrollTests.testAPageTurnBackAfterAJumpPastFiguresKeepsTheLineThatWasFirstOnScreen`
+  covers a jump past figures and successive backward turns.
 - VoiceOver: the text offers the page turn itself, and reads in order from the text views.
   On iPhone and iPad each line of a page offers Next Page and Previous Page, and the
   reader's SwiftUI surface has a page-turn `accessibilityScrollAction`. On Mac each text
@@ -2402,9 +2448,7 @@ retry as HTML, compatibility requires UTF-8 XML-shaped markup with explicit head
 ordinary flow/inline elements and lists, and valid HTML nesting. Pre-head whitespace is
 dropped, between-head/body whitespace retained, and whitespace after the body and root
 merged into the body. Namespace errors fall back to HTML with CFIs disabled. Unknown namespace
-URI warnings keep the XML tree: a 2026-10-13 parser-context probe found that libxml2 reports
-`XML_WAR_NS_URI` (99) as an error and clears `nsWellFormed` for EPUBCheck's valid declaration
-`xmlns:epub="http://http://www.idpf.org/2007/ops"`. URI-warning codes 99 and 100 are allowed;
+URI warnings keep the XML tree: libxml2's URI-warning codes 99 and 100 are allowed;
 actual namespace errors are collected per parse, so a later URI warning cannot hide an earlier
 undeclared prefix or invalid QName. Self-closing nonvoids, closing void tags, table tree construction, CDATA, raw-text or
 foreign elements, literal attribute tabs/line endings, and HTML numeric-reference remapping
@@ -2419,6 +2463,22 @@ Books are untrusted. Nothing is executed: there is no JavaScript engine. Every r
 resolves inside the archive through `ResourceReference`; remote URLs are never fetched and are
 counted for disclosure. XML, CSS and font input is bounded, and the import limits in
 `EPUBReading` still apply. External links are refused with a notice.
+
+Subsequent-sibling CSS searches (`~`) share a memo entry when their entire left-hand selector
+suffix is equal, across rule declarations, right-hand subjects and nested pseudo-classes.
+The rule index admits selectors in source order only while their distinct search suffixes
+fit 65,536 entries after reserving one entry under every parent with more than nine element
+children. Parents with nine or fewer children use the short direct walk and reserve nothing.
+A selector that would exceed that bound is omitted as a whole, including any searches inside
+`:not()`, `:is()` or `:nth-child(… of S)`, and sets `SectionReport.stylesTruncated`; selectors
+without `~` remain eligible. No retained search is evicted during a section build, so input
+above the memo's capacity cannot restore the quadratic sibling walk. The memo keeps its
+approximately 4 MB bound. This conservative reservation can omit selectors even where a
+particular subject would never ask under some parents. Exact matches, specificity and source
+order of admitted selectors are unchanged. `SiblingSearchAdmissionTests` counts compounds
+for 70,000 repeated searches over 60, 120 and 240 siblings and for 70,000 genuinely distinct
+suffixes across two parents ([#341](https://github.com/vocaro/EPUBLib/issues/341)).
+
 
 ## Qualification
 
@@ -2609,11 +2669,9 @@ Go: the native viewer is the bundled engine.
   that spends its budget of steps shows its fallback text with the same disclosure: that limits the
   screen's own reading and not what the renderer does, and it does not bound all of the screen's
   work either, since a visit to an element is one step though it goes over every child the element
-  has, and what bounds that is the limit on expanded local references; the one kind of drawing
-  within the other limits known to spend the budget is built to, a `<style>` inside another, whose
-  CSS is read again for each `<style>` it stands in (as measured with a sheet built to be read
-  eight times, megabytes of CSS two `<style>` elements deep where the drawing also holds a `<use>`
-  tree to walk and, without one, megabytes three deep or some 140 KB sixty deep).
+  has, and what bounds that is the limit on expanded local references. Nested `<style>` elements
+  are now refused by a structural walk before any CSS text is read, including font discovery and
+  disclosure, so stylesheet bytes are not read again for each level of nesting.
   - A gradient's stops are copied into a fresh paint server for every shape it paints by `fill` or
     `stroke`, directly or inherited, in an attribute or a `style` declaration, through a gradient
     `href` chain, and through each `<use>`; each shape is charged the stops its fill names and those
@@ -2675,8 +2733,8 @@ Go: the native viewer is the bundled engine.
   ([#176](https://github.com/vocaro/EPUBLib/issues/176), [#220](https://github.com/vocaro/EPUBLib/issues/220), [#282](https://github.com/vocaro/EPUBLib/issues/282)):
   - `usvg/src/parser/text.rs` counts and iterates `str::chars()`; `text/layout.rs` tracks scalar
     offsets through shaping. Each run has its own shaping/layout, so a bound on one run cannot
-    bound the sum of many runs. The issue's independent measurements found about 82 MB for one
-    maximally positioned 20,000-scalar run, and 757 MB for ten such runs. The screen retains the
+    bound the sum of many runs. [The independent text-cost measurements](https://github.com/vocaro/EPUBLib/issues/176#issuecomment-6159294552)
+    informed the global limit. The screen retains the
     20,000-per-run bound and adds 50,000 scalars across expanded content: around 2.5 maximal
     runs, leaving substantial room for diagram labels. It counts `<use>` copies and repeated
     resource content too. UTF-8 bytes and grapheme clusters are not the units Rust's text code
@@ -2730,13 +2788,61 @@ Go: the native viewer is the bundled engine.
   expand again; the existing reference screen still refuses the longer loops and excessive
   chains it does not stop.
 
-  Capped parse measurements of the bundled library on 2026-10-13 found mask and clip
-  conversion comparable: 100,000 repeated content shapes cost about 54 MB for uncached units,
-  versus about 7.5 MB for successful sharing. This supports charging content times references,
-  rather than the source's bytes alone. The 8 MiB expanded-byte ceiling admits fewer than
-  190,000 of those repeated rectangles, consistent with roughly 100 MB at the ceiling from
-  those measurements, in the same memory range as the existing SVG limits
-  ([measurements](https://github.com/vocaro/EPUBLib/issues/176#issuecomment-6159294552); [the probe](testing.md#svg-rendering-cost-probe)).
+  The resource-conversion measurements are on
+  [#176](https://github.com/vocaro/EPUBLib/issues/176#issuecomment-6159294552), and
+  [testing](testing.md#svg-rendering-cost-probe) has their repeatable probe.
+
+  The preflight for [#230](https://github.com/vocaro/EPUBLib/issues/230),
+  [#251](https://github.com/vocaro/EPUBLib/issues/251), and
+  [#375](https://github.com/vocaro/EPUBLib/issues/375) checks hostile text without
+  handing it to resvg. The checked Rust boundary still handles renderer panics;
+  these bounds stop inputs whose expensive work would not panic.
+
+  `SVGGeometryCostScreen` reads path numbers with SVG's scientific notation,
+  compact signs, and adjacent arc flags. It accumulates relative coordinates and
+  bounds endpoints and control points to 10 million units. An elliptical arc also
+  pays its corrected radius: even a small authored radius can become enormous
+  when the renderer enlarges it to connect its endpoints. The screen overestimates
+  the correction using the chord length and the smaller radius, bounds the result
+  to 10 million units, and sums the ellipse subdivision estimate over the path
+  against 10,000 units. The reported huge stroked arc and far-off text path are
+  refused before parse. The same rule applies to paths in definitions.
+
+  An embedded image's transformed span may reach eight root canvas dimensions.
+  The screen includes percentages, physical units, image font-relative lengths,
+  ancestor transforms, nested viewport and symbol scaling, and `<use>` viewport
+  overrides. The larger viewport scale is charged on both axes, covering `slice`.
+  Competing transforms are enclosed separately rather than multiplied, so an
+  overridden downscale cannot hide an upscale. Linked text paths additionally pay
+  their transformed coordinate bounds; links to other shape types are refused.
+  Stylesheet transforms, relative stylesheet font sizes and font shorthands are
+  refused for SVGs with images or text paths: their cascade is not reproduced. Absolute font size
+  candidates raise the size bound. Header dimensions stand in for omitted image dimensions.
+  This is separate from the decoded-image pixel and byte limits.
+
+  A nested `<svg>` or `<symbol>` counts as an isolated raster layer, including
+  copies reached through `<use>`. [#541](https://github.com/vocaro/EPUBLib/issues/541)
+  records the independently found symbol accounting gap: the pinned renderer's
+  [`use_node` conversion](https://raw.githubusercontent.com/linebender/resvg/v0.48.1/crates/usvg/src/parser/use_node.rs)
+  creates a clipped group for each symbol use, while the previous Swift count
+  charged none for a plain symbol. Marker content is kept near its viewport,
+  measured relative to that viewport even when its origin is far from zero. Marker
+  viewports are also bounded after potential host transformations and strokeWidth
+  scaling. The largest projected marker content area, including orientation and
+  strokes, multiplied by the weighted marker-instance count may reach at most 256
+  root canvas areas. Ordinary arrowheads retain their existing resolution. The
+  dedicated raster screen checks geometry, transformation alternatives, inherited
+  strokes and candidate stylesheet values before rendering.
+
+  Nested `<style>` elements are refused by `SVGStyleScreen` before any stylesheet
+  text is read, including the font-discovery and disclosure paths before
+  serialization. The walk charges one visit per node and stops as soon as it
+  finds a style inside another style. It shares the existing node and depth
+  ceilings. After serialization, nested levels' text is concatenated in document order and the
+  renderer applies that concatenation. [The recorded experiment and minimal
+  reproducers](https://github.com/vocaro/EPUBLib/issues/375#issuecomment-6141053142)
+  settle that behavior; refusal avoids reading the same descendant stylesheet for
+  every level.
 
   Embedded raster images are capped at 4 megapixels each and 16 megapixels in total.
   Output is capped at 4,096 pixels on its long side and 16 megapixels, reduced further for

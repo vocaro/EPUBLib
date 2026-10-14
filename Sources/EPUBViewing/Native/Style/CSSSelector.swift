@@ -7,17 +7,17 @@ struct CSSNamespaces: Sendable {
     var defaultNamespace: String?
 }
 
-enum CSSNamespaceConstraint: Equatable, Sendable {
+enum CSSNamespaceConstraint: Hashable, Sendable {
     case any
     /// No namespace (`|name`).
     case none
     case uri(String)
 }
 
-enum CSSCombinator: Equatable, Sendable { case descendant, child, nextSibling, subsequentSibling }
+enum CSSCombinator: Hashable, Sendable { case descendant, child, nextSibling, subsequentSibling }
 
-struct CSSAttributeSelector: Equatable, Sendable {
-    enum Operation: Equatable, Sendable { case exists, equals, includes, dashMatch, prefix, suffix, substring }
+struct CSSAttributeSelector: Hashable, Sendable {
+    enum Operation: Hashable, Sendable { case exists, equals, includes, dashMatch, prefix, suffix, substring }
     let name: String
     let lowercasedName: String
     /// nil: an attribute in no namespace, the default for unprefixed attribute selectors.
@@ -29,7 +29,7 @@ struct CSSAttributeSelector: Equatable, Sendable {
     let caseInsensitive: Bool
 }
 
-indirect enum CSSPseudoClass: Equatable, Sendable {
+indirect enum CSSPseudoClass: Hashable, Sendable {
     case firstChild, lastChild, onlyChild, firstOfType, lastOfType, onlyOfType
     case nthChild(a: Int, b: Int, of: [CSSComplexSelector]?)
     case nthLastChild(a: Int, b: Int, of: [CSSComplexSelector]?)
@@ -45,14 +45,14 @@ indirect enum CSSPseudoClass: Equatable, Sendable {
     case always
 }
 
-enum CSSSimpleSelector: Equatable, Sendable {
+enum CSSSimpleSelector: Hashable, Sendable {
     case id(String)
     case className(String)
     case attribute(CSSAttributeSelector)
     case pseudo(CSSPseudoClass)
 }
 
-struct CSSCompoundSelector: Equatable, Sendable {
+struct CSSCompoundSelector: Hashable, Sendable {
     var namespace: CSSNamespaceConstraint = .any
     /// nil: universal.
     var name: String?
@@ -61,7 +61,7 @@ struct CSSCompoundSelector: Equatable, Sendable {
 }
 
 /// One complex selector, stored subject first for right-to-left matching.
-struct CSSComplexSelector: Equatable, Sendable {
+struct CSSComplexSelector: Hashable, Sendable {
     /// Whether any compound uses `:nth-child(… of S)` or `:nth-last-child(… of S)`, here or
     /// inside `:not()`/`:is()`.
     var usesSelectorPositions: Bool {
@@ -86,7 +86,7 @@ struct CSSComplexSelector: Equatable, Sendable {
     var specificity: UInt32
     /// Selectors with pseudo-elements never match an element.
     var hasPseudoElement = false
-    /// Present when a `~` combinator is, for `SiblingSearchMemo` to tell this selector from others.
+    /// Present when a `~` combinator is. The rule index shares identities for equal left-hand searches.
     var identity: CSSSelectorIdentity?
 
     /// The bucket that a rule using this selector is indexed under: the subject's id, a class,
@@ -125,8 +125,84 @@ struct CSSComplexSelector: Equatable, Sendable {
 
 /// Which parsed selector this is. A selector's copies share it, and it is no part of a selector's
 /// value: any two compare equal.
-final class CSSSelectorIdentity: Equatable, Sendable {
+final class CSSSelectorIdentity: Hashable, Sendable {
+    /// Indexed selectors point each `~` to an interned left-hand suffix; a parser alone has none.
+    let searches: [Int: CSSSelectorIdentity]
+    init(searches: [Int: CSSSelectorIdentity] = [:]) { self.searches = searches }
     static func == (_: CSSSelectorIdentity, _: CSSSelectorIdentity) -> Bool { true }
+    func hash(into hasher: inout Hasher) { hasher.combine(0) }
+}
+
+extension CSSComplexSelector {
+    func siblingSearchKey(at compound: Int, parent: Int32) -> SiblingSearchMemo.Key? {
+        guard let identity else { return nil }
+        if let search = identity.searches[compound] {
+            return .init(selector: ObjectIdentifier(search), compound: 0, parent: parent)
+        }
+        return .init(selector: ObjectIdentifier(identity), compound: Int32(compound), parent: parent)
+    }
+}
+
+/// Matching a suffix depends on its compounds and combinators, not on the subject, specificity,
+/// declaration or source order of the rule that asks. Nested selectors retain all their values.
+struct CSSSiblingSearchIndex {
+    struct Suffix: Hashable {
+        let compounds: ArraySlice<CSSCompoundSelector>
+        let combinators: ArraySlice<CSSCombinator>
+    }
+    var identities: [Suffix: CSSSelectorIdentity] = [:]
+    let maximumSearches: Int
+
+    mutating func indexed(_ selector: CSSComplexSelector) -> CSSComplexSelector? {
+        var wanted = Set<Suffix>()
+        collect(selector, into: &wanted)
+        guard !wanted.isEmpty else { return selector }
+        let additional = wanted.reduce(0) { $0 + (identities[$1] == nil ? 1 : 0) }
+        guard additional <= maximumSearches - identities.count else { return nil }
+        for suffix in wanted where identities[suffix] == nil { identities[suffix] = CSSSelectorIdentity() }
+        return sharing(selector)
+    }
+
+    private func collect(_ selector: CSSComplexSelector, into wanted: inout Set<Suffix>) {
+        for index in selector.combinators.indices where selector.combinators[index] == .subsequentSibling {
+            wanted.insert(suffix(selector, at: index + 1))
+        }
+        for compound in selector.compounds {
+            for case .pseudo(let pseudo) in compound.simple {
+                switch pseudo {
+                case .not(let list), .matchesAny(let list), .nthChild(_, _, let list?), .nthLastChild(_, _, let list?):
+                    for nested in list { collect(nested, into: &wanted) }
+                default: break
+                }
+            }
+        }
+    }
+
+    private func suffix(_ selector: CSSComplexSelector, at index: Int) -> Suffix {
+        Suffix(compounds: selector.compounds[index...], combinators: selector.combinators.dropFirst(index))
+    }
+
+    private func sharing(_ original: CSSComplexSelector) -> CSSComplexSelector {
+        var selector = original
+        var searches: [Int: CSSSelectorIdentity] = [:]
+        for index in selector.combinators.indices where selector.combinators[index] == .subsequentSibling {
+            searches[index + 1] = identities[suffix(original, at: index + 1)]!
+        }
+        if !searches.isEmpty { selector.identity = CSSSelectorIdentity(searches: searches) }
+        for index in selector.compounds.indices {
+            selector.compounds[index].simple = selector.compounds[index].simple.map { simple in
+                guard case .pseudo(let pseudo) = simple else { return simple }
+                switch pseudo {
+                case .not(let list): return .pseudo(.not(list.map(sharing)))
+                case .matchesAny(let list): return .pseudo(.matchesAny(list.map(sharing)))
+                case .nthChild(let a, let b, let list?): return .pseudo(.nthChild(a: a, b: b, of: list.map(sharing)))
+                case .nthLastChild(let a, let b, let list?): return .pseudo(.nthLastChild(a: a, b: b, of: list.map(sharing)))
+                default: return simple
+                }
+            }
+        }
+        return selector
+    }
 }
 
 enum CSSBucketKey: Hashable {

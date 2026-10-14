@@ -65,7 +65,17 @@ replacement point to that replacement; IDs in structural notation point to their
 Generated delimiters and escapes count toward the existing output budget and subsequent offsets.
 
 `EPUBTextExtractionLimits` bounds input bytes (default 4 MiB), UTF-8 bytes per output field (8 MiB), nesting
-(64 elements) and element count (100,000) per section. Callers processing a whole book enforce
+(64 elements) and element count (100,000) per section. A fixed additional safety bound allows
+at most 1,024 attribute occurrences on one element, including namespace declarations, duplicate
+names and HTML boolean attributes. A linear preflight checks this before strict XML or HTML
+parsing; extraction reports `limitExceeded("attributesPerElement")`, and native content parsing
+reports the same limit name. Publication metadata/navigation XML exceeding it is `invalidXML`.
+On the strict path, attribute values, comments and CDATA do not count as attributes. The HTML
+preflight conservatively treats a script/style end marker as markup even inside an apparent
+quoted value, comment or another raw-text element, since malformed raw-text endings can leave
+libxml2 in another context. It follows its own comment, processing-instruction, end-tag and
+script/style contexts after source rewriting ([#196](https://github.com/vocaro/EPUBLib/issues/196));
+[testing](testing.md#attribute-parser-cost-probe) has the parser-only probe. Callers processing a whole book enforce
 their own cumulative text budget while iterating. `CancellationError` propagates during parsing.
 `EPUBTextExtractionError` distinguishes invalid spine indices, unsupported media types, malformed
 XHTML and exceeded limits. XHTML 1.x named character references such as `&nbsp;` and `&mdash;`
@@ -123,6 +133,9 @@ contains each XHTML heading in document order, with normalized text and its mark
 `offset` counts UTF-8 bytes to the first text character after the element opens; `separator`
 counts the normalized space or newline immediately before that character. An empty element
 with no following text marks the document end. Script/style/template subtrees contribute neither
-text nor anchors. Text and positions are emitted by the same bounded walk, so consumers never
-need to replicate normalization to locate sections. Hosts decide which navigation entries or
-headings form meaningful study sections.
+text nor anchors. Text and positions are emitted by the same bounded walk. Empty IDs wait in a
+pending set
+until the next emitted text or document end fixes their offsets, so thousands of empty anchors
+do not rescan the anchors already resolved ([#92](https://github.com/vocaro/EPUBLib/issues/92)).
+Consumers never need to replicate normalization to locate sections. Hosts decide which navigation
+entries or headings form meaningful study sections.

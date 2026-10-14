@@ -333,7 +333,7 @@ final class TableCoverageLayoutTests: XCTestCase {
     func testARowAttachmentReportsTheTablesContentWidthsForATableAroundIt() throws {
         let table = try boxes("<table><tr>\(TableCoverage.box(100))\(TableCoverage.box(50))</tr></table>")
         let widths = TableRowAttachment(table: table, row: 0).contentWidths()
-        XCTAssertEqual(widths.min, 150 * TableModel.minimumScale, accuracy: 0.01, "it can be drawn at 60%")
+        XCTAssertEqual(widths.min, 150, accuracy: 0.01, "nested intrinsic widths do not compound scale reductions")
         XCTAssertEqual(widths.max, 150, accuracy: 0.01)
     }
 

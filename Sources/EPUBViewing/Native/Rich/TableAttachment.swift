@@ -53,7 +53,7 @@ final class TableRowAttachment: ReaderAttachment {
 
     override func contentWidths() -> (min: CGFloat, max: CGFloat) {
         let constraints = table.constraints
-        return (constraints.minimumTableWidth * TableModel.minimumScale, constraints.maximumTableWidth)
+        return (constraints.minimumTableWidth, constraints.maximumTableWidth)
     }
 
     /// The cells that start in this row, joined by tabs. The rows' own line breaks separate rows,
@@ -66,10 +66,7 @@ final class TableRowAttachment: ReaderAttachment {
     var cellWords: [String] {
         if let fragment, let layout = fragmentLayout {
             return fragment.cells.sorted { table.cells[$0.cell].column < table.cells[$1.cell].column }.map { entry in
-                let lines = layout.cellText[entry.cell].lines
-                let range = NSRange(location: lines[entry.lines.lowerBound].characters.location,
-                                    length: lines[entry.lines.upperBound - 1].characters.upperBound - lines[entry.lines.lowerBound].characters.location)
-                return layout.cellText[entry.cell].spokenText(in: range)
+                return layout.cellText[entry.cell].spokenText(inLines: entry.lines)
             }
         }
         return table.rowCells[row].map { table.cells[$0] }.filter { $0.row == row }
@@ -146,8 +143,7 @@ final class TableRowAttachment: ReaderAttachment {
                     lines = 0..<text.lines.count
                 }
             } else if let own = shown[index], !own.isEmpty {
-                let first = text.lines[own.lowerBound].characters.location
-                words = text.spokenText(in: NSRange(location: first, length: text.lines[own.upperBound - 1].characters.upperBound - first), refreshingAttachments: refreshingAttachments)
+                words = text.spokenText(inLines: own, refreshingAttachments: refreshingAttachments)
                 lines = own
             }
             let isBlank = table.cells[index].text.isEmpty
@@ -265,13 +261,5 @@ final class TableRowAttachment: ReaderAttachment {
             return true
         }
         #endif
-    }
-}
-
-/// A table row where only widths are measured (`TableMeasure.maximumWidth`): as wide as the row
-/// on any line and of no height, so no table is laid out to size it.
-final class TableRowWidthAttachment: ReaderAttachment {
-    override func layoutBounds(_ line: Line) -> CGRect {
-        CGRect(x: 0, y: line.font?.descender ?? 0, width: TableRowAttachment.width(on: line), height: 0)
     }
 }

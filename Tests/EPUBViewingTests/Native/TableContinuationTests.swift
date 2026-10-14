@@ -58,6 +58,53 @@ final class TableContinuationTests: XCTestCase {
         XCTAssertGreaterThan(RichTableTests.ink(pixels, columns: 10..<120), 0)
     }
 
+    @MainActor func testPackedContinuationsMeasureFollowingRowsAndProseWithoutClippingOrRepeatingThem() throws {
+        let words = (0..<1200).map { "word\($0)" }
+        let size = CGSize(width: 334.8, height: 404)
+        for followsWithProse in [false, true] {
+            let followingRows = followsWithProse ? ""
+                : "<tr><td>Second</td><td>Other</td></tr><tr><td>Third</td><td>Last</td></tr>"
+            let beside = followsWithProse ? "Other" : "First"
+            let fixture = try RichFixture("<table id='t' border='1'><tr><td>" + words.joined(separator: " ")
+                + "</td><td>\(beside)</td></tr>\(followingRows)</table>", typography: .init(fontSize: 34))
+            let text = NSMutableAttributedString(attributedString: try XCTUnwrap(fixture.table("t")))
+            if followsWithProse {
+                text.append(NSAttributedString(string: "\n", attributes: [.font: TableContent.rowFont]))
+                let style = NSMutableParagraphStyle()
+                style.lineHeightMultiple = 1
+                text.append(NSAttributedString(string: "After table ends.",
+                    attributes: [.font: PlatformFont.systemFont(ofSize: 34), .paragraphStyle: style]))
+            }
+            let paginator = ReaderPaginator(text: text, size: size)
+            let pages = paginator.allPages
+            XCTAssertGreaterThan(pages.count, 1)
+            if !followsWithProse { XCTAssertTrue(pages.contains { $0.tableFragments.count > 1 }, "the short following rows pack together") }
+            for (index, page) in pages.enumerated() {
+                let drawnRows = page.tableFragments.reduce(CGFloat.zero) { height, entry in
+                    height + entry.attachment.height(width: size.width, viewportHeight: size.height)
+                }
+                XCTAssertLessThanOrEqual(drawnRows, page.height + 0.5, "page \(index): its envelope covers every frozen row slice")
+                let view = ReaderTextView(pageColumn: true)
+                view.frame = CGRect(origin: .zero, size: size)
+                view.readerContainer.size = CGSize(width: size.width, height: 0)
+                view.readerContainer.viewportSize = size
+                view.placement.visibleLength = page.range.length
+                view.setContent(paginator.text(for: page)); view.ensureFullLayout()
+                let last = try XCTUnwrap(view.lineFrame(containing: page.range.length - 1))
+                XCTAssertLessThanOrEqual(last.maxY, size.height - page.topSpacing + 0.5, "page \(index): all displayed glyphs fit the viewport")
+                XCTAssertLessThanOrEqual(last.maxY, page.height + 0.5, "page \(index): native display agrees with the page envelope")
+            }
+            let spoken = pages.flatMap { page in
+                paginator.text(for: page).readerPlainText(in: NSRange(location: 0, length: page.range.length))
+                    .split(whereSeparator: \.isWhitespace).map(String.init)
+            }
+            XCTAssertEqual(spoken.filter { $0.hasPrefix("word") }, words, "every continuation word once, in order")
+            for following in followsWithProse ? ["After", "table", "ends."] : ["First", "Second", "Other", "Third", "Last"] {
+                XCTAssertEqual(spoken.filter { $0 == following }.count, 1, "following content is queued and displayed exactly once: \(following)")
+            }
+        }
+    }
+
     func testCellTextHasNoFixedHeightCutoff() {
         let text = NSAttributedString(string: String(repeating: "x", count: 6000),
                                       attributes: [.font: PlatformFont.systemFont(ofSize: 400)])

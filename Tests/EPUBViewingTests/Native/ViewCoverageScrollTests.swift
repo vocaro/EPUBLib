@@ -319,7 +319,6 @@ import UIKit
     /// the line that was first is the last on screen, whatever TextKit 2 had estimated for the
     /// two unlaid figures above. Otherwise what lies between is never shown.
     func testAPageTurnBackAfterAJumpPastFiguresKeepsTheLineThatWasFirstOnScreen() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/161", options: .nonStrict())
         let sections = [prose(0, length: 9_000), figures(1, count: 2, height: 400), prose(2, length: 6_000)]
         let host = scrolledHost(sections)
         let canvas = host.canvas

@@ -629,6 +629,58 @@ synthetic 100-run text stress fixture now uses 40,000 total characters, within t
 ceiling; the dedicated new tests hold the exact 50,000-scalar boundary and 800-by-5,000 hostile
 case.
 
+### Attribute parser cost probe
+
+For [#196](https://github.com/vocaro/EPUBLib/issues/196), save the standalone probe below as
+`/tmp/attribute-cost.c`. It generates one `p` with distinct `a0='v'`, `a1='v'` attributes
+inside `html/body` and profiles only the SDK's libxml2 XML and HTML parsing. It uses no
+repository code; the parser CPU measurements and system disassembly are recorded in the
+[#196 qualification comment](https://github.com/vocaro/EPUBLib/issues/196#issuecomment-6161992517).
+The safety limit is described in [text extraction](text-extraction.md#contract).
+
+```sh
+xcrun clang /tmp/attribute-cost.c -I"$(xcrun --show-sdk-path)/usr/include/libxml2" -lxml2 -o /tmp/attribute-cost
+/tmp/attribute-cost 40000
+/tmp/attribute-cost 80000
+```
+
+```c
+#include <libxml/parser.h>
+#include <libxml/HTMLparser.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+int main(int argc, char **argv) {
+    if (argc != 2) return 2;
+    int n = atoi(argv[1]);
+    if (n < 1 || n > 100000) return 2;
+    char *s = malloc(n * 30 + 100);
+    if (!s) return 2;
+    int length = sprintf(s, "<html><body><p");
+    for (int i = 0; i < n; i++) length += sprintf(s + length, " a%d='v'", i);
+    length += sprintf(s + length, ">text</p></body></html>");
+    for (int k = 0; k < 3; k++) {
+        clock_t start = clock();
+        xmlDocPtr doc = htmlReadMemory(s, length, NULL, "UTF-8",
+            HTML_PARSE_NONET | HTML_PARSE_NOERROR | HTML_PARSE_NOWARNING | HTML_PARSE_RECOVER);
+        printf("HTML attrs=%d bytes=%d CPU=%.6f\n", n, length,
+            (double)(clock() - start) / CLOCKS_PER_SEC);
+        if (doc) xmlFreeDoc(doc);
+    }
+    clock_t start = clock();
+    xmlDocPtr doc = xmlReadMemory(s, length, NULL, "UTF-8",
+        XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING);
+    printf("XML attrs=%d bytes=%d CPU=%.6f\n", n, length,
+        (double)(clock() - start) / CLOCKS_PER_SEC);
+    if (doc) xmlFreeDoc(doc);
+    free(s);
+}
+```
+
+`ParserPreflightSafetyTests` and `NativeParserPreflightSafetyTests` assert the accepted boundary
+and typed refusal, including duplicate/boolean attributes, wide encodings and HTML contexts
+that differ from XML. Their acceptance assertions do not measure time.
+
 ### Archive input work probe
 
 The constructed release-build inputs confirm that small output does not bound work. Each extra

@@ -14,6 +14,8 @@ final class TableCellLayout: @unchecked Sendable {
         let characters: NSRange
         let glyphs: NSRange
         let frame: CGRect
+        /// A nested row can span several pages while retaining its one source character.
+        var nestedRow: TableRowAttachment? = nil
     }
     let lines: [Line]
     let height: CGFloat
@@ -22,10 +24,13 @@ final class TableCellLayout: @unchecked Sendable {
     private let storage: NSTextStorage
     private let manager: NSLayoutManager
     private let lock = NSLock()
+    private let viewportHeight: CGFloat
 
     init(_ text: NSAttributedString, width: CGFloat, viewportHeight: CGFloat) {
-        let text = ReaderFlowBoxLayout.applying(to: text,
+        self.viewportHeight = viewportHeight
+        let flowed = ReaderFlowBoxLayout.applying(to: text,
             viewport: CGSize(width: max(1, width), height: max(1, viewportHeight)))
+        let text = Self.nestedRows(in: flowed, width: width, viewportHeight: viewportHeight)
         interactionText = text
         let source = text.string as NSString
         let whitespace = CharacterSet.whitespacesAndNewlines
@@ -56,11 +61,56 @@ final class TableCellLayout: @unchecked Sendable {
         manager.ensureLayout(for: container)
         var measured: [Line] = []
         manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { [manager] rect, _, _, glyphs, _ in
-            measured.append(Line(characters: manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil),
-                                 glyphs: glyphs, frame: rect))
+            let characters = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+            if characters.location < text.length,
+               let row = text.attribute(.attachment, at: characters.location, effectiveRange: nil) as? TableRowAttachment {
+                let layout = row.layout(width: width, viewportHeight: viewportHeight)
+                let font = text.attribute(.font, at: characters.location, effectiveRange: nil) as? PlatformFont
+                let limit = max(1, viewportHeight - 2 * (font?.pointSize ?? 16))
+                for slice in layout.fragments(ofRow: row.row, maximumHeight: limit) {
+                    let frame = CGRect(x: rect.minX, y: rect.minY + (slice.top - layout.rowTops[row.row]) * layout.scale,
+                        width: rect.width, height: slice.height * layout.scale)
+                    measured.append(Line(characters: characters, glyphs: glyphs, frame: frame,
+                        nestedRow: TableRowAttachment(table: row.table, row: row.row, fragment: slice, layout: layout)))
+                }
+            } else { measured.append(Line(characters: characters, glyphs: glyphs, frame: rect)) }
         }
         lines = measured
         height = ceil(manager.usedRect(for: container).maxY)
+    }
+
+    /// Freeze nested layouts at scale one before TextKit asks attachment bounds. Each level
+    /// gets one pass per outer attempt, rather than starting its own page-fit retry tree.
+    private static func nestedRows(in text: NSAttributedString, width: CGFloat, viewportHeight: CGFloat) -> NSAttributedString {
+        let result = NSMutableAttributedString(attributedString: text)
+        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+            guard let row = value as? TableRowAttachment else { return }
+            let style = text.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
+            let leading = max(0, style?.headIndent ?? 0, style?.firstLineHeadIndent ?? 0)
+            let trailing = max(0, -(style?.tailIndent ?? 0))
+            let available = max(1, width - leading - trailing)
+            let layout = row.table.layout(available: available, viewportHeight: viewportHeight, nested: true)
+            let whole = layout.fragments(ofRow: row.row, maximumHeight: .greatestFiniteMagnitude)[0]
+            result.addAttribute(.attachment, value: TableRowAttachment(table: row.table, row: row.row,
+                fragment: whole, layout: layout), range: range)
+        }
+        return result
+    }
+
+    /// Read a nested continuation's own words rather than repeating its entire source row.
+    func spokenText(inLines indices: Range<Int>, refreshingAttachments: Bool = false) -> String {
+        var words: [String] = []
+        for index in indices {
+            let line = lines[index]
+            if let row = line.nestedRow {
+                if refreshingAttachments {
+                    words.append(row.spokenCells(size: line.frame.size, viewportHeight: viewportHeight,
+                        refreshingAttachments: true).map(\.text).joined(separator: "\t"))
+                } else { words.append(row.textEquivalent) }
+            }
+            else { words.append(spokenText(in: line.characters, refreshingAttachments: refreshingAttachments)) }
+        }
+        return words.filter { !$0.isEmpty }.joined(separator: " ")
     }
 
     /// Only the slice containing a word's first character speaks it. Complete words are
@@ -99,12 +149,26 @@ final class TableCellLayout: @unchecked Sendable {
     }
 
     func draw(_ indices: Range<Int>, at origin: CGPoint) {
-        guard let first = indices.first, let last = indices.last else { return }
-        let glyphs = NSRange(location: lines[first].glyphs.location,
-                             length: lines[last].glyphs.upperBound - lines[first].glyphs.location)
+        guard !indices.isEmpty else { return }
         lock.withLock {
-            manager.drawBackground(forGlyphRange: glyphs, at: origin)
-            manager.drawGlyphs(forGlyphRange: glyphs, at: origin)
+            for index in indices {
+                let line = lines[index]
+                if let row = line.nestedRow {
+                    #if os(iOS)
+                    let context = UIGraphicsGetCurrentContext()
+                    #else
+                    let context = NSGraphicsContext.current?.cgContext
+                    #endif
+                    guard let context else { continue }
+                    context.saveGState()
+                    context.translateBy(x: origin.x + line.frame.minX, y: origin.y + line.frame.minY)
+                    row.draw(in: context, size: line.frame.size, viewportHeight: viewportHeight)
+                    context.restoreGState()
+                } else {
+                    manager.drawBackground(forGlyphRange: line.glyphs, at: origin)
+                    manager.drawGlyphs(forGlyphRange: line.glyphs, at: origin)
+                }
+            }
         }
     }
 }

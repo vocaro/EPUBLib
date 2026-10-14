@@ -100,6 +100,8 @@ final class TableModel: @unchecked Sendable {
     let groups: [Range<Int>]
     /// Indices into `cells` of the cells in each row, spanning cells in every row they cover.
     let rowCells: [[Int]]
+    /// Cell source intervals sorted once, for logarithmic search-result mapping.
+    let sourceCells: [(node: Int, end: Int, cell: Int)]
     /// Whether pagination should keep each row on the page of the row after it: inside a
     /// group, and after a header row.
     let keepsWithNext: [Bool]
@@ -126,7 +128,11 @@ final class TableModel: @unchecked Sendable {
     private var cachedHeaders: (columns: [[Int]], rows: [[Int]])?
     private var layouts: [LayoutKey: TableLayout] = [:]
     private var layoutOrder: [LayoutKey] = []
-    struct LayoutKey: Hashable { let width: CGFloat; let height: CGFloat }
+    struct LayoutKey: Hashable { let width: CGFloat; let height: CGFloat; let nested: Bool }
+    private var layoutPasses = 0
+    /// Actual layout passes, excluding cache hits, for deterministic cost qualification.
+    var layoutPassCount: Int { lock.withLock { layoutPasses } }
+    func recordLayoutPass() { lock.withLock { layoutPasses += 1 } }
 
     init(cells: [Cell], rows: [Row], columnCount: Int, columns: [ComputedStyle.Length], width: ComputedStyle.Length,
          collapse: Bool, spacing: CGSize, borders: Borders, background: CGColor?, alignment: Alignment, isRightToLeft: Bool,
@@ -142,6 +148,9 @@ final class TableModel: @unchecked Sendable {
             for row in cell.row..<min(rows.count, cell.row + cell.rowSpan) { rowCells[row].append(index) }
         }
         self.rowCells = rowCells
+        sourceCells = cells.enumerated().compactMap { index, cell in
+            cell.textMap.map { (node: $0.node, end: $0.subtreeEnd, cell: index) }
+        }.sorted { $0.node < $1.node }
         var keeps = rows.map(\.isHeader)
         for group in groups { for row in group.dropLast() { keeps[row] = true } }
         if !keeps.isEmpty { keeps[keeps.count - 1] = false }
@@ -169,15 +178,27 @@ final class TableModel: @unchecked Sendable {
         return groups
     }
 
+    /// The written cell containing this DOM node. Anonymous cells retain coarse mapping.
+    func sourceCell(containing node: Int) -> Int? {
+        var low = 0, high = sourceCells.count
+        while low < high {
+            let middle = (low + high) / 2
+            if sourceCells[middle].node <= node { low = middle + 1 } else { high = middle }
+        }
+        guard low > 0, node <= sourceCells[low - 1].end else { return nil }
+        return sourceCells[low - 1].cell
+    }
+
     // MARK: Layout cache
 
     /// The layout for a line `available` wide in a viewport `viewportHeight` tall: the table
     /// drawn at most that wide, its text scaled down (to `minimumScale`) when its minimum width
-    /// is wider, and further when a row would be taller than the viewport.
-    func layout(available: CGFloat, viewportHeight: CGFloat) -> TableLayout {
-        let key = LayoutKey(width: (max(1, available) * 4).rounded() / 4, height: max(1, viewportHeight).rounded())
+    /// is wider, and further only when that makes a row fit the viewport. Nested tables
+    /// wrap at their assigned width and inherit the outer table's scale.
+    func layout(available: CGFloat, viewportHeight: CGFloat, nested: Bool = false) -> TableLayout {
+        let key = LayoutKey(width: (max(1, available) * 4).rounded() / 4, height: max(1, viewportHeight).rounded(), nested: nested)
         if let layout = lock.withLock({ layouts[key] }) { return layout }
-        let layout = TableLayout.make(self, available: key.width, viewportHeight: key.height)
+        let layout = TableLayout.make(self, available: key.width, viewportHeight: key.height, nested: nested)
         lock.withLock {
             if layouts[key] == nil { layoutOrder.append(key) }
             layouts[key] = layout
@@ -239,43 +260,61 @@ final class TableModel: @unchecked Sendable {
 
 /// Measures attributed text for table layout.
 enum TableMeasure {
-    /// Max-content: the widest paragraph unwrapped, as string drawing lays it out.
+    /// Max-content: the widest unwrapped line, including every paragraph in the cell.
     ///
-    /// String drawing sizes every attachment on the way, and a table row's height is its whole
-    /// table laid out for the line: every cell, at up to five scales when a row is taller than
-    /// a page, each sizing the rows of the tables in its own cells in turn. A width needs none
-    /// of that, so the rows are measured as `TableRowWidthAttachment`s and no table is laid out.
-    /// (String drawing leaves out the lines below the box it measures in. Rows of no height
-    /// take none of that box, so a tall table hides neither itself nor what follows it.)
+    /// AppKit string drawing revisits the whole string when it sizes an attachment, making
+    /// a string of attachment paragraphs quadratic. Measure paragraphs separately and give
+    /// drawing fixed intrinsic widths: neither a table layout nor a viewport-wide rule belongs
+    /// in intrinsic measurement. An unlimited height includes even lines below 100,000 points.
     static func maximumWidth(_ text: NSAttributedString) -> CGFloat {
         guard text.length > 0 else { return 0 }
-        // String drawing justifies even a one-letter drop cap across the whole measuring
-        // rectangle when it inherits a justified list item. Resolve that full-width
-        // justification for intrinsic measurement; other alignment behavior stays unchanged.
-        let measured = NSMutableAttributedString(attributedString: measuringRowWidths(text))
-        var paragraphs: [(NSRange, NSParagraphStyle)] = []
-        measured.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: measured.length)) { value, range, _ in
-            guard let style = value as? NSParagraphStyle, style.alignment == .justified else { return }
-            let neutral = style.mutableCopy() as! NSMutableParagraphStyle
-            neutral.alignment = .left
-            paragraphs.append((range, neutral))
+        let full = NSRange(location: 0, length: text.length)
+        var widest: CGFloat = 0
+        (text.string as NSString).enumerateSubstrings(in: full, options: [.byParagraphs, .substringNotRequired]) { _, _, range, _ in
+            let measured = NSMutableAttributedString(attributedString: text.attributedSubstring(from: range))
+            let paragraphRange = NSRange(location: 0, length: measured.length)
+            var replacements: [(NSRange, Any)] = []
+            measured.enumerateAttribute(.attachment, in: paragraphRange) { value, attachmentRange, _ in
+                guard let reader = value as? ReaderAttachment else { return }
+                replacements.append((attachmentRange, WidthAttachment(width: reader.contentWidths().max)))
+            }
+            for (range, attachment) in replacements { measured.addAttribute(.attachment, value: attachment, range: range) }
+            var paragraphs: [(NSRange, NSParagraphStyle)] = []
+            measured.enumerateAttribute(.paragraphStyle, in: paragraphRange) { value, styleRange, _ in
+                guard let style = value as? NSParagraphStyle, style.alignment == .justified else { return }
+                let neutral = style.mutableCopy() as! NSMutableParagraphStyle
+                neutral.alignment = .left
+                paragraphs.append((styleRange, neutral))
+            }
+            for (range, style) in paragraphs { measured.addAttribute(.paragraphStyle, value: style, range: range) }
+            let string = measured.string as NSString
+            var firstLine = true
+            string.enumerateSubstrings(in: paragraphRange, options: [.byLines, .substringNotRequired]) { _, lineRange, _, _ in
+                let isFirstLine = firstLine
+                firstLine = false
+                guard lineRange.length > 0 else { return }
+                let line = NSMutableAttributedString(attributedString: measured.attributedSubstring(from: lineRange))
+                if !isFirstLine, let style = line.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle {
+                    let continuation = style.mutableCopy() as! NSMutableParagraphStyle
+                    continuation.firstLineHeadIndent = style.headIndent
+                    line.addAttribute(.paragraphStyle, value: continuation, range: NSRange(location: 0, length: line.length))
+                }
+                // Exclude the separator: string drawing of a paragraph with its trailing
+                // newline drops its leading reservation from the reported width.
+                let rect = line.boundingRect(with: CGSize(width: 100_000, height: 0),
+                                             options: [.usesLineFragmentOrigin], context: nil)
+                widest = max(widest, rect.width)
+            }
         }
-        for (range, style) in paragraphs { measured.addAttribute(.paragraphStyle, value: style, range: range) }
-        let rect = measured.boundingRect(with: CGSize(width: 100_000, height: 100_000),
-                                                         options: [.usesLineFragmentOrigin], context: nil)
-        return ceil(rect.width)
+        return ceil(widest)
     }
 
-    /// `text` with a `TableRowWidthAttachment` in place of each table row.
-    private static func measuringRowWidths(_ text: NSAttributedString) -> NSAttributedString {
-        var rows: [NSRange] = []
-        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, range, _ in
-            if value is TableRowAttachment { rows.append(range) }
-        }
-        guard !rows.isEmpty else { return text }
-        let measured = NSMutableAttributedString(attributedString: text)
-        for range in rows { measured.addAttribute(.attachment, value: TableRowWidthAttachment(), range: range) }
-        return measured
+    /// A fixed intrinsic width, with no table layout or viewport-dependent sizing callback.
+    private final class WidthAttachment: ReaderAttachment {
+        let width: CGFloat
+        init(width: CGFloat) { self.width = width; super.init() }
+        required init?(coder: NSCoder) { nil }
+        override func layoutBounds(_ line: Line) -> CGRect { CGRect(x: 0, y: 0, width: width, height: 0) }
     }
 
     /// Min-content: the widest unit between line-break opportunities (UAX #14, as CoreText
@@ -317,13 +356,6 @@ enum TableMeasure {
     static func minimumWidth(of attachment: NSTextAttachment, attributes: [NSAttributedString.Key: Any]) -> CGFloat {
         if let reader = attachment as? ReaderAttachment { return reader.contentWidths().min }
         return maximumWidth(NSAttributedString(attachment: attachment, attributes: attributes))
-    }
-
-    /// The height of `text` wrapped to `width`.
-    static func height(_ text: NSAttributedString, width: CGFloat) -> CGFloat {
-        guard text.length > 0 else { return 0 }
-        let rect = text.boundingRect(with: CGSize(width: max(1, width), height: 1_000_000), options: [.usesLineFragmentOrigin], context: nil)
-        return ceil(rect.height)
     }
 
     /// The text VoiceOver reads (and copies get) for cell content: attachments by their text

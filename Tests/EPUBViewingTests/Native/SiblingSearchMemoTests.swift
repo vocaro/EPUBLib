@@ -4,8 +4,7 @@ import XCTest
 
 /// `~` over long runs of siblings: what `SiblingSearchMemo` answers and what it tests against the
 /// walk of earlier siblings that it shortens there, and against what the selectors say. A run is
-/// walked once only while a section's searches fit the memo: what a sheet with more of them
-/// costs is https://github.com/vocaro/EPUBLib/issues/341.
+/// walked once while its distinct searches fit; production admission guarantees that they do.
 final class SiblingSearchMemoTests: XCTestCase {
     func testLongRunsMatchWhatTheSelectorsSay() throws {
         // Forty paragraphs around a `nav`: more earlier siblings than are walked directly.
@@ -262,10 +261,10 @@ final class SiblingSearchMemoTests: XCTestCase {
                     }
                 }
                 for (number, selector) in selectors.enumerated() {
-                    guard let identity = selector.identity else { continue }
+                    guard selector.identity != nil else { continue }
                     for level in selector.compounds.indices.dropFirst() where selector.combinators[level - 1] == .subsequentSibling {
                         for (parent, siblings) in children {
-                            let known = memo.known(.init(selector: ObjectIdentifier(identity), compound: Int32(level), parent: parent))
+                            let known = memo.known(selector.siblingSearchKey(at: level, parent: parent)!)
                             guard known != .init() else { continue }
                             let kinds = siblings.map { expected[number][level][$0] }
                             counts.entries += 1

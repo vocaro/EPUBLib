@@ -85,15 +85,25 @@ final class RichTableTests: XCTestCase {
         let fixture = try fixture("<table id='t'><tr><td>A cell</td><td>Another</td></tr></table>")
         let row = try rows(fixture, "t")[0]
         let table = row.table
-        XCTAssertEqual(table.layout(available: 400, viewportHeight: 600).scale, 1)
+        let ordinary = table.layout(available: 400, viewportHeight: 600)
+        XCTAssertEqual(ordinary.scale, 1)
         let short = table.layout(available: 400, viewportHeight: 5)
-        XCTAssertLessThan(short.scale, 1)
+        XCTAssertEqual(short.scale, ordinary.scale, "a futile page-fit reduction leaves the table at its required width scale")
+        XCTAssertTrue(short.cellText.allSatisfy { text in
+            text.lines.contains { $0.frame.height * TableModel.minimumScale > 5 }
+        }, "the complete glyph lines cannot fit at any allowed table scale")
         XCTAssertGreaterThanOrEqual(short.scale, TableModel.minimumScale)
         XCTAssertGreaterThan(short.height(ofRow: 0), 5, "Still taller than the page at the smallest scale")
         XCTAssertGreaterThan(row.height(width: 400, viewportHeight: 5), 5, "Scroll never clips the row")
         let slices = short.fragments(ofRow: 0, maximumHeight: 5)
         XCTAssertTrue(slices.allSatisfy { $0.height * short.scale * $0.fitScale <= 5.01 })
         XCTAssertTrue(slices.contains { $0.fitScale < 1 }, "One glyph line taller than a page is fitted as a whole")
+        for (cell, text) in short.cellText.enumerated() {
+            let assigned = slices.flatMap { slice in
+                slice.cells.filter { $0.cell == cell }.flatMap { Array($0.lines) }
+            }
+            XCTAssertEqual(assigned, Array(text.lines.indices), "every complete glyph line belongs to exactly one continuation")
+        }
     }
 
     func testMinimumContentIsTheWidestWord() throws {

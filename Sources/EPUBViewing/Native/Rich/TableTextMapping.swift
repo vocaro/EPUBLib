@@ -19,6 +19,7 @@ final class ReaderDetachedTextMap: NSObject, @unchecked Sendable {
 }
 
 extension NSAttributedString.Key {
+    static let readerTableModel = Self("org.epublib.tableModel")
     static let readerDetachedMap = Self("org.epublib.detachedTextMap")
 }
 
@@ -71,20 +72,16 @@ extension SectionText {
               document.nodes[span.node].isAncestor(of: position.node) else {
             return ReaderTextPosition(section: spineIndex, offset: coarse)
         }
-        var rows: [(Int, TableRowAttachment)] = []
-        string.enumerateAttribute(.attachment, in: NSRange(location: span.location, length: span.length)) { value, run, _ in
-            if let row = value as? TableRowAttachment { rows.append((run.location, row)) }
+        guard span.location < string.length,
+              let table = string.attribute(.readerTableModel, at: span.location, effectiveRange: nil) as? TableModel,
+              let index = table.sourceCell(containing: position.node.order),
+              let mapping = table.cells[index].textMap,
+              let offset = table.sourceRowOffsets[table.cells[index].row] else {
+            return ReaderTextPosition(section: spineIndex, offset: coarse)
         }
-        guard let model = rows.first?.1.table else { return ReaderTextPosition(section: spineIndex, offset: coarse) }
-        for (index, cell) in model.cells.enumerated() {
-            guard let mapping = cell.textMap, position.node.order >= mapping.node,
-                  position.node.order <= mapping.subtreeEnd,
-                  let offset = rows.first(where: { $0.1.row == cell.row })?.0 else { continue }
-            return ReaderTextPosition(section: spineIndex, offset: offset,
-                tableCell: ReaderTablePosition(table: model.sourceOrder, cell: index,
-                    offset: mapping.map.location(of: position, isEnd: isEnd)))
-        }
-        return ReaderTextPosition(section: spineIndex, offset: map.location(of: position, isEnd: isEnd))
+        return ReaderTextPosition(section: spineIndex, offset: offset,
+            tableCell: ReaderTablePosition(table: table.sourceOrder, cell: index,
+                offset: mapping.map.location(of: position, isEnd: isEnd)))
     }
 
     /// Actual cell characters rather than a row's spoken equivalent. This preserves exact

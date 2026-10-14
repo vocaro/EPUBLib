@@ -35,7 +35,7 @@ struct ComputedStyle: Equatable, Sendable {
         case offset(CGFloat)
     }
     enum TextTransform: Equatable, Sendable { case none, uppercase, lowercase, capitalize }
-    enum Direction: Equatable, Sendable { case ltr, rtl }
+    enum Direction: Hashable, Sendable { case ltr, rtl }
     enum WritingMode: Equatable, Sendable { case horizontalTB, verticalRL, verticalLR }
     enum ListStyleType: Equatable, Sendable {
         case none, disc, circle, square, decimal, decimalLeadingZero

@@ -11,7 +11,7 @@ final class StyleResolver: @unchecked Sendable {
     let typography: NativeTypography
     let document: ContentDocument
     let fonts: FontRegistry?
-    /// A `style` attribute was longer than `maximumInlineStyleBytes` and was cut. The builder
+    /// An inline style or the indexed sibling-search bound dropped author CSS. The builder
     /// folds this into `SectionReport.stylesTruncated`.
     let stylesTruncated: Bool
 
@@ -26,13 +26,18 @@ final class StyleResolver: @unchecked Sendable {
 
     init(document: ContentDocument, stylesheets: [CSSStyleSheet], typography: NativeTypography, fonts: FontRegistry? = nil) {
         self.document = document; self.typography = typography; self.fonts = fonts
-        author = CSSRuleIndex(sheets: stylesheets, dark: typography.isDark)
         facts = ElementFacts(document)
+        // Only parents with more than `directWalk + 1` children can allocate a memo entry.
+        // Reserve every retained suffix one entry under every such parent, including nested
+        // pseudo-class searches. The production memo therefore never reaches its eviction path.
+        let longParents = document.nodes.count { $0.isElement && $0.elementChildren.count > Int(SiblingSearchMemo.defaultDirectWalk) + 1 }
+        let maximumSearches: Int? = longParents == 0 ? nil : SiblingSearchMemo.defaultCapacity / longParents
+        author = CSSRuleIndex(sheets: stylesheets, dark: typography.isDark, maximumSiblingSearches: maximumSearches)
         var initial = ComputedStyle()
         initial.fontSize = typography.fontSize
         initial.fontFamilies = ["serif"]
         initialValues = initial
-        stylesTruncated = document.nodes.contains {
+        stylesTruncated = author.stylesTruncated || document.nodes.contains {
             $0.isElement && ($0.attribute("style")?.utf8.count ?? 0) > Self.maximumInlineStyleBytes
         }
         rootFontSize = typography.fontSize
@@ -100,6 +105,8 @@ struct CSSRuleIndex: Sendable {
         let ancestorBits: [(UInt8, UInt8)]
     }
     private(set) var entries: [Entry] = []
+    /// A selector was omitted to keep all retained sibling searches inside the memo.
+    private(set) var stylesTruncated = false
     private var byID: [String: [Int32]] = [:]
     private var byClass: [String: [Int32]] = [:]
     private var byType: [String: [Int32]] = [:]
@@ -111,12 +118,16 @@ struct CSSRuleIndex: Sendable {
 
     private struct AttributeValueKey: Hashable { let name: String; let value: Substring }
 
-    init(sheets: [CSSStyleSheet], dark: Bool) {
+    /// nil: no parent can use the memo, so indexing retains parsed selectors without interning.
+    init(sheets: [CSSStyleSheet], dark: Bool, maximumSiblingSearches: Int? = SiblingSearchMemo.defaultCapacity) {
+        var searches = CSSSiblingSearchIndex(maximumSearches: maximumSiblingSearches ?? Int.max)
         var order: UInt64 = 0
         for sheet in sheets {
             for rule in sheet.rules where rule.media.contains(dark: dark) {
                 let important = rule.declarations.contains(where: \.important)
-                for selector in rule.selectors {
+                for original in rule.selectors {
+                    let indexed = maximumSiblingSearches == nil ? original : searches.indexed(original)
+                    guard let selector = indexed else { stylesTruncated = true; continue }
                     let index = Int32(entries.count)
                     entries.append(Entry(selector: selector, declarations: rule.declarations,
                                          key: UInt64(selector.specificity) << 32 | order, hasImportant: important,
@@ -271,12 +282,15 @@ struct ElementFacts: Sendable {
 /// section's searches fit `capacity`, each walks the siblings of a long run once, whichever
 /// elements ask and in whatever order, apart from the sibling just before each element and
 /// walks too short to keep. With more searches than that, entries are forgotten and the cost
-/// is the walk's again, the square of the run (#341).
+/// is the walk's again. `StyleResolver` admits only as many distinct, interned left-hand
+/// searches as fit under every eligible parent, so its memo never needs to forget an entry.
 final class SiblingSearchMemo: Sendable {
+    static let defaultDirectWalk: Int32 = 8
+    static let defaultCapacity = 1 << 16
     struct Key: Hashable {
-        /// Of the selector's `identity`, which lives as long as the rule index that is matched.
+        /// Of the left-hand suffix identity, held by the rule index for its lifetime.
         let selector: ObjectIdentifier
-        /// Index of the compound to the combinator's left.
+        /// Zero for interned suffixes; the compound index for unindexed parsed selectors.
         let compound: Int32
         let parent: Int32
     }
@@ -328,9 +342,11 @@ final class SiblingSearchMemo: Sendable {
     let capacity: Int
     private let entries = Mutex<[Key: Known]>([:])
 
-    init(directWalk: Int32 = 8, capacity: Int = 1 << 16) {
+    init(directWalk: Int32 = SiblingSearchMemo.defaultDirectWalk, capacity: Int = SiblingSearchMemo.defaultCapacity) {
         self.directWalk = directWalk; self.capacity = capacity
     }
+
+    var entryCount: Int { entries.withLock { $0.count } }
 
     func known(_ key: Key) -> Known { entries.withLock { $0[key] } ?? Known() }
 
@@ -400,14 +416,13 @@ struct SelectorMatcher {
         case .subsequentSibling:
             var sibling = Int(facts.previousElements[element])
             let position = facts.positions[element]
-            if let memo = siblingSearches, let identity = selector.identity, position - 1 > memo.directWalk {
+            if let memo = siblingSearches, selector.identity != nil, position - 1 > memo.directWalk {
                 // The previous sibling settles the search wherever the walk is quickest, and then
                 // nothing is looked up.
                 let result = match(selector, sibling, from: index + 1)
                 if result != .failsLocally { return result }
-                let key = SiblingSearchMemo.Key(selector: ObjectIdentifier(identity), compound: Int32(index + 1),
-                                                parent: facts.parents[element])
-                return walk(on: sibling, at: position - 1, selector, key, memo)
+                let key = selector.siblingSearchKey(at: index + 1, parent: facts.parents[element])!
+                return walk(on: sibling, at: position - 1, selector, from: index + 1, key, memo)
             }
             while sibling >= 0 {
                 let result = match(selector, sibling, from: index + 1)
@@ -424,7 +439,7 @@ struct SelectorMatcher {
     /// towards the first sibling whose result is not a local failure, and leaves out only
     /// those whose outcome `memo` holds: after a child known to match or to fail completely
     /// the answer is that child's, and at the clear children it is a failure for all siblings.
-    private func walk(on sibling: Int, at position: Int32, _ selector: CSSComplexSelector,
+    private func walk(on sibling: Int, at position: Int32, _ selector: CSSComplexSelector, from index: Int,
                       _ key: SiblingSearchMemo.Key, _ memo: SiblingSearchMemo) -> Result {
         var known = memo.known(key)
         if known.match > 0, known.match < position { return .matches }
@@ -435,7 +450,7 @@ struct SelectorMatcher {
         var at = position - 1
         var result = Result.failsLocally
         while at > clear {
-            result = match(selector, sibling, from: Int(key.compound))
+            result = match(selector, sibling, from: index)
             if result != .failsLocally { break }
             sibling = Int(facts.previousElements[sibling])
             at -= 1

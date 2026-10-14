@@ -44,7 +44,7 @@ enum HTMLSourceEncoding {
         guard decoded.count <= limit else { throw ContentDocumentError.limitExceeded("bytes") }
         // The screen read the bytes as ASCII. In an encoding that spells `<` another way (UTF-7)
         // the characters may hold a declaration it could not see, so it reads them as well.
-        guard XMLSafety.hasSafeDeclarations(decoded) else { throw ContentDocumentError.unsafeMarkup(path) }
+        guard XMLSafety.assessUTF8(decoded) == .safe else { throw ContentDocumentError.unsafeMarkup(path) }
         return decoded
     }
 

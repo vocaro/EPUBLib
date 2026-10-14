@@ -51,7 +51,8 @@ extension ReaderCanvasView: NSTextViewDelegate {
     }
 
     func makeScrollView() -> (PlatformView, ReaderTextView) {
-        let scrollView = NSScrollView(frame: bounds)
+        let scrollView = ReaderScrollView(frame: bounds)
+        scrollView.canvas = self
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
@@ -517,6 +518,17 @@ final class ReaderNoteViewController: NSViewController, NSTextViewDelegate {
 #endif
 
 #if os(macOS)
+/// Repairs geometry replaced by an accessibility read before AppKit uses the old offset
+/// for the first wheel or trackpad event. Bounds notifications then record each new place.
+final class ReaderScrollView: NSScrollView {
+    weak var canvas: ReaderCanvasView?
+
+    override func scrollWheel(with event: NSEvent) {
+        if let view = canvas?.scrollTextView { canvas?.holdScrollPlace(of: view) }
+        super.scrollWheel(with: event)
+    }
+}
+
 /// Tells reader canvases when the system is short of memory, so they trim their caches.
 @MainActor enum ReaderMemoryPressure {
     static let notification = Notification.Name("org.epublib.reader.memoryPressure")

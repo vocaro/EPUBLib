@@ -391,12 +391,15 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
 
     // MARK: - Safety
 
-    /// The screen reads a document that is not UTF-16 or UTF-32 as ASCII, and in UTF-7 `<` is
-    /// not the byte 0x3C. What the fallback decodes is screened again as the characters it is,
-    /// so the parser is never given a declaration the screen did not see.
+    /// UTF-7 can spell `<` without byte 0x3C. The initial preflight decodes and refuses hidden
+    /// declarations, and the fallback decoder independently screens its actual UTF-8 output.
     func testADeclarationThatOnlyDecodingBringsIntoViewIsRefused() throws {
         let hidden = "<?xml version=\"1.0\" encoding=\"UTF-7\"?>+ADw-!DOCTYPE html [+ADw-!ENTITY e \"hidden\"+AD4-]+AD4-<html><body><p>+ACY-e+ADs- one<br>two</p></body></html>"
-        XCTAssertTrue(XMLSafety.hasSafeDeclarations(Data(hidden.utf8)), "the screen reads these bytes, so this is no test of the fallback's own")
+        XCTAssertFalse(XMLSafety.hasSafeDeclarations(Data(hidden.utf8)), "the initial preflight now decodes the declared encoding")
+        XCTAssertThrowsError(try HTMLSourceEncoding.utf8(Data(hidden.utf8), path: "fallback.xhtml", limit: ContentLimits().bytes),
+                             "the fallback independently refuses its decoded declarations") {
+            XCTAssertEqual($0 as? ContentDocumentError, .unsafeMarkup("fallback.xhtml"))
+        }
         assertThrows(.unsafeMarkup("fallback.xhtml"), "an internal subset in UTF-7") { try self.parse(hidden) }
         for markup in ["+ADw-!ENTITY e \"hidden\"+AD4-", "+ADw-!DOCTYPE html+AD4-[+ADw-!ATTLIST p title CDATA \"hidden\"+AD4-]+AD4-", "+ADw-p title+AD0AIg-open", "+ADw-!-- open"] {
             assertThrows(.unsafeMarkup("fallback.xhtml"), markup) {

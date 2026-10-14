@@ -457,7 +457,6 @@ final class NavigationDocumentCoverageTests: XCTestCase {
     }
 
     func testAnEntityDeclarationInAnEncodingTheScreenDoesNotDecodeIsStillRefused() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/86")
         // doc/architecture.md: "entity declarations ... fail explicitly". In UTF-7 the declaration
         // below has no `<!` byte sequence, yet the XML parser honours the declared encoding and
         // reads `+ADw-` as `<`: a DOCTYPE with an internal subset declaring an entity.

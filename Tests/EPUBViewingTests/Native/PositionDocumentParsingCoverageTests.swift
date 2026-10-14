@@ -346,13 +346,15 @@ final class PositionDocumentParsingCoverageTests: XCTestCase {
 
     func testLargeAttributesNamesAndSiblingRunsAreRead() throws {
         let value = String(repeating: "v", count: 1_000_000)
-        let attributes = (0..<2_000).map { "a\($0)=\"\($0)\"" }.joined(separator: " ")
+        // The title occupies one slot; retain a full tag at the parser's accepted boundary.
+        let attributeCount = XMLSafety.attributesPerElement - 1
+        let attributes = (0..<attributeCount).map { "a\($0)=\"\($0)\"" }.joined(separator: " ")
         let document = try page("<p title=\"\(value)\" \(attributes)>x</p>" + String(repeating: "<br/>", count: 20_000))
         XCTAssertFalse(document.recoveredAsHTML)
         let paragraph = try first("p", in: document)
         XCTAssertEqual(paragraph.attribute("title")?.utf8.count, 1_000_000)
-        XCTAssertEqual(paragraph.attribute("a1999"), "1999")
-        XCTAssertEqual(paragraph.attributes.count, 2_001)
+        XCTAssertEqual(paragraph.attribute("a\(attributeCount - 1)"), String(attributeCount - 1))
+        XCTAssertEqual(paragraph.attributes.count, XMLSafety.attributesPerElement)
         XCTAssertEqual(document.body?.children.count, 20_001)
         let last = try XCTUnwrap(document.nodes.last)
         XCTAssertEqual(EPUBCFI.localPath(from: DOMPosition(last), to: DOMPosition(last), in: document), "/4/40002", "20,001 adjacent elements")

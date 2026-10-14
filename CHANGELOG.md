@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Pack table continuations and following content using the displayed page bounds ([#546](https://github.com/vocaro/EPUBLib/issues/546)).
+- Refuse entity declarations in supported legacy encodings before parsing ([#86](https://github.com/vocaro/EPUBLib/issues/86)).
+- Resolve empty text anchors once when their next text or document end is known ([#92](https://github.com/vocaro/EPUBLib/issues/92)).
+- Map search matches in long tables through indexed cell intervals ([#137](https://github.com/vocaro/EPUBLib/issues/137)).
+- Keep the first visible line in view when paging back after a jump past figures ([#161](https://github.com/vocaro/EPUBLib/issues/161)).
+- Bound XML and recovery parser work with a fixed limit of 1,024 attributes per element ([#196](https://github.com/vocaro/EPUBLib/issues/196)).
+- Bound SVG arc, text-path and transformed embedded-image geometry before rendering ([#230](https://github.com/vocaro/EPUBLib/issues/230)).
+- Charge nested SVG and symbol viewports and projected marker instances to the raster budget ([#251](https://github.com/vocaro/EPUBLib/issues/251)).
+- Resolve hit tests and immediate scroll reports from the text drawn after an accessibility read ([#266](https://github.com/vocaro/EPUBLib/issues/266)).
+- Fit nested tables without multiplying layout passes or text shrinkage ([#299](https://github.com/vocaro/EPUBLib/issues/299)).
+- Measure every line of a table cell and use intrinsic attachment widths ([#300](https://github.com/vocaro/EPUBLib/issues/300)).
+- Keep recursive table construction within the production task-thread stack ([#329](https://github.com/vocaro/EPUBLib/issues/329)).
+- Admit subsequent-sibling selectors within a reserved memo budget without evicting retained searches ([#341](https://github.com/vocaro/EPUBLib/issues/341)).
+- Refuse nested SVG style elements before reading their descendant stylesheet text ([#375](https://github.com/vocaro/EPUBLib/issues/375)).
+- Use intrinsic rule and nested-table widths during table-cell measurement ([#138](https://github.com/vocaro/EPUBLib/issues/138)).
+- Count symbol uses as isolated raster layers in the SVG preflight ([#541](https://github.com/vocaro/EPUBLib/issues/541)).
+
 - Pass over a table row that has nothing to say as VoiceOver on Mac reads the text
   ([#509](https://github.com/vocaro/EPUBLib/issues/509)).
 - Keep VoiceOver's rotor on the action chosen when the page under its cursor is shown again, in

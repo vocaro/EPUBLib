@@ -129,11 +129,12 @@ import XCTest
     }
 
     /// A row taller than a page continues on the next: each page's element reads the words its
-    /// own continuation shows, so the row's words are read once across them.
+    /// own continuation shows, so the row's words are read once across them. The short cell is
+    /// explicitly top-aligned so its words precede the long cell across the complete sequence.
     func testARowContinuedAcrossPagesIsReadByEachPagesOwnWords() async throws {
         let said = (1...700).map { "w\($0)" }
         let book = try EPUBPublication.open(data: SessionCoverageBook.epub([
-            SessionCoverageBook.Section("tall", "<table><tr><td>Label</td><td>" + said.joined(separator: " ") + "</td></tr></table>", title: "Tall")]))
+            SessionCoverageBook.Section("tall", "<table><tr><td style='vertical-align:top'>Label</td><td>" + said.joined(separator: " ") + "</td></tr></table>", title: "Tall")]))
         let (_, canvas, view) = try await reader(book, scrolled: false)
         var read: [String] = [], pages = 0
         repeat {
@@ -150,6 +151,58 @@ import XCTest
         } while pages < 40 && canvas.turnPage(forward: true) == .turned
         XCTAssertGreaterThan(pages, 1, "the row must be taller than a page for this to show anything")
         XCTAssertEqual(read, ["Label"] + said, "every word once, in order, across \(pages) pages")
+    }
+
+    /// Default cells are vertically centred. A short cell beside several pages of text is
+    /// spoken once on the page drawing its line, while the long cell's words stay in order.
+    func testACentredCellIsReadOnlyOnThePageThatDrawsItsGlyphLine() async throws {
+        let said = (1...700).map { "w\($0)" }
+        let book = try EPUBPublication.open(data: SessionCoverageBook.epub([
+            SessionCoverageBook.Section("centred", "<table><tr><td>Label</td><td>" + said.joined(separator: " ") + "</td></tr></table>", title: "Centred")]))
+        let (_, canvas, view) = try await reader(book, scrolled: false)
+        var read: [String] = [], labelPages: [Int] = [], pages = 0
+        repeat {
+            let column = try XCTUnwrap(canvas.textViews.first { !$0.isHidden })
+            XCTAssertTrue(column === view, "one column, reused for each page")
+            let elements = try listed(column)
+            XCTAssertEqual(elements.count, 1, "page \(pages + 1): one continuation element")
+            let storage = try XCTUnwrap(column.contentStorage.textStorage)
+            var drawsLabel = false, labelRows = 0
+            storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+                guard let row = value as? TableRowAttachment,
+                      let cell = row.table.cells.firstIndex(where: { $0.text == "Label" }) else { return }
+                labelRows += 1
+                XCTAssertEqual(row.table.cells[cell].placement, .middle)
+                guard let fragment = row.fragment else { XCTFail("a tall row must have a page continuation"); return }
+                let viewport = column.readerContainer.viewportSize
+                let layout = row.layout(width: viewport.width, viewportHeight: viewport.height)
+                let lines = layout.cellText[cell].lines
+                XCTAssertEqual(lines.count, 1, "the short cell has one complete glyph line")
+                guard let line = lines.first else { XCTFail("the label has no glyph line"); return }
+                // Drawing translates the cell's content frame into this row's slice. This
+                // geometry is independent of the accessibility label and token extraction.
+                let top = layout.contentFrames[cell].minY + line.frame.minY
+                if top >= fragment.top - 0.01 && top < fragment.bottom - 0.01 {
+                    drawsLabel = true
+                    XCTAssertLessThanOrEqual(layout.contentFrames[cell].minY + line.frame.maxY,
+                        fragment.top + fragment.height + 0.01, "the page shows the complete label line")
+                }
+            }
+            XCTAssertEqual(labelRows, 1, "the page draws one slice of the source row")
+            let spoken = elements.flatMap { ($0.accessibilityLabel ?? "").split(whereSeparator: \.isWhitespace).map(String.init) }
+            XCTAssertEqual(spoken.filter { $0 == "Label" }.count, drawsLabel ? 1 : 0,
+                "page \(pages + 1): the short cell is spoken exactly where its glyph line is drawn")
+            let ownWords = spoken.filter { $0 != "Label" }
+            XCTAssertEqual(ownWords, Array(said.dropFirst(read.count).prefix(ownWords.count)),
+                "page \(pages + 1): the long cell's visible words continue in order")
+            read += ownWords
+            if spoken.contains("Label") { labelPages.append(pages) }
+            pages += 1
+        } while pages < 40 && canvas.turnPage(forward: true) == .turned
+        XCTAssertGreaterThan(pages, 1)
+        XCTAssertEqual(read, said, "every long-cell word once, in order, across all pages")
+        XCTAssertEqual(labelPages.count, 1, "the centred cell is spoken on exactly one page")
+        XCTAssertGreaterThan(try XCTUnwrap(labelPages.first), 0, "the centred label is drawn after the first page")
     }
 
     /// A row of pictures without words is an image and no more, as a picture without words in

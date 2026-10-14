@@ -150,9 +150,14 @@ final class ContentDocument: @unchecked Sendable {
     static func parse(_ data: Data, path: String, limits: ContentLimits = .init(),
                       asContent: Bool = true) throws -> ContentDocument {
         guard data.count <= limits.bytes, data.count <= Int(Int32.max) else { throw ContentDocumentError.limitExceeded("bytes") }
-        guard XMLSafety.hasSafeDeclarations(data) else { throw ContentDocumentError.unsafeMarkup(path) }
+        let safety = XMLSafety.assess(data)
+        guard safety != .attributeLimitExceeded else { throw ContentDocumentError.limitExceeded("attributesPerElement") }
+        guard safety == .safe else { throw ContentDocumentError.unsafeMarkup(path) }
         let source = HTMLEntities.numericReferences(in: data)
         guard source.count <= limits.bytes, source.count <= Int(Int32.max) else { throw ContentDocumentError.limitExceeded("bytes") }
+        let rewrittenSafety = source == data ? safety : XMLSafety.assess(source)
+        guard rewrittenSafety != .attributeLimitExceeded else { throw ContentDocumentError.limitExceeded("attributesPerElement") }
+        guard rewrittenSafety == .safe else { throw ContentDocumentError.unsafeMarkup(path) }
         if let document = try parseXML(source, path: path, limits: limits) {
             // Foliate's loadDocument retries a namespace-free content root as HTML. WebKit
             // also rejects named references without an XHTML 1.x public DOCTYPE. OPF and
@@ -214,6 +219,7 @@ final class ContentDocument: @unchecked Sendable {
     /// `rewritten` is `data` as the XML parser was given it.
     private static func parseHTML(_ data: Data, rewritten: Data, path: String, limits: ContentLimits) throws -> ContentDocument {
         let source = try htmlSource(data, rewritten: rewritten, path: path, limits: limits)
+        guard XMLSafety.hasBoundedAttributes(source.data, asHTML: true) else { throw ContentDocumentError.limitExceeded("attributesPerElement") }
         let doc = source.data.withUnsafeBytes { buffer in
             htmlReadMemory(buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, "UTF-8", htmlOptions)
         }

@@ -75,9 +75,15 @@ extension EPUBPublication {
         let data = try data(for: item.resource)
         guard data.count <= limits.inputBytes else { throw EPUBTextExtractionError.limitExceeded("inputBytes") }
         let reader: XHTMLTextReader
-        if XMLSafety.hasSafeDeclarations(data) {
+        let safety = XMLSafety.assess(data)
+        guard safety != .attributeLimitExceeded else { throw EPUBTextExtractionError.limitExceeded("attributesPerElement") }
+        if safety == .safe {
             do {
-                reader = try XHTMLTextReader.read(NamedCharacterReferences.numeric(in: data), path: item.resource.path, limits: limits)
+                let source = NamedCharacterReferences.numeric(in: data)
+                let rewrittenSafety = source == data ? safety : XMLSafety.assess(source)
+                guard rewrittenSafety != .attributeLimitExceeded else { throw EPUBTextExtractionError.limitExceeded("attributesPerElement") }
+                guard rewrittenSafety == .safe else { throw EPUBTextExtractionError.malformedContent(item.resource.path) }
+                reader = try XHTMLTextReader.read(source, path: item.resource.path, limits: limits)
             } catch XHTMLTextReader.ParseFailure.notWellFormed {
                 // Only a parser verdict is recoverable; limits, cancellation and a well-formed
                 // but non-XHTML structure still propagate.
@@ -105,11 +111,11 @@ private struct NormalizedText {
     var anchors: [String: EPUBTextMark] = [:]
     struct OpenHeading { var mark: EPUBTextMark?; var end = 0 }
     var headings: [OpenHeading] = []
-    private var pendingIDs: [String] = []
+    private var pendingIDs: Set<String> = []
     private var pendingHeadings: [Int] = []
 
     mutating func mark(id: String) {
-        if !id.isEmpty, anchors[id] == nil, !pendingIDs.contains(id) { pendingIDs.append(id) }
+        if !id.isEmpty, anchors[id] == nil { pendingIDs.insert(id) }
     }
     mutating func openHeading() -> Int {
         headings.append(OpenHeading())
@@ -243,6 +249,7 @@ private final class XHTMLTextReader {
             throw EPUBTextExtractionError.malformedContent(path)
         }
         guard source.count <= Int(Int32.max) else { throw EPUBTextExtractionError.limitExceeded("inputBytes") }
+        guard XMLSafety.hasBoundedAttributes(source, asHTML: true) else { throw EPUBTextExtractionError.limitExceeded("attributesPerElement") }
         let options = Int32(HTML_PARSE_NONET.rawValue | HTML_PARSE_NOERROR.rawValue | HTML_PARSE_NOWARNING.rawValue
             | HTML_PARSE_RECOVER.rawValue | HTML_PARSE_NODEFDTD.rawValue)
         guard let context = htmlNewParserCtxt() else { throw EPUBTextExtractionError.malformedContent(path) }

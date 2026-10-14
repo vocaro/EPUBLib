@@ -96,12 +96,9 @@ final class ExtractionAdversarialCoverageTests: XCTestCase {
 
     // MARK: Work bounded by the limits
 
-    // An ID is held until the next text character, and each new one is compared with every ID
-    // still held. A section of textless anchors (well inside the 100,000-element and 4 MiB
-    // defaults) therefore costs quadratic time, where the same anchors each followed by a
-    // character are linear. Both use thread CPU time in this process, best of three, excluding scheduling delay.
+    // Pending IDs must not make textless anchors quadratic. Compare with the same anchors
+    // followed by text, using thread CPU time, best of three, excluding scheduling delay.
     func testTextlessAnchorsDoNotMakeExtractionQuadratic() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/92", options: .nonStrict())
         let count = 6_000
         func seconds(_ body: String) throws -> (Double, EPUBTextSection) {
             let publication = try book(page(body))
@@ -122,6 +119,22 @@ final class ExtractionAdversarialCoverageTests: XCTestCase {
         XCTAssertEqual(textless.text, "end")
         XCTAssertLessThan(adversarial, control * 8,
             "\(count) textless anchors took \(adversarial)s; the same anchors with text between them took \(control)s")
+    }
+
+    func testPendingAnchorDuplicatesKeepTheirFirstPositionInBothParsers() throws {
+        for recovering in [false, true] {
+            let prefix = recovering ? "<p>start</b></p>" : "<p>start</p>"
+            let section = try book(page(prefix + "<a id='same'/><a id='same'/><a id='next'/>"
+                + "<p>target</p><a id='same'/><a id='end'/><a id='end'/>")).textSection(
+                    at: 0, recoversMalformedMarkup: recovering)
+            XCTAssertEqual(section.text, "start\ntarget")
+            XCTAssertEqual(section.anchors, [
+                "same": EPUBTextMark(offset: 6, separator: 1),
+                "next": EPUBTextMark(offset: 6, separator: 1),
+                "end": EPUBTextMark(offset: 12, separator: 0),
+            ])
+            XCTAssertEqual(section.recoveredAsHTML, recovering)
+        }
     }
 
     func testTensOfThousandsOfNestedElementsFailWithoutExhaustingTheStack() throws {

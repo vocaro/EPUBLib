@@ -732,7 +732,9 @@ final class RichMediaSVGBoundsCoverageTests: XCTestCase {
 
         // Neighbours the reviews confirmed harmless stay within limits.
         XCTAssertTrue(isWithinLimits(svg(big + "<clipPath id='c'>\(host("marker-mid='url(#big)'"))</clipPath>", "<rect width='9' height='9' clip-path='url(#c)'/>")), "markers in a clip path are not drawn")
-        XCTAssertTrue(isWithinLimits(svg(marker(), "<path d='M0 0\(String(repeating: "a1e30 1e30 0 1 1 1 0", count: 20))' marker-end='url(#m)'/>")), "an end marker on an arc")
+        let enormousArc = svg(marker(), "<path d='M0 0\(String(repeating: "a1e30 1e30 0 1 1 1 0", count: 20))' marker-end='url(#m)'/>")
+        XCTAssertTrue(verdict(enormousArc).withinLimits, "An end marker itself does not multiply arc vertices")
+        XCTAssertFalse(isWithinLimits(enormousArc), "#230 additionally refuses enormous arc conversion work before parsing")
         XCTAssertTrue(isWithinLimits(svg(marker("arr", rects: 3), String(repeating: "<path class='edge' d='M0 0 C10 10 20 0 30 10' marker-end='url(#arr)'/>", count: 300))), "300 connectors with an arrowhead each")
     }
 
