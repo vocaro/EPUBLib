@@ -1323,7 +1323,8 @@ import AppKit
     }
 
     /// The authored passage supplied by the session, including detached cells and section
-    /// continuations. A simple data source without a semantic map falls back to rendered text.
+    /// continuations. A simple data source without a semantic map still copies authored
+    /// attachment words, including detached table cell maps.
     private func text(of range: ReaderTextRange) -> String? {
         if let passage = dataSource?.selectionText(in: range) { return passage }
         // A row offset is not a cell character offset. Without a semantic cell mapper the
@@ -1331,7 +1332,7 @@ import AppKit
         guard range.start.tableCell == nil, range.end.tableCell == nil,
               range.start.section == range.end.section,
               let text = dataSource?.text(forSection: range.start.section) else { return nil }
-        return text.readerPlainText(in: NSIntersectionRange(
+        return text.readerCopyPlainText(in: NSIntersectionRange(
             NSRange(location: range.start.offset, length: range.end.offset - range.start.offset),
             NSRange(location: 0, length: text.length)))
     }

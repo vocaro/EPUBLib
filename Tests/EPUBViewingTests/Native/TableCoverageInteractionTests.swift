@@ -491,6 +491,54 @@ import UIKit
             .sorted { ($0.key.location, $0.key.cell, $0.key.lower) < ($1.key.location, $1.key.cell, $1.key.lower) }
     }
 
+    func testNativeRowCopyWithoutSemanticDataSourceKeepsPresentationAltAndAuthoredCase() async throws {
+        let section = try TableCoverage.section("""
+            <table border='1'><tr>
+            <td><img src='w30.png' alt='Kept none' role='none'/></td>
+            <td><img src='w30.png' alt='Kept hidden' aria-hidden='true'/></td>
+            <td style='text-transform:uppercase'>Straße</td>
+            </tr></table>
+            """, files: TableCoverage.images([30]))
+        let table = try XCTUnwrap(TableCoverage.tables(in: section.string).first)
+        let offset = try TableCoverage.offset(ofRow: 0, in: table)
+        let range = ReaderTextRange(section: 0, offset..<(offset + 1))
+        let expected = "Kept none\tKept hidden\tStraße"
+        XCTAssertEqual(table.cells.map(\.text), ["", "", "STRASSE"], "speech omits presentation images and uses rendered case")
+        for scrolled in [false, true] {
+            var configuration = ReaderCanvasConfiguration()
+            configuration.flow = scrolled ? .scrolled : .paginated
+            configuration.selectionActionTitle = "Use passage"
+            let host = try await host(section, configuration: configuration)
+            defer { host.close() }
+            XCTAssertNil(host.source.selectionText(in: range), "exercise the canvas fallback, without a session's semantic map")
+            let view = try XCTUnwrap(host.canvas.textViews.first { host.canvas.localRange(of: range, in: $0) != nil })
+            view.selectedRange = try XCTUnwrap(host.canvas.localRange(of: range, in: view))
+            // Native Copy may precede the selection callback. The row's speech summary
+            // cannot supply the image alternatives or reverse its case transformation.
+            XCTAssertEqual(host.canvas.selectionText(for: view), expected)
+            #if os(macOS)
+            let pasteboard = NSPasteboard.withUniqueName()
+            XCTAssertTrue(view.writeSelection(to: pasteboard, type: .string))
+            XCTAssertEqual(pasteboard.string(forType: .string), expected)
+            pasteboard.releaseGlobally()
+            #else
+            view.pasteboard = UIPasteboard.withUniqueName()
+            view.copy(nil)
+            XCTAssertEqual(view.pasteboard.string, expected)
+            #endif
+            host.canvas.textViewSelectionDidChange(view)
+            XCTAssertEqual(host.canvas.currentSelection, ReaderSelection(range: range, text: expected))
+            try await host.settle(300)
+            XCTAssertEqual(host.recorder.selections.last.flatMap { $0 }, ReaderSelection(range: range, text: expected))
+            host.canvas.clearSelection()
+            host.canvas.show(range.start, selecting: range)
+            host.canvas.performSelectionAction()
+            XCTAssertEqual(host.canvas.currentSelection, ReaderSelection(range: range, text: expected))
+            XCTAssertEqual(host.recorder.selections.last.flatMap { $0 }, ReaderSelection(range: range, text: expected))
+            XCTAssertEqual(host.recorder.actions, 1)
+        }
+    }
+
     func testSurfacesAreMountedForTheRowsOnThePageOnlyAndReleasedWhenItTurns() async throws {
         let rows = (0..<150).map { "<tr><td>Row \($0)</td><td>Value \($0)</td></tr>" }.joined()
         let section = try TableCoverage.section("<table border='1'>\(rows)</table><p>After the table.</p>")
