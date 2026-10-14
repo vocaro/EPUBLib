@@ -118,6 +118,10 @@ final class NoteReachabilityTests: XCTestCase {
             @MainActor func state() -> String {
                 "presenting=\(controller.isBeingPresented), dismissing=\(controller.isBeingDismissed), "
                     + "presenter=\(controller.presentingViewController != nil), attached=\(controller.viewIfLoaded?.window != nil)"
+                    + ", loaded=\(controller.isViewLoaded), noteFrame=\(String(describing: controller.viewIfLoaded?.frame)), "
+                    + "preferredSize=\(controller.preferredContentSize), sourceRect=\(String(describing: controller.popoverPresentationController?.sourceRect)), "
+                    + "sourceBounds=\(String(describing: controller.popoverPresentationController?.sourceView?.bounds)), "
+                    + "sourceSafeArea=\(String(describing: controller.popoverPresentationController?.sourceView?.safeAreaInsets))"
                     + ", presenterAttached=\(controller.presentingViewController?.viewIfLoaded?.window != nil), "
                     + "presenterBounds=\(String(describing: controller.presentingViewController?.viewIfLoaded?.bounds)), "
                     + "keyWindow=\(canvas.window?.isKeyWindow == true), scene=\(String(describing: canvas.window?.windowScene?.activationState.rawValue)), "
@@ -199,7 +203,8 @@ final class NoteReachabilityTests: XCTestCase {
         defer { closeNote(session.canvas); session.close(); window.close() }
         await waitFor([opened])
         let canvas = try XCTUnwrap(session.canvas)
-        let rect = CGRect(x: 10, y: 10, width: 40, height: 20)
+        // A real content anchor, below the iPhone status bar and inside the canvas's safe area.
+        let rect = CGRect(x: 100, y: 100, width: 20, height: 20)
         let old = try XCTUnwrap(session.activateLink(.internal(href: "OPS/slow.xhtml#" + slowFragment), from: rect))
         await waitFor([started])
         switch newer {
@@ -249,7 +254,7 @@ final class NoteReachabilityTests: XCTestCase {
         func activate(_ label: String) throws {
             let link = try XCTUnwrap(SectionContentSupport.link(label, in: source))
             reader.session.canvas(canvas, didActivate: link, at: .init(section: 0, offset: 0),
-                                  rect: CGRect(x: 10, y: 10, width: 40, height: 20))
+                                  rect: CGRect(x: 100, y: 100, width: 20, height: 20))
         }
         let place = reader.session.visibleRange
         let count = reader.events.count
