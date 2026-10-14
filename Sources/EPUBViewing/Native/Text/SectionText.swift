@@ -330,27 +330,36 @@ extension TextMap {
                 location += scalar.utf16.count
             }
         }
-        var low = 0, high = spans.count
-        while low < high { // first span ending after the range's start
-            let mid = (low + high) / 2
-            if spans[mid].location + spans[mid].length <= range.lowerBound { low = mid + 1 } else { high = mid }
-        }
-        var cursor = range.lowerBound
-        while low < spans.count, spans[low].location < range.upperBound, cursor < range.upperBound {
-            let span = spans[low]
-            if span.location > cursor { generated(cursor..<span.location); cursor = span.location }
-            let end = min(range.upperBound, span.location + span.length)
-            if end > cursor {
-                if let authored = span.authoredText {
-                    if span.isExact {
-                        text += (authored as NSString).substring(with: NSRange(location: cursor - span.location, length: end - cursor))
-                    } else { text += authored }
-                } else { text += string.readerCopyPlainText(in: NSRange(location: cursor, length: end - cursor)) }
-                cursor = end
+        func shown(_ part: Range<Int>) {
+            var low = 0, high = spans.count
+            while low < high { // first span ending after this visible part's start
+                let mid = (low + high) / 2
+                if spans[mid].location + spans[mid].length <= part.lowerBound { low = mid + 1 } else { high = mid }
             }
-            low += 1
+            var cursor = part.lowerBound
+            while low < spans.count, spans[low].location < part.upperBound, cursor < part.upperBound {
+                let span = spans[low]
+                if span.location > cursor { generated(cursor..<span.location); cursor = span.location }
+                let end = min(part.upperBound, span.location + span.length)
+                if end > cursor {
+                    if let authored = span.authoredText {
+                        if span.isExact {
+                            text += (authored as NSString).substring(with: NSRange(location: cursor - span.location, length: end - cursor))
+                        } else { text += authored }
+                    } else { text += string.readerCopyPlainText(in: NSRange(location: cursor, length: end - cursor)) }
+                    cursor = end
+                }
+                low += 1
+            }
+            generated(cursor..<part.upperBound)
         }
-        generated(cursor..<range.upperBound)
+        // Visibility belongs to the rendered source range, before any authored spelling is
+        // substituted. Enumerate it across spans so one hidden run split by inline markup or
+        // a ß expansion still contributes the same separator as the full attributed string.
+        string.enumerateAttribute(.readerHidden, in: NSRange(location: range.lowerBound, length: range.count)) { hidden, part, _ in
+            if hidden != nil { text += string.readerHiddenText(part) }
+            else { shown(part.location..<NSMaxRange(part)) }
+        }
         return text
     }
 }
