@@ -110,9 +110,9 @@ the HTML Standard's: it can end a script or style at an end tag that directly fo
 tag (any but `</body>` and `</html>`, which end nothing there either), for example, and
 elsewhere reads `<!-->` as a comment that is still open. A self-closing `<html/>`, `<head/>` or
 `<body/>` is left to libxml2 as well: where the tag is out of place, libxml2 ignores it and lets
-its `/>` close the element that is open, which can end the body early. The rest of the section
-is then not read, or, where a later `<body>` opens a second body, the section is
-`malformedContent`. That is a known gap
+its `/>` close the element that is open, which can end the body early. What libxml2 then builds
+after the body, in a second body, or in a root it opens again is read as the body's, and a
+title it builds outside the head before the body is the section's title
 ([#292](https://github.com/vocaro/EPUBLib/issues/292)). A recovered tree with no body is
 `malformedContent` too, which includes a head `style` or `script` with no end tag whose content
 begins with `</html>` or `</body>` and goes on with text: it runs to the end of the file (HTML
