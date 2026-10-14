@@ -14,5 +14,4 @@ The engine identifier `org.epublib.reader` and the `epublib-cfi-v1` bookmark for
 contracts: a viewer change keeps both and must keep resolving the CFIs recorded in
 `CFIGoldenVectors.swift`. A release's verification record is in its
 [GitHub release notes](https://github.com/vocaro/EPUBLib/releases), for the revision its tag
-names, and is not rewritten by a module move. 0.2.5 has no GitHub release yet, so its record
-is still [verification-0.2.5.md](verification-0.2.5.md).
+names, and is not rewritten by a module move.
