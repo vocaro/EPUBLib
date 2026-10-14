@@ -88,4 +88,46 @@ import UIKit
         }
         XCTAssertFalse(events.contains { if case .failed = $0 { return true }; return false })
     }
+
+    func testNativeCopyOfAnExpandedGraphemeUsesAuthoredTextBeforeSelectionDebounce() async throws {
+        let chapter = """
+            <html xmlns="http://www.w3.org/1999/xhtml"><head><title>Copy</title>
+            <style>.up { text-transform: uppercase }</style></head><body><p>A <span class="up">straße</span> end.</p></body></html>
+            """
+        let publication = try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/one.xhtml": chapter]))
+        var used: EPUBSelection?
+        let session = try XCTUnwrap(try NativeEngine().makeSession(publication: publication,
+            selectionAction: EPUBSelectionAction(title: "Use passage") { used = $0 }, onEvent: { _ in }) as? NativeSession)
+        let window = ReaderTestWindow(session: session)
+        defer { session.close(); window.close() }
+        try await wait("ready and built") { session.isReady && session.book.isComplete }
+        let text = try XCTUnwrap(session.book.section(0))
+        let ss = (text.string.string as NSString).range(of: "SS")
+        XCTAssertNotEqual(ss.location, NSNotFound)
+        let range = ReaderTextRange(section: 0, ss.location..<NSMaxRange(ss))
+        let canvas = try XCTUnwrap(session.canvas)
+        canvas.show(range.start, selecting: nil)
+        let view = try XCTUnwrap(canvas.textViews.first { canvas.localRange(of: range, in: $0) != nil })
+        view.selectedRange = try XCTUnwrap(canvas.localRange(of: range, in: view))
+        // Copy can be requested immediately, before the canvas or session has received the
+        // native selection delegate callback. It still resolves through the authored map.
+        XCTAssertEqual(canvas.selectionText(for: view), "ß")
+        #if os(macOS)
+        let pasteboard = NSPasteboard.withUniqueName()
+        XCTAssertTrue(view.writeSelection(to: pasteboard, type: .string))
+        XCTAssertEqual(pasteboard.string(forType: .string), "ß")
+        pasteboard.releaseGlobally()
+        #else
+        view.pasteboard = UIPasteboard.withUniqueName()
+        view.copy(nil)
+        XCTAssertEqual(view.pasteboard.string, "ß")
+        #endif
+        canvas.textViewSelectionDidChange(view)
+        try await wait("authored native selection") { session.selection?.text == "ß" && canvas.currentSelection?.text == "ß" }
+        canvas.performSelectionAction()
+        XCTAssertEqual(used?.text, "ß")
+        XCTAssertEqual(used?.location.quote, "ß")
+        try await session.send(.setHighlights([EPUBHighlight(id: "native", location: try XCTUnwrap(used?.location))]))
+        XCTAssertEqual(session.drawnHighlights.first { $0.id == "native" }?.range, range)
+    }
 }

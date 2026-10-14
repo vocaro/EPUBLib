@@ -1153,10 +1153,15 @@ import AppKit
         if externalSelectionSource === source { return currentSelection?.text }
         if source is ReaderTableInteraction, externalSelectionSource != nil,
            textViews.contains(where: { $0.tableInteraction === source }) { return currentSelection?.text }
-        guard let view = source as? ReaderTextView, let programmaticSelection,
-              programmaticSelection.segments.contains(where: { $0.view === view && view.selectedRange == $0.local })
-        else { return nil }
-        return programmaticSelection.selection.text
+        guard let view = source as? ReaderTextView, textViews.contains(where: { $0 === view }) else { return nil }
+        if let programmaticSelection,
+           programmaticSelection.segments.contains(where: { $0.view === view && view.selectedRange == $0.local }) {
+            return programmaticSelection.selection.text
+        }
+        // Native Copy may arrive before the debounced selection report. Resolve its current
+        // source range now so case substitutions and layout separators never leak into Copy.
+        guard view.selectedRange.length > 0 else { return nil }
+        return selection(view.selectedRange, in: view)?.text
     }
 
     /// Selection in a native table-cell surface uses its precise cell source range.
@@ -1172,7 +1177,7 @@ import AppKit
         pendingSelection = nil
         programmaticSelection = nil
         externalSelectionSource = selection == nil ? nil : source
-        currentSelection = selection
+        currentSelection = selection.map { ReaderSelection(range: $0.range, text: text(of: $0.range) ?? $0.text) }
         updateSelectionContinuation()
         scheduleSelectionReport()
     }
@@ -1303,7 +1308,8 @@ import AppKit
     private func selection(_ range: NSRange, in view: ReaderTextView) -> ReaderSelection? {
         guard let start = position(at: range.location, in: view),
               let end = position(at: NSMaxRange(range), in: view) else { return nil }
-        return ReaderSelection(range: ReaderTextRange(start: start, end: end), text: view.plainText(in: range))
+        let sourceRange = ReaderTextRange(start: start, end: end)
+        return ReaderSelection(range: sourceRange, text: text(of: sourceRange) ?? view.plainText(in: range))
     }
 
     private func scheduleSelectionReport() {
@@ -1316,8 +1322,10 @@ import AppKit
         }
     }
 
-    /// The text of a range within one section; nil across sections.
+    /// The authored passage supplied by the session, including detached cells and section
+    /// continuations. A simple data source without a semantic map falls back to rendered text.
     private func text(of range: ReaderTextRange) -> String? {
+        if let passage = dataSource?.selectionText(in: range) { return passage }
         guard range.start.section == range.end.section,
               let text = dataSource?.text(forSection: range.start.section) else { return nil }
         return text.readerPlainText(in: NSIntersectionRange(
