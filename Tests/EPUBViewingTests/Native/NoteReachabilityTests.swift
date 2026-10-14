@@ -91,6 +91,18 @@ final class NoteReachabilityTests: XCTestCase {
 @MainActor final class NoteLinkSessionTests: XCTestCase {
     private enum NewerAction: Equatable { case link, note, command }
 
+    /// Package tests can have a standalone window without an active application scene to
+    /// advance UIKit animations. Keep note presentation real, but synchronous for this fixture.
+    private func suspendAnimations() -> @MainActor () -> Void {
+        #if os(iOS)
+        let enabled = UIView.areAnimationsEnabled
+        UIView.setAnimationsEnabled(false)
+        return { UIView.setAnimationsEnabled(enabled) }
+        #else
+        return {}
+        #endif
+    }
+
     private func shownNoteText(_ canvas: ReaderCanvasView) -> String? {
         #if os(macOS)
         let controller = (canvas.presentedNote as? NSPopover)?.contentViewController as? ReaderNoteViewController
@@ -118,6 +130,8 @@ final class NoteReachabilityTests: XCTestCase {
             @MainActor func state() -> String {
                 "presenting=\(controller.isBeingPresented), dismissing=\(controller.isBeingDismissed), "
                     + "presenter=\(controller.presentingViewController != nil), attached=\(controller.viewIfLoaded?.window != nil)"
+                    + ", keyWindow=\(canvas.window?.isKeyWindow == true), scene=\(String(describing: canvas.window?.windowScene?.activationState)), "
+                    + "app=\(UIApplication.shared.applicationState), animations=\(UIView.areAnimationsEnabled)"
             }
             // presentNote starts an animated presentation. Its text exists before UIKit has
             // attached the controller, and dismissing at that instant can lose the completion
@@ -172,6 +186,8 @@ final class NoteReachabilityTests: XCTestCase {
     /// The rich factory holds the slow target's build until the newer action has finished.
     /// Task handles prove both activations have completed, without a timing delay or a poll.
     private func overlappingActivation(slowFragment: String, newer: NewerAction) async throws {
+        let restoreAnimations = suspendAnimations()
+        defer { restoreAnimations() }
         let started = expectation(description: "the slow section is held in its build")
         let opened = expectation(description: "the source is ready and located")
         let navigated = newer == .note ? nil : expectation(description: "the newer target was shown")
@@ -225,6 +241,8 @@ final class NoteReachabilityTests: XCTestCase {
     }
 
     func testPlainCrossDocumentLinksPresentCapturedNotesWithoutNavigating() async throws {
+        let restoreAnimations = suspendAnimations()
+        defer { restoreAnimations() }
         let reader = try SessionCoverageReader(SessionCoverageBook.epub([
             .init("one", """
                 <p><a href='notes.xhtml#fn1'>id note</a> <a href='notes.xhtml#fn%C3%A9'>legacy note</a> \
