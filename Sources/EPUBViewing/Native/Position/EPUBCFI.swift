@@ -53,9 +53,12 @@ enum EPUBCFI {
         var isRange: Bool { parent != nil }
     }
 
-    /// The longest CFI `isWellFormed` accepts, in characters. Range CFIs locating long
+    /// The underlying CFI character budget. Range CFIs locating long
     /// highlights outgrow the WebKit bridge's old 1,024-character cap.
     static let maximumLength = 4_096
+    /// A point or range has at most two fixed-width resource assertions, each adding at most
+    /// 88 characters. The underlying CFI keeps the existing maximumLength budget.
+    static let maximumQualifiedLength = maximumLength + 2 * 88
     /// Input longer than this many UTF-16 units is refused by `parse`, which bounds all CFI work.
     static let maximumParseLength = 65_536
 
@@ -81,10 +84,12 @@ enum EPUBCFI {
     }
 
     /// The WebKit bridge's character rules (`ReaderEPUBCFI.isWellFormed`): wrapped once with
-    /// balanced unescaped parentheses, no C0 or C1 control or line or paragraph separator, at most
-    /// `maximumLength` characters. A shape check for stored locators, not a parse.
+    /// balanced unescaped parentheses and no C0/C1 control or line/paragraph separator. The
+    /// ordinary shape check keeps `maximumLength`; longer wire forms require parsed fixed-width
+    /// fallback qualifications within `maximumQualifiedLength` and the same underlying budget.
     static func isWellFormed(_ cfi: String) -> Bool {
-        guard cfi.count <= maximumLength, cfi.hasPrefix("epubcfi("), cfi.hasSuffix(")"),
+        let length = cfi.count
+        guard length <= maximumQualifiedLength, cfi.hasPrefix("epubcfi("), cfi.hasSuffix(")"),
               cfi.count > "epubcfi()".count
         else { return false }
         var depth = 0
@@ -110,7 +115,22 @@ enum EPUBCFI {
             default: break
             }
         }
-        return isClosed
+        guard isClosed else { return false }
+        if length <= maximumLength { return true }
+        // Additional wire space is reserved only for parsed fixed-format qualifications, not
+        // for arbitrary vendor parameters or longer ordinary ID/text assertions.
+        guard let expression = try? parse(cfi) else { return false }
+        let paths = [expression.path, expression.parent, expression.start, expression.end].compactMap { $0 }
+        let qualified = paths.flatMap { $0 }.flatMap { $0 }.filter { $0.resource != nil }
+        guard !qualified.isEmpty, qualified.count <= 2 else { return false }
+        var overhead = 0
+        for step in qualified {
+            guard let resource = step.resource, resource.utf8.count == 64,
+                  resource.utf8.allSatisfy({ (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }) else { return false }
+            overhead += 86
+            if step.id == nil, step.side == nil, step.text == [""] { overhead += 2 }
+        }
+        return length - overhead <= maximumLength
     }
 
     // MARK: - Parsing

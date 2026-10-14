@@ -50,12 +50,35 @@ final class FallbackCFIQualificationTests: XCTestCase {
 
     func testDuplicateAndMisplacedResourceAssertionsAreRefused() throws {
         let fallback = try document().withCFIResource("a.xhtml")
-        for path in ["/4[body;vnd.epublib.resource=a.xhtml;vnd.epublib.resource=a.xhtml]/2[p]/1:1",
-                     "/4[body;vnd.epublib.resource=a.xhtml]/2[p;vnd.epublib.resource=a.xhtml]/1:1",
-                     "/4[body]/2[p;vnd.epublib.resource=a.xhtml]/1:1",
+        let digest = try XCTUnwrap(fallback.cfiResource)
+        for path in ["/4[body;vnd.epublib.resource=\(digest);vnd.epublib.resource=\(digest)]/2[p]/1:1",
+                     "/4[body;vnd.epublib.resource=\(digest)]/2[p;vnd.epublib.resource=\(digest)]/1:1",
+                     "/4[body]/2[p;vnd.epublib.resource=\(digest)]/1:1",
                      "/4[body;vnd.epublib.resource=wrong.xhtml]/2[p]/1:1"] {
             XCTAssertNil(EPUBCFI.resolve(localPath: path, in: fallback), path)
         }
+    }
+
+    func testResourceDigestsStayCompactAndNearLimitCFIsKeepTheirOriginalBudget() throws {
+        let original = try document()
+        let fallback = original.withCFIResource(String(repeating: "é", count: 800))
+        let digest = try XCTUnwrap(fallback.cfiResource)
+        XCTAssertEqual(digest.utf8.count, 64)
+        XCTAssertEqual(try document().withCFIResource(String(repeating: "é", count: 800)).cfiResource, digest)
+        XCTAssertNotEqual(original.withCFIResource("other").cfiResource, digest)
+        // Only the fixed qualification overhead extends the existing wire validation. DOM ID
+        // assertions and their full ordinary-CFI4096-character allowance stay intact.
+        let id = String(repeating: "a", count: EPUBCFI.maximumLength - "epubcfi(/4[]/2/1:0)".count)
+        let ordinary = "epubcfi(/4[\(id)]/2/1:0)"
+        XCTAssertEqual(ordinary.count, EPUBCFI.maximumLength)
+        XCTAssertTrue(EPUBCFI.isWellFormed(ordinary))
+        let qualified = "epubcfi(/4[\(id);vnd.epublib.resource=\(digest)]/2/1:0)"
+        XCTAssertTrue(EPUBCFI.isWellFormed(qualified))
+        XCTAssertEqual(qualified.count, ordinary.count + 86)
+        XCTAssertFalse(EPUBCFI.isWellFormed("epubcfi(/4[a\(id)]/2/1:0)"))
+        XCTAssertFalse(EPUBCFI.isWellFormed("epubcfi(/4[a\(id);vnd.epublib.resource=\(digest)]/2/1:0)"))
+        XCTAssertFalse(EPUBCFI.isWellFormed(qualified.replacingOccurrences(of: digest, with: String(repeating: "x", count: 64))))
+        XCTAssertNil(SpineCFIs(package: nil, spineCount: 1).resolve("epubcfi(/6/2[;vnd.epublib.resource=\(digest)]!/4/2/1:0)"))
     }
 
     @MainActor func testFallbackCFIsKeepOriginalSpineOccurrenceAndResolveAfterReopening() throws {

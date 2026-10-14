@@ -107,14 +107,47 @@ import XCTest
         }
     }
 
+    func testActualNestedSVGSerializationSharesItsPreparationContextAcrossRepeatedBranches() throws {
+        var book = Book(); book.add("page", body: "<p>Preparation fixture</p>")
+        for index in 0..<3 {
+            let next = index == 0 ? "leaf.png" : "level\(index - 1).svg"
+            let drawing = "<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><rect width='20' height='20' fill='white'/>"
+                + String(repeating: "<image href='\(next)' width='20' height='20'/>", count: 2) + "</svg>"
+            book.resource("level\(index).svg", id: "level\(index)", mediaType: "image/svg+xml", Data(drawing.utf8))
+        }
+        book.resource("leaf.png", id: "leaf", mediaType: "image/png", Book.image(width: 20, height: 20))
+        let publication = try EPUBPublication.open(data: book.archive())
+        let top = "<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><rect width='20' height='20' fill='white'/>"
+            + String(repeating: "<image href='level2.svg' width='20' height='20'/>", count: 2) + "</svg>"
+        let document = try ContentDocument.parse(Data(top.utf8), path: "EPUB/top.svg", asContent: false)
+        let context = SVGImagePreparation(), report = SectionReportBox()
+        let serialized = try XCTUnwrap(SVGContent.serialize(document.root, resolve: { "EPUB/" + $0 }, publication: publication,
+                                                            report: report, imagePreparation: context))
+        XCTAssertEqual(context.visits, 8, "three SVGs and one PNG each prepared once, plus their request selections")
+        XCTAssertEqual(context.cacheHits, 4, "each second sibling reuses the same context's result")
+        XCTAssertTrue(String(decoding: serialized, as: UTF8.self).contains("data:image/png;base64,"))
+        XCTAssertEqual(report.report.unsupportedElements["svg:image"] ?? 0, 0)
+    }
+
     func testNestedSVGImageReferenceCyclesRemainBounded() throws {
         var book = Book()
         book.add("page", body: "<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><image href='cycle.svg' width='20' height='20'/></svg>")
         book.resource("cycle.svg", id: "cycle", mediaType: "image/svg+xml",
                       Data("<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><image href='cycle.svg' width='20' height='20'/></svg>".utf8))
         let built = try Build(book)
-        XCTAssertGreaterThan(built[0].report.unsupportedElements["svg:image"] ?? 0, 0)
+        // This SVG wraps one image: the production shortcut attempts the archive drawing,
+        // then reports one unreadable image when its self-reference leaves no drawable content.
+        XCTAssertEqual(built[0].report.unreadableResources, 1)
+        XCTAssertEqual(built.disclosure, "One image could not be shown.")
         XCTAssertFalse(built[0].report.withheld)
+        // The general serialization lane reports the refused href as an unsupported SVG image.
+        let svg = try XCTUnwrap(built[0].document.nodes.first { $0.name == "svg" })
+        let report = SectionReportBox(), preparation = SVGImagePreparation()
+        let serialized = try XCTUnwrap(SVGContent.serialize(svg, resolve: { "EPUB/" + $0 }, publication: built.publication,
+                                                            report: report, imagePreparation: preparation))
+        XCTAssertEqual(report.report.unsupportedElements["svg:image"], 1)
+        XCTAssertFalse(String(decoding: serialized, as: UTF8.self).contains("data:image/png;base64,"))
+        XCTAssertLessThanOrEqual(preparation.visits, 4)
     }
 
     func testRasterAndSVGSpineResourcesBecomeImagesRatherThanMarkupBytes() throws {

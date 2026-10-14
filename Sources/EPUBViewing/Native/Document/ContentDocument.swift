@@ -1,4 +1,5 @@
 import EPUBCore
+import CryptoKit
 import Foundation
 import libxml2
 
@@ -147,7 +148,8 @@ final class ContentDocument: @unchecked Sendable {
 
     func withCFIResource(_ resource: String) -> ContentDocument {
         ContentDocument(path: path, root: root, nodes: nodes, recovered: recoveredAsHTML,
-                        canResolveCFIs: canResolveCFIs, cfiResource: resource)
+                        canResolveCFIs: canResolveCFIs, cfiResource: SHA256.hash(data: Data(resource.utf8))
+                            .map { String(format: "%02x", $0) }.joined())
     }
 
     /// First element with this `id` in document order (`getElementById`).
