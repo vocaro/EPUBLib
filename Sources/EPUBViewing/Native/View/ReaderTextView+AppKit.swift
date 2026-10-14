@@ -28,6 +28,9 @@ final class ReaderTextView: NSTextView {
     private var followingHeadingElement: ReaderHeadingAccessibilityElement?
     /// The accessibility elements of the text's tables of data (`ReaderDataTables+AppKit.swift`).
     private(set) lazy var dataTables = ReaderDataTables(view: self)
+    /// The elements of the table rows a page column showed before its text was last replaced,
+    /// kept among its children until the text is replaced again (`exposeTextualAttachments`).
+    private(set) var departedRows: [NSAccessibilityElement] = []
     private var menuImage: ReaderImageAttachment?
     /// The headings of the text in the view, found once for each text it is given.
     private var headingCache: [(heading: ReaderHeading, range: NSRange)]?
@@ -460,7 +463,8 @@ final class ReaderTextView: NSTextView {
 
     /// AppKit lists a text view's links as its children and nothing else: the reader's own
     /// elements take their place, with those of the table cells on screen among them, and its
-    /// headings stand among them, each where it is in the text (`headingChildren`).
+    /// headings stand among them, each where it is in the text (`headingChildren`). The rows of
+    /// a page before come last (`departedRows`).
     override func accessibilityChildren() -> [Any]? {
         guard canvas != nil else { return super.accessibilityChildren() }
         holdScrollPlace()
@@ -468,7 +472,16 @@ final class ReaderTextView: NSTextView {
         let headings = headingChildren().map { (place: $0.range.location, element: $0 as NSAccessibilityElement) }
         // A heading comes before a link that begins where it does, which is a link inside it.
         let own = (headings + links).enumerated().sorted { ($0.element.place, $0.offset) < ($1.element.place, $1.offset) }
-        return (super.accessibilityChildren() ?? []).filter { $0 is NSView } + own.map(\.element.element)
+        return (super.accessibilityChildren() ?? []).filter { $0 is NSView } + own.map(\.element.element) + departedRows
+    }
+
+    /// Where the rows of a page before stand once the column shows another: at the first line
+    /// of the page it shows, which is where VoiceOver's next move by line or by word goes from
+    /// one of them. In this view's coordinates.
+    var departedRowFrame: CGRect {
+        let origin = containerOrigin
+        let line = lineFrame(containing: 0) ?? CGRect(x: 0, y: 0, width: bounds.width, height: 1)
+        return line.offsetBy(dx: origin.x, dy: origin.y)
     }
 
     private func accessibilityElement(at range: NSRange, label: String, isText: Bool = false) -> NSAccessibilityElement {
@@ -512,13 +525,24 @@ final class ReaderTextView: NSTextView {
 
     func exposeTextualAttachments() {
         // A client can keep a row's group after the text it was given in has gone.
-        for case let row as ReaderTableRowGroupElement in attachmentElements.values { row.view = nil }
+        let groups = attachmentElements.values.compactMap { $0 as? ReaderTableRowGroupElement }
+        for row in groups { row.view = nil }
         attachmentElements.removeAll()
         silentRowCache = nil
         linkElements = ReaderLinkElements()
         headingElements.removeAll()
         followingHeadingElement = nil
-        dataTables.reset()
+        let tables = dataTables.reset()
+        // VoiceOver keeps its cursor on an element only while the element is among the children
+        // of the text it is in, and it is on a row's element once it has gone into the row and
+        // come back out. A row's element of a page turned under it was no longer a child:
+        // VoiceOver went to the text area, out of the text, and needed a step in to read on.
+        // Kept among the children, saying nothing and standing at the new page's first line,
+        // such an element keeps VoiceOver in the text, and its next move by line or by word
+        // reads the new page from its top, as after a turn made from a line (#485). Notices
+        // did not do it: a layout change naming the column, posted by the element, by the
+        // column or later, and the insertion point told of again left VoiceOver where it went.
+        departedRows = isPageColumn ? groups + tables : []
         headingCache = nil
         // Replacing NSTextStorage moves its native caret to the new storage's end, which
         // can be hidden paragraph context, or the end of the book. VoiceOver uses that
@@ -878,13 +902,20 @@ extension ReaderTextView {
 /// beyond the screen before the view shows it, and keeps what it was given: a row made from
 /// what was on screen then was an image called by its words, with nothing in it to go into
 /// once it was shown.
+///
+/// Once the view shows other text the row has departed: it says nothing, holds nothing and
+/// stands at the first line of the page shown, where VoiceOver goes on from it
+/// (`ReaderTextView.departedRows`).
 final class ReaderTableRowGroupElement: NSAccessibilityElement {
     /// The view, while it shows the text the row was given in.
     weak var view: ReaderTextView?
+    /// The view, whatever it shows: what holds the row.
+    private weak var host: ReaderTextView?
     let location: Int
 
     init(view: ReaderTextView, location: Int) {
         self.view = view
+        host = view
         self.location = location
         super.init()
         // AppKit tells a client of an attribute the element has been given a value for.
@@ -892,7 +923,14 @@ final class ReaderTableRowGroupElement: NSAccessibilityElement {
         setAccessibilityChildren([])
     }
 
-    override func accessibilityRole() -> NSAccessibility.Role? { .group }
+    /// A departed row is an empty static text, which VoiceOver calls "text", as it calls the
+    /// text area it is in. As an empty group it said "group" each time a page turned under it.
+    override func accessibilityRole() -> NSAccessibility.Role? { view == nil ? .staticText : .group }
+
+    override func accessibilityFrame() -> NSRect {
+        guard view == nil, let host else { return super.accessibilityFrame() }
+        return MainActor.assumeIsolated { NSAccessibility.screenRect(fromView: host, rect: host.departedRowFrame) }
+    }
 
     // AppKit asks on the main thread. A row without words has no label, and not an empty one.
     override func accessibilityLabel() -> String? {

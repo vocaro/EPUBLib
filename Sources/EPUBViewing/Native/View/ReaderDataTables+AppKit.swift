@@ -30,11 +30,14 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     init(view: ReaderTextView) { self.view = view }
 
     /// The view has other text: its tables are other tables, and one a client still holds
-    /// from the text before has nothing to say of this one.
-    func reset() {
-        for table in tables.values { table.detach() }
+    /// from the text before has nothing to say of this one. Returns those tables, in the
+    /// order of their rows.
+    @discardableResult func reset() -> [ReaderTableElement] {
+        let departed = tables.sorted { $0.key < $1.key }.map(\.value)
+        for table in departed { table.detach() }
         tables.removeAll()
         found = nil
+        return departed
     }
 
     /// The rows of `table` the view shows: a page column's own page, or the whole book's.
@@ -118,7 +121,11 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     }
 
     /// The view shows other text than the table was given in: the table has nothing in it,
-    /// and is still the view's.
+    /// and is still the view's. It has departed: an empty static text at the first line of
+    /// the page shown, among the view's children until the view's text is replaced again,
+    /// where VoiceOver goes on from it (`ReaderTextView.departedRows`). As an empty table it
+    /// said "table" each time a page turned under it, and "3 columns, 41 rows" when asked what
+    /// it was on, and as an empty group "empty group".
     func detach() {
         view = nil
         listedRows = nil
@@ -271,22 +278,25 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
 
     // MARK: NSAccessibility
 
-    override func accessibilityRole() -> NSAccessibility.Role? { .table }
+    override func accessibilityRole() -> NSAccessibility.Role? { onMain(self) { $0.view == nil ? .staticText : .table } }
     override func accessibilityParent() -> Any? { onMain(self) { $0.host } }
     override func accessibilityLabel() -> String? { onMain(self) { $0.words } }
     override func accessibilityRows() -> [Any]? { onMain(self) { $0.rowElements } }
     override func accessibilityVisibleRows() -> [Any]? { onMain(self) { $0.visibleRows } }
     override func accessibilitySelectedRows() -> [Any]? { onMain(self) { $0.entryRow.map { [$0] } ?? [] } }
-    override func accessibilityColumns() -> [Any]? { onMain(self) { $0.columns } }
-    override func accessibilityVisibleColumns() -> [Any]? { onMain(self) { $0.columns } }
+    override func accessibilityColumns() -> [Any]? { onMain(self) { $0.shownColumns } }
+    override func accessibilityVisibleColumns() -> [Any]? { onMain(self) { $0.shownColumns } }
     override func accessibilityVisibleCells() -> [Any]? { onMain(self) { $0.visibleCells } }
-    override func accessibilityChildren() -> [Any]? { onMain(self) { $0.rowElements + $0.columns } }
-    override func accessibilityRowCount() -> Int { onMain(self) { $0.table.rows.count } }
-    override func accessibilityColumnCount() -> Int { onMain(self) { $0.table.columnCount } }
+    override func accessibilityChildren() -> [Any]? { onMain(self) { $0.rowElements + $0.shownColumns } }
+    override func accessibilityRowCount() -> Int { onMain(self) { $0.view == nil ? 0 : $0.table.rows.count } }
+    override func accessibilityColumnCount() -> Int { onMain(self) { $0.view == nil ? 0 : $0.table.columnCount } }
     override func accessibilityColumnHeaderUIElements() -> [Any]? { onMain(self) { $0.columnHeaders } }
     override func accessibilityRowHeaderUIElements() -> [Any]? { onMain(self) { $0.rowHeaders } }
     override func accessibilityCell(forColumn column: Int, row: Int) -> Any? { onMain(self) { $0.cell(column: column, row: row) } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
+
+    /// The columns, while the view shows the text the table was given in.
+    private var shownColumns: [ReaderTableColumnElement] { view == nil ? [] : columns }
 
     /// What the table is called where it stands: the words its row shows there. They are all
     /// VoiceOver says of the row as it reads the text by line or by word.
@@ -320,9 +330,11 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
         return cell.flatMap { listed($0) }
     }
 
-    /// Where the table stands in the text: its row's place.
+    /// Where the table stands in the text: its row's place, or once it has departed the first
+    /// line of the page shown.
     private var screenFrame: NSRect {
-        guard let view, let frame = frame(ofRowAt: entry) else { return .zero }
+        guard let view else { return host.map { NSAccessibility.screenRect(fromView: $0, rect: $0.departedRowFrame) } ?? .zero }
+        guard let frame = frame(ofRowAt: entry) else { return .zero }
         return NSAccessibility.screenRect(fromView: view, rect: frame)
     }
 }
