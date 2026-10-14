@@ -343,8 +343,9 @@ import SwiftUI
         withdrawSearchResults()
         refreshHighlights()
         emit(.searchChanged(.idle))
-        // A match inside content that renders nothing of its own (a hidden footnote) is a place
-        // to go, not a passage to select; one that renders is preferred.
+        // A match inside content that renders nothing of its own (a hidden footnote), or that
+        // takes in text `visibility: hidden` hides, is a place to go, not a passage to select;
+        // one that renders and shows is preferred.
         var hidden: ReaderTextPosition?
         for index in publication.spine.indices {
             guard isCurrent(ticket), !closed else { return }
@@ -354,7 +355,7 @@ import SwiftUI
             guard isCurrent(ticket) else { return }
             for match in matches {
                 let range = range(of: match, in: section)
-                guard range.isEmpty else {
+                guard range.isEmpty || section.holdsHiddenText(range) else {
                     canvas?.clearSelection()
                     canvas?.show(range.start, selecting: highlight ? range : nil)
                     return
@@ -579,7 +580,7 @@ import SwiftUI
         var drawn: [ReaderHighlight] = []
         for (index, matches) in searchMatches {
             if searchRanges[index] == nil, let section = book.section(index) {
-                searchRanges[index] = matches.map { range(of: $0, in: section) }.filter(SearchResultBuilder.isRendered)
+                searchRanges[index] = matches.map { range(of: $0, in: section) }.filter { SearchResultBuilder.isListed($0, in: section) }
             }
             for (number, range) in (searchRanges[index] ?? []).enumerated() {
                 drawn.append(ReaderHighlight(id: "search-\(index)-\(number)", range: range, kind: .search))

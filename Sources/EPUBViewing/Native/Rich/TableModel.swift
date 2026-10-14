@@ -361,14 +361,18 @@ enum TableMeasure {
     }
 
     /// The text VoiceOver reads (and copies get) for cell content: attachments by their text
-    /// equivalent, whitespace collapsed.
+    /// equivalent, whitespace collapsed, and nothing of what `visibility: hidden` hides
+    /// (`NSAttributedString.readerHiddenText(_:)`), which parts the words around it.
     static func spokenText(_ text: NSAttributedString) -> String {
         var spoken = ""
         let string = text.string as NSString
-        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, range, _ in
-            if let attachment = value as? ReaderTextualAttachment { spoken += " \(attachment.textEquivalent) " }
-            else if value != nil { spoken += " " }
-            else { spoken += string.substring(with: range) }
+        text.enumerateAttribute(.readerHidden, in: NSRange(location: 0, length: text.length)) { hidden, part, _ in
+            if hidden != nil { spoken += " "; return }
+            text.enumerateAttribute(.attachment, in: part) { value, range, _ in
+                if let attachment = value as? ReaderTextualAttachment { spoken += " \(attachment.textEquivalent) " }
+                else if value != nil { spoken += " " }
+                else { spoken += string.substring(with: range) }
+            }
         }
         return spoken.split(whereSeparator: { $0.isWhitespace || $0 == "\u{FFFC}" }).joined(separator: " ")
     }
