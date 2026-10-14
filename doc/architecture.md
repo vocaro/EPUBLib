@@ -114,6 +114,12 @@ warnings, so this list is where they are disclosed:
   compressed size that runs past the end of the archive, and the limits count what the entry
   inflates to. The book is still refused when that compressed size is 2^63 bytes or more, or when a
   data descriptor follows the entry and the misstated size places it past the end.
+  Opening also bounds repeated input work: local headers may account for at most the archive's
+  byte count, and extraction processing steps are charged one 32 KiB chunk each against the
+  archive's bytes, actual expanded bytes, and one partial chunk per entry. A reused or overlapping
+  header or stream is read while that budget holds; declared compressed-range overlap alone is
+  not refused. Exceeding the budget throws `limitExceeded("archive input work")`
+  ([measurements and repeatable inputs](issue-199-input-work.md)).
 - **Container.** White space around the mimetype's media type and a byte-order mark before it are
   ignored. A rootfile that is not typed as a package document is passed over for the first that
   is. An entry name may hold a colon, as it may the other characters OCF forbids.

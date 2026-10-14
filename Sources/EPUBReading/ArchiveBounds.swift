@@ -39,6 +39,7 @@ enum ArchiveBounds {
         }
 
         var index: UInt64 = 0
+        var headerBytesRemaining = count
         while index < entries {
             guard position <= UInt64(count) else { throw pastTheEnd("Central directory") }
             let record = Int(position)
@@ -77,6 +78,13 @@ enum ArchiveBounds {
             guard count - local >= 30, u32(local) == 0x0403_4b50 else { return }
             let dataStart = local + 30 + u16(local + 26) + u16(local + 28)
             guard dataStart <= count else { return }
+            // The iterator copies and scans each local header's name and extra field anew.
+            // Overlapping/reused headers must not multiply that work beyond the input's size.
+            let headerBytes = dataStart - local
+            guard headerBytes <= headerBytesRemaining else {
+                throw EPUBPublicationError.limitExceeded("archive input work")
+            }
+            headerBytesRemaining -= headerBytes
             if flags & 0x0008 != 0 {
                 // The descriptor follows the data, whose size the directory's method chooses.
                 let (descriptor, overflow) = UInt64(dataStart).addingReportingOverflow(u16(record + 10) == 0 ? uncompressed : compressed)

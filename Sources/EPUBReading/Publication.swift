@@ -92,6 +92,7 @@ public struct EPUBPublication: Sendable {
         var contents: [String: Data] = [:]
         var paths = Set<String>()
         var total = 0
+        var inputWork = ArchiveInputWork(archiveBytes: (archive.data ?? data).count)
         for entry in archive {
             try Task.checkCancellation()
             let path = EntryName.path(of: entry)
@@ -112,12 +113,14 @@ public struct EPUBPublication: Sendable {
             }
             if entry.type == .directory { continue }
             var bytes = Data()
-            let crc = try archive.extract(entry, bufferSize: 32_768) { chunk in
+            inputWork.beginEntry()
+            let crc = try archive.extract(entry, bufferSize: ArchiveInputWork.chunkSize) { chunk in
                 try Task.checkCancellation()
                 guard chunk.count <= limits.resourceBytes - bytes.count,
                       chunk.count <= limits.expandedBytes - total else {
                     throw EPUBPublicationError.limitExceeded(path)
                 }
+                try inputWork.consume(outputBytes: chunk.count)
                 bytes.append(chunk)
                 total += chunk.count
                 onProgress?(total)
