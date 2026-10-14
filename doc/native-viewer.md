@@ -420,6 +420,9 @@ EPUBPublication ──▶ ContentDocument ──▶ StyleResolver ──▶ Sect
   `rowspan` honoured (`rowspan="0"` spans one row, as WebKit does); a spanning cell is drawn in
   each row it covers. Oversized rows continue across pages using complete cell glyph lines;
   a line crossing a rowspan boundary is finished in its preceding row and never drawn twice.
+  A continuation sharing a page with following rows or prose uses the displayed page’s exact
+  bounds; overflowing content advances to the next page once, without laying out the whole
+  section again ([#546](https://github.com/vocaro/EPUBLib/issues/546)).
   Continuous scroll retains full row heights. Tables too wide for the line shrink their text
   to 60%, then wrap by character. Only the outer table scales: tables inside cells inherit
   that scale and wrap at their cell's width, so nesting never multiplies text reductions.

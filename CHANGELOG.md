@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Pack table continuations and following content using the displayed page bounds ([#546](https://github.com/vocaro/EPUBLib/issues/546)).
 - Refuse entity declarations in supported legacy encodings before parsing ([#86](https://github.com/vocaro/EPUBLib/issues/86)).
 - Resolve empty text anchors once when their next text or document end is known ([#92](https://github.com/vocaro/EPUBLib/issues/92)).
 - Map search matches in long tables through indexed cell intervals ([#137](https://github.com/vocaro/EPUBLib/issues/137)).

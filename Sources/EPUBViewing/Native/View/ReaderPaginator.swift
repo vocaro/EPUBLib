@@ -396,7 +396,12 @@ struct ReaderTableFragment: Equatable {
             continuesParagraph: !first.startsParagraph,
             tableFragments: lines[firstIndex..<end].compactMap(\.tableFragment), layoutTop: pageTop,
             layoutSpacing: first.startsParagraph && first.range.location > 0 ? max(0, first.spacingBefore) : 0)
-        if page.height > available + 0.5 || boxGeometry != nil || first.requiresPageMeasurement || (first.isJustified && !first.startsParagraph &&
+        // The full-section native origin of the next row or prose can overlap the end
+        // of manufactured table continuations. Measure only the bounded page that packs
+        // another row or ordinary line beside them; a lone continuation needs no retry.
+        let packedTablePage = !page.tableFragments.isEmpty
+            && (page.tableFragments.count > 1 || lines[firstIndex..<end].contains { $0.tableFragment == nil })
+        if packedTablePage || page.height > available + 0.5 || boxGeometry != nil || first.requiresPageMeasurement || (first.isJustified && !first.startsParagraph &&
            first.paragraph.length > Self.wholeParagraphJustification &&
            first.paragraph.upperBound - first.range.location <= Self.wholeParagraphJustification) {
             // Box margins and a long justified paragraph's short tail can differ in the
@@ -408,6 +413,12 @@ struct ReaderTableFragment: Equatable {
             while end > firstIndex, lines[end - 1].range.upperBound > page.range.upperBound { end -= 1 }
             while layOutLines(through: end), lines[end].range.location >= originalEnd,
                   lines[end].range.upperBound <= page.range.upperBound { end += 1 }
+            // A frozen row ending the displayed page has fixed glyph metrics. Following
+            // rows or prose do not supply layout context for it, and belong to the next page.
+            // Ordinary paragraph and box context keeps its original measured extent.
+            if boxGeometry == nil, end > firstIndex, lines[end - 1].tableFragment != nil {
+                page.layoutEnd = page.range.upperBound
+            }
             if layOutLines(through: end), lines[end].tableFragment == nil,
                lines[end].range.location < page.range.upperBound {
                 // The next column starts at the displayed layout's line boundary, which can
@@ -442,7 +453,7 @@ struct ReaderTableFragment: Equatable {
         storage.attributedString = pageText
         // A page is a bounded slice. Finish that slice before inspecting its frames: later
         // fragment requests can replace estimates used by earlier box-margin fragments.
-        let defendsClip = boxGeometry != nil || page.usesFlowFallback
+        let defendsClip = boxGeometry != nil || page.usesFlowFallback || !page.tableFragments.isEmpty
             || page.height > size.height - page.topSpacing + 0.5
         if defendsClip { manager.ensureLayout(for: storage.documentRange) }
         var visibleEnd = 0
