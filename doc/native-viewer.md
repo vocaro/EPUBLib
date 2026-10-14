@@ -1991,6 +1991,17 @@ book is opened, and is not pushed aside by boxes that are nowhere near. A line t
 exactly where a box ends is clear of it
 ([#147](https://github.com/vocaro/EPUBLib/issues/147)).
 
+That holds only where TextKit's lines are where the plan has them. The spacing before a
+paragraph (after a forced break, its retained margin) is in the plan's flow, as above, and so
+is the spacing before a box, which also keeps a box it settles under that far above it.
+TextKit proposes a paragraph's first line below that spacing, and the container takes it to
+the plan from there; on a page that the paragraph opens, from the page's origin plus the
+spacing, which TextKit drops there. A box's first fragment takes the spacing back, so that the
+box's lines stand in its region and the text after it is where the plan has it. Without these,
+such a paragraph was wrapped as far above where it is drawn, and the text after such a box was
+drawn that far below the floats before it; either could run across a float
+([#362](https://github.com/vocaro/EPUBLib/issues/362)).
+
 A `.disclosure` explains that box layouts may be simplified. Sticky positioning, negative
 relative vertical offsets, arbitrary overlap and `z-index`, and page-pinned or repeating fixed
 boxes are outside the supported subset. Conventional positioned, visually hidden accessibility

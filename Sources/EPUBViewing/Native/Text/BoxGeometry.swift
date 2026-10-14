@@ -29,6 +29,10 @@ final class ReaderBoxGeometry: NSObject {
         var isBox = false
         var column: CGRect? = nil
         var scope: UUID? = nil
+        /// The spacing before a box's first paragraph, which TextKit sets above its first line
+        /// and `topAdjustment` takes back: the box stands `topAdjustment + spacingAbove` below
+        /// the flow.
+        var spacingAbove: CGFloat = 0
     }
     var paragraphs: [Paragraph] = []
     var regions: [Region] = []
@@ -262,6 +266,14 @@ enum ReaderBoxLayout {
                 scopeOrigins[scope.id] = cursor
             }
             if let scope = flow?.scope { enterScope(scope) }
+            // A paragraph measured alone is its document's first, and TextKit lays out no spacing
+            // before that one; the text's layout does, everywhere but at its start. The builder
+            // puts space there after a forced break, above a caption set under its table, and
+            // below a box where a flex or grid item's lead cannot rest on the box (#377). It is
+            // the same above a box's first paragraph (#362).
+            let authoredSpacingBefore = range.location > 0
+                ? max(0, (text.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacingBefore ?? 0) : 0
+            let retainedSpacing = restoresSpacingBefore ? authoredSpacingBefore : 0
             let box = (text.attribute(.readerFlowBox, at: range.location, effectiveRange: nil) as? ReaderFlowBoxParagraph)?.constraints.first
             if let box {
                 var end = index + 1
@@ -367,7 +379,7 @@ enum ReaderBoxLayout {
                                 plan.regions[reserved].frame = CGRect(x: 0, y: full.top, width: viewport.width, height: full.bottom - full.top)
                             }
                             x = line.start(width, indent: open == nil ? inline.firstLineIndent : 0)
-                            let top = open?.bottom ?? max(cursor, inlineFloor)
+                            let top = open?.bottom ?? max(cursor + retainedSpacing, inlineFloor)
                             placed = InlineRow(block: inline.block, rightToLeft: line.rightToLeft, end: boxRange.upperBound, top: top, bottom: top,
                                                pen: x, source: boxRange, firstRegion: open?.firstRegion ?? plan.regions.count)
                         }
@@ -384,7 +396,8 @@ enum ReaderBoxLayout {
                             inlineFloor = max(inlineFloor, ended.bottom)
                             inlineBlock = nil
                         }
-                        var y = max(cursor, inlineFloor)
+                        hasRetainedSpacingBefore = hasRetainedSpacingBefore || authoredSpacingBefore > 0
+                        var y = max(cursor + retainedSpacing, inlineFloor)
                         if style.isOutOfFlow {
                             let origin = style.position == .fixed ? box.containing.flatMap { sectionOrigins[$0.sectionRoot] } ?? 0
                                 : box.containing.flatMap { scopeOrigins[$0.id] } ?? 0
@@ -411,7 +424,12 @@ enum ReaderBoxLayout {
                         let obstacles = style.isOutOfFlow ? (hasVerticalInset ? plan.regions.filter(\.wrapsEarlierText) : plan.regions)
                             : plan.regions.prefix(placed?.firstRegion ?? plan.regions.count) + pending.unplaced
                         if placed == nil {
-                            frame = settled(frame, below: obstacles.map { $0.frame })
+                            // The spacing before the box stands above it, also over a box it settles
+                            // under, as the box before keeps it when the spacing ends that box.
+                            let above = style.isOutOfFlow && hasVerticalInset ? 0 : retainedSpacing
+                            let margin = settled(CGRect(x: frame.minX, y: frame.minY - above, width: frame.width, height: frame.height + above),
+                                                 below: obstacles.map { $0.frame })
+                            frame.origin.y = margin.minY + above
                         } else {
                             // Where the box is set it only touches what is beside and above it:
                             // the fraction its ink or a sum of line heights is out by is no collision.
@@ -422,19 +440,26 @@ enum ReaderBoxLayout {
                         // to zero. Keep that displacement on every paragraph, and cancel only the
                         // measured height plus any positive displacement on the last fragment.
                         let delta = frame.minY - beforeScope
+                        // The section's layout sets the box's first line below the spacing before
+                        // its paragraph, which measuring the box as a document of its own leaves
+                        // out: its first fragment takes that back, so its lines stand in its region
+                        // and the flow after it is where the plan has it (#362).
+                        let spacingAbove = authoredSpacingBefore
                         let firstRecord = plan.paragraphs.count
                         for entry in measured.paragraphs {
                             let localRange = NSRange(location: boxRange.location + entry.range.location, length: entry.range.length)
                             plan.paragraphs.append(ReaderBoxGeometry.Paragraph(range: localRange,
-                                topAdjustment: delta < 0 || entry.range.location == 0 ? delta : 0,
+                                topAdjustment: (delta < 0 || entry.range.location == 0 ? delta : 0) - (entry.range.location == 0 ? spacingAbove : 0),
                                 flowStart: beforeScope + entry.flowStart + (entry.range.location == 0 ? 0 : max(0, delta)),
                                 flowEnd: beforeScope + entry.flowEnd + max(0, delta),
                                 lines: entry.lines.map { (NSRange(location: boxRange.location + $0.range.location, length: $0.range.length),
-                                    $0.frame.offsetBy(dx: 0, dy: beforeScope + delta)) }, isBox: true))
+                                    $0.frame.offsetBy(dx: 0, dy: beforeScope + delta)) }, isBox: true,
+                                spacingAbove: entry.range.location == 0 ? spacingAbove : 0))
                         }
                         if firstRecord < plan.paragraphs.count {
                             let last = plan.paragraphs.count - 1
-                            let returnedCursor = cursor
+                            // The spacing before the box is in the flow before it, as before a paragraph.
+                            let returnedCursor = cursor + retainedSpacing
                             var inlineRow: CGRect?
                             plan.paragraphs[last].bottomAdjustment = returnedCursor - (beforeScope + measured.height + max(0, delta))
                             plan.paragraphs[last].flowEnd = returnedCursor
@@ -510,14 +535,8 @@ enum ReaderBoxLayout {
             var measurementRange = ordinaryTail && range.length > 8_194
                 ? NSRange(location: range.location, length: 8_194) : range
             let predicted = pending.unplaced(wrappingTextIn: flow?.scope.id)
-            // A paragraph measured alone is its document's first, and TextKit lays out no spacing
-            // before that one; the text's layout does, everywhere but at its start. The builder
-            // puts space there after a forced break, above a caption set under its table, and
-            // below a box where a flex or grid item's lead cannot rest on the box (#377).
-            let authoredSpacingBefore = range.location > 0
-                ? max(0, (text.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacingBefore ?? 0) : 0
             hasRetainedSpacingBefore = hasRetainedSpacingBefore || authoredSpacingBefore > 0
-            let measurementOrigin = start + (restoresSpacingBefore ? authoredSpacingBefore : 0)
+            let measurementOrigin = start + retainedSpacing
             var measured = measure(text.attributedSubstring(from: measurementRange), viewport: viewport,
                                    regions: plan.regions + predicted, origin: measurementOrigin, sourceOffset: range.location,
                                    column: scoped ? column : nil, scope: flow?.scope.id)

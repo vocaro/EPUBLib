@@ -328,6 +328,104 @@ import UIKit
         XCTAssertGreaterThanOrEqual(right.frame.minY, 79, "below the left float it clears")
     }
 
+    // MARK: Forced breaks
+
+    /// After a forced break the margin above a box is its first paragraph's spacing before, and
+    /// the section's layout sets the box's lines below it. Measured on its own the box had no
+    /// such spacing: the plan put the box at the top of the margin and the text after it a
+    /// margin higher than drawn. That text, set beside the narrow float in the plan, was drawn
+    /// across the wide float under it (#362, seen as a drop-cap paragraph). Neither a line nor
+    /// a box's text may cross an earlier float, in the section or on a page.
+    func testTextAfterABoxAtAForcedBreakStaysOutOfEarlierFloats() throws {
+        let wide = "Wide float words, enough of them to fill three of its lines."
+        let floats = "<figure class='n'>Narrow.</figure><figure class='w'>\(wide)</figure>"
+        let css = ".n { float:left; width:60px; height:40px } .w { float:left; width:250px; height:100px } .d { float:left; font-size:2em } "
+            + ".b { float:right; width:80px; height:40px; margin-top:60px; break-before:page } .under { float:left }"
+        for (label, body, boxes, opening) in [
+            ("prose", "<figure class='b'>Broken.</figure><p>Prose follows. \(H.prose)</p>", ["Broken."], "Prose follows. "),
+            ("drop cap", "<figure class='b'>Broken.</figure><p><span class='d'>D</span>rop cap. \(H.prose)</p>", ["Broken.", "D"], "rop cap. "),
+            ("pushed below", "<figure class='b under'>Broken.</figure><p>Prose follows. \(H.prose)</p>", ["Broken."], "Prose follows. "),
+        ] {
+            let (section, view) = try layout(floats + body, css: css)
+            var regions: [ReaderBoxGeometry.Region] = []
+            for phrase in ["Narrow.", wide] + boxes {
+                let region = try XCTUnwrap(H.region(phrase, in: section, view: view), "\(label): \(phrase)")
+                for ink in H.ink(phrase, in: section, view: view) {
+                    XCTAssertTrue(region.frame.insetBy(dx: -1, dy: -1).contains(ink), "\(label): \(phrase) \(ink) is drawn in its region \(region.frame)")
+                }
+                regions.append(region)
+            }
+            let paragraph = H.range(opening + H.prose, in: section)
+            XCTAssertFalse(H.overlaps(H.ink(opening + H.prose, in: section, view: view), regions.map(\.frame)),
+                           "\(label): no line of the paragraph crosses a float")
+            XCTAssertEqual(paragraph.upperBound, section.string.length, label)
+            XCTAssertEqual(view.visibleText, section.string.string, label)
+            XCTAssertEqual(Self.proseOverBoxText(in: view), [], label)
+            let (paginator, pages) = H.pages(section, size: size, label)
+            for page in pages {
+                XCTAssertEqual(Self.proseOverBoxText(in: H.pageView(paginator, page: page)), [], "\(label): page at \(page.range.location)")
+            }
+        }
+    }
+
+    /// A paragraph after a forced break keeps the margin above it too, and the plan has its lines
+    /// below that margin. TextKit proposes the first line there, and the container took that
+    /// place for where the margin starts: it wrapped the lines a margin higher than they are
+    /// drawn, beside the narrow float, and drew them across the wide one under it (#362).
+    func testAParagraphAtAForcedBreakWrapsWhereItsLinesAreDrawn() throws {
+        let wide = "Wide float words, enough of them to fill three of its lines."
+        let (section, view) = try layout("<figure class='n'>Narrow.</figure><figure class='w'>\(wide)</figure><p class='f'>Forced paragraph. \(H.prose)</p>",
+            css: ".n { float:left; width:60px; height:40px } .w { float:left; width:250px; height:100px } .f { margin-top:30px; break-before:page }")
+        let regions = try ["Narrow.", wide].map { try XCTUnwrap(H.region($0, in: section, view: view)) }
+        let lines = H.lines(in: view, intersecting: H.range("Forced paragraph.", in: section))
+        let first = try XCTUnwrap(lines.first).frame
+        XCTAssertEqual(first.minY, 30, accuracy: 0.5, "the paragraph keeps its margin")
+        XCTAssertGreaterThanOrEqual(first.minX, regions[1].frame.maxX - 0.5, "its first line is beside the wide float it is drawn beside")
+        XCTAssertFalse(H.overlaps(H.ink("Forced paragraph. " + H.prose, in: section, view: view), regions.map(\.frame)))
+        XCTAssertEqual(Self.proseOverBoxText(in: view), [])
+        let (paginator, pages) = H.pages(section, size: size)
+        for page in pages {
+            XCTAssertEqual(Self.proseOverBoxText(in: H.pageView(paginator, page: page)), [], "page at \(page.range.location)")
+        }
+    }
+
+    /// A forced break before a float changes where pages break and nothing else: the margin above
+    /// the float is in the flow before it, as before a paragraph (#192), and the section is laid
+    /// out as it is with the break unforced, where that margin ends the paragraph before.
+    func testAForcedBreakBeforeAFloatLeavesTheSectionsLayoutAsItIsWithoutIt() throws {
+        func arrangement(forced: Bool) throws -> (regions: [CGRect], lines: [CGRect]) {
+            let (section, view) = try layout("<p>Lead words.</p><figure class='b'>Broken.</figure><p>Prose follows. \(H.prose)</p>",
+                css: ".b { float:right; width:80px; height:40px; margin-top:60px\(forced ? "; break-before:page" : "") }")
+            return (view.readerContainer.boxRegions.filter { !$0.reserved }.map(\.frame), H.lines(in: view).map(\.frame))
+        }
+        let unforced = try arrangement(forced: false), forced = try arrangement(forced: true)
+        XCTAssertEqual(forced.regions.count, 1)
+        XCTAssertEqual(forced.regions.map(\.minY), unforced.regions.map(\.minY))
+        XCTAssertEqual(forced.lines.count, unforced.lines.count)
+        for (line, other) in zip(forced.lines, unforced.lines) {
+            XCTAssertEqual(line.minY, other.minY, accuracy: 0.01)
+            XCTAssertEqual(line.minX, other.minX, accuracy: 0.01)
+        }
+    }
+
+    /// Lines of text outside every box that `view` draws over a box's text, by their source ranges.
+    private static func proseOverBoxText(in view: ReaderTextView) -> [NSRange] {
+        guard let page = view.readerContainer.boxPage else { return [] }
+        let regions = page.geometry.regions.filter { !$0.reserved }
+        guard let text = view.contentStorage.textStorage?.string as NSString? else { return [] }
+        var boxes: [CGRect] = [], prose: [(NSRange, [CGRect])] = []
+        for line in H.lines(in: view) {
+            var part = line.range
+            while part.length > 0, let scalar = UnicodeScalar(text.character(at: part.location)), CharacterSet.whitespacesAndNewlines.contains(scalar) { part.location += 1; part.length -= 1 }
+            while part.length > 0, let scalar = UnicodeScalar(text.character(at: part.upperBound - 1)), CharacterSet.whitespacesAndNewlines.contains(scalar) { part.length -= 1 }
+            guard part.length > 0 else { continue }
+            let ink = view.segmentFrames(for: part)
+            let source = NSRange(location: line.range.location + page.offset, length: line.range.length)
+            if regions.contains(where: { NSIntersectionRange($0.range, source).length > 0 }) { boxes += ink } else { prose.append((source, ink)) }
+        }
+        return prose.filter { H.overlaps($0.1, boxes) }.map(\.0)
+    }
+
     // MARK: Containing block
 
     /// CSS 2.2 9.5 and 10.1: a float moves to the edge of its containing block, the content box
