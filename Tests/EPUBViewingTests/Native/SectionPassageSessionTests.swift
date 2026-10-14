@@ -130,4 +130,34 @@ import UIKit
         try await session.send(.setHighlights([EPUBHighlight(id: "native", location: try XCTUnwrap(used?.location))]))
         XCTAssertEqual(session.drawnHighlights.first { $0.id == "native" }?.range, range)
     }
+
+    @MainActor private final class OptionalPassageSource: ReaderCanvasDataSource {
+        let text = CanvasText.body("Rendered body")
+        var passage: String?
+        var sectionCount: Int { 1 }
+        func text(forSection index: Int) -> NSAttributedString? { text }
+        func selectionText(in range: ReaderTextRange) -> String? { passage }
+        func isLinear(section index: Int) -> Bool { true }
+        var bookText: ReaderBookText? { nil }
+    }
+
+    func testUnavailableCellPassageFallsBackButExplicitEmptyPassageDoesNot() throws {
+        let source = OptionalPassageSource()
+        let host = CanvasHost(FakeCanvasSource([source.text]))
+        defer { host.close() }
+        host.canvas.dataSource = source
+        let owner = NSObject()
+        let range = ReaderTextRange(
+            start: ReaderTextPosition(section: 0, offset: 0, tableCell: ReaderTablePosition(table: 0, cell: 0, offset: 1)),
+            end: ReaderTextPosition(section: 0, offset: 0, tableCell: ReaderTablePosition(table: 0, cell: 0, offset: 3)))
+        let selected = ReaderSelection(range: range, text: "cell text")
+        source.passage = nil
+        host.canvas.setExternalSelection(selected, source: owner)
+        XCTAssertEqual(host.canvas.currentSelection?.text, "cell text")
+        XCTAssertEqual(host.canvas.selectionText(for: owner), "cell text")
+        source.passage = ""
+        host.canvas.setExternalSelection(selected, source: owner)
+        XCTAssertEqual(host.canvas.currentSelection?.text, "")
+        XCTAssertEqual(host.canvas.selectionText(for: owner), "")
+    }
 }

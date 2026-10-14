@@ -293,7 +293,7 @@ extension SectionText {
 extension TextMap {
     /// Also used for a detached table cell's passage: its map retains the same authored
     /// substitutions and layout separators as the section map.
-    func mappedText(in range: Range<Int>, from string: NSAttributedString) -> String {
+    func mappedText(in range: Range<Int>, from string: NSAttributedString, generatedBreaks: String = "\n") -> String {
         let characters = string.string as NSString
         let lower = max(0, min(string.length, range.lowerBound))
         let upper = max(lower, min(string.length, range.upperBound))
@@ -304,7 +304,7 @@ extension TextMap {
             var location = gap.lowerBound
             for scalar in characters.substring(with: NSRange(location: gap.lowerBound, length: gap.count)).unicodeScalars {
                 if let replacement = layoutSeparators[location] { text += replacement }
-                else if scalar == "\n" || scalar == "\u{2028}" || scalar == "\u{2029}" { text += "\n" }
+                else if scalar == "\n" || scalar == "\u{2028}" || scalar == "\u{2029}" { text += generatedBreaks }
                 location += scalar.utf16.count
             }
         }

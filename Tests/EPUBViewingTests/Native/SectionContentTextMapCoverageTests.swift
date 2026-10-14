@@ -281,6 +281,19 @@ final class SectionContentTextMapCoverageTests: XCTestCase {
         XCTAssertEqual(text.mappedText(in: 0..<text.string.length), "漢字語")
     }
 
+    func testWholeTableCopyKeepsOneRowPerLineWhilePreciseCellRangesKeepGeneratedBreaks() throws {
+        let text = try S.styled("<table><caption>Caption</caption><tr><td style='text-transform: uppercase'><p>First</p><p>Second</p></td>"
+                                + "<td>one<br/>two</td></tr><tr><td><ul><li>three</li><li>four</li></ul></td><td>Last</td></tr></table>")
+        XCTAssertEqual(text.mappedText(in: 0..<text.string.length), "Caption\nFirst Second\tone two\nthree four\tLast")
+        let row = try XCTUnwrap(text.tables().first)
+        let cell = row.row.table.cells[0]
+        let start = ReaderTextPosition(section: 0, offset: row.offset,
+            tableCell: ReaderTablePosition(table: row.row.table.sourceOrder, cell: 0, offset: 0))
+        let end = ReaderTextPosition(section: 0, offset: row.offset,
+            tableCell: ReaderTablePosition(table: row.row.table.sourceOrder, cell: 0, offset: cell.content.length))
+        XCTAssertEqual(text.tablePassage(ReaderTextRange(start: start, end: end)), "First\nSecond")
+    }
+
     func testDetachedTableCopyUsesAuthoredCaseAndLineBreaks() throws {
         let text = try S.styled("<table><tr><td><pre>code\n  next</pre></td><td style='text-transform: uppercase'>straße</td></tr></table>")
         let row = try XCTUnwrap(text.tables().first)

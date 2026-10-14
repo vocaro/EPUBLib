@@ -1326,7 +1326,10 @@ import AppKit
     /// continuations. A simple data source without a semantic map falls back to rendered text.
     private func text(of range: ReaderTextRange) -> String? {
         if let passage = dataSource?.selectionText(in: range) { return passage }
-        guard range.start.section == range.end.section,
+        // A row offset is not a cell character offset. Without a semantic cell mapper the
+        // rendered section cannot answer this range; retain the cell surface's own text.
+        guard range.start.tableCell == nil, range.end.tableCell == nil,
+              range.start.section == range.end.section,
               let text = dataSource?.text(forSection: range.start.section) else { return nil }
         return text.readerPlainText(in: NSIntersectionRange(
             NSRange(location: range.start.offset, length: range.end.offset - range.start.offset),

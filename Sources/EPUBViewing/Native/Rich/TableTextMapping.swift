@@ -31,10 +31,11 @@ extension TableModel.Cell {
 
 extension TableRowAttachment {
     /// The row's authored cell text for a body selection containing its attachment. Detached
-    /// maps carry the same substitutions and separator rules as the body map.
+    /// maps carry the same substitutions as the body map. Coarse rows flatten generated
+    /// cell block/br separators to spaces; authored preformatted LF survives.
     var copyTextEquivalent: String {
         table.rowCells[row].map { table.cells[$0] }.filter { $0.row == row }.sorted { $0.column < $1.column }.map { cell in
-            cell.textMap.map { $0.map.mappedText(in: 0..<cell.content.length, from: cell.content) } ?? cell.text
+            cell.textMap.map { $0.map.mappedText(in: 0..<cell.content.length, from: cell.content, generatedBreaks: " ") } ?? cell.text
         }.joined(separator: "\t")
     }
 }
