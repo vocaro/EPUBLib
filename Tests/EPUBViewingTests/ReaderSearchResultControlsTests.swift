@@ -711,7 +711,7 @@ extension FrameMarker: UIViewRepresentable {
     /// content: whatever the window's size, and with no safe area.
     #if os(macOS)
     init(_ view: some View, size: CGSize? = nil) {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
+        window = makeMacTestWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         host = NSHostingView(rootView: view)
         if let size {

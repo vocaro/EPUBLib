@@ -48,7 +48,7 @@ import UIKit
 
         init(_ content: some View, size: CGSize = CGSize(width: 600, height: 700)) {
             #if os(macOS)
-            window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
+            window = makeMacTestWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.keepLightAppearance()
             hosting = NSHostingView(rootView: AnyView(content))

@@ -203,7 +203,7 @@ extension PageAccessibilityTests {
         let recorder = CanvasRecorder()
         canvas.dataSource = source
         canvas.delegate = recorder
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1100, height: 500),
+        let window = makeMacTestWindow(contentRect: CGRect(x: 0, y: 0, width: 1100, height: 500),
             styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = canvas
@@ -312,7 +312,7 @@ extension PageAccessibilityTests {
         hosted.canvas.frame = group.bounds
         hosted.canvas.autoresizingMask = [.width, .height]
         group.addSubview(hosted.canvas)
-        let window = NSWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let window = makeMacTestWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = group
         defer { window.contentView = nil; window.close() }
@@ -321,7 +321,7 @@ extension PageAccessibilityTests {
         }
         // With nothing between the canvas and its window, the window holds the columns.
         let alone = reader()
-        let bare = NSWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let bare = makeMacTestWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
         bare.isReleasedWhenClosed = false
         bare.contentView = alone.canvas
         defer { bare.contentView = nil; bare.close() }

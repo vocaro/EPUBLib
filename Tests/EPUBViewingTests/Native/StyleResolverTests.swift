@@ -1,3 +1,4 @@
+import EPUBTestSupport
 import EPUBReading
 import CoreText
 @testable import EPUBViewing
@@ -571,14 +572,14 @@ final class StyleResolverTests: XCTestCase {
         XCTAssertEqual(sheets[0].rules.count, 3003)
         let elements = document.nodes.filter(\.isElement).count
         XCTAssertGreaterThan(elements, 10_000)
-        let start = Date()
+        let start = TestCPUClock.seconds()
         let resolver = StyleResolver(document: document, stylesheets: sheets, typography: NativeTypography())
         let styles = StyleTestSupport.styleAll(document, resolver)
-        let elapsed = Date().timeIntervalSince(start)
+        let elapsed = TestCPUClock.seconds() - start
         XCTAssertEqual(styles.count, elements)
         // Release builds take well under 100 ms; debug builds are several times slower.
-        XCTAssertLessThan(elapsed, 3, "Styling \(elements) elements took \(elapsed) s")
-        print("Styled \(elements) elements against \(sheets[0].rules.count) rules in \(Int(elapsed * 1000)) ms")
+        XCTAssertLessThan(elapsed, 3, "Styling \(elements) elements took \(elapsed) CPU s")
+        print("Styled \(elements) elements against \(sheets[0].rules.count) rules in \(Int(elapsed * 1000)) CPU ms")
     }
 
     func testConcurrentResolution() throws {
@@ -612,9 +613,9 @@ final class StyleResolverTests: XCTestCase {
     func testNestedSelectorPositionsAreRefused() throws {
         let siblings = String(repeating: "<p>x</p>", count: 900) + "<p id='p'>x</p>"
         let nested = ":nth-child(2n of :nth-child(2n of :nth-child(2n of :nth-child(2n of p))))"
-        let start = Date()
+        let start = TestCPUClock.seconds()
         let styled = try StyleTestSupport.styled(siblings, css: "\(nested) { color: red } p:nth-child(odd of p) { font-weight: bold }")
-        XCTAssertLessThan(Date().timeIntervalSince(start), 5, "nested `of` lists must not multiply the matching work")
+        XCTAssertLessThan(TestCPUClock.seconds() - start, 5, "nested `of` lists must not multiply the matching work")
         XCTAssertNil(styled.style("p").color, "a nested `of` list makes the selector invalid")
         XCTAssertEqual(styled.style("p").fontWeight, 700, "one level of `of` still works")
     }

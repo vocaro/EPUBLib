@@ -1,3 +1,4 @@
+import EPUBTestSupport
 import CoreGraphics
 import Foundation
 import XCTest
@@ -181,7 +182,7 @@ import UIKit
             length += line.utf16.count + 1
         }
         let text = CanvasText.body(lines.joined(separator: "\u{2028}"))
-        let start = Date()
+        let start = TestCPUClock.seconds()
         let paginator = ReaderPaginator(text: text, size: size)
         for index in 0..<40 {
             guard let page = paginator.page(at: index) else { return XCTFail("page \(index)") }
@@ -190,7 +191,7 @@ import UIKit
             let view = lines.isEmpty ? 0 : self.lines(of: pageText, width: size.width).count
             XCTAssertGreaterThan(view, 0)
         }
-        XCTAssertLessThan(Date().timeIntervalSince(start), 2, "40 pages of a 300 KB paragraph")
+        XCTAssertLessThan(TestCPUClock.seconds() - start, 2, "40 pages of a 300 KB paragraph")
     }
 
     func testKeepWithNextNeverStrandsAHeading() {
@@ -280,15 +281,15 @@ import UIKit
         let paragraph = CanvasText.sentence(130, seed: 5)
         let text = NSMutableAttributedString()
         while text.length < 1_000_000 { text.append(CanvasText.body(paragraph + "\n")) }
-        var start = Date()
+        var start = TestCPUClock.seconds()
         let paginator = ReaderPaginator(text: text, size: size)
         XCTAssertNotNil(paginator.page(at: 0))
-        let first = Date().timeIntervalSince(start)
+        let first = TestCPUClock.seconds() - start
         XCTAssertLessThan(first, 0.25)
-        start = Date()
+        start = TestCPUClock.seconds()
         let count = paginator.allPages.count
-        let all = Date().timeIntervalSince(start)
+        let all = TestCPUClock.seconds() - start
         XCTAssertLessThan(all, 3)
-        print("1 MB section: first page \(first) s, all \(count) pages \(all) s")
+        print("1 MB section: first page \(first) CPU s, all \(count) pages \(all) CPU s")
     }
 }

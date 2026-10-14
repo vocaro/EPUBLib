@@ -153,7 +153,7 @@ enum SessionCoverageBook {
     /// Ready, located and with every section built for the current typography.
     func settle(file: StaticString = #filePath, line: UInt = #line) async throws {
         try await wait("a ready, built and located reader", file: file, line: line) {
-            session.isReady && session.book.isComplete && session.lastLocation != nil && locations.last == session.lastLocation
+            session.isReady && session.book.isComplete && session.book.hasAnnouncedCompletion && session.lastLocation != nil && locations.last == session.lastLocation
         }
     }
 
@@ -209,7 +209,7 @@ private struct SessionCoverageStageView: View {
     init(session: any EPUBReaderSession, size: CGSize = CGSize(width: 600, height: 700)) {
         let view = SessionCoverageStageView(session: session, stage: stage)
         #if os(macOS)
-        window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
+        window = makeMacTestWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.keepLightAppearance()
         window.contentView = NSHostingView(rootView: view)

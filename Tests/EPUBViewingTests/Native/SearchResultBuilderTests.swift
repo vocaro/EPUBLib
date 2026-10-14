@@ -152,15 +152,15 @@ final class SearchResultBuilderTests: XCTestCase {
         let found = matches("the age of foolishness", in: text)
         XCTAssertEqual(found.count, 10_000)
         var built = SearchResultBuilder.Batch()
-        let elapsed = try ContinuousClock().measure { built = try batch("the age of foolishness", in: text) }
+        let elapsed = try TestCPUClock.measure { built = try batch("the age of foolishness", in: text) }
         XCTAssertEqual(built.results.count, 10_000)
         XCTAssertEqual(built.results.last?.index, 9_999)
         XCTAssertEqual(built.results.last?.contextAfter, ".")
-        print("10,000 search results: \(elapsed)")
+        print("10,000 search results: \(elapsed) CPU s")
         #if DEBUG
-        XCTAssertLessThan(elapsed, .seconds(5))
+        XCTAssertLessThan(elapsed, 5)
         #else
-        XCTAssertLessThan(elapsed, .seconds(1))
+        XCTAssertLessThan(elapsed, 1)
         #endif
         // The cached child indices write the CFIs the uncached walk does.
         let spine = try SpineCFIs(publication: BuilderHarness.publication)

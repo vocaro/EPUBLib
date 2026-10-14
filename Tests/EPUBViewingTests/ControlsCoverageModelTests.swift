@@ -502,7 +502,7 @@ import UIKit
         init(_ content: some View) {
             let size = CGSize(width: 700, height: 500)
             #if os(macOS)
-            window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
+            window = makeMacTestWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             hosting = NSHostingView(rootView: AnyView(content))
             window.contentView = hosting

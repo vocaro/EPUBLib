@@ -142,7 +142,7 @@ import UIKit
         canvas.configuration = configuration
         #if os(macOS)
         // Never ordered in: layout needs a window, not a place on a shared screen.
-        window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 800), styleMask: [.titled], backing: .buffered, defer: false)
+        window = makeMacTestWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 800), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = NSView(frame: CGRect(x: 0, y: 0, width: 800, height: 800))
         window.contentView?.addSubview(canvas)

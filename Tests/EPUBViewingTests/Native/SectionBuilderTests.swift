@@ -316,9 +316,9 @@ final class SectionBuilderTests: XCTestCase {
             }
             body += String(repeating: "</aside>", count: 190) + "<p>After.</p>"
             let document = try H.document(body)
-            let start = Date()
+            let start = TestCPUClock.seconds()
             let text = H.build(document: document)
-            let elapsed = Date().timeIntervalSince(start)
+            let elapsed = TestCPUClock.seconds() - start
             let sourceLength = document.nodes.reduce(0) { $0 + ($1.isText ? $1.utf16Length : 0) }
             let noteIDs = (0..<190).map { "n\($0)" }
             let noteLength = noteIDs.reduce(0) { $0 + (text.notes[$1]?.length ?? 0) }
@@ -328,7 +328,7 @@ final class SectionBuilderTests: XCTestCase {
             XCTAssertTrue(outer.hasPrefix("A paragraph of note 0."), type)
             XCTAssertFalse(outer.contains("note 1."), "\(type): a nested note is its own note")
             XCTAssertTrue(text.notes["n189"]?.string.contains("note 189.") == true, type)
-            XCTAssertLessThan(elapsed, 10, "\(type): nested notes took \(elapsed) s")
+            XCTAssertLessThan(elapsed, 10, "\(type): nested notes took \(elapsed) CPU s")
             XCTAssertEqual(text.string.string.hasSuffix("After."), true)
             if type == "footnote" { XCTAssertEqual(text.string.string, "After.") }
         }
@@ -679,13 +679,13 @@ final class SectionBuilderTests: XCTestCase {
             index += 1
         }
         let document = try H.document(body)
-        let start = Date()
+        let start = TestCPUClock.seconds()
         let text = H.build(document: document)
-        let elapsed = Date().timeIntervalSince(start)
+        let elapsed = TestCPUClock.seconds() - start
         XCTAssertEqual(text.anchors.count, index)
         XCTAssertLessThan(text.map.spans.count, index * 8)
-        XCTAssertLessThan(elapsed, 4, "1 MB chapter took \(elapsed) s")
-        print("SectionBuilder: 1 MB chapter (\(index) paragraphs) in \(Int(elapsed * 1000)) ms")
+        XCTAssertLessThan(elapsed, 4, "1 MB chapter took \(elapsed) CPU s")
+        print("SectionBuilder: 1 MB chapter (\(index) paragraphs) in \(Int(elapsed * 1000)) CPU ms")
     }
 
     func testSectionsBuildConcurrently() throws {

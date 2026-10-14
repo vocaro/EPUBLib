@@ -53,9 +53,10 @@ import XCTest
             } catch (error) { return JSON.stringify({ error: String(error), stack: error.stack }); }
         })()
         """
+        prepareMacTestApplication()
         _ = NSApplication.shared
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
-        let window = NSWindow(contentRect: webView.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = makeMacTestWindow(contentRect: webView.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = webView
         defer { window.contentView = nil; window.close() }

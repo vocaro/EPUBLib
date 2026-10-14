@@ -137,7 +137,7 @@ private struct ReaderUnderABar: View {
         let publication = try EPUBPublication.open(data: Fixture.alignment())
         let session = try XCTUnwrap(try NativeEngine().makeSession(publication: publication, selectionAction: nil) { _ in } as? NativeSession)
         #if os(macOS)
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 500, height: 700), styleMask: [.titled, .fullSizeContentView],
+        let window = makeMacTestWindow(contentRect: CGRect(x: 0, y: 0, width: 500, height: 700), styleMask: [.titled, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.keepLightAppearance()

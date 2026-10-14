@@ -99,7 +99,7 @@ final class ExtractionAdversarialCoverageTests: XCTestCase {
     // An ID is held until the next text character, and each new one is compared with every ID
     // still held. A section of textless anchors (well inside the 100,000-element and 4 MiB
     // defaults) therefore costs quadratic time, where the same anchors each followed by a
-    // character are linear. Both are timed in this process, best of three, so load cancels out.
+    // character are linear. Both use thread CPU time in this process, best of three, excluding scheduling delay.
     func testTextlessAnchorsDoNotMakeExtractionQuadratic() throws {
         XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/92", options: .nonStrict())
         let count = 6_000
@@ -108,9 +108,9 @@ final class ExtractionAdversarialCoverageTests: XCTestCase {
             var best = Double.infinity
             var result: EPUBTextSection?
             for _ in 0..<3 {
-                let start = DispatchTime.now().uptimeNanoseconds
+                let start = TestCPUClock.seconds()
                 result = try publication.textSection(at: 0)
-                best = min(best, Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9)
+                best = min(best, TestCPUClock.seconds() - start)
             }
             return (best, try XCTUnwrap(result))
         }

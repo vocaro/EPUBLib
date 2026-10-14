@@ -1,5 +1,6 @@
 import CoreGraphics
 import EPUBCore
+import EPUBTestSupport
 import Foundation
 import XCTest
 @testable import EPUBViewing
@@ -261,7 +262,7 @@ import UIKit
         column.selectedRange = NSRange(location: 4, length: 12)
         canvas.textViewSelectionDidChange(column) // UIKit does not notify programmatic changes.
         XCTAssertTrue(host.recorder.selections.isEmpty, "not before it settles")
-        try await host.settle()
+        try await host.settleSelection()
         let selection = try XCTUnwrap(host.recorder.selections.last ?? nil)
         XCTAssertEqual(selection.range, ReaderTextRange(section: 0, (offset + 4)..<(offset + 16)))
         XCTAssertEqual(selection.text, column.plainText(in: NSRange(location: 4, length: 12)))
@@ -274,6 +275,23 @@ import UIKit
         XCTAssertEqual(column.selectedRange.length, 0)
     }
 
+    func testASelectionWaitReadsTheCurrentReportEvenWhenDeliveryIsDelayed() async throws {
+        let host = host(sections(1, paragraphs: 20))
+        let first = ReaderTextRange(section: 0, 10..<30)
+        host.canvas.show(first.start, selecting: first)
+        let firstReport = try await host.reportedSelection()
+        XCTAssertEqual(firstReport.range, first)
+
+        // The native canvas reports normally; its observer makes delivery slower than the
+        // former 300 ms sleep. A previous non-nil report must not satisfy the new wait.
+        host.recorder.selectionReportDelay = .milliseconds(450)
+        let second = ReaderTextRange(section: 0, 50..<70)
+        host.canvas.show(second.start, selecting: second)
+        let secondReport = try await host.reportedSelection()
+        XCTAssertEqual(secondReport.range, second)
+        XCTAssertEqual(host.recorder.selections.compactMap { $0?.range }, [first, second])
+    }
+
     func testSelectionNeverReachesTheClippedContext() async throws {
         let host = host(sections(1, paragraphs: 20))
         let column = try XCTUnwrap(host.canvas.textViews.first)
@@ -281,7 +299,7 @@ import UIKit
         column.selectedRange = NSRange(location: column.placement.visibleLength - 5, length: 20)
         host.canvas.textViewSelectionDidChange(column)
         XCTAssertEqual(NSMaxRange(column.selectedRange), column.placement.visibleLength)
-        try await host.settle()
+        try await host.settleSelection()
         XCTAssertEqual(host.canvas.currentSelection?.range.end.offset, column.placement.visibleLength)
     }
 
@@ -292,7 +310,7 @@ import UIKit
         host.canvas.show(range.start, selecting: range)
         let column = try XCTUnwrap(host.canvas.textViews.first { NSLocationInRange(7_000 - $0.placement.offset, NSRange(location: 0, length: $0.placement.visibleLength)) })
         XCTAssertEqual(column.selectedRange.location, 7_000 - column.placement.offset)
-        try await host.settle()
+        try await host.settleSelection()
         let selection = try XCTUnwrap(host.recorder.selections.last ?? nil)
         XCTAssertEqual(selection.range, range)
         XCTAssertEqual(selection.text, (text.string as NSString).substring(with: NSRange(location: 7_000, length: 40)))
@@ -303,7 +321,7 @@ import UIKit
         let pageEnd = try XCTUnwrap(host.canvas.visibleRange).end.offset
         let range = ReaderTextRange(section: 0, (pageEnd - 10)..<(pageEnd + 30))
         host.canvas.show(range.start, selecting: range)
-        try await host.settle()
+        try await host.settleSelection()
         XCTAssertEqual(host.recorder.selections.count, 1)
         XCTAssertEqual((host.recorder.selections.last ?? nil)?.range, range)
         XCTAssertEqual(host.canvas.currentSelection?.range, range)
@@ -356,7 +374,7 @@ import UIKit
         let column = host.canvas.textViews[0]
         column.selectedRange = NSRange(location: 0, length: text.length)
         host.canvas.textViewSelectionDidChange(column)
-        try await host.settle()
+        try await host.settleSelection()
         let expected = "Energy E = mc² is famous."
         XCTAssertEqual((host.recorder.selections.last ?? nil)?.text, expected)
         XCTAssertEqual(column.visibleText, expected)
@@ -755,7 +773,7 @@ import UIKit
         #else
         view.contentOffset = CGPoint(x: 0, y: line.minY)
         #endif
-        try await host.settle()
+        try await host.settleShown(since: reports) { $0.start > ReaderTextPosition(section: 0, offset: 3_000) }
         XCTAssertGreaterThan(host.recorder.shown.count, reports)
         let range = try XCTUnwrap(host.recorder.shown.last?.range)
         XCTAssertGreaterThan(range.start, ReaderTextPosition(section: 0, offset: 3_000))
@@ -803,6 +821,9 @@ import UIKit
     func testABurstOfScrolledResizesKeepsThePositionAndRestoresLand() async throws {
         let host = scrolledHost([longSection(200_000)], book: true, show: ReaderTextPosition(section: 0, offset: 100_000),
                                 size: CGSize(width: 867, height: 669))
+        // Keep the column's width fixed while AppKit learns the machine's scroller preference.
+        try host.setScrollBars(.overlay)
+        let reports = host.recorder.shown.count
         // The person scrolls on a little (not through the canvas).
         #if os(macOS)
         let scrollView = try XCTUnwrap(host.canvas.scrollContainer as? NSScrollView)
@@ -812,19 +833,20 @@ import UIKit
         let view = try XCTUnwrap(host.canvas.scrollTextView)
         view.contentOffset = CGPoint(x: 0, y: view.contentOffset.y + 300)
         #endif
-        try await host.settle()
+        try await host.settleShown(since: reports) { $0.start.offset > 100_000 }
         let reading = try XCTUnwrap(host.canvas.visibleRange?.start)
         XCTAssertGreaterThan(reading.offset, 100_000)
         func assertShows(_ position: ReaderTextPosition, _ step: String) throws {
             let range = try XCTUnwrap(host.canvas.visibleRange)
             XCTAssertTrue(range.start <= position && position < range.end, "\(step): \(range)")
         }
+        let resizeReports = host.recorder.shown.count
         for size in [CGSize(width: 779, height: 669), CGSize(width: 294, height: 678), CGSize(width: 382, height: 678),
                      CGSize(width: 466, height: 678), CGSize(width: 951, height: 669), CGSize(width: 867, height: 669)] {
             host.resize(to: size)
             try assertShows(reading, "\(size)")
         }
-        try await host.settle()
+        try await host.settleShown(since: resizeReports) { $0.start <= reading && reading < $0.end }
         try assertShows(reading, "settled")
         // The session's restore: the position from before the burst, then another and back.
         for offset in [reading.offset, 150_000, reading.offset] {
@@ -914,9 +936,9 @@ import UIKit
             length += line.utf16.count + 1
         }
         let host = host([CanvasText.body(lines.joined(separator: "\u{2028}"))])
-        let start = Date()
+        let start = TestCPUClock.seconds()
         for _ in 0..<20 { XCTAssertEqual(host.canvas.turnPage(forward: true), .turned) }
-        XCTAssertLessThan(Date().timeIntervalSince(start) / 20, 0.15, "per page turn, with generous room for a loaded machine")
+        XCTAssertLessThan((TestCPUClock.seconds() - start) / 20, 0.15, "CPU seconds per page turn")
         let column = host.canvas.textViews[0]
         XCTAssertLessThan(column.textLength - column.placement.visibleLength, 400, "a few lines of context, not the rest")
     }
@@ -1238,35 +1260,35 @@ import UIKit
         let paragraph = CanvasText.sentence(130, seed: 9)
         let text = NSMutableAttributedString()
         while text.length < 1_000_000 { text.append(CanvasText.body(paragraph + "\n")) }
-        var start = Date()
+        var start = TestCPUClock.seconds()
         let host = host([text])
-        let open = Date().timeIntervalSince(start)
+        let open = TestCPUClock.seconds() - start
         XCTAssertLessThan(open, 1)
-        start = Date()
+        start = TestCPUClock.seconds()
         for _ in 0..<20 { XCTAssertEqual(host.canvas.turnPage(forward: true), .turned) }
-        let turns = Date().timeIntervalSince(start) / 20
+        let turns = (TestCPUClock.seconds() - start) / 20
         XCTAssertLessThan(turns, 0.15)
-        start = Date()
+        start = TestCPUClock.seconds()
         host.canvas.show(ReaderTextPosition(section: 0, offset: text.length - 10), selecting: nil)
-        let end = Date().timeIntervalSince(start)
+        let end = TestCPUClock.seconds() - start
         XCTAssertLessThan(end, 3)
         print("1 MB section: open \(open) s, turn \(turns) s, show end \(end) s")
     }
 
     func testWholeBookScrollsQuickly() throws {
         let sections = (0..<300).map { CanvasText.section($0, chapters: 1, paragraphs: 30) as NSAttributedString? }
-        var start = Date()
+        var start = TestCPUClock.seconds()
         let host = scrolledHost(sections, book: true, show: ReaderTextPosition(section: 150, offset: 100))
-        let open = Date().timeIntervalSince(start)
+        let open = TestCPUClock.seconds() - start
         let length = try XCTUnwrap(host.canvas.scrollBook).string.length
         XCTAssertGreaterThan(length, 3_000_000)
         XCTAssertEqual(host.canvas.visibleRange?.start.section, 150)
-        start = Date()
+        start = TestCPUClock.seconds()
         for _ in 0..<30 { XCTAssertEqual(host.canvas.turnPage(forward: true), .turned) }
-        let turns = Date().timeIntervalSince(start) / 30
-        start = Date()
+        let turns = (TestCPUClock.seconds() - start) / 30
+        start = TestCPUClock.seconds()
         host.canvas.show(ReaderTextPosition(section: 290, offset: 0), selecting: nil)
-        let jump = Date().timeIntervalSince(start)
+        let jump = TestCPUClock.seconds() - start
         XCTAssertEqual(host.canvas.visibleRange?.start.section, 290)
         XCTAssertLessThan(open, 5)
         XCTAssertLessThan(turns, 0.25)

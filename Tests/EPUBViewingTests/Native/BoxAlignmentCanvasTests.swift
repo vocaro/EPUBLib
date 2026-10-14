@@ -278,6 +278,7 @@ import UIKit
         // shows the box whole again.
         let scroll = try XCTUnwrap(host.canvas.scrollTextView), book = try XCTUnwrap(host.canvas.scrollBook)
         let second = ReaderTextPosition(section: 1, offset: H.range("who read", in: texts[1]).location)
+        let reports = host.recorder.shown.count
         let delta = try XCTUnwrap(scroll.lineFrame(containing: book.location(of: second))).minY - host.canvas.scrollVisibleContainerRect.minY
         #if os(macOS)
         let clip = try XCTUnwrap(host.canvas.scrollContainer as? NSScrollView).contentView
@@ -286,7 +287,7 @@ import UIKit
         #else
         scroll.contentOffset.y += delta
         #endif
-        try await host.settle()
+        try await host.settleShown(since: reports) { $0.start == second }
         XCTAssertEqual(host.canvas.visibleRange?.start, second, "the second line is at the top")
         host.resize(to: CGSize(width: 460, height: 640))
         try await host.settle()

@@ -1,3 +1,4 @@
+import EPUBTestSupport
 import EPUBCore
 import Foundation
 import XCTest
@@ -188,9 +189,9 @@ final class XMLSafetyCoverageTests: XCTestCase {
         // Each of these makes a careless scanner start again from every byte.
         for unit in ["<", "<!--", "<![CDATA[", "<?", "<a '", "<!DOCTYPE", "<!-- -", "]]", "<a b=\"\">"] {
             let data = Data(String(repeating: unit, count: 4 * 1024 * 1024 / unit.utf8.count).utf8)
-            let started = Date()
+            let started = TestCPUClock.seconds()
             _ = XMLSafety.hasSafeDeclarations(data)
-            XCTAssertLessThan(Date().timeIntervalSince(started), 20, unit)
+            XCTAssertLessThan(TestCPUClock.seconds() - started, 20, unit)
         }
     }
 

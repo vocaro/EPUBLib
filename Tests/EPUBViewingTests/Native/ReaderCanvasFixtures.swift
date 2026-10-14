@@ -120,6 +120,8 @@ final class TextualTestAttachment: NSTextAttachment, ReaderTextualAttachment {
 @MainActor final class CanvasRecorder: ReaderCanvasDelegate {
     var shown: [(range: ReaderTextRange, progress: Double)] = []
     var selections: [ReaderSelection?] = []
+    /// An opt-in delayed observer models a report delivered after the old fixed sleep.
+    var selectionReportDelay: Duration = .zero
     var actions = 0
     var links: [(link: ReaderLink, position: ReaderTextPosition, rect: CGRect)] = []
     var needed: [(section: Int, forward: Bool)] = []
@@ -127,7 +129,14 @@ final class TextualTestAttachment: NSTextAttachment, ReaderTextualAttachment {
     func canvas(_ canvas: any ReaderCanvas, didShow range: ReaderTextRange, sectionProgress: Double) {
         shown.append((range, sectionProgress))
     }
-    func canvas(_ canvas: any ReaderCanvas, didChangeSelection selection: ReaderSelection?) { selections.append(selection) }
+    func canvas(_ canvas: any ReaderCanvas, didChangeSelection selection: ReaderSelection?) {
+        guard selectionReportDelay != .zero else { selections.append(selection); return }
+        let delay = selectionReportDelay
+        Task { [weak self] in
+            try await Task.sleep(for: delay)
+            self?.selections.append(selection)
+        }
+    }
     func canvasDidRequestSelectionAction(_ canvas: any ReaderCanvas) { actions += 1 }
     func canvas(_ canvas: any ReaderCanvas, didActivate link: ReaderLink, at position: ReaderTextPosition, rect: CGRect) {
         links.append((link, position, rect))
@@ -179,7 +188,7 @@ enum CanvasScrollBars: CaseIterable {
         canvas.delegate = recorder
         canvas.configuration = configuration
         #if os(macOS)
-        window = NSWindow(contentRect: CGRect(origin: .zero, size: size),
+        window = makeMacTestWindow(contentRect: CGRect(origin: .zero, size: size),
                           styleMask: underBars ? [.titled, .fullSizeContentView] : [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = canvas
@@ -280,10 +289,25 @@ enum CanvasScrollBars: CaseIterable {
     /// reports a selection 150 ms after it last changed, and that can be later than a test's own
     /// wait: on a hosted runner with nothing else to do, a 250 ms sleep read the recorder before
     /// the report in 17 of 50 runs of `ReaderCanvasViewTests` (#268).
-    private func settle(until condition: () -> Bool) async throws {
-        try await settle()
-        let deadline = Date().addingTimeInterval(10)
-        while !condition(), Date() < deadline { try await settle(20) }
+    private func settle(until condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(10))
+        while !condition() {
+            guard clock.now < deadline else {
+                XCTFail("The canvas did not deliver its expected report within ten seconds", file: file, line: line)
+                throw CanvasReportTimeout()
+            }
+            try await settle(20)
+        }
+    }
+
+    /// Waits for a new delegate report matching the move the test made. A new report alone
+    /// can be an initial AppKit inset adjustment, so the caller also identifies its destination.
+    func settleShown(since count: Int, file: StaticString = #filePath, line: UInt = #line,
+                     until condition: (ReaderTextRange) -> Bool) async throws {
+        try await settle(until: {
+            recorder.shown.count > count && recorder.shown.last.map { condition($0.range) } == true
+        }, file: file, line: line)
     }
 
     /// Settles until the canvas has reported the selection it holds, or that it holds none.
@@ -293,7 +317,9 @@ enum CanvasScrollBars: CaseIterable {
 
     /// Settles until the canvas has reported a selection, and returns it.
     func reportedSelection(file: StaticString = #filePath, line: UInt = #line) async throws -> ReaderSelection {
-        try await settle(until: { (recorder.selections.last ?? nil) != nil })
+        try await settle(until: { canvas.currentSelection != nil && (recorder.selections.last ?? nil) == canvas.currentSelection }, file: file, line: line)
         return try XCTUnwrap(recorder.selections.last ?? nil, "the canvas reported no selection", file: file, line: line)
     }
 }
+
+private struct CanvasReportTimeout: Error {}

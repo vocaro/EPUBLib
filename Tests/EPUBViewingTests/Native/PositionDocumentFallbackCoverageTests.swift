@@ -474,9 +474,9 @@ final class PositionDocumentFallbackCoverageTests: XCTestCase {
     /// limit admits and however many NULs it holds.
     func testDecodingAndNULsAreReadInOnePass() throws {
         func timed(_ label: String, _ data: Data, _ check: (ContentDocument) -> Void) throws {
-            let start = Date()
+            let start = TestCPUClock.seconds()
             let document = try parse(data)
-            XCTAssertLessThan(Date().timeIntervalSince(start), 30, label)
+            XCTAssertLessThan(TestCPUClock.seconds() - start, 30, label)
             XCTAssertTrue(document.recoveredAsHTML, label)
             check(document)
         }
