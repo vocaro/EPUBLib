@@ -115,9 +115,34 @@ final class NoteReachabilityTests: XCTestCase {
         closeNote(canvas)
         #else
         if let controller = canvas.presentedNote as? ReaderNoteViewController {
-            await withCheckedContinuation { continuation in
-                controller.dismiss(animated: false) { continuation.resume() }
+            @MainActor func state() -> String {
+                "presenting=\(controller.isBeingPresented), dismissing=\(controller.isBeingDismissed), "
+                    + "presenter=\(controller.presentingViewController != nil), attached=\(controller.viewIfLoaded?.window != nil)"
             }
+            // presentNote starts an animated presentation. Its text exists before UIKit has
+            // attached the controller, and dismissing at that instant can lose the completion
+            // callback. Wait for actual transition state, with a bound on both phases.
+            @MainActor func waitForTransition(_ phase: String, until settled: @MainActor () -> Bool) async -> Bool {
+                let deadline = Date().addingTimeInterval(5)
+                while !settled() {
+                    guard Date() < deadline else {
+                        XCTFail("Note cleanup timed out during \(phase): \(state())")
+                        return false
+                    }
+                    try? await Task.sleep(for: .milliseconds(20))
+                }
+                return true
+            }
+            print("NoteLinkSessionTests UIKit cleanup waiting for presentation: \(state())")
+            guard await waitForTransition("presentation", until: {
+                !controller.isBeingPresented && controller.presentingViewController != nil && controller.viewIfLoaded?.window != nil
+            }) else { closeNote(canvas); return }
+            print("NoteLinkSessionTests UIKit cleanup dismissing: \(state())")
+            controller.dismiss(animated: false)
+            _ = await waitForTransition("dismissal", until: {
+                !controller.isBeingDismissed && controller.presentingViewController == nil && controller.viewIfLoaded?.window == nil
+            })
+            print("NoteLinkSessionTests UIKit cleanup finished: \(state())")
         }
         canvas.presentedNote = nil
         #endif
