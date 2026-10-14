@@ -13,7 +13,8 @@ final class SVGHTMLRecoveryTests: XCTestCase {
     <svg xmlns='http://www.w3.org/2000/svg' id='drawing' width='160' height='80' viewBox='10 20 80 40' preserveAspectRatio='none'>
     <title>Repeated bands</title><defs>
     <linearGradient id='paint' gradientUnits='userSpaceOnUse' x1='10' y1='20' x2='30' y2='20' spreadMethod='repeat'>
-    <stop offset='0' stop-color='red'></stop><stop offset='1' stop-color='blue'></stop></linearGradient>
+    <stop offset='0' stop-color='red'></stop><stop offset='0.5' stop-color='red'></stop>
+    <stop offset='0.5' stop-color='blue'></stop><stop offset='1' stop-color='blue'></stop></linearGradient>
     <clipPath id='clip' clipPathUnits='userSpaceOnUse'><rect x='10' y='20' width='60' height='40'></rect></clipPath>
     </defs><rect x='10' y='20' width='80' height='40' fill='url(#paint)' clip-path='url(#clip)'></rect></svg>
     """
@@ -48,12 +49,15 @@ final class SVGHTMLRecoveryTests: XCTestCase {
         XCTAssertFalse(strict.document.recoveredAsHTML)
         let strictImage = try image(in: strict)
         let expected = try draw(strictImage)
-        let ink = RichMediaImages.rgba(expected, x: 10, y: 40)
-        XCTAssertEqual(ink[3], 255)
-        XCTAssertGreaterThan(ink[0], 128, "a gradient paints red toward its beginning")
-        XCTAssertGreaterThan(ink[2], 32, "the gradient also paints blue, rather than a solid fallback")
-        XCTAssertEqual(RichMediaImages.rgba(expected, x: 50, y: 40), ink, "spreadMethod repeats every 40 displayed points")
-        XCTAssertEqual(RichMediaImages.rgba(expected, x: 90, y: 40), ink)
+        // Flat color plateaus give independent exact oracles away from stop boundaries.
+        // Comparing interpolated phases byte-for-byte can fail when f32 repeat/gradient
+        // arithmetic straddles an 8-bit channel rounding boundary in the rasterizer.
+        for start in [0, 40, 80] {
+            XCTAssertEqual(RichMediaImages.rgba(expected, x: start + 10, y: 40), [255, 0, 0, 255],
+                           "spreadMethod repeats the red band every 40 displayed points")
+            XCTAssertEqual(RichMediaImages.rgba(expected, x: start + 30, y: 40), [0, 0, 255, 255],
+                           "each period also paints blue, rather than a solid fallback")
+        }
         XCTAssertEqual(RichMediaImages.rgba(expected, x: 140, y: 40)[3], 0, "the restored clipPath clips the final 40 points")
 
         let recoveries = [
