@@ -398,11 +398,10 @@ struct WriterPackageCoverageTests {
     // `epub.nav.ol.content = epub.nav.oli+`), and 7.4.3: the page-list nav "is OPTIONAL". A book
     // without source pages has no page list to write; an empty `ol` makes its navigation invalid.
     @Test func aPublicationWithoutPagesHasNoEmptyNavigationList() throws {
-        try withKnownIssue("https://github.com/vocaro/EPUBLib/issues/94") {
-            let navigation = try nav(try generate(pages: []))
-            for list in navigation.named("ol") {
-                #expect(!navigation.children(of: list, named: "li").isEmpty, "an <ol> without <li> in \(navigation.named("nav").map(\.attributes))")
-            }
+        let navigation = try nav(try generate(pages: []))
+        #expect(navigation.named("nav").filter { $0.attributes["epub:type"] == "page-list" }.isEmpty)
+        for list in navigation.named("ol") {
+            #expect(!navigation.children(of: list, named: "li").isEmpty, "an <ol> without <li> in \(navigation.named("nav").map(\.attributes))")
         }
     }
 

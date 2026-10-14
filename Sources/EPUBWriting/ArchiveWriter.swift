@@ -29,14 +29,15 @@ public enum EPUBArchiveWriter {
                 throw EPUBWritingError.invalidPublication("duplicate or invalid entry: \(entry.path)")
             }
             // A caller-owned reference keeps a shared file alive even if another entry consumes it.
-            consumption[entry.fileURL] = (consumption[entry.fileURL] ?? true) && entry.consume
+            let source = entry.fileURL.standardizedFileURL
+            consumption[source] = (consumption[source] ?? true) && entry.consume
         }
         let mime = try FileHandle(forReadingFrom: entries[0].fileURL)
         defer { try? mime.close() }
         guard try mime.read(upToCount: 20) == Data("application/epub+zip".utf8) else {
             throw EPUBWritingError.invalidPublication("invalid mimetype")
         }
-        var remainingUses = Dictionary(grouping: entries, by: \.fileURL).mapValues(\.count)
+        var remainingUses = Dictionary(grouping: entries, by: { $0.fileURL.standardizedFileURL }).mapValues(\.count)
         await progress(0)
         try Task.checkCancellation()
         let archive = try Archive(url: destination, accessMode: .create)
@@ -45,14 +46,14 @@ public enum EPUBArchiveWriter {
         var bytes: Int64 = 0
         for (index, entry) in entries.enumerated() {
             try Task.checkCancellation()
-            let size = try entry.fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-            guard size >= 0, Int64(size) <= maximumContentBytes - bytes else {
-                throw EPUBWritingError.resourceLimit("EPUB total size")
-            }
-            bytes += Int64(size)
             let handle = try FileHandle(forReadingFrom: entry.fileURL)
             defer { try? handle.close() }
-            try archive.addEntry(with: entry.path, type: .file, uncompressedSize: Int64(size),
+            // Measure the opened file, so a symbolic link's target supplies both size and bytes.
+            guard let size = Int64(exactly: try handle.seekToEnd()), size <= maximumContentBytes - bytes else {
+                throw EPUBWritingError.resourceLimit("EPUB total size")
+            }
+            bytes += size
+            try archive.addEntry(with: entry.path, type: .file, uncompressedSize: size,
                                  modificationDate: modificationDate,
                                  compressionMethod: entry.path == "mimetype" ? .none : .deflate) { position, count in
                 try autoreleasepool {
@@ -62,8 +63,9 @@ public enum EPUBArchiveWriter {
                 }
             }
             try handle.close()
-            remainingUses[entry.fileURL, default: 1] -= 1
-            if consumption[entry.fileURL] == true, remainingUses[entry.fileURL] == 0 {
+            let source = entry.fileURL.standardizedFileURL
+            remainingUses[source, default: 1] -= 1
+            if consumption[source] == true, remainingUses[source] == 0 {
                 try FileManager.default.removeItem(at: entry.fileURL)
             }
             await progress(Double(index + 1) / Double(entries.count))

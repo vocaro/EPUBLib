@@ -69,9 +69,13 @@ public enum EPUBPackageWriter {
                 return nested.isEmpty ? "" : "<li><span>\(xml(entry.title))</span>\(nested)</li>"
             }.joined()
         }
+        let pageItems = try items(pages)
+        let pageList = pageItems.isEmpty ? "" : """
+        <nav epub:type="page-list" hidden="hidden"><h2>Source pages</h2><ol>\(pageItems)</ol></nav>
+        """
         let nav = """
         <nav epub:type="toc" id="toc"><h1>Contents</h1><ol>\(try items(contents))</ol></nav>
-        <nav epub:type="page-list" hidden="hidden"><h2>Source pages</h2><ol>\(try items(pages))</ol></nav>
+        \(pageList)
         """
         let style = try stylesheet.map { "<link rel=\"stylesheet\" type=\"text/css\" href=\"\(xml(try href($0)))\"/>" } ?? ""
         let navigation = """

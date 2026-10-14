@@ -211,7 +211,7 @@ extension PublicationTests {
                 .replacingOccurrences(of: "</body>", with: "<nav epub:type=\"page-list\" hidden=\"\">\(list)</nav></body>")
             return try EPUBPublication.open(data: Fixture.epub(overrides: ["OPS/nav.xhtml": nav])).pageList
         }
-        // As EPUBPackageWriter writes it for a book without pages.
+        // Tolerate empty page lists in older publications.
         XCTAssertNil(try pages("<h2>Source pages</h2><ol></ol>"))
         XCTAssertNil(try pages("<ol><li><a href=\"https://example.invalid/one.xhtml\">1</a></li></ol>"))
         XCTAssertEqual(try pages("""

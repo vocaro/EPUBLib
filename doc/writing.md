@@ -2,7 +2,8 @@
 
 Import `EPUBCore` and `EPUBWriting`. `EPUBPackageWriter.documents` accepts explicit
 `EPUBPackageMetadata`, manifest resources, spine entries, nested contents and an optional page
-list. It returns navigation XHTML, OPF, container XML and the exact mimetype. The package is
+list. An empty page list is omitted from navigation. It returns navigation XHTML, OPF, container
+XML and the exact mimetype. The package is
 EPUB 3, reflowable by default, with optional fixed-layout spine overrides. Resource paths and
 navigation hrefs are archive-relative; package documents live under `EPUB/`. IDs and paths must
 be unique, spine resources must be declared and navigation must resolve to a declared resource.
@@ -28,6 +29,8 @@ The destination must be a new local file. Progress runs in order from zero throu
 publication/atomic destination handling happens after writing.
 
 Entries default to preserving caller-owned files. `consume: true` permits deletion after a
-file's final referring entry; a non-consuming reference keeps a shared file alive. A producer
+file's final referring entry; a non-consuming reference keeps a shared file alive even when
+entries use different spellings of its path. Source symbolic links are read in full, and their
+target's size counts against the byte budget; consuming a link removes the link alone. A producer
 owns and cleans up its workspace. The archive writer does not import PDFKit, Vision, SwiftUI,
 WebKit, a reconstruction model or a reader.
