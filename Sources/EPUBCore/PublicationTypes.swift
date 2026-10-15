@@ -95,3 +95,18 @@ public struct EPUBPageListEntry: Codable, Hashable, Sendable {
     public let href: String
     public init(label: String, href: String) { self.label = label; self.href = href }
 }
+
+/// Entries the archive's directory lists that could not be read: the entry at a directory record
+/// cut short by the end of the archive, or whose local header offset names no local header, and
+/// every entry after it, or the records an end record leaves out of its count. A book is opened
+/// without them, as without files the archive lacks: a manifest item for one is left out of
+/// `resources`, and a spine that names one is refused.
+public struct EPUBLostEntries: Equatable, Sendable {
+    /// How many entries were lost: as many as the end record counts beyond those read, or the
+    /// records found beyond its count. Directory entries are among them.
+    public let count: Int
+    /// The archive paths of the lost entries whose names can still be read, in directory order,
+    /// decoded as the paths of entries that are read are: all of them, some or none.
+    public let paths: [String]
+    public init(count: Int, paths: [String] = []) { self.count = count; self.paths = paths }
+}

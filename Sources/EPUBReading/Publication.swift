@@ -21,6 +21,9 @@ public struct EPUBPublication: Sendable {
     /// The manifest's items whose files the archive holds. A remote item is never fetched and is
     /// left out, as is a font obfuscated with a key the package does not give.
     public let resources: [EPUBResource]
+    /// Entries the archive's directory lists that could not be read, which the book was opened
+    /// without; nil when every entry it lists was read.
+    public let lostEntries: EPUBLostEntries?
     public let spine: [EPUBSpineItem]
     /// The navigation document's `toc` or, without that document, the NCX's `navMap`. An entry
     /// whose href does not resolve inside the archive keeps its title and children, without an href.
@@ -109,12 +112,12 @@ public struct EPUBPublication: Sendable {
         }
         catch { throw EPUBPublicationError.invalidArchive(String(describing: error)) }
         // The bytes this archive reads, whatever it was made from.
-        try ArchiveBounds.check(archive.data ?? data, archive: archive)
+        let directory = try ArchiveBounds.check(archive.data ?? data, archive: archive, names: limits.entryCount)
         var contents: [String: Data] = [:]
         var paths = Set<String>()
         var total = 0
         var inputWork = ArchiveInputWork(archiveBytes: (archive.data ?? data).count)
-        for entry in archive {
+        for (index, entry) in archive.enumerated() {
             try Task.checkCancellation()
             let path = EntryName.path(of: entry)
             guard ResourceReference.isReadablePath(path, directory: entry.type == .directory), entry.type != .symlink else {
@@ -130,8 +133,11 @@ public struct EPUBPublication: Sendable {
             // unless it is compressed. A compressed entry is not read by its declared size,
             // which may be wrong either way with its data whole: a deflated one is held to the
             // limits below, by what it inflates to, and one in any other method is not read.
-            guard entry.isCompressed || (entry.uncompressedSize <= UInt64(limits.resourceBytes)
-                                         && entry.uncompressedSize <= UInt64(limits.expandedBytes - total)) else {
+            // A data descriptor's size is read by the form of the descriptor's own bytes, not the
+            // one ZIPFoundation takes from the entry's version and ZIP64 field (`DataDescriptor`).
+            let declared = directory.describedSizes[index] ?? entry.uncompressedSize
+            guard entry.isCompressed || (declared <= UInt64(limits.resourceBytes)
+                                         && declared <= UInt64(limits.expandedBytes - total)) else {
                 throw EPUBPublicationError.limitExceeded(path)
             }
             var bytes = Data()
@@ -381,7 +387,7 @@ public struct EPUBPublication: Sendable {
         return Self(id: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
             metadata: EPUBMetadata(title: values("title").first ?? "", authors: values("creator"),
                                    languages: values("language"), identifiers: values("identifier")),
-            resources: resources, spine: spine, tableOfContents: toc, landmarks: landmarks,
+            resources: resources, lostEntries: directory.lostEntries, spine: spine, tableOfContents: toc, landmarks: landmarks,
             pageList: pages.isEmpty ? nil : pages,
             cover: resources.first { $0.properties.contains("cover-image") } ?? coverID.flatMap { byID[$0] },
             pageProgression: EPUBPageProgression(rawValue: spineNode.attribute("page-progression-direction") ?? "") ?? .default,
