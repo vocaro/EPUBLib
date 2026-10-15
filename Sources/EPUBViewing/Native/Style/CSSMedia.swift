@@ -10,6 +10,16 @@ struct CSSMediaMask: OptionSet, Hashable, Sendable {
     static let all: CSSMediaMask = [.light, .dark]
 
     func contains(dark: Bool) -> Bool { contains(dark ? .dark : .light) }
+
+    /// Whether a declaration of `property` in a rule under this media applies in the reader's
+    /// appearance. A property that only paints (`CSSProperty.followsAppearance`) follows the
+    /// appearance; any other is resolved as in the light appearance, the one a reading system
+    /// with no preference reports, so that a section's characters, what of them is hidden and
+    /// their map to the document are the same in either appearance, as positions, search and
+    /// highlights kept across a rebuild need (#130).
+    func governs(_ property: CSSProperty, dark: Bool) -> Bool {
+        contains(dark: dark && property.followsAppearance)
+    }
 }
 
 /// Media Queries Level 4/5 evaluation for a reading system that never prints.
@@ -271,7 +281,7 @@ enum CSSSupports {
             return condition(inner, namespaces: namespaces) ?? false
         case .function("selector", let arguments):
             let selectors = try? CSSSelectorParser(namespaces: namespaces).parseList(arguments)
-            return selectors?.allSatisfy { !$0.hasPseudoElement } ?? false
+            return selectors?.allSatisfy { $0.pseudoElement == nil || $0.pseudoElement == .before || $0.pseudoElement == .after } ?? false
         case .function:
             return false
         default:

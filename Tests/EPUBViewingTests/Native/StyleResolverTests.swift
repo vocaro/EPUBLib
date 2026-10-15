@@ -386,17 +386,37 @@ final class StyleResolverTests: XCTestCase {
         XCTAssertNil(result.style("svgtext").color, "A default namespace restricts selectors without a type")
     }
 
-    func testMediaRulesFollowAppearance() throws {
-        let body = #"<p id="p">x</p><p id="q">y</p>"#
+    func testMediaRulesFollowAppearanceInWhatPaintsAlone() throws {
+        let body = #"<p id="p">x</p><p id="q">y</p><img id="i" src="a.png" alt=""/>"#
         let css = """
             p { text-align: left }
-            @media (prefers-color-scheme: dark) { p { text-align: right } }
+            @media (prefers-color-scheme: dark) { p { text-align: right } img { filter: invert(100%) } #q { color: transparent } }
+            @media (prefers-color-scheme: light) { #q { color: rgb(0, 0, 255); text-transform: uppercase } }
             @media print { p { text-align: center } }
             @media amzn-kf8 { #q { font-weight: bold } }
             """
-        XCTAssertEqual(try styled(body, css: css).style("p").textAlign, .left)
-        XCTAssertEqual(try styled(body, css: css, typography: .init(fontSize: 16, isDark: true)).style("p").textAlign, .right)
-        XCTAssertEqual(try styled(body, css: css).style("q").fontWeight, 400)
+        let light = try styled(body, css: css), dark = try styled(body, css: css, typography: .init(fontSize: 16, isDark: true))
+        // Colours and filters follow the appearance; every other property is resolved as in the light
+        // one, so that a section's characters are the same in either (#130).
+        XCTAssertEqual([light, dark].map { $0.style("i").invertsColors }, [false, true])
+        XCTAssertEqual(light.style("q").color, color(0, 0, 1))
+        XCTAssertEqual(dark.style("q").color, color(0, 0, 0, 0), "Transparent text stays transparent in dark appearance")
+        XCTAssertEqual([light, dark].map { $0.style("p").textAlign }, [.left, .left])
+        XCTAssertEqual([light, dark].map { $0.style("q").textTransform }, [.uppercase, .uppercase])
+        XCTAssertEqual(light.style("q").fontWeight, 400)
+    }
+
+    func testRulesForEitherAppearanceAreAdmittedInBoth() throws {
+        // A bound on what is indexed drops the same selectors in either appearance: a rule for dark
+        // appearance takes the room of a later one in light appearance too, so the later rule's
+        // `text-transform` cannot apply in one appearance and not the other.
+        let css = "@media (prefers-color-scheme: dark) { a ~ p { color: red } } b ~ p { text-transform: uppercase }"
+        let sheet = CSSStyleSheet.parse(css, path: "OPS/one.xhtml")
+        let light = CSSRuleIndex(sheets: [sheet], dark: false, maximumSiblingSearches: 1)
+        let dark = CSSRuleIndex(sheets: [sheet], dark: true, maximumSiblingSearches: 1)
+        XCTAssertEqual([light, dark].map(\.stylesTruncated), [true, true])
+        XCTAssertEqual(light.entries.flatMap { $0.declarations.map(\.property) }, [], "Nothing of the dark rule is matched in light")
+        XCTAssertEqual(dark.entries.flatMap { $0.declarations.map(\.property) }, [.color])
     }
 
     func testFilterInvertMarksAnElementForColorInversion() throws {

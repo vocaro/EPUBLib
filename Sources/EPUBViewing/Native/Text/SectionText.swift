@@ -69,6 +69,10 @@ struct SectionReport: Equatable, Sendable {
     var flexGridSimplified = false
     /// CSS rules, declarations or selectors dropped by parser or sibling-search bounds.
     var stylesTruncated = false
+    /// Content a `::before` or `::after` asks for that is not shown: an image or another item
+    /// the reader does not generate (`ComputedStyle.ContentItem.unsupported`), that of a table
+    /// laid out as a grid or of its rows, or characters past the section's bound.
+    var generatedContentOmitted = false
 
     mutating func formUnion(_ other: SectionReport) {
         scriptsRefused += other.scriptsRefused
@@ -86,6 +90,7 @@ struct SectionReport: Equatable, Sendable {
         stylesTruncated = stylesTruncated || other.stylesTruncated
         flowBoxesReflowed = flowBoxesReflowed || other.flowBoxesReflowed
         flexGridSimplified = flexGridSimplified || other.flexGridSimplified
+        generatedContentOmitted = generatedContentOmitted || other.generatedContentOmitted
     }
 }
 
@@ -96,7 +101,8 @@ struct SectionReport: Equatable, Sendable {
 /// run, a transformed run, or an element rendered as a unit such as an image, table or formula)
 /// every rendered character maps to the span's source start, and every source position in
 /// `offset..<offset + sourceLength` maps to the span's first rendered character. Generated text
-/// (list markers, bidi isolates, separators) has no span. Spans are sorted by `location` and,
+/// (list markers, `::before` and `::after` content with `q` marks, bidi isolates, separators)
+/// has no span. Spans are sorted by `location` and,
 /// because rendering preserves document order, by source position too.
 struct TextMap: Equatable, Sendable {
     struct Span: Equatable, Sendable {

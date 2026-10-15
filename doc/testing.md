@@ -521,6 +521,44 @@ The script fetches each corpus at a pinned commit into `~/Library/Caches/EPUBLib
 `Tests/EPUBTestSupport/SpecConformanceCorpus.swift`; a new pin goes in the script together
 with that table.
 
+### Books
+
+Two public collections of books are standard corpora as well, chosen on 2026-10-14. Each is a
+manifest in `scripts/corpora` that pins 50 EPUB files by URL and SHA-256, with the rule that
+chose them in its header. The books stay outside the repository, beside the W3C corpora.
+
+- **Project Gutenberg** (`scripts/corpora/gutenberg.tsv`): 50 English books, the EPUB 3
+  "with images" build of each. `scripts/fetch-corpora.sh` fetches the missing ones, verifies
+  all of them and prints `EPUBLIB_GUTENBERG`. Gutenberg's
+  [robot-access policy](https://www.gutenberg.org/policy/robot_access.html) allows automated
+  access only to the offline catalog, `robot/harvest` and the mirrors, so the URLs are on the
+  mirror `robot/harvest` names (`aleph.gutenberg.org`, whose certificate names
+  `aleph.pglaf.org`). Agents may fetch it through the script.
+- **Standard Ebooks** (`scripts/corpora/standard-ebooks.tsv`): 50 books, the ordinary
+  "compatible" EPUB of each. Its URLs end in `?source=download`. The plain URL answers with the
+  site's "Your Download Has Started!" page, which sends a browser on to that URL; the owner
+  chose it on 2026-10-14. Its robots.txt disallows `/ebooks/*/downloads/*` for AI agents'
+  user agents (`claude-user`, `chatgpt-user` and others), so only the owner fetches it, with
+  `bash scripts/fetch-standard-ebooks.sh --pin`. `scripts/fetch-corpora.sh` never downloads it;
+  when its books are present and match the manifest, it prints `EPUBLIB_STANDARD_EBOOKS`.
+
+Both fetchers read robots.txt first, make one request at a time at least 2 s apart, and run
+one fetch at a time across sessions (`scripts/corpora/fetch_books.py`).
+
+Neither collection versions its URLs: Gutenberg rebuilds its files monthly, and Standard Ebooks
+republishes a book at the same URL whenever it changes. A book fetched after that fails its
+SHA-256. The script keeps it beside the corpus as `NAME.mismatch-SHA12` and does not set the
+variable. To re-pin:
+
+1. Fetch every book afresh into a directory named for today, and write the new hashes and the
+   date into the manifest. For Gutenberg, run
+   `python3 -I scripts/corpora/fetch_books.py pin scripts/corpora/gutenberg.tsv ~/Library/Caches/EPUBLib/corpora`.
+   For Standard Ebooks, the owner runs `bash scripts/fetch-standard-ebooks.sh --pin`.
+2. Run the corpus tests on the new directory.
+3. Commit the manifest, with the reason and the tests' results.
+
+The old directory stays until someone removes it.
+
 `BookCorpusPageTextTests` pages every chapter of the Project Gutenberg and Standard Ebooks
 books in `EPUBLIB_GUTENBERG` and `EPUBLIB_STANDARD_EBOOKS` at six reader sizes, and checks
 that every character is on a visible line of some page
@@ -538,11 +576,18 @@ The cases are `phone`, `phone-landscape`, `tablet`, `mac`, `small` and `phone-40
 `EPUBLIB_PAGE_TEXT_BOOKS` names books by file name. The test's comment gives how long each
 corpus takes.
 
-`NativeCorpusQualificationTests` builds every book under `EPUBLIB_CORPUS`, a list of
-directories of EPUB files. The variable names no collection and is not part of verifying a
-change. The [first qualification](native-viewer.md#qualification) ran it on books that belong
-to another project; EPUBLib does not depend on that project or its files, and they are not to
-be used to test it.
+`NativeCorpusQualificationTests` builds every book under `EPUBLIB_CORPUS`, a colon-separated
+list of directories of EPUB files, and checks each section's text map:
+
+```sh
+eval "$(bash scripts/fetch-corpora.sh)"
+EPUBLIB_CORPUS="$EPUBLIB_GUTENBERG${EPUBLIB_STANDARD_EBOOKS:+:$EPUBLIB_STANDARD_EBOOKS}" \
+  swift test --filter NativeCorpusQualificationTests
+```
+
+The [first qualification](native-viewer.md#qualification) ran it on books that belong to
+another project; EPUBLib does not depend on that project or its files, and they are not to be
+used to test it.
 
 ## Probes and recorded inputs
 
@@ -840,6 +885,22 @@ source partitions and boundary/interior/end page lookups remain checked.
 
 The qualification of 2026-10-13 against a frozen `main`, with its paired UIKit data, is on
 [#242](https://github.com/vocaro/EPUBLib/issues/242#issuecomment-6159295037).
+
+`BoxPlanAgreementTests` holds the box plan to the section's layout: every planned line starts
+where the layout's line at the same character does, within 0.75 points, in generated sections
+whose indented tabs, tabbed table rows, tables with margins, captions, empty paragraphs,
+right-to-left text, drop caps and list markers stand above, between and below floats and
+positioned boxes, and every page of
+those sections passes `PageTextGeometryTests.assertVisiblePages`
+([#377](https://github.com/vocaro/EPUBLib/issues/377)). Sections whose boxes are all left in
+flow have no plan and are skipped. It defaults to 24 sections:
+
+```sh
+BOX_PLAN_SECTIONS=300 BOX_PLAN_SEED=377 swift test --jobs 1 --filter BoxPlanAgreementTests
+```
+
+`BOX_PLAN_ONLY=12,20` checks only those sections, and `BOX_PLAN_DIAGNOSTICS=1` prints each
+section's markup.
 
 `PageMeasurementTests` holds the sections that lost characters before every page was measured
 ([#570](https://github.com/vocaro/EPUBLib/issues/570)), each by its whole-page character rule:

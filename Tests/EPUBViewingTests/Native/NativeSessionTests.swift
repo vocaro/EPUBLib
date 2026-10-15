@@ -469,6 +469,39 @@ import XCTest
         }
     }
 
+    /// The session keeps the rendered ranges of search matches and highlights across an appearance
+    /// change. A book whose stylesheet shows other words in dark appearance must not move them (#130).
+    func testAnAppearanceChangeKeepsSearchAndHighlightRangesOnTheirWords() async throws {
+        let css = ".for-dark { display: none } @media (prefers-color-scheme: dark) { .for-light { display: none } .for-dark { display: inline } }"
+        let (session, window, events) = try open(Fixture.epub(overrides: ["OPS/one.xhtml": """
+            <html xmlns="http://www.w3.org/1999/xhtml"><head><title>T</title><style>\(css)</style></head><body>\
+            <p>See the <span class="for-light">black</span><span class="for-dark">white-on-black</span> figure.</p>\
+            <p id="after">After.</p></body></html>
+            """]))
+        defer { session.close(); window.close() }
+        try await wait("ready") { events().contains(.ready) }
+        try await session.send(.style(.init(fontSize: 17, appearance: .light)))
+        try await wait("light book") { session.book.isComplete && !session.book.typography.isDark }
+        try await session.send(.searchHighlight(text: "After"))
+        let after = try XCTUnwrap(session.searchResults?.results.first?.location)
+        try await session.send(.setHighlights([EPUBHighlight(id: "after", location: after)]))
+        try await session.send(.searchHighlight(text: "figure"))
+        func drawn() throws -> [String] {
+            try session.drawnHighlights.map { highlight in
+                let section = try XCTUnwrap(session.book.section(highlight.range.start.section))
+                return "\(highlight.kind) " + section.mappedText(in: highlight.range.start.offset..<highlight.range.end.offset)
+            }
+        }
+        XCTAssertEqual(try drawn(), ["search figure", "annotation After"])
+        let light = session.drawnHighlights
+        try await session.send(.style(.init(fontSize: 17, appearance: .dark)))
+        try await wait("dark book") { session.book.isComplete && session.book.typography.isDark }
+        XCTAssertEqual(session.book.section(0)?.string.string.hasPrefix("See the black figure.\nAfter."), true)
+        XCTAssertEqual(session.drawnHighlights, light)
+        XCTAssertEqual(try drawn(), ["search figure", "annotation After"])
+        XCTAssertEqual(session.searchResultRanges, light.filter { $0.kind == .search }.map(\.range))
+    }
+
     func testLocateInsideATableSelectsTheTable() async throws {
         let (session, window, events) = try open(Fixture.epub(overrides: [
             "OPS/two.xhtml": chapter("<p>Before.</p><table><tr><td>Alpha cell</td><td>Beta cell</td></tr><tr><td>1</td><td>2</td></tr></table><p>After the table.</p>"),

@@ -343,10 +343,16 @@ import UIKit
 
     // MARK: Continuous scroll
 
-    /// A long text shown part way down, as continuous scroll shows a book at a later chapter:
-    /// TextKit has only an estimate of what is above, so the chapter's lines are not where the
-    /// plan has them. The rows and the prose after them are laid out the same all the same.
-    func testRowsAndTheProseAfterThemAreLaidOutTheSameWhereTheTextAboveIsOnlyEstimated() throws {
+    /// A long text shown part way down, as continuous scroll shows a book at a later chapter.
+    /// The rows and the prose after them are laid out as in the chapter alone.
+    ///
+    /// This was written for TextKit having only an estimate of the text above, the chapter's
+    /// lines then standing elsewhere than the plan has them. Here TextKit lays out all of the
+    /// text above (every fragment's layout is available), and the 96 points the chapter stood
+    /// from its planned place were the plan's: it left out the spacing before each of the six
+    /// headings above, 16 points each (#377). Where TextKit does estimate, the container takes a
+    /// planned paragraph's lines to the plan from its own first line (`ReaderTextContainer`).
+    func testRowsAndTheProseAfterThemAreLaidOutTheSameFarIntoABook() throws {
         let chapter = try H.build(Fixture.InlineRows.body, css: Fixture.InlineRows.css)
         let alone = H.view(chapter.string, size: size, pageColumn: false)
         let expected = H.lines(in: alone)
@@ -384,11 +390,10 @@ import UIKit
         let word = H.range("and a single word after the gap", in: chapter)
         let prose = try XCTUnwrap(lines.first { $0.range.location == start + word.location })
         XCTAssertEqual(offset(at: prose.frame, in: view), prose.range.location, "a point on the prose after the run finds that prose")
-        // The point of the fixture: the chapter is not where the plan, which measured all of
-        // the text above it, has it.
+        // The plan measured all of the text above the chapter, and the chapter is where it has it.
         let planned = try XCTUnwrap(view.readerContainer.boxPage?.geometry.paragraph(at: start + H.range("The corner of the page", in: chapter).location))
         let shown = try XCTUnwrap(view.line(containing: planned.range.location))
-        XCTAssertGreaterThan(abs(shown.frame.minY - (planned.lines.first?.frame.minY ?? 0)), 2 * shown.frame.height,
-                             "the text above is estimated: the chapter is lines away from its planned place")
+        XCTAssertEqual(shown.frame.minY, planned.lines.first?.frame.minY ?? 0, accuracy: 0.75,
+                       "the chapter is where the plan has it, below the spacing before every heading above")
     }
 }

@@ -32,11 +32,18 @@ final class ReaderTextContainer: NSTextContainer {
     /// are from this container's at its first line (`lineFragmentRect`).
     private var planned: (paragraph: Int, shift: CGFloat)?
     var hasNonlinearGeometry: Bool { boxPage != nil || !boxRegions.isEmpty }
+    /// The box plan measures its paragraphs in this container (`ReaderBoxLayout.measure`), and
+    /// must measure them as the planned text is laid out: by this container, never on TextKit's
+    /// rectangular path, even before the text's first box. That path applies a paragraph's
+    /// indents itself, and its tabs, list markers and attachments land elsewhere and its lines
+    /// break elsewhere, so a plan measured there is out from the layout below such a paragraph
+    /// by the difference, as far as pushing a page's lines below its foot (#377).
+    var measuresBoxPlan = false
 
     // The default becomes false merely because lineFragmentRect is overridden. Ordinary
     // sections remain rectangular and must retain TextKit's fast viewport/paragraph layout.
     override var isSimpleRectangularTextContainer: Bool {
-        !hasNonlinearGeometry && !needsIndentClamping && boxOverride == nil && boxColumn == nil
+        !hasNonlinearGeometry && !measuresBoxPlan && !needsIndentClamping && boxOverride == nil && boxColumn == nil
             && exclusionPaths.isEmpty && maximumNumberOfLines == 0
     }
 
@@ -191,14 +198,23 @@ final class ReaderTextContainer: NSTextContainer {
         // are nowhere near. So a planned paragraph's lines are taken to the plan from where its
         // own first line was proposed, and text past the plan's end is below every box. The
         // paragraph this container opens with keeps the container's own origin: a page's is
-        // its first line's place, wherever a box above the page pushed that line.
+        // its first line's place, wherever a box above the page pushed that line. TextKit
+        // proposes a paragraph's first line below the spacing before the paragraph (a forced
+        // break's retained margin, a heading's), which the paragraph's flow start leaves out (#362).
         var origin = boxOrigin
         if let page = boxPage {
             guard let paragraph = page.geometry.paragraph(at: sourceIndex) else { return rect }
             if index > 0, sourceIndex == paragraph.range.location {
-                planned = (sourceIndex, paragraph.flowStart + paragraph.topAdjustment - proposed.minY - (proposalCorrection?(paragraph.range.location - boxSourceOffset) ?? 0))
+                let spacing = max(0, paragraphStyle(at: index)?.paragraphSpacingBefore ?? 0)
+                planned = (sourceIndex, paragraph.flowStart + paragraph.topAdjustment + spacing - proposed.minY
+                    - (proposalCorrection?(paragraph.range.location - boxSourceOffset) ?? 0))
             }
             if let planned, planned.paragraph == paragraph.range.location { origin = planned.shift }
+            else if boxSourceOffset > 0, paragraph.range.location == boxSourceOffset {
+                // A page that opens a paragraph has its origin that paragraph's spacing before
+                // above its first line (`ReaderPage.layoutSpacing`), and TextKit drops the spacing.
+                origin += max(0, paragraphStyle(at: 0)?.paragraphSpacingBefore ?? 0)
+            }
         }
         while true {
             let global = rect.offsetBy(dx: 0, dy: origin)

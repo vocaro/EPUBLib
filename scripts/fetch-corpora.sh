@@ -1,9 +1,15 @@
 #!/bin/bash
-# Fetch the public W3C corpora the opt-in corpus tests read, at pinned commits, and print the
+# Fetch the public corpora the opt-in corpus tests read, at pinned versions, and print the
 # variables that point the tests at them:
 #
 #     eval "$(bash scripts/fetch-corpora.sh)"
 #     swift test --filter "SpecConformanceW3CCorpus|EPUBCheckCorpus"
+#
+# The W3C suites are pinned by commit. The Project Gutenberg books are pinned by SHA-256 in
+# scripts/corpora/gutenberg.tsv and fetched by scripts/corpora/fetch_books.py, through the routes
+# Gutenberg's robot-access policy names. Standard Ebooks' books are never fetched here (its
+# robots.txt disallows agents): only verified, when the owner has fetched them with
+# scripts/fetch-standard-ebooks.sh.
 #
 # The corpora are kept outside the checkout, in one place every worktree shares
 # (EPUBLIB_CORPORA_DIR, default ~/Library/Caches/EPUBLib/corpora), so each is fetched once.
@@ -38,3 +44,18 @@ printf 'export EPUBLIB_W3C_EPUB_TESTS=%q\n' "$w3c/tests"
 printf 'export EPUBLIB_EPUBCHECK_FIXTURES=%q\n' "$epubcheck/src/test/resources"
 # The writer's books are validated by the EPUBCheck program itself, when it is installed.
 if cli=$(command -v epubcheck); then printf 'export EPUBLIB_EPUBCHECK_CLI=%q\n' "$cli"; fi
+
+# Books, each verified against its pinned SHA-256; only missing ones are downloaded.
+books="$(cd "$(dirname "$0")" && pwd)/corpora"
+status=0
+if gutenberg=$(python3 -I "$books/fetch_books.py" fetch "$books/gutenberg.tsv" "$directory"); then
+    printf 'export EPUBLIB_GUTENBERG=%q\n' "$gutenberg"
+else
+    echo "Project Gutenberg books not verified, so EPUBLIB_GUTENBERG is not set. A mismatch means re-pinning (doc/testing.md, \"Corpus runs\")." >&2
+    status=1
+fi
+# Standard Ebooks: verified when the owner has fetched it, never downloaded here.
+if standard=$(python3 -I "$books/fetch_books.py" verify "$books/standard-ebooks.tsv" "$directory"); then
+    printf 'export EPUBLIB_STANDARD_EBOOKS=%q\n' "$standard"
+fi
+exit "$status"

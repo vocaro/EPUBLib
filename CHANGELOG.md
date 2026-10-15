@@ -3,6 +3,14 @@
 ## Unreleased
 
 - Measure every page as it is shown before committing its boundary, and fit the typography fallback to the line it makes, so no character of a section is left on no visible line ([#570](https://github.com/vocaro/EPUBLib/issues/570)).
+- Read as script or style in text extraction's recovery only what the HTML Standard reads as one, so the text after `<script"q>` or a `<script>` in a title, a `textarea` or a comment is kept ([#255](https://github.com/vocaro/EPUBLib/issues/255)).
+- Read the rest of a recovered section after an out-of-place `<html/>`, `<head/>` or `<body/>`, a second body included, instead of truncating or refusing it ([#292](https://github.com/vocaro/EPUBLib/issues/292)).
+- Keep text after a forced break out of the floats beside it, and a box's lines there inside the box ([#362](https://github.com/vocaro/EPUBLib/issues/362)).
+- Plan floats and positioned boxes against the lines the section lays out, so that a page below an indented paragraph with tabs, a caption under its table or an empty paragraph is not pushed off its foot ([#377](https://github.com/vocaro/EPUBLib/issues/377)).
+- Render `::before` and `::after` content with quotes and counters, and disclose what of it is not shown ([#131](https://github.com/vocaro/EPUBLib/issues/131)).
+- Let a book's `prefers-color-scheme` rules change only colours and filters, so a section's characters, positions, search matches and highlights stay the same across an appearance change ([#130](https://github.com/vocaro/EPUBLib/issues/130)).
+- Open a book whose archive directory loses entries without them, and report them in `EPUBPublication.lostEntries` ([#261](https://github.com/vocaro/EPUBLib/issues/261)).
+- Read a ZIP data descriptor's sizes by the form of its own bytes, so stored entries marked version 4.5 over 16-byte descriptors open ([#261](https://github.com/vocaro/EPUBLib/issues/261)).
 - Follow manifest fallbacks for unsupported or scripted content and images while preserving resource identity ([#78](https://github.com/vocaro/EPUBLib/issues/78)).
 - Keep floated and positioned inline text in its authored passage ([#127](https://github.com/vocaro/EPUBLib/issues/127)).
 - Copy authored case and line feeds through typography substitutions and native selections ([#128](https://github.com/vocaro/EPUBLib/issues/128)).

@@ -67,6 +67,9 @@ continues to describe the authored spine resource.
    cascade over a user-agent stylesheet, the book's archive-local stylesheets and `style`
    attributes produce a `ComputedStyle` per element: the CSS subset in `ComputedStyle.swift`.
    `@font-face` fonts load from the archive with CoreText. Nothing remote is fetched.
+   Media queries for the reader's appearance govern only what paints (**Appearance media**
+   under [Decisions](#decisions)), so neither the reader's size nor its appearance changes
+   what the next step writes.
 3. **Text** (`SectionBuilder`). One walk of a section's DOM produces an `NSAttributedString`,
    a `TextMap` back to DOM positions, element anchors, note content and a `SectionReport`.
    Rich content (images, SVG, tables, MathML, rules) comes from a `RichContentFactory` as text
@@ -196,6 +199,20 @@ continues to describe the authored spine resource.
   publication bytes are preserved. Opaque images and transparent light artwork retain their
   pixels; an author's explicit CSS inversion retains its own appearance treatment. Display
   renditions are cached separately by appearance under the existing image memory budget.
+- **Appearance media.** `prefers-color-scheme` follows the reader's appearance only for what
+  paints: `color`, `background-color`, the border colours, `text-decoration-color` and `filter`
+  (`CSSProperty.followsAppearance`). Every other property in a rule for one appearance, and
+  any property added later, is resolved as in the light appearance, the one a reading system
+  with no preference reports. The `display`, `visibility`, `text-transform`, `white-space`,
+  list styles, positions, sizes and fonts a book sets for dark appearance alone therefore
+  apply in neither, and a section's characters, the text `visibility: hidden` hides and the
+  map to the document are the same in both. The session keeps rendered positions, search
+  matches, highlights and selections across an appearance change on the strength of that. A
+  book that swaps content by appearance (an image drawn for each, say) shows its light
+  content in both: dark line art stays legible by the image contrast above, and an author's
+  `filter: invert()` for dark appearance, as Standard Ebooks writes it, still applies. Rules
+  for either appearance are indexed in both, so a bound on author CSS drops the same
+  selectors in each ([#130](https://github.com/vocaro/EPUBLib/issues/130)).
 - **Alternative text.** HTML tells an image with an empty `alt` from one with none, and the
   reader keeps the two apart (`ImageAlternative`). Words in `alt` stand for the image in
   selections, copies, search and VoiceOver, which reads them as the image's name. An empty
@@ -1359,6 +1376,57 @@ continues to describe the authored spine resource.
   a document that declares no direction reads the same whatever the package's `dir`.
   foliate-js gave a document without `lang` the book's language, so its `q` marks followed
   the package.
+- **Generated content.** `::before` and `::after` generate their `content` (CSS 2 §12.1, CSS
+  Generated Content 3): strings; `attr()`; `open-quote`, `close-quote` and their `no-` forms,
+  with `quotes`; and `counter()` and `counters()`, with `counter-reset`, `counter-increment`
+  and `counter-set` (CSS Lists 3 §4) in the counter styles `list-style-type` has
+  ([#131](https://github.com/vocaro/EPUBLib/issues/131)). A pseudo-element is styled by its
+  own rules and inherits from its element. `none`, `normal`, a rule with no `content` and
+  `display: none` generate nothing. The marks around a `q` are generated the same way, from
+  the user-agent sheet's `q::before` and `q::after` as HTML gives them, so a book's `quotes`,
+  and the reset stylesheets that write `q:before, q:after { content: none }`, apply to them as
+  they do in a browser. Before, the marks were drawn whatever the book's styles said.
+  - **Where it stands.** An inline box is written in its line, and white space collapses
+    across it as across the book's text. A block box is a paragraph of its own. A box that
+    floats or is positioned is written in its line, with the disclosure of the boxes left in
+    the flow; one that a position or a clip hides from the page is not written.
+  - **The text map.** Generated characters are not the book's: they have no place in the
+    document, and the text map has no span for them, as it has none for a list marker or a
+    bidi isolate. A position among them is that of the book's next character, and a CFI names
+    the book's characters alone, the same CFI with or without the styles that generate:
+    a selection that takes in generated words is saved without them and comes back without
+    them. Search reads the book's text, as foliate-js's did in WebKit, and finds nothing in
+    generated words, and a result's context leaves them out. The passage text a host is
+    given (`.selectionChanged`, a location's `quote`, the text `.locate` looks for) and what
+    Copy puts on the pasteboard are the book's own characters (the authored passage of
+    [#128](https://github.com/vocaro/EPUBLib/issues/128)), as `Selection.toString()` gave
+    foliate-js and as a browser copies no `::before` text, so a quote can be found again.
+    What is drawn holds them: they are selected with the text around them, and VoiceOver
+    reads them where they stand, as it reads a list marker and a `q`'s marks. A heading's
+    text begins with the words it generates, and an element's id points at its `::before`.
+  - **Counters** change in one walk of the section in document order, a table's cells and
+    captions included. A table's rows and row groups, which only a grid lays out, change
+    theirs where their first cell's content is rendered. A counter's scope is the element
+    that instantiates it, its descendants and its following siblings with theirs. A note's
+    popover counts from where the note stands, and a footnote hidden from the flow counts
+    there as it would shown, so footnotes numbered by a counter are numbered in order.
+    `list-item` is each list's own numbering, the values its markers show.
+  - **Light and dark.** In a rule for one appearance (`prefers-color-scheme`), what decides
+    generated characters is resolved as in the light appearance: from a rule for light it
+    applies in both, and from a rule for dark in neither. That is `content`, `quotes` and the
+    counter properties on any element, and on a `::before` or `::after` also `display`,
+    `text-transform`, `white-space`, `font-variant-caps`, and the `position`, `top`, `left`,
+    `clip` and `clip-path` that hide a box. What paints still follows the appearance. So a
+    section has the same characters in light and dark, which saved positions, search results
+    and highlights rely on; [#130](https://github.com/vocaro/EPUBLib/issues/130) resolves an
+    element's own properties the same way, all but what paints.
+  - **Disclosed.** What is not shown has the `.disclosure` that "some text or images this
+    book's styling adds before or after its content are not shown": an image in `content`
+    (`url()`, `image-set()`, a gradient), `leader()`, `target-counter()`, `target-counters()`,
+    `target-text()`, `contents`, and an `attr()` with a type or a fallback; the generated
+    content of a table laid out as a grid and of its rows and row groups, where that of its
+    cells and captions is shown; and what passes a bound of 1,048,576 UTF-16 units of
+    generated text in one section, which only a hostile stylesheet reaches.
 - **Building** is per section and lazy for first paint: the opening section builds first and
   the session emits `.ready` once it is on screen; the rest build in the background in
   parallel. Images decode lazily, downsampled to their displayed size, under a shared cache
@@ -1933,6 +2001,14 @@ float's edge, its margin underneath it
 ([#63](https://github.com/vocaro/EPUBLib/issues/63),
 [#150](https://github.com/vocaro/EPUBLib/issues/150)). TextKit breaks a justified paragraph's
 lines a little differently where the container places them; their edges are the same.
+The plan measures its paragraphs one at a time, and measures each as the text lays it out:
+with the container, those above the text's first box included, since where TextKit applies the
+indents itself a tab, a list marker or a table row in an indented paragraph lands elsewhere and
+the lines break elsewhere; and with the spacing TextKit gives a paragraph only between others,
+before it (a caption set under its table) and after an empty one. A plan that measured a
+paragraph otherwise put every box and page below it as far from the layout as the paragraph
+was taller or shorter, and a page could open below its own foot and show nothing
+([#377](https://github.com/vocaro/EPUBLib/issues/377)).
 
 The boxes' places are planned for the whole of that text, and TextKit lays out only what is
 on screen: far into a book in continuous scroll it estimates the height of everything above,
@@ -1943,6 +2019,17 @@ from the fragment laid out under it. Prose keeps clear of the boxes beside it wh
 book is opened, and is not pushed aside by boxes that are nowhere near. A line that starts
 exactly where a box ends is clear of it
 ([#147](https://github.com/vocaro/EPUBLib/issues/147)).
+
+That holds only where TextKit's lines are where the plan has them. The spacing before a
+paragraph (after a forced break, its retained margin) is in the plan's flow, as above, and so
+is the spacing before a box, which also keeps a box it settles under that far above it.
+TextKit proposes a paragraph's first line below that spacing, and the container takes it to
+the plan from there; on a page that the paragraph opens, from the page's origin plus the
+spacing, which TextKit drops there. A box's first fragment takes the spacing back, so that the
+box's lines stand in its region and the text after it is where the plan has it. Without these,
+such a paragraph was wrapped as far above where it is drawn, and the text after such a box was
+drawn that far below the floats before it; either could run across a float
+([#362](https://github.com/vocaro/EPUBLib/issues/362)).
 
 A `.disclosure` explains that box layouts may be simplified. Sticky positioning, negative
 relative vertical offsets, arbitrary overlap and `z-index`, and page-pinned or repeating fixed
@@ -3108,3 +3195,16 @@ Go: the native viewer is the bundled engine.
   laid out when a toolbar changes the scroll view's insets
   ([#162](https://github.com/vocaro/EPUBLib/issues/162)), so until something else lays it out its boxes are resolved for the old
   height.
+- Generated content ([Decisions](#decisions)) leaves out, with a disclosure, images and the
+  other items of `content` the reader does not generate, and the generated content of a table
+  laid out as a grid and of its rows. Without a disclosure: a `::before` or `::after` with no
+  characters, drawn only for its border, background or size, is not drawn; one that a
+  position or a clip hides from the page is not read by VoiceOver either, where a browser
+  reads it; alternative text written after `/` in `content` is not read, and VoiceOver reads
+  the characters shown; generated content inside a box hidden from the page and kept for
+  VoiceOver is not read with it; `counter-reset`, `counter-increment` and `counter-set` of
+  `list-item` do not change a list's numbering; and a counter style that `list-style-type`
+  lacks (`@counter-style`, `symbols()`, `hiragana`…) is decimal. `::first-letter`,
+  `::first-line`, `::marker` and the other pseudo-elements are not rendered: their rules are
+  dropped, and that is not disclosed. A pseudo-element written alone, as in
+  `*, ::before, ::after`, drops its rule ([#110](https://github.com/vocaro/EPUBLib/issues/110)).
