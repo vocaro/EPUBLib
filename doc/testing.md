@@ -845,7 +845,9 @@ The qualification of 2026-10-13 against a frozen `main`, with its paired UIKit d
 ([#570](https://github.com/vocaro/EPUBLib/issues/570)), each by its whole-page character rule:
 `PageTextGeometryTests`' seed 22 section 443, small justified and Chinese-text paragraphs, lines
 taller than their page that mix large and small runs or text and a table row, and a page whose
-own first line holds a tall row. Its generated sections have no box plan and pages ending
+own first line holds a tall row. It also holds a justified paragraph of verse, a `<br>` after
+each line: a page inside it lays out the paragraph only up to the next line break that ends a
+line of text, with the same lines and character positions as with the paragraph's whole rest. Its generated sections have no box plan and pages ending
 inside justified, tabbed and indented paragraphs; `PAGE_MEASUREMENT_SECTIONS` (default 120)
 and `PAGE_MEASUREMENT_SEED` (default 570) choose them.
 

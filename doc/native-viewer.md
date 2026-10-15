@@ -1809,7 +1809,16 @@ as they did.
   A paragraph that continues onto the next page is laid out a few lines further (or to
   a line break) and clipped, so its lines break as in the measuring layout; justified
   text takes more, because CoreText justifies a paragraph of up to 8,192 characters as a whole
-  and a longer one line by line. That context does not make a page's slice, laid out alone,
+  and a longer one line by line. A short justified paragraph's page takes its rest up to the
+  next line break (`<br>`, written as U+2028) that ends a line of text, or its whole rest when
+  none follows. CoreText sets the lines before such a break the same whatever follows it,
+  which was checked on every justified paragraph with line breaks in the standard book corpora
+  and on generated ones ([#570](https://github.com/vocaro/EPUBLib/issues/570)). A break that
+  ends a blank line is passed over: a lone separator laid out last takes another position, and
+  sometimes another height. A section with a box plan keeps the whole rest, because there the
+  lines before a break were not always placed the same without what follows it. A long
+  paragraph keeps enough of its rest to stay long, since a shorter slice of it would be
+  justified as a whole. That context does not make a page's slice, laid out alone,
   break as the section did: a justified paragraph is justified over the page's part of it, a
   continued paragraph starts a fresh line, and a line holding glyphs from a fallback font
   (CJK text among Latin) is laid out differently. So every page is laid out as its column

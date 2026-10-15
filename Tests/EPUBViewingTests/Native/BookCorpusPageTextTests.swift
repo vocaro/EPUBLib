@@ -13,8 +13,8 @@ import XCTest
 ///
 /// It lays out every page twice, as the paginator measures it and as its column shows it. On an
 /// M5 Max in a release build (`swift test -c release --enable-testable-imports`), one process
-/// per case with others running beside it, the Standard Ebooks corpus took 3 to 15 minutes a
-/// case and Project Gutenberg's 16 to 43, the longest at 40 pt. Of Gutenberg's, 11 to 19
+/// per case with others running beside it, the Standard Ebooks corpus took 2 to 12 minutes a
+/// case and Project Gutenberg's 13 to 35, the longest at 40 pt. Of Gutenberg's, 10 to 18
 /// minutes a case is one book, the Cambridge Shakespeare, volume 3 (#50559), whose scenes are
 /// inline blocks. A debug build is about four times slower.
 @MainActor final class BookCorpusPageTextTests: XCTestCase {

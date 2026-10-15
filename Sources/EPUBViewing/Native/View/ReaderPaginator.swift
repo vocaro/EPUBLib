@@ -16,8 +16,10 @@ struct ReaderPage: Equatable {
     /// a lone last word down), so the page's last lines break as in the section only with what
     /// follows them: a few lines, or up to a line break. Justified text needs more, because
     /// CoreText justifies a paragraph of up to 8,192 characters as a whole and a longer one line
-    /// by line: a short paragraph's whole rest, or enough of a long one to stay long. The page is
-    /// then measured in this exact display context before its boundary is committed.
+    /// by line: a short paragraph's rest up to the next line break that ends a line of text (its
+    /// whole rest in a section with a box plan, or when no such break follows), and enough of a
+    /// long one to stay long. The page is then measured in this exact display context before its
+    /// boundary is committed.
     var layoutEnd: Int
     /// Space kept above the first line: its paragraph's spacing before, at the section's start
     /// or a forced break (CSS truncates margins only at unforced breaks).
@@ -573,8 +575,14 @@ struct ReaderTableFragment: Equatable {
                 : min(NSMaxRange(paragraph), max(start + limit + 1, lineEnd(after: index, lines: Self.contextLines)))
         }
         guard !last.endsParagraph else { return last.range.upperBound }
-        // A short justified paragraph is justified as a whole: its whole rest.
-        if last.isJustified { return NSMaxRange(paragraph) }
+        // A short justified paragraph is justified as a whole, but not across a line break:
+        // CoreText sets the lines before a U+2028 (`<br>`) the same whatever follows it. Its
+        // rest up to the first break that ends a line of text, or its whole rest. A box plan
+        // can place those lines by what follows the break, so a planned section keeps it all.
+        if last.isJustified {
+            guard boxGeometry == nil else { return NSMaxRange(paragraph) }
+            return textLineBreakEnd(from: last.range.upperBound - 1, in: paragraph) ?? NSMaxRange(paragraph)
+        }
         var end = last.range.upperBound
         var context = index
         while !lines[context].endsParagraph, !endsWithLineBreak(lines[context]),
@@ -590,6 +598,21 @@ struct ReaderTableFragment: Equatable {
         var context = index
         while !lines[context].endsParagraph, context - index < count, layOutLines(through: context + 1) { context += 1 }
         return lines[context].range.upperBound
+    }
+
+    /// The end of the first line separator at or after `location` in `paragraph` that ends a line
+    /// of text. One that ends a blank line is passed over: laid out last, a lone separator takes
+    /// another position, and sometimes another height, than it has with text after it.
+    private func textLineBreakEnd(from location: Int, in paragraph: NSRange) -> Int? {
+        var search = NSRange(location: location, length: NSMaxRange(paragraph) - location)
+        while search.length > 0 {
+            let found = characters.range(of: "\u{2028}", options: .literal, range: search)
+            guard found.location != NSNotFound else { return nil }
+            let previous = found.location > paragraph.location ? characters.character(at: found.location - 1) : 0x2028
+            if previous != 0x2028 && previous != 0x0A { return NSMaxRange(found) }
+            search = NSRange(location: NSMaxRange(found), length: NSMaxRange(paragraph) - NSMaxRange(found))
+        }
+        return nil
     }
 
     /// A line ending in a line separator (`<br>`): nothing after it changes how it breaks.

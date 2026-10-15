@@ -133,6 +133,106 @@ import XCTest
         }
     }
 
+    // MARK: A justified paragraph's context ends at a line break
+
+    /// Lines of `text` laid out alone as the paginator measures a page: each line's characters,
+    /// frame and every character's x.
+    static func shownLines(_ text: NSAttributedString, size: CGSize) -> [(range: NSRange, frame: CGRect, xs: [CGFloat])] {
+        let storage = NSTextContentStorage()
+        let manager = ReaderBoxLayoutManager()
+        storage.addTextLayoutManager(manager)
+        let container = ReaderTextContainer(size: CGSize(width: size.width, height: 0))
+        container.lineFragmentPadding = 0
+        container.viewportSize = size
+        container.configureBoxes(in: text)
+        manager.textContainer = container
+        manager.configureGeometry()
+        container.deliverIndents(for: storage)
+        storage.attributedString = text
+        var result: [(range: NSRange, frame: CGRect, xs: [CGFloat])] = []
+        manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [.ensuresLayout]) { fragment in
+            let start = storage.offset(from: storage.documentRange.location, to: fragment.rangeInElement.location)
+            let origin = fragment.layoutFragmentFrame.origin
+            for line in fragment.textLineFragments where line.characterRange.length > 0 {
+                let xs = (0..<line.characterRange.length).map { line.locationForCharacter(at: line.characterRange.location + $0).x + origin.x }
+                result.append((NSRange(location: start + line.characterRange.location, length: line.characterRange.length),
+                               line.typographicBounds.offsetBy(dx: origin.x, dy: origin.y), xs))
+            }
+            return true
+        }
+        return result
+    }
+
+    /// A justified paragraph of verse, a `<br>` after every line and a blank line between
+    /// stanzas, as Project Gutenberg sets the Divine Comedy: one paragraph a canto. A page inside
+    /// it lays out the paragraph only up to the first line break after the page that ends a line
+    /// of text, not its whole rest, and the lines before that break are the whole rest's: the
+    /// same breaks, and every character at the same place. A paragraph longer than 8,192
+    /// characters keeps enough of its rest to stay long, and a section with a box plan its whole
+    /// rest.
+    func testAJustifiedPageEndsItsContextAtALineBreak() throws {
+        var random = SectionContentRandom(state: 8_800)
+        let words = ["the", "and", "of", "into", "darkness", "light", "wandering", "mountain", "beneath", "remembering",
+                     "a", "I", "unutterable", "shadows", "upon", "eternal", "who", "with", "sorrow", "stars"]
+        func canto(_ length: Int) -> String {
+            var text = "", count = 0
+            while count < length {
+                let line = (0..<(5 + random.next(6))).map { _ in random.pick(words) }.joined(separator: " ")
+                text += line + (random.chance(8) ? "<br/><br/>" : "<br/>")
+                count += line.count + 1
+            }
+            return text + "End."
+        }
+        let css = "p { text-align: justify; text-indent: 1.5em; margin: 0 }"
+        let section = try H.build("<p>\(canto(3_000))</p><p>\(canto(9_000))</p>", css: css, fontSize: 40)
+        let size = CGSize(width: 362.7, height: 748)
+        let pages = assertEveryCharacterVisible(section, size: size, "justified verse at 40 pt")
+        let paginator = ReaderPaginator(text: section.string, size: size)
+        XCTAssertEqual(paginator.allPages, pages)
+        let string = paginator.text.string as NSString
+        var compared = 0
+        for page in pages where page.range.length > 0 {
+            let paragraph = string.paragraphRange(for: NSRange(location: page.range.upperBound - 1, length: 0))
+            guard page.range.upperBound < NSMaxRange(paragraph) else { continue }
+            guard paragraph.length <= ReaderPaginator.wholeParagraphJustification else {
+                XCTAssertGreaterThanOrEqual(page.layoutEnd, min(NSMaxRange(paragraph), page.range.location + ReaderPaginator.wholeParagraphJustification + 1),
+                                            "a long paragraph's context stays long")
+                continue
+            }
+            XCTAssertLessThan(page.layoutEnd, NSMaxRange(paragraph), "page \(page.range): context ends at a line break")
+            XCTAssertEqual(string.character(at: page.layoutEnd - 1), 0x2028)
+            XCTAssertFalse([0x2028, 0x0A].contains(string.character(at: page.layoutEnd - 2)), "the break ends a line of text")
+            var whole = page
+            whole.layoutEnd = NSMaxRange(paragraph)
+            let bounded = Self.shownLines(paginator.text(for: page), size: size)
+            let full = Self.shownLines(paginator.text(for: whole), size: size).filter { $0.range.location < page.layoutEnd - page.range.location }
+            XCTAssertEqual(bounded.map(\.range), full.map(\.range), "page \(page.range): the same line breaks")
+            for (shown, reference) in zip(bounded, full) {
+                XCTAssertEqual(shown.frame.minY, reference.frame.minY, accuracy: 0.01)
+                XCTAssertEqual(shown.frame.height, reference.frame.height, accuracy: 0.01)
+                XCTAssertEqual(shown.xs.count, reference.xs.count)
+                for (x, expected) in zip(shown.xs, reference.xs) { XCTAssertEqual(x, expected, accuracy: 0.01, "page \(page.range) line \(shown.range)") }
+            }
+            compared += 1
+        }
+        XCTAssertGreaterThan(compared, 2, "pages that end inside the short paragraph")
+
+        // A box plan can place the lines before a break by what follows it: a planned section
+        // keeps the paragraph's whole rest.
+        let planned = try H.build("<div style='float:left; width:60px; height:60px'>Box.</div><p>\(canto(3_000))</p>", css: css, fontSize: 40)
+        let plannedPaginator = ReaderPaginator(text: planned.string, size: size)
+        XCTAssertNotNil(ReaderBoxLayout.resolve(planned.string, viewport: size).geometry)
+        let plannedString = plannedPaginator.text.string as NSString
+        var kept = 0
+        for page in plannedPaginator.allPages where page.range.length > 0 {
+            let paragraph = plannedString.paragraphRange(for: NSRange(location: page.range.upperBound - 1, length: 0))
+            guard page.range.upperBound < NSMaxRange(paragraph), paragraph.length > 1_000 else { continue }
+            XCTAssertEqual(page.layoutEnd, NSMaxRange(paragraph), "page \(page.range) of a planned section")
+            kept += 1
+        }
+        XCTAssertGreaterThan(kept, 2)
+    }
+
     // MARK: Generated sections without a box plan (#570, acceptance)
 
     static let viewports = [CGSize(width: 180, height: 240), CGSize(width: 250, height: 333.3), CGSize(width: 297.6, height: 384),
