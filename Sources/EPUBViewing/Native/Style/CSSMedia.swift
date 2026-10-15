@@ -281,7 +281,7 @@ enum CSSSupports {
             return condition(inner, namespaces: namespaces) ?? false
         case .function("selector", let arguments):
             let selectors = try? CSSSelectorParser(namespaces: namespaces).parseList(arguments)
-            return selectors?.allSatisfy { !$0.hasPseudoElement } ?? false
+            return selectors?.allSatisfy { $0.pseudoElement == nil || $0.pseudoElement == .before || $0.pseudoElement == .after } ?? false
         case .function:
             return false
         default:

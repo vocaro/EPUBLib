@@ -185,6 +185,9 @@ enum NativeDisclosure {
             sentences.append("Some flexible box or grid layouts are shown as blocks in reading order: items meant to sit side by side, wrap or be reordered follow one another.")
         }
         if report.stylesTruncated { sentences.append("Some of this book's styling was too large to apply.") }
+        if report.generatedContentOmitted {
+            sentences.append("Some text or images this book's styling adds before or after its content are not shown.")
+        }
         return sentences.isEmpty ? nil : sentences.joined(separator: " ")
     }
 }

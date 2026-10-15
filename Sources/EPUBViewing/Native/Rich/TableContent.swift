@@ -182,6 +182,7 @@ enum TableContent {
     /// with no edges, size or background of its own.
     private static func anonymous(in parent: ComputedStyle) -> ComputedStyle {
         var style = parent
+        style.generated = nil
         style.display = .tableCell
         style.float = .none
         style.clear = .none
@@ -219,9 +220,13 @@ enum TableContent {
         var columnCount = 0
         var overflow: [NSAttributedString] = []
         var rendered: [NSAttributedString] = []
+        /// The table, a row group or a row has a `::before` or `::after` that could show
+        /// characters. A grid shows its cells' and captions' generated content, not theirs.
+        var hidesGeneratedContent: Bool
 
         init(table: ContentNode, style: ComputedStyle, context: RichContentContext) {
             self.table = table; self.style = style; self.context = context
+            hidesGeneratedContent = style.generated?.mayGenerateText == true
         }
 
         func visible(_ element: ContentNode, _ parent: ComputedStyle) -> ComputedStyle? {
@@ -257,6 +262,7 @@ enum TableContent {
                 case "thead", "tbody", "tfoot":
                     closeImplicit()
                     guard let groupStyle = visible(child, style) else { continue }
+                    if groupStyle.generated?.mayGenerateText == true { hidesGeneratedContent = true }
                     let rows = TableContent.parts(child.children, TableContent.rowParts)
                     if child.name == "thead", head == nil { head = Group(element: child, style: groupStyle, rows: rows, isHeader: true) }
                     else if child.name == "tfoot" { feet.append(Group(element: child, style: groupStyle, rows: rows, isHeader: false)) }
@@ -307,6 +313,7 @@ enum TableContent {
                 switch part {
                 case .element(let row):
                     guard let rowStyle = visible(row, group.style) else { continue }
+                    if rowStyle.generated?.mayGenerateText == true { hidesGeneratedContent = true }
                     let rowCells = cells(TableContent.parts(row.children, TableContent.cellParts), in: rowStyle,
                                          anonymous: anonymous, rendered: false, skipped: &skipped)
                     groupRows.append(Row(row, rowStyle, rowCells))
@@ -456,6 +463,7 @@ enum TableContent {
             // text flows with it.
             arrangement = arrange(anonymous: false)
             guard arrangement.writtenColumns > 1 else { return nil }
+            if hidesGeneratedContent { context.report.report.generatedContentOmitted = true }
             if arrangement.skippedAnonymous { arrangement = arrange(anonymous: true) }
             columnCount = arrangement.placed.map { $0.column + $0.columnSpan }.max() ?? 0
             for index in arrangement.placed.indices where arrangement.placed[index].reaches {
