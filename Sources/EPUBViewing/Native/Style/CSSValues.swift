@@ -36,6 +36,19 @@ enum CSSProperty: Int, CaseIterable, Sendable {
         }
     }
 
+    /// Whether the property only paints: colours and `filter`, whose values never change a
+    /// section's characters, what of them is hidden or how they map to the document. Only these
+    /// follow the reader's appearance (`prefers-color-scheme`); every other property, and any
+    /// added later, is resolved as in the light appearance (`CSSMediaMask.governs`).
+    var followsAppearance: Bool {
+        switch self {
+        case .color, .backgroundColor, .borderTopColor, .borderRightColor, .borderBottomColor, .borderLeftColor,
+             .textDecorationColor, .filter:
+            true
+        default: false
+        }
+    }
+
     static let insets: [CSSProperty] = [.top, .right, .bottom, .left]
     static let margins: [CSSProperty] = [.marginTop, .marginRight, .marginBottom, .marginLeft]
     static let paddings: [CSSProperty] = [.paddingTop, .paddingRight, .paddingBottom, .paddingLeft]
