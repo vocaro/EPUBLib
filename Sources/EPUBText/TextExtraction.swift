@@ -485,16 +485,21 @@ private enum SourceEncoding {
 ///   before an ASCII letter, `/`, `!` or `?` and nowhere else: `_`, `:` and `.` start a name
 ///   for libxml2, and prose such as `a <_< b` would open an element. A `<` that ends the input
 ///   stays the cut-off tag it may be.
-/// - End tags that libxml2 reads as `</body>` or `</html>` are given another name (`</.body>`),
-///   and libxml2 passes over them as over any end tag that closes nothing. In HTML they close
-///   nothing and later content stays in the body; libxml2 pops the element and builds that
-///   content outside the body, where the walk does not read it. Every byte of the tag stays:
-///   one with no `>` of its own runs to the next, which may be that of a script's end tag, and
-///   a declaration keyword inside one is still refused. The same is done in script and style
-///   content, where it changes nothing unless libxml2 has left the script and reads an end tag.
-///   Nothing the scan reads as a start tag has such a name, as a `<.` in text is escaped.
-///   libxml2 can still read one out of what was copied as a script or a quoted value, and the
-///   end tag then closes that element, not the body.
+/// - End tags that libxml2 reads as `</body>` or `</html>` are given another name, their last
+///   letter written as its numeric character reference (`</bod&#121;>`), and libxml2 passes over
+///   them as over any end tag that closes nothing. In HTML they close nothing and later content
+///   stays in the body; libxml2 pops the element and builds that content outside the body.
+///   Every byte of the tag stays or is a reference to itself: one with no `>` of its own runs to
+///   the next, which may be that of a script's end tag, and a declaration keyword inside one is
+///   still refused. The same is done in script and style content, where it changes nothing
+///   unless libxml2 has left the script and reads an end tag. Where libxml2 reads the tag as
+///   part of a quoted value instead, the value decodes the reference to the letter (#255).
+/// - Script and style raw text is read where the HTML Standard reads it (`HTMLRawTextMap`, #255):
+///   a `<script` or `<style` that libxml2 would take for such a start tag where the Standard
+///   does not (`<script"q>`, a `<script>` in a title, a comment or an attribute value) is renamed
+///   the same way, so that libxml2 reads it as an element it does not know and shows what
+///   follows, and the scan does not copy that as raw text. A `</scriptx` that would take the
+///   script's end tag with it is renamed too.
 /// - `<!-->` and `<!--->` become `<!---->` where a `<` kept as text brings them into view.
 ///   HTML closes the comment there and libxml2 reads on to the next `-->`, but libxml2 used to
 ///   skip from such a sign through the next `>`, the comment's own, and showed what follows.
@@ -511,15 +516,16 @@ private enum SourceEncoding {
 private enum HTMLRecoverySource {
     static func prepare(_ data: Data) -> Data? {
         let bytes = [UInt8](data)
-        var scanned = scan(bytes, closingAbruptComments: true)
-        if scanned.output == nil, scanned.closedComment { scanned = scan(bytes, closingAbruptComments: false) }
+        let map = HTMLRawTextMap(bytes)
+        var scanned = scan(bytes, map, closingAbruptComments: true)
+        if scanned.output == nil, scanned.closedComment { scanned = scan(bytes, map, closingAbruptComments: false) }
         guard let output = scanned.output else { return nil }
         return hasDeclarations(output) ? nil : Data(output)
     }
 
     /// The rewritten bytes, or `nil` for a CDATA section or a start tag's quoted value that never
     /// ends, and whether a `<!-->` or `<!--->` was closed on the way.
-    private static func scan(_ bytes: [UInt8], closingAbruptComments: Bool) -> (output: [UInt8]?, closedComment: Bool) {
+    private static func scan(_ bytes: [UInt8], _ map: HTMLRawTextMap, closingAbruptComments: Bool) -> (output: [UInt8]?, closedComment: Bool) {
         var output = [UInt8](); output.reserveCapacity(bytes.count)
         let cdataOpen = Array("<![CDATA[".utf8), cdataClose = Array("]]>".utf8)
         let commentOpen = Array("<!--".utf8)
@@ -531,12 +537,27 @@ private enum HTMLRecoverySource {
         // Whether only text has followed the last `<` kept as text, so that libxml2 used to
         // skip this far.
         var exposed = false
-        func copyMarkup(_ range: Range<Int>) {
-            inMarkup = false; exposed = false
-            guard bytes[range].contains(0) else { output.append(contentsOf: bytes[range]); return }
-            for byte in bytes[range] {
-                if byte == 0 { output.append(contentsOf: replacement) } else { output.append(byte) }
+        // The map's letters to rename, in order; the scan only moves forward.
+        var nextRenamed = 0
+        func renamed(from position: Int) -> Int {
+            while nextRenamed < map.renamed.count, map.renamed[nextRenamed] < position { nextRenamed += 1 }
+            return nextRenamed < map.renamed.count ? map.renamed[nextRenamed] : Int.max
+        }
+        /// Copies `range` with each renamed letter (the map's, and `own`) written as its numeric
+        /// character reference and U+0000 as U+FFFD.
+        func copy(_ range: Range<Int>, renaming own: Int? = nil) {
+            if own == nil, renamed(from: range.lowerBound) >= range.upperBound, !bytes[range].contains(0) {
+                output.append(contentsOf: bytes[range]); return
             }
+            for index in range {
+                if index == own || renamed(from: index) == index { output.append(contentsOf: reference(bytes[index])) }
+                else if bytes[index] == 0 { output.append(contentsOf: replacement) }
+                else { output.append(bytes[index]) }
+            }
+        }
+        func copyMarkup(_ range: Range<Int>, renaming own: Int? = nil) {
+            inMarkup = false; exposed = false
+            copy(range, renaming: own)
         }
         var index = 0
         while index < bytes.count {
@@ -548,23 +569,31 @@ private enum HTMLRecoverySource {
                 copyMarkup(index..<end); index = end
             } else if bytes[index] == 0x3C, let tag = tag(bytes, at: index) {
                 guard let end = tag.end else { return (nil, closedComment) }
-                if tag.endsBody {
-                    output.append(contentsOf: Array("</.".utf8)); copyMarkup(index + 2..<end)
-                } else {
-                    copyMarkup(index..<end)
-                }
+                let start = index
+                // `</body` or `</html` as libxml2 reads it: its last letter is renamed.
+                copyMarkup(index..<end, renaming: tag.endsBody ? index + 5 : nil)
                 index = end
-                guard let raw = tag.rawText else { continue }
-                // Script and style content, to the first end tag of that name in any spelling.
+                // Script and style content, to the first end tag of that name in any spelling that
+                // the map has not renamed. It opens where the Standard opens it (the map), or
+                // where the map cannot tell, at a start tag of that name it has not renamed.
                 // libxml2 may leave it sooner, at an end tag directly after the start tag, and
                 // then acts on a `</body>` here, so that is renamed here as it is in text.
+                let raw = map.rawText.contains(start)
+                    ? HTMLRawTextMap.libxml2RawText(bytes, at: start).map { String(decoding: $0.name, as: UTF8.self).uppercased() }
+                    : tag.rawText.flatMap { map.renames(start + $0.count) ? nil : $0 }
+                guard let raw else { continue }
                 let close = Array("</\(raw)".utf8) // Uppercase, for case-insensitive `matches`.
-                while index < bytes.count, !matches(bytes, close, at: index) {
+                var own: Int?
+                while index < bytes.count, !matches(bytes, close, at: index) || map.renames(index + close.count - 1) {
                     if bytes[index] == 0 {
                         output.append(contentsOf: replacement)
-                    } else if bytes[index] == 0x2F, bytes[index - 1] == 0x3C, names(bytes, body, at: index + 1) || names(bytes, root, at: index + 1) {
-                        output.append(contentsOf: Array("/.".utf8)) // </
+                    } else if index == own || renamed(from: index) == index {
+                        output.append(contentsOf: reference(bytes[index]))
                     } else {
+                        if bytes[index] == 0x3C, index + 1 < bytes.count, bytes[index + 1] == 0x2F,
+                           names(bytes, body, at: index + 2) || names(bytes, root, at: index + 2) {
+                            own = index + 5 // </body or </html
+                        }
                         output.append(bytes[index])
                     }
                     index += 1
@@ -589,13 +618,19 @@ private enum HTMLRecoverySource {
                 case 0: if inMarkup { output.append(contentsOf: replacement) }
                 case 0x3C: inMarkup = true; output.append(0x3C)
                 case 0x3E: inMarkup = false; exposed = false; output.append(0x3E)
-                default: output.append(bytes[index])
+                default:
+                    if renamed(from: index) == index { output.append(contentsOf: reference(bytes[index])) } else { output.append(bytes[index]) }
                 }
                 index += 1
             }
         }
         return (output, closedComment)
     }
+
+    /// A byte as its numeric character reference: libxml2 decodes it in text and in attribute
+    /// values, shows nothing of it in comments, processing instructions, DOCTYPEs and raw text,
+    /// and ends a tag name at its `&`.
+    private static func reference(_ byte: UInt8) -> [UInt8] { Array("&#\(byte);".utf8) }
 
     /// An HTML start or end tag at `position` (`<` then an ASCII letter, or `</` then a letter).
     /// `end` is the index after its `>` (or the input end), `nil` for an unterminated quoted value.

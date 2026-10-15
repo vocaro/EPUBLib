@@ -448,9 +448,10 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
         XCTAssertEqual(earlier.anchors, ["h7": EPUBTextMark(offset: 2, separator: 1), "last": EPUBTextMark(offset: 7, separator: 1)])
         XCTAssertEqual(try recovered(page("<p>x</p><p 1=\"a b=\"c> text \" <html d/><p>rest</p>")).text, "x\nrest")
         XCTAssertEqual(try recovered(page("<p>x</p>", head: "<meta 1=\"a b=\"c> \" <head d/><title>T</title>")).title, "T")
-        for script in ["<script\"q>var a;", "<script>y</scriptx> a "] {
-            XCTAssertEqual(try recovered(page("<p>x</p>\(script)<html a=\"</script>\"/><p>rest</p>")).text, "x\n\"/>\nrest", script)
-        }
+        XCTAssertEqual(try recovered(page("<p>x</p><script>y</scriptx> a <html a=\"</script>\"/><p>rest</p>")).text, "x\n\"/>\nrest")
+        // HTML reads `<script"q>` as an element of that name, not a script (#255): its text
+        // shows, and the `<html …/>` after it is a tag.
+        XCTAssertEqual(try recovered(page("<p>x</p><script\"q>var a;<html a=\"</script>\"/><p>rest</p>")).text, "x\nvar a;\nrest")
         for open in ["<?x ", "<!x "] {
             XCTAssertEqual(try recovered(page("<p>x &</p>", head: "\(open)<head a/><title>T</title>")).title, "T", open)
         }
@@ -509,6 +510,70 @@ final class ExtractionRecoveryCoverageTests: XCTestCase {
             XCTAssertEqual(section.text, "x", start)
             XCTAssertEqual(section.anchors, ["b": EPUBTextMark(offset: 0, separator: 0)], start)
         }
+    }
+
+    // MARK: Script and style raw text where HTML reads it (#255)
+
+    // HTML Standard, tag name state: a tag name runs to white space, "/" or ">", so `<script"q>`
+    // is an element named `script"q`, whose content is markup and shows. libxml2 ends the name at
+    // the quote and reads a script. Each spelling keeps the text and the id after it.
+    func testAStartTagThatOnlyLibxml2ReadsAsAScriptOrStyleKeepsTheTextAfterIt() throws {
+        for start in ["<script\"q>", "<script=x>", "<script'x>", "<script@a>", "<script\u{B}>", "<SCRIPT\"q>", "<style\"q>", "<style=x>"] {
+            let section = try recovered(page("<p>x</b>\(start)a < b <i id='i'>c</i></script></style> d</p><p id='n'>e</p>"))
+            XCTAssertEqual(section.text, "xa < b c d\ne", start)
+            XCTAssertEqual(section.anchors, ["i": EPUBTextMark(offset: 7, separator: 1), "n": EPUBTextMark(offset: 11, separator: 1)], start)
+        }
+    }
+
+    // RCDATA: in a textarea or a title, HTML reads `<script>` as text. libxml2 reads markup there
+    // and a script in it.
+    func testAScriptStartTagInATextareaOrATitleKeepsItsContent() throws {
+        XCTAssertEqual(try recovered(page("<p>x</b><textarea>ta <script>sc</script> tb</textarea> u</p><p>v</p>")).text, "xta sc tb u\nv")
+        XCTAssertEqual(try recovered(page("<p>x</b></p><p>v</p>", head: "<title>t1 <script>sc</script> t2</title>")).title, "t1 sc t2")
+    }
+
+    // HTML reads a processing instruction, `<!x …>` and a DOCTYPE as a comment to the first ">",
+    // so a `<script>` or `<style>` in one is no start tag. The scan used to take it for one and
+    // copy the rest as raw text, so libxml2 met the stray "<" and the CDATA section as written.
+    func testAScriptOrStyleInsideWhatHTMLReadsAsACommentOpensNoRawText() throws {
+        for open in ["<?x <script>", "<!x <script>", "<!DOCTYPE html SYSTEM \"<script>\">", "<!DOCTYPE html SYSTEM \"a <style>\">", "<? <style>"] {
+            XCTAssertEqual(try recovered(page("<p>x</b>\(open) One < two <![CDATA[c]]></p><p>z</p>")).text, "x One < two c\nz", open)
+        }
+    }
+
+    // A renamed tag is one letter written as its character reference. Where libxml2 reads a
+    // quoted value there, it decodes the reference, and the value is what was written.
+    func testARenamedTagThatLibxml2ReadsInAnAttributeValueIsAsWritten() throws {
+        let section = try recovered(page("<p>x</b><img id='i' alt='</body></html><script\"q>' title='<style>'/> y</p><p>z</p>"))
+        XCTAssertEqual(section.text, "x</body></html><script\"q> y\nz")
+        // A body end tag that libxml2 reads inside an alternative (it pairs the head tag's quotes
+        // otherwise), which used to show as `</.body>`.
+        let quoted = try recovered(page("<p>x</p>", head: "<head /x=\"a/></head><body><p><img alt=\"<html/></a></body></html>"))
+        XCTAssertEqual(quoted.text, "<html/></a></body></html></head><body><p>x</p></body></html>")
+    }
+
+    // libxml2 leaves raw text at any `</script` and reads `</scriptx …` as an end tag that closes
+    // nothing, to its first ">": here the script's own end tag's, so the script ran on to the end.
+    // HTML Standard, script data end tag name state: `</scriptx` is text, `</script>` ends it.
+    func testAnEndTagThatOnlyLibxml2ReadsDoesNotTakeTheScriptsEndTagWithIt() throws {
+        for raw in ["<script>a </scriptx </script>", "<script>a </SCRIPTx </SCRIPT>", "<style>a </stylex </style>"] {
+            XCTAssertEqual(try recovered(page("<p>x</b>\(raw) b</p><p>visible</p>")).text, "x b\nvisible", raw)
+        }
+        // With its own ">" first, or with a name that ends at once, libxml2 reads as before.
+        XCTAssertEqual(try recovered(page("<p>x</b><script>a </scriptx> b </script> c</p><p>visible</p>")).text, "x c\nvisible")
+        XCTAssertEqual(try recovered(page("<p>x</b><script>a </script\"x> b</p><p>visible</p>")).text, "x b\nvisible")
+    }
+
+    // Inside SVG and MathML, and in the head, a script or style is left as libxml2 reads it: the
+    // walk hides a foreign one either way, writes the name of any other MathML element, and reads
+    // nothing of an element libxml2 keeps in the head.
+    func testAScriptOrStyleInSVGMathMLOrTheHeadIsLeftAsLibxml2ReadsIt() throws {
+        XCTAssertEqual(try recovered(page("<p>x</b><svg><style>a{}</style><script\"q>s</script><text>t</text></svg> u</p><p>v</p>")).text, "xt u\nv")
+        XCTAssertEqual(try recovered(page("<p>x</b><math><mi>m</mi><script\"q>s</script></math> u</p><p>v</p>")).text, #"xmath("m") u"# + "\nv")
+        XCTAssertEqual(try recovered(page("<p>x</b></p><p>v</p>", head: "<title>T</title><style\u{0} type='text/css'>p { margin: 0 }</style> 5 <= 6")).text,
+            "5 <= 6\nx\nv")
+        // As XHTML has it, `<script/>` is empty and what follows it is read.
+        XCTAssertEqual(try recovered(page("<p>x</b><script/>y<p>z</p>")).text, "xy\nz")
     }
 
     // HTML Standard, "in body" insertion mode, U+0000: a parse error; the character is ignored.
