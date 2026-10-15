@@ -97,8 +97,9 @@ final class ReaderBoxLayoutManager: NSTextLayoutManager, NSTextLayoutManagerDele
             // A positioned first box can stand above the flow cursor (bottom positioning).
             // Its glyphs start at the page top, but the following paragraph still begins at
             // that cursor, so keep the positive remainder in its advance.
-            if repairsPageFlow, paragraph.isBox, paragraph.topAdjustment < 0, shift > 0 {
-                fragment.bottomAdjustment += min(shift, -paragraph.topAdjustment)
+            let displacement = paragraph.topAdjustment + paragraph.spacingAbove
+            if repairsPageFlow, paragraph.isBox, displacement < 0, shift > 0 {
+                fragment.bottomAdjustment += min(shift, -displacement)
             }
         }
         return fragment

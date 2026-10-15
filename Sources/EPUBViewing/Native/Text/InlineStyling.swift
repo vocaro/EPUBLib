@@ -48,8 +48,6 @@ struct InlineContext {
     var baselineOffset: CGFloat = 0
     /// The content's language (`xml:lang`/`lang`, inherited) and the package's as a hint.
     var language = InlineLanguage()
-    /// `<q>` nesting, for alternating quotation marks.
-    var quoteDepth = 0
 }
 
 /// Interns attribute dictionaries and paragraph styles for one build, and measures with CoreText
