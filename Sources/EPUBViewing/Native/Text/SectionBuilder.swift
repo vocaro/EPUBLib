@@ -97,6 +97,9 @@ final class SectionBuildState {
     let initialStyle: ComputedStyle
     let report = SectionReportBox()
     let styling: InlineStyling
+    /// Counters and quotes for generated content, shared by the section's writer and those it
+    /// starts for table cells and captions.
+    var generated = GeneratedContentState()
     var notes: [String: NSAttributedString] = [:]
     /// The body's computed style: notes are styled like body text.
     var bodyStyle: ComputedStyle
@@ -357,7 +360,11 @@ final class SectionBuildState {
     /// that note and the `wholeNoteDepth` captured notes around it. A note deeper inside a
     /// stack of notes that hold only one another is left out of the outer ones, which stay
     /// empty. What the second rendering holds comes from a budget of its own.
-    func captureNote(_ element: ContentNode) {
+    ///
+    /// A note's rendering leaves the counters and quotes of generated content as they were
+    /// (`generated`), since the section's walk reaches its content again, unless
+    /// `keepsCounters`: a footnote hidden from the flow counts where it stands, as it would shown.
+    func captureNote(_ element: ContentNode, keepsCounters: Bool = false) {
         guard noteBudget > 0, nesting < Self.maximumNesting else { return }
         guard let ids = noteIDs[element.order], notes[ids[0]] == nil else { return }
         // Claims the ids, so a note cannot capture itself again.
@@ -368,17 +375,21 @@ final class SectionBuildState {
         defer { nesting -= 1; noteMode = previousMode }
         let names = Set(ids), depth = namedNoteDepth[element.order], reported = report.report
         noteMode = .note(ids: names, depth: depth)
+        let counters = generated
         let writer = SectionWriter(state: self, mode: .note(ids: names, depth: depth))
         var content = Self.cut(writer.renderNote(element), to: &noteBudget)
+        var counted = generated
         if writer.leftOutNote, wholeNoteBudget > 0, content.string.allSatisfy(\.isWhitespace) {
             // Whichever rendering is not kept leaves nothing in the report.
             let own = report.report
             report.report = reported
             noteMode = .note(ids: names, depth: depth + Self.wholeNoteDepth)
+            generated = counters
             let whole = SectionWriter(state: self, mode: .note(ids: names, depth: depth + Self.wholeNoteDepth)).renderNote(element)
             if whole.string.allSatisfy(\.isWhitespace) { report.report = own }
-            else { content = Self.cut(whole, to: &wholeNoteBudget) }
+            else { content = Self.cut(whole, to: &wholeNoteBudget); counted = generated }
         }
+        generated = keepsCounters ? counted : counters
         for id in ids { notes[id] = content }
     }
 

@@ -90,8 +90,9 @@ they begin with a local file header's signature as an archive does: they are ref
 archive by those last bytes and their first four, without the rest being read. Bytes that do
 begin so and hold no end record are refused after one search through them in memory.
 
-Faults that leave a book readable are read past instead. The publication model has no channel for
-warnings, so this list is where they are disclosed:
+Faults that leave a book readable are read past instead. Apart from `lostEntries` (under
+Archive), the publication model has no channel for warnings, so this list is where they are
+disclosed:
 
 - **References.** No reference leaves the container: a leading `/` names the container root and
   `..` stops there (EPUB Reading Systems 3.3 §4.1.1). A query is dropped. The container's rootfile
@@ -119,7 +120,18 @@ warnings, so this list is where they are disclosed:
   and held to its checksum: an uncompressed size its directory misstates is not believed, nor is a
   compressed size that runs past the end of the archive, and the limits count what the entry
   inflates to. The book is still refused when that compressed size is 2^63 bytes or more, or when a
-  data descriptor follows the entry and the misstated size places it past the end.
+  data descriptor follows the entry and the misstated size places it past the end. A data
+  descriptor's sizes are four bytes or eight as its own bytes show: the form whose sizes are its
+  directory record's, or else the one that ends where the next local header or the directory
+  begins, whatever version the entry is marked with. Where neither tells, the record's sizes are
+  taken. A stored entry's limits are checked by that size before it is read
+  ([#261](https://github.com/vocaro/EPUBLib/issues/261)). Entries the directory lists that
+  cannot be read are left out as files the archive lacks: from a record the end of the archive
+  cuts short, one whose local header offset names no local header, or an encrypted entry,
+  through the last the end record counts, and any records after the last it counts. The
+  publication's `lostEntries` gives how many were lost and the paths of those whose records
+  can still be read; it is nil when none was. The entries after a damaged record are not
+  recovered. An end record that counts more records than the directory holds loses none.
   Directory entries have no extracted payload: misstated directory sizes do not refuse the
   book or count toward expanded-byte limits. ZIPFoundation's own entry classification decides
   that exemption after structural header and descriptor bounds have been checked; file sizes

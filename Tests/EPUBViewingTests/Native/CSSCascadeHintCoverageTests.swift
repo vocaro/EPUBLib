@@ -370,7 +370,13 @@ final class CSSCascadeHintCoverageTests: XCTestCase {
         XCTAssertEqual(result.style("ruby").display, .ruby); XCTAssertEqual(result.style("rt").display, .rubyText)
         let plain = result.style("span")
         XCTAssertEqual(plain.display, .inline); XCTAssertEqual(plain.fontSize, 16); XCTAssertEqual(plain.fontWeight, 400); XCTAssertFalse(plain.isItalic)
-        for id in ["anchor", "q", "abbr", "time", "bdi", "font", "br", "wbr"] { XCTAssertEqual(result.style(id), plain, "\(id) is an unstyled inline") }
+        for id in ["anchor", "abbr", "time", "bdi", "font", "br", "wbr"] { XCTAssertEqual(result.style(id), plain, "\(id) is an unstyled inline") }
+        // A `q` is one too, with quotation marks before and after it (HTML §15.3.6).
+        var quotation = result.style("q")
+        XCTAssertEqual(quotation.generated?.before?.content, [.openQuote])
+        XCTAssertEqual(quotation.generated?.after?.content, [.closeQuote])
+        quotation.generated = nil
+        XCTAssertEqual(quotation, plain)
         for id in ["code", "em", "b", "small", "sup", "u", "mark", "link", "nobr"] { XCTAssertEqual(result.style(id).display, .inline, id) }
     }
 

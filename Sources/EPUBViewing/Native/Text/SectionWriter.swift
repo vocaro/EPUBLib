@@ -163,7 +163,14 @@ final class SectionWriter {
                              keepWithNext: false, firstParagraph: 0, language: language)]
         var context = InlineContext()
         context.language = language
-        walk(Entry(node: element, children: children, style: style, context: context))
+        let root = Entry(node: element, children: children, style: style, context: context)
+        if let box { open(box, root) }
+        else {
+            // Content outside the cells is not all of its parent's: the counters that parent's
+            // children instantiate stay in scope for the children after it.
+            root.exit.endsCounters = false
+        }
+        walk(root)
         let result = finish()
         let text = NSMutableAttributedString(attributedString: result.string)
         if text.length > 0 {
@@ -183,7 +190,10 @@ final class SectionWriter {
                              keepWithNext: false, firstParagraph: 0, language: language)]
         var context = InlineContext()
         context.language = language
-        walk(Entry(node: element, children: element.children, style: style, context: context))
+        let root = Entry(node: element, children: element.children, style: style, context: context)
+        state.generated.apply(style, owner: element.parent?.order ?? element.order)
+        beginGenerated(root)
+        walk(root)
         return finish().string
     }
 
@@ -231,7 +241,11 @@ final class SectionWriter {
         var softBoundary = false
         var isolate = false
         var heading = false
-        var closeQuote: (text: String, attributes: Int)?
+        /// The element's `::after`, generated as it closes.
+        var after: ComputedStyle?
+        /// Whether closing the element ends the scope of the counters it and the elements
+        /// inside it own (`GeneratedContentState.leave`).
+        var endsCounters = true
         var ruby: (collecting: Bool, start: Int?)?
     }
 
@@ -293,7 +307,7 @@ final class SectionWriter {
         if isSection, node.isHTML("body") { state.bodyStyle = style }
         register(node)
         if state.noteKind(node) != nil {
-            if isSection { state.captureNote(node) }
+            if isSection { state.captureNote(node, keepsCounters: state.isHiddenFootnote(node)) }
             if case .note(_, let depth) = mode {
                 // A note's content leaves out the notes nested in it that are captured on their
                 // own, below the depth it goes to. One that no id names is captured nowhere
@@ -324,6 +338,9 @@ final class SectionWriter {
         }
         var context = parent.context
         if let language = node.language { context.language.declare(language) }
+        // The element is rendered: its counters change where it opens, in scope for it, its
+        // descendants and its following siblings.
+        state.generated.apply(style, owner: parent.node.order)
 
         return Prepared(style: style, context: context)
     }
@@ -331,6 +348,8 @@ final class SectionWriter {
     private func enterTable(_ node: ContentNode, style: ComputedStyle, context: InlineContext) -> Bool {
         guard let result = state.request.rich.table(node, style: style, context: state.richContext) else { return false }
         insert(result, for: node, style: style, context: context)
+        // The counters its rows and cells owned go out of scope with it.
+        state.generated.leave(node)
         return true
     }
 
@@ -411,6 +430,7 @@ final class SectionWriter {
             flattenDepth += 1
             let entry = Entry(node: node, children: node.children, style: style, context: context)
             entry.exit.flatten = true
+            beginGenerated(entry)
             stack.append(entry)
             return
         }
@@ -418,7 +438,7 @@ final class SectionWriter {
     }
 
     /// Pushes an element whose content is walked normally: a block box, or an inline box with its
-    /// link, background, baseline shift, bidi isolation and generated quotes.
+    /// link, background, baseline shift and bidi isolation, and its generated content.
     private func push(_ node: ContentNode, style: ComputedStyle, context: InlineContext,
                       parentStyle: ComputedStyle, role: Role) {
         let entry = Entry(node: node, children: node.children, style: style, context: context)
@@ -463,13 +483,8 @@ final class SectionWriter {
                 entry.context.linkBaseColor = parentStyle.color
             } else { entry.context.link = nil }
         }
-        if node.isHTML("q") {
-            let marks = ContentSemantics.quotes(language: entry.context.language.declared, depth: entry.context.quoteDepth)
-            let attributes = styling.attributes(style, entry.context)
-            emitGenerated(Array(marks.open.utf16), attributes: attributes)
-            entry.exit.closeQuote = (marks.close, attributes)
-            entry.context.quoteDepth += 1
-        }
+        // `::before` and `::after`, the marks of a `q` among them (`UserAgentStyleSheet`).
+        beginGenerated(entry)
         if case .ruby = role {
             entry.exit.ruby = (collectingRubyBase, rubyBaseStart)
             collectingRubyBase = true
@@ -479,7 +494,8 @@ final class SectionWriter {
     }
 
     private func leave(_ entry: Entry) {
-        if let quote = entry.exit.closeQuote { emitGenerated(Array(quote.text.utf16), attributes: quote.attributes) }
+        if let after = entry.exit.after { generate(after, in: entry) }
+        if entry.exit.endsCounters { state.generated.leave(entry.node) }
         if entry.exit.isolate, let isolate = isolates.popLast(), isolate.emitted, paragraphOpen {
             buffer.append(isolate.closer, attributes: isolate.attributes)
         }
@@ -1011,14 +1027,20 @@ final class SectionWriter {
     }
 
     private func appendText(_ node: ContentNode, style: ComputedStyle, context: InlineContext, attributes: Int) {
-        let units = Array(node.text.utf16)
+        appendText(Array(node.text.utf16), from: node, style: style, context: context, attributes: attributes)
+    }
+
+    /// Text in `style`: a text node's characters, mapped to it, or with no node generated
+    /// characters, unmapped, which white space collapses with as with any text.
+    private func appendText(_ units: [UInt16], from node: ContentNode?, style: ComputedStyle, context: InlineContext,
+                            attributes: Int) {
         let count = units.count
         guard count > 0 else { return }
         let spaceAttributes = style.wordSpacing != 0 && !style.isHidden
             ? styling.attributes(style, context, wordSpacing: true) : attributes
         var index = 0
         // HTML ignores a newline right after `<pre>`'s start tag.
-        if style.whiteSpace.preservesNewlines, units[0] == 0x0A, node.indexInParent == 0,
+        if style.whiteSpace.preservesNewlines, units[0] == 0x0A, let node, node.indexInParent == 0,
            node.parent?.isHTML("pre") == true { index = 1 }
         switch style.whiteSpace {
         case .pre, .preWrap, .breakSpaces:
@@ -1076,7 +1098,7 @@ final class SectionWriter {
         }
     }
 
-    private func emitText(_ units: [UInt16], _ range: Range<Int>, node: ContentNode, style: ComputedStyle,
+    private func emitText(_ units: [UInt16], _ range: Range<Int>, node: ContentNode?, style: ComputedStyle,
                           context: InlineContext, attributes: Int, spaceAttributes: Int) {
         prepareForContent(next: Self.scalar(units, at: range.lowerBound))
         let location = buffer.count
@@ -1102,9 +1124,11 @@ final class SectionWriter {
         }
         buffer.replaceParagraphSeparators(from: location)
         let length = buffer.count - location
-        mapAuthoredRun(units, range: range, node: node, location: location, length: length,
-                       transform: style.textTransform, synthetic: synthetic, language: context.language.declared,
-                       startsWord: startsWord)
+        if let node {
+            mapAuthoredRun(units, range: range, node: node, location: location, length: length,
+                           transform: style.textTransform, synthetic: synthetic, language: context.language.declared,
+                           startsWord: startsWord)
+        }
         didEmitContent()
     }
 
@@ -1174,7 +1198,7 @@ final class SectionWriter {
         if source > exactSource { record(exactSource..<source, rendered: exactShown..<shown) }
     }
 
-    /// Generated text that reads as content (`<q>` marks, inline markers): it ends a line start.
+    /// Generated text that reads as content (a flattened cell's list marker): it ends a line start.
     private func emitGenerated(_ units: [UInt16], attributes: Int) {
         guard !units.isEmpty else { return }
         prepareForContent(next: Self.scalar(units, at: 0))
@@ -1717,6 +1741,84 @@ final class SectionWriter {
         if node.isText { return node.text }
         if node.isHTML("rp") { return "" }
         return node.children.map(annotationText).joined()
+    }
+}
+
+// MARK: - Generated content
+
+extension SectionWriter {
+    /// A cell's or a caption's own box, rendered on its own (`root`): its counters, then its
+    /// `::before` and `::after`. The row and the row group around a cell are walked by nobody:
+    /// their counters change as their first cell's content is rendered. A frame of its own, so
+    /// that the styles it computes are not on the stack while nested tables recurse.
+    @inline(never)
+    private func open(_ box: ContentNode, _ root: Entry) {
+        var parts: [ContentNode] = []
+        var ancestor = box.parent
+        while let part = ancestor, part.isHTML, ContentSemantics.rowGroups.contains(part.name) || part.name == "tr",
+              state.generated.counts(part) {
+            parts.append(part)
+            ancestor = part.parent
+        }
+        for part in parts.reversed() { state.generated.apply(state.style(part, root.style), owner: part.parent?.order ?? part.order) }
+        state.generated.apply(root.style, owner: box.parent?.order ?? box.order)
+        beginGenerated(root)
+    }
+
+    /// An element's `::before`, generated as its content begins, and its `::after`, kept for
+    /// when it closes (`leave`).
+    private func beginGenerated(_ entry: Entry) {
+        guard let boxes = entry.style.generated else { return }
+        if let before = boxes.before { generate(before, in: entry) }
+        entry.exit.after = boxes.after
+    }
+
+    /// The characters of a `::before` or `::after` (`box`) of `entry`'s element, written as
+    /// text that no node is the source of: the text map has no span for them, as for a list
+    /// marker. They are drawn, selected and read by VoiceOver where they stand; positions,
+    /// CFIs, search, Copy and the passage text a host is given are the book's own characters
+    /// (`SectionText.mappedText(in:)`).
+    ///
+    /// The box is inline, or a block of its own. One that floats or is positioned is written
+    /// in line where it stands, and disclosed with the other boxes left in the flow; one hidden
+    /// from the page by its position or clip is not written. A box with no characters, such as
+    /// one drawn only for its border, writes nothing.
+    private func generate(_ box: ComputedStyle, in entry: Entry) {
+        let element = entry.node
+        state.generated.apply(box, owner: element.order)
+        let listItems = lists.isEmpty ? [orphanList.value] : lists.map(\.value)
+        let text = state.generated.text(of: box, owner: element.order, language: entry.context.language.declared,
+                                        listItems: listItems)
+        if state.generated.truncated || box.content?.contains(.unsupported) == true {
+            state.report.report.generatedContentOmitted = true
+        }
+        let units = Array(text.utf16)
+        guard !units.isEmpty, !(box.isOutOfFlow && !state.isFixedLayout && box.isVisuallyHiddenPositionedBox) else { return }
+        if box.requiresFlowBox { state.report.report.flowBoxesReflowed = true }
+        var context = entry.context
+        if let background = box.backgroundColor, background.alpha > 0 { context.background = background }
+        switch box.verticalAlign {
+        case .sub: context.baselineOffset -= entry.style.fontSize / 5
+        case .super: context.baselineOffset += entry.style.fontSize / 3
+        case .offset(let value): context.baselineOffset += value
+        default: break
+        }
+        let limit = 3 * max(entry.style.fontSize, 1)
+        context.baselineOffset = min(max(context.baselineOffset, -limit), limit)
+        let block = box.display.isBlockLevel && !box.requiresFlowBox
+        if block && flattenDepth == 0 {
+            var style = box
+            if style.display == .listItem { style.display = .block } // A pseudo-element's own marker is not drawn.
+            enterBlock(element, style: style, language: context.language)
+            context.background = nil
+            context.baselineOffset = 0
+            appendText(units, from: nil, style: box, context: context, attributes: styling.attributes(box, context))
+            exitBlock()
+            return
+        }
+        if block { softBoundary() }
+        appendText(units, from: nil, style: box, context: context, attributes: styling.attributes(box, context))
+        if block { softBoundary() }
     }
 }
 

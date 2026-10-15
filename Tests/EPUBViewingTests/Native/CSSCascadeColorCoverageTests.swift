@@ -185,8 +185,9 @@ final class CSSCascadeColorCoverageTests: XCTestCase {
         expected.color = nil; expected.backgroundColor = nil; expected.textDecorationColor = nil
         expected.border = .init(.init(width: 2, style: .dashed, color: nil))
         XCTAssertEqual(dark.style("p"), expected, "Only colors differ between appearances")
-        XCTAssertEqual(dark.style("scheme").margin.left, .points(5), "A dark media rule's other declarations apply")
-        XCTAssertEqual(dark.style("scheme").fontWeight, 700)
-        XCTAssertEqual(light.style("scheme").margin.left, .points(0))
+        // What does not paint is resolved as in light appearance, so that a section's characters are the
+        // same in either (#130): a dark media rule's other declarations apply in neither.
+        XCTAssertEqual([light, dark].map { $0.style("scheme").margin.left }, [.points(0), .points(0)])
+        XCTAssertEqual([light, dark].map { $0.style("scheme").fontWeight }, [400, 400])
     }
 }

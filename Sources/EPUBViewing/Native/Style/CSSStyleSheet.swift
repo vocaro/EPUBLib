@@ -121,13 +121,33 @@ extension CSSStyleSheet {
             do { selectors = try CSSSelectorParser(namespaces: namespaces).parseList(prelude.trimmingWhitespace) }
             catch .tooComplex { sheet.truncated = true; return }
             catch { return }
-            let matching = selectors.filter { !$0.hasPseudoElement }
+            // Of the pseudo-elements only `::before` and `::after` are rendered.
+            let matching = selectors.filter { $0.pseudoElement == nil || $0.pseudoElement == .before || $0.pseudoElement == .after }
             guard !matching.isEmpty else { return }
             let declarations = CSSParser.declarations(block).flatMap {
                 CSSPropertyParser.parse(name: $0.name, value: $0.value, important: $0.important) ?? []
             }
             guard !declarations.isEmpty else { return }
-            sheet.rules.append(CSSStyleRule(selectors: matching, declarations: declarations, media: media))
+            guard media != .all else {
+                sheet.rules.append(CSSStyleRule(selectors: matching, declarations: declarations, media: media))
+                return
+            }
+            // In a rule for one appearance, what decides generated characters
+            // (`CSSProperty.generatedText`, `generatedBox`) is resolved as in the light
+            // appearance: from a rule for light it applies in both, and from one for dark in
+            // neither. So a section's characters are the same in light and dark, as for what
+            // else such a rule sets that does not paint (#130).
+            for generated in [false, true] {
+                let selectors = matching.filter { $0.hasPseudoElement == generated }
+                guard !selectors.isEmpty else { continue }
+                let decides = generated ? CSSProperty.generatedBox : CSSProperty.generatedText
+                let follows = declarations.filter { !decides.contains($0.property) }
+                let light = declarations.filter { decides.contains($0.property) }
+                if !follows.isEmpty { sheet.rules.append(CSSStyleRule(selectors: selectors, declarations: follows, media: media)) }
+                if media.contains(.light), !light.isEmpty {
+                    sheet.rules.append(CSSStyleRule(selectors: selectors, declarations: light, media: .all))
+                }
+            }
         }
 
         private mutating func atRule(_ name: String, _ prelude: [CSSComponent], _ block: [CSSComponent]?,
