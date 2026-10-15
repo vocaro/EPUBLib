@@ -225,6 +225,8 @@ enum ReaderBoxLayout {
         var row: InlineRow?
         var inlineBlock: (block: ReaderParagraphFlow, bottom: CGFloat)?
         var inlineFloor: CGFloat = 0
+        // A box too tall for a page is tried again from each of its paragraphs.
+        var attempts = BoxAttempts()
         var lastConstraint = 0
         text.enumerateAttributes(in: NSRange(location: 0, length: text.length)) { attributes, run, _ in
             if attributes[.readerFlowBox] != nil
@@ -276,11 +278,11 @@ enum ReaderBoxLayout {
             let retainedSpacing = restoresSpacingBefore ? authoredSpacingBefore : 0
             let box = (text.attribute(.readerFlowBox, at: range.location, effectiveRange: nil) as? ReaderFlowBoxParagraph)?.constraints.first
             if let box {
-                var end = index + 1
-                while end < ranges.count,
-                      (text.attribute(.readerFlowBox, at: ranges[end].location, effectiveRange: nil) as? ReaderFlowBoxParagraph)?.constraints.first?.id == box.id { end += 1 }
+                let end = attempts.end(of: box.id, at: index, in: ranges, text: text)
                 let boxRange = NSRange(location: range.location, length: ranges[end - 1].upperBound - range.location)
-                let originalBox = text.attributedSubstring(from: boxRange)
+                // What an attempt changes in the text, to undo when the box stays in flow. Only
+                // a replaced image changes it before its edges are set.
+                var originalBox = box.replaced ? text.attributedSubstring(from: boxRange) : nil
                 let style = box.style
                 // Table cells and nested complex formatting retain their existing no-loss flow.
                 let nested = (text.attribute(.readerFlowBox, at: range.location, effectiveRange: nil) as? ReaderFlowBoxParagraph)?.constraints.count ?? 0
@@ -305,7 +307,7 @@ enum ReaderBoxLayout {
                         let available = max(1, containing.width - edgeLeft - edgeRight)
                         if !box.replaced {
                             width = style.width.resolve(reference: containing.width, viewport: viewport)
-                                ?? min(available, max(1, TableMeasure.maximumWidth(text.attributedSubstring(from: boxRange))))
+                                ?? min(available, max(1, attempts.maximumWidth(of: box.id, from: index, in: ranges, text: text)))
                             if let minimum = style.minWidth.resolve(reference: containing.width, viewport: viewport) { width = max(width, minimum) }
                             if let maximum = style.maxWidth.resolve(reference: containing.width, viewport: viewport) { width = min(width, maximum) }
                             width = min(available, max(1, width))
@@ -385,8 +387,16 @@ enum ReaderBoxLayout {
                         }
                         placed?.pen = line.rightToLeft ? x - line.before : x + width + line.after
                     }
-                    setEdges(text, range: boxRange, x: x, width: width, viewport: viewport)
-                    let measured = measure(text.attributedSubstring(from: boxRange), viewport: viewport, boxFrame: CGRect(x: x, y: 0, width: width, height: viewport.height))
+                    // An attempt that the last one at this box shows to be far taller than a page
+                    // is not made: it would only stay in flow.
+                    let attempted = box.replaced || !attempts.exceeds(box.id, from: boxRange.location, width: width,
+                                                                      page: viewport.height, text: text)
+                    if attempted {
+                        originalBox = originalBox ?? text.attributedSubstring(from: boxRange)
+                        setEdges(text, range: boxRange, x: x, width: width, viewport: viewport)
+                    }
+                    let measured = attempted ? measure(text.attributedSubstring(from: boxRange), viewport: viewport,
+                        boxFrame: CGRect(x: x, y: 0, width: width, height: viewport.height)) : (height: .infinity, paragraphs: [])
                     let minimum = max(resolve(style.height, viewport.height) ?? 0, resolve(style.minHeight, viewport.height) ?? 0)
                     let height = max(measured.height, minimum)
                     // Oversized text remains pageable ordinary text; no clipping or opaque raster fallback.
@@ -494,10 +504,13 @@ enum ReaderBoxLayout {
                             continue
                         }
                     }
+                    if attempted, !box.replaced {
+                        attempts.record(box.id, at: boxRange.location, width: width, paragraphs: measured.paragraphs)
+                    }
                 }
                 // An attempted box may have replaced widths/images. Restore the resolved
                 // in-flow styles before its ordinary continuation fallback (including tables).
-                originalBox.enumerateAttributes(in: NSRange(location: 0, length: originalBox.length)) { attributes, run, _ in
+                originalBox?.enumerateAttributes(in: NSRange(location: 0, length: boxRange.length)) { attributes, run, _ in
                     text.setAttributes(attributes, range: NSRange(location: boxRange.location + run.location, length: run.length))
                 }
             }
@@ -704,6 +717,92 @@ enum ReaderBoxLayout {
         /// Those of `unplaced` that the text of `scope` wraps around.
         func unplaced(wrappingTextIn scope: UUID?) -> [ReaderBoxGeometry.Region] {
             wrapping[scope]?.filter { !placed.contains($0.range) } ?? []
+        }
+    }
+
+    /// What one pass learns from trying to set a box, for trying it again. A box taller than a
+    /// page stays in flow a paragraph at a time, and from each of its paragraphs the rest of it
+    /// is tried as a box once more, since the rest may fit. Finding the box's end, measuring
+    /// the max-content of the rest and laying the rest out again for every paragraph cost the
+    /// square of the box's length: minutes for a play whose scenes are each one inline block
+    /// (#573). The end is found once, and the max-content of the rest is the widest of its
+    /// paragraphs, each measured once. Laid out at the same width, the rest's paragraphs stand
+    /// as they stood in the last attempt, only higher, so that attempt's layout gives the next
+    /// one's height but for rounding and the spacing a document's first paragraph drops. An
+    /// attempt it puts more than a quarter of a page past the page is not made. One that might
+    /// fit is made, so a box is set where it was before: the margin is for the estimate alone.
+    struct BoxAttempts {
+        private struct Layout {
+            let width: CGFloat
+            /// Where each paragraph of the attempt starts in the source, the top of its frame,
+            /// and the lowest point of it and of every paragraph after it.
+            let starts: [Int]
+            let tops: [CGFloat]
+            let bottoms: [CGFloat]
+        }
+        /// The paragraphs (indexes into the pass's paragraph ranges) of the box first tried there.
+        private var runs: [UUID: Range<Int>] = [:]
+        /// From the paragraph `start` of a run on, the widest max-content of each paragraph and
+        /// the paragraphs after it.
+        private var widths: [UUID: (start: Int, widest: [CGFloat])] = [:]
+        private var layouts: [UUID: Layout] = [:]
+
+        /// One past the last of the paragraphs `ranges` of the box `id` that starts at `index`.
+        mutating func end(of id: UUID, at index: Int, in ranges: [NSRange], text: NSAttributedString) -> Int {
+            if let run = runs[id], run.contains(index) { return run.upperBound }
+            var end = index + 1
+            while end < ranges.count,
+                  (text.attribute(.readerFlowBox, at: ranges[end].location, effectiveRange: nil) as? ReaderFlowBoxParagraph)?.constraints.first?.id == id { end += 1 }
+            runs[id] = index..<end
+            widths[id] = nil
+            layouts[id] = nil
+            return end
+        }
+
+        /// `TableMeasure.maximumWidth` of the box `id` from its paragraph `index` to its end.
+        /// Earlier paragraphs of a box that stays in flow change, its later ones do not.
+        mutating func maximumWidth(of id: UUID, from index: Int, in ranges: [NSRange], text: NSAttributedString) -> CGFloat {
+            let end = end(of: id, at: index, in: ranges, text: text)
+            if let known = widths[id], known.start <= index, index - known.start < known.widest.count {
+                return known.widest[index - known.start]
+            }
+            var widest = ranges[index..<end].map { TableMeasure.maximumWidth(text.attributedSubstring(from: $0)) }
+            for paragraph in widest.indices.reversed().dropFirst() { widest[paragraph] = max(widest[paragraph], widest[paragraph + 1]) }
+            widths[id] = (index, widest)
+            return widest[0]
+        }
+
+        /// Keeps the layout of an attempt at the box `id` from `location` that did not fit.
+        mutating func record(_ id: UUID, at location: Int, width: CGFloat, paragraphs: [ReaderBoxGeometry.Paragraph]) {
+            var bottoms = paragraphs.map { paragraph in paragraph.lines.reduce(paragraph.flowEnd) { max($0, $1.frame.maxY) } }
+            for paragraph in bottoms.indices.reversed().dropFirst() { bottoms[paragraph] = max(bottoms[paragraph], bottoms[paragraph + 1]) }
+            layouts[id] = Layout(width: width, starts: paragraphs.map { location + $0.range.location },
+                                 tops: paragraphs.map(\.flowStart), bottoms: bottoms)
+        }
+
+        /// Whether the box `id` laid out `width` wide from `location` is surely taller than a
+        /// `page` high. Laid out alone, its first paragraph's frame starts at the top, without
+        /// the spacing a document's first paragraph drops; every paragraph after it is placed as
+        /// it was below that one.
+        func exceeds(_ id: UUID, from location: Int, width: CGFloat, page: CGFloat, text: NSAttributedString) -> Bool {
+            guard let height = minimumHeight(of: id, from: location, width: width, text: text) else { return false }
+            return height > page - 1 + page / 4
+        }
+
+        /// A height that the box `id` laid out `width` wide from `location` reaches, but for
+        /// rounding, when the last attempt at it was as wide and had a paragraph start there.
+        func minimumHeight(of id: UUID, from location: Int, width: CGFloat, text: NSAttributedString) -> CGFloat? {
+            guard let layout = layouts[id], layout.width == width else { return nil }
+            var low = 0, high = layout.starts.count
+            while low < high {
+                let mid = (low + high) / 2
+                if layout.starts[mid] < location { low = mid + 1 } else { high = mid }
+            }
+            guard low < layout.starts.count, layout.starts[low] == location else { return nil }
+            let style = text.attribute(.paragraphStyle, at: location, effectiveRange: nil) as? NSParagraphStyle
+            let previous = location > 0 ? text.attribute(.paragraphStyle, at: location - 1, effectiveRange: nil) as? NSParagraphStyle : nil
+            let dropped = max(0, style?.paragraphSpacingBefore ?? 0) + max(0, previous?.paragraphSpacing ?? 0)
+            return layout.bottoms[low] - layout.tops[low] - dropped
         }
     }
 
