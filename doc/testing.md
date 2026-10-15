@@ -521,6 +521,23 @@ The script fetches each corpus at a pinned commit into `~/Library/Caches/EPUBLib
 `Tests/EPUBTestSupport/SpecConformanceCorpus.swift`; a new pin goes in the script together
 with that table.
 
+`BookCorpusPageTextTests` pages every chapter of the Project Gutenberg and Standard Ebooks
+books in `EPUBLIB_GUTENBERG` and `EPUBLIB_STANDARD_EBOOKS` at six reader sizes, and checks
+that every character is on a visible line of some page
+([#570](https://github.com/vocaro/EPUBLib/issues/570)). It is skipped unless one of them is
+set. It lays out every page twice, so run it in release, one process per size:
+
+```sh
+swift test -c release --enable-testable-imports --filter BookCorpusPageTextTests  # builds; skips
+eval "$(bash scripts/fetch-corpora.sh)"
+EPUBLIB_PAGE_TEXT_CASES=phone xcrun xctest -XCTest EPUBViewingTests.BookCorpusPageTextTests \
+  .build/release/EPUBViewingTests.xctest
+```
+
+The cases are `phone`, `phone-landscape`, `tablet`, `mac`, `small` and `phone-40pt`;
+`EPUBLIB_PAGE_TEXT_BOOKS` names books by file name. The test's comment gives how long each
+corpus takes.
+
 `NativeCorpusQualificationTests` builds every book under `EPUBLIB_CORPUS`, a list of
 directories of EPUB files. The variable names no collection and is not part of verifying a
 change. The [first qualification](native-viewer.md#qualification) ran it on books that belong
@@ -823,6 +840,14 @@ source partitions and boundary/interior/end page lookups remain checked.
 
 The qualification of 2026-10-13 against a frozen `main`, with its paired UIKit data, is on
 [#242](https://github.com/vocaro/EPUBLib/issues/242#issuecomment-6159295037).
+
+`PageMeasurementTests` holds the sections that lost characters before every page was measured
+([#570](https://github.com/vocaro/EPUBLib/issues/570)), each by its whole-page character rule:
+`PageTextGeometryTests`' seed 22 section 443, small justified and Chinese-text paragraphs, lines
+taller than their page that mix large and small runs or text and a table row, and a page whose
+own first line holds a tall row. Its generated sections have no box plan and pages ending
+inside justified, tabbed and indented paragraphs; `PAGE_MEASUREMENT_SECTIONS` (default 120)
+and `PAGE_MEASUREMENT_SEED` (default 570) choose them.
 
 ### Reader controls probe
 
