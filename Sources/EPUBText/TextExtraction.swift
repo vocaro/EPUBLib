@@ -167,6 +167,7 @@ private final class XHTMLTextReader {
     private struct Frame {
         var namespaces: [String: String]
         var body: Bool
+        var root: Bool
         var title: Bool
         var suppressed: Bool
         var block: Bool
@@ -361,15 +362,27 @@ private final class XHTMLTextReader {
         }
         let html = uri.isEmpty || uri == "http://www.w3.org/1999/xhtml"
         if stack.isEmpty { hasHTMLRoot = html && local == "html" }
-        let startsBody = html && local == "body" && stack.count == 1 && stack.last?.name == "html"
-        if startsBody { bodyCount += 1 }
+        // The root; and in a recovered tree, an `html` element that libxml2 builds in a root:
+        // once an out-of-place `<html/>` has closed the root it had open, it opens another
+        // there, or beside the first after a DOCTYPE or a comment, for what follows (#292).
+        let root = html && local == "html" && (stack.isEmpty || (recovered && stack.last?.root == true))
+        let startsBody = html && local == "body" && stack.last?.root == true
+        // In a recovered tree a second body goes on with the first: HTML gives a later `<body>`
+        // tag's attributes to the body and reads on in it, where libxml2 builds a second one
+        // after an out-of-place `<body/>` has closed the first (#292).
+        if startsBody, bodyCount == 0 || !recovered { bodyCount += 1 }
         // Well-formed XML may put content after </body>, still inside the root. The native
         // writer walks those authored siblings too; retain their characters/marks without
         // rewriting the strict XML document or changing its source positions.
-        let afterBody = bodyCount == 1 && stack.count == 1 && stack.last?.name == "html"
+        let afterBody = bodyCount == 1 && stack.last?.root == true
         let inBody = startsBody || stack.last?.body == true || afterBody
         let suppressed = stack.last?.suppressed == true || ["script", "style", "template"].contains(local)
-        let startsTitle = html && local == "title" && stack.count == 2 && stack.last?.name == "head" && !capturedTitle
+        // The head's title; and in a recovered tree, a title libxml2 builds in the root before
+        // the body, after an out-of-place `<head/>` or `<html/>` has closed the head. HTML
+        // builds it in the head.
+        let startsTitle = html && local == "title" && !capturedTitle
+            && ((stack.count >= 2 && stack.last?.name == "head" && stack[stack.count - 2].root)
+                || (recovered && stack.last?.root == true && bodyCount == 0))
         if startsTitle { capturedTitle = true }
         let startsMath = uri == MathTextNode.namespace && local == "math" && inBody && !suppressed && stack.last?.math == nil
         let capturesMath = startsMath || stack.last?.math != nil
@@ -395,7 +408,7 @@ private final class XHTMLTextReader {
             math = MathTextNode(name: local, namespace: uri, attributes: attributes)
             if let parent = stack.last?.math, let math { parent.children.append(.element(math)) }
         }
-        stack.append(Frame(namespaces: namespaces, body: inBody,
+        stack.append(Frame(namespaces: namespaces, body: inBody, root: root,
             title: startsTitle || stack.last?.title == true, suppressed: suppressed, block: block, name: local, heading: heading, math: math, startsMath: startsMath))
         // Treat an authored image alternative as inline character data. Use the same normalizer
         // after registering this element's marks so image IDs, enclosing headings and later
@@ -413,7 +426,7 @@ private final class XHTMLTextReader {
             math.children.append(.text(string))
             return
         }
-        if frame.body || (stack.count == 1 && frame.name == "html" && bodyCount == 1) {
+        if frame.body || (frame.root && bodyCount == 1) {
             try body.append(string, limit: limits.outputBytes)
         }
         if frame.title { try title.append(string, limit: limits.outputBytes) }
