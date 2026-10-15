@@ -535,7 +535,9 @@ chose them in its header. The books stay outside the repository, beside the W3C 
   mirror `robot/harvest` names (`aleph.gutenberg.org`, whose certificate names
   `aleph.pglaf.org`). Agents may fetch it through the script.
 - **Standard Ebooks** (`scripts/corpora/standard-ebooks.tsv`): 50 books, the ordinary
-  "compatible" EPUB of each. Its robots.txt disallows `/ebooks/*/downloads/*` for AI agents'
+  "compatible" EPUB of each. Its URLs end in `?source=download`. The plain URL answers with the
+  site's "Your Download Has Started!" page, which sends a browser on to that URL; the owner
+  chose it on 2026-10-14. Its robots.txt disallows `/ebooks/*/downloads/*` for AI agents'
   user agents (`claude-user`, `chatgpt-user` and others), so only the owner fetches it, with
   `bash scripts/fetch-standard-ebooks.sh --pin`. `scripts/fetch-corpora.sh` never downloads it;
   when its books are present and match the manifest, it prints `EPUBLIB_STANDARD_EBOOKS`.

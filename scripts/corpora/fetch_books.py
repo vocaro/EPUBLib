@@ -6,7 +6,8 @@
 A manifest is tab-separated, with a header row whose first five columns are url, sha256, bytes,
 title and genre; any further columns are kept as they are. Lines starting with # are comments,
 two of which the script reads: `# corpus: NAME` and `# pinned: YYYY-MM-DD` (or `-`). The books
-live in CORPORA_DIR/NAME-YYYY-MM-DD, so a new pin fetches beside the old one.
+live in CORPORA_DIR/NAME-YYYY-MM-DD, so a new pin fetches beside the old one, each in a file named
+from its URL's path (a query such as ?source=download is not part of the name).
 
 Every book must be an EPUB: a ZIP whose `mimetype` entry reads `application/epub+zip`. A server
 can answer a book's URL with an HTML page (Standard Ebooks answers with a "download has started"
@@ -23,9 +24,10 @@ caught even when its hash matches.
   MANIFEST) with the sha256 and bytes it found and the new date.
 
 Downloads are polite: each host's robots.txt is read first (a missing one allows everything) and
-nothing is fetched when it disallows any URL for this agent; one request at a time, at least 2 s
-apart (EPUBLIB_FETCH_DELAY may raise that), and one fetch at a time across sessions (a lock file
-in CORPORA_DIR); redirects to another host are refused.
+nothing is fetched when it disallows any URL for this agent, its rules matched against the URL's
+path and query; one request at a time, at least 2 s apart (EPUBLIB_FETCH_DELAY may raise that),
+and one fetch at a time across sessions (a lock file in CORPORA_DIR); redirects to another host
+are refused.
 
 Exit status 0, and the corpus directory on stdout, when every book is present and verified.
 The books are data: nothing here runs anything from them.
@@ -110,8 +112,9 @@ def check_robots(urls):
             if error.code != 404:
                 raise
         rules = robots_rules(b"".join(body).decode("utf-8", "replace"))
+        # Rules match the path and any query (RFC 9309), so a query cannot slip past a rule.
         refused = [url for url in urls if urllib.parse.urlsplit(url)[:2] == origin
-                   and not allowed(rules, urllib.parse.urlsplit(url).path)]
+                   and not allowed(rules, urllib.parse.urlsplit(url)._replace(scheme="", netloc="", fragment="").geturl())]
         if refused:
             say(f"robots.txt on {origin[1]} disallows {len(refused)} of the URLs for {TOKEN}; nothing fetched.")
             sys.exit(3)
