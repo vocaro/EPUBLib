@@ -8,6 +8,12 @@ title and genre; any further columns are kept as they are. Lines starting with #
 two of which the script reads: `# corpus: NAME` and `# pinned: YYYY-MM-DD` (or `-`). The books
 live in CORPORA_DIR/NAME-YYYY-MM-DD, so a new pin fetches beside the old one.
 
+Every book must be an EPUB: a ZIP whose `mimetype` entry reads `application/epub+zip`. A server
+can answer a book's URL with an HTML page (Standard Ebooks answers with a "download has started"
+page), so a downloaded file that is not an EPUB is kept aside as NAME.not-epub-SHA12, reported, and
+never pinned or accepted; a book already present is checked too, so a page pinned by mistake is
+caught even when its hash matches.
+
 - verify: checks the books present against the manifest, with no network. Silent when the
   corpus is unpinned or not fetched.
 - fetch: verifies, then downloads only the books that are missing. A download whose SHA-256
@@ -24,7 +30,7 @@ in CORPORA_DIR); redirects to another host are refused.
 Exit status 0, and the corpus directory on stdout, when every book is present and verified.
 The books are data: nothing here runs anything from them.
 """
-import datetime, fcntl, hashlib, os, re, sys, time, urllib.error, urllib.parse, urllib.request
+import datetime, fcntl, hashlib, os, re, sys, time, urllib.error, urllib.parse, urllib.request, zipfile
 
 TOKEN = "epublib-corpus-fetch"
 AGENT = "EPUBLib-corpus-fetch/1.0 (+https://github.com/vocaro/EPUBLib; one request per 2 s)"
@@ -120,6 +126,15 @@ def digest(path):
     return h.hexdigest(), size
 
 
+def is_epub(path):
+    """The file is a ZIP whose mimetype entry reads application/epub+zip (at most 32 bytes read)."""
+    try:
+        with zipfile.ZipFile(path) as archive, archive.open("mimetype") as entry:
+            return entry.read(32) == b"application/epub+zip"
+    except (zipfile.BadZipFile, KeyError, OSError, RuntimeError):
+        return False
+
+
 def download(url, target):
     part = f"{target}.part-{os.getpid()}"
     h, size = hashlib.sha256(), [0]
@@ -176,6 +191,9 @@ def main():
         if found != expected:
             say(f"MISMATCH (kept, not replaced): {target} has {found}, the manifest {expected}")
             problems += 1
+        elif not is_epub(target):
+            say(f"NOT AN EPUB (kept, not replaced): {target} matches the manifest but is no EPUB; re-pin")
+            problems += 1
     if mode == "verify" and missing:
         say(f"{len(missing)} of {len(entries)} books missing in {directory}")
         problems += len(missing)
@@ -195,6 +213,12 @@ def main():
                 part, found, size = download(url, target)
             except Exception as error:
                 say(f"FAILED: {url}: {error}")
+                problems += 1
+                continue
+            if not is_epub(part):
+                kept = f"{target}.not-epub-{found[:12]}"
+                os.replace(part, kept)
+                say(f"NOT AN EPUB (download kept as {os.path.basename(kept)}, {size} bytes): {url}")
                 problems += 1
                 continue
             if mode == "pin":
