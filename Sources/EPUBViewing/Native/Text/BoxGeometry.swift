@@ -188,7 +188,7 @@ enum ReaderBoxLayout {
     }
 
     private static func resolve(_ source: NSAttributedString, viewport: CGSize, disabled: Set<UUID>, pass: Int,
-                                anticipated: [ReaderBoxGeometry.Region], restoresForcedMargins: Bool = false) -> Result {
+                                anticipated: [ReaderBoxGeometry.Region], restoresSpacingBefore: Bool = false) -> Result {
         guard source.length > 0 else { return Result(text: source, geometry: nil) }
         var hasBoxes = false
         source.enumerateAttribute(.readerFlowBox, in: NSRange(location: 0, length: source.length)) { value, _, stop in
@@ -211,7 +211,7 @@ enum ReaderBoxLayout {
             ranges.append(range); offset = range.upperBound
         }
         var cursor: CGFloat = 0
-        var hasRetainedForcedMargin = false
+        var hasRetainedSpacingBefore = false
         var scopeOrigins: [UUID: CGFloat] = [:]
         var sectionOrigins: [UUID: CGFloat] = [:]
         // The earlier pass's boxes this pass has yet to place: told of every region the plan gains.
@@ -510,13 +510,14 @@ enum ReaderBoxLayout {
             var measurementRange = ordinaryTail && range.length > 8_194
                 ? NSRange(location: range.location, length: 8_194) : range
             let predicted = pending.unplaced(wrappingTextIn: flow?.scope.id)
-            // A forced-break paragraph measured alone loses its retained spacing before
-            // as the first paragraph of a document. Restore only that authored page margin.
+            // A paragraph measured alone is its document's first, and TextKit lays out no spacing
+            // before that one; the text's layout does, everywhere but at its start. The builder
+            // puts space there after a forced break, above a caption set under its table, and
+            // below a box where a flex or grid item's lead cannot rest on the box (#377).
             let authoredSpacingBefore = range.location > 0
-                && text.attribute(.readerPageBreakBefore, at: range.location, effectiveRange: nil) as? Bool == true
                 ? max(0, (text.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacingBefore ?? 0) : 0
-            hasRetainedForcedMargin = hasRetainedForcedMargin || authoredSpacingBefore > 0
-            let measurementOrigin = start + (restoresForcedMargins ? authoredSpacingBefore : 0)
+            hasRetainedSpacingBefore = hasRetainedSpacingBefore || authoredSpacingBefore > 0
+            let measurementOrigin = start + (restoresSpacingBefore ? authoredSpacingBefore : 0)
             var measured = measure(text.attributedSubstring(from: measurementRange), viewport: viewport,
                                    regions: plan.regions + predicted, origin: measurementOrigin, sourceOffset: range.location,
                                    column: scoped ? column : nil, scope: flow?.scope.id)
@@ -566,14 +567,14 @@ enum ReaderBoxLayout {
                 guard let box = (value as? ReaderFlowBoxParagraph)?.constraints.first else { return }
                 if pass >= 3 || oversized.contains(where: { NSIntersectionRange($0, range).length > 0 }) { suppressed.insert(box.id) }
             }
-            if suppressed != disabled { return resolve(source, viewport: viewport, disabled: suppressed, pass: pass + 1, anticipated: [], restoresForcedMargins: restoresForcedMargins) }
+            if suppressed != disabled { return resolve(source, viewport: viewport, disabled: suppressed, pass: pass + 1, anticipated: [], restoresSpacingBefore: restoresSpacingBefore) }
         }
         let positioned = plan.regions.filter(\.wrapsEarlierText)
         let changed = positioned.count != anticipated.count
             || zip(positioned, anticipated).contains { $0.frame != $1.frame || $0.range != $1.range }
         if !positioned.isEmpty, changed {
             if pass < 3 {
-                return resolve(source, viewport: viewport, disabled: disabled, pass: pass + 1, anticipated: positioned, restoresForcedMargins: restoresForcedMargins)
+                return resolve(source, viewport: viewport, disabled: disabled, pass: pass + 1, anticipated: positioned, restoresSpacingBefore: restoresSpacingBefore)
             }
             // Cyclic author geometry must not publish exclusions measured against stale frames.
             // Keep its characters pageable in reading order if the bounded positioning passes
@@ -584,18 +585,20 @@ enum ReaderBoxLayout {
                 if positioned.contains(where: { NSIntersectionRange($0.range, range).length > 0 }) { suppressed.insert(box.id) }
             }
             if suppressed != disabled {
-                return resolve(source, viewport: viewport, disabled: suppressed, pass: pass + 1, anticipated: [], restoresForcedMargins: restoresForcedMargins)
+                return resolve(source, viewport: viewport, disabled: suppressed, pass: pass + 1, anticipated: [], restoresSpacingBefore: restoresSpacingBefore)
             }
         }
         // Establish box eligibility with the existing bounded preflight first. Correcting
         // an ordinary forced margin can save a wrapped line and make a previously rejected
         // visual group fit; re-enabling it would change already-readable in-flow pages and
         // could absorb their authored page boundaries. Preserve those rejected box IDs.
-        // Only an active rich plan needs the second, still bounded, cursor correction.
-        if !restoresForcedMargins, hasRetainedForcedMargin,
-           plan.regions.contains(where: { !$0.reserved }) {
+        // Only a plan that is kept needs the second, still bounded, cursor correction: one
+        // with boxes, or with paragraphs it moves or narrows, whose places pages are cut from.
+        if !restoresSpacingBefore, hasRetainedSpacingBefore,
+           plan.regions.contains(where: { !$0.reserved })
+            || plan.paragraphs.contains(where: { $0.column != nil || $0.topAdjustment != 0 }) {
             return resolve(source, viewport: viewport, disabled: disabled, pass: 0,
-                           anticipated: [], restoresForcedMargins: true)
+                           anticipated: [], restoresSpacingBefore: true)
         }
         if plan.regions.isEmpty && !plan.paragraphs.contains(where: { $0.column != nil || $0.topAdjustment != 0 }) {
             return Result(text: text, geometry: nil)
@@ -735,8 +738,11 @@ enum ReaderBoxLayout {
         container.boxOverride = boxFrame
         container.boxColumn = column
         container.boxScope = scope
+        container.measuresBoxPlan = true
         let measured = NSMutableAttributedString(attributedString: text)
-        let hasTerminator = measured.length > 1 && (measured.string as NSString).character(at: measured.length - 1) == 0x0A
+        let endsParagraph = measured.length > 0 && (measured.string as NSString).character(at: measured.length - 1) == 0x0A
+        // An empty paragraph keeps its terminator, to have a line.
+        let hasTerminator = measured.length > 1 && endsParagraph
         if hasTerminator { measured.deleteCharacters(in: NSRange(location: measured.length - 1, length: 1)) }
         container.paragraphText = measured
         manager.textContainer = container
@@ -771,12 +777,17 @@ enum ReaderBoxLayout {
                 end += 1
                 if let last = lines.indices.last { lines[last].0.length += 1 }
             }
+            // A document ending in a terminator has an empty last line after it, which the text's
+            // layout does not have after an empty paragraph: that one ends with its own line.
+            let bottom = endsParagraph && !hasTerminator ? lines.map(\.1.maxY).max() ?? frame.maxY : frame.maxY
             paragraphs.append(.init(range: NSRange(location: start, length: end - start), flowStart: frame.minY,
-                                    flowEnd: frame.maxY, lines: lines))
-            height = max(height, frame.maxY, lines.map(\.1.maxY).max() ?? 0)
+                                    flowEnd: bottom, lines: lines))
+            height = max(height, bottom, lines.map(\.1.maxY).max() ?? 0)
             return true
         }
-        if hasTerminator, let last = paragraphs.indices.last {
+        // TextKit lays out no spacing after a document's last paragraph, and the text's layout
+        // does after this one, an empty one too (#377).
+        if endsParagraph, let last = paragraphs.indices.last {
             let spacing = (text.attribute(.paragraphStyle, at: text.length - 1, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacing ?? 0
             height += spacing
             paragraphs[last].flowEnd += spacing
