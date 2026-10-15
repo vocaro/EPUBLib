@@ -1,0 +1,75 @@
+# Project Gutenberg: 50 English books, a standard corpus of EPUBLib (doc/testing.md, "Corpus runs").
+# corpus: gutenberg
+# pinned: 2026-10-14
+#
+# Fetch with scripts/fetch-corpora.sh, which verifies each book against its sha256 here. Agents may
+# fetch it: the files come only by the routes Project Gutenberg's robot-access policy
+# (https://www.gutenberg.org/policy/robot_access.html) names, the offline catalog and the mirror its
+# robot/harvest endpoint links to. That mirror is aleph.gutenberg.org, whose certificate names
+# aleph.pglaf.org. Each file is the EPUB 3 "with images" build. Gutenberg rebuilds these files
+# monthly at the same URL, so a mismatch means re-pinning.
+#
+# Selection, 2026-10-14, from the RDF offline catalog
+# (https://www.gutenberg.org/cache/epub/feeds/rdf-files.tar.bz2, SHA-256
+# 8e22e4c3919ac9edf4a5bdda029850a20c7eb449fe1d4d8905369d482a3b6da5):
+#   candidates are English texts (type Text, sole language en) with an EPUB 3 "with images" file,
+#   not in "Category: Encyclopedias/Dictionaries/Reference", ranked by the catalog's download
+#   count (most first, ties by number). Genre from the "Category:" bookshelves: drama =
+#   Plays/Films/Dramas; poetry = Poetry, not drama; shorts = Short Stories, not drama or poetry;
+#   novel = Novels, or an LCSH subject containing "fiction"; nonfiction = the rest.
+#   1. long (4): the 3 largest plain-text files among the 48 most downloaded candidates, and the
+#      largest among the 48 most downloaded nonfiction candidates;
+#   2. novel (16), shorts (8), poetry (7), drama (7), nonfiction (8): each genre in download order.
+#   Every step skips a book already chosen.
+# Columns: url, sha256, bytes, title, genre, number (the Gutenberg ebook number).
+url	sha256	bytes	title	genre	number
+https://aleph.pglaf.org/cache/epub/100/pg100-images-3.epub	67099ade8e4f912bc0c82ba5f02c44b8bdc9dd725bdb8640f2746adcae6d2199	2880225	The Complete Works of William Shakespeare (Shakespeare, William)	long	100
+https://aleph.pglaf.org/cache/epub/2600/pg2600-images-3.epub	0353122c5a554193a8a777d8156e7a02d9c2014cce90b26891e2057edd30556c	1832521	War and Peace (Tolstoy, Leo, graf)	long	2600
+https://aleph.pglaf.org/cache/epub/1184/pg1184-images-3.epub	a588b7219a9ee4c449d5ccb90d886cdd2c4fa178480e200e0c15ca9110115d25	84580993	The Count of Monte Cristo (Dumas, Alexandre)	long	1184
+https://aleph.pglaf.org/cache/epub/10/pg10-images-3.epub	a873ce9091a8f234e649b773c1a08a00fa4ffa42631d77af30430f005b4799b0	1717117	The King James Version of the Bible	long	10
+https://aleph.pglaf.org/cache/epub/1342/pg1342-images-3.epub	d401ad6b118e84d01b8dd1a3d034fd41784feb14c50f1f7a0fc17f3263fa8e9f	24836548	Pride and Prejudice (Austen, Jane)	novel	1342
+https://aleph.pglaf.org/cache/epub/2701/pg2701-images-3.epub	1bc88e79ef7cf9d5325abe0071e6302265b708df56d3af07db124c81e84197f6	814023	Moby Dick; Or, The Whale (Melville, Herman)	novel	2701
+https://aleph.pglaf.org/cache/epub/84/pg84-images-3.epub	b82b1ad5cdd15439ab99e864741a0343f107adc796ce4326e44235a3f6f558a7	474733	Frankenstein; or, the modern prometheus (Shelley, Mary Wollstonecraft)	novel	84
+https://aleph.pglaf.org/cache/epub/11/pg11-images-3.epub	4f81245d31380ac1d6eafb9a321e3691369bc70985736ae4bccf849a4f784036	189249	Alice's Adventures in Wonderland (Carroll, Lewis)	novel	11
+https://aleph.pglaf.org/cache/epub/345/pg345-images-3.epub	be5b12d762ceaacab5bfd0c1e510c8d36a0498cdde43790d6575d198fa9cd94d	602902	Dracula (Stoker, Bram)	novel	345
+https://aleph.pglaf.org/cache/epub/2554/pg2554-images-3.epub	5e2b1d68b0aaac5216514d632b5135e9a8dc5e70facea0961b9a1056e5590ecd	783871	Crime and Punishment (Dostoyevsky, Fyodor)	novel	2554
+https://aleph.pglaf.org/cache/epub/43/pg43-images-3.epub	0bf449baafba3d997d97c434de1c2321942d9f719837d4f374784c41b98edce7	304737	The strange case of Dr. Jekyll and Mr. Hyde (Stevenson, Robert Louis)	novel	43
+https://aleph.pglaf.org/cache/epub/2641/pg2641-images-3.epub	f835d5787c412627990a9b1747d83a998f2fed3b66fbafbd6c879c9ac48be132	453905	A Room with a View (Forster, E. M. (Edward Morgan))	novel	2641
+https://aleph.pglaf.org/cache/epub/145/pg145-images-3.epub	6e49e3e85a0a0aecfc074366e287240b236bc262bdd2bbb35693ecac7af0a1e2	1072344	Middlemarch (Eliot, George)	novel	145
+https://aleph.pglaf.org/cache/epub/37106/pg37106-images-3.epub	063f62eeb95d4298921f4caf2f9d86c5c659a1cbccae50ed677f57a41cc74e2e	16915367	Little Women; Or, Meg, Jo, Beth, and Amy (Alcott, Louisa May)	novel	37106
+https://aleph.pglaf.org/cache/epub/67979/pg67979-images-3.epub	6e445ea76c15edb9ebce76bd7f517f189c757e909668dfa06b5b710eea65565e	653184	The Blue Castle: a novel (Montgomery, L. M. (Lucy Maud))	novel	67979
+https://aleph.pglaf.org/cache/epub/1260/pg1260-images-3.epub	7dbcc5804e9875f4c15c4b54f14168a0d19ab5b155d42acbbfc3d309d889db0b	3095830	Jane Eyre: An Autobiography (Brontë, Charlotte)	novel	1260
+https://aleph.pglaf.org/cache/epub/174/pg174-images-3.epub	a3b36ca499124ae52132ad20a6b8654657dbe3cda0f7a22b8e10c904fa4e8e03	461435	The Picture of Dorian Gray (Wilde, Oscar)	novel	174
+https://aleph.pglaf.org/cache/epub/98/pg98-images-3.epub	8bb476435c3e62bc9fbbb40b042ea1b1b38f5e44a26727ef190c10dbcbdde1a0	7923060	A Tale of Two Cities (Dickens, Charles)	novel	98
+https://aleph.pglaf.org/cache/epub/64317/pg64317-images-3.epub	859c2a6ade37c18b957f025cfd9f6da33ea215325bffab7e7ba64e9328d61db3	353457	The Great Gatsby (Fitzgerald, F. Scott (Francis Scott))	novel	64317
+https://aleph.pglaf.org/cache/epub/65238/pg65238-images-3.epub	959f243ae2a171ade5090a53a4d7d05881929059261177f95c28a08449094746	477720	The Secret of Chimneys (Christie, Agatha)	novel	65238
+https://aleph.pglaf.org/cache/epub/1661/pg1661-images-3.epub	310ddf29f2b98b870b0e970061d236c9ce7c65163e0e172c254a1db3d070d3f4	379503	The Adventures of Sherlock Holmes (Doyle, Arthur Conan)	shorts	1661
+https://aleph.pglaf.org/cache/epub/1952/pg1952-images-3.epub	8583beb8b65f32a4d1147a2ef2dc189507e9e4360be6f90616f98518b2a18148	228881	The Yellow Wallpaper (Gilman, Charlotte Perkins)	shorts	1952
+https://aleph.pglaf.org/cache/epub/8492/pg8492-images-3.epub	23f38ce3d5f34271ff50926d311f44ec3679a1cc9841cb4bf749f214398a0957	429828	The King in Yellow (Chambers, Robert W. (Robert William))	shorts	8492
+https://aleph.pglaf.org/cache/epub/2591/pg2591-images-3.epub	5a735764974c07c57c595aae16dd56c8d295698555705528865c9a7112ef2f6e	531098	Grimms' Fairy Tales (Grimm, Jacob)	shorts	2591
+https://aleph.pglaf.org/cache/epub/48320/pg48320-images-3.epub	348dacef9cab8336800c19b77c359e53b6a9d6020c2a027f53a94d0fba11b32f	2053502	Adventures of Sherlock Holmes Illustrated (Doyle, Arthur Conan)	shorts	48320
+https://aleph.pglaf.org/cache/epub/47642/pg47642-images-3.epub	afd6609eaa57137665cd7e1a7c020de0f5e917f57b7054a70b3123ba5d19d264	7444755	The Strand Magazine, Vol. 27, February 1904, No. 159. (Various)	shorts	47642
+https://aleph.pglaf.org/cache/epub/50133/pg50133-images-3.epub	ed480ed33d800917c0597339ff54ee3b27b6d1607ee521f2eae7960b04d1a7cd	241958	The Dunwich horror (Lovecraft, H. P. (Howard Phillips))	shorts	50133
+https://aleph.pglaf.org/cache/epub/41/pg41-images-3.epub	f6ac84c3a5fc683fc9700856572bdc47d6a8f8d0fc0ba0200885ef62ddeeb238	287120	The Legend of Sleepy Hollow (Irving, Washington)	shorts	41
+https://aleph.pglaf.org/cache/epub/1727/pg1727-images-3.epub	bb40f821e2866690daafd8e5ca044b12f60c70ffd449ba2fe1b2a91fa76a9930	445840	The Odyssey Rendered into English prose for the use of those who cannot read the original (Homer)	poetry	1727
+https://aleph.pglaf.org/cache/epub/16328/pg16328-images-3.epub	6af77782f7bfbada891713e546b2b25be03bfa1678665c7bdc69de042417942a	401088	Beowulf: An Anglo-Saxon Epic Poem	poetry	16328
+https://aleph.pglaf.org/cache/epub/44833/pg44833-images-3.epub	62a913cd1bbd77c017edba340f3b01fbd2e2e84b8e8e0fb7511104884413b593	1170944	Chaucer's Works, Volume 2 — Boethius and Troilus (Chaucer, Geoffrey)	poetry	44833
+https://aleph.pglaf.org/cache/epub/2147/pg2147-images-3.epub	361eda7e567a47c0ca13707362588e7bd11e819065ade09f0fb64f61b36245a4	363850	The Works of Edgar Allan Poe — Volume 1 (Poe, Edgar Allan)	poetry	2147
+https://aleph.pglaf.org/cache/epub/6130/pg6130-images-3.epub	da9e0520d8177de00cfd662ee37c9c4600cc903ea640d2910d4785bad4beadce	2292201	The Iliad (Homer)	poetry	6130
+https://aleph.pglaf.org/cache/epub/8800/pg8800-images-3.epub	6ebf555925d29d499f424840a66106483f0ec6aa5fb5276e3fcf0c5612793b1c	30749739	The divine comedy (Dante Alighieri)	poetry	8800
+https://aleph.pglaf.org/cache/epub/2620/pg2620-images-3.epub	74ffe02e9df56ccc5cef8fe3d4c177ef7e98d0650a7a86b8f8e17b57933ace69	676590	The Home Book of Verse — Volume 2 (Stevenson, Burton Egbert)	poetry	2620
+https://aleph.pglaf.org/cache/epub/1513/pg1513-images-3.epub	0dea6a849392a1e669f368f7ab7bd746fc4473418453fb956343ae297acf4412	341144	Romeo and Juliet (Shakespeare, William)	drama	1513
+https://aleph.pglaf.org/cache/epub/2542/pg2542-images-3.epub	a125cc7ac19582b5b9b1af5e917694852f40c970ec35b86181cc40ebef8b870b	305811	A Doll's House : a play (Ibsen, Henrik)	drama	2542
+https://aleph.pglaf.org/cache/epub/844/pg844-images-3.epub	0c96ea822cad5a3aa52325a2bbec0b8c2fd57390853896b608403ee035606945	311728	The Importance of Being Earnest: A Trivial Comedy for Serious People (Wilde, Oscar)	drama	844
+https://aleph.pglaf.org/cache/epub/49008/pg49008-images-3.epub	4ef92c507d06ef6c6e2379a053cf922ea14a6c4363c5fa4389633a9c54af561e	977547	The Works of William Shakespeare [Cambridge Edition] [Vol. 8 of 9] (Shakespeare, William)	drama	49008
+https://aleph.pglaf.org/cache/epub/27673/pg27673-images-3.epub	2eb7229cf66a266915b08f43d63a400cd90c2e140e2137246d145a8ba887a1fe	312584	Oedipus King of Thebes Translated into English Rhyming Verse with Explanatory Notes (Sophocles)	drama	27673
+https://aleph.pglaf.org/cache/epub/50559/pg50559-images-3.epub	6cb4b2b31be24bb1e6d88f1fd82cd646dc92e9de61b3296f3303bdfc37c66d06	678336	The Works of William Shakespeare [Cambridge Edition] [Vol. 3 of 9] (Shakespeare, William)	drama	50559
+https://aleph.pglaf.org/cache/epub/1514/pg1514-images-3.epub	03f3c7241809696ce1bad6590b3b338707bd7d612c123a64f91d03ed3c5cc074	325387	A Midsummer Night's Dream (Shakespeare, William)	drama	1514
+https://aleph.pglaf.org/cache/epub/2680/pg2680-images-3.epub	f0656010dd96d75ee09912d7c655fb144818a122102b18af78620034cb9c0898	454954	Meditations (Marcus Aurelius, Emperor of Rome)	nonfiction	2680
+https://aleph.pglaf.org/cache/epub/5197/pg5197-images-3.epub	9dd662433d9148b6506240d324561f5b86ff12725584fd1204633e268c25a1dc	974948	My Life — Volume 1 (Wagner, Richard)	nonfiction	5197
+https://aleph.pglaf.org/cache/epub/1232/pg1232-images-3.epub	0260d6165a1558ee2e94eb37d7f1ff0cf4e30b41e094d6ff1afb094950b1be88	368446	The Prince (Machiavelli, Niccolò)	nonfiction	1232
+https://aleph.pglaf.org/cache/epub/23/pg23-images-3.epub	06f8180f28127c2a6c21bfd327018612f73ac59780d8d1c62375f72a27e12711	371689	Narrative of the Life of Frederick Douglass, an American Slave (Douglass, Frederick)	nonfiction	23
+https://aleph.pglaf.org/cache/epub/3296/pg3296-images-3.epub	5c6bf0987a4b955650d047cb354d06032f3319a93b3295037ac4716c8125a9cf	458087	The Confessions of St. Augustine (Augustine, of Hippo, Saint)	nonfiction	3296
+https://aleph.pglaf.org/cache/epub/1080/pg1080-images-3.epub	09b6588bcf4f55fc46ab86217e6689ac783995b6e19a54421b9c7871db40b723	263753	A Modest Proposal For preventing the children of poor people in Ireland, from being a burden on their parents or country, and for making them beneficial to the publick (Swift, Jonathan)	nonfiction	1080
+https://aleph.pglaf.org/cache/epub/78033/pg78033-images-3.epub	efb4fbff51fe1e19571393ff62f99a53ee398f4dd383a4238cebb1f7432cd956	261104	The silent Baltic : $b or, Detained near Kiel (Knox, Marcus)	nonfiction	78033
+https://aleph.pglaf.org/cache/epub/3207/pg3207-images-3.epub	82e83f88448eb174a41c1ab026195d776581e00f597b6d14e4562cc0f68e7d87	861454	Leviathan (Hobbes, Thomas)	nonfiction	3207

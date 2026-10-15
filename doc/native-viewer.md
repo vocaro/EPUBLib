@@ -67,6 +67,9 @@ continues to describe the authored spine resource.
    cascade over a user-agent stylesheet, the book's archive-local stylesheets and `style`
    attributes produce a `ComputedStyle` per element: the CSS subset in `ComputedStyle.swift`.
    `@font-face` fonts load from the archive with CoreText. Nothing remote is fetched.
+   Media queries for the reader's appearance govern only what paints (**Appearance media**
+   under [Decisions](#decisions)), so neither the reader's size nor its appearance changes
+   what the next step writes.
 3. **Text** (`SectionBuilder`). One walk of a section's DOM produces an `NSAttributedString`,
    a `TextMap` back to DOM positions, element anchors, note content and a `SectionReport`.
    Rich content (images, SVG, tables, MathML, rules) comes from a `RichContentFactory` as text
@@ -196,6 +199,20 @@ continues to describe the authored spine resource.
   publication bytes are preserved. Opaque images and transparent light artwork retain their
   pixels; an author's explicit CSS inversion retains its own appearance treatment. Display
   renditions are cached separately by appearance under the existing image memory budget.
+- **Appearance media.** `prefers-color-scheme` follows the reader's appearance only for what
+  paints: `color`, `background-color`, the border colours, `text-decoration-color` and `filter`
+  (`CSSProperty.followsAppearance`). Every other property in a rule for one appearance, and
+  any property added later, is resolved as in the light appearance, the one a reading system
+  with no preference reports. The `display`, `visibility`, `text-transform`, `white-space`,
+  list styles, positions, sizes and fonts a book sets for dark appearance alone therefore
+  apply in neither, and a section's characters, the text `visibility: hidden` hides and the
+  map to the document are the same in both. The session keeps rendered positions, search
+  matches, highlights and selections across an appearance change on the strength of that. A
+  book that swaps content by appearance (an image drawn for each, say) shows its light
+  content in both: dark line art stays legible by the image contrast above, and an author's
+  `filter: invert()` for dark appearance, as Standard Ebooks writes it, still applies. Rules
+  for either appearance are indexed in both, so a bound on author CSS drops the same
+  selectors in each ([#130](https://github.com/vocaro/EPUBLib/issues/130)).
 - **Alternative text.** HTML tells an image with an empty `alt` from one with none, and the
   reader keeps the two apart (`ImageAlternative`). Words in `alt` stand for the image in
   selections, copies, search and VoiceOver, which reads them as the image's name. An empty

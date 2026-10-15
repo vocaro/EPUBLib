@@ -166,30 +166,31 @@ final class CSSSyntaxMediaCoverageTests: XCTestCase {
     }
 
     func testAppearanceMediaFromLinkStyleImportAndMediaRulesCompose() throws {
+        // `filter` follows the appearance, so it shows which rules apply in which (#130).
         let section = StyleTestSupport.xhtml(body: #"<p id="a">a</p><p id="b">b</p><p id="c">c</p><p id="d">d</p><p id="e">e</p>"#, head: """
             <link rel="stylesheet" href="dark.css" media="(prefers-color-scheme: dark)"/>
             <link rel="stylesheet" href="main.css"/>
-            <style media="(prefers-color-scheme: light)">#b { text-align: right }</style>
-            <style media="screen and (prefers-color-scheme: dark)">@media (prefers-color-scheme: light) { #e { text-align: right } }</style>
+            <style media="(prefers-color-scheme: light)">#b { filter: invert(1) }</style>
+            <style media="screen and (prefers-color-scheme: dark)">@media (prefers-color-scheme: light) { #e { filter: invert(1) } }</style>
             """)
         let files = [
-            "dark.css": "#a { text-align: right } @media (prefers-color-scheme: light) { #a { font-weight: 700 } } @import 'never.css';",
+            "dark.css": "#a { filter: invert(1) } @media (prefers-color-scheme: light) { #a { color: transparent } } @import 'never.css';",
             "main.css": """
                 @import "night.css" (prefers-color-scheme: dark);
                 @import "day.css" not all and (prefers-color-scheme: dark);
                 @media (prefers-color-scheme: dark) { #d { text-indent: 3px } }
                 """,
-            "night.css": "#c { text-align: right } @media (prefers-color-scheme: light) { #c { font-weight: 700 } }",
-            "day.css": "#d { text-align: right }",
+            "night.css": "#c { filter: invert(1) } @media (prefers-color-scheme: light) { #c { color: transparent } }",
+            "day.css": "#d { filter: invert(1) }",
         ]
         let light = try CSSSyntaxSupport.styled(section: section, files: files)
         let dark = try CSSSyntaxSupport.styled(section: section, files: files, dark: true)
-        XCTAssertEqual(["a", "b", "c", "d", "e"].map { light.style($0).textAlign }, [.start, .right, .start, .right, .start])
-        XCTAssertEqual(["a", "b", "c", "d", "e"].map { dark.style($0).textAlign }, [.right, .start, .right, .start, .start])
-        XCTAssertEqual(["a", "c"].map { dark.style($0).fontWeight }, [400, 400], "A light rule inside a dark sheet never applies")
-        XCTAssertEqual(["a", "c"].map { light.style($0).fontWeight }, [400, 400])
-        XCTAssertEqual(light.style("d").textIndent, .points(0))
-        XCTAssertEqual(dark.style("d").textIndent, .points(3))
+        XCTAssertEqual(["a", "b", "c", "d", "e"].map { light.style($0).invertsColors }, [false, true, false, true, false])
+        XCTAssertEqual(["a", "b", "c", "d", "e"].map { dark.style($0).invertsColors }, [true, false, true, false, false])
+        XCTAssertEqual(["a", "c"].map { dark.style($0).color }, [nil, nil], "A light rule inside a dark sheet never applies")
+        XCTAssertEqual(["a", "c"].map { light.style($0).color }, [nil, nil])
+        XCTAssertEqual([light, dark].map { $0.style("d").textIndent }, [.points(0), .points(0)],
+                       "What does not paint is resolved as in light appearance")
         XCTAssertEqual([light, dark].map(\.report.unreadableResources), [0, 0], "An @import after a rule is never followed")
     }
 

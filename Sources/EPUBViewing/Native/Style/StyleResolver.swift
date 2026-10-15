@@ -226,8 +226,12 @@ struct CSSRuleIndex: Sendable {
         var searches = CSSSiblingSearchIndex(maximumSearches: maximumSiblingSearches ?? Int.max)
         var order: UInt64 = 0
         for sheet in sheets {
-            for rule in sheet.rules where rule.media.contains(dark: dark) {
-                let important = rule.declarations.contains(where: \.important)
+            // Every rule's selectors are admitted in either appearance, so that a bound drops the
+            // same ones in both. A rule keeps the declarations that take part in `dark`
+            // (`CSSMediaMask.governs`), and one left with none is not matched.
+            for rule in sheet.rules where !rule.media.isEmpty {
+                let declarations = rule.declarations.filter { rule.media.governs($0.property, dark: dark) }
+                let important = declarations.contains(where: \.important)
                 for original in rule.selectors {
                     let wanted = original.selectorPositionFilters
                     guard wanted.subtracting(positionFilters).count <= maximumSelectorPositionFilters - positionFilters.count else {
@@ -237,7 +241,8 @@ struct CSSRuleIndex: Sendable {
                     guard let selector = indexed else { stylesTruncated = true; continue }
                     positionFilters.formUnion(wanted)
                     let index = Int32(entries.count)
-                    entries.append(Entry(selector: selector, declarations: rule.declarations,
+                    guard !declarations.isEmpty else { continue }
+                    entries.append(Entry(selector: selector, declarations: declarations,
                                          key: UInt64(selector.specificity) << 32 | order, hasImportant: important,
                                          ancestorBits: selector.ancestorNames.map(\.bits)))
                     switch selector.pseudoElement {
