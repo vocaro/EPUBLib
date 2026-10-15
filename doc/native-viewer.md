@@ -1875,20 +1875,49 @@ as they did.
   not in a text view VoiceOver finds as a subview. Nothing the reader mounts inside a text
   view is offered to assistive technology (see Tables).
   A paragraph that continues onto the next page is laid out a few lines further (or to
-  a line break) and clipped, so its lines break exactly as in the measuring layout; justified
+  a line break) and clipped, so its lines break as in the measuring layout; justified
   text takes more, because CoreText justifies a paragraph of up to 8,192 characters as a whole
-  and a longer one line by line. A long justified paragraph's short continuation tail receives
-  a bounded second measurement of exactly the displayed source slice and its lookahead.
-  These exceptional pages use that measurement's complete line boundaries and height, and
-  the next page starts at the corrected source boundary. No synthetic tail padding or column
-  growth is needed; authored justification, hyphenation, indentation and RTL are retained.
-  A planned page is measured as the same bounded display slice before its source boundary
-  is committed. Lines below its actual clip carry forward. A positioned first line outside
-  the clip, or a line taller than the column, falls back to native in-flow text with bounded
-  typography. That exceptional slice retains its characters, DOM mapping, links and heading
+  and a longer one line by line. A short justified paragraph's page takes its rest up to the
+  next line break (`<br>`, written as U+2028) that ends a line of text, or its whole rest when
+  none follows. CoreText sets the lines before such a break the same whatever follows it,
+  which was checked on every justified paragraph with line breaks in the standard book corpora
+  and on generated ones ([#570](https://github.com/vocaro/EPUBLib/issues/570)). A break that
+  ends a blank line is passed over: a lone separator laid out last takes another position, and
+  sometimes another height. A section with a box plan keeps the whole rest, because there the
+  lines before a break were not always placed the same without what follows it. A long
+  paragraph keeps enough of its rest to stay long, since a shorter slice of it would be
+  justified as a whole. That context does not make a page's slice, laid out alone,
+  break as the section did: a justified paragraph is justified over the page's part of it, a
+  continued paragraph starts a fresh line, and a line holding glyphs from a fallback font
+  (CJK text among Latin) is laid out differently. So every page is laid out as its column
+  will show it, the same bounded display slice with its lookahead, before its source boundary
+  is committed, whether or not its section has a box plan. The page takes that layout's line
+  boundaries and height; lines below its actual clip carry forward, and the next page starts
+  at the corrected source boundary. No synthetic tail padding or column growth is needed;
+  authored justification, hyphenation, indentation and RTL are retained. This is a second
+  TextKit layout of every page during pagination, and it moves a few page starts from where
+  the section's layout put them; the cost on the standard book corpora is on
+  [#570](https://github.com/vocaro/EPUBLib/issues/570#issuecomment-6184463894).
+  A first line taller than the clip, or a positioned first line outside it, falls back to
+  native in-flow text with bounded typography, on every page: committed, its characters would
+  be on no visible line, and a table row laid out on that line would lose its continuation
+  pages. That exceptional slice retains its characters, DOM mapping, links and heading
   roles; it can change positioning, font size, baseline shifts and paragraph spacing to make
-  its content reachable
-  ([#303](https://github.com/vocaro/EPUBLib/issues/303), [#192](https://github.com/vocaro/EPUBLib/issues/192), [#242](https://github.com/vocaro/EPUBLib/issues/242), [#289](https://github.com/vocaro/EPUBLib/issues/289)).
+  its content reachable. It fits each run, table row and image to the clip; when the line
+  they make together is still taller (a small run's line height applied to a large run, text
+  beside a row), it lowers that target by the line's overshoot, or in proportion if that is
+  lower, and lays the slice out again, at most eight more times
+  ([#303](https://github.com/vocaro/EPUBLib/issues/303), [#192](https://github.com/vocaro/EPUBLib/issues/192), [#242](https://github.com/vocaro/EPUBLib/issues/242), [#289](https://github.com/vocaro/EPUBLib/issues/289), [#570](https://github.com/vocaro/EPUBLib/issues/570)).
+  A page that is shown is laid out twice: by the paginator, to measure it, and by its column.
+  Handing the measuring layout to the column was left out of #570. A column is a persistent
+  `ReaderTextView` that owns its TextKit stack from its creation and keeps it across page
+  turns, for selection and for VoiceOver's cursor (#337); UIKit's text view takes its layout
+  manager only when it is made, and AppKit's would have to swap its text container on every
+  turn. The paginator measures pages ahead of display (page counts, positions, the next
+  spread), so it would also have to keep the measured layouts of the pages about to be shown,
+  at about 60 bytes per character each, and the column's own preparation (box geometry
+  replanned for its viewport, attachments exposed) would have to run on them first. The
+  saving is one page layout per page shown, against a pagination that measures every page.
   A forced-break paragraph's retained leading margin is included in its ordinary flow plan.
   Existing bounded preflight decides which boxes are eligible first. Only a retained rich
   plan with such a margin is replanned with corrected flow advances, carrying rejected box

@@ -559,6 +559,23 @@ variable. To re-pin:
 
 The old directory stays until someone removes it.
 
+`BookCorpusPageTextTests` pages every chapter of the Project Gutenberg and Standard Ebooks
+books in `EPUBLIB_GUTENBERG` and `EPUBLIB_STANDARD_EBOOKS` at six reader sizes, and checks
+that every character is on a visible line of some page
+([#570](https://github.com/vocaro/EPUBLib/issues/570)). It is skipped unless one of them is
+set. It lays out every page twice, so run it in release, one process per size:
+
+```sh
+swift test -c release --enable-testable-imports --filter BookCorpusPageTextTests  # builds; skips
+eval "$(bash scripts/fetch-corpora.sh)"
+EPUBLIB_PAGE_TEXT_CASES=phone xcrun xctest -XCTest EPUBViewingTests.BookCorpusPageTextTests \
+  .build/release/EPUBViewingTests.xctest
+```
+
+The cases are `phone`, `phone-landscape`, `tablet`, `mac`, `small` and `phone-40pt`;
+`EPUBLIB_PAGE_TEXT_BOOKS` names books by file name. The test's comment gives how long each
+corpus takes.
+
 `NativeCorpusQualificationTests` builds every book under `EPUBLIB_CORPUS`, a colon-separated
 list of directories of EPUB files, and checks each section's text map:
 
@@ -884,6 +901,16 @@ BOX_PLAN_SECTIONS=300 BOX_PLAN_SEED=377 swift test --jobs 1 --filter BoxPlanAgre
 
 `BOX_PLAN_ONLY=12,20` checks only those sections, and `BOX_PLAN_DIAGNOSTICS=1` prints each
 section's markup.
+
+`PageMeasurementTests` holds the sections that lost characters before every page was measured
+([#570](https://github.com/vocaro/EPUBLib/issues/570)), each by its whole-page character rule:
+`PageTextGeometryTests`' seed 22 section 443, small justified and Chinese-text paragraphs, lines
+taller than their page that mix large and small runs or text and a table row, and a page whose
+own first line holds a tall row. It also holds a justified paragraph of verse, a `<br>` after
+each line: a page inside it lays out the paragraph only up to the next line break that ends a
+line of text, with the same lines and character positions as with the paragraph's whole rest. Its generated sections have no box plan and pages ending
+inside justified, tabbed and indented paragraphs; `PAGE_MEASUREMENT_SECTIONS` (default 120)
+and `PAGE_MEASUREMENT_SEED` (default 570) choose them.
 
 ### Reader controls probe
 

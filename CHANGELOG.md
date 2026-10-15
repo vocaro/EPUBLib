@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Measure every page as it is shown before committing its boundary, and fit the typography fallback to the line it makes, so no character of a section is left on no visible line ([#570](https://github.com/vocaro/EPUBLib/issues/570)).
 - Read as script or style in text extraction's recovery only what the HTML Standard reads as one, so the text after `<script"q>` or a `<script>` in a title, a `textarea` or a comment is kept ([#255](https://github.com/vocaro/EPUBLib/issues/255)).
 - Read the rest of a recovered section after an out-of-place `<html/>`, `<head/>` or `<body/>`, a second body included, instead of truncating or refusing it ([#292](https://github.com/vocaro/EPUBLib/issues/292)).
 - Keep text after a forced break out of the floats beside it, and a box's lines there inside the box ([#362](https://github.com/vocaro/EPUBLib/issues/362)).
