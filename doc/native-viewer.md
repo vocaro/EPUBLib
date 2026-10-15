@@ -1987,8 +1987,14 @@ reader typography changes recompute geometry from source formatting and retain s
 Requested heights do not truncate content. A box and the prose wrapping beside it stay together
 when they fit a page. Oversized groups and nested complex boxes instead continue as native
 blocks in reading order; fallback widths expand when necessary to leave readable lines, and
-long box text can continue across pages. Up to eight nested width constraints resolve within
-the enclosing box in this fallback.
+long box text can continue across pages. A box taller than a page continues so a paragraph at
+a time, and from each of its paragraphs the rest of the box is tried as a box again, so that
+the rest that fits a page is set as one. Its end and the max-content width of each of its
+paragraphs are found once, and an attempt that the layout of the attempt before it shows to be
+more than a quarter of a page too tall is not made. A play that sets each scene as one inline
+block of hundreds of verse lines is then paginated in time in proportion to its length, not
+its square ([#573](https://github.com/vocaro/EPUBLib/issues/573)). Up to eight nested width
+constraints resolve within the enclosing box in this fallback.
 
 A text that holds any of these boxes has every one of its lines placed by the reader's text
 container: one section in pages, the whole book in continuous scroll. TextKit then wraps a line
