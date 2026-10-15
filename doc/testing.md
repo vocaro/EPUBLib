@@ -521,11 +521,54 @@ The script fetches each corpus at a pinned commit into `~/Library/Caches/EPUBLib
 `Tests/EPUBTestSupport/SpecConformanceCorpus.swift`; a new pin goes in the script together
 with that table.
 
-`NativeCorpusQualificationTests` builds every book under `EPUBLIB_CORPUS`, a list of
-directories of EPUB files. The variable names no collection and is not part of verifying a
-change. The [first qualification](native-viewer.md#qualification) ran it on books that belong
-to another project; EPUBLib does not depend on that project or its files, and they are not to
-be used to test it.
+### Books
+
+Two public collections of books are standard corpora as well, chosen on 2026-10-14. Each is a
+manifest in `scripts/corpora` that pins 50 EPUB files by URL and SHA-256, with the rule that
+chose them in its header. The books stay outside the repository, beside the W3C corpora.
+
+- **Project Gutenberg** (`scripts/corpora/gutenberg.tsv`): 50 English books, the EPUB 3
+  "with images" build of each. `scripts/fetch-corpora.sh` fetches the missing ones, verifies
+  all of them and prints `EPUBLIB_GUTENBERG`. Gutenberg's
+  [robot-access policy](https://www.gutenberg.org/policy/robot_access.html) allows automated
+  access only to the offline catalog, `robot/harvest` and the mirrors, so the URLs are on the
+  mirror `robot/harvest` names (`aleph.gutenberg.org`, whose certificate names
+  `aleph.pglaf.org`). Agents may fetch it through the script.
+- **Standard Ebooks** (`scripts/corpora/standard-ebooks.tsv`): 50 books, the ordinary
+  "compatible" EPUB of each. Its robots.txt disallows `/ebooks/*/downloads/*` for AI agents'
+  user agents (`claude-user`, `chatgpt-user` and others), so only the owner fetches it, with
+  `bash scripts/fetch-standard-ebooks.sh --pin`. `scripts/fetch-corpora.sh` never downloads it;
+  when its books are present and match the manifest, it prints `EPUBLIB_STANDARD_EBOOKS`.
+
+Both fetchers read robots.txt first, make one request at a time at least 2 s apart, and run
+one fetch at a time across sessions (`scripts/corpora/fetch_books.py`).
+
+Neither collection versions its URLs: Gutenberg rebuilds its files monthly, and Standard Ebooks
+republishes a book at the same URL whenever it changes. A book fetched after that fails its
+SHA-256. The script keeps it beside the corpus as `NAME.mismatch-SHA12` and does not set the
+variable. To re-pin:
+
+1. Fetch every book afresh into a directory named for today, and write the new hashes and the
+   date into the manifest. For Gutenberg, run
+   `python3 -I scripts/corpora/fetch_books.py pin scripts/corpora/gutenberg.tsv ~/Library/Caches/EPUBLib/corpora`.
+   For Standard Ebooks, the owner runs `bash scripts/fetch-standard-ebooks.sh --pin`.
+2. Run the corpus tests on the new directory.
+3. Commit the manifest, with the reason and the tests' results.
+
+The old directory stays until someone removes it.
+
+`NativeCorpusQualificationTests` builds every book under `EPUBLIB_CORPUS`, a colon-separated
+list of directories of EPUB files, and checks each section's text map:
+
+```sh
+eval "$(bash scripts/fetch-corpora.sh)"
+EPUBLIB_CORPUS="$EPUBLIB_GUTENBERG${EPUBLIB_STANDARD_EBOOKS:+:$EPUBLIB_STANDARD_EBOOKS}" \
+  swift test --filter NativeCorpusQualificationTests
+```
+
+The [first qualification](native-viewer.md#qualification) ran it on books that belong to
+another project; EPUBLib does not depend on that project or its files, and they are not to be
+used to test it.
 
 ## Probes and recorded inputs
 
