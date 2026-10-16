@@ -32,6 +32,23 @@ before starting a run. The idle-CPU recipe [reported in #62](https://github.com/
 is a heuristic from one session, not a gate requirement or an acceptance cutoff. Host activity
 alone does not invalidate a passing run.
 
+The Mac suites need the screen unlocked and the display awake. AppKit runs a scroll view's
+animation from the display's refresh, so while the display sleeps it does not advance, and
+`ScrolledAccessibilityReadTests.testWheelAndTrackpadAfterAReadKeepTheTextOnScreen` times out
+waiting for a wheel event to move the text. On 2026-10-14 it failed that way on branches that
+had passed it an hour before, and on `main`, until the owner unlocked the Mac
+([#561](https://github.com/vocaro/EPUBLib/pull/561#issuecomment-6179173544)). Look before a
+gate and before blaming a change for that failure:
+
+```sh
+ioreg -n Root -d1 | grep -o '"CGSSessionScreenIsLocked"=[A-Za-z]*'   # no output: unlocked
+swift -e 'import CoreGraphics; print(CGDisplayIsAsleep(CGMainDisplayID()) != 0)'   # false: awake
+```
+
+The display sleeps after the Mac's idle time, which can fall inside a gate's Mac suites. Do not
+keep it awake with `caffeinate` on the owner's Mac unasked: a screen kept unlocked is the
+owner's call.
+
 `scripts/test-ios.sh` reports `Passed` or `Failed` for each device, continues to the second
 after a creation, boot or test failure, and exits nonzero if either failed. Each first boot has
 a 600-second limit (`EPUB_SIM_BOOT_TIMEOUT` overrides it with a positive number of seconds).
