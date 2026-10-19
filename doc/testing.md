@@ -2379,6 +2379,13 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
 - `listen=SECONDS`: every phrase VoiceOver speaks in that time, each as a `heard` line, where
   another step records the one phrase standing when it ends. Use it after a step that makes
   VoiceOver speak by itself, as a page turn under its cursor does.
+- `readall`: VoiceOver reading on by itself from the item under its cursor, as two fingers
+  swiped down start it on the glass, by its Read All key, Control-Option-A; `readall=top` is
+  Control-Option-B, from the top of the screen. XCTest has no two-finger swipe. A
+  simulator's VoiceOver takes the key ("Read All From Current Item" in its log); on an iPad
+  XCTest's VoiceOver keys did not reach VoiceOver (below), so on a device the step is not
+  known to do anything. Nothing is recorded at the step: put a `listen=` after it, long
+  enough for what is to be read, and no touch or move, which stops the reading.
 - `state`: the sample's own line of what the reader reports as selected and what its
   selection action was last given, "Selected: nothing. Used: nothing.", which
   `TEST_RUNNER_VOICEOVER_LAUNCH='-SampleSelectionLine YES'` puts under the reader. XCTest
@@ -2407,6 +2414,10 @@ before it into the delay (a touch costs about five and a half seconds) and put a
 across the moment. `-SampleDarkAfter 18` has the reader turn dark by itself in the same
 way, as a host does that follows the time of day: the page is shown again in place, with
 the same lines and new items for them, all but the one under VoiceOver's cursor.
+`-SampleControls none` shows the reader with none of the host's controls above it, as a
+host does that hides them while a book is read: VoiceOver reading on by itself does
+differently after a page turn with and without them
+([#554](https://github.com/vocaro/EPUBLib/issues/554)).
 `TEST_RUNNER_VOICEOVER_OFF=1`
 leaves VoiceOver off, so the same steps are plain touches: use it to tell a VoiceOver failure
 from one of the reader's own. The probe stops when the reader is no longer in the foreground.
@@ -2462,8 +2473,13 @@ Four things went wrong in the first runs, and the runner and probe now allow for
   default `--timeout` of 300 seconds then passed before the probe had finished. Until
   VoiceOver is up, touches reach the reader as plain touches and every move fails with
   "Failed to send moveForward command". The probe waits for VoiceOver's first phrase, three
-  minutes at most; the `voiceOver` line then says `silent for its first 44 s`. Switching
-  VoiceOver off and on again did not help: one session stayed silent through three starts.
+  minutes at most, or as long as `--start-limit` says; the `voiceOver` line then says
+  `silent for its first 44 s`. Switching VoiceOver off and on again did not help: one
+  session stayed silent through three starts. On 2026-10-14, with five sessions' runs on
+  the Mac, five sessions in thirteen were stopped silent at three minutes and one at seven,
+  and those that spoke took 75 to 292 seconds; `--start-limit 600` with `--timeout 1200`
+  saw five in a row through. VoiceOver's log stops for minutes after its assets are
+  fetched, while it is silent.
 - **An xcodebuild that does not end.** After a test that recorded any issue, a warning
   included, xcodebuild runs `simctl diagnose --timeout=600` and waits for it. A rotated iPad
   logs such a warning in a probe that passes ("Support for all orientations will soon be
@@ -2537,6 +2553,10 @@ transcript says only what it read. Stream it for the length of a session:
 ```sh
 xcrun simctl spawn DEVICE log stream --level debug --style compact --predicate 'process == "vot"'
 ```
+
+The runner does so for each of its simulators with `--vot-log`, into
+`simulator-TYPE-STAMP.vot.log` beside the transcript, from the moment the simulator is muted
+until the probe has ended.
 
 - `VOTElement` has each move: the command and the item it started from (`ElementMovement
   decision`), the items VoiceOver holds each side of its cursor (`Cache:`), which of them it
@@ -2706,6 +2726,28 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    "Previous Page" at the second flick, then "Opened 1901 Column 2" and "Depth Twelve
    metres Column 3". That cell read without "Column 3" is a failure too: its table has a
    new item and the cell an old one.
+   On an iPhone and iPad also have VoiceOver read on by itself across pages, with
+   `readall` and a `listen=` long enough for a page or two, at 40 points (`--font-size 40`),
+   where a page holds a few lines: `touch=word,readall,listen=170,visible` on an iPhone,
+   and on an iPad `rotate=landscape,visible,touch=word,readall,listen=200,visible,rotate=portrait`.
+   It reads each line of the page to its last, and VoiceOver's log (`--vot-log`) then has
+   "Element Scrolled by Page" with "Page 2" and no speech of it; the next page is read from
+   its first line, and in a spread the left-hand page runs on into the right-hand one with
+   no turn between them. A line read twice or left out, or a turn after the left-hand
+   page, is the failure. What VoiceOver reads between the turn and the new page's first
+   line is the host's and VoiceOver's
+   ([#554](https://github.com/vocaro/EPUBLib/issues/554)): in the sample it reads the
+   control strip, and with `--launch '-SampleControls none'` it stops after the turn. With
+   no controls and pages of a line or two (`--font-size 60`, on an iPhone
+   `rotate=landscape,visible,readall=top,listen=100,visible,rotate=portrait`) it reads the
+   heading's three pages of one line each, "Page bound", "ary verifica" and "tion", and
+   stops at the first page of two. A page's last line read without its first is the
+   failure: VoiceOver read nothing else of each page when every last line turned the page
+   ([#468](https://github.com/vocaro/EPUBLib/issues/468)). And on the book's last page,
+   the last of `OPS/veiled.xhtml` (`--href OPS/gaps.xhtml --font-size 12`, `activate=Next
+   Page` until VoiceOver says the button is dimmed, at the twelfth, then
+   `readall,listen=80`), it reads "Line 60 after the hidden words.", the book's title
+   under the reader, and stops; the log has no page scrolled.
 4. Confirm heading order, the link's label/action and the image's spoken label.
 5. Resize or change typography, wait for the new layout, and repeat the boundary and ordering
    checks. On Mac verify corresponding value-change notifications and fresh text values.
