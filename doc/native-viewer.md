@@ -2447,8 +2447,17 @@ The following are the defaults. Host commands and accessibility actions stay ena
   ([#554](https://github.com/vocaro/EPUBLib/issues/554)): in the sample, whose controls
   stand above the reader, it read on from the top of the screen, the controls and then the
   new page from its first line, every line once and in order through each turn, and with
-  no controls there it stopped after the turn. That is a simulator's VoiceOver, started by
-  its Read All key; no device has run it
+  no controls there it stopped after the turn. After the turn VoiceOver looks among the
+  first ten items of the app for one that turns the page, and reads on from the first such
+  item from the top of the screen. A new page's last line found there was read alone and
+  turned the page again: with nothing above the reader and two lines a page, VoiceOver read
+  the last line of each page and no other. So until VoiceOver's cursor leaves the item its
+  turn left it on, no other item has the trait (`ReaderCanvasView.accessibilityCursorAtTurn`),
+  and VoiceOver finds none there and stops; on a page of one line, that item is the page's
+  last, keeps the trait, and is read. The trait cannot wait for the cursor to come to the
+  last line instead: VoiceOver takes an item's traits before its cursor comes to it, and
+  held that way it read a page's last line and went on to the title under the reader. That
+  is a simulator's VoiceOver, started by its Read All key; no device has run it
   ([sessions](https://github.com/vocaro/EPUBLib/issues/468#issuecomment-6164933289)).
 - VoiceOver on Mac: each text area offers the page turn as actions of its own
   (`NSAccessibilityCustomAction`), Next Page and Previous Page in pages and Scroll Forward

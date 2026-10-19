@@ -316,7 +316,7 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         accessibilityCursorIsHeld = false
         guard result != .atBoundary else { return false }
         if let shownPage { postAccessibilityNotification(.pageScrolled, "Page \(shownPage.page + 1)") }
-        accessibilityCursorFollowsThePage(to: visibleRange?.start)
+        accessibilityCursorAtTurn = accessibilityCursorFollowsThePage(to: visibleRange?.start) as? NSObject
         return true
     }
 
@@ -339,6 +339,18 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// read it, and where that fails a page to the right as well
     /// (`-[VOTElementManager _handleBookPageFlipAndContinue]`, iOS 27.0 simulator), which in a
     /// book read left to right is the page before: the last page has no such item.
+    ///
+    /// After that turn VoiceOver looks among the first ten items of the app for one that turns
+    /// the page, and reads on from the first such item from the top of the screen
+    /// (`-[VOTElementManager _startReadingBookForNewPage]` and `_handleReadFromTop:`). A new
+    /// page's last line found there was read alone and turned the page again: with nothing
+    /// above the reader and two lines a page, VoiceOver read the last line of each page and no
+    /// other. So until VoiceOver's cursor leaves the item the turn left it on, no other item
+    /// turns the page (`accessibilityCursorAtTurn`), and VoiceOver finds none and stops. The
+    /// item itself does where it is the page's last, as on a page of one line, which VoiceOver
+    /// then reads. VoiceOver takes an item's traits before its cursor comes to the item, so
+    /// the trait cannot wait for the cursor to be on the last line instead (iOS 27.0
+    /// simulator).
     ///
     /// What VoiceOver reads after the turn is its own and the host's: in the sample, whose
     /// controls stand above the reader, it read on from the top of the screen, the controls
@@ -365,9 +377,10 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// from a data table's cell to another cell, where a new element is the one read with
     /// its row and column. A cursor that is not in the text, as on a host's page button, is
     /// left where it is, and so is one whose line is still on the page
-    /// (`accessibilityPageWasShown`).
-    func accessibilityCursorFollowsThePage(to position: ReaderTextPosition?) {
-        guard !accessibilityCursorIsHeld, let left = columns.first(where: \.accessibilityCursorHasLeftThePage) else { return }
+    /// (`accessibilityPageWasShown`). The answer is the element the cursor is sent to.
+    @discardableResult
+    func accessibilityCursorFollowsThePage(to position: ReaderTextPosition?) -> Any? {
+        guard !accessibilityCursorIsHeld, let left = columns.first(where: \.accessibilityCursorHasLeftThePage) else { return nil }
         let shown = columns.filter { !$0.isHidden }
         var line: Any?, found = false
         for view in shown where line == nil {
@@ -378,7 +391,9 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
             }
         }
         line = line ?? shown.lazy.compactMap { $0.accessibilityLine(from: 0) }.first
-        postAccessibilityNotification(.layoutChanged, left.accessibilityCursorStands(for: line))
+        let cursor = left.accessibilityCursorStands(for: line)
+        postAccessibilityNotification(.layoutChanged, cursor)
+        return cursor
     }
 
     /// Tells an assistive technology that a page was shown, at `position`. A cursor whose line
@@ -414,7 +429,10 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
     /// (`accessibilityCursorIsHeld`).
     func accessibilityPageWasShown(at position: ReaderTextPosition?) {
         guard !accessibilityCursorIsHeld else { return }
-        guard !columns.contains(where: \.accessibilityCursorHasLeftThePage) else { return accessibilityCursorFollowsThePage(to: position) }
+        guard !columns.contains(where: \.accessibilityCursorHasLeftThePage) else {
+            accessibilityCursorFollowsThePage(to: position)
+            return
+        }
         for column in columns { column.accessibilityCursorKeepsItsLine() }
         postAccessibilityNotification(.layoutChanged, nil)
     }

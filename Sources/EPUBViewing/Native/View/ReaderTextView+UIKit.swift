@@ -565,6 +565,7 @@ final class ReaderTextView: UITextView {
 
     /// An assistive technology's cursor came to `element`, a line of this view.
     fileprivate func accessibilityCursorMoved(to element: ReaderPageAccessibilityElement) {
+        if let canvas, canvas.accessibilityCursorAtTurn !== element { canvas.accessibilityCursorAtTurn = nil }
         if isPageColumn { pageAccessibilityCursor = element }
         guard isCanvasScrollView else { return }
         accessibilityCursor = element
@@ -589,6 +590,9 @@ final class ReaderTextView: UITextView {
                   (focused as? ReaderPageAccessibilityElement)?.view !== self,
                   (focused as? ReaderScrollBarAccessibilityElement)?.view !== self else { return }
             followsText = isCanvasScrollView && accessibilityOrderPutsAfterLines(focused)
+        }
+        if let canvas, notification.userInfo?[UIAccessibility.focusedElementUserInfoKey] as AnyObject? !== canvas.accessibilityCursorAtTurn {
+            canvas.accessibilityCursorAtTurn = nil
         }
         pageAccessibilityCursor = nil
         accessibilityCursor = nil
@@ -1132,8 +1136,11 @@ private struct ReaderAccessibilityList {
     }
 
     /// Whether this is the last item of the column that turns the page for VoiceOver reading on.
+    /// While VoiceOver's cursor is where a turn it made itself left it, no other item is
+    /// (`ReaderCanvasView.accessibilityCursorAtTurn`).
     private var turnsThePage: Bool {
-        guard let view, view.isPageColumn, view.lastAccessibilityItem === self, let canvas = view.canvas else { return false }
+        guard let view, view.isPageColumn, view.lastAccessibilityItem === self, let canvas = view.canvas,
+              canvas.accessibilityCursorAtTurn.map({ $0 === self }) ?? true else { return false }
         return canvas.accessibilityPageTurnColumn === view
     }
 

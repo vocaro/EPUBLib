@@ -386,8 +386,67 @@ import XCTest
         XCTAssertTrue(next[0] === last, "the next page's first line, the item under the cursor")
         XCTAssertEqual(number(last), count + 1)
         XCTAssertEqual(last.accessibilityTraits, .staticText, "a line of words that turns nothing")
+        // No item turns the page while VoiceOver's cursor is where its turn left it, and once
+        // the cursor has moved on the new page's last line does.
+        XCTAssertFalse(next.contains(where: turnsThePage))
+        focus(next[1], from: last)
         XCTAssertEqual(next.map(turnsThePage), Array(repeating: false, count: next.count - 1) + [true])
         XCTAssertEqual(number(next.last), count + next.count)
+    }
+
+    /// After a turn VoiceOver made itself, reading on, it looks among the first ten items of
+    /// the app for one that turns the page and reads on from the first such item from the top
+    /// of the screen. A new page's last line with the trait there was read alone, and the page
+    /// turned again, until VoiceOver's cursor moved: in a host with nothing above the reader it
+    /// read the last line of each page of two and no other (iOS 27.0 simulator). So no item
+    /// turns the page until the cursor leaves the item the turn left it on, for another line or
+    /// for something outside the text, but that item itself where it is the page's last.
+    func testNoOtherItemTurnsThePageUntilTheCursorMovesFromWhereVoiceOversTurnLeftIt() throws {
+        let count = try elements(of: try XCTUnwrap(host([Self.lines(90)]).canvas.textViews.first)).count
+        // A first page of a chapter, a second of one line, and a chapter after it.
+        let canvas = host([Self.lines(count + 1), Self.lines(4 * count)]).canvas
+        let view = try XCTUnwrap(canvas.textViews.first)
+        var listed = try elements(of: view)
+        XCTAssertEqual(listed.count, count)
+        var last = try XCTUnwrap(listed.last)
+        focus(last, from: listed[count - 2])
+        XCTAssertTrue(last.accessibilityScroll(.next))
+        posts.removeAll()
+        // The page's one line is the item under the cursor, and the page's last: it turns the page.
+        listed = try elements(of: view)
+        XCTAssertEqual(listed.count, 1)
+        XCTAssertTrue(listed[0] === last)
+        XCTAssertEqual(number(last), count + 1)
+        XCTAssertTrue(turnsThePage(last))
+        XCTAssertTrue(last.accessibilityScroll(.next))
+        posts.removeAll()
+        // The next chapter's first page: the cursor's item is its first line, and nothing turns
+        // the page until the cursor goes to a control and back into the text.
+        listed = try elements(of: view)
+        XCTAssertEqual(canvas.visibleRange?.start.section, 1)
+        XCTAssertTrue(listed[0] === last)
+        XCTAssertFalse(listed.contains(where: turnsThePage))
+        let control = UIAccessibilityElement(accessibilityContainer: canvas)
+        control.accessibilityLabel = "Next Page"
+        focus(control, from: last)
+        XCTAssertEqual(listed.map(turnsThePage), Array(repeating: false, count: listed.count - 1) + [true])
+        // A three-finger scroll from a line is a turn VoiceOver made itself as well, and a move
+        // to another line of the new page ends what it holds back.
+        last = try XCTUnwrap(listed.last)
+        focus(last, from: control)
+        XCTAssertTrue(listed[0].accessibilityScroll(.next))
+        posts.removeAll()
+        listed = try elements(of: view)
+        XCTAssertTrue(listed[0] === last)
+        XCTAssertFalse(listed.contains(where: turnsThePage))
+        focus(listed[1], from: last)
+        XCTAssertEqual(listed.map(turnsThePage), Array(repeating: false, count: listed.count - 1) + [true])
+        // A page the reader turns by other means holds nothing back.
+        focus(control, from: listed[1])
+        XCTAssertEqual(canvas.turnPage(forward: true), .turned)
+        posts.removeAll()
+        listed = try elements(of: view)
+        XCTAssertEqual(listed.map(turnsThePage), Array(repeating: false, count: listed.count - 1) + [true])
     }
 
     /// The scroll VoiceOver makes from that item fails on the book's last page, and where it

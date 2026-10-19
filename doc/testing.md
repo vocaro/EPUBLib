@@ -2724,8 +2724,13 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    page, is the failure. What VoiceOver reads between the turn and the new page's first
    line is the host's and VoiceOver's
    ([#554](https://github.com/vocaro/EPUBLib/issues/554)): in the sample it reads the
-   control strip, and with `--launch '-SampleControls none'` it stops after the turn. And
-   on the book's last page (`--href OPS/gaps.xhtml --font-size 12`, `activate=Next Page`
+   control strip, and with `--launch '-SampleControls none'` it stops after the turn. With
+   no controls and pages of a line or two (`--font-size 60`, on an iPhone
+   `rotate=landscape,visible,readall=top,listen=100,visible,rotate=portrait`) it reads the
+   heading's three pages of one line each, "Page bound", "ary verifica" and "tion", and
+   stops at the first page of two. A page's last line read without its first is the
+   failure: VoiceOver read nothing else of each page when every last line turned the page
+   ([#468](https://github.com/vocaro/EPUBLib/issues/468)). And on the book's last page (`--href OPS/gaps.xhtml --font-size 12`, `activate=Next Page`
    until VoiceOver says the button is dimmed, then `readall,listen=80`) it reads "Line 60
    after the tally.", the book's title under the reader, and stops; the log has no page
    scrolled.
