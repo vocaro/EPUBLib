@@ -146,6 +146,10 @@ import AppKit
     #if os(macOS)
     /// Where the reader last put the scroll view's insertion point (`placeScrollInsertionPoint`).
     private var placedScrollInsertionPoint: Int?
+    /// A place `show` was asked for in pages, until the spread that holds it is installed:
+    /// VoiceOver enters the page there (`enterPage`). A page turn, a relayout, a change of
+    /// flow and a show in continuous scroll leave none.
+    private var pageEntry: ReaderTextPosition?
     /// Posts what the canvas tells an assistive client itself: the layout change after a spread
     /// is installed, and after the reader moves the scroll view the insertion point's second
     /// notice and the layout change (`placeScrollInsertionPoint`). A test puts its own closure
@@ -217,13 +221,18 @@ import AppKit
         selectionMayHaveChanged()
     }
 
-    func show(_ position: ReaderTextPosition, selecting range: ReaderTextRange?) {
+    func show(_ position: ReaderTextPosition, selecting range: ReaderTextRange?, entry: ReaderPageEntry = .position) {
         settleLayout()
         clearSelection()
         anchor = position
         anchorFollowsScroll = false
         pendingSelection = range.flatMap { $0.isEmpty ? nil : $0 }
         pendingSelectionPreservesFullRange = pendingSelection != nil
+        #if os(macOS)
+        // Continuous scroll rests the position at the top, where the insertion point already is,
+        // or a place found below it, where `updateVisibleRange` puts it (`foundPlace`).
+        pageEntry = entry == .position && configuration.flow == .paginated ? position : nil
+        #endif
         switch configuration.flow {
         case .paginated:
             if spread == nil { layOutCanvas() } else { displayAnchor() }
@@ -337,6 +346,9 @@ import AppKit
         guard old.flow != configuration.flow || old.division != configuration.division
                 || old.isRightToLeft != configuration.isRightToLeft else { return }
         guard old.flow != configuration.flow else { return layOutCanvas() }
+        #if os(macOS)
+        pageEntry = nil
+        #endif
         anchor = currentStart(in: old.flow) ?? anchor
         anchorFollowsScroll = false
         carrySelectionAcrossRelayout()
@@ -608,6 +620,10 @@ import AppKit
         }
         isApplyingSelection = false
         #if os(macOS)
+        if let entry = pageEntry {
+            pageEntry = nil
+            enterPage(at: entry)
+        }
         // VoiceOver keeps a column's previous text across a value change it did not witness
         // from inside that column; a layout change naming the columns makes it read the new
         // page. It also keeps a text cursor of its own in a column it has left, and on coming
@@ -666,7 +682,7 @@ import AppKit
             delegate?.canvas(self, needsSection: next, forward: forward)
             return .pending(section: next)
         }
-        show(ReaderTextPosition(section: next, offset: forward ? 0 : text.length), selecting: nil)
+        show(ReaderTextPosition(section: next, offset: forward ? 0 : text.length), selecting: nil, entry: .firstLine)
         return .turned
     }
 
@@ -1132,6 +1148,37 @@ import AppKit
         // VoiceOver cursor resting on that element into the text at every step.
         if requested, let window {
             postAccessibilityNotification(window, .layoutChanged, [.uiElements: [textView]])
+        }
+    }
+
+    /// Puts the insertion point at the start of the line that holds `position`, in the column
+    /// that holds it, once the spread shown for it is installed (`ReaderPageEntry.position`).
+    /// VoiceOver enters a column at its insertion point, and installing a page puts that at the
+    /// page's first line (`ReaderTextView.exposeTextualAttachments`): after a link, a search
+    /// result, a contents entry or a bookmark it started at the top of the page, and the
+    /// listener read down the page to the place they went to (#383). The line is one that
+    /// VoiceOver is given (`ReaderTextView.accessibilityRange(forLine:)`). A position with no
+    /// character of its own, as a section's end, is on no line, and the page keeps its first.
+    ///
+    /// VoiceOver stays in the column that has the keyboard focus (`focusFirstColumnAfterTurn`),
+    /// so focus in another column of the spread goes to this one, and VoiceOver goes with it.
+    /// Focus anywhere else, as on a host's list of search results, is left where it is.
+    private func enterPage(at position: ReaderTextPosition) {
+        let place = ReaderTextRange(section: position.section, position.offset..<(position.offset + 1))
+        guard let (column, local) = columns.lazy.filter({ !$0.isHidden })
+            .compactMap({ view in self.localRange(of: place, in: view).map { (view, $0.location) } }).first else { return }
+        let line = column.accessibilityLine(for: local)
+        let range = line == NSNotFound ? NSRange(location: NSNotFound, length: 0) : column.accessibilityRange(forLine: line)
+        let start = range.location == NSNotFound ? local : range.location
+        column.entryLocation = start
+        if column.selectedRange != NSRange(location: start, length: 0) {
+            isApplyingSelection = true
+            column.selectedRange = NSRange(location: start, length: 0)
+            isApplyingSelection = false
+        }
+        if let responder = window?.firstResponder as? ReaderTextView, responder !== column,
+           columns.contains(where: { $0 === responder }) {
+            focus(column)
         }
     }
     #endif

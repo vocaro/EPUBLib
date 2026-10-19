@@ -969,7 +969,9 @@ continues to describe the authored spine resource.
       text it is in, and a page turn gives the column the elements of other rows. So the
       row elements of the page before stay among the column's children until its text is
       replaced again (`ReaderTextView.departedRows`), each a static text with nothing in
-      it, standing at the new page's first line. Without them VoiceOver went to the text
+      it, standing at the line the new page is entered at: its first, or after a place
+      shown the place's line (Pages, under Layout), which was not heard with a row's
+      element under the cursor. Without them VoiceOver went to the text
       area, out of the text, a Control-Option-Shift-Down from the page's first line; as an
       empty table or group it said "table" or "empty group". A layout change naming the
       column, posted by the element, by the column or by the window, at once or half a
@@ -1937,6 +1939,35 @@ as they did.
   ([#373](https://github.com/vocaro/EPUBLib/issues/373)). The
   insertion point after a page's last character, and an offset an assistive client kept from
   a longer page, are on its last line.
+  VoiceOver enters a column at its insertion point, and installing a page puts that at the
+  page's first line. After a place is shown (a link's target, a search result, a located
+  passage, a bookmark, the place a book opens at) it goes to the start of the line that holds
+  the place, in the column that holds it (`ReaderCanvasView.enterPage`), and keyboard focus in
+  another column of the spread goes to that column, which VoiceOver follows as it does after a
+  page turn made in the second column; focus anywhere else, as on a host's list of search
+  results, stays where it is. Before, VoiceOver began at the top of the page, and a listener
+  read down it to the place they went to
+  ([#383](https://github.com/vocaro/EPUBLib/issues/383)). A page turn, a relayout (a text
+  size, a resize, rebuilt text, a change of flow), the start or end of a section a turn
+  reaches, and VoiceOver's own moves to a heading, where it is given the heading's element or
+  characters itself, keep the first line: the session says which a show is
+  (`ReaderPageEntry`). A position with no character of its own, as a section's end, is on no
+  line, and its page keeps the first. Nothing else reads the insertion point: a selection,
+  Copy, and the selection carried across a relayout or continued onto another page take a
+  range with characters in it, and a passage selected with the place replaces it.
+  On the hosted runner, after a link to a heading in the middle of a page, VoiceOver entered
+  at the heading in one column and two, with its cursor in the text, resting on the column or
+  on the search field; on `main` it read the page's first line. Told of the insertion point's
+  move from inside the text, it first said "text word: Link character: L", the word and
+  character there, in two sessions of four. Where the place is in the column beside the one
+  VoiceOver is in, the focus
+  move takes it onto that column and out of the text, as after a page turn made in the second
+  column: it says "text" and the column's first words, Read Line reads the place's line, and
+  interacting enters there. From the place, as from a page's first line after a turn, its
+  first move down reads the place's line again, because its own moves by line leave the
+  insertion point at a line's end, and the next goes on. A relayout straight after the place
+  is shown, as a window still settling, puts the first line back
+  ([sessions](https://github.com/vocaro/EPUBLib/issues/383#issuecomment-6277358412)).
   UIKit exposes visible line/run accessibility children with links, attachment labels and
   page actions, keeping hidden paragraph context out of its native text accessibility traversal.
   A heading is one such child however many lines it takes, with the header trait and its

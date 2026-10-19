@@ -195,6 +195,24 @@ the issues and the release notes, and the same day had the VoiceOver document fo
   [CHANGELOG.md](CHANGELOG.md). Where there is no issue, link the pull request. What changed
   in detail is on the issue.
 
+## Labels
+
+On 2026-10-19 the owner had the open issues sorted with labels: by area, by platform, by the
+kind of work, and for VoiceOver, which a quarter of them were about. Label an issue when you
+file it. `gh label list` gives each label and what it means.
+
+- Give every issue one priority, one `area:` and the kind of work it asks for: `bug`,
+  `enhancement`, `documentation`, `question` for a decision, `verify` to run, hear or check
+  something, and `investigate` to find a cause before a fix is chosen. An issue about how
+  sessions work, or about this file, takes `documentation` and no area.
+- Add `voiceover`, `tables` and `accessibility` wherever they apply.
+- A `platform:` label names the platform whose reader shows the problem, not the Mac a session
+  runs on. Leave it off when both show it.
+- `needs: device` marks what only a physical iPhone or iPad can show
+  ([above](#tests-are-automated)). Hearing what VoiceOver reads is not one of those.
+- When the work changes, change the labels: an investigation that finds its cause becomes a
+  `bug`.
+
 ## Test corpora
 
 EPUBLib is verified with public material only. The corpora are the W3C's own:
