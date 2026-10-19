@@ -484,7 +484,6 @@ import UIKit
     /// CSS Logical Properties 1, 3.1: `inline-start` and `inline-end` map to left and right by
     /// the containing block's direction.
     func testFloatInlineStartAndInlineEndFollowTheWritingDirection() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/124")
         let css = "figure { width:100px; height:40px } .s { float:inline-start } .e { float:inline-end }"
         let (ltr, ltrView) = try layout("<figure class='s'>Start box.</figure><figure class='e'>End box.</figure><p>\(H.prose)</p>", css: css)
         XCTAssertEqual(try XCTUnwrap(H.region("Start box.", in: ltr, view: ltrView)).frame.minX, 0, accuracy: 0.5)

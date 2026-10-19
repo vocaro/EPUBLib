@@ -367,6 +367,9 @@ extension StyleResolver {
             style.display = display; style.blockifiesChildren = blockifies; style.boxAlignment.isGrid = grid
         case (.float, .float(let float)): style.float = float
         case (.clear, .clear(let clear)): style.clear = clear
+        // A float's sides by flow are its containing block's, whose direction is the parent's.
+        case (.float, .inlineSide(let side)): style.float = side.isLeft(in: parent.direction) ? .left : .right
+        case (.clear, .inlineSide(let side)): style.clear = side.isLeft(in: parent.direction) ? .left : .right
         case (.position, .position(let position)): style.position = position
         case (.top, _), (.right, _), (.bottom, _), (.left, _):
             let length: ComputedStyle.Length = if case .length(let l) = value { computed(l, own, points: StyleLimits.offset) } else { .auto }

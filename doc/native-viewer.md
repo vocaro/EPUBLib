@@ -2050,6 +2050,23 @@ as they did.
   rotation or bar change repaginates once it ends, in steps when far into a section, with the
   old spread on screen until the new one is ready. A finished pagination keeps only its pages.
 - **Right to left.** `page-progression-direction="rtl"` mirrors spreads, swipes and tap zones.
+  Within a page, a box's sides by flow (`margin-inline-start`, `padding-inline`,
+  `border-inline-end`) are the sides the element's own `direction` maps them to, and cascade
+  with those sides' physical declarations in order; `float` and `clear` with `inline-start` or
+  `inline-end` take the side of the parent's direction, the containing block's
+  (CSS Logical Properties 1). The reader's own stylesheet indents lists and `dd` on their start
+  side, as HTML 15.3.7 does, so a right-to-left list is indented on the right
+  ([#124](https://github.com/vocaro/EPUBLib/issues/124)). Vertical writing is laid out
+  horizontally, so the block axis is always top to bottom, and `dir="auto"` does not yet give an
+  element the direction of its content, so its sides by flow follow its parent's.
+  A right-to-left item's marker hangs in that indent and each of its lines starts at the same
+  edge, in page text and in table cells. A marker's tab stop is a distance from the paragraph's
+  leading edge, the right in right-to-left text, as TextKit 1 measures it in either direction.
+  TextKit 2, where it applies a right-to-left paragraph's indents itself, measures a stop from the
+  first line's start less the tail indent, and set the item's first line a first-line indent
+  further along than its wrapped lines; the text container shows it the stop moved by the
+  difference (`ReaderTextContainer.rightToLeftStops`,
+  [#276](https://github.com/vocaro/EPUBLib/issues/276)).
 
 ### Floats and positioned boxes
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Lay out a right-to-left list item's first line from the same edge as its wrapped lines, with its marker hanging in the start-side indent, in page text and in table cells ([#276](https://github.com/vocaro/EPUBLib/issues/276)).
+- Resolve `inline-start` and `inline-end` sides of margins, padding, borders, `float` and `clear` against the writing direction, and indent lists and `dd` on their start side, so right-to-left content is indented on the right ([#124](https://github.com/vocaro/EPUBLib/issues/124)).
 - Keep VoiceOver on Mac at the line of a place shown in pages across a resize, a text size or the text built again that comes before anything moves from it, where it went back to the top of the page ([#594](https://github.com/vocaro/EPUBLib/issues/594)).
 - Keep libxml2's messages about a book off the host's standard error, where text extraction still wrote them for a repeated or malformed `xml:id` and every path for bytes a declared encoding cannot decode, and give a host's own libxml2 handlers back after a package document is read ([#392](https://github.com/vocaro/EPUBLib/issues/392)).
 - Start VoiceOver on Mac at the line of a place shown in pages, as a link's target, a search result or a bookmark, where it started at the top of the page ([#383](https://github.com/vocaro/EPUBLib/issues/383)).
