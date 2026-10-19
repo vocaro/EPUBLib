@@ -2458,7 +2458,8 @@ The following are the defaults. Host commands and accessibility actions stay ena
   last line instead: VoiceOver takes an item's traits before its cursor comes to it, and
   held that way it read a page's last line and went on to the title under the reader. That
   is a simulator's VoiceOver, started by its Read All key; no device has run it
-  ([sessions](https://github.com/vocaro/EPUBLib/issues/468#issuecomment-6164933289)).
+  ([sessions](https://github.com/vocaro/EPUBLib/issues/468#issuecomment-6164933289), and
+  [with the turn held back](https://github.com/vocaro/EPUBLib/issues/468#issuecomment-6262997758)).
 - VoiceOver on Mac: each text area offers the page turn as actions of its own
   (`NSAccessibilityCustomAction`), Next Page and Previous Page in pages and Scroll Forward
   and Scroll Backward in continuous scroll. Those are the names `EPUBReaderControls` gives
