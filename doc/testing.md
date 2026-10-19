@@ -919,6 +919,19 @@ BOX_PLAN_SECTIONS=300 BOX_PLAN_SEED=377 swift test --jobs 1 --filter BoxPlanAgre
 `BOX_PLAN_ONLY=12,20` checks only those sections, and `BOX_PLAN_DIAGNOSTICS=1` prints each
 section's markup.
 
+`TableNarrowCellTests` generates tables whose cells hold lists with markers of any width,
+padding, negative and positive text indents and nested tables, in either direction. At widths
+from 24 to 120 points and page heights from 24 to 240, every cell, nested ones included, is as
+tall as its last line reaches and each of its lines is in exactly one slice of its rows; paged
+at small viewports, every page passes `PageTextGeometryTests.assertVisiblePages`. It also holds
+#569's reproductions and #377's nested cell to their words in each page's Copy text and in what
+VoiceOver reads there ([#569](https://github.com/vocaro/EPUBLib/issues/569)). It defaults to 24
+tables; `TABLE_NARROW_SECTIONS` and `TABLE_NARROW_SEED` (default 569) choose them:
+
+```sh
+TABLE_NARROW_SECTIONS=400 swift test --jobs 1 --filter TableNarrowCellTests
+```
+
 `PageMeasurementTests` holds the sections that lost characters before every page was measured
 ([#570](https://github.com/vocaro/EPUBLib/issues/570)), each by its whole-page character rule:
 `PageTextGeometryTests`' seed 22 section 443, small justified and Chinese-text paragraphs, lines

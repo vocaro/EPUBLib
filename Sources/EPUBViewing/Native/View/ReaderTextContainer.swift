@@ -70,7 +70,48 @@ final class ReaderTextContainer: NSTextContainer {
         let font = layoutText.flatMap { text in
             index >= 0 && index < text.length ? text.attribute(.font, at: index, effectiveRange: nil) as? PlatformFont : nil
         }
-        return min(width, max(1, (font?.pointSize ?? 16) * 2))
+        return Self.minimumLineWidth(font: font, width: width)
+    }
+
+    private static func minimumLineWidth(font: PlatformFont?, width: CGFloat) -> CGFloat {
+        min(width, max(1, (font?.pointSize ?? 16) * 2))
+    }
+
+    /// The text a table cell lays out with TextKit 1 in a column `width` wide
+    /// (`TableCellLayout`, and `TableCellTextView` over the same text). TextKit 1 applies a
+    /// paragraph's indents itself, so where they consume the column it set each glyph on a line
+    /// of its own past the column's edge, with no used rect: the cell measured its first line
+    /// alone, and the rest were on no page once its row was split (#569). Such a paragraph keeps
+    /// the glyph-wide column `lineInsets` leaves it in TextKit 2, keeping its left indent first
+    /// as that does, with its tab stops inside the column as
+    /// `textContentStorage(_:textParagraphWith:)` keeps them.
+    static func clampingExhaustedIndents(in text: NSAttributedString, width: CGFloat) -> NSAttributedString {
+        var result: NSMutableAttributedString?
+        text.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+            guard let style = value as? NSParagraphStyle else { return }
+            var first = max(0, style.firstLineHeadIndent), head = max(0, style.headIndent)
+            var tail = max(0, style.tailIndent <= 0 ? -style.tailIndent : width - style.tailIndent)
+            guard max(first, head) + tail >= width else { return }
+            let font = text.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont
+            let available = max(0, width - minimumLineWidth(font: font, width: width))
+            if style.baseWritingDirection == .rightToLeft {
+                tail = min(tail, available)
+                first = min(first, available - tail); head = min(head, available - tail)
+            } else {
+                first = min(first, available); head = min(head, available)
+                tail = min(tail, available - max(first, head))
+            }
+            let clamped = style.mutableCopy() as! NSMutableParagraphStyle
+            clamped.firstLineHeadIndent = first; clamped.headIndent = head; clamped.tailIndent = -tail
+            let lastStop = max(1, available)
+            clamped.tabStops = style.tabStops.map {
+                NSTextTab(textAlignment: $0.alignment, location: min($0.location, lastStop), options: $0.options)
+            }
+            clamped.defaultTabInterval = min(style.defaultTabInterval, lastStop)
+            if result == nil { result = NSMutableAttributedString(attributedString: text) }
+            result?.addAttribute(.paragraphStyle, value: clamped, range: range)
+        }
+        return result ?? text
     }
 
     private func visibleRect(_ rect: CGRect, within bounds: CGRect, at index: Int) -> CGRect {

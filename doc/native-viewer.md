@@ -518,6 +518,14 @@ continues to describe the authored spine resource.
   A page-fit reduction is retained only when it makes the tallest row fit; otherwise the
   table continues at its initial scale. Tall nested rows provide complete-line portions to
   their parent, retaining their source character while their own text continues across pages.
+  A cell is laid out with TextKit 1, which applies a paragraph's indents itself. Where a
+  paragraph's indents, a list's among them, take the whole column left inside the cell's
+  padding, the paragraph keeps the glyph-wide column the reader's other text keeps, its left
+  indent first (`ReaderTextContainer.clampingExhaustedIndents`), and a cell is measured to its
+  last line.
+  Otherwise each glyph went on a line of its own past the column, the cell measured its first
+  line alone, and the lines below its row's foot were on no page once the row was split
+  ([#569](https://github.com/vocaro/EPUBLib/issues/569)).
   One outer layout makes at most five passes per nested table, a linear count in the number
   of nested tables ([#299](https://github.com/vocaro/EPUBLib/issues/299)). Cell max-content
   widths measure every explicit line, excluding paragraph separators so leading indents remain.
