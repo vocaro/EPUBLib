@@ -2730,10 +2730,11 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    heading's three pages of one line each, "Page bound", "ary verifica" and "tion", and
    stops at the first page of two. A page's last line read without its first is the
    failure: VoiceOver read nothing else of each page when every last line turned the page
-   ([#468](https://github.com/vocaro/EPUBLib/issues/468)). And on the book's last page (`--href OPS/gaps.xhtml --font-size 12`, `activate=Next Page`
-   until VoiceOver says the button is dimmed, then `readall,listen=80`) it reads "Line 60
-   after the tally.", the book's title under the reader, and stops; the log has no page
-   scrolled.
+   ([#468](https://github.com/vocaro/EPUBLib/issues/468)). And on the book's last page,
+   the last of `OPS/veiled.xhtml` (`--href OPS/gaps.xhtml --font-size 12`, `activate=Next
+   Page` until VoiceOver says the button is dimmed, at the twelfth, then
+   `readall,listen=80`), it reads "Line 60 after the hidden words.", the book's title
+   under the reader, and stops; the log has no page scrolled.
 4. Confirm heading order, the link's label/action and the image's spoken label.
 5. Resize or change typography, wait for the new layout, and repeat the boundary and ordering
    checks. On Mac verify corresponding value-change notifications and fresh text values.
