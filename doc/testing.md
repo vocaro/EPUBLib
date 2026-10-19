@@ -418,7 +418,13 @@ elements through
 AppKit's own accessibility methods. The older informal ones (`accessibilityAttributeNames()`,
 `accessibilityAttributeValue(_:)`) do not show what a client is given: called on these
 elements in a test they listed five attributes, gave nil for every value, and the test
-process then ended with "freed pointer was not the last allocation". That a client of the
+process then ended with "freed pointer was not the last allocation". The test process
+answers no client either: the accessibility API asked of its own process id gives
+`kAXErrorNotImplemented`. To see what a client is given on this Mac without VoiceOver, build
+the verification reader, launch it with `open -g -n -a` and its `-SampleHref` arguments, so
+that it takes no keyboard, and ask it from another process with `AXUIElementCopyAttributeNames`
+and their values, as the client in
+[#485](https://github.com/vocaro/EPUBLib/issues/485#issuecomment-6270877949) does. That a client of the
 accessibility API is given each attribute, and what VoiceOver says, is recorded with the
 [VoiceOver testing process](#tables-on-mac).
 
