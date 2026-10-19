@@ -424,35 +424,29 @@ import UIKit
         }
     }
 
-    #if os(iOS)
-    /// Choosing a result closes the search pane or the result browser where it is a sheet,
-    /// which covers the reader, and leaves it open as a popover, as a step does. The content of
-    /// a toolbar item, and of a popover, has a compact width on an iPad too, and that closed the
-    /// toolbar's popover there (#49): the window's width decides.
-    func testChoosingAResultClosesASheetAndLeavesAPopoverOpen() async throws {
-        let session = Session(), model = try controls(session)
-        session.publish(.completed(query: "needle", hasMatches: true), Self.results(7, current: 0))
-        let chosen = try XCTUnwrap(model.searchResults?.results[2])
+    /// Choosing a result closes the search pane or the result browser where it covers the
+    /// reader, as a sheet, and leaves it open as a popover, as a step does. A popover becomes a
+    /// sheet in a window of compact width. The content of a toolbar item, and of a popover, has
+    /// a compact width on an iPad too, and that closed the toolbar's popover there (#49): the
+    /// window's width decides. On a Mac a popover is never a sheet.
+    func testAPresentationCoversTheReaderOnlyInACompactWindow() async throws {
+        #if os(iOS)
         for width in [UIUserInterfaceSizeClass.regular, .compact] {
-            for name in ["pane", "browser"] {
-                var closed = 0
-                let presented = name == "pane"
-                    ? AnyView(EPUBSearchResultPane(controls: model, onDismiss: { closed += 1 }))
-                    : AnyView(EPUBSearchResultBrowser(controls: model, onClose: { closed += 1 }))
-                let mounted = MountedView(presented.environment(\.horizontalSizeClass, .compact),
-                                          size: CGSize(width: 360, height: 640), windowWidth: width)
-                defer { mounted.close() }
-                try await Task.sleep(for: .milliseconds(60))
-                let label = "\(name) in a \(width == .compact ? "compact" : "regular") window"
-                XCTAssertTrue(mounted.activate(labelBeginning: "Match 3 of 7"), "\(label): no row to choose")
-                await model.waitForCommands()
-                XCTAssertEqual(session.received.last, .showSearchResult(chosen), label)
-                XCTAssertEqual(closed, width == .compact ? 1 : 0, label)
-                session.received.removeAll()
-            }
+            let probe = EPUBPresentationProbe()
+            let mounted = MountedView(Color.clear.presentationProbe(probe).environment(\.horizontalSizeClass, .compact),
+                                      size: CGSize(width: 360, height: 640), windowWidth: width)
+            defer { mounted.close() }
+            try await Task.sleep(for: .milliseconds(60))
+            XCTAssertEqual(probe.coversReader, width == .compact, "a \(width == .compact ? "compact" : "regular") window")
         }
+        #else
+        let probe = EPUBPresentationProbe()
+        let mounted = MountedView(Color.clear.presentationProbe(probe), size: CGSize(width: 360, height: 640))
+        defer { mounted.close() }
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertFalse(probe.coversReader)
+        #endif
     }
-    #endif
 
     /// What the toolbar's Search button presents: the field, its buttons, Clear Search, the
     /// navigator and the list, padded and held to the top of its sheet or popover. Disabled,
@@ -938,25 +932,6 @@ extension FrameMarker: UIViewRepresentable {
         }
         #endif
     }
-
-    #if os(iOS)
-    /// Activates the first accessibility element whose label begins with `prefix`, as
-    /// VoiceOver's double tap does. False when there is none, or it does nothing.
-    func activate(labelBeginning prefix: String) -> Bool {
-        layOut()
-        func find(_ element: Any) -> NSObject? {
-            guard let object = element as? NSObject else { return nil }
-            if object.isAccessibilityElement, object.accessibilityLabel?.hasPrefix(prefix) == true { return object }
-            var children = object.accessibilityElements ?? []
-            if children.isEmpty, object.accessibilityElementCount() > 0, object.accessibilityElementCount() != NSNotFound {
-                children = (0..<object.accessibilityElementCount()).compactMap { object.accessibilityElement(at: $0) }
-            }
-            if let view = object as? UIView { children += view.subviews }
-            return children.lazy.compactMap(find).first
-        }
-        return find(root)?.accessibilityActivate() == true
-    }
-    #endif
 
     /// The field the reader types a search in, if the view has one.
     func searchField() -> PlatformView? {

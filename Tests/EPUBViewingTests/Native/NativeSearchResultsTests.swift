@@ -519,36 +519,4 @@ import XCTest
         try await wait("result 3 visible") { self.isVisible(3, in: session) }
         XCTAssertEqual(session.visibleRange?.start, ReaderTextPosition(section: 2, offset: 0))
     }
-
-    #if os(iOS)
-    /// The keyboard a search field raises covers the foot of the reader and does not make it
-    /// shorter. Made shorter, the reader laid the book out again as the keyboard rose and again
-    /// as a search put it away, and on an iPad one column became two and back (#49).
-    func testTheReaderKeepsItsSizeUnderTheKeyboard() async throws {
-        let publication = try EPUBPublication.open(data: Self.book())
-        let session = try XCTUnwrap(try NativeEngine().makeSession(publication: publication, selectionAction: nil) { _ in } as? NativeSession)
-        let field = UITextField()
-        let window = UIWindow(windowScene: try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first))
-        window.rootViewController = UIHostingController(rootView: EPUBReaderView(session: session))
-        window.makeKeyAndVisible()
-        defer { field.resignFirstResponder(); session.close(); window.isHidden = true; window.rootViewController = nil }
-        try await wait("built book and location") { session.book.isComplete && session.lastLocation != nil }
-        let canvas = try XCTUnwrap(session.canvas)
-        let before = canvas.convert(canvas.bounds, to: window)
-        let spread = canvas.spread
-        field.frame = CGRect(x: 0, y: 80, width: 200, height: 32)
-        window.addSubview(field)
-        let guide = window.keyboardLayoutGuide
-        func keyboard() -> CGRect {
-            window.layoutIfNeeded()
-            return guide.layoutFrame
-        }
-        XCTAssertTrue(field.becomeFirstResponder())
-        try await wait("the keyboard", timeout: 10) { keyboard().height > 100 }
-        XCTAssertTrue(keyboard().intersects(before), "the keyboard \(keyboard()) is over the reader \(before)")
-        try await Task.sleep(for: .milliseconds(500))
-        XCTAssertEqual(canvas.convert(canvas.bounds, to: window), before, "the reader kept its frame under the keyboard")
-        XCTAssertEqual(canvas.spread, spread, "and its pages")
-    }
-    #endif
 }

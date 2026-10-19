@@ -386,7 +386,8 @@ private struct EPUBPresentationProbeView: UIViewRepresentable {
 }
 #endif
 
-private extension View {
+extension View {
+    /// Gives `probe` the window this view is presented in.
     func presentationProbe(_ probe: EPUBPresentationProbe) -> some View {
         #if os(iOS)
         background(EPUBPresentationProbeView(probe: probe))

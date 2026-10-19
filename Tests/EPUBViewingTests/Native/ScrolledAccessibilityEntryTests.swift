@@ -311,25 +311,41 @@ import XCTest
 
     /// A search result rests a third of the way down continuous scroll, below the first line on
     /// screen, and VoiceOver would enter at its line: what it is taken to, as it is to a line at
-    /// the top (#49). A step of its own then enters at the first line on screen again.
+    /// the top (#49). So it would after a resize, which a hosted session made after its search:
+    /// the insertion point had gone to the first line on screen. A step of its own, or the
+    /// person's scrolling, then enters at the first line on screen again.
     func testVoiceOverWouldEnterAtTheLineOfASearchResult() async throws {
         let subject = try await opened()
         let (reader, canvas) = subject
         let view = try await scroll(subject)
+        func assertEntryIsTheResultsLine(_ query: String, _ label: String, line: UInt = #line) throws {
+            let found = try XCTUnwrap(reader.session.searchResultRanges.first?.start, label, line: line)
+            let shown = try XCTUnwrap(canvas.visibleRange, label, line: line)
+            XCTAssertLessThan(shown.start, found, "\(label): the result is below the first line on screen", line: line)
+            XCTAssertTrue(reader.isVisible(found), label, line: line)
+            XCTAssertTrue(entryLine(of: view).hasPrefix(query), "\(label): VoiceOver would enter at \"\(entryLine(of: view).prefix(24))\"", line: line)
+            let book = try XCTUnwrap(canvas.scrollBook, line: line)
+            XCTAssertEqual(view.accessibilitySelectedTextRange(), NSRange(location: lineStart(at: book.location(of: found), in: view), length: 0),
+                           label, line: line)
+            XCTAssertNil(canvas.currentSelection, "\(label): nothing is selected", line: line)
+        }
         for (query, label) in [("d07", "the search's first match"), ("e33", "another search")] {
             try await reader.session.send(.search(text: query))
             try await reader.settle()
-            let found = try XCTUnwrap(reader.session.searchResultRanges.first?.start, label)
-            let shown = try XCTUnwrap(canvas.visibleRange, label)
-            XCTAssertLessThan(shown.start, found, "\(label) is below the first line on screen")
-            XCTAssertTrue(reader.isVisible(found), label)
-            XCTAssertTrue(entryLine(of: view).hasPrefix(query), "\(label): VoiceOver would enter at \"\(entryLine(of: view).prefix(24))\"")
-            let book = try XCTUnwrap(canvas.scrollBook)
-            XCTAssertEqual(view.accessibilitySelectedTextRange(), NSRange(location: lineStart(at: book.location(of: found), in: view), length: 0), label)
-            XCTAssertNil(canvas.currentSelection, "\(label): nothing is selected")
+            try assertEntryIsTheResultsLine(query, label)
+            for height in [560.0, 700] {
+                reader.window?.resize(to: CGSize(width: 600, height: height))
+                try await reader.settle()
+                try assertEntryIsTheResultsLine(query, "\(label), at a window height of \(Int(height))")
+            }
         }
         try await reader.session.send(.nextPage)
         try assertEntryIsTheFirstLineOnScreen("a step after a search result", canvas)
+        try await reader.session.send(.search(text: "d07"))
+        try await reader.settle()
+        try assertEntryIsTheResultsLine("d07", "a search again")
+        try await scrollByHand(400, subject)
+        try assertEntryIsTheFirstLineOnScreen("scrolled by hand after a search result", canvas)
     }
 
     /// Until the whole book is built, and for a section it leaves out, the scroll view holds one
