@@ -163,6 +163,7 @@ final class SectionBuildState {
             return NSAttributedString(string: text, attributes: [
                 .font: request.fonts.font(for: style),
                 .foregroundColor: ReaderPalette.text(dark: request.typography.isDark),
+                .readerSectionLayout: layout,
             ])
         }
         nesting += 1
@@ -200,6 +201,7 @@ final class SectionBuildState {
         return NSAttributedString(string: words.joined(separator: " "), attributes: [
             .font: request.fonts.font(for: style),
             .foregroundColor: ReaderPalette.text(dark: request.typography.isDark),
+            .readerSectionLayout: layout,
         ])
     }
 

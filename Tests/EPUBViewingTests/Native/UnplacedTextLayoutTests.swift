@@ -235,6 +235,39 @@ import UIKit
 
     // MARK: The report
 
+    /// Characters of `text` that do not carry `record`.
+    private func withoutRecord(_ record: SectionLayoutRecord, in text: NSAttributedString) -> Int {
+        var count = 0
+        text.enumerateAttribute(.readerSectionLayout, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+            if (value as? SectionLayoutRecord) !== record { count += range.length }
+        }
+        return count
+    }
+
+    /// A layout reaches the record from whatever character TextKit was refused a line at, so
+    /// every character the build writes carries it: the section's, those of its table cells,
+    /// which TextKit 1 lays out on their own, and those of its notes, shown on their own.
+    func testEveryCharacterTheBuildWritesCarriesTheSectionsRecord() throws {
+        let picture = ["picture.png": RichFixture.image(width: 240, height: 160)]
+        let body = """
+            <h1>Heading</h1><p>Prose with <em>emphasis</em>, <a href='#note'>a note</a> and <img src='picture.png' alt='a picture'/>.</p>
+            \(float)<ul><li>Item</li><li style='list-style-position:inside'>Inside</li></ul><pre>pre&#9;tab</pre>
+            <table><caption>Caption</caption><tr><th>Head</th><td><p>Cell</p><ul><li>Cell item</li></ul></td></tr></table>
+            <div style='display:flex'><div>Flex one</div><div>Flex two</div></div><hr/><m:math><m:mi>x</m:mi></m:math>
+            <aside epub:type='footnote' id='note'><p>The note.</p></aside><p>\(H.prose)</p>
+            """
+        let section = try H.build(body, css: "", files: picture)
+        XCTAssertEqual(withoutRecord(section.layout, in: section.string), 0, "every character of the section")
+        var cells: [NSAttributedString] = []
+        section.string.enumerateAttribute(.attachment, in: NSRange(location: 0, length: section.string.length)) { value, _, _ in
+            if let row = value as? TableRowAttachment { cells += row.table.cells.map(\.content) }
+        }
+        XCTAssertFalse(cells.isEmpty, "the table is a grid")
+        for cell in cells { XCTAssertEqual(withoutRecord(section.layout, in: cell), 0, "every character of the cell \(cell.string.debugDescription)") }
+        let note = try XCTUnwrap(section.notes["note"])
+        XCTAssertEqual(withoutRecord(section.layout, in: note), 0, "every character of the note")
+    }
+
     @MainActor private final class Calls { var count = 0 }
 
     /// The record is told on the main actor, after the layout that found the text, and once.

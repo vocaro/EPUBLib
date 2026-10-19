@@ -76,10 +76,11 @@ struct TextBuffer {
     }
 
     /// The attributed string, built in one forward pass so the run array only ever grows at its
-    /// end. Each paragraph's style (`paragraphs` sorted by `start`, covering the text) is merged
-    /// into its runs' attributes rather than applied afterwards, which would split runs mid-array.
-    func makeAttributedString(dictionaries: [CFDictionary],
-                              paragraphs: [(start: Int, style: NSParagraphStyle)]) -> NSMutableAttributedString {
+    /// end. Each paragraph's style (`paragraphs` sorted by `start`, covering the text) and the
+    /// attributes `everywhere` are merged into its runs' attributes rather than applied
+    /// afterwards, which would split runs mid-array, or rewrite every run.
+    func makeAttributedString(dictionaries: [CFDictionary], paragraphs: [(start: Int, style: NSParagraphStyle)],
+                              everywhere: [NSAttributedString.Key: Any] = [:]) -> NSMutableAttributedString {
         let string = units.withUnsafeBufferPointer { buffer -> NSString in
             guard let base = buffer.baseAddress, !buffer.isEmpty else { return "" }
             return NSString(characters: base, length: buffer.count)
@@ -88,11 +89,12 @@ struct TextBuffer {
         let target = result as CFMutableAttributedString
         var merged: [MergeKey: CFDictionary] = [:]
         func dictionary(_ index: Int, _ style: NSParagraphStyle?) -> CFDictionary {
-            guard let style else { return dictionaries[index] }
-            let key = MergeKey(attributes: index, style: ObjectIdentifier(style))
+            guard style != nil || !everywhere.isEmpty else { return dictionaries[index] }
+            let key = MergeKey(attributes: index, style: style.map(ObjectIdentifier.init))
             if let cached = merged[key] { return cached }
             let copy = (dictionaries[index] as NSDictionary).mutableCopy() as! NSMutableDictionary
-            copy[NSAttributedString.Key.paragraphStyle] = style
+            for (name, value) in everywhere { copy[name] = value }
+            if let style { copy[NSAttributedString.Key.paragraphStyle] = style }
             merged[key] = copy
             return copy
         }
@@ -113,7 +115,7 @@ struct TextBuffer {
                 case .unit(let unit, let link):
                     let offset = location - run.location
                     unit.enumerateAttributes(in: NSRange(location: offset, length: segmentEnd - location)) { attributes, range, _ in
-                        var attributes = attributes
+                        var attributes = attributes.merging(everywhere) { _, new in new }
                         if let style { attributes[.paragraphStyle] = style }
                         if let link, attributes[.link] == nil { attributes[.link] = link }
                         result.setAttributes(attributes, range: NSRange(location: run.location + range.location, length: range.length))
@@ -128,6 +130,6 @@ struct TextBuffer {
 
     private struct MergeKey: Hashable {
         let attributes: Int
-        let style: ObjectIdentifier
+        let style: ObjectIdentifier?
     }
 }
