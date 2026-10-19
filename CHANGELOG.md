@@ -3,6 +3,9 @@
 ## Unreleased
 
 - End the layout of a paragraph TextKit can set on no line once it has asked a thousand times for one of its lines, lay out the rest of the section as if that paragraph had one line more than it set, and disclose the text not shown ([#288](https://github.com/vocaro/EPUBLib/issues/288)).
+- Have VoiceOver on Mac say "text" and not "empty" when a page turns with its cursor on a table of data's row element ([#485](https://github.com/vocaro/EPUBLib/issues/485)).
+- Remove an SVG filter wherever the bundled renderer reads one, after `!important` or a `*` in CSS and in `xlink:filter` among them, in time linear in the CSS ([#253](https://github.com/vocaro/EPUBLib/issues/253)).
+- Read an SVG's CSS by Unicode scalar, so a combining mark after a quote, backslash, comma or bracket hides nothing, and write an embedded font's own family name into it only when nothing in the name can be read as CSS ([#248](https://github.com/vocaro/EPUBLib/issues/248)).
 - Keep VoiceOver in the text on Mac when a page turns with its cursor on a table row's element ([#485](https://github.com/vocaro/EPUBLib/issues/485)).
 - Report a ZIP entry in a method other than stored or Deflate, or whose Deflate stream is damaged, as `EPUBPublicationError.invalidArchive`, whatever size it declares, instead of ZIPFoundation's own error ([#74](https://github.com/vocaro/EPUBLib/issues/74)).
 - Turn the page for VoiceOver reading on by itself past a page's last line on iPhone and iPad, and stop at the book's end ([#468](https://github.com/vocaro/EPUBLib/issues/468)).

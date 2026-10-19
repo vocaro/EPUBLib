@@ -183,10 +183,18 @@ continues to describe the authored spine resource.
   their ancestor and font context, cancellation stops preparation, and exhausted budgets omit
   images with a disclosure. SVG
   filter effects are omitted with a disclosure while preserving the drawing's shapes and labels.
-  The sanitizer omits filter definitions, presentation attributes and CSS declarations, and
+  The sanitizer omits filter definitions, presentation attributes in every namespace the
+  renderer reads them from (`xlink:filter` among them), and CSS declarations wherever the
+  renderer's tokenizer finds one, straight after `!important` or a `*` included; a last pass
+  blanks any name it could still begin one at ([#253](https://github.com/vocaro/EPUBLib/issues/253)).
   `SectionReport` retains its `svg:filter` disclosure. CSS omission preserves neighboring fill,
-  stroke, clipping and font declarations, including comments and quoted/function values.
+  stroke, clipping and font declarations, including comments and quoted/function values, as the
+  renderer reads them, and takes time linear in the CSS.
   Stylesheet text is sanitized together so XML text/CDATA boundaries do not split declarations.
+  CSS is read by Unicode scalar, so a combining mark after a quote, backslash, comma or bracket
+  hides no delimiter ([#248](https://github.com/vocaro/EPUBLib/issues/248)). An embedded font's
+  own family name, which comes from the book's font file, stands for the family a drawing names
+  only when it holds nothing but letters, marks, digits, spaces and `-`, `_`, `.`, `&` and `+`.
   The renderer's direct entry point continues to refuse filters, including commented and
   escaped CSS property names; it only receives the prepared drawing. The original node, depth,
   local-reference expansion and cycle checks run before omission.
@@ -941,17 +949,22 @@ continues to describe the authored spine resource.
       a turn from a line does: for a table of data and for a row group, by the host's Next
       Page, a page key or the text area's Next Page action, and in a spread, where it
       stays in the column it was in. Its next move by line reads the new page's first line
-      and by word that line's first word. What it says at the turn differs. From a row
-      group it says "text" and the new page's first line. From a table of data it says
-      "empty", and Control-Option-F3 "empty text is in the VoiceOver cursor"; in a spread
-      it said the new first row's words once before "2 updated items". Why the table's
-      element is "empty" and the row group's "text" was not found: what a client is given
-      of the two after the turn differs in their frames, and in that the table's still
-      gives the cell at a slot of the grid, which AppKit lists for a class that gives it
-      whatever `isAccessibilitySelectorAllowed` says. Leaving that out as well changed
-      nothing heard
-      ([#485](https://github.com/vocaro/EPUBLib/issues/485#issuecomment-6270877949) has
-      the sessions and what was tried). Two things keep VoiceOver in the text. VoiceOver
+      and by word that line's first word. At the turn VoiceOver says "text", and
+      Control-Option-F3 "text is in the VoiceOver cursor": from a row group with the new
+      page's first line after "text", and from a table of data without it. In a spread it
+      says "2 updated items", from a row group with the first line after it, and from a
+      table of data with the new first row's words before it. A table of data's element is
+      still a table to VoiceOver after the turn, whatever its role: VoiceOver keeps what it
+      made of an element when it first met it, and finds that again by the element. Its
+      table says "empty" while it has no rows, the greater of the row count and the number
+      of rows given, and when asked what it is on "3 columns, 41 rows" while it has a row
+      and a column. So a departed table gives one row that holds nothing, a row count of
+      one and no columns, and VoiceOver says neither. With no rows it said "empty" and
+      "empty text is in the VoiceOver cursor", and with the whole table's counts "text" and
+      "text 3 columns, 41 rows"
+      ([#485](https://github.com/vocaro/EPUBLib/issues/485#issuecomment-6272726811)
+      has VoiceOver's code that decides it, read without running it, and the sessions).
+      Two things keep VoiceOver in the text. VoiceOver
       keeps its cursor on an element only while the element is among the children of the
       text it is in, and a page turn gives the column the elements of other rows. So the
       row elements of the page before stay among the column's children until its text is
@@ -971,9 +984,10 @@ continues to describe the authored spine resource.
       1", with the keyboard focus on the column, where on
       [#508](https://github.com/vocaro/EPUBLib/pull/508)'s branch it went to the window's
       first button; it is not in the text there, as its cursor was on the cell and not on
-      a row's element. The cost is the word: VoiceOver says "text" or "empty" for the
-      element after the turn where a turn from a line says the line, and the elements are
-      among the column's children for the length of a page.
+      a row's element. The cost is the word: VoiceOver says "text" for the element after
+      the turn where a turn from a line says the line, the elements are among the column's
+      children for the length of a page, and a departed table gives any client a static
+      text with a row count and one row.
     - **Continuous scroll.** One text area holds the book, and a table holds every row.
       Moving down a column VoiceOver goes on past the screen and the view follows it,
       twenty-eight rows in one session, each once and in order. Leaving the table puts
