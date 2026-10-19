@@ -782,22 +782,41 @@ final class ContainerArchiveCoverageTests: XCTestCase {
     }
 
     func testADamagedOrUnreadableEntryFailsAsAnInvalidArchive() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/74")
         // A stored entry's damage is typed (CRC). Deflated data that does not inflate, or a method
         // other than stored and Deflate (EPUB Reading Systems 3.3 §4.2: in error), must be too.
-        var damaged = try Fixture.epub()
-        let offset = try XCTUnwrap(Fixture.dataOffset(of: "OPS/one.xhtml", in: damaged))
-        damaged[offset] = 0x07 // A final block of the reserved type.
-        var entries = Fixture.storedEntries(try Fixture.files())
-        let index = try XCTUnwrap(entries.firstIndex { $0.name == Data("OPS/two.xhtml".utf8) })
-        entries[index].method = 12 // bzip2
-        for (name, data) in [("deflate stream", damaged), ("bzip2 method", Fixture.storedArchive(entries))] {
+        for (name, data) in try damagedEntries() {
             XCTAssertThrowsError(try EPUBPublication.open(data: data), name) {
                 guard case .invalidArchive = $0 as? EPUBPublicationError else {
                     return XCTFail("\(name): not an EPUBPublicationError.invalidArchive but \(type(of: $0)): \($0)")
                 }
             }
         }
+    }
+
+    func testADamagedEntryThatDeclaresMoreThanALimitFailsAsAnInvalidArchive() throws {
+        // A compressed entry's declared size is not trusted, and one whose data fails before it
+        // inflates past a limit has exceeded none: raising the limits would not open it (#74).
+        for (name, var data) in try damagedEntries() {
+            let path = name == "deflate stream" ? "OPS/one.xhtml" : "OPS/two.xhtml"
+            let directory = try XCTUnwrap(Fixture.directoryOffset(of: path, in: data), name)
+            data.replaceSubrange((directory + 24)..<(directory + 28), with: [0, 0, 0, 0x10]) // 256 MiB
+            XCTAssertThrowsError(try EPUBPublication.open(data: data), name) {
+                guard case .invalidArchive = $0 as? EPUBPublicationError else {
+                    return XCTFail("\(name): not an EPUBPublicationError.invalidArchive but \(type(of: $0)): \($0)")
+                }
+            }
+        }
+    }
+
+    /// A book whose `OPS/one.xhtml` does not inflate, and one whose `OPS/two.xhtml` is in bzip2.
+    private func damagedEntries() throws -> [(String, Data)] {
+        var damaged = try Fixture.epub()
+        let offset = try XCTUnwrap(Fixture.dataOffset(of: "OPS/one.xhtml", in: damaged))
+        damaged[offset] = 0x07 // A final block of the reserved type.
+        var entries = Fixture.storedEntries(try Fixture.files())
+        let index = try XCTUnwrap(entries.firstIndex { $0.name == Data("OPS/two.xhtml".utf8) })
+        entries[index].method = 12 // bzip2
+        return [("deflate stream", damaged), ("bzip2 method", Fixture.storedArchive(entries))]
     }
 
     func testAChecksumThatDoesNotMatchADeflatedEntryIsRefused() throws {
