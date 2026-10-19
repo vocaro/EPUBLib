@@ -121,7 +121,10 @@ keyboard away: it would cover the page or the results the search shows, and wher
 fills what the keyboard leaves there is no page to tap to dismiss it. Clear Search there
 returns focus to the field, to type again. A search pane's field takes focus when the pane
 opens; the strip's inline field does not when it appears, so opening a book raises no keyboard
-over it.
+over it. The bundled reader keeps its size while the keyboard is up, which covers the foot of
+the page: made shorter, it laid the book out again as the keyboard rose and again as the
+search put it away, and on an iPad one column became two and back. A stack that holds the
+strip and the reader is still made shorter, and the reader in it.
 Whitespace-only submission clears highlights. The native engine rejects
 empty normalized queries and queries longer than 512 Swift characters, reports errors, and
 emits `.searchChanged(.searching(query:))`, then `.completed(query:hasMatches:)` after the
@@ -174,9 +177,13 @@ Three commands navigate, each requiring `.searchResults`:
 
 `controls.showNextSearchResult()`, `showPreviousSearchResult()` and `showSearchResult(_:)`
 submit them through the controls' FIFO queue; `canShowSearchResults` says whether there is
-anything to step through. A shown result is brought into view in both flows (its page when
-paging, the top of the view in continuous scroll) and drawn in a stronger highlight than the
-other matches. Nothing is selected.
+anything to step through. Once the engine has shown the match, they have VoiceOver say it
+(`searchResultAnnouncement`), and its cursor stays on the control. A shown result is brought
+into view in both flows and drawn in a stronger highlight than the other matches. Paging shows
+its page. Continuous scroll rests its line about a third of the way down the view, with the
+text before it above, or lower in a section's first lines, whose start is then at the top, so
+that the location stays in its section; VoiceOver's cursor, where it is in the text, goes to
+that line. Nothing is selected.
 
 The bundled reader and the supplied controls settle these questions as follows:
 
@@ -207,9 +214,11 @@ beneath it. Where the keyboard leaves the pane little room, such as an iPhone on
 an iPad mini's popover on its side, the list gives way first, down to 44 points, and whatever
 still does not fit under the field scrolls there, so that larger text does not push the field
 and the X off the screen. The inline field in `EPUBReaderControlStrip` has a Search Results
-button that presents the list in a popover instead. Choosing a result shows it; in a compact
-width, where the pane covers the reader, it also closes the pane, leaving the query and results
-in place. Both views are public for other placements:
+button that presents the list in a popover instead. Choosing a result shows it. Where the pane
+or the list is a sheet, which covers the reader, it also closes it, leaving the query and results
+in place: a popover becomes a sheet in a window of compact width, on an iPhone and in a narrow
+iPad window. A popover stays open, as it does after a step. Both views are public for other
+placements:
 
 <!-- snippet:searchResults -->
 ```swift
@@ -254,7 +263,10 @@ without `.searchResults`.
 
 For custom controls, `controls.searchResultSummary` is the indicator's text and
 `searchResultAccessibilityValue` its spoken form (“Match 27 of 27, last match, Second
-Chapter”), which the supplied match buttons also carry as their value.
+Chapter”), which the supplied match buttons also carry as their value. VoiceOver does not read
+that value again when it changes under its cursor, so a step said nothing until it was
+announced. `searchResultAnnouncement` is what is announced: the same words, then the text from
+the occurrence onward (“Match 27 of 27, last match, Second Chapter: needle at the end.”).
 `searchResultButtonLabel(forward:)` and `searchResultButtonHelp(forward:)` give the buttons'
 label and help; the help states a wrap or the first step. `searchResultAccessibilityLabel(for:)`
 names a result by its place, section and page, then the text from the occurrence onward and

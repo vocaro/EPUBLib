@@ -20,6 +20,9 @@ import Foundation
     public private(set) var commandError: String?
     @ObservationIgnored private var commands: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
+    /// Has an assistive technology say the words (`announceSearchResult`). The platform's own
+    /// post, which a test takes in its place.
+    @ObservationIgnored var postAnnouncement: @MainActor (String) -> Void = { EPUBReaderControls.postAccessibilityAnnouncement($0) }
 
     public init(publication: EPUBPublication, session: any EPUBReaderSession) {
         self.publication = publication
@@ -66,6 +69,11 @@ import Foundation
         let isSearch = switch command { case .search, .searchHighlight: true; default: false }
         enqueue(isSearch: isSearch) { command }
     }
+    /// Submits a match step or a chosen result and, once the engine has shown it, says which
+    /// match is current to an assistive technology, whose cursor stays on the control.
+    func sendSearchResultCommand(_ command: EPUBReaderCommand) {
+        enqueue(then: { [weak self] in self?.announceSearchResult() }) { command }
+    }
     /// Edits the latest style when this command executes, preserving changes queued before it
     /// and style fields updated through the session by the host.
     public func changeStyle(_ change: @escaping @MainActor (inout EPUBReaderStyle) -> Void) {
@@ -96,7 +104,9 @@ import Foundation
     }
     public func waitForCommands() async { await commands?.value }
 
-    private func enqueue(isSearch: Bool = false, _ command: @escaping @MainActor () -> EPUBReaderCommand) {
+    /// `then` runs once the command has been carried out, and not after a refusal or cancellation.
+    private func enqueue(isSearch: Bool = false, then: (@MainActor () -> Void)? = nil,
+                         _ command: @escaping @MainActor () -> EPUBReaderCommand) {
         guard isReady else { return }
         let previous = commands
         let token = generation
@@ -116,6 +126,7 @@ import Foundation
                 guard isReady else { return }
                 commandError = nil
                 try await session.send(command())
+                if generation == token { then?() }
             } catch is CancellationError {
             } catch {
                 guard generation == token, status?.lifecycle != .closed else { return }

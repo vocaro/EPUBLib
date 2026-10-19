@@ -431,7 +431,7 @@ import SwiftUI
         emit(.searchResultsChanged(results))
         if let first {
             canvas?.clearSelection()
-            canvas?.show(first.start, selecting: nil)
+            canvas?.showFound(first.start)
         }
         guard !closed, ticket == searchGeneration else { return }
         emit(.searchChanged(completion))
@@ -493,7 +493,8 @@ import SwiftUI
     }
 
     /// Makes a result the current match and brings it into view: its page in paginated flow,
-    /// the top of the view in continuous scroll. Its section is built, or it would not be listed.
+    /// a third of the way down the view in continuous scroll (`ReaderCanvasView.showFound`).
+    /// Its section is built, or it would not be listed.
     private func showSearchResult(at index: Int) {
         guard var results = searchResults, searchResultRanges.indices.contains(index) else { return }
         navigation += 1
@@ -502,7 +503,7 @@ import SwiftUI
         drawCurrentSearchResult()
         emit(.searchResultsChanged(results))
         canvas?.clearSelection()
-        canvas?.show(searchResultRanges[index].start, selecting: nil)
+        canvas?.showFound(searchResultRanges[index].start)
     }
 
     /// Moves the current match's emphasis, always the last highlight drawn, and leaves every
@@ -871,6 +872,11 @@ private struct NativeSurface: View {
                     if edge == .leading { submit(.previousPage) }
                     if edge == .trailing { submit(.nextPage) }
                 }
+                // The keyboard covers the foot of the page. Made room for, it laid the book out
+                // again as it rose for a search and again as the search put it away: on an iPad
+                // one column became two and back (#49). A host that stacks a field under the
+                // reader still has its stack made shorter.
+                .ignoresSafeArea(.keyboard)
                 #endif
         }
     }

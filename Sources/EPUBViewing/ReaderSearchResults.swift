@@ -17,13 +17,25 @@ public extension EPUBReaderControls {
     var canShowSearchResults: Bool { isReady && searchResults?.isEmpty == false }
 
     /// Submits `.nextSearchResult`: a logical step in result order, independent of the page
-    /// buttons and of the book's reading direction. Does nothing without results.
-    func showNextSearchResult() { if canShowSearchResults { send(.nextSearchResult) } }
+    /// buttons and of the book's reading direction. Does nothing without results. Once the
+    /// match is shown, VoiceOver hears it (`searchResultAnnouncement`).
+    func showNextSearchResult() { if canShowSearchResults { sendSearchResultCommand(.nextSearchResult) } }
     /// Submits `.previousSearchResult`. Does nothing without results.
-    func showPreviousSearchResult() { if canShowSearchResults { send(.previousSearchResult) } }
+    func showPreviousSearchResult() { if canShowSearchResults { sendSearchResultCommand(.previousSearchResult) } }
     /// Submits `.showSearchResult`. The engine refuses a result of a replaced or cleared search.
     func showSearchResult(_ result: EPUBSearchResult) {
-        if supports(.searchResults) { send(.showSearchResult(result)) }
+        if supports(.searchResults) { sendSearchResultCommand(.showSearchResult(result)) }
+    }
+
+    /// What an assistive technology says once a step or a chosen result has been shown: the
+    /// current match's place, an end it is at and its section, then the text from the
+    /// occurrence onward, as “Match 3 of 14, Second Chapter: needle one, then more.” nil
+    /// without a current match. The match buttons carry the same place as their value, which
+    /// VoiceOver does not read again when it changes under its cursor: the step was silent.
+    var searchResultAnnouncement: String? {
+        guard let current = searchResults?.current, let place = searchResultAccessibilityValue else { return nil }
+        let onward = (current.matchedText + current.contextAfter).trimmingCharacters(in: .whitespacesAndNewlines)
+        return onward.isEmpty ? place : "\(place): \(onward)"
     }
 
     /// The search's state in a few words for a count indicator: “3 of 27”, “27 matches”,
@@ -100,6 +112,25 @@ public extension EPUBReaderControls {
         let endsSentence = onward.last.map { ".!?…。".contains($0) } ?? false
         return parts.joined(separator: ", ") + ": " + onward
             + (before.isEmpty ? "" : "\(endsSentence ? "" : ".") Preceded by: \(before)")
+    }
+}
+
+extension EPUBReaderControls {
+    func announceSearchResult() {
+        if let words = searchResultAnnouncement { postAnnouncement(words) }
+    }
+
+    /// Posts an announcement, which interrupts one still being said: stepping again before
+    /// VoiceOver has finished a match goes on to the next.
+    static func postAccessibilityAnnouncement(_ words: String) {
+        #if os(iOS)
+        UIAccessibility.post(notification: .announcement, argument: words)
+        #elseif os(macOS)
+        guard let app = NSApp else { return }
+        let element: NSResponder = app.keyWindow ?? app.mainWindow ?? app
+        NSAccessibility.post(element: element, notification: .announcementRequested,
+                             userInfo: [.announcement: words, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        #endif
     }
 }
 
@@ -321,12 +352,57 @@ struct EPUBSearchResultRows: View, Equatable {
     }
 }
 
+/// Whether the search pane or the result browser covers the reader where it is presented: as a
+/// sheet, which is what a popover becomes in a window of compact width. The window's size class
+/// is read, not the view's. The content of a popover on iPad has a compact width of its own, as
+/// a toolbar item's content has, and the view's closed the toolbar's popover on iPad, where it
+/// covers only a corner of the reader (#49). A Mac popover never covers it.
+@MainActor final class EPUBPresentationProbe {
+    #if os(iOS)
+    fileprivate weak var view: UIView?
+    #endif
+
+    var coversReader: Bool {
+        #if os(iOS)
+        view?.window?.traitCollection.horizontalSizeClass == .compact
+        #else
+        false
+        #endif
+    }
+}
+
+#if os(iOS)
+/// An empty view behind the presented content that gives the probe its window.
+private struct EPUBPresentationProbeView: UIViewRepresentable {
+    let probe: EPUBPresentationProbe
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.accessibilityElementsHidden = true
+        probe.view = view
+        return view
+    }
+    func updateUIView(_ view: UIView, context: Context) { probe.view = view }
+}
+#endif
+
+private extension View {
+    func presentationProbe(_ probe: EPUBPresentationProbe) -> some View {
+        #if os(iOS)
+        background(EPUBPresentationProbeView(probe: probe))
+        #else
+        self
+        #endif
+    }
+}
+
 /// The browser as its own presentation: a title, the count and a close button over the list.
-/// Choosing a result in a compact width, where the presentation covers the reader, closes it.
+/// Choosing a result closes it where it is a sheet, which covers the reader, and not where it
+/// is a popover (`EPUBPresentationProbe`).
 struct EPUBSearchResultBrowser: View {
     let controls: EPUBReaderControls
     let onClose: () -> Void
-    @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var presentation = EPUBPresentationProbe()
 
     var body: some View {
         VStack(alignment: .leading) {
@@ -338,10 +414,11 @@ struct EPUBSearchResultBrowser: View {
                     count
                 }
             }
-            EPUBSearchResultList(controls: controls) { _ in if sizeClass == .compact { onClose() } }
+            EPUBSearchResultList(controls: controls) { _ in if presentation.coversReader { onClose() } }
         }
         .padding()
         .frame(minWidth: 280, idealWidth: 360, minHeight: 240, idealHeight: 420)
+        .presentationProbe(presentation)
     }
 
     private var title: some View {
@@ -370,16 +447,18 @@ struct EPUBSearchResultPane: View {
     let controls: EPUBReaderControls
     /// Closes the pane when it is a popover or sheet. nil for the inline field.
     let onDismiss: (() -> Void)?
-    @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var presentation = EPUBPresentationProbe()
 
     var body: some View {
         if controls.searchResults?.isEmpty == false {
             EPUBSearchResultNavigator(controls: controls, showsResultBrowser: onDismiss == nil, showsStatus: false)
             if let onDismiss {
-                // The list's ideal height is its least: see `EPUBSearchPaneFit`.
-                EPUBSearchResultList(controls: controls) { _ in if sizeClass == .compact { onDismiss() } }
+                // The list's ideal height is its least: see `EPUBSearchPaneFit`. Choosing a
+                // result closes a sheet and leaves a popover open, as a step does.
+                EPUBSearchResultList(controls: controls) { _ in if presentation.coversReader { onDismiss() } }
                     .frame(minWidth: 260, idealWidth: 340, minHeight: Self.minimumListHeight,
                            idealHeight: Self.minimumListHeight, maxHeight: 480)
+                    .presentationProbe(presentation)
             }
         }
     }

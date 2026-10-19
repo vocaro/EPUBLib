@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Have VoiceOver say the match, its place and the text after it when Next Match, Previous Match or a chosen search result shows it ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
+- Keep the toolbar's search popover open on iPad when a result is chosen in it, and close the search pane or result list only where it is a sheet ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
+- Keep the reader's size on iPhone and iPad while the keyboard is up, so a search no longer lays the book out again as the keyboard rises and falls ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
+- Show a search result about a third of the way down continuous scroll, with the text before it above, and not at the top ([#49](https://github.com/vocaro/EPUBLib/issues/49)).
 - End the layout of a paragraph TextKit can set on no line once it has asked a thousand times for one of its lines, lay out the rest of the section as if that paragraph had one line more than it set, and disclose the text not shown ([#288](https://github.com/vocaro/EPUBLib/issues/288)).
 - Have VoiceOver on Mac say "text" and not "empty" when a page turns with its cursor on a table of data's row element ([#485](https://github.com/vocaro/EPUBLib/issues/485)).
 - Remove an SVG filter wherever the bundled renderer reads one, after `!important` or a `*` in CSS and in `xlink:filter` among them, in time linear in the CSS ([#253](https://github.com/vocaro/EPUBLib/issues/253)).

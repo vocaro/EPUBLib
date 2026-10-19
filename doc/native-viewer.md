@@ -1606,7 +1606,13 @@ as they did.
   column was first set, so the text is laid out again at the narrower width in the layout pass
   that follows, before the scroll view is first drawn.
   A shown position's line rests at the top of the visible area, or the top edge of an aligned
-  box around it that fits there ([Flex and grid alignment](#flex-and-grid-alignment)). Far
+  box around it that fits there ([Flex and grid alignment](#flex-and-grid-alignment)). A
+  search result's line rests about a third of the way down instead: the line a third of the
+  view above it, laid out in one run with it, is the position kept and rests at the top, but
+  not above the start of the result's section, so that the location stays there. Where that
+  would leave the result's line partly off screen, it rests at the top. VoiceOver's cursor,
+  where it is in the text, goes to the result's line on iOS, and on Mac the insertion point is
+  put at the start of that line ([#49](https://github.com/vocaro/EPUBLib/issues/49)). Far
   from what is laid out, TextKit 2 only estimates where text is, and the viewport's layout
   estimates differently, so a long jump checks which line the top shows: from text before the
   position, it lays out through the position in one run and scrolls to its now exact line;
@@ -2350,7 +2356,8 @@ The following are the defaults. Host commands and accessibility actions stay ena
   the rotor is a command, and a note's popover keeps UIKit's own actions ("What an item
   offers VoiceOver" under Decisions). In continuous scroll it
   starts at the first line on screen: on Mac at the insertion point kept there, on iOS at the
-  first of the lines the scroll view lists (see "Continuous scroll" under Layout). Text that
+  first of the lines the scroll view lists (see "Continuous scroll" under Layout). After a
+  search result is shown it starts at the result's line, which rests below the top. Text that
   a book hides from the page and keeps for assistive technology is read where it stands, as
   text ([hidden labels](#floats-and-positioned-boxes)). An image is read by its `alt`, one
   with an empty `alt` is passed over, and so is one the book keeps from assistive

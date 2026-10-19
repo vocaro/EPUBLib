@@ -462,4 +462,93 @@ import XCTest
             XCTAssertEqual(session.visibleRange?.start.section, 1)
         }
     }
+
+    /// How far down continuous scroll the line holding a result stands: its top's distance from
+    /// the top of the visible area, as a share of the area's height. `line` is the line's own
+    /// height as the same share.
+    private func depth(of index: Int, in session: NativeSession) throws -> CGFloat { try placement(of: index, in: session).depth }
+
+    private func placement(of index: Int, in session: NativeSession) throws -> (depth: CGFloat, line: CGFloat) {
+        let canvas = try XCTUnwrap(session.canvas)
+        let view = try XCTUnwrap(canvas.scrollTextView)
+        let book = try XCTUnwrap(canvas.scrollBook, "the whole book is in the scroll view")
+        let line = try XCTUnwrap(view.lineFrame(containing: book.location(of: session.searchResultRanges[index].start)))
+        let visible = canvas.scrollVisibleContainerRect
+        return ((line.minY - visible.minY) / visible.height, line.height / visible.height)
+    }
+
+    /// A match shown in continuous scroll rests about a third of the way down the view, with the
+    /// text before it above, and not at the top: there a match was a line above the view after
+    /// the search sheet closed on an iPhone, and a toolbar's popover hangs over it (#49). A
+    /// change of height leaves it on screen. A match in a section's first lines has the
+    /// section's start at the top, so the location stays in its section.
+    func testAShownMatchRestsAThirdOfTheWayDownInContinuousScroll() async throws {
+        let (session, window, _) = try open(Self.book())
+        defer { session.close(); window.close() }
+        try await wait("built book and location") { session.book.isComplete && session.lastLocation != nil }
+        try await session.send(.style(.init(flow: .scrolled)))
+        try await wait("the whole book in the scroll view") { session.canvas?.scrollBook != nil }
+        try await session.send(.search(text: "findneedle"))
+        let state = try XCTUnwrap(session.readerState)
+        // The first match is the second paragraph of its section.
+        try await wait("first result visible") { self.isVisible(0, in: session) }
+        XCTAssertEqual(session.visibleRange?.start, ReaderTextPosition(section: 0, offset: 0), "the section's start is at the top")
+        XCTAssertLessThan(try depth(of: 0, in: session), 0.3)
+        // The second and third are sixty paragraphs into the same section.
+        for index in [1, 2] {
+            try await session.send(.nextSearchResult)
+            XCTAssertEqual(state.status.searchResults?.currentIndex, index)
+            try await wait("result \(index) visible") { self.isVisible(index, in: session) }
+            // The line at the top is the first mostly below a third of the view above the match.
+            let placed = try placement(of: index, in: session)
+            XCTAssertEqual(placed.depth, 1.0 / 3, accuracy: placed.line, "result \(index) is \(placed.depth) of the way down")
+            XCTAssertEqual(session.visibleRange?.start.section, 0)
+        }
+        // A sheet and its keyboard made the reader shorter and gave its height back.
+        let size = window.window.frame.size
+        for height in [size.height * 0.55, size.height] {
+            window.resize(to: CGSize(width: size.width, height: height))
+            try await Task.sleep(for: .milliseconds(300))
+            try await wait("result 2 on screen at \(Int(height)) points") { self.isVisible(2, in: session) }
+            XCTAssertGreaterThanOrEqual(try depth(of: 2, in: session), 0, "result 2 is below the top at \(Int(height)) points")
+        }
+        let again = try placement(of: 2, in: session)
+        XCTAssertEqual(again.depth, 1.0 / 3, accuracy: again.line, "result 2 is a third of the way down again")
+        // The fourth opens the third section.
+        try await session.send(.nextSearchResult)
+        try await wait("result 3 visible") { self.isVisible(3, in: session) }
+        XCTAssertEqual(session.visibleRange?.start, ReaderTextPosition(section: 2, offset: 0))
+    }
+
+    #if os(iOS)
+    /// The keyboard a search field raises covers the foot of the reader and does not make it
+    /// shorter. Made shorter, the reader laid the book out again as the keyboard rose and again
+    /// as a search put it away, and on an iPad one column became two and back (#49).
+    func testTheReaderKeepsItsSizeUnderTheKeyboard() async throws {
+        let publication = try EPUBPublication.open(data: Self.book())
+        let session = try XCTUnwrap(try NativeEngine().makeSession(publication: publication, selectionAction: nil) { _ in } as? NativeSession)
+        let field = UITextField()
+        let window = UIWindow(windowScene: try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first))
+        window.rootViewController = UIHostingController(rootView: EPUBReaderView(session: session))
+        window.makeKeyAndVisible()
+        defer { field.resignFirstResponder(); session.close(); window.isHidden = true; window.rootViewController = nil }
+        try await wait("built book and location") { session.book.isComplete && session.lastLocation != nil }
+        let canvas = try XCTUnwrap(session.canvas)
+        let before = canvas.convert(canvas.bounds, to: window)
+        let spread = canvas.spread
+        field.frame = CGRect(x: 0, y: 80, width: 200, height: 32)
+        window.addSubview(field)
+        let guide = window.keyboardLayoutGuide
+        func keyboard() -> CGRect {
+            window.layoutIfNeeded()
+            return guide.layoutFrame
+        }
+        XCTAssertTrue(field.becomeFirstResponder())
+        try await wait("the keyboard", timeout: 10) { keyboard().height > 100 }
+        XCTAssertTrue(keyboard().intersects(before), "the keyboard \(keyboard()) is over the reader \(before)")
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(canvas.convert(canvas.bounds, to: window), before, "the reader kept its frame under the keyboard")
+        XCTAssertEqual(canvas.spread, spread, "and its pages")
+    }
+    #endif
 }

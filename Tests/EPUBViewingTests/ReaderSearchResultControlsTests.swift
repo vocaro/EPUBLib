@@ -18,6 +18,8 @@ import UIKit
         let capabilities: Set<EPUBReaderCapability>
         let readerState: EPUBReaderState?
         var received: [EPUBReaderCommand] = []
+        /// Refuses a chosen result, as an engine refuses one of a replaced search.
+        var refusesResults = false
         /// `everyGroup` adds what Contents and Appearance need, so that a strip has all five groups.
         init(results: Bool = true, navigates: Bool = true, everyGroup: Bool = false) {
             var capabilities: Set<EPUBReaderCapability> = [.pagination, .scrolling, .searchHighlight]
@@ -32,6 +34,9 @@ import UIKit
         func makeView() -> AnyView { AnyView(EmptyView()) }
         func send(_ command: EPUBReaderCommand) async throws {
             received.append(command)
+            if refusesResults, case .showSearchResult = command {
+                throw EPUBReaderError.invalidCommand("That search result is no longer available")
+            }
             readerState?.modify { status in
                 let results = status.searchResults
                 switch command {
@@ -176,6 +181,48 @@ import UIKit
             XCTAssertNil(model.searchResults, "a closed session has no results")
             XCTAssertFalse(model.canShowSearchResults)
         }
+    }
+
+    /// A step or a chosen result is said once the engine has shown it, and VoiceOver's cursor
+    /// stays on the control. The value the match buttons carry changes under it unread, and a
+    /// step was silent (#49). A refused or cancelled command, and any other, says nothing.
+    func testAStepOrAChosenResultIsAnnouncedOnceItIsShown() async throws {
+        let session = Session(), model = try controls(session)
+        var announced: [String] = []
+        model.postAnnouncement = { announced.append($0) }
+        session.publish(.completed(query: "needle", hasMatches: true), Self.results(7))
+        XCTAssertNil(model.searchResultAnnouncement, "no match has been shown")
+
+        model.showNextSearchResult()
+        await model.waitForCommands()
+        XCTAssertEqual(announced, ["Match 1 of 7, first match, First Chapter: needle one, then more."])
+        model.showPreviousSearchResult()
+        await model.waitForCommands()
+        XCTAssertEqual(announced.last, "Match 7 of 7, last match, Later Chapter 3: needle one, then more.", "the wrap is heard")
+        let chosen = try XCTUnwrap(model.searchResults?.results[2])
+        model.showSearchResult(chosen)
+        await model.waitForCommands()
+        XCTAssertEqual(announced.last, "Match 3 of 7, Later Chapter 1: needle one, then more.")
+        XCTAssertEqual(announced.count, 3)
+
+        session.refusesResults = true
+        model.showSearchResult(chosen)
+        await model.waitForCommands()
+        XCTAssertNotNil(model.commandError)
+        session.refusesResults = false
+        model.showNextSearchResult()
+        model.cancelPendingCommands()
+        try await Task.sleep(for: .milliseconds(50))
+        model.send(.nextPage)
+        await model.waitForCommands()
+        XCTAssertEqual(announced.count, 3, "refused, cancelled and other commands say nothing: \(announced)")
+
+        // Truncated results, a match with no text after it, and an only match.
+        session.publish(.completed(query: "needle", hasMatches: true),
+                        EPUBSearchResults(query: "needle", results: [Self.result(0, after: "")], currentIndex: 0))
+        XCTAssertEqual(model.searchResultAnnouncement, "Match 1 of 1, only match, First Chapter: needle")
+        session.publish(.completed(query: "needle", hasMatches: true), Self.results(40, current: 39, truncated: true))
+        XCTAssertEqual(model.searchResultAnnouncement, "Match 40 of at least 40, last match, Later Chapter 19: needle one, then more.")
     }
 
     func testIndicatorTextStatesZeroPendingFailedCountAndEnds() throws {
@@ -376,6 +423,36 @@ import UIKit
             }
         }
     }
+
+    #if os(iOS)
+    /// Choosing a result closes the search pane or the result browser where it is a sheet,
+    /// which covers the reader, and leaves it open as a popover, as a step does. The content of
+    /// a toolbar item, and of a popover, has a compact width on an iPad too, and that closed the
+    /// toolbar's popover there (#49): the window's width decides.
+    func testChoosingAResultClosesASheetAndLeavesAPopoverOpen() async throws {
+        let session = Session(), model = try controls(session)
+        session.publish(.completed(query: "needle", hasMatches: true), Self.results(7, current: 0))
+        let chosen = try XCTUnwrap(model.searchResults?.results[2])
+        for width in [UIUserInterfaceSizeClass.regular, .compact] {
+            for name in ["pane", "browser"] {
+                var closed = 0
+                let presented = name == "pane"
+                    ? AnyView(EPUBSearchResultPane(controls: model, onDismiss: { closed += 1 }))
+                    : AnyView(EPUBSearchResultBrowser(controls: model, onClose: { closed += 1 }))
+                let mounted = MountedView(presented.environment(\.horizontalSizeClass, .compact),
+                                          size: CGSize(width: 360, height: 640), windowWidth: width)
+                defer { mounted.close() }
+                try await Task.sleep(for: .milliseconds(60))
+                let label = "\(name) in a \(width == .compact ? "compact" : "regular") window"
+                XCTAssertTrue(mounted.activate(labelBeginning: "Match 3 of 7"), "\(label): no row to choose")
+                await model.waitForCommands()
+                XCTAssertEqual(session.received.last, .showSearchResult(chosen), label)
+                XCTAssertEqual(closed, width == .compact ? 1 : 0, label)
+                session.received.removeAll()
+            }
+        }
+    }
+    #endif
 
     /// What the toolbar's Search button presents: the field, its buttons, Clear Search, the
     /// navigator and the list, padded and held to the top of its sheet or popover. Disabled,
@@ -773,7 +850,8 @@ extension FrameMarker: UIViewRepresentable {
     #endif
 
     /// With a `size`, the view is held to it as a sheet or popover of that size holds its
-    /// content: whatever the window's size, and with no safe area.
+    /// content: whatever the window's size, and with no safe area. On iOS `windowWidth` is the
+    /// window's horizontal size class.
     #if os(macOS)
     init(_ view: some View, size: CGSize? = nil) {
         window = makeMacTestWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
@@ -789,10 +867,11 @@ extension FrameMarker: UIViewRepresentable {
         window.orderFront(nil)
     }
     #else
-    init(_ view: some View, size: CGSize? = nil) {
+    init(_ view: some View, size: CGSize? = nil, windowWidth: UIUserInterfaceSizeClass? = nil) {
         if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
             window = UIWindow(windowScene: scene)
         } else { window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844)) }
+        if let windowWidth { window.traitOverrides.horizontalSizeClass = windowWidth }
         let controller = UIHostingController(rootView: view)
         host = controller
         fit = { controller.sizeThatFits(in: $0) }
@@ -859,6 +938,25 @@ extension FrameMarker: UIViewRepresentable {
         }
         #endif
     }
+
+    #if os(iOS)
+    /// Activates the first accessibility element whose label begins with `prefix`, as
+    /// VoiceOver's double tap does. False when there is none, or it does nothing.
+    func activate(labelBeginning prefix: String) -> Bool {
+        layOut()
+        func find(_ element: Any) -> NSObject? {
+            guard let object = element as? NSObject else { return nil }
+            if object.isAccessibilityElement, object.accessibilityLabel?.hasPrefix(prefix) == true { return object }
+            var children = object.accessibilityElements ?? []
+            if children.isEmpty, object.accessibilityElementCount() > 0, object.accessibilityElementCount() != NSNotFound {
+                children = (0..<object.accessibilityElementCount()).compactMap { object.accessibilityElement(at: $0) }
+            }
+            if let view = object as? UIView { children += view.subviews }
+            return children.lazy.compactMap(find).first
+        }
+        return find(root)?.accessibilityActivate() == true
+    }
+    #endif
 
     /// The field the reader types a search in, if the view has one.
     func searchField() -> PlatformView? {
