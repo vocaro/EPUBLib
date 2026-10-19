@@ -199,7 +199,8 @@ private final class XHTMLTextReader {
 
     static func read(_ data: Data, path: String, limits: EPUBTextExtractionLimits) throws -> XHTMLTextReader {
         guard data.count <= Int(Int32.max) else { throw EPUBTextExtractionError.limitExceeded("inputBytes") }
-        return try data.withUnsafeBytes { buffer in
+        // The reader parses as it is read, and writes a validity or decoder error to standard error.
+        return try LibXML2Messages.silenced { try data.withUnsafeBytes { buffer in
             // libxml2 ships in Apple's SDKs. Its pull reader preserves U+FEFF, including numeric
             // references; Foundation XMLParser drops that character in its String callbacks.
             let options = Int32(XML_PARSE_NONET.rawValue | XML_PARSE_NOERROR.rawValue | XML_PARSE_NOWARNING.rawValue)
@@ -239,7 +240,7 @@ private final class XHTMLTextReader {
             guard result.hasHTMLRoot, result.bodyCount == 1 else { throw EPUBTextExtractionError.malformedContent(path) }
             result.body.finish()
             return result
-        }
+        } }
     }
 
     /// Reads markup that is not well-formed XML with libxml2's HTML parser, as the native viewer
@@ -259,8 +260,10 @@ private final class XHTMLTextReader {
             | HTML_PARSE_RECOVER.rawValue | HTML_PARSE_NODEFDTD.rawValue)
         guard let context = htmlNewParserCtxt() else { throw EPUBTextExtractionError.malformedContent(path) }
         defer { htmlFreeParserCtxt(context) }
-        let document = source.withUnsafeBytes { buffer in
-            htmlCtxtReadMemory(context, buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, "UTF-8", options)
+        let document = LibXML2Messages.silenced {
+            source.withUnsafeBytes { buffer in
+                htmlCtxtReadMemory(context, buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, "UTF-8", options)
+            }
         }
         guard let document else { throw EPUBTextExtractionError.malformedContent(path) }
         defer { xmlFreeDoc(document) }

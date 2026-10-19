@@ -42,7 +42,11 @@ bytes does not execute document content. XML expansion and external entity resol
 actual DTD syntax from comments, CDATA, processing instructions and quoted identifiers. It decodes
 UTF-16/32 and declared legacy encodings with libxml2's converters before inspecting markup,
 and refuses ambiguous encoding switches and encodings it cannot decode
-([#86](https://github.com/vocaro/EPUBLib/issues/86)).
+([#86](https://github.com/vocaro/EPUBLib/issues/86)). libxml2 writes a message to standard error
+unless a handler takes it, and raises some, such as a decoder's error, with no parser to take
+them. For each call into libxml2 the package gives the calling thread's handlers to one that keeps
+nothing and puts the thread's own back after, so nothing libxml2 says about a book reaches the
+host's standard error or its own handlers ([#392](https://github.com/vocaro/EPUBLib/issues/392)).
 
 A metadata value and a navigation label are read as text: the element's and that of everything
 inside it, with each run of ASCII whitespace (tab, line feed, form feed, carriage return, space)

@@ -40,7 +40,8 @@ enum HTMLSourceEncoding {
             guard decoded.count <= limit else { throw ContentDocumentError.limitExceeded("bytes") }
             return decoded
         }
-        guard let decoded = declared(data) else { return nil }
+        // A decoder that stops at bytes it cannot decode writes why to standard error.
+        guard let decoded = LibXML2Messages.silenced({ declared(data) }) else { return nil }
         guard decoded.count <= limit else { throw ContentDocumentError.limitExceeded("bytes") }
         // The screen read the bytes as ASCII. In an encoding that spells `<` another way (UTF-7)
         // the characters may hold a declaration it could not see, so it reads them as well.
