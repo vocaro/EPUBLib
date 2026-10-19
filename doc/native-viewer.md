@@ -183,10 +183,18 @@ continues to describe the authored spine resource.
   their ancestor and font context, cancellation stops preparation, and exhausted budgets omit
   images with a disclosure. SVG
   filter effects are omitted with a disclosure while preserving the drawing's shapes and labels.
-  The sanitizer omits filter definitions, presentation attributes and CSS declarations, and
+  The sanitizer omits filter definitions, presentation attributes in every namespace the
+  renderer reads them from (`xlink:filter` among them), and CSS declarations wherever the
+  renderer's tokenizer finds one, straight after `!important` or a `*` included; a last pass
+  blanks any name it could still begin one at ([#253](https://github.com/vocaro/EPUBLib/issues/253)).
   `SectionReport` retains its `svg:filter` disclosure. CSS omission preserves neighboring fill,
-  stroke, clipping and font declarations, including comments and quoted/function values.
+  stroke, clipping and font declarations, including comments and quoted/function values, as the
+  renderer reads them, and takes time linear in the CSS.
   Stylesheet text is sanitized together so XML text/CDATA boundaries do not split declarations.
+  CSS is read by Unicode scalar, so a combining mark after a quote, backslash, comma or bracket
+  hides no delimiter ([#248](https://github.com/vocaro/EPUBLib/issues/248)). An embedded font's
+  own family name, which comes from the book's font file, stands for the family a drawing names
+  only when it holds nothing but letters, marks, digits, spaces and `-`, `_`, `.`, `&` and `+`.
   The renderer's direct entry point continues to refuse filters, including commented and
   escaped CSS property names; it only receives the prepared drawing. The original node, depth,
   local-reference expansion and cycle checks run before omission.
