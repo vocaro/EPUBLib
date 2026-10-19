@@ -220,9 +220,11 @@ enum SVGContent {
         func visit(_ node: ContentNode) {
             if dropped.contains(node.name) { result.insert("svg:" + node.name); return }
             if node.name == "pattern" { result.insert("svg:pattern") }
-            if node.name == "filter" || node.attribute("filter") != nil ||
-                node.attribute("style").map({ omittingFilterDeclarations($0).omitted }) == true ||
-                (node.name == "style" && omittingFilterDeclarations(node.textContent).omitted) {
+            // The renderer takes a `filter` attribute in more than one namespace (`xlink:filter`,
+            // #253), and each is looked for here, with a `style` in any.
+            if node.name == "filter" || node.attributes.contains(where: { attribute in
+                attribute.name == "filter" || (attribute.name == "style" && omittingFilterDeclarations(attribute.value, sheet: false).omitted)
+            }) || (node.name == "style" && omittingFilterDeclarations(node.textContent, sheet: true).omitted) {
                 result.insert("svg:filter")
             }
             for child in node.elementChildren { visit(child) }
@@ -1402,28 +1404,12 @@ enum SVGContent {
     }
 
     /// Calls `body` with every declaration in CSS text of a property this check reads, and what its
-    /// value can name. It reports each one the renderer's tokenizer can find and more, since nothing
-    /// is skipped: any run of name characters that ends in the property's name, in either case, and
-    /// is followed after white space by a colon, wherever it stands — in a string, a comment or
-    /// another declaration's value. The tokenizer can begin a name part way through such a run, as
-    /// it does after `!important`, but ends it where the run ends.
+    /// value can name: one for each name `propertyNames` finds that ends in the property's name.
     private static func declarations(in css: String, _ body: (Property, Reference) -> Void) {
         let bytes = Array(css.utf8)
-        func isName(_ byte: UInt8) -> Bool {
-            byte == UInt8(ascii: "-") || byte == UInt8(ascii: "_") || (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte)
-                || (UInt8(ascii: "a")...UInt8(ascii: "z")).contains(byte | 0x20)
-        }
-        var index = 0
-        while index < bytes.count {
-            guard isName(bytes[index]) else { index += 1; continue }
-            let start = index
-            while index < bytes.count, isName(bytes[index]) { index += 1 }
-            var cursor = index
-            while cursor < bytes.count, bytes[cursor] <= 0x20 { cursor += 1 }
-            // A comment may stand before the colon; what follows it is then not read.
-            guard cursor < bytes.count, bytes[cursor] == UInt8(ascii: ":") || bytes[cursor] == UInt8(ascii: "/") else { continue }
-            func ends(_ name: StaticString) -> Bool {
-                index - start >= name.utf8CodeUnitCount && holds(name, bytes, at: index - name.utf8CodeUnitCount)
+        propertyNames(in: bytes) { name, next in
+            func ends(_ suffix: StaticString) -> Bool {
+                name.count >= suffix.utf8CodeUnitCount && holds(suffix, bytes, at: name.upperBound - suffix.utf8CodeUnitCount)
             }
             var property: Property = []
             if ends("marker") { property = .markers }
@@ -1432,8 +1418,35 @@ enum SVGContent {
             if ends("marker-end") { property = .end }
             if ends("fill") || ends("stroke") { property = .paint }
             if ends("dasharray") { property = .dash }
-            if !property.isEmpty { body(property, bytes[cursor] == UInt8(ascii: ":") ? reference(bytes, from: cursor + 1) : .unknown) }
+            if !property.isEmpty { body(property, bytes[next] == UInt8(ascii: ":") ? reference(bytes, from: next + 1) : .unknown) }
         }
+    }
+
+    /// Calls `body` with every name in CSS text that the renderer's tokenizer could read a
+    /// declaration of, and where what follows it after white space is: each one it can find and
+    /// more, since nothing is skipped. A name is any run of name characters, in either case, that
+    /// is followed after white space by a colon, or by a `/`, which may open a comment before
+    /// one, wherever it stands — in a string, a comment or another declaration's value. The
+    /// tokenizer can begin a name part way through such a run, as it does after `!important`, but
+    /// ends it where the run ends, so the property it reads is the run's last characters.
+    private static func propertyNames(in bytes: [UInt8], _ body: (_ name: Range<Int>, _ next: Int) -> Void) {
+        var index = 0
+        while index < bytes.count {
+            guard isNameByte(bytes[index]) else { index += 1; continue }
+            let start = index
+            while index < bytes.count, isNameByte(bytes[index]) { index += 1 }
+            var cursor = index
+            while cursor < bytes.count, bytes[cursor] <= 0x20 { cursor += 1 }
+            // A comment may stand before the colon; what follows it is then not read.
+            guard cursor < bytes.count, bytes[cursor] == UInt8(ascii: ":") || bytes[cursor] == UInt8(ascii: "/") else { continue }
+            body(start..<index, cursor)
+        }
+    }
+
+    /// An ASCII letter, a digit, `-` or `_`.
+    private static func isNameByte(_ byte: UInt8) -> Bool {
+        byte == UInt8(ascii: "-") || byte == UInt8(ascii: "_") || (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte)
+            || (UInt8(ascii: "a")...UInt8(ascii: "z")).contains(byte | 0x20)
     }
 
     /// Whether `bytes` hold the ASCII `text` at `index`, letters compared without case. `text` is in
@@ -1563,10 +1576,7 @@ enum SVGContent {
         var result = Set<String>()
         let expression = try! NSRegularExpression(pattern: "(?i)font-family\\s*:\\s*([^;}]+)")
         func add(_ value: String) {
-            for name in value.split(separator: ",") {
-                let clean = name.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'")))
-                if !clean.isEmpty { result.insert(clean.lowercased()) }
-            }
+            for family in familyNames(value) where !family.name.isEmpty { result.insert(family.name.lowercased()) }
         }
         func visit(_ node: ContentNode) {
             if let family = node.attribute("font-family") { add(family) }
@@ -1577,6 +1587,34 @@ enum SVGContent {
         }
         visit(svg)
         return result
+    }
+
+    /// The names in a `font-family` list, each as written and trimmed of white space and quotes.
+    /// The list is split at every comma by scalar, so that a mark after a comma does not join the
+    /// names on either side of it (#248); empty names are dropped, as they were before.
+    private static func familyNames(_ value: String) -> [(written: String, name: String)] {
+        value.unicodeScalars.split(separator: ",").map { scalars in
+            var written = ""
+            written.unicodeScalars.append(contentsOf: scalars)
+            return (written, written.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'"))))
+        }
+    }
+
+    /// An embedded font's own family name between single quotes, to stand for the family a
+    /// drawing names; nil when it holds anything but letters, marks, digits, spaces and `-`, `_`,
+    /// `.`, `&` and `+`, and the family is then left as the drawing names it. The name is read
+    /// from the font file (`CTFontCopyFamilyName`), which is book content: a quote or a backslash
+    /// in it would end the string, and what follows would be read as CSS of its own, a
+    /// declaration or a rule the drawing did not hold (#248).
+    static func quotedFamily(_ name: String) -> String? {
+        let plain = !name.isEmpty && name.unicodeScalars.allSatisfy { scalar in
+            switch scalar.properties.generalCategory {
+            case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter,
+                 .nonspacingMark, .spacingMark, .enclosingMark, .decimalNumber, .letterNumber, .otherNumber: true
+            default: " -_.&+".unicodeScalars.contains(scalar)
+            }
+        }
+        return plain ? "'" + name + "'" : nil
     }
 
     /// The intrinsic size of an SVG box in points: absolute `width`/`height` attributes, with
@@ -1667,19 +1705,18 @@ enum SVGContent {
         var imagePixels = 0
         var overflow = false
         func family(_ value: String) -> String {
-            value.split(separator: ",").map {
-                let clean = $0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'")))
-                return fontAliases[clean.lowercased()].map { "'" + $0 + "'" } ?? String($0)
+            familyNames(value).map { family in
+                fontAliases[family.name.lowercased()].flatMap(quotedFamily) ?? family.written
             }.joined(separator: ",")
         }
-        func css(_ value: String) -> String {
+        func css(_ value: String, sheet: Bool) -> String {
             let expression = try! NSRegularExpression(pattern: "(?i)(font-family\\s*:\\s*)([^;}]+)")
             let string = value as NSString
             var result = value
             for match in expression.matches(in: value, range: NSRange(location: 0, length: string.length)).reversed() {
                 if let range = Range(match.range(at: 2), in: result) { result.replaceSubrange(range, with: family(string.substring(with: match.range(at: 2)))) }
             }
-            return omittingFilterDeclarations(result).css
+            return omittingFilterDeclarations(result, sheet: sheet).css
         }
         func escape(_ value: String, attribute: Bool) -> String {
             var result = ""
@@ -1747,11 +1784,11 @@ enum SVGContent {
                     continue
                 }
                 if local == "font-family" { value = family(value) }
-                if local == "style" { value = css(value) }
+                if local == "style" { value = css(value, sheet: false) }
                 write(" \(name)=\"\(escape(value, attribute: true))\"")
             }
             if node.name == "style" {
-                write(">" + escape(css(node.textContent), attribute: false) + "</style>")
+                write(">" + escape(css(node.textContent, sheet: true), attribute: false) + "</style>")
                 return
             }
             if node.children.isEmpty { write("/>"); return }
@@ -1830,73 +1867,170 @@ enum SVGContent {
         return (prepared.data, prepared.pixels)
     }
 
-    /// Remove only filter declarations, retaining neighboring geometry, paint and font CSS.
-    /// Boundaries inside strings, comments and functions are not declaration boundaries.
-    /// Tokenizing each declaration recognizes comments and escaped property names as well.
-    private static func omittingFilterDeclarations(_ value: String) -> (css: String, omitted: Bool) {
-        var output = ""
-        var start = value.startIndex
-        var index = start
-        var quote: Character?
+    /// The CSS of a `style` attribute, or of a stylesheet (`sheet`), without its `filter`
+    /// declarations, the rest kept as the renderer reads it, and whether it had any. The text is
+    /// read by byte, so that a mark after a quote or a bracket hides no delimiter (#248), and in
+    /// up to three passes, each over what the one before left:
+    ///
+    ///  1. As a browser reads it: a declaration is what lies between two of `;`, `{` and `}`
+    ///     outside strings, comments and brackets. One named `filter` in any case, or with a name
+    ///     holding an escape, which could spell it, is removed with its `;`.
+    ///  2. Where a name is left that the renderer's tokenizer could begin a `filter` declaration
+    ///     at, found as `declarations(in:)` finds the marker properties (`filterNames`), as the
+    ///     renderer reads it (`SVGReferenceScreen.CSSReader`). It finds a declaration the first
+    ///     pass does not, straight after `!important` or a `*` (#253), and each it reads as
+    ///     `filter` is cut so that it reads the rest as it did.
+    ///  3. Each such name still left is blanked, and where that leaves another, every run of
+    ///     name characters that ends in `filter`, wherever it stands.
+    ///
+    /// The third pass is the guarantee, should the reading of the second differ from the
+    /// renderer's: a declaration the renderer reads as `filter` has such a name, so none is left.
+    /// Each pass is linear in the text, and so is each search for names, of which there are four
+    /// at most. Text without the letters of `filter` or a backslash is read only to look for
+    /// them, and the second pass, which costs what the other screens' readings of a stylesheet
+    /// cost, is made only for text in which the first left a name. What the worst text of
+    /// `maximumBytes` costs is on #253.
+    static func omittingFilterDeclarations(_ value: String, sheet: Bool) -> (css: String, omitted: Bool) {
+        guard mentions(value, "filter") || value.utf8.contains(UInt8(ascii: "\\")) else { return (value, false) }
+        var (bytes, omitted) = omittingNamedFilters(Array(value.utf8))
+        var names = filterNames(in: bytes)
+        guard !names.isEmpty else { return omitted ? (String(decoding: bytes, as: UTF8.self), true) : (value, false) }
+        if let spliced = SVGReferenceScreen.CSSReader.omittingFilters(bytes, sheet: sheet) {
+            bytes = spliced
+            names = filterNames(in: bytes)
+        }
+        blank(names, in: &bytes)
+        return (String(decoding: bytes, as: UTF8.self), true)
+    }
+
+    /// The first pass of `omittingFilterDeclarations`. Boundaries inside strings, comments and
+    /// brackets are not declaration boundaries.
+    private static func omittingNamedFilters(_ bytes: [UInt8]) -> (bytes: [UInt8], omitted: Bool) {
+        var output: [UInt8] = []
+        output.reserveCapacity(bytes.count)
+        var start = 0
+        var index = 0
+        var quote: UInt8?
         var comment = false
         var nesting = 0
         var omitted = false
-        func append(until end: String.Index, declaration: Bool) -> Bool {
-            let text = String(value[start..<end])
-            var truncated = false
-            let components = declaration ? CSSParser.components(text, truncated: &truncated).significant : []
-            if components.count >= 2, components[0].ident == "filter", components[1] == .token(.colon) {
+        func append(until end: Int, declaration: Bool) -> Bool {
+            if declaration, namesFilter(bytes, start..<end) {
                 omitted = true
                 return true
-            } else {
-                output += text
-                return false
             }
+            output += bytes[start..<end]
+            return false
         }
-        while index < value.endIndex {
-            let character = value[index]
-            let next = value.index(after: index)
+        while index < bytes.count {
+            let byte = bytes[index]
+            let opensOrClosesComment = index + 1 < bytes.count
+                && (comment ? byte == UInt8(ascii: "*") && bytes[index + 1] == UInt8(ascii: "/")
+                            : byte == UInt8(ascii: "/") && bytes[index + 1] == UInt8(ascii: "*"))
             if comment {
-                if character == "*", next < value.endIndex, value[next] == "/" {
-                    comment = false; index = value.index(after: next); continue
-                }
+                if opensOrClosesComment { comment = false; index += 2; continue }
             } else if let ending = quote {
-                if character == "\\", next < value.endIndex {
-                    index = value.index(after: next); continue
-                }
-                if character == ending { quote = nil }
-            } else if character == "/", next < value.endIndex, value[next] == "*" {
-                comment = true; index = value.index(after: next); continue
-            } else if character == "\"" || character == "'" {
-                quote = character
-            } else if character == "(" || character == "[" {
+                if byte == UInt8(ascii: "\\"), index + 1 < bytes.count { index += 2; continue }
+                if byte == ending { quote = nil }
+            } else if opensOrClosesComment {
+                comment = true; index += 2; continue
+            } else if byte == UInt8(ascii: "\"") || byte == UInt8(ascii: "'") {
+                quote = byte
+            } else if byte == UInt8(ascii: "(") || byte == UInt8(ascii: "[") {
                 nesting += 1
-            } else if character == ")" || character == "]" {
+            } else if byte == UInt8(ascii: ")") || byte == UInt8(ascii: "]") {
                 nesting = max(0, nesting - 1)
-            } else if nesting == 0, character == ";" || character == "{" || character == "}" {
-                let removed = append(until: index, declaration: character != "{")
-                if character != ";" || !removed { output.append(character) }
-                start = next
+            } else if nesting == 0, byte == UInt8(ascii: ";") || byte == UInt8(ascii: "{") || byte == UInt8(ascii: "}") {
+                let removed = append(until: index, declaration: byte != UInt8(ascii: "{"))
+                if byte != UInt8(ascii: ";") || !removed { output.append(byte) }
+                start = index + 1
             }
-            index = next
+            index += 1
         }
-        _ = append(until: value.endIndex, declaration: true)
+        _ = append(until: bytes.count, declaration: true)
         return (output, omitted)
     }
 
+    /// Whether the declaration in `range` is named `filter` as a browser reads it: after white
+    /// space and comments, a name that is `filter` in any case and is followed after white space
+    /// and comments by a colon, or a name holding an escape, which could spell it. The `*` the
+    /// renderer reads past before a name is read past here too.
+    private static func namesFilter(_ bytes: [UInt8], _ range: Range<Int>) -> Bool {
+        var index = range.lowerBound
+        /// False at a comment that is not closed.
+        func skipSpaceAndComments() -> Bool {
+            while index < range.upperBound {
+                if bytes[index] <= 0x20 {
+                    index += 1
+                } else if bytes[index] == UInt8(ascii: "/"), index + 1 < range.upperBound, bytes[index + 1] == UInt8(ascii: "*") {
+                    index += 2
+                    while index + 1 < range.upperBound, !(bytes[index] == UInt8(ascii: "*") && bytes[index + 1] == UInt8(ascii: "/")) { index += 1 }
+                    guard index + 1 < range.upperBound else { return false }
+                    index += 2
+                } else {
+                    break
+                }
+            }
+            return true
+        }
+        guard skipSpaceAndComments() else { return false }
+        if index < range.upperBound, bytes[index] == UInt8(ascii: "*") { index += 1 }
+        let start = index
+        while index < range.upperBound {
+            if bytes[index] == UInt8(ascii: "\\") { return true }
+            guard isNameByte(bytes[index]) || bytes[index] >= 0x80 else { break }
+            index += 1
+        }
+        guard index - start == 6, holds("filter", bytes, at: start), skipSpaceAndComments() else { return false }
+        return index < range.upperBound && bytes[index] == UInt8(ascii: ":")
+    }
+
+    /// The names `propertyNames` finds that end in `filter`: all that the renderer's tokenizer
+    /// could read a `filter` declaration of, and more.
+    private static func filterNames(in bytes: [UInt8]) -> [Range<Int>] {
+        var names: [Range<Int>] = []
+        propertyNames(in: bytes) { name, _ in
+            if name.count >= 6, holds("filter", bytes, at: name.upperBound - 6) { names.append(name) }
+        }
+        return names
+    }
+
+    /// The third pass of `omittingFilterDeclarations`: blanks `names`. Blanking a name can leave
+    /// another before it followed by a colon (`filter afilter:`), and every run of name
+    /// characters that ends in `filter` is then blanked, wherever it stands.
+    private static func blank(_ names: [Range<Int>], in bytes: inout [UInt8]) {
+        guard !names.isEmpty else { return }
+        bytes.withUnsafeMutableBufferPointer { buffer in
+            for name in names { buffer[name].update(repeating: 0x20) }
+        }
+        guard !filterNames(in: bytes).isEmpty else { return }
+        var runs: [Range<Int>] = []
+        var index = 0
+        while index < bytes.count {
+            guard isNameByte(bytes[index]) else { index += 1; continue }
+            let start = index
+            while index < bytes.count, isNameByte(bytes[index]) { index += 1 }
+            if index - start >= 6, holds("filter", bytes, at: index - 6) { runs.append(start..<index) }
+        }
+        bytes.withUnsafeMutableBufferPointer { buffer in
+            for run in runs { buffer[run].update(repeating: 0x20) }
+        }
+    }
+
     /// Whether CSS in `value` might reach outside the document: a `url()` to anything but a
-    /// fragment, or any escape, which could spell one (`u\72l(`) past a textual check.
+    /// fragment, or any escape, which could spell one (`u\72l(`) past a textual check. Both are
+    /// looked for by byte, so that a mark after the backslash or the bracket hides neither (#248).
     static func unsafeCSS(_ value: String) -> Bool {
-        value.contains("\\") || referencesOutside(value)
+        value.utf8.contains(UInt8(ascii: "\\")) || referencesOutside(value)
     }
 
     /// Whether CSS in `value` points anywhere but into the document (`url(#…)`).
     static func referencesOutside(_ value: String) -> Bool {
-        var rest = Substring(value.lowercased())
-        while let range = rest.range(of: "url(") {
-            let target = rest[range.upperBound...].drop { $0 == " " || $0 == "\"" || $0 == "'" }
-            if !target.hasPrefix("#") { return true }
-            rest = rest[range.upperBound...]
+        let bytes = Array(value.utf8)
+        for index in bytes.indices where bytes[index] | 0x20 == UInt8(ascii: "u") && holds("url(", bytes, at: index) {
+            var cursor = index + 4
+            while cursor < bytes.count, bytes[cursor] == UInt8(ascii: " ") || bytes[cursor] == UInt8(ascii: "\"") || bytes[cursor] == UInt8(ascii: "'") { cursor += 1 }
+            if cursor >= bytes.count || bytes[cursor] != UInt8(ascii: "#") { return true }
         }
         return false
     }
