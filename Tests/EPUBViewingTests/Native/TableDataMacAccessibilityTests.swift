@@ -66,6 +66,11 @@ import XCTest
         try attachments(in: view, file: file, line: line).compactMap { $0.element as? ReaderTableElement }
     }
 
+    /// The cell at a slot of the grid, AXCellForColumnAndRow, as AppKit asks the table for it.
+    private func cellAt(_ table: ReaderTableElement, column: Int, row: Int) -> Any? {
+        table.accessibilityAttributeValue(.cellForColumnAndRow, forParameter: [column, row] as [NSNumber])
+    }
+
     private func rows(of table: ReaderTableElement, file: StaticString = #filePath, line: UInt = #line) throws -> [ReaderTableRowElement] {
         try (table.accessibilityRows() ?? []).map { try XCTUnwrap($0 as? ReaderTableRowElement, "\($0) is not a row", file: file, line: line) }
     }
@@ -178,7 +183,7 @@ import XCTest
                     XCTAssertTrue(cell.accessibilityParent() as AnyObject === rows[number / 3], label)
                     XCTAssertEqual(cell.accessibilityRowIndexRange(), NSRange(location: number / 3, length: 1), label)
                     XCTAssertEqual(cell.accessibilityColumnIndexRange(), NSRange(location: number % 3, length: 1), label)
-                    XCTAssertTrue(table.accessibilityCell(forColumn: number % 3, row: number / 3) as AnyObject === cell, label)
+                    XCTAssertTrue(cellAt(table, column: number % 3, row: number / 3) as AnyObject === cell, label)
                     // A cell on screen holds the text areas of its words, which VoiceOver goes
                     // into to read by word, and they answer to it. The cell that is one link
                     // holds that link, and the link its text area.
@@ -197,8 +202,8 @@ import XCTest
                     // Screen coordinates go up: a row is below the one before it.
                     if number >= 3 { XCTAssertGreaterThanOrEqual(cells[number - 3].accessibilityFrame().minY, frame.maxY - 0.5, label) }
                 }
-                XCTAssertNil(table.accessibilityCell(forColumn: 0, row: 4), place)
-                XCTAssertNil(table.accessibilityCell(forColumn: 3, row: 0), place)
+                XCTAssertNil(cellAt(table, column: 0, row: 4), place)
+                XCTAssertNil(cellAt(table, column: 3, row: 0), place)
 
                 // The table gives a header for each column and for each row, as HTML has them,
                 // and VoiceOver takes the one at a cell's column and at its row. A header that
@@ -390,7 +395,7 @@ import XCTest
                             + entries + "</tbody></table><p>Words after the ledger.</p>")
         let (reader, _, view) = try await reader(book, scrolled: true)
         let table = try XCTUnwrap(try tables(in: view).first)
-        let far = try XCTUnwrap(table.accessibilityCell(forColumn: 1, row: 55) as? ReaderTableCellElement)
+        let far = try XCTUnwrap(cellAt(table, column: 1, row: 55) as? ReaderTableCellElement)
         let link = try XCTUnwrap(link(of: far))
         XCTAssertEqual(link.accessibilityTitle(), "Note 55", "off screen: the link says the cell's words")
         XCTAssertEqual(link.accessibilityChildren()?.count, 0, "and holds no text area")
@@ -402,7 +407,7 @@ import XCTest
         XCTAssertFalse(far.accessibilityPerformPress(), "nothing shows the link to follow it from")
         XCTAssertFalse(link.accessibilityPerformPress())
         XCTAssertFalse(reader.isVisible(linked))
-        let heading = try XCTUnwrap(table.accessibilityCell(forColumn: 1, row: 0) as? ReaderTableCellElement)
+        let heading = try XCTUnwrap(cellAt(table, column: 1, row: 0) as? ReaderTableCellElement)
         XCTAssertTrue(table.accessibilityColumnHeaderUIElements()?.last as AnyObject === heading, "the header cell is on screen, and heads its column itself")
         XCTAssertEqual(textAreas(of: heading).count, 1)
 
@@ -430,7 +435,7 @@ import XCTest
         // In pages the linked chapter is other text in the column: the cell is of a table
         // that has gone. It is pressed for nothing, and neither it nor its link holds anything.
         let (paged, _, column) = try await self.reader(book, scrolled: false)
-        let kept = try XCTUnwrap(try XCTUnwrap(try tables(in: column).first).accessibilityCell(forColumn: 1, row: 1) as? ReaderTableCellElement)
+        let kept = try XCTUnwrap(cellAt(try XCTUnwrap(try tables(in: column).first), column: 1, row: 1) as? ReaderTableCellElement)
         let keptLink = try XCTUnwrap(self.link(of: kept))
         XCTAssertEqual(said(kept), "Note 01")
         XCTAssertTrue(kept.isAccessibilitySelectorAllowed(Self.press))
@@ -565,11 +570,11 @@ import XCTest
                                     + "</tbody></table><p>Words after the ledger.</p>")
         let (_, _, view) = try await reader(book, scrolled: true)
         let table = try XCTUnwrap(try tables(in: view).first)
-        let far = try XCTUnwrap(table.accessibilityCell(forColumn: 1, row: 55) as? ReaderTableCellElement)
-        let beside = try XCTUnwrap(table.accessibilityCell(forColumn: 0, row: 55) as? ReaderTableCellElement)
+        let far = try XCTUnwrap(cellAt(table, column: 1, row: 55) as? ReaderTableCellElement)
+        let beside = try XCTUnwrap(cellAt(table, column: 0, row: 55) as? ReaderTableCellElement)
         XCTAssertEqual(beside.accessibilityLabel(), "Entry 55", "off screen a cell of words is labelled with them")
         XCTAssertEqual(beside.accessibilityChildren()?.count, 0)
-        let among = try XCTUnwrap(table.accessibilityCell(forColumn: 2, row: 55) as? ReaderTableCellElement)
+        let among = try XCTUnwrap(cellAt(table, column: 2, row: 55) as? ReaderTableCellElement)
         XCTAssertEqual(among.accessibilityLabel(), "Kept Seal 55", "and so is one with a picture among its words, the picture's too")
         XCTAssertEqual(among.accessibilityChildren()?.count, 0, "with no image to say them twice")
         let image = try XCTUnwrap(images(of: far).first)
@@ -593,7 +598,7 @@ import XCTest
 
         // In pages another chapter is other text in the column: the cell is of a table that has gone.
         let (paged, _, column) = try await reader(book, scrolled: false)
-        let kept = try XCTUnwrap(try XCTUnwrap(try tables(in: column).first).accessibilityCell(forColumn: 1, row: 1) as? ReaderTableCellElement)
+        let kept = try XCTUnwrap(cellAt(try XCTUnwrap(try tables(in: column).first), column: 1, row: 1) as? ReaderTableCellElement)
         let keptImage = try XCTUnwrap(images(of: kept).first)
         XCTAssertEqual(keptImage.accessibilityLabel(), "Mark 01")
         let linked = ReaderTextPosition(section: 1, offset: 0)
@@ -1005,7 +1010,7 @@ import XCTest
                                      ["Stopper", "Ten", "Three"], ["Stopper", "Nothing on Sunday", "Nothing on Sunday"]]
             for (row, names) in slots.enumerated() {
                 for (column, name) in names.enumerated() {
-                    XCTAssertTrue(table.accessibilityCell(forColumn: column, row: row) as AnyObject === (try cell(name)),
+                    XCTAssertTrue(cellAt(table, column: column, row: row) as AnyObject === (try cell(name)),
                                   "\(flow): row \(row), column \(column) is \(name)")
                 }
             }
@@ -1064,7 +1069,7 @@ import XCTest
             for (index, cell) in cells.enumerated() {
                 XCTAssertEqual(cell.accessibilityRowIndexRange(), NSRange(location: nextRow + index / 3, length: 1), "page \(pages + 1)")
                 XCTAssertEqual(cell.accessibilityColumnIndexRange(), NSRange(location: index % 3, length: 1), "page \(pages + 1)")
-                XCTAssertTrue(table.accessibilityCell(forColumn: index % 3, row: nextRow + index / 3) as AnyObject === cell, "page \(pages + 1)")
+                XCTAssertTrue(cellAt(table, column: index % 3, row: nextRow + index / 3) as AnyObject === cell, "page \(pages + 1)")
             }
             // Each row's table is named by that row and enters at it, whatever the page.
             for (index, entered) in tables.enumerated() {
@@ -1072,8 +1077,8 @@ import XCTest
                 XCTAssertEqual((entered.accessibilitySelectedRows() as? [ReaderTableRowElement])?.map { $0.accessibilityIndex() }, [nextRow + index], "page \(pages + 1)")
             }
             // A row of another page is not here to move to.
-            if nextRow > 0 { XCTAssertNil(table.accessibilityCell(forColumn: 0, row: nextRow - 1), "page \(pages + 1)") }
-            XCTAssertNil(table.accessibilityCell(forColumn: 0, row: nextRow + rows.count), "page \(pages + 1)")
+            if nextRow > 0 { XCTAssertNil(cellAt(table, column: 0, row: nextRow - 1), "page \(pages + 1)") }
+            XCTAssertNil(cellAt(table, column: 0, row: nextRow + rows.count), "page \(pages + 1)")
             let headers = table.accessibilityColumnHeaderUIElements() ?? []
             XCTAssertEqual(headed(headers), ["Entry", "Item", "Sum"], "page \(pages + 1): a column's header by its words")
             XCTAssertEqual((table.accessibilityRowHeaderUIElements() ?? []).count, 0, "page \(pages + 1)")
@@ -1152,7 +1157,7 @@ import XCTest
         XCTAssertEqual(table.accessibilityVisibleCells()?.count, visible.count * 3)
 
         // A cell far below the screen has no text area yet: it is labelled, and has its place.
-        let far = try XCTUnwrap(table.accessibilityCell(forColumn: 1, row: 55) as? ReaderTableCellElement)
+        let far = try XCTUnwrap(cellAt(table, column: 1, row: 55) as? ReaderTableCellElement)
         XCTAssertEqual((far.accessibilityChildren() ?? []).count, 0)
         XCTAssertEqual(far.accessibilityLabel(), "Item 55")
         let header = try cells(of: rows[0])
@@ -1171,7 +1176,7 @@ import XCTest
         XCTAssertEqual(said(far), "Item 55")
         XCTAssertEqual(actions(far), ["Select Cell Text"])
         XCTAssertTrue((table.accessibilityVisibleRows() as? [ReaderTableRowElement] ?? []).contains { $0 === rows[55] })
-        XCTAssertTrue(table.accessibilityCell(forColumn: 1, row: 55) as AnyObject === far, "the same element")
+        XCTAssertTrue(cellAt(table, column: 1, row: 55) as AnyObject === far, "the same element")
         // The header row is now far above the screen and its cells hold no text areas, which
         // is where VoiceOver reads a header cell's words: the columns are headed by name.
         try await reader.wait("the header row's text areas gone") { !header[1].holdsItsWords }
@@ -1198,7 +1203,7 @@ import XCTest
         XCTAssertNil(first.accessibilityLabel())
         XCTAssertEqual(first.accessibilitySelectedRows()?.count, 0)
         XCTAssertEqual(first.accessibilityColumnHeaderUIElements()?.count, 0)
-        XCTAssertNil(first.accessibilityCell(forColumn: 0, row: 0))
+        XCTAssertNil(cellAt(first, column: 0, row: 0))
         XCTAssertEqual(kept.accessibilityChildren()?.count, 0)
         XCTAssertEqual(kept.accessibilityFrame(), .zero)
     }
@@ -1268,12 +1273,15 @@ import XCTest
                         XCTAssertEqual(table.accessibilityColumnCount(), 0, name)
                         XCTAssertEqual(table.accessibilityColumns()?.count, 0, name)
                         XCTAssertEqual(table.accessibilityRows()?.count, 0, name)
-                        // A client is not told of a table's attributes: with them VoiceOver
-                        // said "empty text".
+                        // A client is told of none of a table's attributes. With the cell at a
+                        // slot of the grid VoiceOver said "empty text", and with the counts
+                        // "text 3 columns, 41 rows".
                         for selector in [#selector(NSAccessibilityElement.accessibilityRows), #selector(NSAccessibilityElement.accessibilityRowCount),
                                          #selector(NSAccessibilityElement.accessibilityColumnCount), #selector(NSAccessibilityElement.accessibilityColumnHeaderUIElements)] {
                             XCTAssertFalse(table.isAccessibilitySelectorAllowed(selector), "\(name): \(selector)")
                         }
+                        XCTAssertEqual(table.accessibilityParameterizedAttributeNames(), [], name)
+                        XCTAssertNil(cellAt(table, column: 0, row: 0), name)
                     }
                 }
                 // The new page's own rows are still what its text gives.
@@ -1282,6 +1290,7 @@ import XCTest
                     XCTAssertNotEqual(element.accessibilityRole(), .staticText, name)
                     if let table = element as? ReaderTableElement {
                         XCTAssertTrue(table.isAccessibilitySelectorAllowed(#selector(NSAccessibilityElement.accessibilityRows)), name)
+                        XCTAssertEqual(table.accessibilityParameterizedAttributeNames(), [.cellForColumnAndRow], name)
                     }
                 }
                 // Those of two pages back are gone.
@@ -1289,6 +1298,14 @@ import XCTest
                 before = now
             }
         }
+    }
+
+    /// AppKit lists the cell at a slot of the grid for every element of a class that overrides
+    /// `accessibilityCell(forColumn:row:)`, a departed table among them, so a table gives the
+    /// cell by the parameterized attribute's own methods, which can leave it out.
+    func testATableGivesItsCellsByTheParameterizedAttributeAlone() {
+        let selector = #selector(NSAccessibilityElement.accessibilityCell(forColumn:row:))
+        XCTAssertEqual(ReaderTableElement.instanceMethod(for: selector), NSAccessibilityElement.instanceMethod(for: selector))
     }
 
     /// In continuous scroll the text is the whole book, and nothing is kept from text before.

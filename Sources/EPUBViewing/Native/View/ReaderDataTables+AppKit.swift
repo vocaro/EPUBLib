@@ -125,7 +125,8 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// the page shown, among the view's children until the view's text is replaced again,
     /// where VoiceOver goes on from it (`ReaderTextView.departedRows`). As an empty table it
     /// said "table" each time a page turned under it, and "3 columns, 41 rows" when asked what
-    /// it was on, and as an empty group "empty group".
+    /// it was on, as an empty group "empty group", and as a static text that still gave a
+    /// table's cells "empty" (`accessibilityParameterizedAttributeNames`).
     func detach() {
         view = nil
         listedRows = nil
@@ -292,20 +293,35 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityColumnCount() -> Int { onMain(self) { $0.view == nil ? 0 : $0.table.columnCount } }
     override func accessibilityColumnHeaderUIElements() -> [Any]? { onMain(self) { $0.columnHeaders } }
     override func accessibilityRowHeaderUIElements() -> [Any]? { onMain(self) { $0.rowHeaders } }
-    override func accessibilityCell(forColumn column: Int, row: Int) -> Any? { onMain(self) { $0.cell(column: column, row: row) } }
     override func accessibilityFrame() -> NSRect { onMain(self) { $0.screenFrame } }
+
+    // The cell at a slot of the grid, AXCellForColumnAndRow, is given by the parameterized
+    // attribute's own methods and not by overriding `accessibilityCell(forColumn:row:)`.
+    // AppKit lists that attribute for every element of a class that overrides it, whatever
+    // `isAccessibilitySelectorAllowed` says, and adds what these list to the attributes it
+    // finds itself. With the attribute VoiceOver took a departed table for a table still, an
+    // empty one: "empty" as a page turned under it, and "empty text" when asked what it was
+    // on (#485). A departed table does not list it.
+    override func accessibilityParameterizedAttributeNames() -> [NSAccessibility.ParameterizedAttribute] {
+        onMain(self) { $0.view == nil } ? [] : [.cellForColumnAndRow]
+    }
+
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.ParameterizedAttribute, forParameter parameter: Any?) -> Any? {
+        guard attribute == .cellForColumnAndRow, let slot = parameter as? [NSNumber], slot.count == 2 else { return nil }
+        return onMain(self) { $0.cell(column: slot[0].intValue, row: slot[1].intValue) }
+    }
 
     /// The columns, while the view shows the text the table was given in.
     private var shownColumns: [ReaderTableColumnElement] { view == nil ? [] : columns }
 
-    /// What a table answers and a departed one does not. Answering them as an empty table
-    /// would, a departed table was "empty text" to VoiceOver, and a departed row group "text".
-    private static let tableSelectors: Set<Selector> = [
+    /// What a table answers and a departed one does not, which with the cell at a slot of the
+    /// grid is all a table answers beyond an element. With the counts of the whole table a
+    /// departed table was "text 3 columns, 41 rows" to VoiceOver when asked what it was on.
+    nonisolated private static let tableSelectors: Set<Selector> = [
         #selector(accessibilityRows), #selector(accessibilityVisibleRows), #selector(accessibilitySelectedRows),
         #selector(accessibilityColumns), #selector(accessibilityVisibleColumns), #selector(accessibilityVisibleCells),
         #selector(accessibilityRowCount), #selector(accessibilityColumnCount),
         #selector(accessibilityColumnHeaderUIElements), #selector(accessibilityRowHeaderUIElements),
-        #selector(accessibilityCell(forColumn:row:)),
     ]
 
     override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
