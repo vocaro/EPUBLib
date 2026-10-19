@@ -895,12 +895,15 @@ continues to describe the authored spine resource.
         its text area, a Control-Option-Shift-Down from its first line, in each of four
         sessions that pressed a cell without having gone into its words, two of them on
         the shape that was kept. Before the press, with the click, it left the text for
-        the window's first button in two sessions of three. It still does when the cell
-        is pressed after VoiceOver has been into the cell's words and come back out (one
+        the window's first button in two sessions of three. It did when the cell was
+        pressed after VoiceOver had been into the cell's words and come back out (one
         session on the shape kept, three in the trial), which is the page turned under a
-        table's element of [#485](https://github.com/vocaro/EPUBLib/issues/485). In
-        continuous scroll the view went to the link's target and VoiceOver was on the
-        text area, entering at the target's line, before and after alike.
+        table's element of [#485](https://github.com/vocaro/EPUBLib/issues/485); with the
+        change for it, where the column takes the keyboard focus from a cell's text area
+        that goes, VoiceOver was on the new page's text area there too, in one session
+        (Data tables, Pages). In continuous scroll the view went to the link's target and
+        VoiceOver was on the text area, entering at the target's line, before and after
+        alike.
     - **Header cells, and VoiceOver quitting.** AppKit lets a cell name its own header
       cells, which is how HTML has them and what a web view does. Given that, VoiceOver
       quit: an exception in its own `-[SCRCell columnHeaderDescription]`, by the reports
@@ -936,27 +939,41 @@ continues to describe the authored spine resource.
       turned as from a line. A page turned with VoiceOver's cursor on a row's element,
       where it is once it has gone into a row and come back out, leaves it in the text, as
       a turn from a line does: for a table of data and for a row group, by the host's Next
-      Page, a page key or the text area's Next Page action, and in a spread, where it stays
-      in the column it was in. It says "text", and from a row group the new page's first
-      line after it, and its next move by line reads that line and by word the line's
-      first word ([#485](https://github.com/vocaro/EPUBLib/issues/485)). Two things do it.
-      VoiceOver keeps its cursor on an element only while the element is among the
-      children of the text it is in, and a page turn gives the column the elements of
-      other rows. So the row elements of the page before stay among the column's children
-      until its text is replaced again (`ReaderTextView.departedRows`), each a static text
-      with nothing in it and none of a table's attributes, standing at the new page's
-      first line. Without them VoiceOver went to the text area, out of the text, a
-      Control-Option-Shift-Down from the page's first line; as an empty table or group it
-      said "table", "empty group" or "empty text". A layout change naming the column,
-      posted by the element, by the column or by the window, at once or half a second
-      later, and the insertion point told of again, each left VoiceOver where it went.
-      And VoiceOver gives the keyboard focus to each text area it moves to, a row group's
-      cells among them, and leaves it there when it comes back out to the row. The page
-      took that text area away with the focus, the window had it, and VoiceOver, following
-      it, went to the window's first button. The column that showed the cell takes it now
-      (`TableCellTextView.viewWillMove(toSuperview:)`). The cost is the word: VoiceOver
-      says "text" for the element after the turn where a turn from a line says the line,
-      and the elements are among the column's children for the length of a page.
+      Page, a page key or the text area's Next Page action, and in a spread, where it
+      stays in the column it was in. Its next move by line reads the new page's first line
+      and by word that line's first word. What it says at the turn differs. From a row
+      group it says "text" and the new page's first line. From a table of data it says
+      "empty", and Control-Option-F3 "empty text is in the VoiceOver cursor"; in a spread
+      it said the new first row's words once before "2 updated items". Why the table's
+      element is "empty" and the row group's "text" was not found: what a client is given
+      of the two after the turn differs in their frames, and in that the table's still
+      gives the cell at a slot of the grid, which AppKit lists for a class that gives it
+      whatever `isAccessibilitySelectorAllowed` says. Leaving that out as well changed
+      nothing heard
+      ([#485](https://github.com/vocaro/EPUBLib/issues/485#issuecomment-6270877949) has
+      the sessions and what was tried). Two things keep VoiceOver in the text. VoiceOver
+      keeps its cursor on an element only while the element is among the children of the
+      text it is in, and a page turn gives the column the elements of other rows. So the
+      row elements of the page before stay among the column's children until its text is
+      replaced again (`ReaderTextView.departedRows`), each a static text with nothing in
+      it, standing at the new page's first line. Without them VoiceOver went to the text
+      area, out of the text, a Control-Option-Shift-Down from the page's first line; as an
+      empty table or group it said "table" or "empty group". A layout change naming the
+      column, posted by the element, by the column or by the window, at once or half a
+      second later, and the insertion point told of again, each left VoiceOver where it
+      went. And VoiceOver gives the keyboard focus to each text area it moves to, a row
+      group's cells among them, and leaves it there when it comes back out to the row. The
+      page took that text area away with the focus, the window had it, and VoiceOver,
+      following it, went to the window's first button. The column that showed the cell
+      takes it now (`TableCellTextView.viewWillMove(toSuperview:)`). After VoiceOver had
+      gone into the words of a cell that is one link and back out, Control-Option-Space on
+      the cell left it on the new page's text area, "text is in the VoiceOver cursor Line
+      1", with the keyboard focus on the column, where on
+      [#508](https://github.com/vocaro/EPUBLib/pull/508)'s branch it went to the window's
+      first button; it is not in the text there, as its cursor was on the cell and not on
+      a row's element. The cost is the word: VoiceOver says "text" or "empty" for the
+      element after the turn where a turn from a line says the line, and the elements are
+      among the column's children for the length of a page.
     - **Continuous scroll.** One text area holds the book, and a table holds every row.
       Moving down a column VoiceOver goes on past the screen and the view follows it,
       twenty-eight rows in one session, each once and in order. Leaving the table puts
