@@ -524,15 +524,7 @@ final class ReaderTextView: NSTextView {
     /// one of them. In this view's coordinates.
     var departedRowFrame: CGRect {
         let origin = containerOrigin
-        // Trial (#485), `-DepartedTrial frame-row`: the line of the page's first table row.
-        var first = 0
-        if ReaderTableElement.departedTrial == "frame-row", let storage = contentStorage.textStorage {
-            let shown = NSIntersectionRange(shownCharacters, NSRange(location: 0, length: storage.length))
-            storage.enumerateAttribute(.attachment, in: shown) { value, run, stop in
-                if value is TableRowAttachment { first = run.location; stop.pointee = true }
-            }
-        }
-        let line = lineFrame(containing: first) ?? CGRect(x: 0, y: 0, width: bounds.width, height: 1)
+        let line = lineFrame(containing: 0) ?? CGRect(x: 0, y: 0, width: bounds.width, height: 1)
         return line.offsetBy(dx: origin.x, dy: origin.y)
     }
 

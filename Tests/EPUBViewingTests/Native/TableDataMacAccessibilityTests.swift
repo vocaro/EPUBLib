@@ -1193,7 +1193,11 @@ import XCTest
         let second = try XCTUnwrap(try tables(in: column).first)
         XCTAssertFalse(second === first)
         XCTAssertGreaterThan(try XCTUnwrap(try rows(of: second).first?.accessibilityIndex()), 0)
-        XCTAssertEqual(first.accessibilityRows()?.count, 0)
+        // One row that holds nothing, none of a page's (testThePageBeforesRowElementsStayTheColumnsChildrenAfterATurn).
+        let departed = try XCTUnwrap(first.accessibilityRows() as? [NSAccessibilityElement])
+        XCTAssertEqual(departed.count, 1)
+        XCTAssertFalse(departed.first is ReaderTableRowElement)
+        XCTAssertEqual(departed.first?.accessibilityChildren()?.count ?? 0, 0)
         XCTAssertTrue(first.accessibilityParent() as AnyObject === view, "still the column's")
         XCTAssertNil(first.accessibilityLabel())
         XCTAssertEqual(first.accessibilitySelectedRows()?.count, 0)
@@ -1235,8 +1239,8 @@ import XCTest
     /// on the row's element. After a page turn the elements of the page before stay among the
     /// column's children, so that VoiceOver stays in the text and reads the new page from its
     /// first line. Each says nothing and holds nothing, as an empty static text at that line,
-    /// and the next page's turn takes them away. What VoiceOver did with each shape is in
-    /// doc/testing.md#tables-on-mac.
+    /// a table of data with one row of nothing and no columns, and the next page's turn takes
+    /// them away. What VoiceOver did with each shape is in doc/testing.md#tables-on-mac.
     func testThePageBeforesRowElementsStayTheColumnsChildrenAfterATurn() async throws {
         for body in Self.longTables {
             let (reader, canvas, view) = try await reader(try book(body), scrolled: false)
@@ -1264,14 +1268,24 @@ import XCTest
                     XCTAssertFalse(frame.isEmpty, name)
                     XCTAssertEqual(frame.midY, firstLine.midY, accuracy: 1, "\(name): it stands at the new page's first line")
                     if let table = element as? ReaderTableElement {
-                        XCTAssertEqual(table.accessibilityRowCount(), 0, name)
+                        // VoiceOver still takes it for a table, one that says "empty" with no
+                        // rows and its columns and rows when asked with a column.
+                        XCTAssertEqual(table.accessibilityRowCount(), 1, name)
+                        let rows = try XCTUnwrap(table.accessibilityRows(), name)
+                        XCTAssertEqual(rows.count, 1, name)
+                        let row = try XCTUnwrap(rows.first as? NSAccessibilityElement, name)
+                        XCTAssertEqual(row.accessibilityRole(), .row, name)
+                        XCTAssertEqual(row.accessibilityChildren()?.count ?? 0, 0, "\(name): the row holds nothing")
+                        XCTAssertTrue(row.accessibilityParent() as AnyObject === table, name)
                         XCTAssertEqual(table.accessibilityColumnCount(), 0, name)
                         XCTAssertEqual(table.accessibilityColumns()?.count, 0, name)
-                        XCTAssertEqual(table.accessibilityRows()?.count, 0, name)
-                        // A client is not told of a table's attributes, but for the cell at a
-                        // slot of the grid, which AppKit does not ask about.
-                        for selector in [#selector(NSAccessibilityElement.accessibilityRows), #selector(NSAccessibilityElement.accessibilityRowCount),
-                                         #selector(NSAccessibilityElement.accessibilityColumnCount), #selector(NSAccessibilityElement.accessibilityColumnHeaderUIElements)] {
+                        for selector in [#selector(NSAccessibilityElement.accessibilityRows), #selector(NSAccessibilityElement.accessibilityRowCount)] {
+                            XCTAssertTrue(table.isAccessibilitySelectorAllowed(selector), "\(name): \(selector)")
+                        }
+                        // A client is not told of a table's other attributes, but for the cell
+                        // at a slot of the grid, which AppKit does not ask about.
+                        for selector in [#selector(NSAccessibilityElement.accessibilityColumns), #selector(NSAccessibilityElement.accessibilityColumnCount),
+                                         #selector(NSAccessibilityElement.accessibilitySelectedRows), #selector(NSAccessibilityElement.accessibilityColumnHeaderUIElements)] {
                             XCTAssertFalse(table.isAccessibilitySelectorAllowed(selector), "\(name): \(selector)")
                         }
                     }

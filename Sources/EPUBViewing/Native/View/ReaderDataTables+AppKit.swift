@@ -121,17 +121,27 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     }
 
     /// The view shows other text than the table was given in: the table has nothing in it,
-    /// and is still the view's. It has departed: an empty static text at the first line of
-    /// the page shown, among the view's children until the view's text is replaced again,
-    /// where VoiceOver goes on from it (`ReaderTextView.departedRows`). As an empty table it
-    /// said "table" each time a page turned under it, and "3 columns, 41 rows" when asked what
-    /// it was on, and as an empty group "empty group". As a static text it says "empty", and
-    /// "empty text" when asked, where a departed row group says "text"; why was not found.
+    /// and is still the view's. It has departed: a static text at the first line of the page
+    /// shown, among the view's children until the view's text is replaced again, where
+    /// VoiceOver goes on from it (`ReaderTextView.departedRows`).
+    ///
+    /// VoiceOver keeps what it made of the element when it first met it, a table: it finds
+    /// that again by the element and not by its role
+    /// (`+[SCRElement _elementForUIElement:application:seenElements:cache:]`), and reads the
+    /// role afresh. Its table says "empty" after the role while it has no rows, by the greater
+    /// of the row count and the number of rows given (`-[SCRTable statusDescription]`,
+    /// `rowCount`), and when asked what it is on says "3 columns, 41 rows" while it has a row
+    /// and a column (`tableDimensions`), its columns being the column count, else the number
+    /// of columns given, else a row's children. So a departed table gives one row with nothing
+    /// in it and no columns:
+    /// VoiceOver says "text" and "text is in the VoiceOver cursor", as of a departed row group
+    /// (#485). As an empty table it said "table", as an empty group "empty group", with no
+    /// rows "empty" and "empty text", and with the whole table's counts "text" and "text 3
+    /// columns, 41 rows" (macOS 27.0.1).
     func detach() {
         view = nil
         listedRows = nil
         pageKey = nil
-        // Trial (#485): VoiceOver's model of a table says "empty" while it has no rows.
         let row = NSAccessibilityElement()
         row.setAccessibilityRole(.row)
         row.setAccessibilitySubrole(.tableRow)
@@ -140,9 +150,7 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
         departedRow = row
     }
 
-    /// Trial (#485), from the launch argument `-DepartedTrial`: `row` gives a departed table one
-    /// row with nothing in it, `rowcount` the count of one row and no row.
-    nonisolated static var departedTrial: String? { UserDefaults.standard.string(forKey: "DepartedTrial") }
+    /// The row a departed table gives, which holds nothing.
     private var departedRow: NSAccessibilityElement?
 
     // MARK: What the view shows of the table
@@ -294,24 +302,14 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityRole() -> NSAccessibility.Role? { onMain(self) { $0.view == nil ? .staticText : .table } }
     override func accessibilityParent() -> Any? { onMain(self) { $0.host } }
     override func accessibilityLabel() -> String? { onMain(self) { $0.words } }
-    override func accessibilityRows() -> [Any]? {
-        onMain(self) { table in
-            guard table.view == nil else { return table.rowElements }
-            return Self.departedTrial == "row" ? table.departedRow.map { [$0] } ?? [] : []
-        }
-    }
+    override func accessibilityRows() -> [Any]? { onMain(self) { $0.view == nil ? $0.departedRow.map { [$0] } ?? [] : $0.rowElements } }
     override func accessibilityVisibleRows() -> [Any]? { onMain(self) { $0.visibleRows } }
     override func accessibilitySelectedRows() -> [Any]? { onMain(self) { $0.entryRow.map { [$0] } ?? [] } }
     override func accessibilityColumns() -> [Any]? { onMain(self) { $0.shownColumns } }
     override func accessibilityVisibleColumns() -> [Any]? { onMain(self) { $0.shownColumns } }
     override func accessibilityVisibleCells() -> [Any]? { onMain(self) { $0.visibleCells } }
     override func accessibilityChildren() -> [Any]? { onMain(self) { $0.rowElements + $0.shownColumns } }
-    override func accessibilityRowCount() -> Int {
-        onMain(self) { table in
-            guard table.view == nil else { return table.table.rows.count }
-            return ["row", "rowcount"].contains(Self.departedTrial) ? 1 : 0
-        }
-    }
+    override func accessibilityRowCount() -> Int { onMain(self) { $0.view == nil ? 1 : $0.table.rows.count } }
     override func accessibilityColumnCount() -> Int { onMain(self) { $0.view == nil ? 0 : $0.table.columnCount } }
     override func accessibilityColumnHeaderUIElements() -> [Any]? { onMain(self) { $0.columnHeaders } }
     override func accessibilityRowHeaderUIElements() -> [Any]? { onMain(self) { $0.rowHeaders } }
@@ -321,25 +319,20 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     /// The columns, while the view shows the text the table was given in.
     private var shownColumns: [ReaderTableColumnElement] { view == nil ? [] : columns }
 
-    /// What a table answers and a departed one does not. AppKit does not ask about the cell
-    /// at a slot of the grid, which it lists for every element of a class that gives it, so a
-    /// departed table still lists that attribute. Hiding these, and that one with them, did
-    /// not change what VoiceOver says of a departed table, "empty" (#485).
+    /// What a table answers and a departed one does not, which gives its one row and its
+    /// count (`detach`). AppKit does not ask about the cell at a slot of the grid, which it
+    /// lists for every element of a class that gives it, so a departed table still lists that
+    /// attribute and answers it with nothing.
     nonisolated private static let tableSelectors: Set<Selector> = [
-        #selector(accessibilityRows), #selector(accessibilityVisibleRows), #selector(accessibilitySelectedRows),
+        #selector(accessibilityVisibleRows), #selector(accessibilitySelectedRows),
         #selector(accessibilityColumns), #selector(accessibilityVisibleColumns), #selector(accessibilityVisibleCells),
-        #selector(accessibilityRowCount), #selector(accessibilityColumnCount),
+        #selector(accessibilityColumnCount),
         #selector(accessibilityColumnHeaderUIElements), #selector(accessibilityRowHeaderUIElements),
         #selector(accessibilityCell(forColumn:row:)),
     ]
 
     override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
-        let trial: Set<Selector> = switch Self.departedTrial {
-        case "row": [#selector(accessibilityRows), #selector(accessibilityRowCount)]
-        case "rowcount": [#selector(accessibilityRowCount)]
-        default: []
-        }
-        if Self.tableSelectors.contains(selector), !trial.contains(selector), onMain(self, { $0.view == nil }) { return false }
+        if Self.tableSelectors.contains(selector), onMain(self, { $0.view == nil }) { return false }
         return super.isAccessibilitySelectorAllowed(selector)
     }
 
