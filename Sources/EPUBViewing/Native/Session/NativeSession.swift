@@ -833,7 +833,8 @@ extension NativeSession: ReaderCanvasDelegate {
         let ticket = beginNavigation()
         tasks.append(Task { [weak self] in
             guard let text = await self?.book.build(index), let self, self.isCurrent(ticket) else { return }
-            self.canvas?.show(ReaderTextPosition(section: index, offset: forward ? 0 : text.string.length), selecting: nil)
+            self.canvas?.show(ReaderTextPosition(section: index, offset: forward ? 0 : text.string.length), selecting: nil,
+                              entry: .firstLine)
         })
     }
 }

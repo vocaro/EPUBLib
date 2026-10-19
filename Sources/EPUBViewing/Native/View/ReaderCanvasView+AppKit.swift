@@ -337,7 +337,8 @@ extension ReaderCanvasView: NSTextViewDelegate {
     /// and not while it lists the rotor's items.
     func loadHeading(_ token: any NSAccessibilityLoadingToken) -> ReaderTextView? {
         guard let heading = heading(for: token) else { return nil }
-        if shownHeading(heading) == nil { show(heading.position, selecting: nil) }
+        // VoiceOver takes its cursor to the heading's characters itself (`loadedHeadingRange`).
+        if shownHeading(heading) == nil { show(heading.position, selecting: nil, entry: .firstLine) }
         return shownHeading(heading)?.view
     }
 
@@ -370,7 +371,9 @@ extension ReaderCanvasView: NSTextViewDelegate {
     /// heading's characters there.
     func showHeading(at position: ReaderTextPosition) -> (view: ReaderTextView, range: NSRange)? {
         guard let heading = heading(at: position) else { return nil }
-        if shownHeading(heading) == nil { show(heading.position, selecting: nil) }
+        // The column puts its own insertion point on the heading, and VoiceOver's cursor is on
+        // the heading's element, which keyboard focus moved for the page would take it from.
+        if shownHeading(heading) == nil { show(heading.position, selecting: nil, entry: .firstLine) }
         return shownHeading(heading)
     }
 

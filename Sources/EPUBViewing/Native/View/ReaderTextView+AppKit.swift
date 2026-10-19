@@ -31,6 +31,10 @@ final class ReaderTextView: NSTextView {
     /// The elements of the table rows a page column showed before its text was last replaced,
     /// kept among its children until the text is replaced again (`exposeTextualAttachments`).
     private(set) var departedRows: [NSAccessibilityElement] = []
+    /// Where VoiceOver enters the page a column shows: its first line, or the start of the line
+    /// of a place shown (`ReaderCanvasView.enterPage`). The insertion point starts there, and
+    /// the rows of the page before stand there (`departedRowFrame`).
+    var entryLocation = 0
     private var menuImage: ReaderImageAttachment?
     /// The headings of the text in the view, found once for each text it is given.
     private var headingCache: [(heading: ReaderHeading, range: NSRange)]?
@@ -519,12 +523,13 @@ final class ReaderTextView: NSTextView {
         return (super.accessibilityChildren() ?? []).filter { $0 is NSView } + own.map(\.element.element) + departedRows
     }
 
-    /// Where the rows of a page before stand once the column shows another: at the first line
-    /// of the page it shows, which is where VoiceOver's next move by line or by word goes from
-    /// one of them. In this view's coordinates.
+    /// Where the rows of a page before stand once the column shows another: at the line the
+    /// page is entered at (`entryLocation`), its first unless a place was shown on it, which is
+    /// where VoiceOver's next move by line or by word goes from one of them. In this view's
+    /// coordinates.
     var departedRowFrame: CGRect {
         let origin = containerOrigin
-        let line = lineFrame(containing: 0) ?? CGRect(x: 0, y: 0, width: bounds.width, height: 1)
+        let line = lineFrame(containing: entryLocation) ?? CGRect(x: 0, y: 0, width: bounds.width, height: 1)
         return line.offsetBy(dx: origin.x, dy: origin.y)
     }
 
@@ -593,7 +598,9 @@ final class ReaderTextView: NSTextView {
         // caret's line when entering a text view. Start newly installed text at its first
         // line; the canvas reapplies any intentional carried selection after all columns
         // have been installed, and keeps the scroll view's caret on screen
-        // (`placeScrollInsertionPoint`).
+        // (`placeScrollInsertionPoint`), and after a place is shown puts it on the place's
+        // line (`enterPage`).
+        entryLocation = 0
         selectedRange = NSRange(location: 0, length: 0)
         if isPageColumn {
             // The page exposes a custom bounded AXValue. TextKit's storage replacement
