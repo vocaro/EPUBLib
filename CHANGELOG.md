@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Have VoiceOver on Mac say "text" and not "empty" when a page turns with its cursor on a table of data's row element ([#485](https://github.com/vocaro/EPUBLib/issues/485)).
 - Keep VoiceOver in the text on Mac when a page turns with its cursor on a table row's element ([#485](https://github.com/vocaro/EPUBLib/issues/485)).
 - Report a ZIP entry in a method other than stored or Deflate, or whose Deflate stream is damaged, as `EPUBPublicationError.invalidArchive`, whatever size it declares, instead of ZIPFoundation's own error ([#74](https://github.com/vocaro/EPUBLib/issues/74)).
 - Turn the page for VoiceOver reading on by itself past a page's last line on iPhone and iPad, and stop at the book's end ([#468](https://github.com/vocaro/EPUBLib/issues/468)).
