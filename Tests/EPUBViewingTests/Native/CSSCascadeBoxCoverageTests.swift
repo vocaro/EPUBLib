@@ -86,7 +86,7 @@ final class CSSCascadeBoxCoverageTests: XCTestCase {
     func testUserAgentIndentsAndGeneratedBoxesTakeTheStartSide() throws {
         let result = try CSSCascadeSupport.styled("""
             <ul id="ltr"><li>a</li></ul><ul id="rtl" dir="rtl"><li>a</li></ul><dl dir="rtl"><dd id="dd">b</dd></dl>
-            <p id="before" dir="rtl">c</p>
+            <p id="before" dir="rtl">c</p><div style="direction: rtl"><ol id="css"><li>d</li></ol></div>
             """, css: "#before::before { content: 'x'; margin-inline-start: 3px }")
         XCTAssertEqual(result.style("ltr").padding.left, .points(32))
         XCTAssertEqual(result.style("ltr").padding.right, .points(0))
@@ -94,6 +94,8 @@ final class CSSCascadeBoxCoverageTests: XCTestCase {
         XCTAssertEqual(result.style("rtl").padding.left, .points(0))
         XCTAssertEqual(result.style("dd").margin.right, .points(40))
         XCTAssertEqual(result.style("dd").margin.left, .points(0))
+        XCTAssertEqual(result.style("css").padding.right, .points(32), "a direction set by CSS alone")
+        XCTAssertEqual(result.style("css").padding.left, .points(0))
         let before = try XCTUnwrap(result.style("before").generated?.before)
         XCTAssertEqual(before.margin.right, .points(3))
         XCTAssertEqual(before.margin.left, .points(0))
