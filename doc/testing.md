@@ -1552,7 +1552,9 @@ transcript against the visible text, starting with its first phrases and any `OT
 lines, which name unit-test hosts of other sessions.
 
 VoiceOver enters a column at its insertion point, and a page turn resets that to the first
-line. Start a case with a turn and `ax:focus`, never a click. Eight `left` steps from the
+line. A place shown, as a link followed, puts it at the start of the place's line instead
+([A link's target in pages](#a-links-target-in-pages)). Start a case with a turn and
+`ax:focus`, never a click. Eight `left` steps from the
 left column, nine from the right, reach **Next Page** in the sample's control strip; eight
 `right` steps return from it to the left column. **Previous Page** is one step further.
 
@@ -1880,6 +1882,39 @@ chooses another. `scripts/voiceover-link-verbosity.swift` does both through Voic
 Utility's own window and refuses to run anywhere but on a hosted runner. Do not write the
 setting with `defaults`: a `com.apple.VoiceOver4/default` domain written before VoiceOver had
 ever run left it silent for the whole run, `ERROR 3` after every key.
+
+#### A link's target in pages
+
+The fixture's **Verification link** goes to "Link target reached", the first section's last
+heading, before one short paragraph, on its last page and below that page's first line. A followed
+link is how a session goes to a place in the middle of a page: the observer cannot type into
+the search field, and `press=LABEL` presses buttons only. Where the heading is depends on the
+window and the text size, so take it from the `LINE` lines of `ax:lines` after the link. On
+the runner, at 600 points and 17 it is the third line of a page of four; at 1100 and 23 the
+sixth of seven in the left column, the right one empty; and at 1100 and 28 the fifth of seven
+in the right column, which is the case of a place in the column beside the one VoiceOver is
+in. Each way in is a session:
+
+```text
+width=600 text_size=17 "ax:caret=Verification link" ax:focus=search ax:focus=0 in line "activate=Verification link" ax:lines line nextline
+width=600 text_size=17 ax:focus=search "ax:follow=Verification link" ax:lines ax:focus=0 in line nextline
+width=1100 text_size=28 ax:focus=search ax:focus=0 "ax:follow=Verification link" ax:lines ax:focused in line nextline
+```
+
+The first follows the link with VoiceOver's own Control-Option-Space from inside the text,
+the second presses it with VoiceOver on the search field, away from the reader, and the third
+with VoiceOver resting on the left column without interacting with it. `ax:focused` says which
+column then has the keyboard focus, and `STATE` gives each column's `SELECTION` and `ENTRY`.
+Since [#383](https://github.com/vocaro/EPUBLib/issues/383) `line` reads "Link target
+reached" after each of them, and `in`, where there is one, says "In text Link target
+reached"; before, both read the page's first line. With the heading in the right column the
+keyboard focus goes to that column, and VoiceOver is on the column and out of the text it was
+in: `line` reads the heading there, but `nextline` does not move by line until `in`. From
+the start of the heading's line the first `nextline` records nothing and the second reads
+"This is the end of the numbered paragraph.": VoiceOver's moves by line leave its insertion
+point at a line's end, so one from a line's start reads that line again, and the probe
+records a phrase only when it differs from the one before. The sessions on `main` and on the
+change are [on the issue](https://github.com/vocaro/EPUBLib/issues/383#issuecomment-6277358412).
 
 ### Tables on Mac
 
