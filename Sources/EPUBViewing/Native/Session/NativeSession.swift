@@ -621,6 +621,11 @@ import SwiftUI
 
     private func sectionBuilt(_ index: Int) {
         guard !closed else { return }
+        // A layout can find text the build could not know will not be laid out (#288).
+        book.section(index)?.layout.observe { [weak self] in
+            guard let self, !self.closed else { return }
+            self.publishDisclosure()
+        }
         if !isReady { becomeReadyIfPossible(); return }
         publishDisclosure()
         if visibleRange?.start.section == index || visibleRange?.end.section == index, book.isCurrent(index) {

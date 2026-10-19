@@ -29,7 +29,54 @@ struct SectionText: @unchecked Sendable {
     let notes: [String: NSAttributedString]
     /// `<head><title>`, whitespace-normalized; nil when absent or empty.
     let title: String?
-    let report: SectionReport
+    /// What the build withheld or simplified, and what laying the text out has found since.
+    var report: SectionReport {
+        var report = builtReport
+        report.textNotLaidOut = layout.hasUnplacedText
+        return report
+    }
+    private let builtReport: SectionReport
+    /// What the layouts of `string` find (`.readerSectionLayout`).
+    let layout: SectionLayoutRecord
+
+    init(spineIndex: Int, href: String, document: ContentDocument, string: NSAttributedString, map: TextMap,
+         anchors: [String: Int], notes: [String: NSAttributedString], title: String?, report: SectionReport,
+         layout: SectionLayoutRecord = SectionLayoutRecord()) {
+        self.spineIndex = spineIndex; self.href = href; self.document = document; self.string = string
+        self.map = map; self.anchors = anchors; self.notes = notes; self.title = title
+        builtReport = report; self.layout = layout
+    }
+}
+
+/// What the layouts of a section's text find that its build could not know: text TextKit could
+/// set on no line, which the reader's text container stopped laying out
+/// (`ReaderTextContainer.askLimit`). The builder covers the section's text, its notes and its
+/// table cells with the record (`.readerSectionLayout`), so that a layout of any slice of them,
+/// in any view or in the box plan, reaches it.
+final class SectionLayoutRecord: NSObject, @unchecked Sendable {
+    private let lock = NSLock()
+    private var unplaced = false
+    private var observer: (@MainActor @Sendable () -> Void)?
+
+    var hasUnplacedText: Bool { lock.withLock { unplaced } }
+
+    /// Calls `body` on the main actor once text is found that could not be laid out, or soon
+    /// after this when some already was.
+    func observe(_ body: @escaping @MainActor @Sendable () -> Void) {
+        let found = lock.withLock { observer = body; return unplaced }
+        if found { Task { @MainActor in body() } }
+    }
+
+    /// Called by a layout, on whatever thread it runs, inside TextKit's layout: the observer is
+    /// told later, on the main actor.
+    func recordUnplacedText() {
+        let observer = lock.withLock { () -> (@MainActor @Sendable () -> Void)? in
+            guard !unplaced else { return nil }
+            unplaced = true
+            return self.observer
+        }
+        if let observer { Task { @MainActor in observer() } }
+    }
 }
 
 /// What a section withheld or could not render faithfully. Aggregated into `.disclosure` text.
@@ -73,6 +120,9 @@ struct SectionReport: Equatable, Sendable {
     /// the reader does not generate (`ComputedStyle.ContentItem.unsupported`), that of a table
     /// laid out as a grid or of its rows, or characters past the section's bound.
     var generatedContentOmitted = false
+    /// Text that TextKit could set on no line at the size it was laid out at, and that is not
+    /// shown (`SectionLayoutRecord`). Found by laying the section out, never by building it.
+    var textNotLaidOut = false
 
     mutating func formUnion(_ other: SectionReport) {
         scriptsRefused += other.scriptsRefused
@@ -91,6 +141,7 @@ struct SectionReport: Equatable, Sendable {
         flowBoxesReflowed = flowBoxesReflowed || other.flowBoxesReflowed
         flexGridSimplified = flexGridSimplified || other.flexGridSimplified
         generatedContentOmitted = generatedContentOmitted || other.generatedContentOmitted
+        textNotLaidOut = textNotLaidOut || other.textNotLaidOut
     }
 }
 
@@ -288,6 +339,8 @@ extension NSAttributedString.Key {
     static let readerPageBreakBefore = NSAttributedString.Key("org.epublib.pageBreakBefore")
     /// `true` on a paragraph's first character when CSS asks to avoid a break after it (headings).
     static let readerKeepWithNext = NSAttributedString.Key("org.epublib.keepWithNext")
+    /// The `SectionLayoutRecord` of the section, over all of its text.
+    static let readerSectionLayout = NSAttributedString.Key("org.epublib.sectionLayout")
 }
 
 extension SectionText {

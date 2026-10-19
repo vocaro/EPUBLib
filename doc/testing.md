@@ -498,7 +498,9 @@ platform. A test whose input kills the test process is disabled by name (`disabl
 with its issue above it. A test of input that TextKit might never finish laying out runs the
 layout under `BoundedLayout` (`BoxLayoutTerminationCoverageTests`), which stops the reader's
 text container answering after a set number of calls, so the test fails instead of hanging
-the suite. Three [corpus runs](#corpus-runs) are opt-in: `EPUBLIB_W3C_EPUB_TESTS` (the `tests`
+the suite. The container also has a bound of its own, 1,000 calls running for one character
+([#288](https://github.com/vocaro/EPUBLib/issues/288)); `UnplacedTextLayoutTests` puts back text
+it ends, under a cap a hundred times that. Three [corpus runs](#corpus-runs) are opt-in: `EPUBLIB_W3C_EPUB_TESTS` (the `tests`
 directory of w3c/epub-tests) holds each W3C reading-system test to an expected outcome,
 `EPUBLIB_EPUBCHECK_FIXTURES` (`src/test/resources` of w3c/epubcheck) takes every EPUBCheck
 fixture through opening, text extraction and a native build, and `EPUBLIB_EPUBCHECK_CLI` (the

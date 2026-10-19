@@ -66,7 +66,7 @@ enum SectionBuilder {
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
         return SectionText(spineIndex: request.spineIndex, href: item.resource.href, document: document,
                            string: output.string, map: output.map, anchors: output.anchors, notes: state.notes,
-                           title: title?.isEmpty == false ? title : nil, report: state.report.report)
+                           title: title?.isEmpty == false ? title : nil, report: state.report.report, layout: state.layout)
     }
 
     static func withheld(_ request: SectionBuildRequest, reason: Error) -> SectionText {
@@ -96,6 +96,8 @@ final class SectionBuildState {
     let style: SectionStyleFunction
     let initialStyle: ComputedStyle
     let report = SectionReportBox()
+    /// What laying out the text this build writes finds; the writer covers that text with it.
+    let layout = SectionLayoutRecord()
     let styling: InlineStyling
     /// Counters and quotes for generated content, shared by the section's writer and those it
     /// starts for table cells and captions.
@@ -161,6 +163,7 @@ final class SectionBuildState {
             return NSAttributedString(string: text, attributes: [
                 .font: request.fonts.font(for: style),
                 .foregroundColor: ReaderPalette.text(dark: request.typography.isDark),
+                .readerSectionLayout: layout,
             ])
         }
         nesting += 1
@@ -198,6 +201,7 @@ final class SectionBuildState {
         return NSAttributedString(string: words.joined(separator: " "), attributes: [
             .font: request.fonts.font(for: style),
             .foregroundColor: ReaderPalette.text(dark: request.typography.isDark),
+            .readerSectionLayout: layout,
         ])
     }
 

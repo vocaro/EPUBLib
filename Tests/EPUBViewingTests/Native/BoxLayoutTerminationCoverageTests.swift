@@ -117,13 +117,15 @@ import UIKit
 
     /// The cap is what keeps these tests from hanging, so it is shown to end a layout that
     /// TextKit does not: a paragraph with a tab and neither a stop nor an interval for it, in
-    /// the reader's container with a box in it. Without the cap this layout does not return.
+    /// the reader's container with a box in it. The container ends this layout itself once it
+    /// has been asked for the line `ReaderTextContainer.askLimit` times (#288); the cap ends it
+    /// sooner, as it would were the container's own bound gone.
     func testTheCapEndsALayoutTextKitWouldNotFinish() throws {
         let style = NSMutableParagraphStyle()
         style.tabStops = []
         let text = NSAttributedString(string: "A\ttab with nowhere to go.", attributes: [.paragraphStyle: style])
         var lines = 0
-        let unfinished = try BoundedLayout.run(limit: 2_000) {
+        let unfinished = try BoundedLayout.run(limit: ReaderTextContainer.askLimit / 2) {
             let storage = NSTextContentStorage(), manager = NSTextLayoutManager()
             storage.addTextLayoutManager(manager)
             let container = ReaderTextContainer(size: CGSize(width: 400, height: 0))

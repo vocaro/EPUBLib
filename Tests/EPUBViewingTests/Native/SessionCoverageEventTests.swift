@@ -238,6 +238,40 @@ import XCTest
         XCTAssertEqual(disclosures(), first, "a rebuild repeats no disclosure")
     }
 
+    /// A section's text that TextKit could set on no line is disclosed once a layout finds it
+    /// (#288). No paragraph the builder writes is such text, so a layout of the section's own
+    /// text is given one: the tab of `Tabbed` with its paragraph's tab interval taken away. It
+    /// is the section's text all the same, and its report is the one that changes.
+    func testTextALayoutCouldNotPlaceIsDisclosed() async throws {
+        let notLaidOut = "Some text in this book could not be laid out and is not shown."
+        let reader = try open(SessionCoverageBook.epub([
+            Section("one", "<p>Opening text.</p>" + SessionCoverageBook.filler(4)),
+            Section("two", "<div style='float:left; width:60px; height:40px'>Box.</div><p style='white-space:pre-wrap'>Tabbed&#9;text.</p>"
+                + SessionCoverageBook.filler(4)),
+        ]))
+        try await reader.settle()
+        func disclosed() -> Bool {
+            reader.events.contains { if case .disclosure(let text) = $0 { return text.contains(notLaidOut) }; return false }
+        }
+        let section = try XCTUnwrap(reader.session.book.section(1))
+        XCTAssertFalse(section.report.textNotLaidOut, "the section's own layouts placed all of it")
+        XCTAssertFalse(disclosed())
+        let text = NSMutableAttributedString(attributedString: section.string)
+        let paragraph = (text.string as NSString).paragraphRange(for: (text.string as NSString).range(of: "Tabbed\t"))
+        let style = try XCTUnwrap(text.attribute(.paragraphStyle, at: paragraph.location, effectiveRange: nil) as? NSParagraphStyle)
+            .mutableCopy() as! NSMutableParagraphStyle
+        style.tabStops = []
+        style.defaultTabInterval = 0
+        text.addAttribute(.paragraphStyle, value: style, range: paragraph)
+        let unfinished = try BoundedLayout.run(limit: 100 * ReaderTextContainer.askLimit) {
+            _ = ReaderPaginator(text: text, size: CGSize(width: 400, height: 600)).allPages
+        }
+        XCTAssertFalse(unfinished)
+        XCTAssertTrue(section.report.textNotLaidOut)
+        try await reader.wait("the disclosure") { disclosed() }
+        XCTAssertEqual(reader.state.status.lifecycle, .ready)
+    }
+
     // MARK: Detaching and remounting
 
     /// `doc/reader-controls.md`: controls "remain disabled until ready, after close/failure or

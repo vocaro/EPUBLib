@@ -856,7 +856,8 @@ final class SectionWriter {
             let end = index + 1 < paragraphs.count ? paragraphs[index + 1].start : length
             if end > paragraphs[index].start { styles.append((paragraphs[index].start, paragraphStyle(paragraphs[index]))) }
         }
-        let string = buffer.makeAttributedString(dictionaries: styling.dictionaries, paragraphs: styles)
+        let string = buffer.makeAttributedString(dictionaries: styling.dictionaries, paragraphs: styles,
+                                                 everywhere: [.readerSectionLayout: state.layout])
         string.beginEditing()
         for index in paragraphs.indices where !isNote {
             let paragraph = paragraphs[index], start = paragraph.start
