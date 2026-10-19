@@ -32,6 +32,23 @@ before starting a run. The idle-CPU recipe [reported in #62](https://github.com/
 is a heuristic from one session, not a gate requirement or an acceptance cutoff. Host activity
 alone does not invalidate a passing run.
 
+The Mac suites need the screen unlocked and the display awake. AppKit runs a scroll view's
+animation from the display's refresh, so while the display sleeps it does not advance, and
+`ScrolledAccessibilityReadTests.testWheelAndTrackpadAfterAReadKeepTheTextOnScreen` times out
+waiting for a wheel event to move the text. On 2026-10-14 it failed that way on branches that
+had passed it an hour before, and on `main`, until the owner unlocked the Mac
+([#561](https://github.com/vocaro/EPUBLib/pull/561#issuecomment-6179173544)). Look before a
+gate and before blaming a change for that failure:
+
+```sh
+ioreg -n Root -d1 | grep -o '"CGSSessionScreenIsLocked"=[A-Za-z]*'   # no output: unlocked
+swift -e 'import CoreGraphics; print(CGDisplayIsAsleep(CGMainDisplayID()) != 0)'   # false: awake
+```
+
+The display sleeps after the Mac's idle time, which can fall inside a gate's Mac suites. Do not
+keep it awake with `caffeinate` on the owner's Mac unasked: a screen kept unlocked is the
+owner's call.
+
 `scripts/test-ios.sh` reports `Passed` or `Failed` for each device, continues to the second
 after a creation, boot or test failure, and exits nonzero if either failed. Each first boot has
 a 600-second limit (`EPUB_SIM_BOOT_TIMEOUT` overrides it with a positive number of seconds).
@@ -521,16 +538,113 @@ The script fetches each corpus at a pinned commit into `~/Library/Caches/EPUBLib
 `Tests/EPUBTestSupport/SpecConformanceCorpus.swift`; a new pin goes in the script together
 with that table.
 
-`NativeCorpusQualificationTests` builds every book under `EPUBLIB_CORPUS`, a list of
-directories of EPUB files. The variable names no collection and is not part of verifying a
-change. The [first qualification](native-viewer.md#qualification) ran it on books that belong
-to another project; EPUBLib does not depend on that project or its files, and they are not to
-be used to test it.
+### Books
+
+Two public collections of books are standard corpora as well, chosen on 2026-10-14. Each is a
+manifest in `scripts/corpora` that pins 50 EPUB files by URL and SHA-256, with the rule that
+chose them in its header. The books stay outside the repository, beside the W3C corpora.
+
+- **Project Gutenberg** (`scripts/corpora/gutenberg.tsv`): 50 English books, the EPUB 3
+  "with images" build of each. `scripts/fetch-corpora.sh` fetches the missing ones, verifies
+  all of them and prints `EPUBLIB_GUTENBERG`. Gutenberg's
+  [robot-access policy](https://www.gutenberg.org/policy/robot_access.html) allows automated
+  access only to the offline catalog, `robot/harvest` and the mirrors, so the URLs are on the
+  mirror `robot/harvest` names (`aleph.gutenberg.org`, whose certificate names
+  `aleph.pglaf.org`). Agents may fetch it through the script.
+- **Standard Ebooks** (`scripts/corpora/standard-ebooks.tsv`): 50 books, the ordinary
+  "compatible" EPUB of each. Its URLs end in `?source=download`. The plain URL answers with the
+  site's "Your Download Has Started!" page, which sends a browser on to that URL; the owner
+  chose it on 2026-10-14. Its robots.txt disallows `/ebooks/*/downloads/*` for AI agents'
+  user agents (`claude-user`, `chatgpt-user` and others), so only the owner fetches it, with
+  `bash scripts/fetch-standard-ebooks.sh --pin`. `scripts/fetch-corpora.sh` never downloads it;
+  when its books are present and match the manifest, it prints `EPUBLIB_STANDARD_EBOOKS`.
+
+Both fetchers read robots.txt first, make one request at a time at least 2 s apart, and run
+one fetch at a time across sessions (`scripts/corpora/fetch_books.py`).
+
+Neither collection versions its URLs: Gutenberg rebuilds its files monthly, and Standard Ebooks
+republishes a book at the same URL whenever it changes. A book fetched after that fails its
+SHA-256. The script keeps it beside the corpus as `NAME.mismatch-SHA12` and does not set the
+variable. To re-pin:
+
+1. Fetch every book afresh into a directory named for today, and write the new hashes and the
+   date into the manifest. For Gutenberg, run
+   `python3 -I scripts/corpora/fetch_books.py pin scripts/corpora/gutenberg.tsv ~/Library/Caches/EPUBLib/corpora`.
+   For Standard Ebooks, the owner runs `bash scripts/fetch-standard-ebooks.sh --pin`.
+2. Run the corpus tests on the new directory.
+3. Commit the manifest, with the reason and the tests' results.
+
+The old directory stays until someone removes it.
+
+`BookCorpusPageTextTests` pages every chapter of the Project Gutenberg and Standard Ebooks
+books in `EPUBLIB_GUTENBERG` and `EPUBLIB_STANDARD_EBOOKS` at six reader sizes, and checks
+that every character is on a visible line of some page
+([#570](https://github.com/vocaro/EPUBLib/issues/570)). It is skipped unless one of them is
+set. It lays out every page twice, so run it in release, one process per size:
+
+```sh
+swift test -c release --enable-testable-imports --filter BookCorpusPageTextTests  # builds; skips
+eval "$(bash scripts/fetch-corpora.sh)"
+EPUBLIB_PAGE_TEXT_CASES=phone xcrun xctest -XCTest EPUBViewingTests.BookCorpusPageTextTests \
+  .build/release/EPUBViewingTests.xctest
+```
+
+The cases are `phone`, `phone-landscape`, `tablet`, `mac`, `small` and `phone-40pt`;
+`EPUBLIB_PAGE_TEXT_BOOKS` names books by file name. The test's comment gives how long each
+corpus takes.
+
+`NativeCorpusQualificationTests` builds every book under `EPUBLIB_CORPUS`, a colon-separated
+list of directories of EPUB files, and checks each section's text map:
+
+```sh
+eval "$(bash scripts/fetch-corpora.sh)"
+EPUBLIB_CORPUS="$EPUBLIB_GUTENBERG${EPUBLIB_STANDARD_EBOOKS:+:$EPUBLIB_STANDARD_EBOOKS}" \
+  swift test --filter NativeCorpusQualificationTests
+```
+
+The [first qualification](native-viewer.md#qualification) ran it on books that belong to
+another project; EPUBLib does not depend on that project or its files, and they are not to be
+used to test it.
 
 ## Probes and recorded inputs
 
 What a measurement or a comparison found is on its issue. These are the scripts, variables
 and inputs that repeat one.
+
+### UIKit note presentation in an app-hosted test bundle
+
+On Xcode 27, the package XCTest host used here does not complete generic UIKit modal
+presentations, even for a plain view controller. Its note tests still verify routing, content, and activation order.
+The app-hosted lane verifies the actual animated presentation, attachment, and dismissal.
+
+The portable reproduction patch and its applicable commit are recorded on
+[issue #257](https://github.com/vocaro/EPUBLib/issues/257#issuecomment-6174234834). Save that patch as
+`note-apphost-reproduction.patch` and apply it from the repository root. The generated
+project and all run output stay under the ignored `.build/verification/note-apphost/`.
+
+```sh
+git fetch origin
+git show origin/main:AGENTS.md
+git apply --check note-apphost-reproduction.patch
+git apply note-apphost-reproduction.patch
+bash .build/verification/note-apphost/run-note-apphosted.sh
+```
+
+This needs Xcode 27 with the iOS 27 simulator runtime, XcodeGen, Python 3, and Perl. The
+runner creates and deletes its own iPhone 17 Pro and iPad Air 13-inch M4 simulators, always
+addresses their UUIDs, and stops only children it started when interrupted. It disables
+the debugger and code signing. `DEVELOPER_DIR`, `EPUB_SIM_RUNTIME`, and
+`EPUB_SIM_BOOT_TIMEOUT` override the Xcode location, runtime, and boot timeout;
+`NOTE_SIM_KIND=iPhone-17-Pro` selects just that device type when a narrower rerun is needed.
+
+The scheme sets `EPUBLIB_NOTE_APP_HOSTED=YES`. Both devices must execute five
+`NoteLinkSessionTests` and two `NoteUIKitPresentationControlTests`: seven passes, no failures
+or skips. The runner holds filters in an array and checks the actual test-case pass counts
+and `Executed 7 tests` summary, rather than accepting an empty filtered success. Optional
+arguments select either of those two classes; the required counts remain five and two.
+
+Each run prints its unique output directory. It records the tested commit, device-creation
+output, boot logs, and test transcripts there.
 
 ### Search collation vectors
 
@@ -789,6 +903,45 @@ source partitions and boundary/interior/end page lookups remain checked.
 The qualification of 2026-10-13 against a frozen `main`, with its paired UIKit data, is on
 [#242](https://github.com/vocaro/EPUBLib/issues/242#issuecomment-6159295037).
 
+`BoxPlanAgreementTests` holds the box plan to the section's layout: every planned line starts
+where the layout's line at the same character does, within 0.75 points, in generated sections
+whose indented tabs, tabbed table rows, tables with margins, captions, empty paragraphs,
+right-to-left text, drop caps and list markers stand above, between and below floats and
+positioned boxes, and every page of
+those sections passes `PageTextGeometryTests.assertVisiblePages`
+([#377](https://github.com/vocaro/EPUBLib/issues/377)). Sections whose boxes are all left in
+flow have no plan and are skipped. It defaults to 24 sections:
+
+```sh
+BOX_PLAN_SECTIONS=300 BOX_PLAN_SEED=377 swift test --jobs 1 --filter BoxPlanAgreementTests
+```
+
+`BOX_PLAN_ONLY=12,20` checks only those sections, and `BOX_PLAN_DIAGNOSTICS=1` prints each
+section's markup.
+
+`TableNarrowCellTests` generates tables whose cells hold lists with markers of any width,
+padding, negative and positive text indents and nested tables, in either direction. At widths
+from 24 to 120 points and page heights from 24 to 240, every cell, nested ones included, is as
+tall as its last line reaches and each of its lines is in exactly one slice of its rows; paged
+at small viewports, every page passes `PageTextGeometryTests.assertVisiblePages`. It also holds
+#569's reproductions and #377's nested cell to their words in each page's Copy text and in what
+VoiceOver reads there ([#569](https://github.com/vocaro/EPUBLib/issues/569)). It defaults to 24
+tables; `TABLE_NARROW_SECTIONS` and `TABLE_NARROW_SEED` (default 569) choose them:
+
+```sh
+TABLE_NARROW_SECTIONS=400 swift test --jobs 1 --filter TableNarrowCellTests
+```
+
+`PageMeasurementTests` holds the sections that lost characters before every page was measured
+([#570](https://github.com/vocaro/EPUBLib/issues/570)), each by its whole-page character rule:
+`PageTextGeometryTests`' seed 22 section 443, small justified and Chinese-text paragraphs, lines
+taller than their page that mix large and small runs or text and a table row, and a page whose
+own first line holds a tall row. It also holds a justified paragraph of verse, a `<br>` after
+each line: a page inside it lays out the paragraph only up to the next line break that ends a
+line of text, with the same lines and character positions as with the paragraph's whole rest. Its generated sections have no box plan and pages ending
+inside justified, tabbed and indented paragraphs; `PAGE_MEASUREMENT_SECTIONS` (default 120)
+and `PAGE_MEASUREMENT_SEED` (default 570) choose them.
+
 ### Reader controls probe
 
 `Examples/ControlsQualification` is the host: `EPUBReaderView` in an ordinary `NavigationStack`
@@ -1021,11 +1174,22 @@ fourth, **Pictures and their words** (`OPS/pictures.xhtml`), holds what a book c
 picture: nothing, that it is decoration (an empty `alt`), or words. Each stands in a line of
 text; a decorative one is also all that a link holds, and stands beside words in a link; and
 two come from a file that has a title of its own, one with an empty `alt` and one with none.
+After them come pictures the book keeps from assistive technology, each in a line of text:
+"Ornament" with words and `role="presentation"`, "Plain ornament" with no `alt` and
+`role="none"`, "Kept square" with words and `aria-hidden="true"`, "Drawn square" an inline
+SVG with a title and `aria-hidden="true"`, "Quiet jump:" before a link that such a picture
+with words is all of, and "Jump with an ornament", a link whose picture has
+`role="presentation"`. Every word the book gives those pictures begins with "Unspoken", and
+none is to be heard. Two it does not keep from it close the section: "Square shown to all",
+with `aria-hidden="false"`, and "Square with a note", whose `role="presentation"` ARIA
+ignores for its `aria-describedby`.
 None of the section's words is one VoiceOver uses for a picture or a link, so those in a
 transcript are VoiceOver's own. A fifth, **Scenes set apart** (`OPS/scenes.xhtml`), holds
-rules: an `<hr>` between two paragraphs, one the book gives `role="presentation"`, and one
-alone on a page of its own, with a last paragraph on the page after it. None of its words is
-one a screen reader uses for a rule either. A sixth, **What each line offers**
+rules: an `<hr>` between two paragraphs; three the book keeps from assistive technology as
+ornament, before "Words after an ornament." with `role="presentation"`, before "Words after
+a plain ornament." with `role="none"` and before "Words after a kept ornament." with
+`aria-hidden="true"`; and one alone on a page of its own, with a last paragraph on the page
+after it. None of its words is one a screen reader uses for a rule either. A sixth, **What each line offers**
 (`OPS/offers.xhtml`), shows every kind of item at once, on one page and one
 screen, for what VoiceOver's rotor offers on each: its heading, lines of words ("Plain words
 above." and "Plain words below."), a link inside a line (**Lone jump**), a picture with words
@@ -1091,8 +1255,8 @@ the target `crests`, and "Words after the crests." stand round it, and sixty mor
 lines follow. The section
 has no heading and no link, so the book's last heading and its last link are still those
 of the section before it, and none of its words is one VoiceOver uses for a table, a
-picture or a group. A fifteenth, **Gaps inside grids** (`OPS/gaps.xhtml`), the book's
-last, holds rows that have nothing to say, as the rows that space out a table used for
+picture or a group. A fifteenth, **Gaps inside grids** (`OPS/gaps.xhtml`),
+holds rows that have nothing to say, as the rows that space out a table used for
 layout have: a row of two cells that hold nothing, a row of two that hold decoration alone
 (a picture with an empty `alt`), and a row of one cell that holds nothing and spans both
 columns. Its first table is given `role="presentation"` and has one of each, in that
@@ -1103,7 +1267,19 @@ rows between "Oak", "Nine"; "Elm", "Four"; "Ash", "Six"; and "Yew", "Two". "Word
 the gaps." and "Words after the gaps." stand round the first table, "Words before the
 tally." and "Words after the tally." round the second, and sixty numbered lines follow.
 It has no heading and no link either, and none of its words is one VoiceOver uses for a
-table, a picture or a group, or for a place with nothing in it. A second bundled book, opened with
+table, a picture or a group, or for a place with nothing in it. A sixteenth, **Words hidden
+in the flow** (`OPS/veiled.xhtml`), the book's last, holds words that `visibility: hidden`
+hides in the flow, which keep their room on the page and are read by nobody
+([Hidden text](native-viewer.md#hidden-text)): "Shown words before" and "shown words after."
+round "concealed words in the line" in one paragraph; a hidden paragraph, "Concealed
+paragraph words." and "Concealed again.", round "Revealed words inside.", which sets
+`visibility: visible` again; and "Shown words around" and "the last gap." round "collapsed
+concealment", which `visibility: collapse` hides. "Words before the hidden ones." and "Words
+after the hidden ones." stand round them, and sixty numbered lines follow. It has no heading
+and no link, no word of it is one VoiceOver uses, and no shown word holds a hidden one, so
+"concealed", "Concealed" or "collapsed" in a transcript is a hidden word read. Open it with
+`--href OPS/veiled.xhtml` on a simulator and `"launch=-SampleHref OPS/veiled.xhtml"` in a
+hosted session. A second bundled book, opened with
 `-VerificationBook paragraphs`, is for continuous scroll: chapters of forty, forty and six
 ordinary paragraphs of forty numbered words each (`p017w23` is the seventeenth paragraph's
 twenty-third), so a line in the middle of a paragraph can be told from its first, and the end
@@ -1115,7 +1291,8 @@ after the numbered paragraph, the two parked ones (level 1), each opening its se
 section, and "Second part opens" (level 3) and "Third part opens" (level 4) inside the
 section of parts below a jump; the sections of entries and of jumps inside a grid, between
 "What each line offers" and "Tables of data", have none, and neither has the section of
-jumps at a grid's edges nor the last two, of squares and of gaps inside grids. The second book's are "Chapter one", "Chapter two"
+jumps at a grid's edges nor the last three, of squares and of gaps inside grids and of words
+hidden in the flow. The second book's are "Chapter one", "Chapter two"
 and "Chapter three", screens apart.
 Do not import private books for this check.
 
@@ -2680,22 +2857,35 @@ its name. Run a failure first seen with it again at a fixed pause before reporti
    name, and activating it goes to "Link target reached". It reads "Jump with decoration"
    and "Described jump" as links, the second also as an image, and "Square with a title of
    its own" as an image between "Titled picture" and "stands here.". It never says "Book
-   image", and says "Square with a title of its own" once.
+   image", and says "Square with a title of its own" once. It says no word that begins with
+   "Unspoken", on iPhone, iPad and Mac. It reads "Ornament", "Plain ornament", "Kept square"
+   and "Drawn square" and "passed over." with nothing between them, and after "Quiet jump:"
+   stops on a link that is an image without a name, as after "Bare jump:". It reads "Jump
+   with an ornament" as a link and nothing more, and "Square shown to all" and "Square with
+   a note" as images between their lines' words. On a Mac Find Next Link names the first of
+   those links "image" and the second "Jump with an ornament". The first sessions are on
+   [#408](https://github.com/vocaro/EPUBLib/issues/408#issuecomment-6164176609) (Mac) and
+   [#408](https://github.com/vocaro/EPUBLib/issues/408#issuecomment-6165265644) (iPhone and
+   iPad), with their steps.
 8. On the section of scenes, on an iPhone and iPad, in pages and in continuous scroll.
    VoiceOver stops between "First scene ends." and "Second scene starts." and says
-   "Separator", and never "Image". It says the same before "Words after an ornament.",
-   where the rule has `role="presentation"`, which the reader does not read. On the page
+   "Separator", and never "Image". From "Second scene starts." it goes to "Words after an
+   ornament.", "Words after a plain ornament." and "Words after a kept ornament." with no
+   stop between them: the book keeps those three rules from assistive technology
+   ([#408](https://github.com/vocaro/EPUBLib/issues/408)). On the page
    that holds a rule alone it says "Separator" and nothing else in the text, and Next Page
    from there shows "Last words of the scenes.". On a Mac, in a window 600 points wide at
    17 points, open the reader at the section (`"launch=-SampleHref OPS/scenes.xhtml"`).
    Moving by line VoiceOver says "Separator" between "First scene ends." and "Second scene
-   starts." and again before "Words after an ornament."; moving by word a rule is one stop
-   that says the same; and `readall` from the page's first word says it in both places. On
-   the page that holds a rule alone, one `ax:next` step on, it says "In text Separator" on
-   entering and "end of text" on the next line. In continuous scroll, where thirty
-   `ax:next` steps from the start of the book and `lastword` put VoiceOver on "scenes.", it
-   says "Separator" on each of the three lines between "Last words of the scenes." and
-   "First scene ends.". No transcript has "splitter", "collapsed" or "image" at a rule.
+   starts." and nowhere else on the page, and reads "Words after an ornament." and "Words
+   after a plain ornament." with the spaces that stand for the rule before each; the rule
+   that ends the page, before "Words after a kept ornament." on the next, is a line of
+   spaces where it stops once and says nothing. Moving by word a rule it is told of is one
+   stop that says "Separator"; and `readall` from the page's first word says it once. On the page that holds a rule alone, one `ax:next` step on, it says "In text
+   Separator" on entering and "end of text" on the next line. In continuous scroll it says
+   "Separator" on the line between "First scene ends." and "Second scene starts." and on
+   the line of the rule alone, before "Last words of the scenes.", and on no other. No
+   transcript has "splitter", "collapsed" or "image" at a rule.
 9. Headings. On an iPhone or iPad VoiceOver says "Heading" after a heading's words, shown or
    hidden, and reads a heading that takes several lines as one item. With the rotor on
    Headings (`rotor=Headings`, turned after the touch that places the cursor), `flick=down`

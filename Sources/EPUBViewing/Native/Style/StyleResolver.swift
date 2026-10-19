@@ -11,8 +11,8 @@ final class StyleResolver: @unchecked Sendable {
     let typography: NativeTypography
     let document: ContentDocument
     let fonts: FontRegistry?
-    /// An inline style or the indexed sibling-search bound dropped author CSS. The builder
-    /// folds this into `SectionReport.stylesTruncated`.
+    /// An inline style or a sibling-search/filtered-position bound dropped author CSS.
+    /// The builder folds this into `SectionReport.stylesTruncated`.
     let stylesTruncated: Bool
 
     static let maximumInlineStyleBytes = 16 * 1024
@@ -20,6 +20,7 @@ final class StyleResolver: @unchecked Sendable {
     private let author: CSSRuleIndex
     private let facts: ElementFacts
     private let siblingSearches = SiblingSearchMemo()
+    private let selectorPositions: SelectorPositionMemo
     /// The root element's computed font size, which `rem` refers to.
     private var rootFontSize: CGFloat
     let initialValues: ComputedStyle
@@ -27,12 +28,21 @@ final class StyleResolver: @unchecked Sendable {
     init(document: ContentDocument, stylesheets: [CSSStyleSheet], typography: NativeTypography, fonts: FontRegistry? = nil) {
         self.document = document; self.typography = typography; self.fonts = fonts
         facts = ElementFacts(document)
+        selectorPositions = SelectorPositionMemo(document: document)
         // Only parents with more than `directWalk + 1` children can allocate a memo entry.
         // Reserve every retained suffix one entry under every such parent, including nested
         // pseudo-class searches. The production memo therefore never reaches its eviction path.
         let longParents = document.nodes.count { $0.isElement && $0.elementChildren.count > Int(SiblingSearchMemo.defaultDirectWalk) + 1 }
         let maximumSearches: Int? = longParents == 0 ? nil : SiblingSearchMemo.defaultCapacity / longParents
-        author = CSSRuleIndex(sheets: stylesheets, dark: typography.isDark, maximumSiblingSearches: maximumSearches)
+        // One rank cell per element child for every distinct retained `of S` list. Reserving
+        // all eligible parents prevents memory exhaustion from restarting filtered scans.
+        let positionCells = document.nodes.reduce(0) { total, node in
+            let children = node.isElement ? node.elementChildren.count : 0
+            return total + (children > SelectorPositionMemo.directWalk ? children : 0)
+        }
+        let maximumFilters = positionCells == 0 ? Int.max : SelectorPositionMemo.defaultCapacity / positionCells
+        author = CSSRuleIndex(sheets: stylesheets, dark: typography.isDark, maximumSiblingSearches: maximumSearches,
+                              maximumSelectorPositionFilters: maximumFilters)
         var initial = ComputedStyle()
         initial.fontSize = typography.fontSize
         initial.fontFamilies = ["serif"]
@@ -58,7 +68,8 @@ final class StyleResolver: @unchecked Sendable {
     func style(for element: ContentNode, parent: ComputedStyle) -> ComputedStyle {
         guard element.isElement else { return parent }
         let order = element.order
-        let matcher = SelectorMatcher(document: document, facts: facts, siblingSearches: siblingSearches)
+        let matcher = SelectorMatcher(document: document, facts: facts, siblingSearches: siblingSearches,
+                                      selectorPositions: selectorPositions)
         var winners = [CSSValue?](repeating: nil, count: CSSProperty.count)
 
         func apply(_ declarations: [CSSDeclaration], important: Bool) {
@@ -85,8 +96,70 @@ final class StyleResolver: @unchecked Sendable {
         }
 
         let isRoot = element === document.root
-        return compute(winners: winners, userAgent: userAgentWinners, parent: parent,
-                       rem: isRoot ? typography.fontSize : rootFontSize, isRoot: isRoot)
+        let rem = isRoot ? typography.fontSize : rootFontSize
+        guard let generated = generatedRules(for: element, matcher: matcher) else {
+            return compute(winners: winners, userAgent: userAgentWinners, parent: parent, rem: rem, isRoot: isRoot)
+        }
+        return style(for: element, generating: generated, winners: winners, userAgent: userAgentWinners, parent: parent,
+                     rem: rem, isRoot: isRoot)
+    }
+}
+
+// MARK: - Generated content
+
+extension StyleResolver {
+    /// The rules of the element's `::before` and `::after`, each the user agent's and the
+    /// book's that match, or nil when none does. Most elements match none: their style is
+    /// computed as before, with no frame that holds a second computed style, since styles are
+    /// computed at the deepest point of nested tables on a background thread's small stack.
+    private func generatedRules(for element: ContentNode, matcher: SelectorMatcher) -> [(userAgent: [Int], author: [Int])]? {
+        guard UserAgentStyleSheet.index.hasGeneratedContentRules || author.hasGeneratedContentRules else { return nil }
+        let order = element.order
+        let rules = [CSSPseudoElement.before, .after].map { pseudoElement in
+            (userAgent: UserAgentStyleSheet.index.matching(order, matcher: matcher, pseudoElement: pseudoElement),
+             author: author.matching(order, matcher: matcher, pseudoElement: pseudoElement))
+        }
+        return rules.contains(where: { !$0.userAgent.isEmpty || !$0.author.isEmpty }) ? rules : nil
+    }
+
+    /// The element's computed style with its `::before` and `::after` (`GeneratedBoxes`), when
+    /// some rule of theirs matches. A pseudo-element's cascade is its element's without
+    /// presentational hints or a `style` attribute, and it inherits from the element.
+    @inline(never)
+    private func style(for element: ContentNode, generating rules: [(userAgent: [Int], author: [Int])], winners: [CSSValue?],
+                       userAgent: [CSSValue?], parent: ComputedStyle, rem: CGFloat, isRoot: Bool) -> ComputedStyle {
+        var style = compute(winners: winners, userAgent: userAgent, parent: parent, rem: rem, isRoot: isRoot)
+        let before = generatedStyle(of: element, userAgent: rules[0].userAgent, matched: rules[0].author, style: style)
+        let after = generatedStyle(of: element, userAgent: rules[1].userAgent, matched: rules[1].author, style: style)
+        if before != nil || after != nil { style.generated = GeneratedBoxes(before: before, after: after) }
+        return style
+    }
+
+    private func generatedStyle(of element: ContentNode, userAgent: [Int], matched: [Int], style: ComputedStyle) -> ComputedStyle? {
+        guard !userAgent.isEmpty || !matched.isEmpty else { return nil }
+        var winners = [CSSValue?](repeating: nil, count: CSSProperty.count)
+        func apply(_ declarations: [CSSDeclaration], important: Bool) {
+            for declaration in declarations where declaration.important == important {
+                winners[declaration.property.rawValue] = declaration.value
+            }
+        }
+        for entry in userAgent { apply(UserAgentStyleSheet.index.entries[entry].declarations, important: false) }
+        let userAgentWinners = winners
+        for entry in matched { apply(author.entries[entry].declarations, important: false) }
+        for entry in matched where author.entries[entry].hasImportant { apply(author.entries[entry].declarations, important: true) }
+        for entry in userAgent where UserAgentStyleSheet.index.entries[entry].hasImportant {
+            apply(UserAgentStyleSheet.index.entries[entry].declarations, important: true)
+        }
+        // `content` is not inherited, so with no declaration it is `normal`: no box.
+        guard winners[CSSProperty.content.rawValue] != nil else { return nil }
+        var generated = compute(winners: winners, userAgent: userAgentWinners, parent: style, rem: rootFontSize, isRoot: false)
+        guard let items = generated.content, generated.display != .none else { return nil }
+        generated.content = items.map { item in
+            guard case .attribute(let name) = item else { return item }
+            let value = element.attribute(name) ?? (element.isHTML ? element.attribute(name.lowercased()) : nil)
+            return .string(value ?? "")
+        }
+        return generated
     }
 }
 
@@ -105,43 +178,78 @@ struct CSSRuleIndex: Sendable {
         let ancestorBits: [(UInt8, UInt8)]
     }
     private(set) var entries: [Entry] = []
-    /// A selector was omitted to keep all retained sibling searches inside the memo.
+    /// A selector was omitted to keep retained sibling searches and filtered ranks inside their memos.
     private(set) var stylesTruncated = false
-    private var byID: [String: [Int32]] = [:]
-    private var byClass: [String: [Int32]] = [:]
-    private var byType: [String: [Int32]] = [:]
-    private var byAttribute: [String: [Int32]] = [:]
-    private var byAttributeValue: [AttributeValueKey: [Int32]] = [:]
-    /// Names that `byAttribute` or `byAttributeValue` index.
-    private var attributeNames = Set<String>()
-    private var universal: [Int32] = []
+    /// The rules of elements, and apart from them those of their `::before` and `::after`,
+    /// which are bucketed by the originating element.
+    private var buckets = Buckets()
+    private var beforeBuckets = Buckets()
+    private var afterBuckets = Buckets()
 
     private struct AttributeValueKey: Hashable { let name: String; let value: Substring }
 
-    /// nil: no parent can use the memo, so indexing retains parsed selectors without interning.
-    init(sheets: [CSSStyleSheet], dark: Bool, maximumSiblingSearches: Int? = SiblingSearchMemo.defaultCapacity) {
+    private struct Buckets {
+        var byID: [String: [Int32]] = [:]
+        var byClass: [String: [Int32]] = [:]
+        var byType: [String: [Int32]] = [:]
+        var byAttribute: [String: [Int32]] = [:]
+        var byAttributeValue: [AttributeValueKey: [Int32]] = [:]
+        /// Names that `byAttribute` or `byAttributeValue` index.
+        var attributeNames = Set<String>()
+        var universal: [Int32] = []
+        var isEmpty = true
+
+        mutating func insert(_ index: Int32, under key: CSSBucketKey) {
+            isEmpty = false
+            switch key {
+            case .id(let id): byID[id, default: []].append(index)
+            case .className(let name): byClass[name, default: []].append(index)
+            case .type(let name): byType[name, default: []].append(index)
+            case .attribute(let name):
+                byAttribute[name, default: []].append(index); attributeNames.insert(name)
+            case .attributeValue(let name, let value):
+                byAttributeValue[AttributeValueKey(name: name, value: Substring(value)), default: []].append(index)
+                attributeNames.insert(name)
+            case .universal: universal.append(index)
+            }
+        }
+    }
+
+    /// Whether some rule styles a `::before` or an `::after`.
+    var hasGeneratedContentRules: Bool { !beforeBuckets.isEmpty || !afterBuckets.isEmpty }
+
+    /// A nil sibling-search bound means no parent can use that memo, so parsed search identities
+    /// need no interning. Filtered-position admission independently bounds retained `of S` lists.
+    init(sheets: [CSSStyleSheet], dark: Bool, maximumSiblingSearches: Int? = SiblingSearchMemo.defaultCapacity,
+         maximumSelectorPositionFilters: Int = Int.max) {
+        var positionFilters = Set<[CSSComplexSelector]>()
         var searches = CSSSiblingSearchIndex(maximumSearches: maximumSiblingSearches ?? Int.max)
         var order: UInt64 = 0
         for sheet in sheets {
-            for rule in sheet.rules where rule.media.contains(dark: dark) {
-                let important = rule.declarations.contains(where: \.important)
+            // Every rule's selectors are admitted in either appearance, so that a bound drops the
+            // same ones in both. A rule keeps the declarations that take part in `dark`
+            // (`CSSMediaMask.governs`), and one left with none is not matched.
+            for rule in sheet.rules where !rule.media.isEmpty {
+                let declarations = rule.declarations.filter { rule.media.governs($0.property, dark: dark) }
+                let important = declarations.contains(where: \.important)
                 for original in rule.selectors {
+                    let wanted = original.selectorPositionFilters
+                    guard wanted.subtracting(positionFilters).count <= maximumSelectorPositionFilters - positionFilters.count else {
+                        stylesTruncated = true; continue
+                    }
                     let indexed = maximumSiblingSearches == nil ? original : searches.indexed(original)
                     guard let selector = indexed else { stylesTruncated = true; continue }
+                    positionFilters.formUnion(wanted)
                     let index = Int32(entries.count)
-                    entries.append(Entry(selector: selector, declarations: rule.declarations,
+                    guard !declarations.isEmpty else { continue }
+                    entries.append(Entry(selector: selector, declarations: declarations,
                                          key: UInt64(selector.specificity) << 32 | order, hasImportant: important,
                                          ancestorBits: selector.ancestorNames.map(\.bits)))
-                    switch selector.bucketKey {
-                    case .id(let id): byID[id, default: []].append(index)
-                    case .className(let name): byClass[name, default: []].append(index)
-                    case .type(let name): byType[name, default: []].append(index)
-                    case .attribute(let name):
-                        byAttribute[name, default: []].append(index); attributeNames.insert(name)
-                    case .attributeValue(let name, let value):
-                        byAttributeValue[AttributeValueKey(name: name, value: Substring(value)), default: []].append(index)
-                        attributeNames.insert(name)
-                    case .universal: universal.append(index)
+                    switch selector.pseudoElement {
+                    case nil: buckets.insert(index, under: selector.bucketKey)
+                    case .before?: beforeBuckets.insert(index, under: selector.bucketKey)
+                    case .after?: afterBuckets.insert(index, under: selector.bucketKey)
+                    case .other?: break // `CSSStyleSheet` keeps none.
                     }
                 }
                 order += 1
@@ -149,8 +257,18 @@ struct CSSRuleIndex: Sendable {
         }
     }
 
-    /// Entries whose selector matches the element, in ascending cascade order.
-    func matching(_ element: Int, matcher: SelectorMatcher) -> [Int] {
+    /// Entries whose selector matches the element, in ascending cascade order: the element's own
+    /// rules, or with `pseudoElement` those of its `::before` or `::after`.
+    func matching(_ element: Int, matcher: SelectorMatcher, pseudoElement: CSSPseudoElement? = nil) -> [Int] {
+        switch pseudoElement {
+        case nil: matching(element, matcher: matcher, in: buckets)
+        case .before?: beforeBuckets.isEmpty ? [] : matching(element, matcher: matcher, in: beforeBuckets)
+        case .after?: afterBuckets.isEmpty ? [] : matching(element, matcher: matcher, in: afterBuckets)
+        case .other?: []
+        }
+    }
+
+    private func matching(_ element: Int, matcher: SelectorMatcher, in buckets: Buckets) -> [Int] {
         var result: [Int] = []
         let filter = matcher.facts.ancestorFilters[element]
         func test(_ bucket: [Int32]?) {
@@ -162,22 +280,22 @@ struct CSSRuleIndex: Sendable {
             }
         }
         let node = matcher.document.nodes[element]
-        if let id = node.id { test(byID[id]) }
-        for name in matcher.facts.classes[element] { test(byClass[name]) }
-        test(byType[matcher.facts.bucketNames[element]])
-        if !attributeNames.isEmpty {
+        if let id = node.id { test(buckets.byID[id]) }
+        if !buckets.byClass.isEmpty { for name in matcher.facts.classes[element] { test(buckets.byClass[name]) } }
+        test(buckets.byType[matcher.facts.bucketNames[element]])
+        if !buckets.attributeNames.isEmpty {
             for attribute in node.attributes {
                 let name = Self.bucketName(attribute.name)
-                guard attributeNames.contains(name) else { continue }
-                test(byAttribute[name])
-                guard !byAttributeValue.isEmpty else { continue }
-                test(byAttributeValue[AttributeValueKey(name: name, value: Substring(attribute.value))])
+                guard buckets.attributeNames.contains(name) else { continue }
+                test(buckets.byAttribute[name])
+                guard !buckets.byAttributeValue.isEmpty else { continue }
+                test(buckets.byAttributeValue[AttributeValueKey(name: name, value: Substring(attribute.value))])
                 SelectorMatcher.forEachToken(attribute.value) { token in
-                    if token.count != attribute.value.count { test(byAttributeValue[AttributeValueKey(name: name, value: token)]) }
+                    if token.count != attribute.value.count { test(buckets.byAttributeValue[AttributeValueKey(name: name, value: token)]) }
                 }
             }
         }
-        test(universal)
+        test(buckets.universal)
         guard result.count > 1 else { return result }
         result.sort { entries[$0].key < entries[$1].key }
         // An element can reach one entry through two attributes or repeated tokens.
@@ -368,6 +486,51 @@ final class SiblingSearchMemo: Sendable {
     }
 }
 
+/// Ranks among one parent's element children matching one `of S` list. The resolver owns this
+/// for one immutable document. Both nth directions and all An+B patterns share the same table.
+final class SelectorPositionMemo: Sendable {
+    static let directWalk = Int(SiblingSearchMemo.defaultDirectWalk) + 1
+    /// Rank cells (4 MB), reserved at rule admission across every eligible parent and list.
+    static let defaultCapacity = 1 << 20
+    struct Key: Hashable, Sendable {
+        let parent: Int32
+        // Equality includes the whole selector value; a hash collision cannot share a table.
+        let selectors: [CSSComplexSelector]
+    }
+    struct Table: Sendable {
+        /// Indexed by structural element-child position minus one; zero means outside S.
+        let ranks: [Int32]
+        let count: Int32
+    }
+    private struct State: Sendable {
+        var entries: [Key: Table] = [:]
+        var cells = 0
+    }
+    let document: ContentDocument
+    private let capacity: Int
+    private let state = Mutex(State())
+
+    init(document: ContentDocument, capacity: Int = SelectorPositionMemo.defaultCapacity) {
+        self.document = document; self.capacity = capacity
+    }
+
+    var entryCount: Int { state.withLock { $0.entries.count } }
+    var cellCount: Int { state.withLock { $0.cells } }
+
+    func table(for key: Key, cells: Int, build: () -> Table) -> Table? {
+        state.withLock { state in
+            if let table = state.entries[key] { return table }
+            guard cells <= capacity - state.cells else { return nil }
+            // Parsed S lists cannot contain filtered nth pseudo-classes, so building cannot
+            // recursively acquire this lock. Inner `~` searches use their own separate memo.
+            let table = build()
+            state.entries[key] = table
+            state.cells += cells
+            return table
+        }
+    }
+}
+
 /// The compounds a matcher has tested: what matching cost, whatever the machine.
 final class SelectorTally {
     var compounds = 0
@@ -379,6 +542,8 @@ struct SelectorMatcher {
     let facts: ElementFacts
     /// nil: every `~` walks the siblings before the element.
     var siblingSearches: SiblingSearchMemo?
+    /// nil: filtered nth pseudo-classes count by a direct scan, useful as a reference in tests.
+    var selectorPositions: SelectorPositionMemo?
     /// Set by tests that hold matching to a cost.
     var tally: SelectorTally?
 
@@ -560,14 +725,30 @@ struct SelectorMatcher {
         return difference / a >= 0 && difference % a == 0
     }
 
-    /// `:nth-child(… of S)` re-matches siblings, so it is not evaluated among more than this many.
-    static let maximumSiblingsForSelectorPositions = 1000
-
     /// Position among element siblings matching `selectors`, from the start or the end.
     private func position(of element: Int, among selectors: [CSSComplexSelector], fromEnd: Bool) -> Int? {
         let parent = Int(facts.parents[element])
-        guard facts.siblingCounts[element] <= Self.maximumSiblingsForSelectorPositions else { return nil }
-        let siblings = parent >= 0 ? document.nodes[parent].children.filter(\.isElement) : [document.nodes[element]]
+        if parent >= 0, Int(facts.siblingCounts[element]) > SelectorPositionMemo.directWalk,
+           let memo = selectorPositions, memo.document === document {
+            let key = SelectorPositionMemo.Key(parent: Int32(parent), selectors: selectors)
+            if let table = memo.table(for: key, cells: Int(facts.siblingCounts[element]), build: {
+                let siblings = document.nodes[parent].elementChildren
+                var ranks = [Int32](repeating: 0, count: siblings.count)
+                var count: Int32 = 0
+                for (index, sibling) in siblings.enumerated() where selectors.contains(where: { matches($0, sibling.order) }) {
+                    count += 1
+                    ranks[index] = count
+                }
+                return SelectorPositionMemo.Table(ranks: ranks, count: count)
+            }) {
+                let rank = table.ranks[Int(facts.positions[element]) - 1]
+                guard rank > 0 else { return nil }
+                return Int(fromEnd ? table.count - rank + 1 : rank)
+            }
+        }
+        // Small runs do constant bounded work; an explicitly uncached matcher remains an
+        // independent reference implementation, including documents with more than 1,000 siblings.
+        let siblings = parent >= 0 ? document.nodes[parent].elementChildren : [document.nodes[element]]
         var position = 0
         for sibling in fromEnd ? siblings.reversed() : siblings {
             guard selectors.contains(where: { matches($0, sibling.order) }) else { continue }

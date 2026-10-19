@@ -262,7 +262,13 @@ typealias TableNativeTextView = UITextView
     }
     override var isFlipped: Bool { true }
     override var textContainerOrigin: NSPoint { CGPoint(x: -textOffset.x, y: -textOffset.y) }
-    override func accessibilityValue() -> String? { (cellText.string as NSString).substring(with: shownCharacters) }
+    /// The cell's characters one for one with their ranges, each that `visibility: hidden` hides
+    /// a space (`NSAttributedString.readerBlankingHidden`), as in the text around the table.
+    override func accessibilityValue() -> String? { accessibilityCharacters(in: shownCharacters) }
+
+    private func accessibilityCharacters(in range: NSRange) -> String {
+        cellText.readerBlankingHidden((cellText.string as NSString).substring(with: range), from: range.location)
+    }
     override func accessibilityNumberOfCharacters() -> Int { shownCharacters.length }
     override func accessibilityVisibleCharacterRange() -> NSRange { NSRange(location: 0, length: shownCharacters.length) }
 
@@ -281,17 +287,22 @@ typealias TableNativeTextView = UITextView
 
     override func accessibilityString(for range: NSRange) -> String? {
         guard let full = fullAccessibilityRange(range) else { return nil }
-        return (cellText.string as NSString).substring(with: full)
+        return accessibilityCharacters(in: full)
     }
 
     /// An attachment in a cell is to an assistive client what it is in the text around the
     /// table (`ReaderTextView.accessibilityAttributedString(for:)`): its character carries an
     /// element that is an image named by its words, the words of a hidden label as text, or the
-    /// reader's word for a rule, and decoration carries none. The characters stay as they are.
+    /// reader's word for a rule, and decoration carries none. The characters stay as they are,
+    /// but for those `visibility: hidden` hides, which are spaces.
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard let full = fullAccessibilityRange(range) else { return nil }
         let result = NSMutableAttributedString(attributedString:
             super.accessibilityAttributedString(for: full) ?? cellText.attributedSubstring(from: full))
+        for run in cellText.readerHiddenCharacters(in: full) where NSMaxRange(run) - full.location <= result.length {
+            result.replaceCharacters(in: NSRange(location: run.location - full.location, length: run.length),
+                                     with: String(repeating: " ", count: run.length))
+        }
         cellText.enumerateAttribute(.attachment, in: full) { value, characters, _ in
             guard let element = attachmentElement(for: value, at: characters) else { return }
             let relative = NSRange(location: characters.location - full.location, length: characters.length)
@@ -312,9 +323,11 @@ typealias TableNativeTextView = UITextView
     }
 
     /// The element of the attachment `value` at `range` of the cell's text, or none for what an
-    /// assistive client passes over: decoration, and anything else that has no words.
+    /// assistive client passes over: decoration, an image or a rule the book keeps from it, and
+    /// anything else that has no words.
     private func attachmentElement(for value: Any?, at range: NSRange) -> NSAccessibilityElement? {
-        if value is ReaderRuleAttachment {
+        if let rule = value as? ReaderRuleAttachment {
+            guard !cellText.passesOver(rule, at: range) else { return nil }
             let element = keptElement(at: range)
             ReaderRuleAttachment.makeSeparator(element)
             return element
@@ -322,13 +335,13 @@ typealias TableNativeTextView = UITextView
         if let image = value as? ReaderImageAttachment {
             guard !cellText.passesOver(image, at: range) else { return nil }
             let element = keptElement(at: range)
-            element.setReaderAttachment(words: image.alt, isText: false)
+            element.setReaderAttachment(words: image.spokenAlt, isText: false)
             // VoiceOver reads the help of an element without a label as its name, in the line.
-            element.setAccessibilityHelp(image.alt.isEmpty ? nil : ReaderImageInspection.accessibilityHelp)
+            element.setAccessibilityHelp(image.spokenAlt.isEmpty ? nil : ReaderImageInspection.accessibilityHelp)
             element.setAccessibilityCustomActions([inspectAction(image)])
             return element
         }
-        guard let words = (value as? ReaderTextualAttachment)?.textEquivalent, !words.isEmpty else { return nil }
+        guard let words = (value as? ReaderTextualAttachment)?.spokenEquivalent, !words.isEmpty else { return nil }
         let element = keptElement(at: range)
         // A table inside the cell is its cells' words: its rows have no text views of their own.
         element.setReaderAttachment(words: words, isText: value is SpokenLabelAttachment || value is TableRowAttachment)
@@ -414,16 +427,17 @@ typealias TableNativeTextView = UITextView
         return lines.firstIndex { NSLocationInRange(index, $0) } ?? NSNotFound
     }
     override func accessibilityInsertionPointLineNumber() -> Int { accessibilityLine(for: accessibilitySelectedTextRange().location) }
-    /// The images an assistive technology may inspect: all but the decoration it passes over.
+    /// The images an assistive technology may inspect: all but the decoration it passes over,
+    /// and the images the book keeps from it.
     private func imageActions() -> [ReaderImageAttachment] {
         var images: [ReaderImageAttachment] = []
         cellText.enumerateAttribute(.attachment, in: shownCharacters) { value, _, _ in
-            if let image = value as? ReaderImageAttachment, image.alternative != .decorative { images.append(image) }
+            if let image = value as? ReaderImageAttachment, !image.isPassedOverByAssistiveTechnology { images.append(image) }
         }
         return images
     }
     private func inspectAction(_ image: ReaderImageAttachment) -> NSAccessibilityCustomAction {
-        NSAccessibilityCustomAction(name: image.alt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.alt)") {
+        NSAccessibilityCustomAction(name: image.spokenAlt.isEmpty ? "Inspect Image" : "Inspect Image: \(image.spokenAlt)") {
             [weak self] in self?.onImage?(image); return self?.onImage != nil
         }
     }

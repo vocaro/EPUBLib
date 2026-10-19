@@ -238,7 +238,7 @@ import SwiftUI
               components.scheme == nil, components.host == nil, components.query == nil else {
             throw EPUBReaderError.invalidCommand("Unknown publication href")
         }
-        guard let section = publication.spine.firstIndex(where: { $0.resource.path == path }) else {
+        guard let section = NativeFallbacks.spineIndex(for: path, in: publication) else {
             throw EPUBReaderError.invalidCommand("Not a section of this publication")
         }
         return (section, parts.count == 2 ? String(parts[1]).removingPercentEncoding : nil)
@@ -249,10 +249,15 @@ import SwiftUI
         let ticket = beginNavigation()
         let text = await book.build(section)
         guard isCurrent(ticket) else { return }
+        showNavigationTarget(text, fragment: fragment)
+    }
+
+    /// Shows an already built navigation target, after its caller checks its navigation ticket.
+    private func showNavigationTarget(_ text: SectionText, fragment: String?) {
         canvas?.clearSelection()
         let position = fragment.flatMap { id in text.document.nodes.first(where: { $0.id == id }) }
             .map { text.renderedPosition(DOMPosition($0, 0)) }
-            ?? ReaderTextPosition(section: section, offset: fragment.flatMap { text.anchors[$0] } ?? 0)
+            ?? ReaderTextPosition(section: text.spineIndex, offset: fragment.flatMap { text.anchors[$0] } ?? 0)
         canvas?.show(position, selecting: nil)
     }
 
@@ -338,8 +343,9 @@ import SwiftUI
         withdrawSearchResults()
         refreshHighlights()
         emit(.searchChanged(.idle))
-        // A match inside content that renders nothing of its own (a hidden footnote) is a place
-        // to go, not a passage to select; one that renders is preferred.
+        // A match inside content that renders nothing of its own (a hidden footnote), or that
+        // takes in text `visibility: hidden` hides, is a place to go, not a passage to select;
+        // one that renders and shows is preferred.
         var hidden: ReaderTextPosition?
         for index in publication.spine.indices {
             guard isCurrent(ticket), !closed else { return }
@@ -349,7 +355,7 @@ import SwiftUI
             guard isCurrent(ticket) else { return }
             for match in matches {
                 let range = range(of: match, in: section)
-                guard range.isEmpty else {
+                guard range.isEmpty || section.holdsHiddenText(range) else {
                     canvas?.clearSelection()
                     canvas?.show(range.start, selecting: highlight ? range : nil)
                     return
@@ -574,7 +580,7 @@ import SwiftUI
         var drawn: [ReaderHighlight] = []
         for (index, matches) in searchMatches {
             if searchRanges[index] == nil, let section = book.section(index) {
-                searchRanges[index] = matches.map { range(of: $0, in: section) }.filter(SearchResultBuilder.isRendered)
+                searchRanges[index] = matches.map { range(of: $0, in: section) }.filter { SearchResultBuilder.isListed($0, in: section) }
             }
             for (number, range) in (searchRanges[index] ?? []).enumerated() {
                 drawn.append(ReaderHighlight(id: "search-\(index)-\(number)", range: range, kind: .search))
@@ -786,17 +792,35 @@ extension NativeSession: ReaderCanvasDelegate {
     func canvasDidRequestSelectionAction(_ canvas: any ReaderCanvas) { performSelectionAction() }
 
     func canvas(_ canvas: any ReaderCanvas, didActivate link: ReaderLink, at position: ReaderTextPosition, rect: CGRect) {
-        guard isReady, !closed else { return }
+        activateLink(link, from: rect)
+    }
+
+    /// Reserves the activation's navigation order before loading its target. The returned task
+    /// completes after the activation is shown or superseded by a newer navigation action.
+    @discardableResult
+    func activateLink(_ link: ReaderLink, from rect: CGRect) -> Task<Void, Never>? {
+        guard isReady, !closed else { return nil }
         switch link {
         case .external:
             emit(.notice("This reader does not open links outside the book."))
-        case .internal(let href):
-            Task { try? await navigate(href) }
-        case .note(let href):
-            Task {
-                if let note = await noteContent(href) { self.canvas?.presentNote(note, from: rect) }
-                else { try? await navigate(href) }
+            return nil
+        case .internal(let href), .note(let href):
+            guard let target = try? Self.target(of: href, in: publication) else { return nil }
+            let ticket = beginNavigation()
+            let task = Task { [weak self] in
+                guard let self else { return }
+                // A plain link can name a hidden note in another document. Only the target's
+                // build knows that, so inspect its captured notes before navigating.
+                let text = await self.book.build(target.section)
+                guard self.isReady, self.isCurrent(ticket) else { return }
+                if let fragment = target.fragment, let note = text.notes[fragment] {
+                    self.canvas?.presentNote(note, from: rect)
+                } else {
+                    self.showNavigationTarget(text, fragment: target.fragment)
+                }
             }
+            tasks.append(task)
+            return task
         }
     }
 
@@ -806,14 +830,6 @@ extension NativeSession: ReaderCanvasDelegate {
             guard let text = await self?.book.build(index), let self, self.isCurrent(ticket) else { return }
             self.canvas?.show(ReaderTextPosition(section: index, offset: forward ? 0 : text.string.length), selecting: nil)
         })
-    }
-
-    private func noteContent(_ href: String) async -> NSAttributedString? {
-        let parts = href.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
-        guard parts.count == 2, let path = String(parts[0]).removingPercentEncoding,
-              let fragment = String(parts[1]).removingPercentEncoding,
-              let index = publication.spine.firstIndex(where: { $0.resource.path == path }) else { return nil }
-        return await book.build(index).notes[fragment]
     }
 }
 

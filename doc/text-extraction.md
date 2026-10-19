@@ -32,9 +32,11 @@ Semantic types are the whitespace-separated tokens on EPUB-namespace `type` attr
 that section's body, including nested sections. They describe author markup; they are neither
 trusted classifications nor instructions, and are not inferred from filenames or prose.
 
-Text includes body character data in document order, joins inline markup without inserting spaces
+Text includes body character data and authored root content following the body in document order,
+including trailing headings and anchors on the strict XML path ([#197](https://github.com/vocaro/EPUBLib/issues/197)).
+It joins inline markup without inserting spaces
 inside words, and separates common block elements and line breaks. Script, style and template
-subtrees are excluded. XML entities and CDATA are decoded. Whitespace is normalized to single spaces
+subtrees are excluded. XML entities and CDATA are decoded. In recovery, a comment also ends at `--!>`, and an `&#` with no initial decimal or hexadecimal digit stays literal in text and surfaced attributes, matching the native reader ([#244](https://github.com/vocaro/EPUBLib/issues/244)). Whitespace is normalized to single spaces
 within lines and single newlines at block boundaries. Whitespace normalization operates on
 Unicode scalars, so combining marks following a space or
 no-break space remain in body text, headings, image alternatives and MathML text
@@ -106,11 +108,20 @@ there. A `<!-->` or `<!--->` that follows a `<` kept as text, with no `>` betwee
 there, as HTML closes it. In other malformed markup the tree is libxml2's, which is not always
 the HTML Standard's: it can end a script or style at an end tag that directly follows the start
 tag (any but `</body>` and `</html>`, which end nothing there either), for example, and
-elsewhere reads `<!-->` as a comment that is still open. A self-closing `<html/>`, `<head/>` or
-`<body/>` is left to libxml2 as well: where the tag is out of place, libxml2 ignores it and lets
-its `/>` close the element that is open, which can end the body early. The rest of the section
-is then not read, or, where a later `<body>` opens a second body, the section is
-`malformedContent`. That is a known gap
+elsewhere reads `<!-->` as a comment that is still open. Script and style content is read where
+the HTML Standard reads it: `<script"q>`, `<script=x>`, or a `<script>` in a title, a `textarea`,
+a comment or an attribute value opens none, and what follows is read
+([#255](https://github.com/vocaro/EPUBLib/issues/255)). Inside SVG and MathML, and in the head
+but for a title's first tag, such a tag is left as libxml2 reads it. Two limits remain, both in
+markup broken several ways at once: what such a tag used to hide as script, libxml2 now reads as
+markup, and where it pairs quotes or builds the tree otherwise than HTML (as in
+`<script 1="a b="c>`), some text or anchors that were read before can be lost; and a quoted value
+that never ends there, which used to be copied as script, refuses the section
+([#255](https://github.com/vocaro/EPUBLib/issues/255)). A self-closing `<html/>`,
+`<head/>` or `<body/>` is left to libxml2 as well: where the tag is out of place, libxml2 ignores
+it and lets its `/>` close the element that is open, which can end the body early. What libxml2
+then builds after the body, in a second body, or in a root it opens again is read as the
+body's, and a title it builds outside the head before the body is the section's title
 ([#292](https://github.com/vocaro/EPUBLib/issues/292)). A recovered tree with no body is
 `malformedContent` too, which includes a head `style` or `script` with no end tag whose content
 begins with `</html>` or `</body>` and goes on with text: it runs to the end of the file (HTML

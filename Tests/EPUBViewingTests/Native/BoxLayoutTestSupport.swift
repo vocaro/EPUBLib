@@ -67,7 +67,7 @@ import UIKit
                 let lineRange = NSRange(location: start + line.characterRange.location, length: line.characterRange.length)
                 if NSIntersectionRange(wanted, lineRange).length > 0 {
                     result.append((lineRange, line.typographicBounds.offsetBy(dx: fragment.layoutFragmentFrame.minX,
-                                                                             dy: fragment.layoutFragmentFrame.minY)))
+                                                                             dy: fragment.layoutFragmentFrame.origin.y)))
                 }
             }
             return true

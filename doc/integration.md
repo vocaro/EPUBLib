@@ -24,6 +24,11 @@ func readPublication(at bookURL: URL) throws -> EPUBPublication {
 ```
 <!-- /snippet -->
 
+A book whose archive directory is damaged opens without the entries that cannot be read, as
+without files the archive lacks, and `publication.lostEntries` gives how many there were and
+whichever of their paths can still be read. When it is not nil, tell the reader the book may be
+incomplete.
+
 ## Showing a book
 
 Create and retain a reading session on the main actor, then mount `EPUBReaderView(session:)`:

@@ -97,8 +97,11 @@ files = {'mimetype': 'application/epub+zip',
                     'cell</td></tr><tr><td>Third cell</td><td>Fourth '
                     'cell</td></tr></table><p>Shown words after the table.</p>LINES_AFTER</body></html>',
  # What a book says a picture is to someone who cannot see it: nothing at all, decoration (an
- # empty alt), or words; alone, inside a link, and in a file that has a title of its own. No
- # word here is one VoiceOver uses for a picture or a link, so those in a transcript are its own.
+ # empty alt), or words; alone, inside a link, and in a file that has a title of its own. Then
+ # pictures it keeps from assistive technology (role="presentation" or "none", aria-hidden),
+ # whose words begin "Unspoken" and are never to be heard, and two it does not: aria-hidden
+ # "false", and a presentational role ARIA ignores for a global ARIA attribute. No word here
+ # is one VoiceOver uses for a picture or a link, so those in a transcript are its own.
  'OPS/pictures.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
                        'xmlns="http://www.w3.org/1999/xhtml"><head><title>Pictures and their '
                        'words</title><style>img { width: 32px; height: 32px; '
@@ -111,17 +114,33 @@ files = {'mimetype': 'application/epub+zip',
                        'href="body.xhtml#link-target"><img src="square.svg" alt="Described '
                        'jump"/></a></p><p>Titled decoration <img src="titled.svg" alt=""/> '
                        'passed over.</p><p>Titled picture <img src="titled.svg"/> stands '
-                       'here.</p><p>Last words about pictures.</p></body></html>',
+                       'here.</p><p>Ornament <img src="square.svg" alt="Unspoken ornament words" '
+                       'role="presentation"/> passed over.</p><p>Plain ornament <img src="square.svg" '
+                       'role="none"/> passed over.</p><p>Kept square <img src="square.svg" '
+                       'alt="Unspoken kept words" aria-hidden="true"/> passed over.</p><p>Drawn square '
+                       '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" '
+                       'aria-hidden="true"><title>Unspoken drawn title</title><rect width="32" '
+                       'height="32" fill="#7a00cc"/></svg> passed over.</p><p>Quiet jump: <a '
+                       'href="body.xhtml#link-target"><img src="square.svg" alt="Unspoken jump words" '
+                       'aria-hidden="true"/></a></p><p><a href="body.xhtml#link-target"><img '
+                       'src="square.svg" alt="Unspoken" role="presentation"/> Jump with an '
+                       'ornament</a></p><p>Shown square <img src="square.svg" alt="Square shown to all" '
+                       'aria-hidden="false"/> stands here.</p><p>Noted square <img src="square.svg" '
+                       'alt="Square with a note" role="presentation" aria-describedby="picture-note"/> '
+                       'stands here.</p><p id="picture-note">Last words about pictures.</p></body></html>',
  # What stands between two scenes: a rule, which HTML makes a change of subject and not a
- # picture; one the book gives the presentation role, as ornament; and one alone on its page,
- # where it is all VoiceOver has to stand on. No word here is one a screen reader uses for a
- # rule, so those in a transcript are VoiceOver's or the reader's own.
+ # picture; three the book keeps from assistive technology as ornament, with the presentation
+ # role, the role none and aria-hidden; and one alone on its page, where it is all VoiceOver
+ # has to stand on. No word here is one a screen reader uses for a rule, so those in a
+ # transcript are VoiceOver's or the reader's own.
  'OPS/scenes.xhtml': '<?xml version="1.0" encoding="UTF-8"?><html '
                      'xmlns="http://www.w3.org/1999/xhtml"><head><title>Scenes set '
                      'apart</title><style>.alone, .after { break-before: page; '
                      '}</style></head><body><h1>Scenes set apart</h1><p>First scene '
                      'ends.</p><hr/><p>Second scene starts.</p><hr '
-                     'role="presentation"/><p>Words after an ornament.</p><div '
+                     'role="presentation"/><p>Words after an ornament.</p><hr role="none"/><p>Words '
+                     'after a plain ornament.</p><hr aria-hidden="true"/><p>Words after a kept '
+                     'ornament.</p><div '
                      'class="alone"><hr/></div><p class="after">Last words of the '
                      'scenes.</p></body></html>',
  # What each item of a page or a screen has to offer through VoiceOver's rotor, all in sight at
@@ -280,7 +299,7 @@ files["OPS/squares.xhtml"] = (
     '<img src="square.svg" alt="Blue star"/></td></tr></table>'
     "<p>Words after the crests.</p>"
     + "".join(f"<p>Line {i:02d} after the crests.</p>" for i in range(1, 61)) + "</body></html>")
-# Rows that have nothing to say, the book's last section: a row of two cells that hold nothing,
+# Rows that have nothing to say: a row of two cells that hold nothing,
 # a row of two that hold decoration alone, and a row of one cell that holds nothing, each
 # between two rows of words, as the rows that space out a table used for layout stand. A table
 # marked as layout has them, and so has a table of data, which begins a page of its own under
@@ -301,6 +320,27 @@ files["OPS/gaps.xhtml"] = (
     + gapped([("Oak", "Nine"), ("Elm", "Four"), ("Ash", "Six"), ("Yew", "Two")])
     + "</table><p>Words after the tally.</p>"
     + "".join(f"<p>Line {i:02d} after the tally.</p>" for i in range(1, 61)) + "</body></html>")
+# Words a book hides in the flow, the book's last section: `visibility: hidden` keeps their
+# room on the page and hides them from the eye and from assistive technology alike, as
+# `visibility: collapse` does outside a table. Words inside a hidden paragraph that set
+# `visibility: visible` again are shown and read. Sixty numbered lines follow, so that the
+# section's first line can be shown at the top in continuous scroll. It has no heading and no
+# link, so the book's last heading and its last link are still those of the parts below a
+# jump, and no word here is one VoiceOver uses; no shown word holds a hidden one.
+files["OPS/veiled.xhtml"] = (
+    '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Words hidden '
+    'in the flow</title><style>.veiled { visibility: hidden; } .revealed { visibility: visible; } '
+    '.collapsed { visibility: collapse; }</style></head><body><p>Words before the hidden ones.</p>'
+    '<p>Shown words before <span class="veiled">concealed words in the line</span> shown words after.</p>'
+    '<p class="veiled">Concealed paragraph words. <span class="revealed">Revealed words inside.</span> '
+    'Concealed again.</p><p>Shown words around <span class="collapsed">collapsed concealment</span> the last gap.</p>'
+    "<p>Words after the hidden ones.</p>"
+    + "".join(f"<p>Line {i:02d} after the hidden words.</p>" for i in range(1, 61)) + "</body></html>")
+files["OPS/package.opf"] = files["OPS/package.opf"].replace(
+    '<item id="image" ', '<item id="veiled" href="veiled.xhtml" media-type="application/xhtml+xml"/><item id="image" ').replace(
+    '<itemref idref="gaps"/></spine>', '<itemref idref="gaps"/><itemref idref="veiled"/></spine>')
+files["OPS/nav.xhtml"] = files["OPS/nav.xhtml"].replace(
+    "</ol></nav>", '<li><a href="veiled.xhtml">Words hidden in the flow</a></li></ol></nav>')
 
 files["OPS/body.xhtml"] = files["OPS/body.xhtml"].replace(
     "NUMBERED_WORDS", " ".join(f"word{i:04d}" for i in range(1, 1201)))
@@ -327,7 +367,7 @@ chapters = {"one": range(1, 41), "two": range(41, 81), "three": range(81, 87)}
 paragraphs = dict(files)
 for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "scenes.xhtml", "offers.xhtml",
              "entries.xhtml", "cells.xhtml", "grids.xhtml", "ledger.xhtml", "tallrow.xhtml", "edges.xhtml", "parts.xhtml",
-             "squares.xhtml", "gaps.xhtml", "square.svg", "titled.svg"]:
+             "squares.xhtml", "gaps.xhtml", "veiled.xhtml", "square.svg", "titled.svg"]:
     del paragraphs["OPS/" + name]
 paragraphs["OPS/package.opf"] = (
     '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '

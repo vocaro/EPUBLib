@@ -102,6 +102,99 @@ enum ContentSemantics {
         return authored <= 6 ? authored : 0
     }
 
+    // MARK: Assistive technology
+
+    /// Whether the book keeps `element`, an image or a rule, from assistive technology, as
+    /// WAI-ARIA 1.2 and HTML-AAM map it: `aria-hidden="true"` on it or on an element round it,
+    /// or a presentational role (`presentation` or `none`). It is drawn all the same, and
+    /// what Copy and search take for it does not change. ARIA ignores a presentational role
+    /// on an element that can take focus (`tabindex`) or that has a global ARIA attribute,
+    /// such as `aria-label` or `aria-describedby`. `aria-hidden="false"` hides nothing.
+    static func isHiddenFromAssistiveTechnology(_ element: ContentNode) -> Bool {
+        var node: ContentNode? = element
+        while let current = node {
+            if current.isElement, isTrue(current.attribute("aria-hidden")) { return true }
+            node = current.parent
+        }
+        return hasPresentationalRole(element)
+    }
+
+    /// Whether `element` is presentational to assistive technology: its role is `presentation`
+    /// or `none`, and it can take no focus and has no global ARIA attribute, either of which
+    /// makes ARIA ignore that role. Its own semantics, an image's `alt` among them, are then
+    /// not exposed.
+    static func hasPresentationalRole(_ element: ContentNode) -> Bool {
+        isPresentational(element) && !canTakeFocus(element) && !hasGlobalARIAAttribute(element)
+    }
+
+    /// Whether the role ARIA takes from `element`'s `role` attribute is `presentation` or
+    /// `none`: the first token that names a role, a later one standing in for an earlier one
+    /// that names none.
+    static func isPresentational(_ element: ContentNode) -> Bool {
+        for token in roles(element) {
+            let role = token.lowercased()
+            if role == "presentation" || role == "none" { return true }
+            if ariaRoles.contains(role) || digitalPublishingRoles.contains(role) || graphicsRoles.contains(role) { return false }
+        }
+        return false
+    }
+
+    private static func isTrue(_ value: String?) -> Bool {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "true"
+    }
+
+    /// `tabindex` with an integer, as HTML parses one: the element can take focus.
+    private static func canTakeFocus(_ element: ContentNode) -> Bool {
+        guard var value = element.attribute("tabindex")?.trimmingCharacters(in: .whitespacesAndNewlines)[...] else { return false }
+        if value.first == "-" || value.first == "+" { value = value.dropFirst() }
+        return value.first?.isASCII == true && value.first?.isNumber == true
+    }
+
+    private static func hasGlobalARIAAttribute(_ element: ContentNode) -> Bool {
+        element.attributes.contains { attribute in
+            attribute.namespace.isEmpty && globalARIAAttributes.contains(attribute.name)
+                && !attribute.value.allSatisfy(\.isWhitespace)
+        }
+    }
+
+    /// The global states and properties of WAI-ARIA 1.2 (§6.4), those it deprecates as global
+    /// among them.
+    private static let globalARIAAttributes: Set<String> = [
+        "aria-atomic", "aria-busy", "aria-controls", "aria-current", "aria-describedby", "aria-details", "aria-disabled",
+        "aria-dropeffect", "aria-errormessage", "aria-flowto", "aria-grabbed", "aria-haspopup", "aria-hidden", "aria-invalid",
+        "aria-keyshortcuts", "aria-label", "aria-labelledby", "aria-live", "aria-owns", "aria-relevant", "aria-roledescription",
+    ]
+
+    /// The roles of WAI-ARIA 1.2 that are not abstract, besides `presentation` and `none`. A
+    /// `role` token that is none of these, of DPUB-ARIA (`doc-`) or of the Graphics module
+    /// (`graphics-`), is passed for the next one.
+    private static let ariaRoles: Set<String> = [
+        "alert", "alertdialog", "application", "article", "banner", "blockquote", "button", "caption", "cell", "checkbox",
+        "code", "columnheader", "combobox", "complementary", "contentinfo", "definition", "deletion", "dialog", "directory",
+        "document", "emphasis", "feed", "figure", "form", "generic", "grid", "gridcell", "group", "heading", "img", "insertion",
+        "link", "list", "listbox", "listitem", "log", "main", "marquee", "math", "menu", "menubar", "menuitem",
+        "menuitemcheckbox", "menuitemradio", "meter", "navigation", "note", "option", "paragraph", "progressbar", "radio",
+        "radiogroup", "region", "row", "rowgroup", "rowheader", "scrollbar", "search", "searchbox", "separator", "slider",
+        "spinbutton", "status", "strong", "subscript", "superscript", "switch", "tab", "table", "tablist", "tabpanel", "term",
+        "textbox", "time", "timer", "toolbar", "tooltip", "tree", "treegrid", "treeitem",
+    ]
+
+    /// DPUB-ARIA 1.1's roles, including deprecated ones for existing books. Unknown `doc-`
+    /// tokens must not keep a later fallback role from taking effect.
+    /// https://www.w3.org/TR/dpub-aria-1.1/#roles
+    private static let digitalPublishingRoles: Set<String> = [
+        "doc-abstract", "doc-acknowledgments", "doc-afterword", "doc-appendix", "doc-backlink", "doc-biblioentry",
+        "doc-bibliography", "doc-biblioref", "doc-chapter", "doc-colophon", "doc-conclusion", "doc-cover", "doc-credit",
+        "doc-credits", "doc-dedication", "doc-endnote", "doc-endnotes", "doc-epigraph", "doc-epilogue", "doc-errata",
+        "doc-example", "doc-footnote", "doc-foreword", "doc-glossary", "doc-glossref", "doc-index", "doc-introduction",
+        "doc-noteref", "doc-notice", "doc-pagebreak", "doc-pagefooter", "doc-pageheader", "doc-pagelist", "doc-part",
+        "doc-preface", "doc-prologue", "doc-pullquote", "doc-qna", "doc-subtitle", "doc-tip", "doc-toc",
+    ]
+
+    /// The Graphics module 1.0's complete role vocabulary, rather than any `graphics-` token.
+    /// https://www.w3.org/TR/graphics-aria-1.0/#roles
+    private static let graphicsRoles: Set<String> = ["graphics-document", "graphics-object", "graphics-symbol"]
+
     static let rowGroups: Set<String> = ["thead", "tbody", "tfoot"]
 
     /// The elements a table is made of. `TableContent` lays a grid out from them by name.

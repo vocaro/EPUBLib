@@ -222,11 +222,15 @@ final class SectionBuilderTests: XCTestCase {
         let fonts = FontRegistry(publication: H.publication)
         XCTAssertEqual(H.attribute(.font, of: "caps", in: text) as? PlatformFont,
                        fonts.font(for: ComputedStyle(fontFamilies: ["serif"], fontSize: 16, isSmallCaps: true)))
-        // A transform that changes the length maps the run as a whole.
+        // A transform maps equal-length letters exactly and only its expansion as a unit.
         let strasse = H.location(of: "STRASSE", in: text)
         let span = try XCTUnwrap(text.map.spans.first { $0.location == strasse })
-        XCTAssertFalse(span.isExact)
-        XCTAssertEqual(span.sourceLength, 6)
+        XCTAssertTrue(span.isExact)
+        XCTAssertEqual(span.sourceLength, 4)
+        let expanded = try XCTUnwrap(text.map.spans.first { $0.location == strasse + 4 })
+        XCTAssertFalse(expanded.isExact)
+        XCTAssertEqual([expanded.length, expanded.sourceLength], [2, 1])
+        XCTAssertEqual(text.mappedText(in: strasse..<(strasse + 7)), "straße")
         H.assertMapRoundTrips(text)
     }
 

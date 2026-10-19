@@ -95,6 +95,106 @@ final class TableCoverageContentTests: XCTestCase {
                      "text is not an image")
     }
 
+    /// A picture without words or a rule that the book keeps from assistive technology says no
+    /// more in a cell than decoration does: a row of such cells has nothing to say, and such a
+    /// picture is none a cell offers to inspect.
+    func testWhatTheBookKeepsFromAssistiveTechnologyGivesACellNothingToSay() throws {
+        let section = try TableCoverage.section("""
+        <table><tr><td><img src="w30.png" role="none"/></td><td><img src="w30.png" alt=""/></td></tr>\
+        <tr><td><img src="w30.png" aria-hidden="true"/></td><td><hr role="presentation"/></td></tr>\
+        <tr><td><img src="w30.png"/></td><td><hr/></td></tr></table>
+        """, css: TableCoverage.bare, files: TableCoverage.images([30]))
+        let table = try XCTUnwrap(TableCoverage.tables(in: section.string).first)
+        let rows = (0..<3).map { TableRowAttachment(table: table, row: $0) }
+        XCTAssertEqual(rows.map(\.saysNothing), [true, true, false], "a picture nobody describes and a rule say something")
+        let cells = rows.map { row in
+            row.spokenCells(size: CGSize(width: 400, height: row.height(width: 400, viewportHeight: 600)), viewportHeight: 600)
+        }
+        XCTAssertEqual(cells.map { $0.map(\.isBlank) }.first, [true, true])
+        XCTAssertEqual(cells.map { $0.map(\.isBlank) }[1][0], true)
+        XCTAssertEqual(cells.map { $0.map(\.isBlank) }[2][0], false, "a picture nobody describes is something to say")
+        XCTAssertEqual(cells.map { $0.map(\.images.count) }, [[0, 0], [0, 0], [1, 0]])
+    }
+
+    func testPresentationImageWordsStayInTableCopyButNotSpokenCellsOrTokens() throws {
+        let files = TableCoverage.images([30])
+        let body = """
+            <table><tr><td><img src="w30.png" alt="Kept none" role="none"/></td><td><img src="w30.png" alt="Kept aria" aria-hidden="true"/></td></tr>
+            <tr><td>Before<img src="w30.png" alt="Kept inline" role="presentation"/>After</td><td><img src="w30.png" alt="Spoken"/></td></tr></table>
+            """
+        let section = try TableCoverage.section(body, css: TableCoverage.bare, files: files)
+        let shown = try TableCoverage.section(body.replacingOccurrences(of: "role=\"none\"", with: "role=\"img\"")
+            .replacingOccurrences(of: "role=\"presentation\"", with: "role=\"img\"")
+            .replacingOccurrences(of: "aria-hidden=\"true\"", with: "aria-hidden=\"false\""), css: TableCoverage.bare, files: files)
+        let table = try XCTUnwrap(TableCoverage.tables(in: section.string).first)
+        let shownTable = try XCTUnwrap(TableCoverage.tables(in: shown.string).first)
+        XCTAssertEqual(table.cells.map(\.text), ["", "", "Before After", "Spoken"])
+        XCTAssertEqual(section.string.string, shown.string.string)
+        XCTAssertEqual(section.map, shown.map, "assistive visibility changes no source coordinate")
+        XCTAssertEqual(table.sourceRowOffsets, shownTable.sourceRowOffsets)
+        let layout = table.layout(available: 400, viewportHeight: 600)
+        let shownLayout = shownTable.layout(available: 400, viewportHeight: 600)
+        XCTAssertEqual(layout.columnWidths, shownLayout.columnWidths)
+        XCTAssertEqual(layout.rowHeights, shownLayout.rowHeights)
+        XCTAssertEqual(layout.cellFrames, shownLayout.cellFrames)
+        for index in 0...1 {
+            let words = layout.cellText[index]
+            XCTAssertEqual(words.spokenText(inLines: 0..<words.lines.count), "", "cached words omit presentation alt")
+            XCTAssertEqual(words.spokenText(inLines: 0..<words.lines.count, refreshingAttachments: true), "")
+            let offset = try TableCoverage.offset(ofRow: 0, in: table)
+            let start = ReaderTextPosition(section: 0, offset: offset,
+                tableCell: ReaderTablePosition(table: table.sourceOrder, cell: index, offset: 0))
+            let end = ReaderTextPosition(section: 0, offset: offset,
+                tableCell: ReaderTablePosition(table: table.sourceOrder, cell: index, offset: 1))
+            XCTAssertEqual(section.tablePassage(ReaderTextRange(start: start, end: end)), index == 0 ? "Kept none" : "Kept aria")
+            let element = try XCTUnwrap(section.domPosition(start))
+            XCTAssertTrue(element.node.isHTML("img"))
+            XCTAssertEqual(section.renderedPosition(element), start)
+        }
+        let first = TableRowAttachment(table: table, row: 0)
+        XCTAssertTrue(first.saysNothing)
+        XCTAssertEqual(first.spokenEquivalent, "\t")
+        let cells = first.spokenCells(size: CGSize(width: 400, height: first.height(width: 400, viewportHeight: 600)), viewportHeight: 600)
+        XCTAssertEqual(cells.map(\.text), ["", ""])
+        XCTAssertEqual(cells.map(\.images.count), [0, 0])
+        XCTAssertEqual(first.copyTextEquivalent, "Kept none\tKept aria")
+        XCTAssertEqual(section.mappedText(in: 0..<section.string.length), "Kept none\tKept aria\nBeforeKept inlineAfter\tSpoken")
+    }
+
+    func testTableCopyWithoutDetachedMapsKeepsAltEvenWhenSpokenCellTextIsEmpty() throws {
+        let section = try TableCoverage.section("<table><tr><td><img src='w30.png' alt='Kept none' role='none'/></td>"
+                                               + "<td><img src='w30.png' alt='Kept aria' aria-hidden='true'/></td></tr></table>",
+                                               css: TableCoverage.bare, files: TableCoverage.images([30]))
+        let table = try XCTUnwrap(TableCoverage.tables(in: section.string).first)
+        var cells = table.cells
+        for index in cells.indices {
+            let content = NSMutableAttributedString(attributedString: cells[index].content)
+            content.removeAttribute(.readerDetachedMap, range: NSRange(location: 0, length: content.length))
+            cells[index].content = content
+            XCTAssertNil(cells[index].textMap)
+            XCTAssertEqual(cells[index].text, "")
+        }
+        let unmapped = TableModel(cells: cells, rows: table.rows, columnCount: table.columnCount, columns: table.columns,
+            width: table.width, collapse: table.collapse, spacing: table.spacing, borders: table.borders,
+            background: table.background, alignment: table.alignment, isRightToLeft: table.isRightToLeft, isData: table.isData)
+        unmapped.sourceOrder = table.sourceOrder
+        unmapped.sourceRowOffsets = table.sourceRowOffsets
+        let row = TableRowAttachment(table: unmapped, row: 0)
+        XCTAssertEqual(row.spokenEquivalent, "\t")
+        XCTAssertEqual(row.copyTextEquivalent, "Kept none\tKept aria")
+        let rendered = NSMutableAttributedString(attributedString: section.string)
+        let offset = try TableCoverage.offset(ofRow: 0, in: table)
+        rendered.addAttribute(.attachment, value: row, range: NSRange(location: offset, length: 1))
+        let copied = SectionText(spineIndex: section.spineIndex, href: section.href, document: section.document,
+            string: rendered, map: section.map, anchors: section.anchors, notes: section.notes, title: section.title, report: section.report)
+        XCTAssertEqual(copied.mappedText(in: offset..<(offset + 1)), "Kept none\tKept aria")
+        let start = ReaderTextPosition(section: 0, offset: offset,
+            tableCell: ReaderTablePosition(table: table.sourceOrder, cell: 0, offset: 0))
+        let end = ReaderTextPosition(section: 0, offset: offset,
+            tableCell: ReaderTablePosition(table: table.sourceOrder, cell: 0, offset: 1))
+        XCTAssertEqual(copied.tablePassage(ReaderTextRange(start: start, end: end)), "Kept none")
+    }
+
     func testAnImageInAShrunkTableIsHitWhereItIsDrawnAtThatScale() throws {
         let table = try TableCoverage.table("<table><tr>\(TableCoverage.box(300))\(TableCoverage.box(100))</tr></table>",
                                             css: TableCoverage.bare, files: TableCoverage.images([300, 100]))

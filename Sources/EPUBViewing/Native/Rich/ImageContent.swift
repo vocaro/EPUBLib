@@ -128,6 +128,10 @@ final class ReaderImageAttachment: ReaderAttachment {
     let source: ReaderImageSource
     let sizing: ImageSizing
     let alternative: ImageAlternative
+    /// The book keeps the image from assistive technology, with `aria-hidden` or a
+    /// presentational role (`ContentSemantics.isHiddenFromAssistiveTechnology`). Its words
+    /// still stand for it in selections, copies and search, and when it cannot be drawn.
+    let isHiddenFromAssistiveTechnology: Bool
     /// Where the image is drawn inside the attachment, as fractions of it (an SVG `<image>`
     /// placed inside its viewBox); nil fills it.
     let contentRect: CGRect?
@@ -141,8 +145,9 @@ final class ReaderImageAttachment: ReaderAttachment {
     let cache: ReaderImageCache
 
     init(source: ReaderImageSource, sizing: ImageSizing, alternative: ImageAlternative, style: ComputedStyle,
-         contentRect: CGRect? = nil, isDark: Bool = false, cache: ReaderImageCache) {
+         contentRect: CGRect? = nil, isDark: Bool = false, isHiddenFromAssistiveTechnology: Bool = false, cache: ReaderImageCache) {
         self.source = source; self.sizing = sizing; self.alternative = alternative; self.contentRect = contentRect
+        self.isHiddenFromAssistiveTechnology = isHiddenFromAssistiveTechnology
         isBlock = style.display.isBlockLevel
         verticalAlign = style.verticalAlign
         fontSize = style.fontSize
@@ -163,9 +168,19 @@ final class ReaderImageAttachment: ReaderAttachment {
     /// The alt text (an SVG's title).
     override var textEquivalent: String { alt }
 
+    /// Whether assistive technology passes over the image, where nothing else keeps it (a
+    /// link it is all of, `NSAttributedString.passesOver`): decoration, which has no words,
+    /// and an image the book keeps from assistive technology, whatever words it has.
+    var isPassedOverByAssistiveTechnology: Bool { alternative == .decorative || isHiddenFromAssistiveTechnology }
+
+    /// The words assistive technology is given for the image: `alt`, and none for an image the
+    /// book keeps from it.
+    var spokenAlt: String { isHiddenFromAssistiveTechnology ? "" : alt }
+    override var spokenEquivalent: String { spokenAlt }
+
     #if os(iOS)
     override var accessibilityLabel: String? {
-        get { alt.isEmpty ? nil : alt }
+        get { spokenAlt.isEmpty ? nil : spokenAlt }
         set {}
     }
     #endif
@@ -197,7 +212,14 @@ final class ReaderImageAttachment: ReaderAttachment {
     }
 
     override func contentWidths() -> (min: CGFloat, max: CGFloat) {
-        let natural = sizing.size(lineWidth: 100_000, viewport: CGSize(width: 1024, height: 100_000), heightLimit: 100_000).width
+        // A percentage needs a definite containing width, which intrinsic/shrink-to-fit
+        // measurement is choosing. Treat those constraints as auto here instead of resolving
+        // against the artificial 100,000-point measuring line; final layout resolves them.
+        var intrinsicSizing = sizing
+        if case .percent = intrinsicSizing.width { intrinsicSizing.width = .auto }
+        if case .percent = intrinsicSizing.minWidth { intrinsicSizing.minWidth = .auto }
+        if case .percent = intrinsicSizing.maxWidth { intrinsicSizing.maxWidth = .auto }
+        let natural = intrinsicSizing.size(lineWidth: 100_000, viewport: CGSize(width: 1024, height: 100_000), heightLimit: 100_000).width
         // Percentage sizes make an image compressible: it shrinks with its table column.
         let compressible = [sizing.width, sizing.maxWidth].contains { if case .percent = $0 { true } else { false } }
         return (compressible ? min(natural, 16) : natural, natural)

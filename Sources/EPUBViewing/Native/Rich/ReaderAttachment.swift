@@ -40,13 +40,20 @@ class ReaderAttachment: NSTextAttachment, ReaderTextualAttachment {
             self.width = width; self.position = position; self.viewport = viewport; self.font = font
         }
 
-        init(container: NSTextContainer?, fragment: CGRect, position: CGPoint, font: PlatformFont?, paragraphStyle: NSParagraphStyle? = nil) {
+        init(container: NSTextContainer?, fragment: CGRect, position: CGPoint, font: PlatformFont?, paragraphStyle: NSParagraphStyle? = nil,
+             characterIndex: Int? = nil) {
             let size = ReaderTextContainer.available(in: container, lineWidth: fragment.width)
             let viewportWidth = (container as? ReaderTextContainer)?.viewportSize.width ?? 0
             // A custom text container clips the paragraph tail, but TextKit can still ask
             // attachments to size against an unclipped proposed rectangle. Apply that same
             // trailing edge before subtracting the native leading/glyph position.
             var width = size.width
+            // Native attachment proposals can still span the viewport before TextKit asks
+            // lineFragmentRect for the float/positioned/inline box's actual content column.
+            // Resolve percentage image sizes against that column on both callback paths.
+            if let column = (container as? ReaderTextContainer)?.attachmentColumn(at: characterIndex) {
+                width = min(width, max(1, column.width))
+            }
             if let style = paragraphStyle, viewportWidth > 0 {
                 let trailing = style.tailIndent <= 0 ? viewportWidth + style.tailIndent : style.tailIndent
                 width = min(width, max(1, trailing - fragment.minX))
@@ -75,21 +82,28 @@ class ReaderAttachment: NSTextAttachment, ReaderTextualAttachment {
     /// VoiceOver is given for it. Nothing by default: a rule has no words, and what VoiceOver
     /// says at one is the reader's own (`ReaderRuleAttachment.spokenName`).
     var textEquivalent: String { "" }
+    /// What VoiceOver is given in place of the attachment character: `textEquivalent`, unless
+    /// the book keeps the attachment from assistive technology.
+    var spokenEquivalent: String { textEquivalent }
     /// The language `textEquivalent` is spoken in, when it is known to differ from the text around it.
     var textLanguage: String? { nil }
 
     override func attachmentBounds(for attributes: [NSAttributedString.Key: Any], location: any NSTextLocation,
                                    textContainer: NSTextContainer?, proposedLineFragment: CGRect,
                                    position: CGPoint) -> CGRect {
-        layoutBounds(Line(container: textContainer, fragment: proposedLineFragment, position: position,
-                          font: attributes[.font] as? PlatformFont, paragraphStyle: attributes[.paragraphStyle] as? NSParagraphStyle))
+        let manager = textContainer?.textLayoutManager?.textContentManager
+        let index = manager.map { $0.offset(from: $0.documentRange.location, to: location) }
+        return layoutBounds(Line(container: textContainer, fragment: proposedLineFragment, position: position,
+                          font: attributes[.font] as? PlatformFont, paragraphStyle: attributes[.paragraphStyle] as? NSParagraphStyle,
+                          characterIndex: index))
     }
 
     override func attachmentBounds(for textContainer: NSTextContainer?, proposedLineFragment lineFrag: CGRect,
                                    glyphPosition position: CGPoint, characterIndex charIndex: Int) -> CGRect {
         let text = (textContainer as? ReaderTextContainer)?.paragraphText
         let style = text.flatMap { charIndex < $0.length ? $0.attribute(.paragraphStyle, at: charIndex, effectiveRange: nil) as? NSParagraphStyle : nil }
-        return layoutBounds(Line(container: textContainer, fragment: lineFrag, position: position, font: nil, paragraphStyle: style))
+        return layoutBounds(Line(container: textContainer, fragment: lineFrag, position: position, font: nil, paragraphStyle: style,
+                                 characterIndex: charIndex))
     }
 
     /// No view: the attachment is drawn from `image(for:…)`. AppKit's TextKit 2 text view only
@@ -124,6 +138,11 @@ final class ReaderRuleAttachment: ReaderAttachment {
     let alignment: Alignment
     let color: PlatformColor
     let fontSize: CGFloat
+    /// The book keeps the rule from assistive technology, with `aria-hidden` or a
+    /// presentational role (`ContentSemantics.isHiddenFromAssistiveTechnology`), as ornament
+    /// and not a break. It is drawn all the same. Assistive technology passes over it where
+    /// nothing else keeps it (a link it is all of, `NSAttributedString.passesOver`).
+    let isHiddenFromAssistiveTechnology: Bool
 
     enum Alignment: Sendable { case leading, center, trailing }
 
@@ -148,7 +167,8 @@ final class ReaderRuleAttachment: ReaderAttachment {
     }
     #endif
 
-    init(style: ComputedStyle, isDark: Bool) {
+    init(style: ComputedStyle, isDark: Bool, isHiddenFromAssistiveTechnology: Bool = false) {
+        self.isHiddenFromAssistiveTechnology = isHiddenFromAssistiveTechnology
         width = style.width
         let border = style.border.top
         thickness = border.isVisible ? min(max(border.width, 1), 8) : 1

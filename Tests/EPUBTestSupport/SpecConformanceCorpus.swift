@@ -110,8 +110,15 @@ public enum SpecConformanceCorpus {
 
     /// The expected outcome of a test id. An id the table does not list falls to its family's
     /// decision, else to "opens and every section builds".
-    public static func expectation(for id: String) -> Expectation {
+    public static func expectation(for id: String, supportsPSDFallback: Bool = false) -> Expectation {
         var expectation = listed[id] ?? family(of: id)
+        // The W3C fixture calls its PSD fallback "likely" unsupported. When the host's
+        // independent image decoder can draw it, displaying it fulfills the fallback rule.
+        if id == "pub-foreign_bad-fallback", supportsPSDFallback {
+            expectation.withheld = []
+            expectation.checks = [.image(0, path: "EPUB/bar.psd"), .notDisclosed(.withheld), .notDisclosed(.unreadableResources)]
+            expectation.note = "ImageIO independently decodes the PSD fallback; the DMG's fallback must be displayed"
+        }
         if centredFigures.contains(id) { expectation.checks.append(.notDisclosed(.flexGrid)) }
         return expectation
     }

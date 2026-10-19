@@ -16,6 +16,16 @@ enum CSSNamespaceConstraint: Hashable, Sendable {
 
 enum CSSCombinator: Hashable, Sendable { case descendant, child, nextSibling, subsequentSibling }
 
+/// The pseudo-element a selector's subject is (Selectors 4 §3.6).
+enum CSSPseudoElement: Hashable, Sendable {
+    /// `::before` and `::after` (`:before`, `:after`), whose `content` generates a box (CSS 2 §12.1).
+    case before, after
+    /// Any other (`::first-line`, `::first-letter`, `::marker`, `::selection`…), or `::before` or
+    /// `::after` qualified by a pseudo-class (`::before:hover`), which is a state a page never
+    /// has. Their rules are dropped.
+    case other
+}
+
 struct CSSAttributeSelector: Hashable, Sendable {
     enum Operation: Hashable, Sendable { case exists, equals, includes, dashMatch, prefix, suffix, substring }
     let name: String
@@ -78,14 +88,34 @@ struct CSSComplexSelector: Hashable, Sendable {
         }
     }
 
+    /// Distinct filtered sibling lists, independent of An+B, direction and the outer subject.
+    /// Namespace constraints, combinators and nested predicates remain part of each list's value.
+    var selectorPositionFilters: Set<[CSSComplexSelector]> {
+        var filters = Set<[CSSComplexSelector]>()
+        for compound in compounds {
+            for case .pseudo(let pseudo) in compound.simple {
+                switch pseudo {
+                case .nthChild(_, _, let list?), .nthLastChild(_, _, let list?):
+                    filters.insert(list)
+                case .not(let list), .matchesAny(let list):
+                    for selector in list { filters.formUnion(selector.selectorPositionFilters) }
+                default: break
+                }
+            }
+        }
+        return filters
+    }
+
     /// Compounds from the subject (rightmost) leftwards.
     var compounds: [CSSCompoundSelector]
     /// `combinators[i]` joins `compounds[i]` to `compounds[i + 1]`, its left neighbour.
     var combinators: [CSSCombinator]
     /// Packed (ids, classes, types), 10 bits each.
     var specificity: UInt32
-    /// Selectors with pseudo-elements never match an element.
-    var hasPseudoElement = false
+    /// The pseudo-element the subject is: a rule with one never styles the element itself, and
+    /// only `::before` and `::after` are kept (`CSSStyleSheet`).
+    var pseudoElement: CSSPseudoElement?
+    var hasPseudoElement: Bool { pseudoElement != nil }
     /// Present when a `~` combinator is. The rule index shares identities for equal left-hand searches.
     var identity: CSSSelectorIdentity?
 
@@ -308,7 +338,7 @@ struct CSSSelectorParser {
         var compounds: [CSSCompoundSelector] = []
         var combinators: [CSSCombinator] = []
         var specificity = CSSSpecificity()
-        var hasPseudoElement = false
+        var subjectPseudoElement: CSSPseudoElement?
         func skipWhitespace() -> Bool {
             var skipped = false
             while index < components.count, components[index].isWhitespace { index += 1; skipped = true }
@@ -320,7 +350,7 @@ struct CSSSelectorParser {
             let (compound, compoundSpecificity, pseudoElement) = try parseCompound(components, &index, depth: depth)
             compounds.append(compound)
             specificity = specificity + compoundSpecificity
-            hasPseudoElement = hasPseudoElement || pseudoElement
+            subjectPseudoElement = pseudoElement
             guard compounds.count <= Self.maximumCompounds else { throw .tooComplex }
             let hadWhitespace = skipWhitespace()
             guard index < components.count else { break }
@@ -331,11 +361,11 @@ struct CSSSelectorParser {
             else if hadWhitespace { combinators.append(.descendant) }
             else { throw .invalid }
             // A pseudo-element must be last.
-            if pseudoElement { throw .invalid }
+            if pseudoElement != nil { throw .invalid }
             _ = skipWhitespace()
         }
         return (CSSComplexSelector(compounds: compounds.reversed(), combinators: combinators.reversed(),
-                                   specificity: specificity.packed, hasPseudoElement: hasPseudoElement,
+                                   specificity: specificity.packed, pseudoElement: subjectPseudoElement,
                                    identity: combinators.contains(.subsequentSibling) ? CSSSelectorIdentity() : nil), specificity)
     }
 
@@ -375,10 +405,10 @@ struct CSSSelectorParser {
     }
 
     private func parseCompound(_ components: [CSSComponent], _ index: inout Int, depth: Int) throws(Failure)
-        -> (CSSCompoundSelector, CSSSpecificity, Bool) {
+        -> (CSSCompoundSelector, CSSSpecificity, CSSPseudoElement?) {
         var compound = CSSCompoundSelector()
         var specificity = CSSSpecificity()
-        var pseudoElement = false
+        var pseudoElement: CSSPseudoElement?
         var hasType = false
         if let (prefix, name) = qualifiedName(components, &index, allowUniversal: true) {
             compound.namespace = try namespaceConstraint(prefix: prefix)
@@ -395,13 +425,13 @@ struct CSSSelectorParser {
             let component = components[index]
             switch component {
             case .token(.hash(let value, let isID)):
-                guard isID, !pseudoElement else { throw .invalid }
+                guard isID, pseudoElement == nil else { throw .invalid }
                 compound.simple.append(.id(value)); specificity.a += 1; index += 1
             case .token(.delim(".")):
-                guard index + 1 < components.count, case .token(.ident(let name)) = components[index + 1], !pseudoElement else { throw .invalid }
+                guard index + 1 < components.count, case .token(.ident(let name)) = components[index + 1], pseudoElement == nil else { throw .invalid }
                 compound.simple.append(.className(name)); specificity.b += 1; index += 2
             case .block(.openSquare, let contents):
-                guard !pseudoElement else { throw .invalid }
+                guard pseudoElement == nil else { throw .invalid }
                 compound.simple.append(.attribute(try parseAttribute(contents))); specificity.b += 1; index += 1
             case .token(.colon):
                 index += 1
@@ -410,11 +440,12 @@ struct CSSSelectorParser {
                     index += 1
                     guard index < components.count else { throw .invalid }
                     switch components[index] {
-                    case .token(.ident), .function: break
+                    case .token(.ident(let name)) where pseudoElement == nil: pseudoElement = Self.pseudoElement(name.lowercased())
+                    case .token(.ident), .function: pseudoElement = .other
                     default: throw .invalid
                     }
                     index += 1
-                    pseudoElement = true; specificity.c += 1
+                    specificity.c += 1
                     continue loop
                 }
                 switch components[index] {
@@ -422,16 +453,18 @@ struct CSSSelectorParser {
                     index += 1
                     let lower = name.lowercased()
                     if ["before", "after", "first-line", "first-letter"].contains(lower) {
-                        pseudoElement = true; specificity.c += 1
+                        pseudoElement = pseudoElement == nil ? Self.pseudoElement(lower) : .other
+                        specificity.c += 1
                         continue loop
                     }
                     guard let pseudo = Self.simplePseudoClass(lower) else { throw .invalid }
-                    if !pseudoElement { compound.simple.append(.pseudo(pseudo)) }
+                    // A pseudo-class after a pseudo-element is a state (`::before:hover`).
+                    if pseudoElement == nil { compound.simple.append(.pseudo(pseudo)) } else { pseudoElement = .other }
                     specificity.b += 1
                 case .function(let name, let arguments):
                     index += 1
                     let (pseudo, argumentSpecificity) = try functionalPseudoClass(name, arguments, depth: depth)
-                    if !pseudoElement { compound.simple.append(.pseudo(pseudo)) }
+                    if pseudoElement == nil { compound.simple.append(.pseudo(pseudo)) } else { pseudoElement = .other }
                     specificity = specificity + argumentSpecificity
                 default: throw .invalid
                 }
@@ -443,6 +476,15 @@ struct CSSSelectorParser {
         }
         guard hasType || count > 0 else { throw .invalid }
         return (compound, specificity, pseudoElement)
+    }
+
+    /// A pseudo-element by its lowercased name.
+    private static func pseudoElement(_ name: String) -> CSSPseudoElement {
+        switch name {
+        case "before": .before
+        case "after": .after
+        default: .other
+        }
     }
 
     private static func simplePseudoClass(_ name: String) -> CSSPseudoClass? {

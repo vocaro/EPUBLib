@@ -96,6 +96,10 @@ final class SectionWriter {
     private var flattenDepth = 0
 
     // Line state.
+    /// Only a real block boundary is a break in a copied passage. Inline flow boxes split
+    /// TextKit paragraphs for layout while retaining the source line and its collapsed space.
+    private var pendingPassageBoundary = false
+    private var pendingPassageSpace: (segmentBreak: Bool, before: UInt32)?
     private var paragraphOpen = false
     private var lineStart = true
     private var pendingSpace: PendingSpace?
@@ -159,7 +163,14 @@ final class SectionWriter {
                              keepWithNext: false, firstParagraph: 0, language: language)]
         var context = InlineContext()
         context.language = language
-        walk(Entry(node: element, children: children, style: style, context: context))
+        let root = Entry(node: element, children: children, style: style, context: context)
+        if let box { open(box, root) }
+        else {
+            // Content outside the cells is not all of its parent's: the counters that parent's
+            // children instantiate stay in scope for the children after it.
+            root.exit.endsCounters = false
+        }
+        walk(root)
         let result = finish()
         let text = NSMutableAttributedString(attributedString: result.string)
         if text.length > 0 {
@@ -179,7 +190,10 @@ final class SectionWriter {
                              keepWithNext: false, firstParagraph: 0, language: language)]
         var context = InlineContext()
         context.language = language
-        walk(Entry(node: element, children: element.children, style: style, context: context))
+        let root = Entry(node: element, children: element.children, style: style, context: context)
+        state.generated.apply(style, owner: element.parent?.order ?? element.order)
+        beginGenerated(root)
+        walk(root)
         return finish().string
     }
 
@@ -227,7 +241,11 @@ final class SectionWriter {
         var softBoundary = false
         var isolate = false
         var heading = false
-        var closeQuote: (text: String, attributes: Int)?
+        /// The element's `::after`, generated as it closes.
+        var after: ComputedStyle?
+        /// Whether closing the element ends the scope of the counters it and the elements
+        /// inside it own (`GeneratedContentState.leave`).
+        var endsCounters = true
         var ruby: (collecting: Bool, start: Int?)?
     }
 
@@ -289,7 +307,7 @@ final class SectionWriter {
         if isSection, node.isHTML("body") { state.bodyStyle = style }
         register(node)
         if state.noteKind(node) != nil {
-            if isSection { state.captureNote(node) }
+            if isSection { state.captureNote(node, keepsCounters: state.isHiddenFootnote(node)) }
             if case .note(_, let depth) = mode {
                 // A note's content leaves out the notes nested in it that are captured on their
                 // own, below the depth it goes to. One that no id names is captured nowhere
@@ -320,6 +338,9 @@ final class SectionWriter {
         }
         var context = parent.context
         if let language = node.language { context.language.declare(language) }
+        // The element is rendered: its counters change where it opens, in scope for it, its
+        // descendants and its following siblings.
+        state.generated.apply(style, owner: parent.node.order)
 
         return Prepared(style: style, context: context)
     }
@@ -327,6 +348,8 @@ final class SectionWriter {
     private func enterTable(_ node: ContentNode, style: ComputedStyle, context: InlineContext) -> Bool {
         guard let result = state.request.rich.table(node, style: style, context: state.richContext) else { return false }
         insert(result, for: node, style: style, context: context)
+        // The counters its rows and cells owned go out of scope with it.
+        state.generated.leave(node)
         return true
     }
 
@@ -407,6 +430,7 @@ final class SectionWriter {
             flattenDepth += 1
             let entry = Entry(node: node, children: node.children, style: style, context: context)
             entry.exit.flatten = true
+            beginGenerated(entry)
             stack.append(entry)
             return
         }
@@ -414,7 +438,7 @@ final class SectionWriter {
     }
 
     /// Pushes an element whose content is walked normally: a block box, or an inline box with its
-    /// link, background, baseline shift, bidi isolation and generated quotes.
+    /// link, background, baseline shift and bidi isolation, and its generated content.
     private func push(_ node: ContentNode, style: ComputedStyle, context: InlineContext,
                       parentStyle: ComputedStyle, role: Role) {
         let entry = Entry(node: node, children: node.children, style: style, context: context)
@@ -459,13 +483,8 @@ final class SectionWriter {
                 entry.context.linkBaseColor = parentStyle.color
             } else { entry.context.link = nil }
         }
-        if node.isHTML("q") {
-            let marks = ContentSemantics.quotes(language: entry.context.language.declared, depth: entry.context.quoteDepth)
-            let attributes = styling.attributes(style, entry.context)
-            emitGenerated(Array(marks.open.utf16), attributes: attributes)
-            entry.exit.closeQuote = (marks.close, attributes)
-            entry.context.quoteDepth += 1
-        }
+        // `::before` and `::after`, the marks of a `q` among them (`UserAgentStyleSheet`).
+        beginGenerated(entry)
         if case .ruby = role {
             entry.exit.ruby = (collectingRubyBase, rubyBaseStart)
             collectingRubyBase = true
@@ -475,7 +494,8 @@ final class SectionWriter {
     }
 
     private func leave(_ entry: Entry) {
-        if let quote = entry.exit.closeQuote { emitGenerated(Array(quote.text.utf16), attributes: quote.attributes) }
+        if let after = entry.exit.after { generate(after, in: entry) }
+        if entry.exit.endsCounters { state.generated.leave(entry.node) }
         if entry.exit.isolate, let isolate = isolates.popLast(), isolate.emitted, paragraphOpen {
             buffer.append(isolate.closer, attributes: isolate.attributes)
         }
@@ -564,7 +584,7 @@ final class SectionWriter {
         // A plain link to a note or its child is a note link; so is one to anything inside a
         // footnote hidden from the flow (`isInsideHiddenFootnote`), where there is nothing to
         // navigate to.
-        if path == document.path, let fragment, let target = document.element(id: fragment),
+        if path == document.path, let fragment, let target = state.fragmentTarget(fragment),
            state.noteKind(target) != nil || target.parent.flatMap(state.noteKind) != nil
             || (!fragment.isEmpty && state.isInsideHiddenFootnote(target)) {
             return .note(href: resolved)
@@ -575,6 +595,7 @@ final class SectionWriter {
     // MARK: Blocks
 
     private func enterBlock(_ node: ContentNode, style: ComputedStyle, language: InlineLanguage) {
+        pendingPassageBoundary = pendingPassageBoundary || style.display.isBlockLevel
         if style.display == .listItem, pendingMarker != nil { openParagraph() } // An outer item's marker gets its own line.
         let inline = inlineBox(style) // Read from the line the box is on, which closing the paragraph ends.
         closeParagraph()
@@ -623,6 +644,7 @@ final class SectionWriter {
     }
 
     private func exitBlock() {
+        pendingPassageBoundary = pendingPassageBoundary || (frames.last?.style.display.isBlockLevel ?? false)
         if let marker = pendingMarker, marker.frame == frames.count - 1 { openParagraph() } // An empty item still shows its marker.
         closeParagraph()
         guard frames.count > 1 else { return }
@@ -731,7 +753,7 @@ final class SectionWriter {
 
     // MARK: Paragraphs
 
-    private func openParagraph() {
+    private func openParagraph(next: UInt32? = nil) {
         guard !paragraphOpen else { return }
         let frame = frames[frames.count - 1]
         let gapValue = min(gap.value, Self.maximumGap)
@@ -743,6 +765,13 @@ final class SectionWriter {
                                   separatorAttributes: frameAttributes())
         paragraph.alignmentItem = frame.format.itemAlignment.paragraphItem()
         if let previous = paragraphs.indices.last {
+            if !pendingPassageBoundary {
+                let space = pendingPassageSpace
+                let removesBreak = space.map { space in
+                    space.segmentBreak && next.map { Self.removesSegmentBreak(between: space.before, and: $0) } == true
+                } ?? false
+                if recordsMap { map.layoutSeparator(at: buffer.count, copyText: space != nil && !removesBreak ? " " : "") }
+            }
             buffer.append(CollectionOfOne(0x0A), attributes: paragraphs[previous].separatorAttributes)
             paragraph.start = buffer.count
             if previous == 0, paragraphs[0].isSpoken {
@@ -763,6 +792,8 @@ final class SectionWriter {
             paragraph.sizingBefore = dynamicGap
         }
         pendingPageBreak = false
+        pendingPassageBoundary = false
+        pendingPassageSpace = nil
         if isSection {
             paragraph.keepsOwnNext = frames.contains { $0.keepWithNext }
             paragraph.keptTogetherBy = frames.firstIndex { $0.keepTogether }
@@ -777,6 +808,9 @@ final class SectionWriter {
     }
 
     private func closeParagraph() {
+        if !pendingPassageBoundary, let space = pendingSpace {
+            pendingPassageSpace = (space.segmentBreak, lastScalar)
+        }
         pendingSpace = nil
         guard paragraphOpen else { return }
         if pendingBreaks.count > 1 {
@@ -993,14 +1027,20 @@ final class SectionWriter {
     }
 
     private func appendText(_ node: ContentNode, style: ComputedStyle, context: InlineContext, attributes: Int) {
-        let units = Array(node.text.utf16)
+        appendText(Array(node.text.utf16), from: node, style: style, context: context, attributes: attributes)
+    }
+
+    /// Text in `style`: a text node's characters, mapped to it, or with no node generated
+    /// characters, unmapped, which white space collapses with as with any text.
+    private func appendText(_ units: [UInt16], from node: ContentNode?, style: ComputedStyle, context: InlineContext,
+                            attributes: Int) {
         let count = units.count
         guard count > 0 else { return }
         let spaceAttributes = style.wordSpacing != 0 && !style.isHidden
             ? styling.attributes(style, context, wordSpacing: true) : attributes
         var index = 0
         // HTML ignores a newline right after `<pre>`'s start tag.
-        if style.whiteSpace.preservesNewlines, units[0] == 0x0A, node.indexInParent == 0,
+        if style.whiteSpace.preservesNewlines, units[0] == 0x0A, let node, node.indexInParent == 0,
            node.parent?.isHTML("pre") == true { index = 1 }
         switch style.whiteSpace {
         case .pre, .preWrap, .breakSpaces:
@@ -1058,14 +1098,16 @@ final class SectionWriter {
         }
     }
 
-    private func emitText(_ units: [UInt16], _ range: Range<Int>, node: ContentNode, style: ComputedStyle,
+    private func emitText(_ units: [UInt16], _ range: Range<Int>, node: ContentNode?, style: ComputedStyle,
                           context: InlineContext, attributes: Int, spaceAttributes: Int) {
         prepareForContent(next: Self.scalar(units, at: range.lowerBound))
         let location = buffer.count
         if collectingRubyBase, rubyBaseStart == nil { rubyBaseStart = location }
+        let startsWord = Self.startsWord(after: lastScalar)
+        let synthetic = style.isSmallCaps && state.request.fonts.needsSyntheticSmallCaps(for: style)
         let transformed = style.textTransform == .none ? nil : transform(units[range], style.textTransform, language: context.language.declared)
         let characters = transformed.map { $0[...] } ?? units[range]
-        if style.isSmallCaps, state.request.fonts.needsSyntheticSmallCaps(for: style) {
+        if synthetic {
             emitSyntheticSmallCaps(characters, style: style, context: context, attributes: attributes,
                                    spaceAttributes: spaceAttributes)
         } else if spaceAttributes == attributes {
@@ -1082,13 +1124,16 @@ final class SectionWriter {
         }
         buffer.replaceParagraphSeparators(from: location)
         let length = buffer.count - location
-        mapSpan(location: location, length: length, node: node, offset: range.lowerBound,
-                sourceLength: range.count, exact: length == range.count)
+        if let node {
+            mapAuthoredRun(units, range: range, node: node, location: location, length: length,
+                           transform: style.textTransform, synthetic: synthetic, language: context.language.declared,
+                           startsWord: startsWord)
+        }
         didEmitContent()
     }
 
     /// Small caps for a font without them, as browsers fake them: lower-case letters as capitals
-    /// in a smaller size. The characters change, so the run maps as a whole when its length does.
+    /// in a smaller size. The source map keeps their authored spelling separately.
     private func emitSyntheticSmallCaps(_ characters: ArraySlice<UInt16>, style: ComputedStyle, context: InlineContext,
                                         attributes: Int, spaceAttributes: Int) {
         var small = style
@@ -1105,7 +1150,55 @@ final class SectionWriter {
         }
     }
 
-    /// Generated text that reads as content (`<q>` marks, inline markers): it ends a line start.
+    /// Case transformations preserve order. Map equal-length portions exactly and only a
+    /// length-changing grapheme (ß → SS, a ligature, a dotted i) as a unit, retaining the source
+    /// spelling for Copy. Whole-string rendering still supplies contextual mappings such as
+    /// Greek final sigma; isolated mappings here establish lengths, never replace those glyphs.
+    private func mapAuthoredRun(_ units: [UInt16], range: Range<Int>, node: ContentNode, location: Int, length: Int,
+                               transform: ComputedStyle.TextTransform, synthetic: Bool, language: String?, startsWord: Bool) {
+        guard recordsMap else { return }
+        func record(_ source: Range<Int>, rendered: Range<Int>, exact: Bool? = nil) {
+            let original = units[source], shown = buffer.units[rendered]
+            let authored = original.elementsEqual(shown) ? nil : String(decoding: original, as: UTF16.self)
+            mapSpan(location: rendered.lowerBound, length: rendered.count, node: node, offset: source.lowerBound,
+                    sourceLength: source.count, exact: exact ?? (rendered.count == source.count), authoredText: authored)
+        }
+        if (transform == .none && !synthetic) || (length == range.count && units[range].allSatisfy({ $0 < 0x80 })) {
+            record(range, rendered: location..<location + length); return
+        }
+        let locale = Locale(identifier: language ?? "en")
+        var pieces: [(source: Int, shown: Int)] = [], atWordStart = startsWord
+        for character in String(decoding: units[range], as: UTF16.self) {
+            let source = String(character)
+            let transformed: String
+            switch transform {
+            case .none: transformed = source
+            case .uppercase: transformed = source.uppercased(with: locale)
+            case .lowercase: transformed = source.lowercased(with: locale)
+            case .capitalize: transformed = atWordStart && character.isLetter ? source.uppercased(with: locale) : source
+            }
+            let shown = synthetic ? transformed.map { $0.isLowercase ? String($0).uppercased(with: locale) : String($0) }.joined() : transformed
+            pieces.append((source.utf16.count, shown.utf16.count))
+            atWordStart = character.unicodeScalars.last.map { Self.startsWord(after: $0.value) } ?? true
+        }
+        guard pieces.reduce(0, { $0 + $1.shown }) == length else {
+            // A contextual mapping with a different expansion keeps a conservative whole-run
+            // source range; its copied spelling is still authored rather than inferred.
+            record(range, rendered: location..<location + length, exact: false); return
+        }
+        var source = range.lowerBound, shown = location, exactSource = source, exactShown = shown
+        for piece in pieces {
+            if piece.source != piece.shown {
+                if source > exactSource { record(exactSource..<source, rendered: exactShown..<shown) }
+                record(source..<source + piece.source, rendered: shown..<shown + piece.shown)
+                exactSource = source + piece.source; exactShown = shown + piece.shown
+            }
+            source += piece.source; shown += piece.shown
+        }
+        if source > exactSource { record(exactSource..<source, rendered: exactShown..<shown) }
+    }
+
+    /// Generated text that reads as content (a flattened cell's list marker): it ends a line start.
     private func emitGenerated(_ units: [UInt16], attributes: Int) {
         guard !units.isEmpty else { return }
         prepareForContent(next: Self.scalar(units, at: 0))
@@ -1113,14 +1206,14 @@ final class SectionWriter {
         didEmitContent()
     }
 
-    private func mapSpan(location: Int, length: Int, node: ContentNode, offset: Int, sourceLength: Int, exact: Bool) {
+    private func mapSpan(location: Int, length: Int, node: ContentNode, offset: Int, sourceLength: Int, exact: Bool, authoredText: String? = nil) {
         guard recordsMap else { return }
         map.append(TextMap.Span(location: location, length: length, node: node.order, offset: offset,
-                                sourceLength: sourceLength, isExact: exact))
+                                sourceLength: sourceLength, isExact: exact, authoredText: authoredText))
     }
 
     private func prepareForContent(next: UInt32) {
-        openParagraph()
+        openParagraph(next: next)
         flushBreaks()
         flushSpace(next: next)
         flushSpokenInline()
@@ -1145,6 +1238,9 @@ final class SectionWriter {
     /// on the line. A single U+0020 maps exactly, so a paragraph's words share one span.
     private func collapsibleSpace(node: ContentNode?, offset: Int, length: Int, exact: Bool, segmentBreak: Bool,
                                   attributes: Int) {
+        if !paragraphOpen, !pendingPassageBoundary {
+            pendingPassageSpace = (segmentBreak || (pendingPassageSpace?.segmentBreak ?? false), pendingPassageSpace?.before ?? lastScalar)
+        }
         // After a sized inline box the space opens no paragraph; the box keeps it for what follows.
         if !paragraphOpen, let last = lastInlineBox, last.depth == frames.count, last.paragraphs == paragraphs.count {
             last.box.trailingSpace = spaceAdvance(frames[frames.count - 1])
@@ -1202,7 +1298,7 @@ final class SectionWriter {
             buffer.append(CollectionOfOne(0x2028), attributes: pending.attributes)
             if recordsMap, let node = pending.node {
                 map.append(TextMap.Span(location: location, length: 1, node: node, offset: pending.offset,
-                                        sourceLength: pending.length, isExact: pending.length == 1))
+                                        sourceLength: pending.length, isExact: pending.length == 1, authoredText: "\n"))
             }
         }
         pendingBreaks.removeAll()
@@ -1332,16 +1428,19 @@ final class SectionWriter {
     private static let maximumSpokenDepth = 24
 
     /// The text of an element that stands for text or for nothing, nil for one read by its content.
+    /// A picture with a presentational role stands for nothing, whatever its `alt` or title says.
     private static func spokenEquivalent(of element: ContentNode) -> String? {
         if element.isHTML {
             switch element.name {
-            case "img", "input": return element.attribute("alt") ?? ""
+            case "img": return ContentSemantics.hasPresentationalRole(element) ? "" : element.attribute("alt") ?? ""
+            case "input": return element.attribute("alt") ?? ""
             case "br": return " "
             case "hr", "audio", "video", "object", "embed", "iframe", "canvas", "select", "textarea": return ""
             default: return nil
             }
         }
         if element.name == "svg", element.namespace == ContentNamespace.svg || element.namespace.isEmpty {
+            guard !ContentSemantics.hasPresentationalRole(element) else { return "" }
             return element.attribute("aria-label") ?? element.children.first { $0.name == "title" }?.textContent ?? ""
         }
         if element.name == "math", element.namespace == ContentNamespace.mathML || element.namespace.isEmpty {
@@ -1642,6 +1741,84 @@ final class SectionWriter {
         if node.isText { return node.text }
         if node.isHTML("rp") { return "" }
         return node.children.map(annotationText).joined()
+    }
+}
+
+// MARK: - Generated content
+
+extension SectionWriter {
+    /// A cell's or a caption's own box, rendered on its own (`root`): its counters, then its
+    /// `::before` and `::after`. The row and the row group around a cell are walked by nobody:
+    /// their counters change as their first cell's content is rendered. A frame of its own, so
+    /// that the styles it computes are not on the stack while nested tables recurse.
+    @inline(never)
+    private func open(_ box: ContentNode, _ root: Entry) {
+        var parts: [ContentNode] = []
+        var ancestor = box.parent
+        while let part = ancestor, part.isHTML, ContentSemantics.rowGroups.contains(part.name) || part.name == "tr",
+              state.generated.counts(part) {
+            parts.append(part)
+            ancestor = part.parent
+        }
+        for part in parts.reversed() { state.generated.apply(state.style(part, root.style), owner: part.parent?.order ?? part.order) }
+        state.generated.apply(root.style, owner: box.parent?.order ?? box.order)
+        beginGenerated(root)
+    }
+
+    /// An element's `::before`, generated as its content begins, and its `::after`, kept for
+    /// when it closes (`leave`).
+    private func beginGenerated(_ entry: Entry) {
+        guard let boxes = entry.style.generated else { return }
+        if let before = boxes.before { generate(before, in: entry) }
+        entry.exit.after = boxes.after
+    }
+
+    /// The characters of a `::before` or `::after` (`box`) of `entry`'s element, written as
+    /// text that no node is the source of: the text map has no span for them, as for a list
+    /// marker. They are drawn, selected and read by VoiceOver where they stand; positions,
+    /// CFIs, search, Copy and the passage text a host is given are the book's own characters
+    /// (`SectionText.mappedText(in:)`).
+    ///
+    /// The box is inline, or a block of its own. One that floats or is positioned is written
+    /// in line where it stands, and disclosed with the other boxes left in the flow; one hidden
+    /// from the page by its position or clip is not written. A box with no characters, such as
+    /// one drawn only for its border, writes nothing.
+    private func generate(_ box: ComputedStyle, in entry: Entry) {
+        let element = entry.node
+        state.generated.apply(box, owner: element.order)
+        let listItems = lists.isEmpty ? [orphanList.value] : lists.map(\.value)
+        let text = state.generated.text(of: box, owner: element.order, language: entry.context.language.declared,
+                                        listItems: listItems)
+        if state.generated.truncated || box.content?.contains(.unsupported) == true {
+            state.report.report.generatedContentOmitted = true
+        }
+        let units = Array(text.utf16)
+        guard !units.isEmpty, !(box.isOutOfFlow && !state.isFixedLayout && box.isVisuallyHiddenPositionedBox) else { return }
+        if box.requiresFlowBox { state.report.report.flowBoxesReflowed = true }
+        var context = entry.context
+        if let background = box.backgroundColor, background.alpha > 0 { context.background = background }
+        switch box.verticalAlign {
+        case .sub: context.baselineOffset -= entry.style.fontSize / 5
+        case .super: context.baselineOffset += entry.style.fontSize / 3
+        case .offset(let value): context.baselineOffset += value
+        default: break
+        }
+        let limit = 3 * max(entry.style.fontSize, 1)
+        context.baselineOffset = min(max(context.baselineOffset, -limit), limit)
+        let block = box.display.isBlockLevel && !box.requiresFlowBox
+        if block && flattenDepth == 0 {
+            var style = box
+            if style.display == .listItem { style.display = .block } // A pseudo-element's own marker is not drawn.
+            enterBlock(element, style: style, language: context.language)
+            context.background = nil
+            context.baselineOffset = 0
+            appendText(units, from: nil, style: box, context: context, attributes: styling.attributes(box, context))
+            exitBlock()
+            return
+        }
+        if block { softBoundary() }
+        appendText(units, from: nil, style: box, context: context, attributes: styling.attributes(box, context))
+        if block { softBoundary() }
     }
 }
 
