@@ -37,7 +37,7 @@ func shortValue(_ element: AXUIElement) -> String { describe(string(element, kAX
 let steps = Array(CommandLine.arguments.dropFirst(3))
 guard CommandLine.arguments.count >= 2,
       let pid = pid_t(CommandLine.arguments[1]), pid > 0 else {
-    fputs("Usage: voiceover-ax-observer PID [seconds] [next|previous|press=LABEL|larger|smaller|width=POINTS|focus[=COLUMN|=COLUMN.CELL|=search]|lines|links[=WORDS]|tables[=WORDS]|actions[=all]|action=NAME|caret=WORDS|follow=WORDS|wait=SECONDS ...]\n"
+    fputs("Usage: voiceover-ax-observer PID [seconds] [next|previous|press=LABEL|larger|smaller|width=POINTS|focus[=COLUMN|=COLUMN.CELL|=search]|lines|links[=WORDS]|tables[=WORDS]|actions[=all]|action=NAME|caret=WORDS|follow=WORDS|focused|wait=SECONDS ...]\n"
         + "With Safari's PID the steps are width=POINTS, focus[=address], tables and wait=SECONDS, of the page it shows.\n"
         + "A single step of - reads one step per line from standard input.\n", stderr)
     exit(1)
@@ -465,6 +465,17 @@ func perform(_ step: String) {
         NSRunningApplication(processIdentifier: pid)?.activate()
         log("FOCUS \(parts.last == "search" ? "search" : "\(index)") STATUS \(AXUIElementSetAttributeValue(texts[index], kAXFocusedAttribute as CFString, kCFBooleanTrue).rawValue)")
         pause = 1
+    case "focused":
+        // What holds the keyboard focus, which VoiceOver follows: a column, a cell's text
+        // area, a control, or the window itself.
+        if let value = attribute(app, kAXFocusedUIElementAttribute), CFGetTypeID(value) == AXUIElementGetTypeID() {
+            let element = value as! AXUIElement
+            let kind = string(element, kAXRoleAttribute) == kAXTextAreaRole ? (isCell(element) ? " CELL" : " COLUMN") : ""
+            log("FOCUSED \(called(element))\(kind) VALUE \(shortValue(element))")
+        } else {
+            log("FOCUSED none")
+        }
+        pause = 0
     case "wait": pause = parts.last.flatMap(Double.init) ?? 0
     case "lines": pause = 0
     // `links=WORDS` and `tables=WORDS` print from those words on, in a text that has them.

@@ -854,6 +854,32 @@ The release measurements of 2026-10-13, without the bound and with it, are on
 [#199](https://github.com/vocaro/EPUBLib/issues/199#issuecomment-6159294787);
 [architecture](architecture.md#publication-model) has the bound.
 
+### Archive mutation probe
+
+`Issue74MutationProbe` opens seeded mutations of the repository's own fixture and counts what
+`EPUBPublication.open(data:)` returns: an open, each `EPUBPublicationError` case, or an error of
+any other type. Half of the mutants come from `Fixture.epub()`, which is deflated, and half
+from the same files stored. They are spread evenly over five kinds: random bytes, a size field,
+a method field, bytes in an entry's data, and bytes in an entry's data with its directory
+declaring 32 MiB to 2 GiB. The patch is on
+[#74](https://github.com/vocaro/EPUBLib/issues/74#issuecomment-6270962133), with the commit it
+applies to and its run comparing `main` with that issue's fix. Save the patch as
+`issue74-probe.patch`, apply it from the repository root, and remove the file it adds
+before committing:
+
+```sh
+git apply --check issue74-probe.patch
+git apply issue74-probe.patch
+EPUBLIB_ISSUE74_MUTANTS=100000 swift test --filter Issue74MutationProbe/testProbe
+```
+
+`EPUBLIB_ISSUE74_OUT=<file>` writes one line per mutant, for comparing two builds mutant by
+mutant. `EPUBLIB_ISSUE74_REPLAY=<index,…>`, with `--filter Issue74MutationProbe/testReplay`,
+opens the listed mutants 20 times each in one process. `Fixture.epub()` writes the current
+time into each header, so its mutants are the same bytes only within one process. The stored
+mutants are the same bytes in every run. Even so, some damaged Deflate streams do not give the
+same result on every open ([#583](https://github.com/vocaro/EPUBLib/issues/583)).
+
 ### Generated page text
 
 `PageTextGeometryTests` and `PageTextPreservationTests` lay out generated sections and hold
@@ -1553,6 +1579,12 @@ selection and the numbered-word span of its value:
   `in` then starts on that line and `right` reads the word.
 - `follow=WORDS`: press the link that names the words or holds them, in a column or in a
   cell, by its own action and without VoiceOver.
+- `focused`: print what holds the keyboard focus, which VoiceOver follows while its cursor
+  tracking is on: `FOCUSED AXTextArea COLUMN` for a column, `FOCUSED AXTextArea CELL` for a
+  table cell's text area, a control, or `FOCUSED AXWindow` where the window itself holds it.
+  VoiceOver gives the focus to each text area it moves to, a cell's among them. A cell
+  that is one link holds its text area inside the link, and the observer calls that text
+  area a column: `FOCUSED AXTextArea COLUMN VALUE Reopened 1978` is the cell's.
 - `wait=SECONDS`: only observe. Without steps the observer only observes; a single step of
   `-` reads steps from standard input.
 
@@ -1857,6 +1889,27 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
   `out` of a group reached by moving forward, `right` says the next row. Of one reached by
   moving back, the first `right` says that row again and the second the next row, which
   was heard without "group": "Third cell, Fourth cell".
+- A page turned straight after `out`, with VoiceOver's cursor on the row's element, by
+  `ax:next`, `pagedown` or `"ax:action=Next Page"`: from a row group VoiceOver says "text"
+  and the new page's first line, and `describe` says "text is in the VoiceOver cursor";
+  from a table of data it says "empty", and `describe` says "empty  text is in the
+  VoiceOver cursor". From either, `line` and `right` read the new page's first line and
+  that line's first word, or a row's words twice. That is VoiceOver in the text, on the
+  row's element of the page before ([the native viewer](native-viewer.md), "Data tables",
+  "Pages"). In a spread the turn says "2 updated items", from a row group with the first
+  line after it, and from a table of data once with the new first row's words before it.
+  Set it beside the two others: on the text area and not in it `describe` says "text is in
+  the VoiceOver cursor Line 1" and `right` goes to the next item of the window, and on a
+  line of the text "Line 1  word: …", with `right` reading on in the page. A turn from a
+  line reads the new page's first line itself, "text  word: …". Before
+  [#485](https://github.com/vocaro/EPUBLib/issues/485) a row group's turn left the text
+  for the window's first button, "Open EPUB… button is in the VoiceOver cursor", and a
+  table's left VoiceOver on the text area. `ax:focused` before the turn shows where the
+  keyboard focus is: VoiceOver gave it to a row group's cell, `FOCUSED AXTextArea CELL`,
+  and to no cell of a table of data, whose text areas it goes into only from the cell.
+  After the turn it is the column's, `FOCUSED AXTextArea COLUMN`, where it was `FOCUSED
+  AXWindow`. The sessions, and what was tried against the table's "empty", are on [the
+  issue](https://github.com/vocaro/EPUBLib/issues/485#issuecomment-6270877949).
 - The probe records a phrase once: a second row that says what the row before said leaves
   no line in a transcript. Every row of a table that is not data did while it was called
   "Table row"; now only two rows of the same words do.

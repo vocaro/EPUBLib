@@ -142,18 +142,27 @@ public struct EPUBPublication: Sendable {
             }
             var bytes = Data()
             inputWork.beginEntry()
-            let crc = try archive.extract(entry, bufferSize: ArchiveInputWork.chunkSize) { chunk in
-                try Task.checkCancellation()
-                guard chunk.count <= limits.resourceBytes - bytes.count,
-                      chunk.count <= limits.expandedBytes - total else {
-                    throw EPUBPublicationError.limitExceeded(path)
+            let crc: CRC32
+            do {
+                crc = try archive.extract(entry, bufferSize: ArchiveInputWork.chunkSize) { chunk in
+                    try Task.checkCancellation()
+                    guard chunk.count <= limits.resourceBytes - bytes.count,
+                          chunk.count <= limits.expandedBytes - total else {
+                        throw EPUBPublicationError.limitExceeded(path)
+                    }
+                    try inputWork.consume(outputBytes: chunk.count)
+                    bytes.append(chunk)
+                    total += chunk.count
+                    onProgress?(total)
+                    try Task.checkCancellation()
                 }
-                try inputWork.consume(outputBytes: chunk.count)
-                bytes.append(chunk)
-                total += chunk.count
-                onProgress?(total)
-                try Task.checkCancellation()
             }
+            catch let error as EPUBPublicationError { throw error }
+            catch let error as CancellationError { throw error }
+            // A method other than stored and Deflate, or a stream that does not inflate, is
+            // damage in the archive however much the entry declares: what it declares is not
+            // trusted, and a limit is exceeded only by bytes it inflates to (#74).
+            catch { throw EPUBPublicationError.invalidArchive("\(path): \(error)") }
             guard crc == entry.checksum else { throw EPUBPublicationError.invalidArchive("CRC: \(path)") }
             contents[path] = bytes
         }
