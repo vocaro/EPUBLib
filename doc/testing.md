@@ -1106,6 +1106,25 @@ What the probe saw, what was fixed and what is still unverified is on
 [#51](https://github.com/vocaro/EPUBLib/issues/51#issuecomment-6159295619) ([second
 part](https://github.com/vocaro/EPUBLib/issues/51#issuecomment-6159295950)).
 
+### VoiceOver's own code on Mac
+
+What VoiceOver does with an element can be read in its own code, without running it or
+attaching to it ([notes for agents](../AGENTS.md#debuggers)). Its classes are in
+`ScreenReader.framework`, which is only in the dyld shared cache, and `dyld_info
+-disassemble /System/Library/PrivateFrameworks/ScreenReader.framework/Versions/A/ScreenReader`
+prints its code under its method names, `-[SCRTable statusDescription]` among them. What it
+reads of an element goes through `AXFUIElement`, in `AccessibilityFoundation.framework`
+under `AccessibilitySupport.framework`'s `Frameworks`. A call in that output goes to a stub
+and a string is an address, so neither is named. The reader on
+[#485](https://github.com/vocaro/EPUBLib/issues/485#issuecomment-6272726811),
+`cacheread.c` and `annotate.py`, names both: it reads the shared cache as its own process
+maps it, and writes each stub's selector or function and each string's characters beside
+the line that uses it. VoiceOver's words are in the `.loctable` files of
+`ScreenReader.framework/Versions/A/Resources`, property lists by language, so a word heard
+leads to its key and the key to the code: "empty" is `SCRGeneral`'s `empty`. Read so on
+macOS 27.0, the code is what made a departed table of data say "empty" on 27.0.1
+([the native viewer](native-viewer.md), "Data tables", "Pages").
+
 ## Adapter contract tests
 
 The internal **EPUBViewingTestSupport** target exercises adapter contracts with
@@ -1894,26 +1913,30 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
   moving back, the first `right` says that row again and the second the next row, which
   was heard without "group": "Third cell, Fourth cell".
 - A page turned straight after `out`, with VoiceOver's cursor on the row's element, by
-  `ax:next`, `pagedown` or `"ax:action=Next Page"`: from a row group VoiceOver says "text"
-  and the new page's first line, and `describe` says "text is in the VoiceOver cursor";
-  from a table of data it says "empty", and `describe` says "empty  text is in the
-  VoiceOver cursor". From either, `line` and `right` read the new page's first line and
-  that line's first word, or a row's words twice. That is VoiceOver in the text, on the
-  row's element of the page before ([the native viewer](native-viewer.md), "Data tables",
-  "Pages"). In a spread the turn says "2 updated items", from a row group with the first
-  line after it, and from a table of data once with the new first row's words before it.
-  Set it beside the two others: on the text area and not in it `describe` says "text is in
+  `ax:next`, `pagedown` or `"ax:action=Next Page"`: VoiceOver says "text", from a row group
+  with the new page's first line after it, and `describe` says "text is in the VoiceOver
+  cursor". From either, `line` and `right` read the new page's first line and that line's
+  first word, or a row's words twice. That is VoiceOver in the text, on the row's element
+  of the page before ([the native viewer](native-viewer.md), "Data tables", "Pages"). In a
+  spread the turn says "2 updated items", from a row group with the first line after it,
+  and from a table of data with the new first row's words before it. A turn that says
+  "empty", with `describe` "empty  text is in the VoiceOver cursor", is a departed table
+  of data that gives no rows, and `describe` "text 3 columns, 41 rows" is one that gives a
+  row and a column. Set it beside the two others: on the text area and not in it `describe` says "text is in
   the VoiceOver cursor Line 1" and `right` goes to the next item of the window, and on a
   line of the text "Line 1  word: …", with `right` reading on in the page. A turn from a
   line reads the new page's first line itself, "text  word: …". Before
   [#485](https://github.com/vocaro/EPUBLib/issues/485) a row group's turn left the text
   for the window's first button, "Open EPUB… button is in the VoiceOver cursor", and a
-  table's left VoiceOver on the text area. `ax:focused` before the turn shows where the
-  keyboard focus is: VoiceOver gave it to a row group's cell, `FOCUSED AXTextArea CELL`,
+  table's left VoiceOver on the text area, and then said "empty" until a departed table
+  gave one row of nothing. `ax:focused` before the turn shows where the keyboard focus
+  is: VoiceOver gave it to a row group's cell, `FOCUSED AXTextArea CELL`,
   and to no cell of a table of data, whose text areas it goes into only from the cell.
   After the turn it is the column's, `FOCUSED AXTextArea COLUMN`, where it was `FOCUSED
-  AXWindow`. The sessions, and what was tried against the table's "empty", are on [the
-  issue](https://github.com/vocaro/EPUBLib/issues/485#issuecomment-6270877949).
+  AXWindow`. The sessions, what was tried against the table's "empty", and the VoiceOver
+  code that made it, are on
+  [the issue](https://github.com/vocaro/EPUBLib/issues/485#issuecomment-6270877949) and
+  [after it](https://github.com/vocaro/EPUBLib/issues/485#issuecomment-6272726811).
 - The probe records a phrase once: a second row that says what the row before said leaves
   no line in a transcript. Every row of a table that is not data did while it was called
   "Table row"; now only two rows of the same words do.

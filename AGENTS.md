@@ -80,7 +80,8 @@ Do not launch a process under a debugger on this machine, or attach one: `lldb` 
   `lldb -b -o "target create BINARY" -o "disassemble -n 'METHOD'"`, with no `run`, prints one
   method's of a binary on disk; a framework that is only in the dyld shared cache, as
   VoiceOver's `ScreenReader.framework` is, it refuses as one that "does not exist". Neither
-  names the selector a call goes to.
+  names the selector a call goes to; the reader in
+  [VoiceOver's own code](doc/testing.md#voiceovers-own-code-on-mac) does.
 - To see what the reader's own code is asked, log from it.
 - If the dialog was raised all the same, end your own processes, leave the dialog alone, and
   tell the owner in your next message.
