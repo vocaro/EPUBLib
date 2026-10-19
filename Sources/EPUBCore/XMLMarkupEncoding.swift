@@ -84,6 +84,11 @@ enum XMLMarkupEncoding {
     private static func space(_ byte: UInt8) -> Bool { [0x20, 0x09, 0x0A, 0x0D].contains(byte) }
 
     private static func convert(_ data: Data, encoding: String) -> (data: Data, complete: Bool) {
+        // A decoder that stops at bytes it cannot decode writes why to standard error.
+        LibXML2Messages.silenced { convertWithLibXML2(data, encoding: encoding) }
+    }
+
+    private static func convertWithLibXML2(_ data: Data, encoding: String) -> (data: Data, complete: Bool) {
         guard data.count <= Int(Int32.max) / 4, let handler = xmlFindCharEncodingHandler(encoding) else { return (Data(), false) }
         defer { xmlCharEncCloseFunc(handler) }
         guard let input = xmlBufferCreateSize(data.count + 8) else { return (Data(), false) }

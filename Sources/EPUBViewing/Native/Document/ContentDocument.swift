@@ -228,8 +228,11 @@ final class ContentDocument: @unchecked Sendable {
             let parser = raw.assumingMemoryBound(to: xmlParserCtxt.self)
             parser.pointee._private?.assumingMemoryBound(to: Bool.self).pointee = true
         }
-        let doc = data.withUnsafeBytes { buffer in
-            xmlCtxtReadMemory(context, buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, nil, xmlOptions)
+        // The handler above takes what libxml2 raises about this parse, but not a decoder's error.
+        let doc = LibXML2Messages.silenced {
+            data.withUnsafeBytes { buffer in
+                xmlCtxtReadMemory(context, buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, nil, xmlOptions)
+            }
         }
         guard let doc else { return nil }
         defer { xmlFreeDoc(doc) }
@@ -247,8 +250,10 @@ final class ContentDocument: @unchecked Sendable {
     private static func parseHTML(_ data: Data, rewritten: Data, path: String, limits: ContentLimits) throws -> ContentDocument {
         let source = try htmlSource(data, rewritten: rewritten, path: path, limits: limits)
         guard XMLSafety.hasBoundedAttributes(source.data, asHTML: true) else { throw ContentDocumentError.limitExceeded("attributesPerElement") }
-        let doc = source.data.withUnsafeBytes { buffer in
-            htmlReadMemory(buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, "UTF-8", htmlOptions)
+        let doc = LibXML2Messages.silenced {
+            source.data.withUnsafeBytes { buffer in
+                htmlReadMemory(buffer.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(buffer.count), nil, "UTF-8", htmlOptions)
+            }
         }
         guard let doc else { throw ContentDocumentError.malformed(path) }
         defer { xmlFreeDoc(doc) }
