@@ -1916,6 +1916,26 @@ point at a line's end, so one from a line's start reads that line again, and the
 records a phrase only when it differs from the one before. The sessions on `main` and on the
 change are [on the issue](https://github.com/vocaro/EPUBLib/issues/383#issuecomment-6277358412).
 
+The reader opened at the heading is a session of its own:
+`"launch=-SampleHref OPS/body.xhtml#link-target"` shows it, and the session's resize to its
+width is a relayout straight after the place is shown. `ax:larger` builds the text again at
+a larger size, another relayout, and `nextline` before it is VoiceOver moving the insertion
+point from the place:
+
+```text
+width=600 text_size=17 "launch=-SampleHref OPS/body.xhtml#link-target" ax:lines ax:focus=search ax:focus=0 in line
+width=600 text_size=17 "launch=-SampleHref OPS/body.xhtml#link-target" ax:focus=search ax:focus=0 in line nextline ax:larger ax:lines ax:focus=search ax:focus=0 in line
+```
+
+Since [#594](https://github.com/vocaro/EPUBLib/issues/594) the first session's `in` says "In
+text Link target reached" and `STATE` gives `SELECTION 126,0`. Before, the resize put the
+page's first line back, and `in` read it. In the second, `nextline` moves the insertion point
+to the end of the heading's line, and a relayout after that enters at the first line. On the
+runner at 600 points, though, the size `ax:larger` gives starts a page with the heading, so
+that page's first line is the heading, and the session cannot tell the two rules apart: take
+the heading's line from `ax:lines` before reading anything into it. The sessions are
+[on the issue](https://github.com/vocaro/EPUBLib/issues/594#issuecomment-6278967907).
+
 ### Tables on Mac
 
 On a Mac a table of data is a table at each of its rows: the text gives AppKit's table as
