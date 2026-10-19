@@ -276,7 +276,6 @@ final class EPUBCheckOCFCoverageTests: XCTestCase {
     }
 
     func testAnEntryWithACompressionMethodOtherThanStoredOrDeflatedIsATypedRefusal() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/74")
         // OCF allows only methods 0 and 8; method 12 is bzip2 and 93 is Zstandard.
         for method: UInt16 in [1, 9, 12, 14, 93, 99] {
             var all = try entries()
@@ -290,7 +289,6 @@ final class EPUBCheckOCFCoverageTests: XCTestCase {
     }
 
     func testACorruptDeflateStreamIsATypedRefusal() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/74")
         var all = try entries(deflated: true)
         let index = try XCTUnwrap(all.firstIndex { String(decoding: $0.name, as: UTF8.self) == "OPS/two.xhtml" })
         // Block type 3 is reserved: no inflater accepts it.
