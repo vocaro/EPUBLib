@@ -121,10 +121,11 @@ keyboard away: it would cover the page or the results the search shows, and wher
 fills what the keyboard leaves there is no page to tap to dismiss it. Clear Search there
 returns focus to the field, to type again. A search pane's field takes focus when the pane
 opens; the strip's inline field does not when it appears, so opening a book raises no keyboard
-over it. The bundled reader keeps its size while the keyboard is up, which covers the foot of
-the page: made shorter, it laid the book out again as the keyboard rose and again as the
-search put it away, and on an iPad one column became two and back. A stack that holds the
-strip and the reader is still made shorter, and the reader in it.
+over it. While the keyboard is up the bundled reader's pages keep the layout they had without
+it, and the keyboard covers their foot, as does whatever a host stacks under a reader it makes
+shorter for the keyboard: laid out again for the shorter reader, the book was paginated as the
+keyboard rose for a search and again as the search put it away, and on an iPad one column
+became two and back ([native viewer](native-viewer.md), "Keyboard" under Layout).
 Whitespace-only submission clears highlights. The native engine rejects
 empty normalized queries and queries longer than 512 Swift characters, reports errors, and
 emits `.searchChanged(.searching(query:))`, then `.completed(query:hasMatches:)` after the

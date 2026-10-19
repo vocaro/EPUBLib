@@ -1590,6 +1590,15 @@ as they did.
   The outer horizontal margin is at least 3.5% of the width each side, columns are at most 720
   wide (the content area is centred when that caps it), the column gap is 7.53% of the content
   width (foliate's `g / (1 − g)` with g = 7%), and the top and bottom margins are 48.
+- **Keyboard.** On iPhone and iPad, while a keyboard is up over the reader's window, pages
+  keep the height they were laid out at without it, and the canvas cuts off their foot where
+  a host has made the reader shorter, as the keyboard covers it. The area kept is the last one
+  laid out with no keyboard up outside an animation, since a host makes room for the keyboard
+  in an animation that can come before the canvas is told of it. Laid out again for the
+  shorter reader, the book was paginated as the keyboard rose for a search and again as the
+  search put it away, and on an iPad one column became two and back
+  ([#49](https://github.com/vocaro/EPUBLib/issues/49)). A change of width lays the pages out
+  for it. Continuous scroll is made shorter, which lays no text out again.
 - **Book pose.** With a vertical division the spread has two columns: the gutter is the
   division band plus half a gap each side, and both columns have the narrower side's width,
   aligned towards the fold. When that would be under 200 wide, and in continuous scroll, a
@@ -1612,7 +1621,10 @@ as they did.
   not above the start of the result's section, so that the location stays there. Where that
   would leave the result's line partly off screen, it rests at the top. VoiceOver's cursor,
   where it is in the text, goes to the result's line on iOS, and on Mac the insertion point is
-  put at the start of that line ([#49](https://github.com/vocaro/EPUBLib/issues/49)). Far
+  put at the start of that line, and kept there until something else is shown or the view is
+  scrolled ([#49](https://github.com/vocaro/EPUBLib/issues/49)). A scroll AppKit makes as it
+  lays the whole text out again, after a change of text size, is taken for the person's, as
+  any is, and VoiceOver then enters at the first line on screen. Far
   from what is laid out, TextKit 2 only estimates where text is, and the viewport's layout
   estimates differently, so a long jump checks which line the top shows: from text before the
   position, it lays out through the position in one run and scrolls to its now exact line;
