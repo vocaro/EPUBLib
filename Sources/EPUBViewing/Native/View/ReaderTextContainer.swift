@@ -351,15 +351,43 @@ final class ReaderTextContainer: NSTextContainer {
 }
 
 extension ReaderTextContainer: NSTextContentStorageDelegate {
+    /// `style` as TextKit 2 is shown it where it applies the paragraph's indents itself, so that
+    /// its tab stops are where the style puts them; nil when that is `style`. A stop is a
+    /// distance from the paragraph's leading edge, the right one in right-to-left text, as
+    /// TextKit 1 places it in either direction and TextKit 2 left to right. TextKit 2 measures a
+    /// right-to-left paragraph's stops from its first line's start instead, less its tail
+    /// indent, so a list marker's stop set the item's first line a first-line indent further
+    /// along than its wrapped lines (#276). Paragraphs without indents (`lineFragmentRect`'s)
+    /// have their stops measured from each line's start, which is what they are given.
+    static func rightToLeftStops(_ style: NSParagraphStyle, width: CGFloat) -> NSParagraphStyle? {
+        guard style.baseWritingDirection == .rightToLeft, !style.tabStops.isEmpty else { return nil }
+        let first = max(0, style.firstLineHeadIndent)
+        let tail = max(0, style.tailIndent <= 0 ? -style.tailIndent : width - style.tailIndent)
+        guard first != tail else { return nil }
+        let shown = style.mutableCopy() as! NSMutableParagraphStyle
+        shown.tabStops = style.tabStops.map {
+            NSTextTab(textAlignment: $0.alignment, location: max(0, $0.location - first + tail), options: $0.options)
+        }
+        return shown
+    }
+
     /// A paragraph as TextKit lays it out in a container with box geometry: without the head,
     /// first-line and tail indents that `lineFragmentRect` gives each of its lines. The stored
     /// text keeps them. Tab stops are measured from a line's start, which the first-line indent
-    /// has now moved, so they move back by it.
+    /// has now moved, so they move back by it. In a plain rectangle TextKit applies the indents
+    /// itself, and a right-to-left paragraph's stops are moved to where it measures them from
+    /// (`rightToLeftStops`).
     func textContentStorage(_ textContentStorage: NSTextContentStorage, textParagraphWith range: NSRange) -> NSTextParagraph? {
-        guard !isSimpleRectangularTextContainer, range.length > 0,
+        guard range.length > 0,
               let text = textContentStorage.textStorage ?? textContentStorage.attributedString, range.upperBound <= text.length,
-              let style = text.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle,
-              style.headIndent != 0 || style.firstLineHeadIndent != 0 || style.tailIndent != 0 else { return nil }
+              let style = text.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle else { return nil }
+        guard !isSimpleRectangularTextContainer else {
+            guard let shown = Self.rightToLeftStops(style, width: size.width) else { return nil }
+            let paragraph = NSMutableAttributedString(attributedString: text.attributedSubstring(from: range))
+            paragraph.addAttribute(.paragraphStyle, value: shown, range: NSRange(location: 0, length: paragraph.length))
+            return NSTextParagraph(attributedString: paragraph)
+        }
+        guard style.headIndent != 0 || style.firstLineHeadIndent != 0 || style.tailIndent != 0 else { return nil }
         let flat = style.mutableCopy() as! NSMutableParagraphStyle
         let origin = max(0, style.firstLineHeadIndent)
         flat.headIndent = 0; flat.firstLineHeadIndent = 0; flat.tailIndent = 0

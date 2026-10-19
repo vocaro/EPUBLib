@@ -70,38 +70,81 @@ final class StyleResolver: @unchecked Sendable {
         let order = element.order
         let matcher = SelectorMatcher(document: document, facts: facts, siblingSearches: siblingSearches,
                                       selectorPositions: selectorPositions)
-        var winners = [CSSValue?](repeating: nil, count: CSSProperty.count)
-
-        func apply(_ declarations: [CSSDeclaration], important: Bool) {
-            for declaration in declarations where declaration.important == important {
-                winners[declaration.property.rawValue] = declaration.value
-            }
-        }
         let userAgent = UserAgentStyleSheet.index.matching(order, matcher: matcher)
-        for entry in userAgent { apply(UserAgentStyleSheet.index.entries[entry].declarations, important: false) }
-        let userAgentWinners = winners
-
         let matched = author.matching(order, matcher: matcher)
-        apply(PresentationalHints.declarations(for: element, facts: facts, document: document), important: false)
-        for entry in matched { apply(author.entries[entry].declarations, important: false) }
+        let hints = PresentationalHints.declarations(for: element, facts: facts, document: document)
         var inline: [CSSDeclaration] = []
         if let text = element.attribute("style") {
             inline = CSSStyleSheet.declarations(String(decoding: text.utf8.prefix(Self.maximumInlineStyleBytes), as: UTF8.self))
-            apply(inline, important: false)
         }
-        for entry in matched where author.entries[entry].hasImportant { apply(author.entries[entry].declarations, important: true) }
-        apply(inline, important: true)
-        for entry in userAgent where UserAgentStyleSheet.index.entries[entry].hasImportant {
-            apply(UserAgentStyleSheet.index.entries[entry].declarations, important: true)
+        func cascade(_ direction: ComputedStyle.Direction) -> Cascade {
+            var cascade = Cascade(direction: direction)
+            for entry in userAgent { cascade.apply(UserAgentStyleSheet.index.entries[entry].declarations, important: false) }
+            cascade.userAgent = cascade.winners
+            cascade.apply(hints, important: false)
+            for entry in matched { cascade.apply(author.entries[entry].declarations, important: false) }
+            cascade.apply(inline, important: false)
+            for entry in matched where author.entries[entry].hasImportant {
+                cascade.apply(author.entries[entry].declarations, important: true)
+            }
+            cascade.apply(inline, important: true)
+            for entry in userAgent where UserAgentStyleSheet.index.entries[entry].hasImportant {
+                cascade.apply(UserAgentStyleSheet.index.entries[entry].declarations, important: true)
+            }
+            return cascade
         }
+        let result = resolvingSides(cascade, parent: parent)
 
         let isRoot = element === document.root
         let rem = isRoot ? typography.fontSize : rootFontSize
         guard let generated = generatedRules(for: element, matcher: matcher) else {
-            return compute(winners: winners, userAgent: userAgentWinners, parent: parent, rem: rem, isRoot: isRoot)
+            return compute(winners: result.winners, userAgent: result.userAgent, parent: parent, rem: rem, isRoot: isRoot)
         }
-        return style(for: element, generating: generated, winners: winners, userAgent: userAgentWinners, parent: parent,
+        return style(for: element, generating: generated, winners: result.winners, userAgent: result.userAgent, parent: parent,
                      rem: rem, isRoot: isRoot)
+    }
+}
+
+// MARK: - Cascade
+
+extension StyleResolver {
+    /// The winning value of each longhand, from declarations applied in cascade order, with the
+    /// user agent's own winners for `revert`.
+    struct Cascade {
+        var winners = [CSSValue?](repeating: nil, count: CSSProperty.count)
+        var userAgent: [CSSValue?] = []
+        /// The direction that a declaration of a side by flow is mapped by.
+        let direction: ComputedStyle.Direction
+        /// Whether a declaration set a side by flow, so that the winners depend on `direction`.
+        private(set) var isFlowRelative = false
+
+        init(direction: ComputedStyle.Direction) { self.direction = direction }
+
+        mutating func apply(_ declarations: [CSSDeclaration], important: Bool) {
+            for declaration in declarations where declaration.important == important {
+                if declaration.rightToLeft != nil { isFlowRelative = true }
+                winners[declaration.property(in: direction).rawValue] = declaration.value
+            }
+        }
+    }
+
+    /// The cascade `run` makes for an element, with its sides by flow mapped by the element's
+    /// own direction (CSS Logical Properties 1 §4), which is also an outcome of the cascade but
+    /// never depends on them. Mapped for left to right first, as nearly every element is; an
+    /// element that sets a side by flow and turns out right to left is cascaded again.
+    func resolvingSides(_ run: (ComputedStyle.Direction) -> Cascade, parent: ComputedStyle) -> Cascade {
+        let ltr = run(.ltr)
+        guard ltr.isFlowRelative, direction(of: ltr, parent: parent) == .rtl else { return ltr }
+        return run(.rtl)
+    }
+
+    /// The direction `compute` gives the element from `cascade`'s winners.
+    private func direction(of cascade: Cascade, parent: ComputedStyle) -> ComputedStyle.Direction {
+        let index = CSSProperty.direction.rawValue
+        var value = cascade.winners[index]
+        if value == .revert { value = cascade.userAgent[index] }
+        if case .direction(let direction)? = value { return direction }
+        return value == .initial ? initialValues.direction : parent.direction
     }
 }
 
@@ -137,22 +180,22 @@ extension StyleResolver {
 
     private func generatedStyle(of element: ContentNode, userAgent: [Int], matched: [Int], style: ComputedStyle) -> ComputedStyle? {
         guard !userAgent.isEmpty || !matched.isEmpty else { return nil }
-        var winners = [CSSValue?](repeating: nil, count: CSSProperty.count)
-        func apply(_ declarations: [CSSDeclaration], important: Bool) {
-            for declaration in declarations where declaration.important == important {
-                winners[declaration.property.rawValue] = declaration.value
+        let cascade = resolvingSides({ direction in
+            var cascade = Cascade(direction: direction)
+            for entry in userAgent { cascade.apply(UserAgentStyleSheet.index.entries[entry].declarations, important: false) }
+            cascade.userAgent = cascade.winners
+            for entry in matched { cascade.apply(author.entries[entry].declarations, important: false) }
+            for entry in matched where author.entries[entry].hasImportant {
+                cascade.apply(author.entries[entry].declarations, important: true)
             }
-        }
-        for entry in userAgent { apply(UserAgentStyleSheet.index.entries[entry].declarations, important: false) }
-        let userAgentWinners = winners
-        for entry in matched { apply(author.entries[entry].declarations, important: false) }
-        for entry in matched where author.entries[entry].hasImportant { apply(author.entries[entry].declarations, important: true) }
-        for entry in userAgent where UserAgentStyleSheet.index.entries[entry].hasImportant {
-            apply(UserAgentStyleSheet.index.entries[entry].declarations, important: true)
-        }
+            for entry in userAgent where UserAgentStyleSheet.index.entries[entry].hasImportant {
+                cascade.apply(UserAgentStyleSheet.index.entries[entry].declarations, important: true)
+            }
+            return cascade
+        }, parent: style)
         // `content` is not inherited, so with no declaration it is `normal`: no box.
-        guard winners[CSSProperty.content.rawValue] != nil else { return nil }
-        var generated = compute(winners: winners, userAgent: userAgentWinners, parent: style, rem: rootFontSize, isRoot: false)
+        guard cascade.winners[CSSProperty.content.rawValue] != nil else { return nil }
+        var generated = compute(winners: cascade.winners, userAgent: cascade.userAgent, parent: style, rem: rootFontSize, isRoot: false)
         guard let items = generated.content, generated.display != .none else { return nil }
         generated.content = items.map { item in
             guard case .attribute(let name) = item else { return item }

@@ -121,7 +121,6 @@ final class SectionContentListCoverageTests: XCTestCase {
     }
 
     func testARightToLeftListIsIndentedOnItsStartSide() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/124")
         // HTML 15.3.7: `ol, ul, menu { padding-inline-start: 40px }` — the start side, which is the right in
         // right-to-left text. The paragraph style's head indent is that side.
         let ltr = try XCTUnwrap(H.paragraphStyle(try H.build("<ol><li>a</li></ol>"), at: 0))
