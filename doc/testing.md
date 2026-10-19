@@ -1577,6 +1577,12 @@ selection and the numbered-word span of its value:
   `in` then starts on that line and `right` reads the word.
 - `follow=WORDS`: press the link that names the words or holds them, in a column or in a
   cell, by its own action and without VoiceOver.
+- `focused`: print what holds the keyboard focus, which VoiceOver follows while its cursor
+  tracking is on: `FOCUSED AXTextArea COLUMN` for a column, `FOCUSED AXTextArea CELL` for a
+  table cell's text area, a control, or `FOCUSED AXWindow` where the window itself holds it.
+  VoiceOver gives the focus to each text area it moves to, a cell's among them. A cell
+  that is one link holds its text area inside the link, and the observer calls that text
+  area a column: `FOCUSED AXTextArea COLUMN VALUE Reopened 1978` is the cell's.
 - `wait=SECONDS`: only observe. Without steps the observer only observes; a single step of
   `-` reads steps from standard input.
 
@@ -1881,6 +1887,27 @@ A session on tables is read against these, which are VoiceOver's own part (macOS
   `out` of a group reached by moving forward, `right` says the next row. Of one reached by
   moving back, the first `right` says that row again and the second the next row, which
   was heard without "group": "Third cell, Fourth cell".
+- A page turned straight after `out`, with VoiceOver's cursor on the row's element, by
+  `ax:next`, `pagedown` or `"ax:action=Next Page"`: from a row group VoiceOver says "text"
+  and the new page's first line, and `describe` says "text is in the VoiceOver cursor";
+  from a table of data it says "empty", and `describe` says "empty  text is in the
+  VoiceOver cursor". From either, `line` and `right` read the new page's first line and
+  that line's first word, or a row's words twice. That is VoiceOver in the text, on the
+  row's element of the page before ([the native viewer](native-viewer.md), "Data tables",
+  "Pages"). In a spread the turn says "2 updated items", from a row group with the first
+  line after it, and from a table of data once with the new first row's words before it.
+  Set it beside the two others: on the text area and not in it `describe` says "text is in
+  the VoiceOver cursor Line 1" and `right` goes to the next item of the window, and on a
+  line of the text "Line 1  word: …", with `right` reading on in the page. A turn from a
+  line reads the new page's first line itself, "text  word: …". Before
+  [#485](https://github.com/vocaro/EPUBLib/issues/485) a row group's turn left the text
+  for the window's first button, "Open EPUB… button is in the VoiceOver cursor", and a
+  table's left VoiceOver on the text area. `ax:focused` before the turn shows where the
+  keyboard focus is: VoiceOver gave it to a row group's cell, `FOCUSED AXTextArea CELL`,
+  and to no cell of a table of data, whose text areas it goes into only from the cell.
+  After the turn it is the column's, `FOCUSED AXTextArea COLUMN`, where it was `FOCUSED
+  AXWindow`. The sessions, and what was tried against the table's "empty", are on [the
+  issue](https://github.com/vocaro/EPUBLib/issues/485#issuecomment-6270877949).
 - The probe records a phrase once: a second row that says what the row before said leaves
   no line in a transcript. Every row of a table that is not data did while it was called
   "Table row"; now only two rows of the same words do.
