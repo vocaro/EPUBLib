@@ -976,6 +976,39 @@ line of text, with the same lines and character positions as with the paragraph'
 inside justified, tabbed and indented paragraphs; `PAGE_MEASUREMENT_SECTIONS` (default 120)
 and `PAGE_MEASUREMENT_SEED` (default 570) choose them.
 
+### Layout ask-run probe
+
+`AskRunProbeTests` wraps `ReaderTextContainer`'s answer to TextKit, as `BoundedLayout` does, and
+records for every run of requests for a line at one character how many requests it reached.
+Its run is in its test; the bound it measures is `askLimit`
+([#288](https://github.com/vocaro/EPUBLib/issues/288)). It lays out every section of each
+publication as `BookCorpusPageTextTests` does, paged at the reader's column size for each of its
+cases with every page laid out again as its column shows it, and adds the whole section in one
+scrolling column. It also counts the characters on no visible line and the sections whose report
+has `textNotLaidOut`. A self-check first puts a paragraph with no tab interval beside a float and
+must see the bound end it. `RecordCostProbeTests`, in the same patch, times the record's
+attribute added over each section of a directory of books.
+
+The patch, and what it measured on the fixture books and every corpus, is on
+[#288](https://github.com/vocaro/EPUBLib/issues/288#issuecomment-6273856806). Save it as
+`ask-run-probe.patch`, apply it from the repository root, and remove the files it adds before
+committing:
+
+```sh
+git apply --check ask-run-probe.patch
+git apply ask-run-probe.patch
+eval "$(bash scripts/fetch-corpora.sh)"
+EPUBLIB_ASK_PROBE=fixtures,w3c,epubcheck swift test --filter AskRunProbeTests
+```
+
+`EPUBLIB_ASK_PROBE` names any of `fixtures`, `w3c`, `epubcheck`, `gutenberg` and `standard`, and
+`EPUBLIB_PAGE_TEXT_CASES` narrows the sizes. The book corpora take 9 to 61 minutes a size in a
+release build, so run them one process per size, as for `BookCorpusPageTextTests`. The probe
+prints one `ASK-PROBE` line, and with its output going to a file that line is written only when
+the process exits. The process can go on for an hour after its test
+([#589](https://github.com/vocaro/EPUBLib/issues/589)), so run it under `script -q <log>`, which
+writes each line as it comes, or wait for it to exit.
+
 ### Reader controls probe
 
 `Examples/ControlsQualification` is the host: `EPUBReaderView` in an ordinary `NavigationStack`

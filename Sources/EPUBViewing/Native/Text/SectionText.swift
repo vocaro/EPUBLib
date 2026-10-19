@@ -53,6 +53,10 @@ struct SectionText: @unchecked Sendable {
 /// (`ReaderTextContainer.askLimit`). The builder covers the section's text, its notes and its
 /// table cells with the record (`.readerSectionLayout`), so that a layout of any slice of them,
 /// in any view or in the box plan, reaches it.
+///
+/// A record is equal only to itself. CoreFoundation shares attribute dictionaries that compare
+/// equal between strings, so records that compared equal would let a section's text carry
+/// another section's record: of two builds of one section, the second's text carried the first's (#288).
 final class SectionLayoutRecord: NSObject, @unchecked Sendable {
     private let lock = NSLock()
     private var unplaced = false
