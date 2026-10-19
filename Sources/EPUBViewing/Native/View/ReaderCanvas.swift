@@ -120,6 +120,18 @@ enum PageTurnResult: Equatable, Sendable {
     case pending(section: Int)
 }
 
+/// Where VoiceOver on Mac enters a page that `ReaderCanvas.show` installs. It enters a column
+/// at its insertion point, which a read-only column does not draw (`ReaderTextView`).
+enum ReaderPageEntry: Equatable, Sendable {
+    /// At the start of the line that holds the position shown, in the column that holds it: a
+    /// place the person is taken to, as a link's target, a search result, a contents entry, a
+    /// bookmark or the place a book opens at.
+    case position
+    /// At the page's first line, as after every page turn and relayout: the start or end of a
+    /// section a page turn reaches.
+    case firstLine
+}
+
 @MainActor protocol ReaderCanvasDataSource: AnyObject {
     var sectionCount: Int { get }
     /// A section's rendered text, or nil while it is not built.
@@ -167,8 +179,9 @@ extension ReaderCanvasDataSource {
     /// continuous scroll. `selecting` (one section) also selects that range natively and is
     /// reported through `canvas(_:didChangeSelection:)` with exactly that range once it settles,
     /// even where the native selection stops at the page's end. Before the canvas has a size or
-    /// the section's text, both wait for the first layout or `reloadContent`.
-    func show(_ position: ReaderTextPosition, selecting range: ReaderTextRange?)
+    /// the section's text, both wait for the first layout or `reloadContent`. `entry` says
+    /// where VoiceOver on Mac enters the page shown.
+    func show(_ position: ReaderTextPosition, selecting range: ReaderTextRange?, entry: ReaderPageEntry)
     /// Paginated: the next or previous spread, crossing into the adjacent linear section at a
     /// section's end. Continuous scroll: one viewport less a line, crossing sections only while
     /// the whole book is not built. Reports `canvas(_:didShow:sectionProgress:)` when it turns.
