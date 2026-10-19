@@ -536,7 +536,9 @@ private final class XMLTree: NSObject, XMLParserDelegate {
         parser.shouldResolveExternalEntities = false
         parser.externalEntityResolvingPolicy = .never
         parser.delegate = delegate
-        return parser.parse() ? delegate.root : nil
+        // Foundation's parser gives this thread libxml2 handlers of its own for the parse and
+        // clears them after it, which would leave a host's own messages to standard error.
+        return LibXML2Messages.silenced { parser.parse() } ? delegate.root : nil
     }
     func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?,
                 qualifiedName: String?, attributes: [String: String]) {

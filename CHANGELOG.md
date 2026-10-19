@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Keep libxml2's messages about a book off the host's standard error, where text extraction still wrote them for a repeated or malformed `xml:id` and every path for bytes a declared encoding cannot decode, and give a host's own libxml2 handlers back after a package document is read ([#392](https://github.com/vocaro/EPUBLib/issues/392)).
 - End the layout of a paragraph TextKit can set on no line once it has asked a thousand times for one of its lines, lay out the rest of the section as if that paragraph had one line more than it set, and disclose the text not shown ([#288](https://github.com/vocaro/EPUBLib/issues/288)).
 - Have VoiceOver on Mac say "text" and not "empty" when a page turns with its cursor on a table of data's row element ([#485](https://github.com/vocaro/EPUBLib/issues/485)).
 - Remove an SVG filter wherever the bundled renderer reads one, after `!important` or a `*` in CSS and in `xlink:filter` among them, in time linear in the CSS ([#253](https://github.com/vocaro/EPUBLib/issues/253)).
