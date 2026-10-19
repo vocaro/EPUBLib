@@ -152,6 +152,10 @@ import AppKit
     /// (`showForAccessibilityRotor`), and its scroll, which sends the cursor once the page is
     /// announced (`accessibilityScroll`).
     var accessibilityCursorIsHeld = false
+    /// The item VoiceOver's cursor was left on by a page turn VoiceOver made itself, until its
+    /// cursor goes to another: no other item turns the page meanwhile
+    /// (`accessibilityPageTurnColumn`).
+    weak var accessibilityCursorAtTurn: NSObject?
     #endif
 
     var wheelTurner = ReaderWheelPageTurner()
