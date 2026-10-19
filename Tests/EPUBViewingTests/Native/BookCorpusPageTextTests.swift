@@ -6,7 +6,7 @@ import XCTest
 @testable import EPUBViewing
 
 /// Every character of every chapter of the standard book corpora is on a visible line of some
-/// page, at six reader sizes (#570). Skipped unless `EPUBLIB_GUTENBERG` or
+/// page, at six reader sizes (#570), and no layout of it met text TextKit could not place (#288). Skipped unless `EPUBLIB_GUTENBERG` or
 /// `EPUBLIB_STANDARD_EBOOKS` names a corpus directory, as `scripts/fetch-corpora.sh` prints them
 /// (doc/testing.md, "Corpus runs"). `EPUBLIB_PAGE_TEXT_CASES` (case names) and
 /// `EPUBLIB_PAGE_TEXT_BOOKS` (file names without `.epub`) narrow a run, both comma-separated.
@@ -59,6 +59,7 @@ import XCTest
                 for (index, section) in sections.enumerated() where section.string.length > 0 {
                     let missing = autoreleasepool { PageMeasurementTests.charactersOnNoVisibleLine(section.string, size: size).missing }
                     XCTAssertEqual(missing.count, 0, "\(book) spine item \(index) at \(entry.name): characters on no visible line \(Array(missing.rangeView.prefix(5)))")
+                    XCTAssertFalse(section.report.textNotLaidOut, "\(book) spine item \(index) at \(entry.name): text TextKit could not lay out (#288)")
                     chapters += 1
                     characters += section.string.length
                 }

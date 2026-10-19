@@ -847,31 +847,40 @@ enum ReaderBoxLayout {
                                 regions: [ReaderBoxGeometry.Region] = [], origin: CGFloat = 0, sourceOffset: Int = 0,
                                 boxFrame: CGRect? = nil, column: CGRect? = nil, scope: UUID? = nil)
         -> (height: CGFloat, paragraphs: [ReaderBoxGeometry.Paragraph]) {
-        let storage = NSTextContentStorage()
-        let manager = NSTextLayoutManager()
-        storage.addTextLayoutManager(manager)
-        let container = ReaderTextContainer(size: CGSize(width: viewport.width, height: 0))
-        container.lineFragmentPadding = 0; container.viewportSize = viewport
-        container.boxRegions = regions; container.boxOrigin = origin; container.boxSourceOffset = sourceOffset
-        container.boxOverride = boxFrame
-        container.boxColumn = column
-        container.boxScope = scope
-        container.measuresBoxPlan = true
+        func layOut(_ text: NSAttributedString) -> (NSTextContentStorage, NSTextLayoutManager, ReaderTextContainer) {
+            let storage = NSTextContentStorage()
+            let manager = NSTextLayoutManager()
+            storage.addTextLayoutManager(manager)
+            let container = ReaderTextContainer(size: CGSize(width: viewport.width, height: 0))
+            container.lineFragmentPadding = 0; container.viewportSize = viewport
+            container.boxRegions = regions; container.boxOrigin = origin; container.boxSourceOffset = sourceOffset
+            container.boxOverride = boxFrame
+            container.boxColumn = column
+            container.boxScope = scope
+            container.measuresBoxPlan = true
+            container.paragraphText = text
+            manager.textContainer = container
+            container.deliverIndents(for: storage)
+            storage.attributedString = text
+            return (storage, manager, container)
+        }
         let measured = NSMutableAttributedString(attributedString: text)
         let endsParagraph = measured.length > 0 && (measured.string as NSString).character(at: measured.length - 1) == 0x0A
         // An empty paragraph keeps its terminator, to have a line.
         let hasTerminator = measured.length > 1 && endsParagraph
         if hasTerminator { measured.deleteCharacters(in: NSRange(location: measured.length - 1, length: 1)) }
-        container.paragraphText = measured
-        manager.textContainer = container
-        container.deliverIndents(for: storage)
-        storage.attributedString = measured
+        let (storage, manager, container) = layOut(measured)
         var height: CGFloat = 0
         var paragraphs: [ReaderBoxGeometry.Paragraph] = []
+        // The paragraphs the container refused TextKit a line in.
+        var unplaced: [Int] = []
         manager.enumerateTextLayoutFragments(from: storage.documentRange.location, options: [.ensuresLayout]) { fragment in
             let start = storage.offset(from: storage.documentRange.location, to: fragment.rangeInElement.location)
             var end = storage.offset(from: storage.documentRange.location, to: fragment.rangeInElement.endLocation)
             guard start < measured.length else { return false }
+            if container.unplacedParagraphs > 0, ReaderTextContainer.holdsRefusedLines(fragment.textLineFragments) {
+                unplaced.append(paragraphs.count)
+            }
             let frame = fragment.layoutFragmentFrame
             var lines = fragment.textLineFragments.filter { $0.characterRange.length > 0 }.map { line in
                 let range = NSRange(location: start + line.characterRange.location, length: line.characterRange.length)
@@ -900,12 +909,34 @@ enum ReaderBoxLayout {
             let bottom = endsParagraph && !hasTerminator ? lines.map(\.1.maxY).max() ?? frame.maxY : frame.maxY
             paragraphs.append(.init(range: NSRange(location: start, length: end - start), flowStart: frame.minY,
                                     flowEnd: bottom, lines: lines))
-            height = max(height, bottom, lines.map(\.1.maxY).max() ?? 0)
             return true
         }
+        // A paragraph TextKit was refused a line in (`ReaderTextContainer.askLimit`) has the
+        // empty lines it asked for, close to a thousand, below the lines it set, and its frame
+        // takes them in. TextKit sets the next paragraph where it takes this one to end,
+        // without them or its spacing after (#288), and the plan must too: a box planned below
+        // them is planned that far down, and text after it is set beside boxes it is nowhere
+        // near. That end is where the next fragment starts, or, after the last, where a
+        // paragraph after the text would.
+        for index in unplaced {
+            if index + 1 < paragraphs.count { paragraphs[index].flowEnd = paragraphs[index + 1].flowStart; continue }
+            paragraphs[index].flowEnd = paragraphs[index].lines.map(\.1.maxY).max() ?? paragraphs[index].flowStart
+            let probe = NSMutableAttributedString(attributedString: text)
+            if !endsParagraph { probe.append(NSAttributedString(string: "\n", attributes: probe.attributes(at: probe.length - 1, effectiveRange: nil))) }
+            let after = probe.length
+            probe.append(NSAttributedString(string: " ", attributes: probe.attributes(at: after - 1, effectiveRange: nil)))
+            let (probeStorage, probeManager, _) = layOut(probe)
+            probeManager.enumerateTextLayoutFragments(from: probeStorage.documentRange.location, options: [.ensuresLayout]) { fragment in
+                guard probeStorage.offset(from: probeStorage.documentRange.location, to: fragment.rangeInElement.location) >= after else { return true }
+                paragraphs[index].flowEnd = max(paragraphs[index].flowEnd, fragment.layoutFragmentFrame.minY)
+                return false
+            }
+        }
+        for paragraph in paragraphs { height = max(height, paragraph.flowEnd, paragraph.lines.map(\.1.maxY).max() ?? 0) }
         // TextKit lays out no spacing after a document's last paragraph, and the text's layout
-        // does after this one, an empty one too (#377).
-        if endsParagraph, let last = paragraphs.indices.last {
+        // does after this one, an empty one too (#377). It lays out none after a paragraph it
+        // could not place either.
+        if endsParagraph, let last = paragraphs.indices.last, unplaced.last != last {
             let spacing = (text.attribute(.paragraphStyle, at: text.length - 1, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacing ?? 0
             height += spacing
             paragraphs[last].flowEnd += spacing

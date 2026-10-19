@@ -168,8 +168,42 @@ final class ReaderTextContainer: NSTextContainer {
         return insets
     }
 
+    /// How many times running TextKit may ask for a line at one character (#288). It asks a
+    /// container that is not a plain rectangle for the next line down for as long as it has set
+    /// nothing on the line, and text it can set on no line keeps it asking without end: a tab
+    /// with neither a stop after it nor a default tab interval did (#227), and nothing shows that
+    /// it is the only such text. In the reader's layouts of the fixture books and the corpora it
+    /// asks for one character at most four times running, so a thousand is text it will never set.
+    static let askLimit = 1_000
+    /// The character TextKit last asked a line for, and how many times running.
+    private var asking = (index: -1, count: 0)
+    /// The paragraphs TextKit was refused a line in (`askLimit`), each time one was laid out.
+    private(set) var unplacedParagraphs = 0
+
+    /// Whether `lines` are those of a paragraph TextKit was refused a line in: below the lines
+    /// it set, the empty lines it asked for, close to `askLimit` of them.
+    static func holdsRefusedLines(_ lines: [NSTextLineFragment]) -> Bool {
+        lines.count >= askLimit / 2 && lines.lazy.filter { $0.characterRange.length <= 0 }.count >= askLimit / 2
+    }
+
     override func lineFragmentRect(forProposedRect proposed: CGRect, at index: Int,
                                    writingDirection: NSWritingDirection, remaining: UnsafeMutablePointer<CGRect>?) -> CGRect {
+        if asking.index == index { asking.count += 1 } else { asking = (index, 1) }
+        guard asking.count <= Self.askLimit else {
+            // An empty rectangle is a full container to TextKit, which ends the paragraph there
+            // with the empty lines it asked for and goes on with the next one. A layout of the
+            // same paragraph again asks afresh: refused at its first line, TextKit would end the
+            // whole layout there instead.
+            asking = (-1, 0)
+            unplacedParagraphs += 1
+            // TextKit 1 lays a table cell out, from its layout manager's storage.
+            let text = layoutText ?? (textLayoutManager == nil ? layoutManager?.textStorage : nil)
+            if let text, index >= 0, index < text.length {
+                (text.attribute(.readerSectionLayout, at: index, effectiveRange: nil) as? SectionLayoutRecord)?.recordUnplacedText()
+            }
+            remaining?.pointee = .zero
+            return .zero
+        }
         let correction = proposalCorrection?(boxPage?.geometry.paragraph(at: index + boxSourceOffset).map { $0.range.location - boxSourceOffset } ?? index) ?? 0
         let result = lineRect(forProposedRect: proposed.offsetBy(dx: 0, dy: -correction), at: index, writingDirection: writingDirection, remaining: remaining)
         if correction != 0, let remaining, remaining.pointee != .zero { remaining.pointee.origin.y += correction }

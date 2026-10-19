@@ -2792,6 +2792,20 @@ selector and setting `stylesTruncated` when its tables would exceed that bound. 
 with at most nine element children are counted directly; retained tables are never evicted
 ([#262](https://github.com/vocaro/EPUBLib/issues/262)).
 
+Layout ends whatever the text. TextKit asks a text container that is not a plain rectangle for
+the next line down for as long as it has set nothing on the line, and text it can set on no
+line kept it asking without end: a tab with neither a stop after it nor a default tab interval
+([#227](https://github.com/vocaro/EPUBLib/issues/227)). Every paragraph style the builder
+writes now has an interval, and `ReaderTextContainer` answers an empty rectangle once it has been
+asked for a line at one character 1,000 times running, which ends the paragraph. The lines TextKit
+set before it stay; the rest of the paragraph is not shown. The box plan, the pages and the
+fragment's frame count the paragraph as far as TextKit sets what follows it, a line below its
+last line, so later boxes and pages are where they would be had that rest been one line. The
+section's `SectionReport.textNotLaidOut` is set from the layout, through a
+`SectionLayoutRecord` its text carries, and the `.disclosure` says that some text could not be
+laid out. In the reader's layouts of the fixture books and the corpora TextKit asks for one
+character at most four times running ([#288](https://github.com/vocaro/EPUBLib/issues/288)).
+
 ## Qualification
 
 The spike the issue asked for ran on the books StudyWright reads, with the opt-in
