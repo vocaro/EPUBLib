@@ -852,6 +852,32 @@ The release measurements of 2026-10-13, without the bound and with it, are on
 [#199](https://github.com/vocaro/EPUBLib/issues/199#issuecomment-6159294787);
 [architecture](architecture.md#publication-model) has the bound.
 
+### Archive mutation probe
+
+`Issue74MutationProbe` opens seeded mutations of the repository's own fixture and counts what
+`EPUBPublication.open(data:)` returns: an open, each `EPUBPublicationError` case, or an error of
+any other type. Half of the mutants come from `Fixture.epub()`, which is deflated, and half
+from the same files stored. They are spread evenly over five kinds: random bytes, a size field,
+a method field, bytes in an entry's data, and bytes in an entry's data with its directory
+declaring 32 MiB to 2 GiB. The patch is on
+[#74](https://github.com/vocaro/EPUBLib/issues/74#issuecomment-6270962133), with the commit it
+applies to and its run comparing `main` with that issue's fix. Save the patch as
+`issue74-probe.patch`, apply it from the repository root, and remove the file it adds
+before committing:
+
+```sh
+git apply --check issue74-probe.patch
+git apply issue74-probe.patch
+EPUBLIB_ISSUE74_MUTANTS=100000 swift test --filter Issue74MutationProbe/testProbe
+```
+
+`EPUBLIB_ISSUE74_OUT=<file>` writes one line per mutant, for comparing two builds mutant by
+mutant. `EPUBLIB_ISSUE74_REPLAY=<index,…>`, with `--filter Issue74MutationProbe/testReplay`,
+opens the listed mutants 20 times each in one process. `Fixture.epub()` writes the current
+time into each header, so its mutants are the same bytes only within one process. The stored
+mutants are the same bytes in every run. Even so, some damaged Deflate streams do not give the
+same result on every open ([#583](https://github.com/vocaro/EPUBLib/issues/583)).
+
 ### Generated page text
 
 `PageTextGeometryTests` and `PageTextPreservationTests` lay out generated sections and hold
