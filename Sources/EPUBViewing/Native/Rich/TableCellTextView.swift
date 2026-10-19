@@ -249,6 +249,17 @@ typealias TableNativeTextView = UITextView
     /// view for an assistive technology.
     weak var tableCellElement: NSAccessibilityElement?
     override func accessibilityParent() -> Any? { tableCellElement ?? super.accessibilityParent() }
+    /// The view goes when its row leaves the page or the screen. VoiceOver gives the keyboard
+    /// focus to each text area it moves to, a cell's among them, and leaves it there when it
+    /// comes back out to the row. A view that goes holding the focus leaves the window holding
+    /// it, and VoiceOver, which follows the focus, went to the window's first control, "Open
+    /// EPUB… button". The text that showed the cell takes the focus instead (#485).
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        if newSuperview == nil, let window, let holder = superview, window.firstResponder === self {
+            window.makeFirstResponder(holder)
+        }
+        super.viewWillMove(toSuperview: newSuperview)
+    }
     override var isFlipped: Bool { true }
     override var textContainerOrigin: NSPoint { CGPoint(x: -textOffset.x, y: -textOffset.y) }
     /// The cell's characters one for one with their ranges, each that `visibility: hidden` hides

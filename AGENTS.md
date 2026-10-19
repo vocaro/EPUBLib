@@ -78,7 +78,9 @@ Do not launch a process under a debugger on this machine, or attach one: `lldb` 
 - To read system code, use what starts no process. `dyld_info -disassemble` with a
   framework's path under `/System/Library` prints its code under its method names, and
   `lldb -b -o "target create BINARY" -o "disassemble -n 'METHOD'"`, with no `run`, prints one
-  method's. Neither names the selector a call goes to.
+  method's of a binary on disk; a framework that is only in the dyld shared cache, as
+  VoiceOver's `ScreenReader.framework` is, it refuses as one that "does not exist". Neither
+  names the selector a call goes to.
 - To see what the reader's own code is asked, log from it.
 - If the dialog was raised all the same, end your own processes, leave the dialog alone, and
   tell the owner in your next message.
