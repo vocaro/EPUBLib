@@ -33,7 +33,9 @@ final class ReaderTextView: NSTextView {
     private(set) var departedRows: [NSAccessibilityElement] = []
     /// Where VoiceOver enters the page a column shows: its first line, or the start of the line
     /// of a place shown (`ReaderCanvasView.enterPage`). The insertion point starts there, and
-    /// the rows of the page before stand there (`departedRowFrame`).
+    /// the rows of the page before stand there (`departedRowFrame`). While every column's
+    /// insertion point is still at it, a relayout enters the place again
+    /// (`ReaderCanvasView.placeStillEntered`).
     var entryLocation = 0
     private var menuImage: ReaderImageAttachment?
     /// The headings of the text in the view, found once for each text it is given.

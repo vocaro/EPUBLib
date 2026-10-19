@@ -125,10 +125,11 @@ enum PageTurnResult: Equatable, Sendable {
 enum ReaderPageEntry: Equatable, Sendable {
     /// At the start of the line that holds the position shown, in the column that holds it: a
     /// place the person is taken to, as a link's target, a search result, a contents entry, a
-    /// bookmark or the place a book opens at.
+    /// bookmark or the place a book opens at. A relayout enters there again until something
+    /// moves the insertion point or focus from it.
     case position
-    /// At the page's first line, as after every page turn and relayout: the start or end of a
-    /// section a page turn reaches.
+    /// At the page's first line, as after every page turn and every other relayout: the start
+    /// or end of a section a page turn reaches.
     case firstLine
 }
 
