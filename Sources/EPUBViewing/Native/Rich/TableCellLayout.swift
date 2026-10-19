@@ -30,7 +30,8 @@ final class TableCellLayout: @unchecked Sendable {
         self.viewportHeight = viewportHeight
         let flowed = ReaderFlowBoxLayout.applying(to: text,
             viewport: CGSize(width: max(1, width), height: max(1, viewportHeight)))
-        let text = Self.nestedRows(in: flowed, width: width, viewportHeight: viewportHeight)
+        let text = Self.nestedRows(in: ReaderTextContainer.clampingExhaustedIndents(in: flowed, width: max(1, width)),
+            width: width, viewportHeight: viewportHeight)
         interactionText = text
         let source = text.string as NSString
         let whitespace = CharacterSet.whitespacesAndNewlines
@@ -59,8 +60,11 @@ final class TableCellLayout: @unchecked Sendable {
         storage.addLayoutManager(manager)
         manager.addTextContainer(container)
         manager.ensureLayout(for: container)
-        var measured: [Line] = []
-        manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { [manager] rect, _, _, glyphs, _ in
+        var measured: [Line] = [], bottom: CGFloat = 0
+        manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { [manager] rect, used, _, glyphs, _ in
+            // A line TextKit sets no glyph on within the column has no used rect. It is still a
+            // line of the cell, and a row cut at the cell's height left it on no page (#569).
+            bottom = max(bottom, used.height > 0 ? used.maxY : rect.maxY)
             let characters = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
             if characters.location < text.length,
                let row = text.attribute(.attachment, at: characters.location, effectiveRange: nil) as? TableRowAttachment {
@@ -76,7 +80,7 @@ final class TableCellLayout: @unchecked Sendable {
             } else { measured.append(Line(characters: characters, glyphs: glyphs, frame: rect)) }
         }
         lines = measured
-        height = ceil(manager.usedRect(for: container).maxY)
+        height = ceil(max(manager.usedRect(for: container).maxY, bottom))
     }
 
     /// Freeze nested layouts at scale one before TextKit asks attachment bounds. Each level
