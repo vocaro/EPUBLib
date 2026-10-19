@@ -13,6 +13,9 @@ struct ReaderScreen: View {
     /// reports as selected and what the selection action was last given. It is there from
     /// the start, so neither moves the page, and an automated check can read it.
     private let selectionLine = UserDefaults.standard.bool(forKey: "SampleSelectionLine")
+    /// `-SampleControls none` shows the reader with none of the host's controls above it, as a
+    /// host that hides them while a book is read: nothing between the open buttons and the page.
+    private let showsControls = UserDefaults.standard.string(forKey: "SampleControls") != "none"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,8 +29,8 @@ struct ReaderScreen: View {
                 if reader.session != nil { Button("Close") { reader.close() } }
             }.padding()
             if let session = reader.session, let book = reader.publication {
-                Button(useToolbar ? "Embed Controls" : "Use Toolbar") { useToolbar.toggle() }.padding(6)
-                if !useToolbar, let controls = reader.controls {
+                if showsControls { Button(useToolbar ? "Embed Controls" : "Use Toolbar") { useToolbar.toggle() }.padding(6) }
+                if showsControls, !useToolbar, let controls = reader.controls {
                     EPUBReaderControlStrip(controls: controls) {
                         if session.capabilities.contains(.bookmarks) {
                             bookmarkMenu

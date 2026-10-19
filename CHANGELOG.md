@@ -4,6 +4,8 @@
 
 - Remove an SVG filter wherever the bundled renderer reads one, after `!important` or a `*` in CSS and in `xlink:filter` among them, in time linear in the CSS ([#253](https://github.com/vocaro/EPUBLib/issues/253)).
 - Read an SVG's CSS by Unicode scalar, so a combining mark after a quote, backslash, comma or bracket hides nothing, and write an embedded font's own family name into it only when nothing in the name can be read as CSS ([#248](https://github.com/vocaro/EPUBLib/issues/248)).
+- Turn the page for VoiceOver reading on by itself past a page's last line on iPhone and iPad, and stop at the book's end ([#468](https://github.com/vocaro/EPUBLib/issues/468)).
+- Keep every line of a table cell narrower than its own indent on a page when its row is split across pages, drawn inside its column, in Copy and in what VoiceOver reads ([#569](https://github.com/vocaro/EPUBLib/issues/569)).
 - Paginate a section whose inline blocks or floats are taller than a page in time linear in their length, with the same pages, where a play set as one inline block per scene took minutes of main-thread work ([#573](https://github.com/vocaro/EPUBLib/issues/573)).
 - Measure every page as it is shown before committing its boundary, and fit the typography fallback to the line it makes, so no character of a section is left on no visible line ([#570](https://github.com/vocaro/EPUBLib/issues/570)).
 - Read as script or style in text extraction's recovery only what the HTML Standard reads as one, so the text after `<script"q>` or a `<script>` in a title, a `textarea` or a comment is kept ([#255](https://github.com/vocaro/EPUBLib/issues/255)).
