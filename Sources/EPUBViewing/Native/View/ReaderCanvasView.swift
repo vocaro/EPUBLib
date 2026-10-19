@@ -57,6 +57,11 @@ import AppKit
     func announce(_ words: String) {
         postToAccessibility(.announcement, NSAttributedString(string: words, attributes: [.accessibilitySpeechQueueAnnouncement: true]))
     }
+
+    /// Whether a keyboard is over the canvas's window, and the page area last laid out with
+    /// none there and no animation under way: what pages keep while one is (`pageArea`).
+    var keyboardIsUp = false
+    var uncoveredPageArea: CGRect?
     #endif
 
     // Paginated flow.

@@ -872,11 +872,6 @@ private struct NativeSurface: View {
                     if edge == .leading { submit(.previousPage) }
                     if edge == .trailing { submit(.nextPage) }
                 }
-                // The keyboard covers the foot of the page. Made room for, it laid the book out
-                // again as it rose for a search and again as the search put it away: on an iPad
-                // one column became two and back (#49). A host that stacks a field under the
-                // reader still has its stack made shorter.
-                .ignoresSafeArea(.keyboard)
                 #endif
         }
     }

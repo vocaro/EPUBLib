@@ -107,7 +107,8 @@ struct ReaderScreen: View {
     /// `-SampleDarkAfter <seconds>` makes the reader dark that long after the book is ready,
     /// as a host does that follows the time of day: the same text is shown again in place.
     /// `-SampleSearch <query>` submits that search once the book is ready, as its field does,
-    /// so that the strip has results to step through.
+    /// so that the strip has results to step through, or `-SampleSearchAfter <seconds>` later:
+    /// after the text built again for `-SampleFontSize`, which moves the view under a search.
     private func openFromLaunchArguments() {
         guard reader.session == nil, let path = UserDefaults.standard.string(forKey: "SampleBook") else { return }
         reader.open(url: URL(fileURLWithPath: path))
@@ -122,8 +123,11 @@ struct ReaderScreen: View {
         reader.send(.style(style))
         if let href = defaults.string(forKey: "SampleHref") { reader.send(.navigate(href: href)) }
         if let query = defaults.string(forKey: "SampleSearch"), let controls = reader.controls {
-            controls.searchText = query
-            controls.submitSearch()
+            Task {
+                try? await Task.sleep(for: .seconds(defaults.double(forKey: "SampleSearchAfter")))
+                controls.searchText = query
+                controls.submitSearch()
+            }
         }
         let delay = defaults.double(forKey: "SampleStepAfter")
         if delay > 0 {

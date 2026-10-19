@@ -333,10 +333,10 @@ import XCTest
             try await reader.session.send(.search(text: query))
             try await reader.settle()
             try assertEntryIsTheResultsLine(query, label)
-            for height in [560.0, 700] {
-                reader.window?.resize(to: CGSize(width: 600, height: height))
+            for size in [CGSize(width: 600, height: 560), CGSize(width: 900, height: 560), CGSize(width: 600, height: 700)] {
+                reader.window?.resize(to: size)
                 try await reader.settle()
-                try assertEntryIsTheResultsLine(query, "\(label), at a window height of \(Int(height))")
+                try assertEntryIsTheResultsLine(query, "\(label), in a window of \(Int(size.width)) by \(Int(size.height))")
             }
         }
         try await reader.session.send(.nextPage)

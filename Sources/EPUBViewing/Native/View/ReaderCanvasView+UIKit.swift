@@ -18,6 +18,8 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         updateInputHandlers()
         NotificationCenter.default.addObserver(self, selector: #selector(memoryWarning(_:)),
                                                name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillChangeFrame(_:)),
+                                               name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
     }
 
     /// Disabled recognizers cannot compete with a host gesture, even before recognition.
@@ -36,6 +38,16 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
 
     @objc private func memoryWarning(_ notification: Notification) { trimCaches() }
 
+    /// A keyboard comes up over the window or goes. Its end frame is in the screen's space.
+    @objc private func keyboardWillChangeFrame(_ notification: Notification) {
+        guard let window, let end = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+        let keyboard = window.convert(end, from: window.screen.coordinateSpace)
+        let up = keyboard.height > 0 && keyboard.intersects(window.bounds)
+        guard up != keyboardIsUp else { return }
+        keyboardIsUp = up
+        setNeedsLayout()
+    }
+
     func applyAppearance() {
         let dark = configuration.isDark
         overrideUserInterfaceStyle = dark ? .dark : .light
@@ -47,6 +59,10 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         super.layoutSubviews()
         // A rotation or bar animation keeps the spread on screen and paginates once it is over.
         let duration = UIView.inheritedAnimationDuration
+        // A host makes room for a keyboard in an animation, which may come before the canvas is
+        // told of the keyboard: what is laid out then is not the area to keep.
+        let area = bounds.inset(by: safeAreaInsets)
+        if !keyboardIsUp, duration == 0 || uncoveredPageArea?.width != area.width { uncoveredPageArea = area }
         if duration > 0, configuration.flow == .paginated, spread != nil { deferLayout(for: duration) }
         layOutCanvas()
     }
@@ -56,8 +72,18 @@ extension ReaderCanvasView: UITextViewDelegate, UIGestureRecognizerDelegate {
         setNeedsLayout()
     }
 
-    /// Paginated pages keep clear of the bars; continuous scroll runs under them.
-    var pageArea: CGRect { bounds.inset(by: safeAreaInsets) }
+    /// Paginated pages keep clear of the bars; continuous scroll runs under them. While a
+    /// keyboard is up, pages keep the height they had without it, and the canvas cuts off what
+    /// is below its bottom, as the keyboard covers it: a host made the reader shorter to make
+    /// room for the keyboard, and the book was laid out again as the keyboard rose for a search
+    /// and again as the search put it away, on an iPad one column becoming two and back (#49).
+    /// Continuous scroll lays no text out again for a shorter view, and is made shorter.
+    var pageArea: CGRect {
+        let area = bounds.inset(by: safeAreaInsets)
+        guard keyboardIsUp, configuration.flow == .paginated, let kept = uncoveredPageArea,
+              kept.origin == area.origin, kept.width == area.width, kept.height > area.height else { return area }
+        return kept
+    }
 
     func makeColumnView() -> ReaderTextView {
         let view = ReaderTextView(pageColumn: true)
