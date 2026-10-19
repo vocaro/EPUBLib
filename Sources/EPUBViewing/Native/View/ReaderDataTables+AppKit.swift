@@ -131,7 +131,19 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
         view = nil
         listedRows = nil
         pageKey = nil
+        // Trial (#485): VoiceOver's model of a table says "empty" while it has no rows.
+        let row = NSAccessibilityElement()
+        row.setAccessibilityRole(.row)
+        row.setAccessibilitySubrole(.tableRow)
+        row.setAccessibilityParent(self)
+        row.setAccessibilityChildren([])
+        departedRow = row
     }
+
+    /// Trial (#485), from the launch argument `-DepartedTrial`: `row` gives a departed table one
+    /// row with nothing in it, `rowcount` the count of one row and no row.
+    nonisolated static var departedTrial: String? { UserDefaults.standard.string(forKey: "DepartedTrial") }
+    private var departedRow: NSAccessibilityElement?
 
     // MARK: What the view shows of the table
 
@@ -282,14 +294,24 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     override func accessibilityRole() -> NSAccessibility.Role? { onMain(self) { $0.view == nil ? .staticText : .table } }
     override func accessibilityParent() -> Any? { onMain(self) { $0.host } }
     override func accessibilityLabel() -> String? { onMain(self) { $0.words } }
-    override func accessibilityRows() -> [Any]? { onMain(self) { $0.rowElements } }
+    override func accessibilityRows() -> [Any]? {
+        onMain(self) { table in
+            guard table.view == nil else { return table.rowElements }
+            return Self.departedTrial == "row" ? table.departedRow.map { [$0] } ?? [] : []
+        }
+    }
     override func accessibilityVisibleRows() -> [Any]? { onMain(self) { $0.visibleRows } }
     override func accessibilitySelectedRows() -> [Any]? { onMain(self) { $0.entryRow.map { [$0] } ?? [] } }
     override func accessibilityColumns() -> [Any]? { onMain(self) { $0.shownColumns } }
     override func accessibilityVisibleColumns() -> [Any]? { onMain(self) { $0.shownColumns } }
     override func accessibilityVisibleCells() -> [Any]? { onMain(self) { $0.visibleCells } }
     override func accessibilityChildren() -> [Any]? { onMain(self) { $0.rowElements + $0.shownColumns } }
-    override func accessibilityRowCount() -> Int { onMain(self) { $0.view == nil ? 0 : $0.table.rows.count } }
+    override func accessibilityRowCount() -> Int {
+        onMain(self) { table in
+            guard table.view == nil else { return table.table.rows.count }
+            return ["row", "rowcount"].contains(Self.departedTrial) ? 1 : 0
+        }
+    }
     override func accessibilityColumnCount() -> Int { onMain(self) { $0.view == nil ? 0 : $0.table.columnCount } }
     override func accessibilityColumnHeaderUIElements() -> [Any]? { onMain(self) { $0.columnHeaders } }
     override func accessibilityRowHeaderUIElements() -> [Any]? { onMain(self) { $0.rowHeaders } }
@@ -312,7 +334,12 @@ private func onMain<Element: AnyObject, T>(_ element: Element, _ body: @MainActo
     ]
 
     override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
-        if Self.tableSelectors.contains(selector), onMain(self, { $0.view == nil }) { return false }
+        let trial: Set<Selector> = switch Self.departedTrial {
+        case "row": [#selector(accessibilityRows), #selector(accessibilityRowCount)]
+        case "rowcount": [#selector(accessibilityRowCount)]
+        default: []
+        }
+        if Self.tableSelectors.contains(selector), !trial.contains(selector), onMain(self, { $0.view == nil }) { return false }
         return super.isAccessibilitySelectorAllowed(selector)
     }
 
