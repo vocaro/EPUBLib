@@ -108,32 +108,18 @@ final class RichMediaMathCoverageTests: XCTestCase {
 
     // MARK: Elementary math
 
-    func testElementaryVariantsLayOutAndAreApproximated() throws {
+    func testElementaryVariantsLayOutNatively() throws {
         for (name, body) in F.elementary {
             let made = try MathHarness.make("<p>Work: \(F.math(body))</p>")
             let attachment = try XCTUnwrap(made.attachment, name)
             XCTAssertGreaterThan(attachment.layout.width, 0, name)
             XCTAssertEqual(made.report.mathFallbacks, 0, name)
-            XCTAssertEqual(made.report.mathApproximations, 1, "\(name) is disclosed as a simplified layout")
+            XCTAssertEqual(made.report.mathApproximations, 0, name)
             XCTAssertFalse(attachment.label.isEmpty, name)
         }
     }
 
     func testLongDivisionStylesAndDegenerateStacks() throws {
-        func parts(_ style: String) throws -> [String] {
-            let body = "<mlongdiv longdivstyle=\"\(style)\"><mn>12</mn><mn>32</mn><mn>384</mn><msgroup position=\"1\"><mn>36</mn><msline/></msgroup><mn>24</mn></mlongdiv>"
-            var approximated = false
-            return MathElementary.rewrite(try MathHarness.node(body), isApproximated: &approximated).children[0].children.map(\.name)
-        }
-        // The four documented styles place the divisor/result around the table distinctly.
-        XCTAssertEqual(try parts("lefttop"), ["mn", "mo", "mtable"])
-        XCTAssertEqual(try parts("left/\\right"), ["mn", "mo", "mtable", "mo", "mn"])
-        XCTAssertEqual(try parts("left)(right"), ["mn", "mo", "mtable", "mo", "mn"])
-        XCTAssertEqual(try parts(":right=right"), ["mtable", "mo", "mn", "mo", "mn"])
-        // The other six styles are drawn as lefttop.
-        for style in ["stackedrightright", "mediumstackedrightright", "righttop", "stackedleftleft"] {
-            XCTAssertEqual(try parts(style), ["mn", "mo", "mtable"], "\(style) draws as lefttop")
-        }
         // Degenerate stacks never crash: some lay out empty, some fall back to alttext.
         for body in ["<mstack><msline/></mstack>", "<mstack><mscarries/></mstack>", "<mstack><none/></mstack>",
                      "<mlongdiv><mn>3</mn><mn>4</mn><msline/></mlongdiv>", "<mstack><mscarries><mn>1</mn></mscarries></mstack>",
@@ -147,48 +133,12 @@ final class RichMediaMathCoverageTests: XCTestCase {
         XCTAssertEqual(huge.report.mathFallbacks, 1)
     }
 
-    func testElementaryMathIsReadRowByRow() throws {
-        XCTAssertEqual(try made(F.addition).attachment?.label, "carry 1 1, 496, plus 28, line, 524")
-        XCTAssertEqual(try made(F.germanDivision).attachment?.label, "long division of 384 by 12, result 32, working: 36, line, 24, 24, line, 0")
-    }
-
-    // MARK: Wide-formula breaking
-
-    func testWideFormulaShrinksThenBreaksAtTheThreeQuarterBoundary() throws {
-        let formula = try MathHarness.formula(F.polynomial.body, attributes: "display=\"block\"")
-        let natural = formula.natural.width
-        // At or above three quarters it stays one shrunken row; just below it breaks into rows at full size.
-        XCTAssertEqual(formula.arrangement(fitting: natural * 0.76).rows.count, 1)
-        XCTAssertEqual(formula.arrangement(fitting: natural * MathFormula.minimumScale).rows.count, 1, "exactly three quarters still shrinks")
-        let broken = formula.arrangement(fitting: natural * 0.7499)
-        XCTAssertGreaterThan(broken.rows.count, 1, "below three quarters it breaks")
-        XCTAssertEqual(MathFormula.scale(of: broken, in: natural * 0.7499), 1, accuracy: 0.001, "broken rows are at full size")
-    }
-
-    func testForcedBreaksApplyAtEveryWidthAndNoBreakUnitShrinksWhole() throws {
-        let authored = try MathHarness.formula(F.authoredBreaks.body, attributes: "display=\"block\"")
-        XCTAssertEqual(authored.natural.rows.count, 3, "two newline breaks make three rows with room to spare")
-        XCTAssertEqual(authored.arrangement(fitting: 2000).rows.count, 3, "and at a very wide line")
-        XCTAssertEqual(authored.arrangement(fitting: 0).rows.count, 3, "and unbounded")
-        // A one-fraction formula has nowhere to break: it shrinks whole, below three quarters when it must.
-        let fraction = try MathHarness.formula(F.wideFraction.body, attributes: "display=\"block\"")
-        let narrow = fraction.arrangement(fitting: MathFormula.narrowColumn)
-        XCTAssertEqual(narrow.rows.count, 1)
-        XCTAssertLessThan(MathFormula.scale(of: narrow, in: MathFormula.narrowColumn), MathFormula.minimumScale)
-        XCTAssertTrue(fraction.isReduced(in: MathFormula.narrowColumn))
-    }
-
-    func testContinuationRowsIndentTwoEmsWhenThereIsNoNearLeftRelation() throws {
-        // A long sum with no leading relation near the left edge: continuation rows indent two ems.
-        for fontSize in [CGFloat(17), 28] {
-            let sum = (0..<30).map { "<msub><mi>a</mi><mn>\($0)</mn></msub>" }.joined(separator: "<mo>+</mo>")
-            let rows = try MathHarness.formula(sum, attributes: "display=\"block\"", fontSize: fontSize).arrangement(fitting: 320)
-            XCTAssertGreaterThan(rows.rows.count, 1, "\(fontSize)")
-            let indent = min(2 * fontSize, 320 * 0.15)
-            for row in rows.rows.dropFirst() {
-                XCTAssertEqual(row.x, indent, accuracy: 0.5, "continuation rows indent two ems at \(fontSize)")
-            }
-            XCTAssertEqual(rows.rows[0].x, 0, "the first row starts at the left edge")
+    func testNestedFormulasAndWordsWrapWithoutReduction() throws {
+        for fixture in [F.wideFraction, F.piecewise, F.wordEquation] {
+            let formula = try MathHarness.formula(fixture.body, attributes: "display='block'")
+            let rows = formula.arrangement(fitting: 320)
+            XCTAssertLessThan(rows.width, formula.layout.width, fixture.name)
+            XCTAssertFalse(formula.isReduced(in: 320), fixture.name)
         }
     }
 
@@ -231,7 +181,6 @@ final class RichMediaMathCoverageTests: XCTestCase {
         let formula = try MathHarness.formula(long, attributes: "display=\"block\"")
         let arrangement = formula.arrangement(fitting: 320)
         XCTAssertLessThanOrEqual(arrangement.width * MathFormula.scale(of: arrangement, in: 320), 320.5)
-        XCTAssertLessThanOrEqual(formula.breaks.opportunities.count, MathBreaks.maximumOpportunities)
         // A 60x60 table lays out and is bounded to the column.
         let table = try made("<mtable>" + String(repeating: "<mtr>" + String(repeating: "<mtd><mn>1</mn></mtd>", count: 60) + "</mtr>", count: 60) + "</mtable>")
         let bounds = try XCTUnwrap(table.attachment).bounds(lineWidth: 320, height: 500)

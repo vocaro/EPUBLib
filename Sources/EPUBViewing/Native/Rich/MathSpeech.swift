@@ -6,10 +6,8 @@ import MathMLLayout
 ///
 /// An author's `alttext` is always the reading, verbatim but for collapsed whitespace, in the
 /// language of the content around the formula. Without one the reading is generated from the
-/// markup. The reader retains the engine's default English vocabulary, so a generated
-/// reading is tagged English whatever the content's language: an English voice then reads
-/// English words, rather than the book's voice mispronouncing them. `generate` is the one place
-/// to adopt localized engine readings in a separate change.
+/// markup in the content's language where supported. The engine reports the language actually
+/// selected, including English fallback, so assistive technology can choose a matching voice.
 enum MathSpeech {
     struct Reading: Equatable, Sendable {
         var text: String
@@ -18,9 +16,6 @@ enum MathSpeech {
         /// Whether `text` is the author's `alttext`.
         var isAuthored: Bool
     }
-
-    /// The language of the default engine vocabulary used by this reader.
-    static let generatedLanguage = "en"
 
     /// The language of the content at `element`: the nearest `xml:lang` or `lang` on it or an
     /// ancestor, else the publication's first language. An empty value says the language is
@@ -51,9 +46,7 @@ enum MathSpeech {
 
     /// A spoken reading of the markup and the language it came out in.
     static func generate(_ formula: MathMLNode, contentLanguage: String?) -> (text: String, language: String) {
-        // The engine reads elementary math as one run of numbers; give it the rows apart.
-        let rows = MathElementary.spoken(formula)
-        guard rows != formula else { return (formula.accessibilityDescription, generatedLanguage) }
-        return (rows.accessibilityDescription.replacingOccurrences(of: " ,", with: ","), generatedLanguage)
+        let reading = formula.accessibilityDescription(locale: Locale(identifier: contentLanguage ?? "en"))
+        return (reading.text, reading.language)
     }
 }
