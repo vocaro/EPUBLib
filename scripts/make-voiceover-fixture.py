@@ -69,7 +69,7 @@ files = {'mimetype': 'application/epub+zip',
                    '32px; height: 32px; }</style></head><body><h1>Page boundary '
                    'verification</h1><p>Read the numbered words across two consecutive pages. The '
                    'next page must resume at the next numbered word.</p><p><a '
-                   'href="#link-target">Verification link</a>. Image: <img src="square.svg" '
+                   'href="#link-target">Verification link</a>. Image: <img id="verification-image" src="square.svg" '
                    'alt="Blue verification square"/>.</p><p class="sequence">NUMBERED_WORDS</p><h2 '
                    'id="link-target">Link target reached</h2><p>This is the end of the numbered '
                    'paragraph.</p></body></html>',
@@ -213,7 +213,7 @@ files["OPS/grids.xhtml"] = (
     '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Tables of '
     f"data</title><style>{CELL_STYLE}</style></head><body><h1>Tables of data</h1><p>Words before the stations.</p>"
     "<table><caption>Stations on the branch</caption><thead><tr><th>Station</th><th>Opened</th><th>Depth</th></tr></thead>"
-    '<tbody><tr><th scope="row">Alder</th><td>1901</td><td>Twelve metres</td></tr>'
+    '<tbody><tr><th id="activation-cell" scope="row">Alder</th><td>1901</td><td>Twelve metres</td></tr>'
     '<tr><th scope="row">Birch</th><td>1934</td><td></td></tr>'
     '<tr><th scope="row">Cedar</th><td><a href="body.xhtml#link-target">Reopened 1978</a></td><td>Forty metres</td></tr>'
     "</tbody></table><p>Words between the grids.</p>"

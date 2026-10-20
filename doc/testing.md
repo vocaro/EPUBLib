@@ -2525,6 +2525,12 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
   seconds at most, and a `settled` line says which.
 - `point=X:Y`: touch a place in the window, as fractions of its width and height, whatever is
   listed there.
+- `doublepoint=X:Y`: double-tap that place without first moving VoiceOver's cursor. Put it
+  away from the cursor item's activation point to distinguish VoiceOver activating the item
+  from a plain touch on it. The probe waits for the screen as after `activate`.
+- `keyactivate`: send VoiceOver's Activate key, Control-Option-Space, without moving its
+  cursor or changing the chosen rotor action, then wait for the screen as after `activate`.
+  Like `doubletap`, both steps are skipped after `choose` could not find the requested action.
 - `flick=down`, `flick=up`: one finger steps through the rotor. With the cursor on a line of
   a page it offers the line's actions, Next Page first; `doubletap=LABEL` on that same line
   then performs the chosen one without moving the cursor. After the last of an item's actions
@@ -2542,6 +2548,11 @@ Without `TEST_RUNNER_VOICEOVER_STEPS` it reads forward from the first item.
   before it left: one found it on Characters and spelled the cell, and one on Rows and
   went down the column. `rotor=Actions` first settles it, and ends in `MISSING` where the
   item has no actions.
+- `chooseup=NAME`: the same search with upward flicks, for an iPhone in landscape where the
+  downward flick does not register. It keeps the same missing-action and activation guards.
+- `keyrotor=LABEL`: the same setting search as `rotor=LABEL`, using VoiceOver's
+  Control-Option-Command-Right Arrow command instead of a two-finger turn. Use it where
+  simulator touch geometry prevents the turn from registering.
 - `flick=right`, `flick=left`: VoiceOver's next and previous item; `flick=right*12` repeats it.
 - `rotor=LABEL`: two fingers turned on the glass, which turns VoiceOver's rotor, repeated
   until VoiceOver's phrase begins with LABEL, thirty turns at most: `rotor=Headings`.
@@ -2791,6 +2802,99 @@ same on both. In landscape the sample's control strip stacks and leaves its
 reader one line at 17 points, so `visible` finds no numbered line on the first spread. All of
 this is the iOS 27.0 runtime. The 27.1 runtime of Xcode 27.1 offers only the iPhone Duo and
 was not compared.
+
+#### Investigating cursor activation
+
+The later investigation on [#495](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6283827087) traces the
+activation through VoiceOver's own simulator code. Its `_handleSimpleTap:` asks
+`_shouldSendTapStraightToSystem` before looking at the cursor or the chosen rotor action.
+When that returns true it sends a plain touch at the gesture's point and returns. A keyboard
+activation has no touch point. The gate reads an internal testing flag; the issue records
+the runtime comparisons and a diagnostic patch that makes this one method return false,
+letting VoiceOver itself dispatch the cursor item's default action or the rotor action.
+The patch changes VoiceOver's behaviour and is experimental evidence, not an extension of
+the acceptance policy below. It changes no installed runtime file or reader implementation.
+
+Compare the stock simulator with an off-target double tap and with the keyboard command:
+
+```sh
+python3 scripts/run-voiceover-simulator.py --runtime com.apple.CoreSimulator.SimRuntime.iOS-27-2 \
+  --device iPad-Air-13-inch-M4 --href OPS/grids.xhtml --launch '-SampleSelectionLine YES' \
+  --vot-log --timeout 600 \
+  --steps 'touch=Alder,rotor=Actions,choose=Select Cell Text,keyactivate,state,doublepoint=0.5:0.6,state'
+```
+
+An offered action is not a performed one, and a passing recording test is not evidence of
+activation: read the `state` lines. The issue keeps the patch, its base revision, the full
+step lists, results and remaining gaps so the experiment can be repeated without retaining
+an investigation branch.
+
+The guarded bypass builds and signs its own simulator-only library. Select the Xcode with
+`DEVELOPER_DIR` for both build and run:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode-beta-27.2-beta-3.app/Contents/Developer \
+python3 scripts/run-voiceover-simulator.py --activation cursor \
+  --runtime com.apple.CoreSimulator.SimRuntime.iOS-27-2 --device iPad-Air-13-inch-M4 \
+  --href OPS/grids.xhtml#activation-cell --launch '-SampleSelectionLine YES -SampleControls none' \
+  --strict --timeout 600 \
+  --steps 'touch=Alder,keyrotor=Actions,chooseup=Select Cell Text,doublepoint=0.5:0.2,expectstate=Selected: Alder. Used: nothing.'
+```
+
+This lane currently permits only arm64 iOS 27.2 build `24B5110a`. Before creating a simulator
+it checks the runtime build and the SHA-256 of its entire `vot` executable. In that process,
+the library checks the method's Objective-C type encoding and original instructions before
+replacing it. An unknown build or binary is refused; `--activation stock` explicitly chooses
+an unmodified recording. The library is injected only inside this run's disposable simulators,
+ignores processes other than `vot`, and cannot be compiled for a device or Mac target. Nothing
+sets the Mac's injection environment or modifies an installed runtime.
+
+Every cursor run requires both `EPUB495: cursor activation v1 enabled build 24B5110a` in its
+VoiceOver log and a startup canary in a separate verification view. The canary focuses a
+counter button, activates it with Control-Option-Space and then double-taps elsewhere. Each
+must increment the counter exactly once. Failure ends the test before the reader steps; an
+absent marker or canary also makes the outer runner fail. The reader then launches normally,
+without the canary in its layout. The transcript names the mode, runtime build and binary
+fingerprint. `--activation stock --activation-check` runs the canary as a negative control;
+a passing result there needs investigation. The original experiment wrapper delegates to
+these same checks.
+
+`--strict` makes a missing target, rotor setting or action fail immediately. Assertions also
+fail the test: `expect=PREFIX` waits up to five seconds for speech beginning with that text;
+`expectcontains=TEXT` waits for speech containing it; `expectstate=TEXT` compares the sample's entire selection line; `exists=PREFIX` and
+`absent=PREFIX` check snapshot labels. `focusvisible` checks that speech names a visible
+snapshot item, allowing three seconds for snapshot delivery. Use it for reader text; native
+controls can have different XCTest labels and VoiceOver names (the inspector’s `+` is
+“Zoom In”), so assert their known speech explicitly. `mark=NAME` remembers visible
+labels, and `changed=NAME` or `same=NAME` compares them. `entertext` moves from a host control
+into the text and checks that the first numbered line reached is the first on screen; it
+never skips a stale numbered line to find a passing one. `relaunch=FLOW:SIZE:HREF:CONTROLS`
+starts another reader workflow while keeping VoiceOver running (`none` hides the host
+controls, `normal` shows them). `--book paragraphs` selects the ordinary-paragraph fixture.
+
+Repeat the assertion matrix with:
+
+```sh
+python3 scripts/qualify-simulator-voiceover.py
+python3 scripts/test-simulator-voiceover-activation.py
+```
+
+The matrix creates fresh iPhone and iPad simulators at 17 and 23 points, exercises both
+orientations and both reading flows, and checks page turns, links, image inspection,
+selection, updated rotor actions and reading after activation. It stops on the first failed
+session. The small Python suite checks that unknown builds, altered binaries and missing
+hook/canary evidence cannot pass. Qualification results and device comparisons belong on
+[#495](https://github.com/vocaro/EPUBLib/issues/495), with the revision tested. Until that
+qualification passes, the runner's default and the acceptance policy remain unchanged.
+
+On an iPhone in landscape, begin on the visible heading with `touch=Page boundary`, not
+`touch=word`: its first page contains the introduction and link, and numbered words start
+on the next page. Use `keyrotor=Actions` when two-finger turns do not register, then
+`chooseup=Next Page,keyactivate` to turn forward. On the numbered page,
+`touch=word,keyrotor=Actions,chooseup=Previous Page,doublepoint=0.5:0.2` tests the return
+through an off-target double tap. After that, `touch=Verification link,keyactivate` checks
+default activation. The [iPhone landscape follow-up](https://github.com/vocaro/EPUBLib/issues/495#issuecomment-6283996460)
+records this sequence and its evidence.
 
 ### Acceptance and evidence
 

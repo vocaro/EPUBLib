@@ -41,6 +41,33 @@ import XCUIAutomation
         if let book = environment["VOICEOVER_BOOK"] { app.launchArguments += ["-VerificationBook", book] }
         // Further launch arguments of the reader, with spaces between: `-SampleSelectionLine YES`.
         if let more = environment["VOICEOVER_LAUNCH"] { app.launchArguments += more.split(separator: " ").map(String.init) }
+        let readerArguments = app.launchArguments
+        if environment["VOICEOVER_ACTIVATION_CHECK"] == "1" {
+            app.launchArguments = ["-VerificationActivationCheck", "YES"]
+            app.launch()
+            let button = app.buttons["activation.check"]
+            XCTAssertTrue(button.waitForExistence(timeout: 20))
+            let deadline = Date().addingTimeInterval(180)
+            while (try? voiceOver.currentSpeech()) == nil, Date() < deadline {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            }
+            button.tap()
+            app.typeKey(" ", modifierFlags: [.control, .option])
+            let once = NSPredicate(format: "label == %@", "Activation check 1")
+            guard XCTWaiter.wait(for: [expectation(for: once, evaluatedWith: button)], timeout: 5) == .completed else {
+                XCTFail("Cursor activation self-test failed: keyboard command must activate exactly once")
+                return
+            }
+            app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.8)).doubleTap()
+            let twice = NSPredicate(format: "label == %@", "Activation check 2")
+            guard XCTWaiter.wait(for: [expectation(for: twice, evaluatedWith: button)], timeout: 5) == .completed else {
+                XCTFail("Cursor activation self-test failed: off-target double tap must activate exactly once")
+                return
+            }
+            print("VOICEOVER_ACTIVATION_CHECK passed: keyboard and off-target double tap each activated once")
+            app.terminate()
+            app.launchArguments = readerArguments
+        }
         app.launch()
         let snapshots = true
         #endif
@@ -152,6 +179,25 @@ import XCUIAutomation
         // The action `choose` last looked for was not offered: a double tap would perform
         // whichever the rotor had come round to.
         var unchosen = false
+        let strict = environment["VOICEOVER_STRICT"] == "1"
+        var marks: [String: String] = [:]
+        func visibleLabels() throws -> [String] {
+            var labels: [String] = []
+            let window = app.windows.firstMatch.frame
+            func collect(_ element: any XCUIElementSnapshot, clip: CGRect) {
+                // Continuous scroll lists context lines beyond its viewport. Some of those
+                // still fall inside the window, behind the host's controls: clip to the
+                // text/scroll surface too, rather than accepting an off-screen cached line.
+                let clipped = element.elementType == .textView || element.elementType == .scrollView
+                    ? clip.intersection(element.frame) : clip
+                if element.children.isEmpty, !element.label.isEmpty, clipped.intersects(element.frame) {
+                    labels.append(element.label.trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+                element.children.forEach { collect($0, clip: clipped) }
+            }
+            collect(try app.snapshot(), clip: window)
+            return labels
+        }
         for step in steps {
             let parts = step.split(separator: "=", maxSplits: 1).map(String.init)
             // Another session's app in front would be read and touched instead of the reader.
@@ -238,7 +284,11 @@ import XCUIAutomation
                 let button = app.buttons[label].firstMatch
                 let element = button.exists ? button
                     : app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).firstMatch
-                guard element.exists || element.waitForExistence(timeout: 5) else { note(step, "MISSING"); continue }
+                guard element.exists || element.waitForExistence(timeout: 5) else {
+                    note(step, "MISSING")
+                    if strict { XCTFail("Missing target: \(step)"); return }
+                    continue
+                }
                 if parts[0] == "press" {
                     // A finger held on the item for a second: with VoiceOver off, the touch that
                     // selects the word under it and brings up the edit menu.
@@ -261,12 +311,31 @@ import XCUIAutomation
                 element.doubleTap()
                 settle(before, limit: 2)
                 heard("activated")
-            case "point":
+            case "keyactivate":
+                // VoiceOver's own Activate command, preserving the cursor and rotor choice.
+                // Unlike a double tap on a named element, this cannot pass by touching a button.
+                if unchosen {
+                    note(step, "SKIPPED: the action to perform was not offered")
+                    continue
+                }
+                let before = screen()
+                app.typeKey(" ", modifierFlags: [.control, .option])
+                settle(before, limit: 2)
+                heard(step)
+            case "point", "doublepoint":
                 // A touch at a place in the window, as fractions of its width and height
                 // (`point=0.5:0.4`): whatever is drawn there, listed or not.
                 let offsets = (parts.last ?? "").split(separator: ":").compactMap { Double($0) }
                 guard offsets.count == 2 else { XCTFail("point=X:Y"); continue }
-                app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: offsets[0], dy: offsets[1])).tap()
+                let point = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: offsets[0], dy: offsets[1]))
+                if parts[0] == "doublepoint" {
+                    guard !unchosen else { note(step, "SKIPPED: the action to perform was not offered"); continue }
+                    let before = screen()
+                    point.doubleTap()
+                    settle(before, limit: 2)
+                } else {
+                    point.tap()
+                }
                 heard(step)
             case "flick":
                 // One finger up or down steps through VoiceOver's rotor: for a line, its actions.
@@ -291,7 +360,7 @@ import XCUIAutomation
                     }
                     heard("flick=\(flick.first ?? "")")
                 }
-            case "rotor":
+            case "rotor", "keyrotor":
                 // Two fingers turned on the glass turn VoiceOver's rotor, which names the setting
                 // it comes to. `rotor=Headings` turns it until its phrase begins with that, thirty
                 // turns at most; `flick=down` and `flick=up` then move by it. One turn of a given
@@ -302,38 +371,117 @@ import XCUIAutomation
                 // alone, which moved one setting at a time there. On a physical iPhone no turn
                 // registered, on the screen, the window or the text.
                 let wanted = parts.count > 1 ? parts[1] : ""
+                let keyboard = parts[0] == "keyrotor"
                 var found = wanted.isEmpty
                 let turns: [CGFloat] = [.pi / 4, .pi / 6, .pi / 9, .pi / 5, .pi / 12]
                 for turn in 0..<(wanted.isEmpty ? 1 : 30) {
-                    app.rotate(turn < 2 * turns.count ? turns[turn % turns.count] : .pi / 12, withVelocity: 2)
+                    if keyboard {
+                        // VoiceOver's next rotor setting: independent of landscape touch geometry.
+                        app.typeKey(.rightArrow, modifierFlags: [.control, .option, .command])
+                    } else {
+                        app.rotate(turn < 2 * turns.count ? turns[turn % turns.count] : .pi / 12, withVelocity: 2)
+                    }
                     RunLoop.current.run(until: Date().addingTimeInterval(0.8))
                     let phrase = (try? voiceOver.currentSpeech().utterance) ?? "no speech"
-                    note("rotor", phrase)
+                    note(parts[0], phrase)
                     // The setting's name comes first. Elsewhere in the phrase it can be the item's own
                     // hint, "Use the rotor to access Headings", when a turn did not register.
                     if !wanted.isEmpty, phrase.lowercased().hasPrefix(wanted.lowercased()) { found = true; break }
                 }
-                if !found { note(step, "MISSING") }
-            case "choose":
-                // One finger down through the rotor until VoiceOver names the action asked for,
-                // twelve steps at most: where an action stands in an item's list depends on what
-                // else the item offers. The item must already hold the cursor.
+                if !found {
+                    note(step, "MISSING")
+                    if strict { XCTFail("Missing rotor setting: \(step)"); return }
+                }
+            case "choose", "chooseup":
+                // One finger through the rotor until VoiceOver names the requested action,
+                // downward for choose and upward for chooseup, twelve steps at most. Where an
+                // action stands depends on what else the item offers. It must hold the cursor.
                 let wanted = parts.count > 1 ? parts[1] : ""
+                let upward = parts[0] == "chooseup"
                 var found = false
                 for _ in 0..<12 where !found {
                     let before = try? voiceOver.currentSpeech().utterance
-                    app.swipeDown(velocity: .fast)
+                    if upward { app.swipeUp(velocity: .fast) }
+                    else { app.swipeDown(velocity: .fast) }
                     RunLoop.current.run(until: Date().addingTimeInterval(0.6))
                     let limit = Date().addingTimeInterval(3)
                     while Date() < limit, (try? voiceOver.currentSpeech().utterance) == before {
                         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
                     }
                     let phrase = (try? voiceOver.currentSpeech().utterance) ?? "no speech"
-                    note("flick=down", phrase)
+                    note(upward ? "flick=up" : "flick=down", phrase)
                     found = phrase.hasPrefix(wanted)
                 }
                 unchosen = !found
-                if !found { note(step, "MISSING") }
+                if !found {
+                    note(step, "MISSING")
+                    if strict { XCTFail("Missing rotor action: \(step)"); return }
+                }
+            case "expect", "expectcontains":
+                let wanted = parts.last ?? ""
+                func matches(_ phrase: String) -> Bool {
+                    parts[0] == "expect" ? phrase.hasPrefix(wanted) : phrase.contains(wanted)
+                }
+                let deadline = Date().addingTimeInterval(5)
+                var phrase = (try? voiceOver.currentSpeech().utterance) ?? "no speech"
+                while !matches(phrase), Date() < deadline {
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+                    phrase = (try? voiceOver.currentSpeech().utterance) ?? "no speech"
+                }
+                note(step, phrase)
+                XCTAssertTrue(matches(phrase), "Expected speech \(parts[0] == "expect" ? "beginning with" : "containing") \(wanted), got \(phrase)")
+            case "expectstate":
+                let line = app.staticTexts["sample.selection"].firstMatch
+                note(step, line.exists ? line.label : "MISSING")
+                XCTAssertTrue(line.exists)
+                XCTAssertEqual(line.label, parts.last ?? "")
+            case "exists", "absent":
+                let target = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", parts.last ?? "")).firstMatch
+                note(step, target.exists ? "present" : "absent")
+                XCTAssertEqual(target.exists, parts[0] == "exists", step)
+            case "focusvisible":
+                var phrase = "", labels: [String] = []
+                let deadline = Date().addingTimeInterval(3)
+                repeat {
+                    phrase = (try? voiceOver.currentSpeech().utterance) ?? "no speech"
+                    labels = try visibleLabels()
+                    if labels.contains(where: { phrase.hasPrefix($0) }) { break }
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+                } while Date() < deadline
+                note(step, phrase)
+                XCTAssertTrue(labels.contains { phrase.hasPrefix($0) }, "VoiceOver's cursor must name a currently visible item: \(phrase); visible labels: \(labels)")
+            case "entertext":
+                // Start on a host control after a scroll step. The first numbered line
+                // VoiceOver reaches must be the first one on screen, including after a menu
+                // has primed its cache (#428). Do not walk past a stale line to find a good one.
+                let labels = try visibleLabels()
+                let numbered = "word[0-9]{4}|p[0-9]{3}w[0-9]{2}"
+                let first = try XCTUnwrap(labels.first { $0.range(of: numbered, options: .regularExpression) != nil })
+                note("entertextExpected", first)
+                var found = false
+                for _ in 0..<20 {
+                    let phrase = try voiceOver.moveForward().utterance
+                    note("entertext", phrase)
+                    if phrase.range(of: numbered, options: .regularExpression) != nil {
+                        XCTAssertTrue(phrase.hasPrefix(first), "First line after activation must be the first visible line: \(first), got \(phrase)")
+                        found = true
+                        break
+                    }
+                    if phrase.hasPrefix("Chapter") {
+                        XCTAssertTrue(labels.contains { phrase.hasPrefix($0) }, "VoiceOver reached a stale chapter heading: \(phrase)")
+                    }
+                }
+                XCTAssertTrue(found, "VoiceOver never entered the visible text after activation")
+            case "mark", "changed", "same":
+                let key = parts.last ?? ""
+                let value = try visibleLabels().joined(separator: "\n")
+                if parts[0] == "mark" { marks[key] = value }
+                else {
+                    let previous = try XCTUnwrap(marks[key], "No mark named \(key)")
+                    if parts[0] == "same" { XCTAssertEqual(value, previous, step) }
+                    else { XCTAssertNotEqual(value, previous, step) }
+                }
+                note(step, "checked visible labels")
             case "readall":
                 // VoiceOver reading on by itself, as two fingers swiped down start it: its
                 // Read All key, Control-Option-A, from the item under its cursor. `readall=top`
@@ -380,6 +528,24 @@ import XCUIAutomation
                 let before = screen()
                 XCUIDevice.shared.orientation = parts.last == "landscape" ? .landscapeLeft : .portrait
                 settle(before, limit: 3)
+                heard(step)
+            case "relaunch":
+                // FLOW:SIZE:HREF starts another workflow in the same owned simulator. This
+                // also exercises text-size changes and an already running VoiceOver process.
+                let settings = (parts.last ?? "").split(separator: ":").map(String.init)
+                guard settings.count == 4 else { XCTFail("relaunch=FLOW:SIZE:HREF:CONTROLS"); return }
+                var arguments: [String] = []
+                var index = 0
+                while index < readerArguments.count {
+                    if ["-SampleFlow", "-SampleFontSize", "-SampleHref", "-SampleControls"].contains(readerArguments[index]) { index += 2 }
+                    else { arguments.append(readerArguments[index]); index += 1 }
+                }
+                app.terminate()
+                app.launchArguments = arguments + ["-SampleFlow", settings[0], "-SampleFontSize", settings[1], "-SampleHref", settings[2], "-SampleControls", settings[3]]
+                app.launch()
+                XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 20))
+                unchosen = false
+                RunLoop.current.run(until: Date().addingTimeInterval(2))
                 heard(step)
             default: XCTFail("Unknown step \(step)")
             }

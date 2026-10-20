@@ -21,7 +21,11 @@ import SwiftUI
                 NavigationStack { ReaderScreen() }.frame(minWidth: 360, minHeight: 600)
             }
             #else
-            NavigationStack { ReaderScreen() }
+            if UserDefaults.standard.bool(forKey: "VerificationActivationCheck") {
+                ActivationReference()
+            } else {
+                NavigationStack { ReaderScreen() }
+            }
             #endif
         }
         #if os(macOS)
@@ -29,6 +33,21 @@ import SwiftUI
         #endif
     }
 }
+
+#if os(iOS)
+/// An independent activation canary: neither a coordinate tap elsewhere nor a duplicate
+/// activation can produce the expected count. It is never shown in reader recordings.
+private struct ActivationReference: View {
+    @State private var count = 0
+    var body: some View {
+        VStack {
+            Button("Activation check \(count)") { count += 1 }
+                .accessibilityIdentifier("activation.check")
+            Text("Other item")
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+#endif
 
 #if os(macOS)
 /// AppKit's own text view holding a link of words and a link that is a picture, with none of
