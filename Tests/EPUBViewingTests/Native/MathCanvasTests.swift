@@ -61,6 +61,7 @@ import UIKit
                         let offset = view.offset(of: location)
                         guard offset < shown else { return }
                         let box = fragment.frameForTextAttachment(at: location).offsetBy(dx: frame.minX, dy: frame.minY)
+                        guard box.width > 0.01, box.height > 0.01 else { return }
                         found.append(Placed(attachment: formula, box: box, line: line.typographicBounds.offsetBy(dx: frame.minX, dy: frame.minY),
                                             offset: offset, view: view))
                     }
@@ -150,10 +151,19 @@ import UIKit
                 XCTAssertGreaterThanOrEqual(after.minY, placed.box.maxY - 0.5)
                 // What is drawn is those rows, not one row squeezed into their box.
                 let image = try XCTUnwrap(snapshot(host.canvas))
-                let ink = try XCTUnwrap(ink(image, in: areaInCanvas(placed, canvas: host.canvas), canvas: host.canvas), "\(flow) \(fontSize)")
-                XCTAssertEqual(ink.bands, rows.rows.count, "\(flow) \(fontSize)")
-                XCTAssertLessThan(ink.left, fontSize * 0.5, "the first row starts at the left edge")
-                XCTAssertGreaterThan(ink.right, placed.box.width - fontSize * 0.5, "the widest row reaches the right edge")
+                let extent = try XCTUnwrap(ink(image, in: areaInCanvas(placed, canvas: host.canvas), canvas: host.canvas), "\(flow) \(fontSize)")
+                // The engine uses the font's MATH leading, which can leave less than the
+                // old fixed three-point gap between rows at phone text sizes. Check ink in
+                // each actual engine row box instead of inferring rows from that old gap.
+                let area = areaInCanvas(placed, canvas: host.canvas)
+                for (index, row) in rows.rows.enumerated() {
+                    let rowArea = CGRect(x: area.minX + row.x,
+                                         y: area.minY + 0.15 * fontSize + row.baseline - row.layout.ascent,
+                                         width: row.layout.width, height: row.layout.ascent + row.layout.descent)
+                    XCTAssertNotNil(ink(image, in: rowArea, canvas: host.canvas), "row \(index) \(flow) \(fontSize)")
+                }
+                XCTAssertLessThan(extent.left, fontSize * 0.5, "the first row starts at the left edge")
+                XCTAssertGreaterThan(extent.right, placed.box.width - fontSize * 0.5, "the widest row reaches the right edge")
             }
         }
     }
@@ -163,7 +173,7 @@ import UIKit
         for fontSize in [CGFloat(16), 28] {
             let host = try await host(body, fontSize: fontSize)
             let placed = try formulas(in: host.canvas)
-            XCTAssertEqual(placed.count, 2)
+            XCTAssertGreaterThan(placed.count, 2)
             let column = try columnWidth(placed[0].view)
             // The short formula is one row at its natural size, on a line it shares with words.
             let short = placed[0]
@@ -178,28 +188,32 @@ import UIKit
             let line = try XCTUnwrap(fragment.textLineFragments.first { NSLocationInRange(short.offset - short.view.offset(of: fragment.rangeInElement.location), $0.characterRange) })
             let baseline = fragment.layoutFragmentFrame.minY + line.typographicBounds.minY + line.glyphOrigin.y
             XCTAssertEqual(short.box.maxY - baseline, short.attachment.layout.descent + short.attachment.clearance.bottom, accuracy: 0.6)
-            // The long one is wider than a whole line: rows of its own, within the column.
-            let long = placed[1]
-            let rows = long.attachment.formula.arrangement(fitting: column)
-            XCTAssertGreaterThan(rows.rows.count, 1)
-            XCTAssertEqual(long.box.width, rows.width, accuracy: 0.6)
-            XCTAssertLessThanOrEqual(long.box.maxX, column + 0.5)
-            XCTAssertGreaterThanOrEqual(long.line.height, long.box.height - 0.5, "the line makes room for every row")
-            XCTAssertLessThanOrEqual(short.line.maxY, long.line.minY + 0.5, "it starts a line of its own")
+            // The long formula's engine rows occupy consecutive text lines, with the
+            // sentence sharing the first and last rather than one tall attachment line.
+            let long = Array(placed.dropFirst())
+            XCTAssertGreaterThan(long.count, 1)
+            for row in long {
+                XCTAssertLessThanOrEqual(row.box.maxX, column + 0.5)
+                XCTAssertLessThan(row.box.height, fontSize * 2)
+            }
+            for (above, below) in zip(long, long.dropFirst()) {
+                XCTAssertGreaterThan(below.box.minY, above.box.minY)
+                XCTAssertLessThanOrEqual(above.box.maxY, below.box.minY + 0.5)
+            }
+            if fontSize == 16 { XCTAssertGreaterThan(long[0].box.minX, 0, "the first row uses the space left after text") }
+            XCTAssertGreaterThan(long.last!.line.width, long.last!.box.width + fontSize, "the sentence continues on the last formula row")
         }
     }
 
-    func testAFormulaWithNoBreakFillsTheColumnAndIsDisclosed() async throws {
-        let text = try BuilderHarness.build(F.wideFraction.markup, rich: NativeRichContent(), rules: [("body", { $0.fontSize = 28 })])
+    func testAnUnbreakableNumberFillsTheColumnAndIsDisclosed() async throws {
+        let markup = F.math(F.n(String(repeating: "1", count: 100)), attributes: "display='block'")
+        let text = try BuilderHarness.build(markup, rich: NativeRichContent(), rules: [("body", { $0.fontSize = 28 })])
         XCTAssertEqual(text.report.mathReductions, 1)
         XCTAssertEqual(NativeDisclosure.text(for: text.report), "One wide formula is reduced in size on narrow pages.")
-        let host = try await host(F.wideFraction.markup, fontSize: 28)
+        let host = try await host(markup, fontSize: 28)
         let placed = try XCTUnwrap(try formulas(in: host.canvas).first)
         let column = try columnWidth(placed.view)
-        XCTAssertEqual(placed.box.width, column, accuracy: 0.6, "all of it, as large as the column allows")
-        let scale = placed.box.width / placed.attachment.layout.width
-        XCTAssertLessThan(scale, MathFormula.minimumScale)
-        XCTAssertEqual(placed.box.height / (placed.attachment.bounds(lineWidth: 0, height: 0).height), scale, accuracy: 0.01, "scaled uniformly")
+        XCTAssertEqual(placed.box.width, column, accuracy: 0.6)
     }
 
     func testAPageKeepsABrokenFormulaWhole() async throws {
@@ -223,14 +237,83 @@ import UIKit
         XCTAssertEqual(placed.box.height, rows.height + 2 * 0.15 * 22, accuracy: 0.6, "at full size: the page is tall enough")
     }
 
+    func testInlineRowsKeepTheirSourceAndReadingAcrossPagesAndResize() async throws {
+        let sum = (1...45).map { "<msub><mi>x</mi><mn>\($0)</mn></msub>" }.joined(separator: "<mo>+</mo>")
+        let label = "the sum of forty-five terms"
+        let body = "<p>Before \(F.math(sum, attributes: "alttext='\(label)'")) after the sum.</p>"
+        let host = try await host(body, fontSize: 22, size: CGSize(width: 340, height: 190))
+        let source = try XCTUnwrap(host.canvas.textViews.first?.contentStorage.textStorage).string
+        var indices: [Int] = []
+        var page = 0
+        repeat {
+            let placed = try formulas(in: host.canvas)
+            if !placed.isEmpty {
+                indices += placed.map(\.attachment.row)
+                let visible = host.canvas.textViews.map(\.visibleText).joined()
+                XCTAssertEqual(visible.components(separatedBy: label).count - 1, 1, "one reading on page \(page)")
+                #if os(iOS)
+                let labels = host.canvas.textViews.flatMap { ($0.accessibilityElements as? [UIAccessibilityElement] ?? []).compactMap(\.accessibilityLabel) }
+                XCTAssertEqual(labels.filter { $0 == label }.count, 1, "one accessible formula on each continuation page")
+                #else
+                var readings: [String] = []
+                for view in host.canvas.textViews {
+                    let text = try XCTUnwrap(view.accessibilityAttributedString(for: view.shownCharacters))
+                    text.enumerateAttribute(.accessibilityAttachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+                        if let element = value as? NSAccessibilityElement, let words = element.accessibilityLabel() { readings.append(words) }
+                    }
+                }
+                XCTAssertEqual(readings.filter { $0 == label }.count, 1, "one accessible formula on each continuation page")
+                // A client may ask for one continuation character rather than the whole
+                // page. That query must not give the same formula a second image reading.
+                for row in placed where row.offset > 0 && row.attachment.row > 0 {
+                    let piece = try XCTUnwrap(row.view.accessibilityAttributedString(for: NSRange(location: row.offset, length: 1)))
+                    XCTAssertNil(piece.attribute(.accessibilityAttachment, at: 0, effectiveRange: nil))
+                }
+                #endif
+            }
+            page += 1
+            guard host.canvas.turnPage(forward: true) == .turned else { break }
+            host.layOut()
+            try await host.settle(100)
+        } while page < 12
+        XCTAssertGreaterThan(page, 1)
+        XCTAssertEqual(indices, Array(0..<indices.count), "every engine row is shown exactly once across page boundaries")
+        XCTAssertGreaterThan(indices.count, 4)
+        // The source character slots remain stable at another width; continuations do not
+        // insert characters that would move bookmarks, search results or the following text.
+        host.canvas.show(ReaderTextPosition(section: 0, offset: 0), selecting: nil)
+        host.canvas.frame.size.width = 480
+        host.layOut()
+        try await host.settle(100)
+        let resized = try XCTUnwrap(host.canvas.textViews.first?.contentStorage.textStorage)
+        XCTAssertTrue(source.hasPrefix(resized.string) || resized.string.hasPrefix(source))
+        XCTAssertEqual(resized.readerPlainText().components(separatedBy: label).count - 1, 1)
+    }
+
+    func testInlineRowsDrawInkAfterTextAtEachWidth() async throws {
+        let body = "<p>Before \(F.inlineSeries.markup) after.</p>"
+        for width in [CGFloat(340), 460] {
+            let host = try await host(body, flow: .scrolled, size: CGSize(width: width, height: 900))
+            let placed = try formulas(in: host.canvas)
+            XCTAssertGreaterThan(placed.count, 1)
+            XCTAssertGreaterThan(placed[0].box.minX, 10, "the formula starts after Before")
+            let image = try XCTUnwrap(snapshot(host.canvas))
+            for row in placed {
+                let pixels = try XCTUnwrap(ink(image, in: areaInCanvas(row, canvas: host.canvas), canvas: host.canvas), "row=\(row.attachment.row) box=\(row.box) width=\(width)")
+                XCTAssertEqual(pixels.bands, 1)
+                XCTAssertGreaterThan(pixels.right - pixels.left, 20)
+            }
+        }
+    }
+
     func testReadingsReachAccessibilityWithTheirLanguage() async throws {
         let authored = F.math(F.fraction, attributes: "alttext=\"\(F.frenchAlttext)\"")
         let host = try await host("<p>Soit \(authored) et \(F.math(F.fraction)) deux fractions.</p>", root: "xml:lang=\"fr\"")
         let placed = try formulas(in: host.canvas)
-        XCTAssertEqual(placed.map(\.attachment.label), [F.frenchAlttext, F.englishReading])
-        XCTAssertEqual(placed.map(\.attachment.language), ["fr", "en"])
+        XCTAssertEqual(placed.map(\.attachment.label), [F.frenchAlttext, "début de fraction a sur b au carré fin de fraction"])
+        XCTAssertEqual(placed.map(\.attachment.language), ["fr", "fr"])
         let view = placed[0].view
-        XCTAssertEqual(view.visibleText, "Soit \(F.frenchAlttext) et \(F.englishReading) deux fractions.")
+        XCTAssertEqual(view.visibleText, "Soit \(F.frenchAlttext) et \("début de fraction a sur b au carré fin de fraction") deux fractions.")
         #if os(macOS)
         let text = try XCTUnwrap(view.accessibilityAttributedString(for: view.shownCharacters))
         for formula in placed {
@@ -243,8 +326,8 @@ import UIKit
         #else
         let elements = try XCTUnwrap(view.accessibilityElements as? [UIAccessibilityElement])
         let images = elements.filter { $0.accessibilityTraits.contains(.image) }
-        XCTAssertEqual(images.map(\.accessibilityLabel), [F.frenchAlttext, F.englishReading])
-        XCTAssertEqual(images.map(\.accessibilityLanguage), ["fr", "en"])
+        XCTAssertEqual(images.map(\.accessibilityLabel), [F.frenchAlttext, "début de fraction a sur b au carré fin de fraction"])
+        XCTAssertEqual(images.map(\.accessibilityLanguage), ["fr", "fr"])
         XCTAssertTrue(elements.filter { !$0.accessibilityTraits.contains(.image) }.allSatisfy { $0.accessibilityLanguage == nil })
         #endif
     }

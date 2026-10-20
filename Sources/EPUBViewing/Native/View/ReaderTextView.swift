@@ -133,6 +133,14 @@ extension ReaderTextView {
         let full = NSRange(location: 0, length: storage.length)
         var result: [(NSTextAttachment, String, NSRange)] = []
         storage.enumerateAttribute(.attachment, in: range.map { NSIntersectionRange($0, full) } ?? full) { value, run, _ in
+            if let math = value as? MathAttachment, math.inline != nil {
+                // AX metadata is independent of the requested substring: one reading at
+                // the formula's first slot in this view, including a continuation page.
+                if run.location == max(0, run.location - math.row) {
+                    result.append((math, math.label, NSRange(location: run.location, length: 1)))
+                }
+                return
+            }
             guard let attachment = value as? NSTextAttachment,
                   let text = (attachment as? ReaderTextualAttachment)?.textEquivalent, !text.isEmpty else { return }
             result.append((attachment, text, run))

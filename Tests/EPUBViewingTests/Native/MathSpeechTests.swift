@@ -62,27 +62,26 @@ final class MathSpeechTests: XCTestCase {
         XCTAssertNil(try language("<p lang=\"mul-Latn\">\(math)</p>", publication: "fr"))
     }
 
-    /// The reader uses the engine's default English vocabulary: the reading is tagged with the
-    /// language it is in, so a French book's formula is not read as French words.
-    func testGeneratedReadingIsTaggedWithTheLanguageItIsWrittenIn() throws {
-        for (language, root) in [("fr", ""), ("de", ""), ("en", "xml:lang=\"ja\"")] {
-            let made = try attachment("<p>\(F.math(F.fraction))</p>", language: language, root: root)
-            XCTAssertEqual(made.label, F.englishReading)
-            XCTAssertEqual(made.language, MathSpeech.generatedLanguage)
-            XCTAssertEqual(made.language, "en")
+    func testGeneratedReadingsUseTheSelectedSupportedLanguage() throws {
+        let expected = ["en": F.englishReading,
+                        "fr": "début de fraction a sur b au carré fin de fraction",
+                        "de": "Anfang Bruch a durch b Quadrat Ende Bruch",
+                        "es": "inicio de fracción a sobre b al cuadrado fin de fracción",
+                        "it": "inizio frazione a fratto b al quadrato fine frazione"]
+        for (requested, selected) in [("en", "en"), ("fr", "fr"), ("fr-CA", "fr"), ("de-CH", "de"),
+                                      ("es", "es"), ("it", "it"), ("en-GB", "en-GB"), ("ja-JP", "en")] {
+            let made = try attachment("<p>\(F.math(F.fraction))</p>", language: requested)
+            XCTAssertEqual(made.language, selected)
+            XCTAssertEqual(made.label, expected[selected == "en-GB" ? "en" : selected], requested)
             XCTAssertFalse(made.isLabelAuthored)
         }
-        // The content's language reaches the one place a localized generator would take it.
-        let node = try MathHarness.node(F.fraction)
-        let generated = MathSpeech.generate(node, contentLanguage: "fr")
-        XCTAssertEqual(generated.text, node.accessibilityDescription)
-        XCTAssertEqual(generated.language, "en")
-        XCTAssertEqual(MathSpeech.reading(alttext: "", formula: node, contentLanguage: "fr"),
-                       MathSpeech.Reading(text: F.englishReading, language: "en", isAuthored: false))
-        XCTAssertEqual(MathSpeech.reading(alttext: F.frenchAlttext, formula: node, contentLanguage: "fr"),
-                       MathSpeech.Reading(text: F.frenchAlttext, language: "fr", isAuthored: true))
-        // A whitespace-only alttext is no alttext.
-        XCTAssertFalse(try attachment("<p>\(F.math(F.fraction, attributes: "alttext=\"  \""))</p>", language: "fr").isLabelAuthored)
+        let own = try attachment("<p lang='fr'>\(F.math(F.fraction, attributes: "xml:lang='it'"))</p>", language: "de")
+        XCTAssertEqual(own.language, "it")
+        XCTAssertEqual(own.label, expected["it"])
+        let unknown = try attachment("<p xml:lang=''>\(F.math(F.fraction))</p>", language: "fr")
+        XCTAssertEqual(unknown.language, "en")
+        XCTAssertEqual(unknown.label, F.englishReading)
+        XCTAssertFalse(try attachment("<p>\(F.math(F.fraction, attributes: "alttext='  '"))</p>", language: "fr").isLabelAuthored)
     }
 
     @MainActor
@@ -90,15 +89,15 @@ final class MathSpeechTests: XCTestCase {
         let authored = try attachment("<p>\(F.math(F.fraction, attributes: "alttext=\"\(F.frenchAlttext)\""))</p>", language: "fr")
         let generated = try attachment("<p>\(F.math(F.fraction))</p>", language: "fr")
         XCTAssertEqual((authored as ReaderTextualAttachment).textLanguage, "fr")
-        XCTAssertEqual((generated as ReaderTextualAttachment).textLanguage, "en")
+        XCTAssertEqual((generated as ReaderTextualAttachment).textLanguage, "fr")
         #if os(iOS)
         XCTAssertEqual(authored.accessibilityLabel, F.frenchAlttext)
         XCTAssertEqual(authored.accessibilityLanguage, "fr")
-        XCTAssertEqual(generated.accessibilityLabel, F.englishReading)
-        XCTAssertEqual(generated.accessibilityLanguage, "en")
+        XCTAssertEqual(generated.accessibilityLabel, "début de fraction a sur b au carré fin de fraction")
+        XCTAssertEqual(generated.accessibilityLanguage, "fr")
         #elseif os(macOS)
         XCTAssertEqual(authored.image?.accessibilityDescription, F.frenchAlttext)
-        XCTAssertEqual(generated.image?.accessibilityDescription, F.englishReading)
+        XCTAssertEqual(generated.image?.accessibilityDescription, "début de fraction a sur b au carré fin de fraction")
         #endif
         // Other attachments name no language of their own.
         XCTAssertNil((ReaderRuleAttachment(style: ComputedStyle(fontSize: 17), isDark: false) as ReaderTextualAttachment).textLanguage)

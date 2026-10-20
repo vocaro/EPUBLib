@@ -199,7 +199,7 @@ Viewer component tests cover content-document parsing, the CSS cascade and fonts
 building and its text map, images, tables, MathML attachments, CFIs and text search, pagination
 geometry and the TextKit 2 views. MathML fixtures cover wide display and inline formulas at 17
 and 28 points in a 320-point column, their rows as laid out and drawn in both flows, `mglyph`,
-elementary math, and readings in French and German content with and without `alttext`. CFI and search tests replay vectors recorded from foliate-js's own
+elementary math with finite rules, positioned carries and all ten division styles, and generated readings in all five supported languages with regional and English fallback. Authored `alttext` is preserved. Inline canvas checks cover drawn rows, continuation pages, stable source offsets and resizing. CFI and search tests replay vectors recorded from foliate-js's own
 `epubcfi.js` and `search.js` in WebKit before they were removed, so CFIs the WebKit reader
 recorded keep naming the same positions. The one exception is deliberate: a CFI into a later
 occurrence of a spine item the spine repeats names that occurrence, where foliate-js named the
@@ -1298,6 +1298,16 @@ are recorded in the
 [#28](https://github.com/vocaro/EPUBLib/issues/28).
 
 ### Isolated reader and fixture
+
+`OPS/math.xhtml` contains generated readings of x squared in English, French, German, Spanish
+and Italian, an unsupported Japanese request that falls back to English, authored German
+`alttext`, a native addition stack and a long inline sum. Open it with
+`-SampleHref OPS/math.xhtml`. Simulator speech sessions can touch `x squared`, `x au carré`,
+`x Quadrat`, `x al cuadrado`, `x al quadrato`, and `Die eigene Beschreibung`; a Mac session
+can focus the reader and move by line. The generated reading's text and language attributes
+are also held by `MathSpeechTests` and `MathCanvasTests`. These checks distinguish the words
+and requested voice language from subjective vocabulary review upstream.
+
 
 `Examples/VoiceOverVerification` reuses the normal reader sample's shared interface with
 separate application identifiers and a bundled synthetic EPUB. It opens the fixture at launch

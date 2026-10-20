@@ -15,7 +15,7 @@ import AppKit
 /// display style; the stylesheet and builder make them their own centred paragraph.
 ///
 /// Glyph images come from the publication, with their alternatives retained for speech and
-/// missing images. The reader retains its elementary-math and row-breaking policies.
+/// missing images. The engine lays out elementary math and selects width-aware rows.
 enum MathContent {
     static func make(_ element: ContentNode, style: ComputedStyle, context: RichContentContext,
                      images: ReaderImageCache = .shared) -> NSAttributedString? {
@@ -28,19 +28,25 @@ enum MathContent {
             var conversion = MathConversion(keepsColors: !dark)
             let source = try conversion.convert(element, depth: 0)
             let glyphs = glyphImages(conversion.glyphs, style: style, context: context, cache: images)
-            var isApproximated = glyphs.hasFallback
-            let node = MathElementary.rewrite(source, isApproximated: &isApproximated)
+            let isApproximated = glyphs.hasFallback
             let display = element.attribute("display") == "block" || element.attribute("mode") == "display"
-            let formula = try MathFormula(node, style: MathStyle(fontSize: style.fontSize, color: color,
+            let formula = try MathFormula(source, style: MathStyle(fontSize: style.fontSize, color: color,
                                                                isDisplay: display, imageProvider: glyphs.provider))
             if isApproximated { context.report.report.mathApproximations += 1 }
             if formula.isReduced(in: MathFormula.narrowColumn) { context.report.report.mathReductions += 1 }
             let font = context.fonts.font(for: style)
             let language = MathSpeech.contentLanguage(of: element, publication: context.publication)
             let reading = MathSpeech.reading(alttext: alt, formula: source, contentLanguage: language)
-            let attachment = MathAttachment(formula: formula, reading: reading, font: font, style: style)
-            let result = NSMutableAttributedString(attachment: attachment)
-            result.addAttributes([.font: font], range: NSRange(location: 0, length: result.length))
+            let inline = display ? nil : MathInlineRows(formula: formula)
+            let result = NSMutableAttributedString(string: "")
+            for index in 0..<(inline?.count ?? 1) {
+                let attachment = MathAttachment(formula: formula, reading: reading, font: font, style: style,
+                                                inline: inline, row: index)
+                let slot = NSMutableAttributedString(attachment: attachment)
+                slot.addAttribute(.font, value: index == 0 ? font : PlatformFont.systemFont(ofSize: 0.01),
+                                  range: NSRange(location: 0, length: 1))
+                result.append(slot)
+            }
             return result
         } catch {
             context.report.report.mathFallbacks += 1
@@ -172,14 +178,18 @@ struct MathConversion {
 /// the text's own line leave the line spacing alone.
 struct MathRendering: Sendable {
     let formula: MathFormula
+    let inline: MathInlineRows?
+    let row: Int
     /// The surrounding text's ascent, descent and leading, and the clear space a side gets.
     let ascent: CGFloat, descent: CGFloat, leading: CGFloat, space: CGFloat
 
     /// For a formula set in `font` on lines `style.lineHeight` apart. TextKit puts a line's
     /// extra height above its text, so the previous line's descenders end at the top of the
     /// line and the next line's text starts below that line's leading.
-    init(formula: MathFormula, font: PlatformFont, style: ComputedStyle) {
+    init(formula: MathFormula, font: PlatformFont, style: ComputedStyle, inline: MathInlineRows? = nil, row: Int = 0) {
         self.formula = formula
+        self.inline = inline
+        self.row = row
         ascent = CTFontGetAscent(font as CTFont)
         descent = CTFontGetDescent(font as CTFont)
         let natural = InlineStyling.naturalLineHeight(font)
@@ -197,8 +207,10 @@ struct MathRendering: Sendable {
     /// The arrangement with its clearance, scaled uniformly to fit `lineWidth` and `height` (a
     /// zero leaves that dimension unbounded); the origin is the bottom edge's offset below the
     /// baseline.
-    func bounds(lineWidth: CGFloat, height: CGFloat) -> CGRect {
-        let arrangement = formula.arrangement(fitting: lineWidth)
+    func bounds(lineWidth: CGFloat, height: CGFloat, position: CGFloat = 0, container: NSTextContainer? = nil) -> CGRect {
+        let arrangement = inline?.arrangement(row: row, width: lineWidth, position: position, container: container)
+            ?? formula.arrangement(fitting: lineWidth)
+        guard arrangement.width > 0 else { return CGRect(x: 0, y: 0, width: 0.0001, height: 0.0001) }
         let clearance = clearance(of: arrangement)
         let padded = arrangement.height + clearance.top + clearance.bottom
         var scale = MathFormula.scale(of: arrangement, in: lineWidth)
@@ -210,11 +222,12 @@ struct MathRendering: Sendable {
     /// Draws the formula filling `size`, y up. Of the arrangements made so far it draws the one
     /// whose bounds have the proportions of `shape`, the size it is shown at: bounds are asked
     /// for at layout and the image later, and each arrangement's are shaped differently.
-    func draw(in context: CGContext, size: CGSize, shape: CGSize) {
+    func draw(in context: CGContext, size: CGSize, shape: CGSize, arrangement: MathArrangement? = nil) {
         guard shape.width > 0, shape.height > 0 else { return }
         let wanted = log(shape.width / shape.height)
         var best: (arrangement: MathArrangement, padded: CGFloat, bottom: CGFloat, distance: CGFloat)?
-        for arrangement in formula.arrangements where arrangement.width > 0 {
+        let candidates = arrangement.map { [$0] } ?? inline?.arrangements(row: row) ?? formula.arrangements
+        for arrangement in candidates where arrangement.width > 0 {
             let clearance = clearance(of: arrangement)
             let padded = arrangement.height + clearance.top + clearance.bottom
             guard padded > 0 else { continue }
@@ -228,11 +241,13 @@ struct MathRendering: Sendable {
 }
 
 /// A laid-out formula in the text. Its bounds put the formula's baseline on the line's, and it
-/// shrinks, then breaks into rows, to fit a line narrower than itself (`MathFormula`), and
+/// breaks into engine rows to fit a line narrower than itself (`MathFormula`), and
 /// shrinks to fit a page shorter than itself. It draws once per size and screen scale, when the
 /// text view first asks for its image.
 final class MathAttachment: NSTextAttachment {
     let formula: MathFormula
+    let inline: MathInlineRows?
+    let row: Int
     /// The engine's unbounded layout, including any authored line breaks.
     var layout: MathLayout { formula.layout }
     /// What assistive technologies read: the `alttext`, else a spoken reading of the markup.
@@ -246,26 +261,30 @@ final class MathAttachment: NSTextAttachment {
     let clearance: (top: CGFloat, bottom: CGFloat)
     private let rendering: MathRendering
     private let lock = NSLock()
-    private var cached: (size: CGSize, scale: CGFloat, image: PlatformImage)?
+    private var cached: (size: CGSize, scale: CGFloat, revision: Int, container: ObjectIdentifier?, image: PlatformImage)?
 
-    init(formula: MathFormula, reading: MathSpeech.Reading, font: PlatformFont, style: ComputedStyle) {
+    init(formula: MathFormula, reading: MathSpeech.Reading, font: PlatformFont, style: ComputedStyle,
+         inline: MathInlineRows? = nil, row: Int = 0) {
         self.formula = formula
+        self.inline = inline
+        self.row = row
         label = reading.text
         language = reading.language
         isLabelAuthored = reading.isAuthored
-        let rendering = MathRendering(formula: formula, font: font, style: style)
+        let rendering = MathRendering(formula: formula, font: font, style: style, inline: inline, row: row)
         self.rendering = rendering
         clearance = rendering.clearance(of: formula.natural)
         super.init(data: nil, ofType: nil)
         // What string drawing and the attachment cell use when they do not ask for bounds.
-        bounds = rendering.bounds(lineWidth: 0, height: 0)
+        // AppKit uses this stored cell size when drawing even after asking for live
+        // attachment bounds. Every slot needs a real drawing canvas, including dormant ones.
+        bounds = MathRendering(formula: formula, font: font, style: style).bounds(lineWidth: 0, height: 0)
         #if os(macOS)
-        // AppKit's TextKit 2 text view draws this image, at each destination's resolution. It
-        // never asks for `image(for:…)` unless `viewProvider(for:)` is overridden, which would
-        // stop it drawing the image; string drawing (table cells) uses the image too. The
-        // handler's rectangle is the image's own size whatever the bounds it is drawn into, so
-        // the context's transform tells it the proportions of those bounds.
-        let image = NSImage(size: bounds.size, flipped: false) { rect in
+        // A compatibility image for direct attributed-string drawing. Native TextKit asks
+        // the image callbacks below, retaining the selected container's row boxes for drawing.
+        let imageSize = bounds.width > 0.01 && bounds.height > 0.01 ? bounds.size
+            : CGSize(width: max(1, formula.natural.width), height: max(1, formula.natural.height))
+        let image = NSImage(size: imageSize, flipped: false) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
             let transform = context.ctm
             let across = hypot(transform.a, transform.b), up = hypot(transform.c, transform.d)
@@ -273,6 +292,7 @@ final class MathAttachment: NSTextAttachment {
             rendering.draw(in: context, size: rect.size, shape: shape)
             return true
         }
+        if inline != nil { image.cacheMode = .never }
         image.accessibilityDescription = label
         self.image = image
         #endif
@@ -295,11 +315,9 @@ final class MathAttachment: NSTextAttachment {
     }
     #endif
 
-    #if os(iOS)
     /// No view: the formula draws from `image(for:…)`.
     override func viewProvider(for parentView: PlatformView?, location: any NSTextLocation,
                                textContainer: NSTextContainer?) -> NSTextAttachmentViewProvider? { nil }
-    #endif
 
     /// The formula and its clearance for a line `lineWidth` wide, scaled to fit it and `height`
     /// (a zero leaves that dimension unbounded); the origin is the bottom edge's offset below the
@@ -308,41 +326,42 @@ final class MathAttachment: NSTextAttachment {
         rendering.bounds(lineWidth: lineWidth, height: height)
     }
 
-    private func bounds(container: NSTextContainer?, lineWidth: CGFloat) -> CGRect {
+    private func bounds(container: NSTextContainer?, lineWidth: CGFloat, position: CGFloat) -> CGRect {
         let available = ReaderTextContainer.available(in: container, lineWidth: lineWidth)
-        return bounds(lineWidth: available.width, height: available.height)
+        return rendering.bounds(lineWidth: available.width, height: available.height, position: position, container: container)
     }
 
     override func attachmentBounds(for attributes: [NSAttributedString.Key: Any], location: any NSTextLocation,
                                    textContainer: NSTextContainer?, proposedLineFragment: CGRect, position: CGPoint) -> CGRect {
-        bounds(container: textContainer, lineWidth: proposedLineFragment.width)
+        bounds(container: textContainer, lineWidth: proposedLineFragment.width, position: position.x)
     }
 
     /// String drawing (a formula in a table cell) may lay out with TextKit 1.
     override func attachmentBounds(for textContainer: NSTextContainer?, proposedLineFragment lineFrag: CGRect,
                                    glyphPosition position: CGPoint, characterIndex charIndex: Int) -> CGRect {
-        bounds(container: textContainer, lineWidth: lineFrag.width)
+        bounds(container: textContainer, lineWidth: lineFrag.width, position: position.x)
     }
 
-    #if os(iOS)
     override func image(for bounds: CGRect, attributes: [NSAttributedString.Key: Any], location: any NSTextLocation,
                         textContainer: NSTextContainer?) -> PlatformImage? {
-        image(size: bounds.size)
+        image(size: bounds.size, container: textContainer)
     }
 
     override func image(forBounds imageBounds: CGRect, textContainer: NSTextContainer?, characterIndex charIndex: Int) -> PlatformImage? {
-        image(size: imageBounds.size)
+        image(size: imageBounds.size, container: textContainer)
     }
-    #endif
 
     /// The formula drawn to fill `size`, cached for the last size and scale asked for.
-    func image(size: CGSize) -> PlatformImage? {
+    func image(size: CGSize, container: NSTextContainer? = nil) -> PlatformImage? {
         guard size.width > 0, size.height > 0, layout.width > 0 else { return nil }
         let scale = Self.displayScale
         lock.lock(); defer { lock.unlock() }
-        if let cached, cached.size == size, cached.scale == scale { return cached.image }
-        let image = Self.render(rendering, size: size, scale: scale)
-        cached = (size, scale, image)
+        let revision = inline?.revision ?? 0
+        let identity = container.map(ObjectIdentifier.init)
+        if let cached, cached.size == size, cached.scale == scale, cached.revision == revision, cached.container == identity { return cached.image }
+        let arrangement = inline?.arrangements(row: row, container: container).first
+        let image = Self.render(rendering, size: size, scale: scale, arrangement: arrangement)
+        cached = (size, scale, revision, identity, image)
         return image
     }
 
@@ -352,7 +371,7 @@ final class MathAttachment: NSTextAttachment {
         return scale > 0 ? scale : 3
     }
 
-    private static func render(_ rendering: MathRendering, size: CGSize, scale: CGFloat) -> PlatformImage {
+    private static func render(_ rendering: MathRendering, size: CGSize, scale: CGFloat, arrangement: MathArrangement?) -> PlatformImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = scale
         format.opaque = false
@@ -360,17 +379,17 @@ final class MathAttachment: NSTextAttachment {
             let context = renderer.cgContext
             context.translateBy(x: 0, y: size.height)
             context.scaleBy(x: 1, y: -1)
-            rendering.draw(in: context, size: size, shape: size)
+            rendering.draw(in: context, size: size, shape: size, arrangement: arrangement)
         }
     }
     #elseif os(macOS)
     /// AppKit draws a drawing-handler image at each destination's own resolution.
     private static var displayScale: CGFloat { 1 }
 
-    private static func render(_ rendering: MathRendering, size: CGSize, scale: CGFloat) -> PlatformImage {
+    private static func render(_ rendering: MathRendering, size: CGSize, scale: CGFloat, arrangement: MathArrangement?) -> PlatformImage {
         NSImage(size: size, flipped: false) { _ in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            rendering.draw(in: context, size: size, shape: size)
+            rendering.draw(in: context, size: size, shape: size, arrangement: arrangement)
             return true
         }
     }
@@ -378,6 +397,7 @@ final class MathAttachment: NSTextAttachment {
 }
 
 extension MathAttachment: ReaderTextualAttachment {
-    var textEquivalent: String { label }
+    var textEquivalent: String { row == 0 ? label : "" }
+    var spokenEquivalent: String { label }
     var textLanguage: String? { language }
 }

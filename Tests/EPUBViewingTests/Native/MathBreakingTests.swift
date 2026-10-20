@@ -11,7 +11,7 @@ enum MathHarness {
         let string: NSAttributedString?
         let report: SectionReport
         var attachment: MathAttachment? {
-            guard let string, string.length == 1 else { return nil }
+            guard let string, string.length > 0 else { return nil }
             return string.attribute(.attachment, at: 0, effectiveRange: nil) as? MathAttachment
         }
     }
@@ -68,238 +68,100 @@ enum MathHarness {
     }
 }
 
-/// Where a wide formula may break into rows, and the rows each line width gives it.
+/// Width-aware engine layout as integrated into the reader, including structures that the
+/// former tree slicer could not wrap.
 final class MathBreakingTests: XCTestCase {
     private typealias F = MathFixtures
 
-    private func kinds(_ body: String) throws -> [MathBreaks.Opportunity] {
-        MathBreaks(try MathHarness.node(body)).opportunities
-    }
-
-    func testRowsMayEndBeforeRelationsAndBinaryOperators() throws {
-        // x = a + b − c: a break before the relation and before each binary operator.
-        let found = try kinds(F.i("x") + F.o("=") + F.i("a") + F.o("+") + F.i("b") + F.o("-") + F.i("c"))
-        XCTAssertEqual(found.map(\.kind), [.relation, .binary, .binary])
-        XCTAssertEqual(found.map(\.path), [[1], [3], [5]])
-        XCTAssertTrue(found.allSatisfy { $0.penalty == 0 && !$0.isForced })
-        // A sign is no place to break: after a relation, an operator or an opening bracket, or first.
-        XCTAssertEqual(try kinds(F.o("−") + F.i("a") + F.o("=") + F.o("−") + F.i("b") + F.o("×") + F.o("−") + F.i("c")).map(\.path), [[2], [5]])
-        // Nothing breaks before an operator that ends its row, a slash, or invisible times.
-        XCTAssertTrue(try kinds(F.i("a") + F.o("/") + F.i("b") + F.o("\u{2062}") + F.i("c") + F.o("+")).isEmpty)
-        // A factorial or a prime ends an operand, so the sign after it is binary.
-        XCTAssertEqual(try kinds(F.i("n") + F.o("!") + F.o("+") + F.i("m")).map(\.kind), [.binary])
-        // A row may end after a separator.
-        XCTAssertEqual(try kinds(F.i("a") + F.o(",") + F.i("b") + F.o(";") + F.i("c")).map(\.kind), [.separator, .separator])
-    }
-
-    func testFractionsRootsScriptsAndTablesStayWhole() throws {
-        let inside = F.row(F.i("a"), F.o("+"), F.i("b"), F.o("="), F.i("c"))
-        for whole in [F.frac(inside, F.i("d")), F.sqrt(inside), F.sup(F.i("x"), inside), F.table([[inside]]),
-                      "<menclose notation=\"box\">\(inside)</menclose>", "<mpadded>\(inside)</mpadded>",
-                      "<mfenced>\(inside)</mfenced>"] {
-            XCTAssertTrue(try kinds(whole).isEmpty, whole)
-        }
-    }
-
-    func testBreaksInsideBracketsCostMore() throws {
-        // f = (a + b) + c, flat: the first plus is inside the brackets.
-        let flat = try kinds(F.i("f") + F.o("=") + F.o("(") + F.i("a") + F.o("+") + F.i("b") + F.o(")") + F.o("+") + F.i("c"))
-        XCTAssertEqual(flat.map(\.penalty), [0, 1, 0])
-        // The same nested: the brackets' own row is inside them.
-        let nested = try kinds(F.i("f") + F.o("=") + F.paren(F.row(F.i("a"), F.o("+"), F.i("b"))) + F.o("+") + F.i("c"))
-        XCTAssertEqual(nested.map(\.penalty), [0, 1, 0])
-        XCTAssertEqual(nested.map(\.path), [[1], [2, 1, 1], [3]])
-        // A bracket with a power still closes, and vertical bars pair up.
-        let scripted = try kinds(F.sup(F.o("("), F.n("1")) + F.i("a") + F.o("+") + F.i("b") + F.sup(F.o(")"), F.n("2")) + F.o("+") + F.i("c"))
-        XCTAssertEqual(scripted.map(\.penalty), [1, 0])
-        let bars = try kinds(F.o("|") + F.i("a") + F.o("+") + F.i("b") + F.o("|") + F.o("≤") + F.o("|") + F.i("a") + F.o("|") + F.o("+") + F.o("|") + F.i("b") + F.o("|"))
-        XCTAssertEqual(bars.map(\.penalty), [1, 0, 0])
-        XCTAssertEqual(bars.map(\.kind), [.binary, .relation, .binary])
-    }
-
-    func testBreaksReachThroughGroupsAndSemantics() throws {
-        // As a converter writes it: mstyle, semantics with an annotation, then rows by precedence.
-        let found = MathBreaks(try MathHarness.node(F.wrappedSeries.body)).opportunities
-        XCTAssertEqual(found.filter { $0.kind == .relation }.count, 2)
-        XCTAssertEqual(found.filter { $0.kind == .binary }.count, 9)
-        XCTAssertTrue(found.allSatisfy { $0.path.starts(with: [0, 0, 0]) }, "math, mstyle, semantics, then the row")
-        // The sum's own "k = 1" is in its limits: not a break.
-        XCTAssertFalse(found.contains { $0.path.count > 4 })
-    }
-
-    func testEverySliceKeepsItsGroupsAndNoRowLosesOrRepeatsAToken() throws {
-        for fixture in F.wide {
-            let node = try MathMLNode.parse(xml: Data(fixture.markup.utf8))
-            let breaks = MathBreaks(node)
-            var tokens: [String] = []
-            let ends = Array(breaks.opportunities.indices).map(Optional.some) + [nil]
-            var start: Int?
-            for end in ends {
-                let slice = breaks.slice(from: start, to: end)
-                XCTAssertEqual(slice.name, "math")
-                XCTAssertEqual(slice.attributes, node.attributes, "a row keeps the formula's own attributes")
-                tokens += MathHarness.tokens(slice)
-                XCTAssertNoThrow(try MathLayout(slice, style: MathStyle(fontSize: 17, color: CGColor(gray: 0, alpha: 1))), fixture.name)
-                start = end
-            }
-            XCTAssertEqual(tokens, MathHarness.tokens(node), fixture.name)
-        }
-        // The groups around a nested break are kept on both sides of it.
-        let breaks = MathBreaks(try MathHarness.node("<mstyle mathcolor=\"red\">" + F.row(F.i("a"), F.o("="), F.row(F.i("b"), F.o("+"), F.i("c"))) + "</mstyle>"))
-        XCTAssertEqual(breaks.opportunities.map(\.path), [[0, 0, 1], [0, 0, 2, 1]])
-        let last = breaks.slice(from: 1, to: nil)
-        XCTAssertEqual(last.children.map(\.name), ["mstyle"])
-        XCTAssertEqual(last.children[0].attributes["mathcolor"], "red")
-        let inner = last.children[0].children[0].children[0]
-        // The row starts with an empty operand, so its plus is spaced as a binary operator.
-        XCTAssertEqual(inner.children.map(\.name), ["mi", "mo", "mi"])
-        XCTAssertEqual(inner.children.map(\.text), ["", "+", "c"])
-        let plain = try MathLayout(try MathHarness.node(F.o("+") + F.i("c")), style: MathStyle(fontSize: 17, color: CGColor(gray: 0, alpha: 1)))
-        let spaced = try MathLayout(last, style: MathStyle(fontSize: 17, color: CGColor(gray: 0, alpha: 1)))
-        XCTAssertGreaterThan(spaced.width, plain.width + 17 * 6 / 18, "medium spaces around a binary plus, none around a sign")
-    }
-
-    func testAuthorsLinebreaksAreHonoured() throws {
-        // `newline` on an operator and on a space, at any width.
-        let authored = try MathHarness.formula(F.authoredBreaks.body, attributes: "display=\"block\"")
-        XCTAssertEqual(authored.breaks.opportunities.filter(\.isForced).count, 2)
-        XCTAssertEqual(authored.natural.rows.count, 3)
-        XCTAssertEqual(authored.arrangement(fitting: 2000).rows.count, 3)
-        XCTAssertEqual(authored.arrangement(fitting: 0).rows.count, 3)
-        XCTAssertEqual(authored.layout.rows.count, 3, "the upgraded engine also honors authored breaks")
-        // Relations line up under the first one.
-        XCTAssertEqual(authored.natural.rows[1].x, authored.natural.rows[2].x, accuracy: 0.01)
-        XCTAssertGreaterThan(authored.natural.rows[1].x, 0)
-        // `nobreak` removes a break, `goodbreak` adds one, `badbreak` is a last resort and
-        // `linebreakstyle="after"` moves the break past the operator.
-        let body = F.i("a") + "<mo linebreak=\"nobreak\">=</mo>" + F.i("b") + "<mo linebreak=\"goodbreak\">\u{2062}</mo>" + F.i("c")
-            + "<mo linebreak=\"badbreak\">+</mo>" + F.i("d") + "<mo linebreakstyle=\"after\">+</mo>" + F.i("e")
-        let found = try kinds(body)
-        XCTAssertEqual(found.map(\.path), [[3], [5], [8]])
-        XCTAssertEqual(found.map(\.kind), [.authored, .binary, .binary])
-        XCTAssertEqual(found.map(\.penalty), [0, 1, 0])
-    }
-
-    func testAFormulaShrinksALittleBeforeItBreaks() throws {
-        let formula = try MathHarness.formula(F.polynomial.body, attributes: "display=\"block\"")
-        let natural = formula.natural.width
+    func testFormulasWrapAtFullSizeRatherThanShrinkBeforeBreaking() throws {
+        let formula = try MathHarness.formula(F.polynomial.body, attributes: "display='block'")
         XCTAssertEqual(formula.natural.rows.count, 1)
-        // It fits, or shrinking keeps it at three quarters of the text's size or more: one row.
-        for width in [natural + 1, natural, natural * 0.9, natural * MathFormula.minimumScale + 1] {
-            XCTAssertEqual(formula.arrangement(fitting: width).rows.count, 1, "\(width)")
+        for width in [formula.layout.width * 0.9, 320, 220] {
+            let rows = formula.arrangement(fitting: width)
+            XCTAssertGreaterThan(rows.rows.count, 1)
+            XCTAssertLessThanOrEqual(rows.width, width + 0.01)
+            XCTAssertEqual(MathFormula.scale(of: rows, in: width), 1)
+            for (above, below) in zip(rows.rows, rows.rows.dropFirst()) {
+                XCTAssertGreaterThan(below.baseline - below.layout.ascent, above.baseline + above.layout.descent)
+            }
+            XCTAssertEqual(rows.ascent - rows.descent, 2 * formula.layout.axisHeight, accuracy: 0.01)
         }
-        // Narrower than that it breaks, and its rows are full size.
-        let rows = formula.arrangement(fitting: natural * 0.7)
-        XCTAssertGreaterThan(rows.rows.count, 1)
-        XCTAssertLessThanOrEqual(rows.width, natural * 0.7)
-        XCTAssertTrue(formula.arrangement(fitting: natural * 0.7).rows.count == rows.rows.count, "cached")
     }
 
-    func testRowsFillTheLineAndAlignOnTheFirstRelation() throws {
-        let formula = try MathHarness.formula(F.polynomial.body, attributes: "display=\"block\"")
-        let rows = formula.arrangement(fitting: 320)
-        XCTAssertEqual(rows.rows.count, 3)
-        XCTAssertEqual(rows.rows[0].x, 0)
-        // Continuation rows start where the right side does: past "p(x) =".
-        XCTAssertEqual(rows.rows[1].x, rows.rows[2].x)
-        XCTAssertGreaterThan(rows.rows[1].x, 17 * 2)
-        for row in rows.rows {
-            XCTAssertLessThanOrEqual(row.x + row.layout.width, 320)
-            XCTAssertGreaterThan(row.x + row.layout.width, 320 * 0.6, "each row is as full as its terms allow")
+    func testFractionsRadicalsEnclosuresFencesAndTableCellsWrap() throws {
+        let sum = (0..<20).map { _ in F.i("x") }.joined(separator: F.o("+"))
+        let cases = [F.frac(F.row(sum), F.n("2")), F.sqrt(sum), "<menclose notation='box'>\(sum)</menclose>",
+                     "<mfenced>\(sum)</mfenced>", F.table([[F.t("a long phrase whose words must wrap inside this table cell")]])]
+        for body in cases {
+            let formula = try MathHarness.formula(body, attributes: "display='block'")
+            let narrow = formula.arrangement(fitting: 110)
+            XCTAssertLessThan(narrow.width, formula.natural.width, body)
+            XCTAssertLessThanOrEqual(narrow.width, 110.1, body)
+            XCTAssertGreaterThan(narrow.height, formula.natural.height, body)
+            XCTAssertFalse(formula.isReduced(in: 110), body)
         }
-        // Baselines step down by at least a line and a half, and rows never overlap.
-        for (above, below) in zip(rows.rows, rows.rows.dropFirst()) {
-            XCTAssertGreaterThanOrEqual(below.baseline - above.baseline, 1.5 * 17 - 0.01)
-            XCTAssertGreaterThanOrEqual(below.baseline - below.layout.ascent, above.baseline + above.layout.descent + 0.4 * 17 - 0.01)
-        }
-        XCTAssertEqual(rows.height, rows.rows.last!.baseline + rows.rows.last!.layout.descent, accuracy: 0.01)
-        // The stack centres on the math axis, as a table would.
-        XCTAssertEqual(rows.ascent - rows.descent, 2 * 0.25 * 17, accuracy: 0.01)
-        // A derivation ends its rows at relations rather than at the operator after one.
-        let derivation = try MathHarness.formula(F.variance.body, attributes: "display=\"block\"").arrangement(fitting: 320)
-        XCTAssertEqual(derivation.rows.count, 3)
-        XCTAssertEqual(derivation.rows[1].x, derivation.rows[2].x, "each continuation begins with its relation, under the first")
     }
 
-    func testBreaksInsideBracketsAreALastResort() throws {
-        // (x + 1)(x + 1)(x + 1) is a little wider than a 28-point line: it shrinks a little
-        // rather than break inside a bracket.
-        let derivation = try MathHarness.formula(F.derivation.body, attributes: "display=\"block\"", fontSize: 28)
-        let outside = derivation.arrangement(fitting: 300)
-        XCTAssertEqual(outside.rows.count, 4)
-        XCTAssertGreaterThanOrEqual(MathFormula.scale(of: outside, in: 300), MathFormula.minimumScale)
-        // A sum wholly inside brackets has nowhere else to break.
-        let sum = try MathHarness.formula(F.bracketedSum.body, attributes: "display=\"block\"")
-        let inside = sum.arrangement(fitting: 320)
-        XCTAssertGreaterThan(inside.rows.count, 2)
-        XCTAssertLessThanOrEqual(inside.width, 320)
-        XCTAssertGreaterThan(inside.rows[0].layout.width, 320 * 0.5, "the first row is not the left side alone")
-    }
-
-    func testAFormulaWithNoBreakShrinksToTheLine() throws {
-        for fixture in [F.wideFraction, F.piecewise] {
-            let formula = try MathHarness.formula(fixture.body, attributes: "display=\"block\"")
-            let arrangement = formula.arrangement(fitting: 320)
-            XCTAssertEqual(arrangement.rows.count, 1, "\(fixture.name): rows that gain nothing are not made")
-            XCTAssertLessThan(MathFormula.scale(of: arrangement, in: 320), MathFormula.minimumScale)
-            XCTAssertTrue(formula.isReduced(in: 320))
-            XCTAssertFalse(formula.isReduced(in: 700))
+    func testAuthoredBreaksAndIndentationAreHonored() throws {
+        let body = "<mi>a</mi><mo linebreak='newline' indentalign='left' indentshift='2em'>=</mo><mi>b</mi>"
+        let formula = try MathHarness.formula(body, attributes: "display='block'")
+        for width in [CGFloat(0), 100, 1000] {
+            let arrangement = formula.arrangement(fitting: width)
+            XCTAssertEqual(arrangement.rows.count, 2)
+            XCTAssertEqual(arrangement.rows[1].x, 34, accuracy: 0.01)
         }
-        // One unbreakable row sets the scale; the rows around it refill to its width.
-        let words = try MathHarness.formula(F.wordEquation.body, attributes: "display=\"block\"", fontSize: 28)
-        let rows = words.arrangement(fitting: 320)
-        XCTAssertEqual(rows.rows.count, 2)
-        XCTAssertGreaterThan(MathFormula.scale(of: rows, in: 320), MathFormula.scale(of: words.natural, in: 320) * 1.4)
+        let unbroken = try MathHarness.formula("<mi>a</mi><mo linebreak='nobreak'>+</mo><mi>b</mi>")
+        XCTAssertEqual(unbroken.arrangement(fitting: 5).rows.count, 1)
     }
 
-    /// The policy over every wide fixture, at the default size and a large one, in a phone's column.
-    func testWideFixturesKeepAReadableSizeInANarrowColumn() throws {
-        let column = MathFormula.narrowColumn
+    func testAuthoredLineLeadingKeepsTheEnginesVerticalRowPositions() throws {
+        for (body, attributes) in [(F.inlineSeries.body, "lineleading='3em'"),
+                                   ("<mstyle lineleading='3em'>\(F.inlineSeries.body)</mstyle>", "")] {
+            let made = try MathHarness.make("<p>\(F.math(body, attributes: attributes))</p>")
+            let attachment = try XCTUnwrap(made.attachment)
+            XCTAssertNil(attachment.inline, "the engine owns authored vertical spacing")
+            XCTAssertEqual(made.string?.length, 1)
+            let rows = attachment.formula.arrangement(fitting: 180)
+            XCTAssertGreaterThan(rows.rows.count, 2)
+            for (above, below) in zip(rows.rows, rows.rows.dropFirst()) {
+                XCTAssertGreaterThanOrEqual(below.baseline - above.baseline, 3 * 17)
+            }
+        }
+    }
+
+    func testAtomicContentStillScalesUniformlyAndIsDisclosed() throws {
+        let body = F.n(String(repeating: "1", count: 100))
+        let made = try MathHarness.make("<p>\(F.math(body, attributes: "display='block'"))</p>")
+        let attachment = try XCTUnwrap(made.attachment)
+        let arrangement = attachment.formula.arrangement(fitting: 320)
+        XCTAssertEqual(arrangement.rows.count, 1)
+        XCTAssertTrue(attachment.formula.isReduced(in: 320))
+        XCTAssertEqual(made.report.mathReductions, 1)
+        XCTAssertEqual(attachment.bounds(lineWidth: 320, height: 0).width, 320, accuracy: 0.01)
+    }
+
+    func testWideFixtureSurveyAtNormalAndLargeTextSizes() throws {
         for fontSize in [CGFloat(17), 28] {
-            var shrunkenBefore = 0, reduced: [String] = []
             for fixture in F.wide {
                 let made = try MathHarness.make(fixture, fontSize: fontSize)
                 let attachment = try XCTUnwrap(made.attachment, fixture.name)
-                XCTAssertEqual(made.report.mathFallbacks, 0)
-                let bounds = attachment.bounds(lineWidth: column, height: 0)
-                XCTAssertLessThanOrEqual(bounds.width, column + 0.01, "\(fixture.name) at \(fontSize): never wider than its line")
-                XCTAssertGreaterThan(bounds.height, 0)
-                let arrangement = attachment.formula.arrangement(fitting: column)
-                let scale = bounds.width / arrangement.width
-                // Scaling one row to the line, as before, would leave this many unreadably small.
-                if column / attachment.layout.width < MathFormula.minimumScale { shrunkenBefore += 1 }
-                if scale < MathFormula.minimumScale - 0.001 { reduced.append(fixture.name) }
-                if fixture.breaks {
-                    XCTAssertGreaterThanOrEqual(scale, MathFormula.minimumScale - 0.001, "\(fixture.name) at \(fontSize)")
-                }
-                // A formula that rows cannot keep readable is still shown whole, and disclosed.
-                XCTAssertEqual(made.report.mathReductions, scale < MathFormula.minimumScale - 0.001 ? 1 : 0, "\(fixture.name) at \(fontSize)")
-                // No row is lost: the rows hold every token of the formula.
-                XCTAssertGreaterThanOrEqual(arrangement.rows.count, attachment.formula.natural.rows.count)
+                let rows = attachment.formula.arrangement(fitting: 320)
+                let scale = MathFormula.scale(of: rows, in: 320)
+                XCTAssertLessThanOrEqual(rows.width * scale, 320.01, fixture.name)
+                XCTAssertGreaterThan(rows.height, 0, fixture.name)
+                XCTAssertEqual(made.report.mathFallbacks, 0, fixture.name)
+                XCTAssertEqual(made.report.mathReductions, scale < MathFormula.minimumScale ? 1 : 0, fixture.name)
+                print("MATH25 survey \(fixture.name) font=\(fontSize) rows=\(rows.rows.count) scale=\(scale)")
             }
-            XCTAssertGreaterThanOrEqual(shrunkenBefore, 10, "at \(fontSize) most of the wide fixtures were unreadable as one row")
-            XCTAssertLessThanOrEqual(reduced.count, F.wide.filter { !$0.breaks }.count, "\(reduced) at \(fontSize)")
-            XCTAssertTrue(reduced.contains(F.wideFraction.name) && reduced.contains(F.piecewise.name), "\(reduced)")
-        }
-        // With a wide column nothing changes: every fixture is one row at full size, but the
-        // author's own breaks.
-        for fixture in F.wide where fixture.name != F.authoredBreaks.name {
-            let attachment = try XCTUnwrap(MathHarness.make(fixture).attachment)
-            let bounds = attachment.bounds(lineWidth: 1200, height: 0)
-            XCTAssertEqual(bounds.width, attachment.layout.width, accuracy: 0.001, fixture.name)
-            XCTAssertEqual(attachment.formula.arrangement(fitting: 1200).rows.count, 1, fixture.name)
         }
     }
 
-    func testHostileFormulasStayBounded() throws {
-        // Far more breaks than are looked for: the formula still lays out and fits its line.
+    func testHostileFormulasRemainBounded() throws {
         let terms = String(repeating: F.i("x") + F.o("+"), count: 1500) + F.n("1")
         let formula = try MathHarness.formula(terms)
-        XCTAssertEqual(formula.breaks.opportunities.count, MathBreaks.maximumOpportunities)
         let arrangement = formula.arrangement(fitting: 320)
         XCTAssertLessThanOrEqual(arrangement.width * MathFormula.scale(of: arrangement, in: 320), 320.01)
-        // Rows nested deeper than the engine lays out are refused by it, not walked here.
-        let deep = String(repeating: "<mrow>", count: 100) + F.i("a") + F.o("+") + F.i("b") + String(repeating: "</mrow>", count: 100)
+        let deep = String(repeating: "<mrow>", count: 100) + F.i("a") + String(repeating: "</mrow>", count: 100)
         XCTAssertThrowsError(try MathHarness.formula(deep))
     }
 }

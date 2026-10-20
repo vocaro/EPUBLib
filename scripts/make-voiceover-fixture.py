@@ -359,6 +359,32 @@ files["OPS/entries.xhtml"] = files["OPS/entries.xhtml"].replace(
 files["OPS/cells.xhtml"] = files["OPS/cells.xhtml"].replace(
     "GRID_LINES_AFTER", "".join(f"<p>Line {i:02d} after the grid.</p>" for i in range(1, 61)))
 
+# MathML integration: generated vocabulary selection, authored text, native elementary
+# layout and an inline continuation in the same ordinary reader used by speech sessions.
+math_ns = 'xmlns="http://www.w3.org/1998/Math/MathML"'
+math_power = '<msup><mi>x</mi><mn>2</mn></msup>'
+math_body = '<h1>Math readings</h1>'
+for language, name in [('en', 'English'), ('fr', 'Français'), ('de', 'Deutsch'),
+                       ('es', 'Español'), ('it', 'Italiano'), ('ja', 'English fallback')]:
+    math_body += f'<p xml:lang="{language}">{name}: <math {math_ns}>{math_power}</math>.</p>'
+math_body += f'<p xml:lang="de">Authored: <math {math_ns} alttext="Die eigene Beschreibung">{math_power}</math>.</p>'
+math_body += (f'<math {math_ns} display="block"><mstack><mscarries><mn>1</mn><none/></mscarries>'
+              '<mn>19</mn><msrow><mo>+</mo><mn>2</mn></msrow><msline length="2"/>'
+              '<mn>21</mn></mstack></math>')
+math_sum = '<mo>+</mo>'.join(f'<msub><mi>x</mi><mn>{n}</mn></msub>' for n in range(1, 25))
+math_body += f'<p>Before <math {math_ns} alttext="A sum of twenty-four terms">{math_sum}</math> after the sum.</p>'
+files['OPS/math.xhtml'] = ('<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml" '
+                           'xml:lang="en"><head><title>Math readings</title></head><body>' + math_body + '</body></html>')
+files['OPS/package.opf'] = files['OPS/package.opf'].replace('</manifest>',
+    '<item id="math" href="math.xhtml" media-type="application/xhtml+xml" properties="mathml"/></manifest>').replace(
+    '</spine>', '<itemref idref="math"/></spine>')
+files['OPS/nav.xhtml'] = files['OPS/nav.xhtml'].replace('</ol>', '<li><a href="math.xhtml">Math readings</a></li></ol>')
+# Declare the embedded content of the fixture's existing picture and entry sections too.
+for name, property in [('pictures.xhtml', 'svg'), ('entries.xhtml', 'mathml')]:
+    item = f'href="{name}" media-type="application/xhtml+xml"'
+    files['OPS/package.opf'] = files['OPS/package.opf'].replace(item, item + f' properties="{property}"')
+
+
 # A second book of ordinary paragraphs, for continuous scroll: chapters of forty, forty and six
 # paragraphs, each of forty numbered words ("p017w23" is the seventeenth paragraph's
 # twenty-third), so a line in the middle of a paragraph can be told from its first, and the
@@ -367,7 +393,7 @@ chapters = {"one": range(1, 41), "two": range(41, 81), "three": range(81, 87)}
 paragraphs = dict(files)
 for name in ["body.xhtml", "labels.xhtml", "table.xhtml", "pictures.xhtml", "scenes.xhtml", "offers.xhtml",
              "entries.xhtml", "cells.xhtml", "grids.xhtml", "ledger.xhtml", "tallrow.xhtml", "edges.xhtml", "parts.xhtml",
-             "squares.xhtml", "gaps.xhtml", "veiled.xhtml", "square.svg", "titled.svg"]:
+             "squares.xhtml", "gaps.xhtml", "veiled.xhtml", "math.xhtml", "square.svg", "titled.svg"]:
     del paragraphs["OPS/" + name]
 paragraphs["OPS/package.opf"] = (
     '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '

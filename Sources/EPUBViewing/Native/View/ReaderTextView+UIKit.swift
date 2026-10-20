@@ -629,6 +629,7 @@ final class ReaderTextView: UITextView {
         guard let storage = contentStorage.textStorage else { return [] }
         let text = storage.string as NSString
         var elements: [ReaderPageAccessibilityElement] = []
+        var formulas: Set<ObjectIdentifier> = []
         // A table's cells by table and cell, those listed before and those listed so far: a
         // table of a thousand cells is listed in time linear in them.
         var keptCells: [ReaderTableCellKey: ReaderPageAccessibilityElement] = [:], cells = keptCells
@@ -655,6 +656,8 @@ final class ReaderTextView: UITextView {
                 runs.append((range, url, attachment, heading))
             }
             for (run, url, attachment, heading) in runs {
+                if let math = attachment as? MathAttachment, let inline = math.inline,
+                   !formulas.insert(ObjectIdentifier(inline)).inserted { continue }
                 // A data table's row is its cells, each an element inside the table's.
                 if let row = attachment as? TableRowAttachment, row.table.isData {
                     appendCells(of: row, at: run, line: line, reusing: keptCells, listed: &cells, to: &elements)
