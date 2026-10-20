@@ -21,6 +21,15 @@ final class CSSCascadeColorCoverageTests: XCTestCase {
         }
     }
 
+    /// The computed `background-color` of one paragraph per `background` value, each declared
+    /// after a fallback `background: #336699`.
+    private func backgrounds(_ values: [String]) throws -> [ComputedStyle.Color?] {
+        let body = values.indices.map { "<p id=\"e\($0)\">x</p>" }.joined()
+        let css = values.enumerated().map { "#e\($0.offset) { background: #336699; background: \($0.element) }" }.joined(separator: "\n")
+        let result = try CSSCascadeSupport.styled(body, css: css)
+        return values.indices.map { result.style("e\($0)").backgroundColor }
+    }
+
     func testNamedColorsCoverCSSColor4AndIgnoreCase() throws {
         XCTAssertEqual(CSSPropertyParser.namedColors.count, 148, "CSS Color 4 §6.1 names 148 colors")
         try assertColors([
@@ -156,13 +165,72 @@ final class CSSCascadeColorCoverageTests: XCTestCase {
     /// gives a solid color first and a gradient the engine may not know second; an engine that
     /// cannot parse the second keeps the first.
     func testAnUnparsableBackgroundLeavesTheFallbackColor() throws {
-        XCTExpectFailure("https://github.com/vocaro/EPUBLib/issues/120")
         let result = try CSSCascadeSupport.styled(#"<p id="prefixed">a</p><p id="unknown">b</p>"#, css: """
             #prefixed { background: #336699; background: -moz-linear-gradient(top, #fff, #000) }
             #unknown { background: #336699; background: no-such-keyword }
             """)
         XCTAssertEqual(result.style("prefixed").backgroundColor, hex(0x336699, 1), "-moz-linear-gradient() is not a background value here")
         XCTAssertEqual(result.style("unknown").backgroundColor, hex(0x336699, 1), "no-such-keyword is not a background value")
+    }
+
+    /// Every layer of a `background` is read in full, though only its colour is drawn: images,
+    /// gradients and their arguments among them, positions, sizes, repeats, attachments and
+    /// boxes. One without a colour sets it to transparent, which is no background.
+    func testEveryComponentOfAValidBackgroundIsRead() throws {
+        let values = [
+            #"url("a.png") right 10px top 5px / 50% auto repeat-x fixed padding-box content-box"#,
+            "url(a.png) top left no-repeat, none",
+            "0 0 / cover space round local text",
+            "left 10px top",
+            "-webkit-linear-gradient(top, #fff 0%, #000 100%)",
+            "linear-gradient(to bottom right, #fff, 30%, #000)",
+            "linear-gradient(in oklch longer hue 45deg, red, blue)",
+            "repeating-linear-gradient(0, red 0 10px, blue 10px 20px)",
+            "-webkit-gradient(linear, left top, left bottom, from(#fff), color-stop(50%, red), to(#000))",
+            "-webkit-gradient(radial, 50% 50%, 0, center center, 40, from(#fff), to(#000))",
+            "radial-gradient(ellipse at center, #fff 0%, #000 100%)",
+            "radial-gradient(10px circle at left 10% bottom 5px, red, blue)",
+            "radial-gradient(farthest-side, red, blue)",
+            "-webkit-radial-gradient(center, ellipse cover, #fff 0%, #000 100%)",
+            "conic-gradient(from 90deg at 50% 50%, red, 25%, blue 0.5turn)",
+            #"-webkit-image-set(url(a.png) 1x, "b.png" 2x type("image/png"))"#,
+            "-webkit-cross-fade(url(a.png), url(b.png), 50%)",
+        ]
+        for (value, color) in zip(values, try backgrounds(values)) {
+            XCTAssertNil(color, value)
+        }
+        let result = try CSSCascadeSupport.styled(#"<p id="p">p</p>"#, css: """
+            #p { background: url(a.png), linear-gradient(red, blue) center / contain no-repeat scroll border-box #abc }
+            """)
+        XCTAssertEqual(result.style("p").backgroundColor, hex(0xAABBCC, 1))
+    }
+
+    /// A component the reader does not know, or one out of place, makes the whole declaration
+    /// invalid, and the colour before it stays (CSS 2.2 §4.2), in `@supports` too.
+    func testABackgroundWithAnyInvalidComponentLeavesTheFallbackColor() throws {
+        let values = [
+            "-o-linear-gradient(top, #fff, #000)", "-ms-linear-gradient(top, #fff, #000)",
+            "linear-gradient(top, #fff, #000)", "-webkit-linear-gradient(to top, #fff, #000)",
+            "linear-gradient(to left right, red, blue)", "linear-gradient(45deg, red)", "linear-gradient(red, 10%)",
+            "linear-gradient(red, 10%, 20%, blue)", "linear-gradient(red 1px 2px 3px, blue)",
+            "linear-gradient(in nowhere, red, blue)", "radial-gradient(circle 10px 20px, red, blue)",
+            "radial-gradient(ellipse 10px, red, blue)", "radial-gradient(at 1px 2px 3px, red, blue)",
+            "conic-gradient(from 10px, red, blue)", "-webkit-gradient(linear, left top, left bottom, from(nothing))",
+            "-webkit-gradient(sideways, 0 0, 0 1, from(red), to(blue))", "image(url(a.png))", "element(#a)",
+            "url(a.png) url(b.png)", "red, url(a.png)", "url(a.png),", "url(a.png) red blue",
+            "repeat url(a.png) no-repeat", "repeat-x repeat-y", "scroll fixed", "border-box padding-box content-box",
+            "/ cover url(a.png)", "0 0 / -1px", "0 0 / 1px 2px 3px", "top 10px", "left right", "10px left",
+            "url(a.png) no-such-keyword",
+        ]
+        for (value, color) in zip(values, try backgrounds(values)) {
+            CSSCascadeSupport.assertColor(color, hex(0x336699, 1), value)
+        }
+        let result = try CSSCascadeSupport.styled(#"<p id="p">p</p>"#, css: """
+            @supports (background: -moz-linear-gradient(top, #fff, #000)) { #p { background-color: red } }
+            @supports (background: -webkit-linear-gradient(top, #fff, #000)) { #p { color: red } }
+            """)
+        XCTAssertNil(result.style("p").backgroundColor, "-moz-linear-gradient() is not supported")
+        XCTAssertEqual(result.style("p").color, rgba(1, 0, 0, 1), "-webkit-linear-gradient() is")
     }
 
     func testDarkAppearanceChangesColorsAndNothingElse() throws {
